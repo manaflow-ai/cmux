@@ -10,16 +10,18 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { AREAS } from "../src/pages/changelog/areas";
 import nightlyNext50 from "../src/pages/changelog/fixtures/nightly-next-50.json";
 import nightlySpan from "../src/pages/changelog/fixtures/nightly-3913596493801-span.json";
-import { isJargon, plainChange } from "../src/pages/changelog/readableChange";
-import { AREA_SYMBOLS } from "../src/pages/changelog/SheetPage";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
-import { plainEntries, previewEntries } from "../src/pages/changelog/updatedPreview";
-import { hasIcon } from "../src/pages/settings/icons";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AREAS } = await importWithDom(() => import("../src/pages/changelog/areas"));
+const { isJargon, plainChange } = await importWithDom(() => import("../src/pages/changelog/readableChange"));
+const { AREA_SYMBOLS } = await importWithDom(() => import("../src/pages/changelog/SheetPage"));
+const { plainEntries, previewEntries } = await importWithDom(() => import("../src/pages/changelog/updatedPreview"));
+const { hasIcon } = await importWithDom(() => import("../src/pages/settings/icons"));
 
 /** One plain title per area (each names its area as areas.ts matches it), and one no area names. */
 const AREA_TITLES: Record<string, string> = {

@@ -83,7 +83,8 @@ const SECRET_SUBMIT = "_acpmux/secret_submit";
 /// A Cloud sign-in's steps: the code, the key and the device code never reach the log.
 const AGENT_LOGIN_SECRETS: Record<string, readonly string[]> = {
   "_acpmux/device_enroll": ["accessToken"],
-  "_acpmux/device_hello": ["credential"],
+  "_acpmux/device_hello": ["credential", "signature"],
+  "_acpmux/device_challenge": ["credential"],
   "_acpmux/agent_login/finish": ["code"],
   "_acpmux/agent_login/api_key": ["key"],
 };

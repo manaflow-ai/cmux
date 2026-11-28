@@ -24,6 +24,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 SECRET_NAMES = ("CMUX_GITHUB_TEST_LOGIN", "CMUX_GITHUB_TEST_PASSWORD", "CMUX_GITHUB_TEST_TOTP_SEED")
+NIGHTLY_HOST_CLI = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux"
+NIGHTLY_HOST_SESSION = "cmux-app-nightly"
 OMNIBAR = "cmux.browserPopup.omnibar"
 
 
@@ -31,15 +33,65 @@ class ProbeError(RuntimeError):
     pass
 
 
+def nightly_host_transport():
+    """Read-only preflight of the installed fleet host; never start or repair it."""
+    executable = NIGHTLY_HOST_CLI
+    # The probe app's routing must not select the host. MCP consumes the socket
+    # environment itself; global --socket arguments do not reach its transport.
+    env = {key: value for key, value in os.environ.items()
+           if key not in {"CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET", "CMUX_SOCKET_PATH",
+                          "CMUX_BUNDLE_ID", "CMUX_TAG"}}
+
+    def check(arguments, label):
+        try:
+            reply = subprocess.run([executable, *arguments], env=env, capture_output=True,
+                                   text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise ProbeError(f"Installed NIGHTLY host {label} unavailable ({type(error).__name__}); "
+                             "no Computer Use actions started") from error
+        if reply.returncode:
+            # Do not persist raw daemon output: the host may hold private data.
+            raise ProbeError(f"Installed NIGHTLY host {label} failed (exit={reply.returncode}); "
+                             "no fallback or Computer Use actions started")
+        return reply.stdout
+
+    raw = check(["--session", NIGHTLY_HOST_SESSION, "--json", "server", "status"], "server status")
+    try:
+        identity = json.loads(raw)
+        socket = identity["socket"]
+        if (identity.get("status") != "running" or identity.get("session") != NIGHTLY_HOST_SESSION
+                or type(identity.get("pid")) is not int or identity["pid"] <= 0
+                or not isinstance(socket, str) or not Path(socket).is_absolute() or "\0" in socket):
+            raise ValueError("invalid host identity")
+    except (ValueError, TypeError, KeyError) as error:
+        raise ProbeError("Installed NIGHTLY host server status returned no verified identity") from error
+    env["CMUX_TUI_SOCKET"] = socket
+    check(["--socket", socket, "computer-use", "doctor", "--json"], "Computer Use doctor")
+    return executable, env, {"executable": executable, "session": NIGHTLY_HOST_SESSION,
+                             "socket": socket, "pid": identity["pid"], "doctor": "passed"}
+
+
 class ComputerUse:
     """Small bounded MCP client; tool refusals are terminal, never retried."""
 
-    def __init__(self):
-        executable = shutil.which("cmux")
+    def __init__(self, host=None):
+        self.host_receipt = None
+        env = None
+        if host == "nightly":
+            executable, env, self.host_receipt = nightly_host_transport()
+        elif host is None:
+            executable = shutil.which("cmux")
+        else:
+            raise ProbeError("Unsupported Computer Use host")
         if not executable:
             raise ProbeError("Host cmux CLI is unavailable")
+        self.executable = executable
+        self.starting = True
+        self.startup_stderr = b""
+        self.stderr_truncated = False
+        self.stderr_open = True
         self.process = subprocess.Popen([executable, "computer-use", "mcp"], stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         self.buffer = b""
         self.sequence = 0
         try:
@@ -47,9 +99,48 @@ class ComputerUse:
                          "clientInfo": {"name": "cmux-accounts-nightly-probe", "version": "1"}})
             self.process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
             self.process.stdin.flush()
-        except Exception:
+            # Never retain stderr from later calls: Accounts passes sign-in data over MCP.
+            self.starting = False
+            self.startup_stderr = b""
+        except Exception as error:
             self.close()
-            raise
+            retained = self.startup_stderr
+            if self.stderr_truncated:
+                # The first retained line may begin inside a credential. Drop it entirely.
+                retained = retained.partition(b"\n")[2]
+            detail = retained.decode("utf-8", errors="replace")
+            secrets = set()
+            for name, value in os.environ.items():
+                if value and (name in SECRET_NAMES or
+                              re.search(r"password|secret|token|credential|key", name, re.I)):
+                    # Redact individual lines too: truncation can remove a multiline value's prefix.
+                    for part in [value, *value.splitlines()]:
+                        if part:
+                            secrets.add(part)
+            if secrets:
+                # A login may prefix a password. Match longest first, once, without rewriting markers.
+                pattern = "|".join(re.escape(part) for part in sorted(secrets, key=len, reverse=True))
+                detail = re.sub(pattern, "[redacted]", detail)
+            detail = re.sub(r"(?i)(bearer\s+)\S+", r"\1[redacted]", detail)
+            raise ProbeError(f"Computer Use startup failed ({self.executable}, "
+                             f"exit={self.process.returncode}): {error}; "
+                             f"stderr: {detail.strip() or '(empty)'}") from error
+
+    def read_stderr(self):
+        chunk = os.read(self.process.stderr.fileno(), 65536)
+        if not chunk:
+            self.stderr_open = False
+        elif self.starting:
+            combined = self.startup_stderr + chunk
+            self.stderr_truncated |= len(combined) > 4096
+            self.startup_stderr = combined[-4096:]
+
+    def drain_stderr(self):
+        # A dead child cannot keep producing. Bound cleanup even if a descendant holds its pipe.
+        for _ in range(16):
+            if not self.stderr_open or not select.select([self.process.stderr], [], [], 0)[0]:
+                break
+            self.read_stderr()
 
     def close(self):
         if self.process.stdin:
@@ -66,6 +157,10 @@ class ComputerUse:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=5)
+        self.drain_stderr()
+        self.stderr_open = False
+        self.process.stderr.close()
+        self.process.stdout.close()
 
     def request(self, method, params):
         self.sequence += 1
@@ -83,8 +178,16 @@ class ComputerUse:
                     raise ProbeError("Computer Use MCP request failed")
                 return message["result"]
             remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
+            streams = [self.process.stdout]
+            if self.stderr_open:
+                streams.append(self.process.stderr)
+            ready = select.select(streams, [], [], max(0, remaining))[0]
+            if remaining <= 0 or not ready:
                 raise ProbeError("Computer Use response exceeded 60 seconds")
+            if self.process.stderr in ready:
+                self.read_stderr()
+            if self.process.stdout not in ready:
+                continue
             chunk = os.read(self.process.stdout.fileno(), 65536)
             if not chunk:
                 raise ProbeError("Computer Use transport closed")
@@ -333,7 +436,7 @@ class Probe:
     def run(self):
         with open(Path(self.args.app) / "Contents/Info.plist", "rb") as source:
             self.meta = plistlib.load(source)
-        self.cu = ComputerUse()
+        self.cu = ComputerUse(host=getattr(self.args, "cu_host", None))
         self.action("openSettings")
         accounts = self.wait(lambda: self.find(["Accounts"], {"button", "row", "tab", "tab_button", "radio"}))
         self.click(accounts)
@@ -372,6 +475,7 @@ def main(argv=None):
     parser.add_argument("--org", default="cmux-cloud-test-org")
     parser.add_argument("--repo", default="pr-target")
     parser.add_argument("--cli")
+    parser.add_argument("--cu-host", choices=["nightly"], help="preflight the installed fleet NIGHTLY host")
     args = parser.parse_args(argv)
     probe = Probe(args)
     status = 1
@@ -396,6 +500,7 @@ def main(argv=None):
         result = {"ok": status == 0, "app": {"path": args.app, "pid": args.pid,
                   "version": probe.meta.get("CFBundleShortVersionString"), "commit": probe.meta.get("CMUXCommit")},
                   "repo": f"{args.org}/{args.repo}", "steps": probe.steps,
+                  "cu_host": probe.cu.host_receipt if probe.cu else None,
                   "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         (probe.out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         (probe.out / "summary.md").write_text("# Accounts NIGHTLY probe\n\n" + "\n".join(

@@ -296,6 +296,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         _ = try await endpoint(startsDaemon: true)
     }
 
+    /// The local socket for native callers. Joins the pane's in-flight startup and returns once its daemon is ready.
+    public func readyEnvironment() async throws -> AcpmuxEnvironment {
+        _ = try await endpoint(startsDaemon: true)
+        guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
+        return environment
+    }
+
     /// The launch's prewarm keeps its endpoint for the restored chat's first handshake, unless a
     /// restart or another handshake came while it looked (``AcpmuxPrewarmedEndpoint``).
     public func prewarmForRestoredChats() async throws {

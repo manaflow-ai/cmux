@@ -9,14 +9,15 @@
 // The rows are the real ChangesSection's, rendered in jsdom, then laid out in real Chromium from the
 // Session Info's stylesheets. CI fails the file when Chromium cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { gridTokenCss } from "./support/gridTokens";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser } from "playwright";
-import { requireBrowserLane } from "./support/requireBrowserLane";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("session-info-changes-narrow-browser.test.tsx", async () => {
+  const { gridTokenCss } = await importWithDom(() => import("./support/gridTokens"));
   setDefaultTimeout(60_000);
   const { JSDOM, VirtualConsole } = await import("jsdom");
   const dom = new JSDOM("<!doctype html><div id=root></div>", {

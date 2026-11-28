@@ -4,7 +4,11 @@
 // entrance started while hidden never plays on return; spinners keep spinning.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { entranceAllowed, finishPageAnimations, installRevealSettle } from "../src/agent-session/shared/pageReveal";
+import { importWithDom } from "./support/importWithDom";
+
+const { entranceAllowed, finishPageAnimations, installRevealSettle } = await importWithDom(
+  () => import("../src/agent-session/shared/pageReveal"),
+);
 
 type Fake = { playState: AnimationPlayState; finished: number; effect: { getComputedTiming(): { endTime: number } } };
 

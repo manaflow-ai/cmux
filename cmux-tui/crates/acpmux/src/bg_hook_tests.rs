@@ -82,6 +82,19 @@ fn a_background_shell_is_rewritten_into_a_daemon_task_start() {
     }
 }
 
+/// The rewritten start names the Bash call it came from, so the process registry lists the
+/// daemon's task under that call and the transcript's row and the task are one.
+#[cfg(unix)]
+#[test]
+fn a_rewritten_start_names_its_tool_call() {
+    let input = json!({"tool_name": "Bash", "tool_use_id": "toolu_01ABC", "tool_input": {
+        "command": "npm run dev", "run_in_background": true}});
+    let words = argv(&rewritten(&input, Route::Direct));
+    let at = words.iter().position(|w| w == "--tool-call").expect("--tool-call");
+    assert_eq!(words[at + 1], "toolu_01ABC");
+    assert!(at < words.iter().position(|w| w == "--").unwrap(), "{words:?}");
+}
+
 /// The second refusal (221 in 24 h): a follow that never ends, in the foreground. It is
 /// rewritten too, with why, so `process start` can say it.
 #[cfg(unix)]

@@ -87,7 +87,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 fn push(git_dir: &Path, base: &str, extra: &[&str], stdin: &str) -> (bool, serde_json::Value) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-projection"))
+    let mut child = Command::new(projection_bin())
         .args(["s3-push", "--git-dir"])
         .arg(git_dir)
         .args(["--to", base])
@@ -147,4 +147,13 @@ fn s3_push_puts_a_commits_blobs_once() {
     assert!(!ok);
     assert_eq!((line["blobs"].as_u64(), line["had"].as_u64()), (Some(2), Some(1)), "{line}");
     assert_eq!(line["failed"].as_u64(), Some(1), "{line}");
+}
+
+/// The `cmux-projection` binary: set at compile time by `cargo test`, at run time only under
+/// `cargo check`/`clippy` on Rust 1.95, where `env!` failed and turned clippy red.
+fn projection_bin() -> String {
+    option_env!("CARGO_BIN_EXE_cmux-projection")
+        .map(str::to_owned)
+        .or_else(|| std::env::var("CARGO_BIN_EXE_cmux-projection").ok())
+        .expect("cargo sets CARGO_BIN_EXE_cmux-projection for integration tests")
 }

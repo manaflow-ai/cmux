@@ -5,7 +5,7 @@ set -uo pipefail
 # Why: note-452
 for target in $SWIFT_CANARY_TARGETS; do
   case "$target" in
-    CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
+    CmuxNextServerHelperDaemon|CmuxNextSettingsExport|CmuxNextUiLayerPreview)
       echo "::notice title=Build fleet compile check::$target is not linked into the app; the Mac canary runs."
       echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
       exit 0 ;;

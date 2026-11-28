@@ -51,6 +51,8 @@ export type ProjectGlyphName = (typeof PROJECT_GLYPHS)[number];
 /// A folder's answer: its image, its glyph, either or neither.
 export type ProjectIcon = { src?: string; glyph?: ProjectGlyphName };
 
+/// The most answers kept per map (folder and repository).
+const MAX_KEPT_ICONS = 200;
 const icons = new Map<string, ProjectIcon>();
 /// The newest answer for any folder of a repository, by its main checkout's folder (`repo.root`):
 /// a folder of a repository whose other checkout answered already draws that icon in its first frame
@@ -81,6 +83,10 @@ function load(cwd: string, root: string | undefined): Promise<ProjectIcon> {
         if (Object.keys(icon).length > 0) {
           icons.set(cwd, icon);
           if (root) repoIcons.set(root, icon);
+          // The folder menu draws a badge per folder row: scrolling hundreds of projects must not keep
+          // every one's image for the page's life. The oldest answers go first; a badge asks again.
+          for (const kept of [icons, repoIcons])
+            while (kept.size > MAX_KEPT_ICONS) kept.delete(kept.keys().next().value as string);
         }
         return icon;
       },

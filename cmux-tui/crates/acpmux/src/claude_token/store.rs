@@ -1,9 +1,13 @@
-//! Where a captured token goes: a login Keychain item (`security -i`, the value on its stdin only;
-//! `secret-tool` off macOS) under [`SERVICE`], named `<store>-<8 hex>` as the app names them. The
-//! connection keeps only its `keychain:SERVICE/ACCOUNT` reference. `cmux cloud connect` stores
-//! through the same functions.
+//! Where a model key or captured token goes: a login Keychain item under [`SERVICE`], named
+//! `<store>-<8 hex>`. On macOS acpmux writes it through the Security framework ([`macos`]), so the
+//! item trusts acpmux's signature and not `/usr/bin/security`; `secret-tool` off macOS. The
+//! connection keeps only its `keychain:SERVICE/ACCOUNT` reference. The app and `cmux cloud connect`
+//! store through the daemon (`connections/secret.store`) for that reason.
 
 use std::path::PathBuf;
+
+#[cfg(target_os = "macos")]
+pub mod macos;
 
 /// The Keychain service every model key and token cmux adds is stored under.
 pub const SERVICE: &str = "cmux-model-key";
@@ -18,27 +22,65 @@ fn os() -> &'static str {
     if cfg!(target_os = "macos") { "macos" } else { "linux" }
 }
 
+/// Whether `account` is one [`new_account`] makes: lowercase letters, digits and dashes, then
+/// `-<8 hex>`. A caller's account is checked before it reaches the Keychain.
+pub fn is_account(account: &str) -> bool {
+    account.len() <= 64
+        && account.rsplit_once('-').is_some_and(|(store, hex)| {
+            !store.is_empty()
+                && store.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && hex.len() == 8
+                && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
+}
+
 /// `value` into the login Keychain as `SERVICE`/`account`.
 pub fn keychain_store(account: &str, label: &str, value: &str) -> Result<(), String> {
+    if value.contains(['\n', '\r', '\0']) {
+        return Err("the value has a line break or NUL byte; a secret must be one line".into());
+    }
+    if cfg!(target_os = "macos") {
+        #[cfg(target_os = "macos")]
+        return macos::store(account, label, value);
+    }
     use crate::cli::harness_secret::{run_store, store_item};
     let command = store_item(os(), SERVICE, account, label, value).map_err(|e| e.to_string())?;
     run_store(&command).map_err(|error| format!("cannot store it in the Keychain: {error}"))
 }
 
-/// Deletes `SERVICE`/`account` from the login Keychain; an item already gone is fine.
-pub fn keychain_delete(account: &str) {
+/// Deletes `SERVICE`/`account` from the login Keychain; an item already gone is fine. An item
+/// still there afterwards is an error (its reason, never its value), so no caller reports a key
+/// removed that is not.
+pub fn keychain_delete(account: &str) -> Result<(), String> {
+    // An item acpmux wrote goes through the framework; only one `security` wrote runs `security`.
+    #[cfg(target_os = "macos")]
+    match macos::delete(account) {
+        macos::Deleted::Gone => return Ok(()),
+        macos::Deleted::Kept(why) => {
+            tracing::warn!(%account, why, "a model key's Keychain item could not be removed");
+            return Err(why.to_owned());
+        }
+        macos::Deleted::Legacy => {}
+    }
     let argv: &[&str] = if os() == "macos" {
         &["/usr/bin/security", "delete-generic-password", "-s", SERVICE, "-a", account]
     } else {
         &["secret-tool", "clear", "service", SERVICE, "account", account]
     };
-    let Some((program, rest)) = argv.split_first() else { return };
-    let _ = cmux_process::Command::new(program)
+    let Some((program, rest)) = argv.split_first() else { return Ok(()) };
+    let status = cmux_process::Command::new(program)
         .args(rest)
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::null())
         .stderr(cmux_process::Stdio::null())
-        .status();
+        .status()
+        .map_err(|error| format!("cannot run {program}: {error}"))?;
+    // `security` exits 44 for an item already gone.
+    if status.success() || status.code() == Some(44) {
+        Ok(())
+    } else {
+        Err(format!("{program} could not remove the Keychain item ({status})"))
+    }
 }
 
 /// A store for a captured token: the Keychain, or owner-only files in tests.
@@ -59,7 +101,7 @@ impl Store for Keychain {
     }
 
     fn delete(&self, account: &str) {
-        keychain_delete(account);
+        let _ = keychain_delete(account);
     }
 }
 
@@ -77,5 +119,36 @@ impl Store for Files {
 
     fn delete(&self, account: &str) {
         let _ = std::fs::remove_file(self.0.join(account));
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+
+    #[test]
+    fn only_accounts_new_account_makes_reach_the_keychain() {
+        assert!(is_account(&new_account("claude-token")));
+        assert!(is_account(&new_account("vertex-express")));
+        assert!(is_account("openai-0123abcd"));
+        for bad in [
+            "",
+            "openai",
+            "openai-0123ABCD",
+            "openai-0123abc",
+            "-0123abcd",
+            "../x-0123abcd",
+            "a/b-0123abcd",
+            "Open AI-0123abcd",
+            "openai-0123abcd\n",
+        ] {
+            assert!(!is_account(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_secret_with_a_line_break_is_refused_before_the_keychain() {
+        assert!(keychain_store(&new_account("test"), "label", "a\nb").is_err());
+        assert!(keychain_store(&new_account("test"), "label", "a\0b").is_err());
     }
 }

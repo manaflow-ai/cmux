@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""machine-join-e2e.yml keeps the scope it was cleared for.
+"""The machine_join suite in machine-vault-e2e.yml keeps the scope it was cleared for.
 
 The workflow holds the repo's dev stack account and adds an OS user, so these
 hold for good: manual dispatch only; feat-cmux-next only; top-level
@@ -9,7 +9,8 @@ through `env`; no `set -x`; the platform origin
 is development's; the runner is an ephemeral Blacksmith label (never a runner
 variable that can name a persistent host); the evidence check, the upload and
 the disposable user's removal run under `always()`, the upload only when the
-check found the evidence clean; nothing else is uploaded. The disposable
+check found the evidence clean; nothing but the evidence and, with share, the
+viewer's PNG (read as the viewer) is uploaded. The disposable
 user's base is root:root 0755 before the user exists (acpmux refuses a state
 directory with another user's ancestor), and the real binary joins with
 malformed stdin as that user before any secret is in reach.
@@ -27,7 +28,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-WORKFLOW = ROOT / ".github/workflows/machine-join-e2e.yml"
+WORKFLOW = ROOT / ".github/workflows/machine-vault-e2e.yml"
+JOB = "machine_join"
 SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
 # The linux_8 pool it read, frozen to its label (scripts/ci/one_linux_label.py; no runs-on reads a variable).
@@ -40,7 +42,7 @@ def load() -> dict:
 
 
 def steps() -> list[dict]:
-    return load()["jobs"]["e2e"]["steps"]
+    return load()["jobs"][JOB]["steps"]
 
 
 def step(name: str) -> dict:
@@ -51,14 +53,16 @@ def step(name: str) -> dict:
 class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
-        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share", "share_install"])
+        inputs = load()["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(sorted(inputs), ["acpmux_ref", "bench", "calls", "join_channel", "model", "name", "share", "share_install", "suite"])
+        self.assertEqual((inputs["suite"]["default"], inputs["suite"]["options"]), ("machine-vault", ["billing", "machine-join", "machine-vault"]))
         bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
         self.assertEqual(bench["default"], "none")
         self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
 
     def test_feat_cmux_next_only(self) -> None:
-        job = load()["jobs"]["e2e"]
-        self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
+        job = load()["jobs"][JOB]
+        self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'machine-join'")
         # An existing environment whose branch policy admits feat-cmux-next only.
         self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
@@ -80,15 +84,13 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
             self.assertNotIn("permissions", job, name)
 
     def test_stack_secrets_reach_one_step_through_env(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 4)
+        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", str(load()["jobs"][JOB]))), 4)
         self.assertEqual(
-            workflow_jobs.secret_names(load()),
+            workflow_jobs.secret_names(load()["jobs"][JOB]),
             {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"},
         )
-        for name, job in load()["jobs"].items():
-            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
-            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        selected = workflow_jobs.copy_job(load()["jobs"][JOB], {"steps": workflow_jobs.DROP})
+        self.assertEqual(workflow_jobs.secret_names(selected), set())
         holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], ["Mint, join, verify and revoke"])
         mint = holders[0]
@@ -108,13 +110,13 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
 
     def test_development_origin_only(self) -> None:
         document = load()
-        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["HUB_ORIGIN"], DEV)
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"][JOB])["HUB_ORIGIN"], DEV)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn(f'export const DEV_PLATFORM = "{DEV}"', script)
         self.assertIn("if (opts.origin !== DEV_PLATFORM)", script)
 
     def test_ephemeral_blacksmith_runner(self) -> None:
-        job = load()["jobs"]["e2e"]
+        job = load()["jobs"][JOB]
         cells = workflow_jobs.runs_on_cells(job)
         self.assertEqual(cells, [RUNS_ON])
         self.assertNotIn("LINUX_RUNNER", "\n".join(cells))
@@ -245,7 +247,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertNotIn('systemctl start "$manager" && started=1', prep)
         # The development device hub only, in the workflow and the script.
         document = load()
-        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["DEVICE_HUB"], "https://cmux-device-hub-dev.debussy.workers.dev")
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"][JOB])["DEVICE_HUB"], "https://cmux-device-hub-dev.debussy.workers.dev")
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('export const DEV_DEVICE_HUB = "https://cmux-device-hub-dev.debussy.workers.dev"', script)
         self.assertIn("if (sh.hub !== DEV_DEVICE_HUB)", script)
@@ -306,7 +308,19 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]
         self.assertEqual(len(uploads), 1)
-        self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/machine-join-e2e/evidence.json")
+        self.assertEqual(
+            [p.strip() for p in uploads[0]["with"]["path"].splitlines() if p.strip()],
+            ["${{ runner.temp }}/machine-join-e2e/evidence.json", "${{ runner.temp }}/machine-join-e2e/frame.png"],
+        )
+        # The picture is read as the viewer (never as root, which would follow a link the viewer planted),
+        # only after the evidence was found clean, and kept only as a PNG.
+        collect = step("Collect the viewer's picture")
+        self.assertEqual(collect["if"], "always() && steps.evidence.outputs.clean == 'true' && steps.share.outputs.viewer != ''")
+        self.assertIn('sudo -n -u "$VIEWER_USER" -- /bin/cat -- "$VIEWER_HOME/frame.png"', collect["run"])
+        self.assertIn("89504e470d0a1a0a", collect["run"])
+        names = [s.get("name") for s in steps()]
+        self.assertLess(names.index("Collect the viewer's picture"), names.index("Upload the evidence"))
+        self.assertLess(names.index("Upload the evidence"), names.index("Remove the viewer user"))
         # No restored build cache in a job that later holds secrets.
         self.assertFalse([s for s in steps() if re.search(r"actions/cache|rust-cache", s.get("uses", ""))])
 

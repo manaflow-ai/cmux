@@ -106,6 +106,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-tab-discard",
                     # The browser pane's link placement and window rules (cmux-browser-rules).
                     "cmux-browser-rules",
+                    # The new workspace rules (cmux-app-workspace-creation).
+                    "cmux-app-workspace-creation",
                     # NEXT Cloud's configuration rules (cmux-cloud-config).
                     "cmux-cloud-config",
                     # The launch's Cloud environment read, through cmux-daemon-launch-core (CMUX-571).
@@ -130,6 +132,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-launch-image",
                     # When a hover card's live pane thumbnail is captured again (cmux-pane-pictures).
                     "cmux-pane-pictures",
+                    # The design system's rules (cmux-design-core).
+                    "cmux-design-core",
                     # The agent chat transcript's markdown parser (cmux-chat-markdown).
                     "cmux-chat-markdown",
                     # The remote chat wire (cmux-acpmux-remote-wire).

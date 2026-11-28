@@ -2,6 +2,7 @@
 //! attempt, and `--upgrade` keeps SSH first.
 
 use super::*;
+use std::sync::atomic::AtomicU32;
 
 /// The default attempt budget: what a black-holed route costs before the next is tried.
 fn default_attempt_budget() -> Duration {
@@ -349,7 +350,114 @@ async fn the_runtime_attempt_remembers_the_route_that_connected() {
         connection.close().await.unwrap();
     }
     assert_eq!(calls.load(Ordering::Acquire), 1, "the repeat launch dialed the stalled route");
+    // Each leg's outcome is counted in the file: the Unix route won both launches; the stalled
+    // route lost once (timed out, or outrun) and was never dialed again.
+    let file: serde_json::Value = serde_json::from_slice(
+        &fs::read(options.state_dir.join(route_last_good::FILE_NAME)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(file["legs"]["unix"]["won"], 2, "{file}");
+    let stalled = file["legs"]["hanging-startup"].as_object().unwrap();
+    assert_eq!(stalled.values().map(|count| count.as_u64().unwrap()).sum::<u64>(), 1, "{file}");
+    assert!(stalled.get("won").is_none(), "{file}");
     server.shutdown().await.unwrap();
+}
+
+/// A network the test switches by hand (its fingerprint, from a v4 source of that number).
+fn switchable(
+    start: u32,
+) -> (
+    Arc<AtomicU32>,
+    impl Fn() -> Option<cmux_braid_path::Fingerprint> + Send + Sync + Clone + 'static,
+) {
+    let network = Arc::new(AtomicU32::new(start));
+    let read = network.clone();
+    let probe =
+        move || cmux_braid_path::Fingerprint::of(Some(read.load(Ordering::Acquire).into()), None);
+    (network, probe)
+}
+
+/// Each network keeps its own winner: the route that won at home leads at home, not on the
+/// café's network, and an entry written with no network is read on any network as the latest.
+#[test]
+fn each_network_remembers_its_own_route() {
+    let state = tempfile::tempdir().unwrap();
+    let routes = vec![test_route("wss://a.example/v1/link"), test_route("wss://b.example/v1/link")];
+    let open = |network: &str| {
+        LastGoodRoute::open_on(Some(state.path()), Some(DAEMON), Some(network.to_owned())).unwrap()
+    };
+
+    // An entry with no network (offline, or an older client): only a latest.
+    LastGoodRoute::open_on(Some(state.path()), Some(DAEMON), None)
+        .unwrap()
+        .connected(&routes[0].endpoint);
+    assert_eq!(open("1").first(&routes, false), Some(0), "a latest is read on any network");
+
+    open("1").connected(&routes[1].endpoint);
+    assert_eq!(open("1").first(&routes, false), Some(1));
+    assert_eq!(open("2").first(&routes, false), Some(1), "a network never seen takes the latest");
+    open("2").connected(&routes[0].endpoint);
+    assert_eq!(open("1").first(&routes, false), Some(1), "home keeps its winner");
+    assert_eq!(open("2").first(&routes, false), Some(0), "the café keeps its own");
+}
+
+/// A route that failed on this network is dialed after every other route (not skipped), until
+/// it connects again or the network changes.
+#[tokio::test(start_paused = true)]
+async fn a_broken_route_is_dialed_last_until_it_connects_or_the_network_changes() {
+    let state = tempfile::tempdir().unwrap();
+    let routes = vec![
+        test_route("wss://a.example/v1/link"),
+        test_route("wss://b.example/v1/link"),
+        test_route("wss://c.example/v1/link"),
+    ];
+    let (network, probe) = switchable(1);
+    let memory =
+        LastGoodRoute::open_on(Some(state.path()), Some(DAEMON), None).unwrap().watching(probe);
+    assert_eq!(memory.late(&routes), 0);
+    memory.failed(&routes[0].endpoint);
+    assert_eq!(memory.late(&routes), 0b001);
+
+    // Every route fails: the broken one is still dialed, last.
+    let attempt = TimedAttempt::new(vec![Duration::from_millis(10); 3], vec![false; 3]);
+    let _ = select_initial_route_from(
+        &routes,
+        RouteOrder::serial(None).with_late(memory.late(&routes)),
+        SessionId([27; 16]),
+        LanePolicy::Single,
+        AuthKind::Enrolled,
+        false,
+        &attempt,
+    )
+    .await;
+    assert_eq!(attempt.dialed(), [1, 2, 0]);
+
+    // Raced too: the broken route starts after the others.
+    let attempt = TimedAttempt::new(vec![Duration::from_millis(400); 3], vec![false, false, true]);
+    let selected = select_initial_route_from(
+        &routes,
+        RouteOrder::raced(None, RouteRace::after(None)).with_late(memory.late(&routes)),
+        SessionId([28; 16]),
+        LanePolicy::Single,
+        AuthKind::Enrolled,
+        false,
+        &attempt,
+    )
+    .await
+    .unwrap();
+    assert_eq!((selected, attempt.dialed()), (2, vec![1, 2, 0]));
+
+    // Five minutes later it is still broken; a success clears it.
+    tokio::time::advance(Duration::from_secs(299)).await;
+    assert_eq!(memory.late(&routes), 0b001);
+    memory.connected(&routes[0].endpoint);
+    assert_eq!(memory.late(&routes), 0);
+
+    // A new network forgets every broken mark.
+    memory.failed(&routes[1].endpoint);
+    assert_eq!(memory.late(&routes), 0b010);
+    network.store(2, Ordering::Release);
+    assert_eq!(memory.late(&routes), 0);
 }
 
 /// Raced over `routes` with `first` leading: time to connected and the route.
@@ -713,7 +821,7 @@ async fn braids_racer_and_the_own_loop_time_every_pass_the_same() {
             let started = tokio::time::Instant::now();
             let result = select_initial_route_from(
                 &routes,
-                RouteOrder { first, race },
+                RouteOrder { first, race, late: 0 },
                 SessionId([26; 16]),
                 LanePolicy::Single,
                 AuthKind::Enrolled,

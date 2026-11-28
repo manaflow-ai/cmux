@@ -1,5 +1,7 @@
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
+import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { ComposerBox } from "../src/agent-session/acpmux/ComposerBox";
@@ -27,6 +29,11 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
+
+// The inline view: Select All, Copy and Cut carry the attachments with the text there. The strip
+// view (the default) keeps them apart from the text (composer-strip-view-keys.test.tsx).
+beforeEach(() => setComposerSettings({ attachmentView: "inline" }));
+afterEach(() => setComposerSettings({ attachmentView: "strip" }));
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
@@ -61,7 +68,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
