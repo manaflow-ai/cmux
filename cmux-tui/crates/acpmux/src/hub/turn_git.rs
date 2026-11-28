@@ -90,7 +90,7 @@ impl Hub {
         // Each harness-magic feature's turn-end step, in registry order: its counters, which
         // features ran (the scorecard's like-with-like split) and its verdicts
         // (`harness_magic_registry.rs`, where a feature adds its row).
-        for step in super::harness_magic_registry::TURN_END {
+        for step in super::harness_magic::registry::TURN_END {
             (step.run)(self, session, &mut msg);
         }
         self.record_last_turn(session, &msg);

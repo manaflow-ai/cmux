@@ -150,8 +150,6 @@ mod goal_watch;
 mod handoff;
 mod harness_key;
 pub(crate) mod harness_magic;
-// Where each harness-magic feature registers its gate and turn-end step (`merge=union`).
-mod harness_magic_registry;
 mod harness_sandbox;
 mod harness_view;
 mod harness_watch;

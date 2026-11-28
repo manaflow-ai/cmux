@@ -11,10 +11,11 @@
 //! situation"), and a
 //! kill switch, `ACPMUX_HM_<FEATURE>=0` in the daemon's environment
 //! (the name upper-cased, every other character `_`). A feature lists itself in [`FEATURES`]
-//! (`harness_magic_registry.rs`) with the gate it asks before it acts, so the stamp says exactly what ran: a feature with a
-//! switch and no row here ran unseen, and the scorecard could not split its turns on from off
-//! (RFD 0159's read-back found verify, prefetch, surgery and dedupe all missing). The test
-//! `every_harness_magic_switch_is_a_registered_feature` fails a new switch with no row.
+//! (`harness_magic_registry.rs`) with the gate it asks before it acts, so the stamp says exactly
+//! what ran: a feature with a switch and no row there ran unseen, and the scorecard could not
+//! split its turns on from off (RFD 0159's read-back found verify, prefetch, surgery and dedupe
+//! all missing). The test `every_harness_magic_switch_is_a_registered_feature` fails a new switch
+//! with no row.
 //!
 //! A `turn_result` carries `harnessMagic: {"enabled": [..], "<feature>": {"<counter>": n}}`:
 //! `enabled` the features on for that turn (an empty list: a build that knows the seam with
@@ -34,7 +35,10 @@ pub(crate) struct Feature {
 
 /// The features this build carries, each with its gate (`harness_magic_registry.rs`, where a
 /// feature adds its row).
-pub(crate) use super::harness_magic_registry::FEATURES;
+pub(crate) use registry::FEATURES;
+// Where each feature registers its gate and turn-end step (merged by insertions).
+#[path = "harness_magic_registry.rs"]
+pub(super) mod registry;
 
 /// The features the shared gate reads off unless their setting is `true` (opinionated nudges).
 pub(crate) const DEFAULT_OFF: &[&str] = &[super::sidecars::FEATURE];
