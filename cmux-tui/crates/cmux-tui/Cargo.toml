@@ -37,6 +37,10 @@ hotpatch = [
 # Measurement only: the daemon's heap by allocation site (dhat), written to the file
 # CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
 dhat-heap = ["dep:dhat"]
+# Bench only: mimalloc as the daemon's allocator, with acpmux's tuning (src/heap_profile.rs), for the
+# allocator A/B of goal infinite-items-flat (glibc kept freed launch-snapshot and journal peaks). Never
+# in a shipped build.
+mimalloc-bench = ["dep:mimalloc"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that
@@ -158,6 +162,7 @@ crossterm = { workspace = true, features = ["serde", "event-stream"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
 dhat = { version = "0.3", optional = true }
+mimalloc = { version = "0.1", default-features = false, optional = true }
 bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true

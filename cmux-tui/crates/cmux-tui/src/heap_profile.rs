@@ -23,6 +23,33 @@ pub(crate) const MARKS_ENV: &str = "CMUX_TUI_DHAT_MARKS";
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
+// Bench only (`mimalloc-bench`): mimalloc in place of the C library's malloc, for the allocator A/B.
+#[cfg(all(feature = "mimalloc-bench", not(feature = "dhat-heap")))]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// acpmux's mimalloc options (crates/acpmux/src/main.rs, RFD 0156): freed pages go back at once and
+/// arenas commit only what they touch. Ids from mimalloc.h's `mi_option_e` (libmimalloc-sys, v3).
+#[cfg(all(feature = "mimalloc-bench", not(feature = "dhat-heap")))]
+fn tune_mimalloc() {
+    const MI_OPTION_ARENA_EAGER_COMMIT: std::ffi::c_int = 4;
+    const MI_OPTION_PURGE_DELAY: std::ffi::c_int = 15;
+    const MI_OPTION_ARENA_RESERVE: std::ffi::c_int = 23;
+    const MI_OPTION_GENERIC_COLLECT: std::ffi::c_int = 34;
+    const MI_OPTION_PAGE_FULL_RETAIN: std::ffi::c_int = 36;
+    unsafe extern "C" {
+        fn mi_option_set(option: std::ffi::c_int, value: std::ffi::c_long);
+    }
+    // SAFETY: plain integer options of the linked mimalloc, set before any other thread starts.
+    unsafe {
+        mi_option_set(MI_OPTION_PURGE_DELAY, 0);
+        mi_option_set(MI_OPTION_ARENA_EAGER_COMMIT, 0);
+        mi_option_set(MI_OPTION_PAGE_FULL_RETAIN, 0);
+        mi_option_set(MI_OPTION_GENERIC_COLLECT, 1000);
+        mi_option_set(MI_OPTION_ARENA_RESERVE, 64 * 1024);
+    }
+}
+
 #[cfg(feature = "dhat-heap")]
 static PROFILER: std::sync::Mutex<Option<dhat::Profiler>> = std::sync::Mutex::new(None);
 
@@ -30,6 +57,8 @@ static PROFILER: std::sync::Mutex<Option<dhat::Profiler>> = std::sync::Mutex::ne
 /// before any thread. The variable is removed, so a process this one starts
 /// (a terminal host) writes no profile over it.
 pub(crate) fn start() {
+    #[cfg(all(feature = "mimalloc-bench", not(feature = "dhat-heap")))]
+    tune_mimalloc();
     #[cfg(feature = "dhat-heap")]
     if let Some(out) = std::env::var_os(OUT_ENV) {
         // SAFETY: called first in `main`, while no other thread runs.
