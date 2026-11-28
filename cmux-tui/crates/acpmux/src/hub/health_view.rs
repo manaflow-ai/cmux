@@ -173,8 +173,21 @@ impl Hub {
                 .collect();
             if !changed.is_empty() {
                 self.drain_pool();
-                self.probe_live_models(false, Some(changed.clone())).await;
-                self.restart_harnesses(Some(&changed), None).await;
+                // A between-turn harness can still have unreported descendants. Let the idle
+                // reaper check its gates and census before hibernating it. Its next wake runs
+                // the installed version.
+                for session in self.live_session_handles() {
+                    if session.read_meta(|meta| {
+                        matches!(
+                            meta.status,
+                            SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
+                        ) && changed.contains(&meta.harness)
+                            && !super::route_switch::is_chief(meta)
+                    }) {
+                        self.respawn_when_quiet(&session);
+                    }
+                }
+                self.probe_live_models(false, Some(changed)).await;
             }
         }
         ran
