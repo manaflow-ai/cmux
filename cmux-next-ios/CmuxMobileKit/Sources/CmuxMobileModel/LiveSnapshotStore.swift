@@ -127,14 +127,47 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     private let lock = NSLock()
     private var firstScreenRead: FirstScreenRead?
 
-    public init(directory: URL) {
-        self.directory = directory
+    /// The shortest time between two writes (nil: every `save` writes, as before saves were
+    /// coalesced). Every one-row change on a Mac saves the whole cache, and while agents work
+    /// that is several saves a second: each one encoded and wrote every row (1,100 workspaces,
+    /// ~1 MB) on the utility queue. Now a burst writes its first save at once and its latest
+    /// one after this interval; `flush()`, a read of a team with a save waiting, and the app's
+    /// `background()` write what waits immediately, so the cache on disk is never older than
+    /// this interval while the app runs.
+    public let minimumWriteInterval: Duration?
+    /// Saves not yet written, the latest per account and team, oldest first (lock-guarded): the
+    /// last one written names the team the next launch shows (`last-team`), as before.
+    private var pending: [Pending] = []
+    /// A write of `pending` is scheduled on `queue` (lock-guarded).
+    private var writeScheduled = false
+    /// Accounts whose saves `writePending` has taken off `pending` and not finished writing
+    /// (lock-guarded): a read of one waits for that write, or it reads the files mid-write.
+    private var writing: Set<String> = []
+    /// When the last write ended (queue-confined).
+    private var lastWrite: ContinuousClock.Instant?
+    /// Snapshots encoded and written since this store was made (lock-guarded; benches and tests).
+    private var writes = 0
+
+    private struct Pending {
+        var snapshot: LiveSnapshot
+        var accountID: String
     }
+
+    /// `minimumWriteInterval` defaults to nil (write every save) so a store a test makes keeps
+    /// the old timing; the app's `standard` store spaces writes 2 s apart.
+    public init(directory: URL, minimumWriteInterval: Duration? = nil) {
+        self.directory = directory
+        self.minimumWriteInterval = minimumWriteInterval
+    }
+
+    /// How many snapshots this store has encoded and written.
+    public var writeCount: Int { lock.withLock { writes } }
 
     public static let standard: LiveSnapshotStore = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return LiveSnapshotStore(directory: base.appending(path: "cmux-mobile-live", directoryHint: .isDirectory))
+        return LiveSnapshotStore(directory: base.appending(path: "cmux-mobile-live", directoryHint: .isDirectory),
+                                 minimumWriteInterval: .seconds(2))
     }()
 
     public var lastFirstScreenRead: FirstScreenRead? { lock.withLock { firstScreenRead } }
@@ -202,12 +235,15 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     public func loadFirstScreen(accountID: String) -> LiveSnapshot? {
         let legacy = legacyFile(accountID)
         if FileManager.default.fileExists(atPath: legacy.path) { try? FileManager.default.removeItem(at: legacy) }
+        if hasUnwritten(accountID) { flush() }
         guard let teamID = lastTeamID(accountID) else { return nil }
         return loadFirstScreen(accountID: accountID, teamID: teamID)
     }
 
     /// `loadFirstScreen` for one team the phone has shown before (a switch to it draws these rows).
     public func loadFirstScreen(accountID: String, teamID: String) -> LiveSnapshot? {
+        // A save of this account not written yet is what the phone last saw: write it first.
+        if hasUnwritten(accountID) { flush() }
         guard let data = try? Data(contentsOf: headFile(accountID, teamID: teamID)) else { return nil }
         guard let head = try? JSONDecoder().decode(Head.self, from: data), head.format == Self.formatVersion,
               head.teamID == teamID else {
@@ -269,7 +305,66 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     /// (its first screen in the head, the rest in its tail); one that holds only its first
     /// screen (read at launch, its Mac not answered since) keeps the tail it has.
     public func save(_ snapshot: LiveSnapshot, accountID: String) {
-        queue.async { self.write(snapshot, accountID: accountID) }
+        guard minimumWriteInterval != nil else {
+            queue.async {
+                self.write(snapshot, accountID: accountID)
+                self.lock.withLock { self.writes += 1 }
+            }
+            return
+        }
+        let schedule = lock.withLock { () -> Bool in
+            // The latest save of a team replaces the one waiting and moves to the end, so the
+            // team saved last is written last.
+            pending.removeAll { $0.accountID == accountID && $0.snapshot.teamID == snapshot.teamID }
+            pending.append(Pending(snapshot: snapshot, accountID: accountID))
+            guard !writeScheduled else { return false }
+            writeScheduled = true
+            return true
+        }
+        guard schedule else { return }
+        queue.async { self.scheduleWrite() }
+    }
+
+    /// On `queue`: writes what waits now, or once `minimumWriteInterval` has passed since the last write.
+    private func scheduleWrite() {
+        let interval = minimumWriteInterval ?? .zero
+        let wait = lastWrite.map { interval - (ContinuousClock.now - $0) } ?? .zero
+        guard wait > .zero else {
+            writePending()
+            return
+        }
+        let (seconds, attoseconds) = wait.components
+        let nanoseconds = Int(seconds) * 1_000_000_000 + Int(attoseconds / 1_000_000_000)
+        queue.asyncAfter(deadline: .now() + .nanoseconds(nanoseconds)) { self.writePending() }
+    }
+
+    /// On `queue`: writes every save that waits, oldest first.
+    private func writePending() {
+        let saves = lock.withLock { () -> [Pending] in
+            defer {
+                writing.formUnion(pending.map(\.accountID))
+                pending = []
+                writeScheduled = false
+            }
+            return pending
+        }
+        guard !saves.isEmpty else { return }
+        for save in saves { write(save.snapshot, accountID: save.accountID) }
+        lastWrite = ContinuousClock.now
+        lock.withLock {
+            writes += saves.count
+            writing = []
+        }
+    }
+
+    /// A save of `accountID` waits or is being written: a read flushes first.
+    private func hasUnwritten(_ accountID: String) -> Bool {
+        lock.withLock { writing.contains(accountID) || pending.contains { $0.accountID == accountID } }
+    }
+
+    /// Writes what waits now, without waiting for it (the app going to the background).
+    public func writeSoon() {
+        queue.async { self.writePending() }
     }
 
     private func write(_ snapshot: LiveSnapshot, accountID: String) {
@@ -337,11 +432,12 @@ public final class LiveSnapshotStore: @unchecked Sendable {
 
     /// Waits for pending writes (tests).
     public func flush() {
-        queue.sync {}
+        queue.sync { writePending() }
     }
 
     public func removeAll() {
         let directory = directory
+        lock.withLock { pending = [] }
         queue.async { try? FileManager.default.removeItem(at: directory) }
     }
 }
