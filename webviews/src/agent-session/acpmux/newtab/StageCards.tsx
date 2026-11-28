@@ -2,14 +2,16 @@
 // the composer sits at the foot of the page, and the empty space above it holds, centered, one card
 // that picks where the chat starts and, under it, one card of suggested actions. Rows are plain
 // text with an icon; only a hovered or focused row draws a wash, never a resting pill.
+import { useEffect, useRef } from "react";
 import { Tooltip } from "../../../ui/Tooltip";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import { ProjectBadge } from "../ProjectBadge";
 import { ProjectChooser, type Project } from "../ProjectChooser";
-import { projectRows } from "../projectRepos";
+import { keepPlaces, projectRows } from "../projectRepos";
 import { isAgentHome } from "../sessionList";
 import type { ChatCard } from "./screenModel";
+import { NEW_TAB_ADOPT_EVENT } from "./adoption";
 import { useNt } from "./strings";
 
 /// How many of this Mac's other projects the card lists before Choose environment.
@@ -41,9 +43,22 @@ export function EnvironmentCard({
   // A chat with no project runs in a private agent-home folder (sessionList.ts isAgentHome); it is
   // no environment to offer, as recentProjects keeps it out too.
   // One row per repository: a lane's checkout or scratch folder is no project to offer here.
-  const local = projectRows(
-    projects.filter((project) => !project.peer && !isAgentHome(project.cwd)),
-    current,
+  // The rows keep the places this opening first drew them in (keepPlaces); a spare page adopted for a new tab
+  // is a new opening, placed again.
+  const placed = useRef<string[]>([]);
+  useEffect(() => {
+    const again = () => {
+      placed.current = [];
+    };
+    window.addEventListener(NEW_TAB_ADOPT_EVENT, again);
+    return () => window.removeEventListener(NEW_TAB_ADOPT_EVENT, again);
+  }, []);
+  const local = keepPlaces(
+    projectRows(
+      projects.filter((project) => !project.peer && !isAgentHome(project.cwd)),
+      current,
+    ),
+    placed.current,
   );
   const shown = current ? local.find((project) => project.cwd === current) : undefined;
   const others = local.filter((project) => project.cwd !== current).slice(0, OTHER_PROJECTS);

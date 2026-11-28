@@ -322,6 +322,21 @@ export function chooserRowsScan<
   return [...rows, ...remote.filter(has)];
 }
 
+/// `rows` in the places an opening first showed them (`placed`, their `cwd`s, which this updates): a row the
+/// opening already showed keeps its place, and a new one goes after them. Leo, 2026-11-27: "when you open a new
+/// tab the shown projects switch weird the placements get weird": the New Tab project card ordered its rows by
+/// chat recency, so a chat working, the host's project answer or a late repository read moved them while the
+/// page was in view (cmux-agent-pane-policy new_tab_projects.rs: positions belong to an opening).
+export function keepPlaces<T extends { cwd: string }>(rows: readonly T[], placed: string[]): T[] {
+  const place = new Map(placed.map((cwd, index) => [cwd, index] as const));
+  for (const row of rows)
+    if (!place.has(row.cwd)) {
+      place.set(row.cwd, placed.length);
+      placed.push(row.cwd);
+    }
+  return [...rows].sort((a, b) => place.get(a.cwd)! - place.get(b.cwd)!);
+}
+
 /// The projects in the order they were last used: those a chat used, newest chat first, then the
 /// rest in the order given.
 export function byRecentUse<T extends { cwd: string }>(projects: readonly T[], recent: readonly string[]): T[] {
