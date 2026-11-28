@@ -229,6 +229,7 @@ impl Hub {
                 class,
                 report: false,
                 waited: false,
+                gather: false,
                 at: now_ms(),
                 within: None,
                 text: text.clone(),

@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Meet Chief: the short first-run introduction on the person's empty Chief chat, so they know who Chief is, what
 /// it does for them and what it may do on this Mac before they start (David Beyer's first run, 2026-11-20: "who is
@@ -74,6 +75,12 @@ public final class ChiefOnboarding {
 
     /// Whether Chief's welcome and the Set Up cmux card wait: Meet Chief shows, or the launch has not decided yet.
     public var holdsWelcome: Bool { shows || !decided }
+
+    /// Returns once Meet Chief is not on screen: at once when it is not. The first run's own chat workspace waits on this, so Home
+    /// and Meet Chief stay in front until it ended (Continue, Skip, Start chatting): onboarding-golden-path-production red 2.
+    public func untilEnded() async {
+        for await shows in ObservationStream({ self.shows }) where !shows { return }
+    }
 
     /// The steps, in order.
     public var steps: [ChiefOnboardingStep] { ChiefOnboardingStep.allCases }

@@ -154,7 +154,3 @@ skip = "measure harness (wsfactory, bench workspace-factory): kept out of CI und
 [[workspace]]
 root = "examples/customize-demo/looks/check"
 skip = "the customize demo's looks check (#47546): run by hand over examples/customize-demo/looks/*.json (cargo run, see its src/main.rs); kept out of CI under the 2026-10-23 no-new-CI rule, since lifted"
-
-[[workspace]]
-root = "scripts/bench/phone-speed"
-run = true

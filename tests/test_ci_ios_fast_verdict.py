@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -320,6 +321,8 @@ class ReuseTest(unittest.TestCase):
     def statuses(self, rows) -> bool:
         def fake(req, seconds=0, **kw):
             self.assertIn("/commits/abc/statuses", req.full_url)
+            self.assertLessEqual(kw.get("budget_s", 1e9), fv.REUSE_READ_S)
+            self.assertLessEqual(kw.get("rate_budget_s", 1e9), fv.REUSE_READ_S)
             if isinstance(rows, Exception):
                 raise rows
             return 200, json.dumps(rows).encode(), {}
@@ -341,6 +344,29 @@ class ReuseTest(unittest.TestCase):
         self.assertFalse(self.statuses([{**row, "description": fv.REUSED.format("0123456789ab")}]))
         self.assertFalse(self.statuses([{**row, "context": "other"}]))
         self.assertFalse(self.statuses(OSError("down")))
+
+    def test_rate_limited_reuse_read_builds_inside_the_job_timeout(self) -> None:
+        # A 403 that names a reset 20 min out was waited on past the plan job's 5-min timeout (job cancelled, no
+        # verdict). The optional read now gives up inside REUSE_READ_S and the Mac builds.
+        clock = [0.0]
+        reset = str(int(time.time()) + 1200)
+
+        def answer(req, seconds, **kw):
+            return 403, b'{"message": "API rate limit exceeded"}', {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}
+
+        def sleep(s):
+            clock[0] += s
+
+        real = fv.gh_http.request
+        old = (fv.gh_http.request, fv.gh_http.deadline_http.request)
+        fv.gh_http.deadline_http.request = answer
+        fv.gh_http.request = lambda req, seconds=30.0, **kw: real(req, seconds, sleep=sleep, clock=lambda: clock[0],
+                                                                  log=lambda line: None, **kw)
+        try:
+            self.assertFalse(fv.passed_at("o/r", "abc", "0123456789ab", "t"))
+        finally:
+            fv.gh_http.request, fv.gh_http.deadline_http.request = old
+        self.assertLess(clock[0], 5 * 60 - 60)
 
     def run_reuse(self, passed: bool, plan: dict | None = None) -> dict:
         old = (fv.inputs_digest, fv.head_sha, fv.passed_at)
@@ -506,7 +532,7 @@ class WorkflowTest(unittest.TestCase):
         # unset switch enabled and still lets an explicit '0' disable the verdict.
         # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
         self.assertEqual(self.jobs["ios-fast-runner"]["if"],
-                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
+                         "${{ !cancelled() && !inputs.web_browser_only && !inputs.ios_fast_skip && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
 
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]
