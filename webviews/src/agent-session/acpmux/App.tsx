@@ -547,6 +547,7 @@ import {
   useEnvironmentCardOn,
   useFeatureTipsOn,
   useHeaderBreadcrumb,
+  useOwnHarnessUpdatesOnly,
   useSubagentOf,
   useTrayHandle,
   useTrayTucked,
@@ -2023,6 +2024,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (id: string) => catalog.find((entry) => entry.id === id)?.pickable !== false,
     [catalog],
   );
+  const ownHarnessUpdatesOnly = useOwnHarnessUpdatesOnly();
   const harnessUpdates = useHarnessUpdateList({
     rows: healthRows,
     offer: updateOffer,
@@ -2031,6 +2033,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     native: callNative,
     onUpdated: recheckHealth,
     offered: harnessOffered,
+    // A one-agent app's look (the Claude Code app profile) offers only the chat's own agent's update.
+    ownOnly: ownHarnessUpdatesOnly,
   });
   // The forum's current rules on this Mac (hq#2570), pinned above the composer: read when the pane
   // connects or opens a chat, and at each turn's start and end, when the chat's agent is told the
@@ -2796,6 +2800,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
     undefined,
   );
+  const leftChatTurns = useRef(
+    new Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>(),
+  );
   const supersededReplyIds = useMemo(
     () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
     [snapshot.supersededRows],
@@ -2812,6 +2819,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         doneLines,
         workflowLabsEnabled,
         lastTurns,
+        pastTurns: leftChatTurns,
         shownSessionId,
         heldCalls,
         callRelease,
@@ -8824,6 +8832,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : trayAgents.length + childSessions.length;
   if (revealSection && listedAgents > 0) commands.showSubagents = () => revealSection("subagents");
   if (revealSection && backgroundRows > 0) commands.showBackgroundTasks = () => revealSection("tasks");
+  // Command-J G (agentPane.openLastTurnChanges): the last turn that edited files, its diff beside the
+  // chat, as that turn's edited-files card's View changes opens it, wherever the card has scrolled to.
+  const lastEditedTurn = cardEdit.turn;
+  if (!quick && lastEditedTurn)
+    commands.openLastTurnChanges = () =>
+      void diffBeside.current(lastEditedTurn.rowId, undefined, "open").catch(() => false);
   paletteCommands.current = { sessionId: snapshot.sessionId ?? "", commands };
   const commandNames = Object.keys(commands).sort().join(" ");
   // Again for every client: the host's handshake (a reconnect's too) forgets the list, and a new
