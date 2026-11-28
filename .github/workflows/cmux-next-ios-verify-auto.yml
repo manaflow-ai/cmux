@@ -190,9 +190,14 @@ jobs:
         run: |
           set -uo pipefail
           # ios_verify.py calls `cmux-ci` by name: the checked client from the controller.
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=cmux ios verify (auto)::$client is not installed on runner $RUNNER_NAME; nothing was verified"
+            exit 1
+          fi
           bin="$RUNNER_TEMP/ios-verify-bin"
           mkdir -p "$bin"
-          ln -sf "${CMUX_CI_CLIENT:?no fleet client}" "$bin/cmux-ci"
+          ln -sf "$client" "$bin/cmux-ci"
           export PATH="$bin:$PATH"
           rc=0
           python3 -I scripts/ci/ios_verify.py --pr "$PR" --repo "$REPO" --no-merge-base \
