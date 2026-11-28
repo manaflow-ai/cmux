@@ -565,6 +565,10 @@ async fn a_chat_is_read_from_the_home_its_spawn_runs_it_with() {
     std::fs::write(&transcript, format!("{record}\n")).unwrap();
 
     let mut cfg = Config::default();
+    cfg.harnesses.insert(
+        "claude".into(),
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap(),
+    );
     let dir = home.path().display().to_string();
     cfg.defaults
         .entry("claude".into())
