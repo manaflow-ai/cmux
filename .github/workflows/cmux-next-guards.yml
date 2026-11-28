@@ -125,7 +125,7 @@ jobs:
     # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
     # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
     if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
     continue-on-error: true
     permissions:
@@ -1002,6 +1002,21 @@ jobs:
         timeout-minutes: 1
         run: python3 tests/test_webviews_no_duplicate_import_names.py
 
+      # Leo, ask-5ad71ec59c: "Flag changes to user-visible defaults (like the banner, the Live button or Cmd+N)."
+      # A heads-up, never a red: the watched defaults a pull request changes become ::warning annotations at
+      # their file and line plus a step summary table. Not the blocking defaults guard #55271 deleted.
+      - name: Flag the user-visible defaults this change moves (warning only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          python3 tests/test_user_visible_defaults.py
+          if git rev-parse --verify -q HEAD^1 >/dev/null; then
+            python3 scripts/ci/user_visible_defaults.py --base HEAD^1 --head HEAD
+          else
+            echo "::warning title=user-visible defaults check skipped::no parent commit in this checkout"
+          fi
+
       - name: The defaults snapshot tests
         id: defaults-snapshot
         if: ${{ !cancelled() }}
@@ -1346,8 +1361,7 @@ jobs:
           if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
             echo "clang libclang-dev pkg-config: already installed"
           else
-            sudo apt-get update
-            sudo apt-get install -y clang libclang-dev pkg-config
+            bash scripts/ci/apt-retry.sh -y clang libclang-dev pkg-config
           fi
 
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
@@ -2177,6 +2191,7 @@ jobs:
         run: |
           python3 tests/test_cmux_next_fast_gates.py
           python3 tests/test_ci_entry_logs.py
+          python3 tests/test_ci_check_huge_files.py
 
       - name: A scheduled dispatch runs the whole Swift suite on the feat-cmux-next tip
         id: tt-tip-swift-suite
