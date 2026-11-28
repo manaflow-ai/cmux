@@ -790,8 +790,7 @@ def test_stale_run_check_ignores_github_api_errors() -> None:
 
 
 def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
-    script = workflow_job_step_script("changes", "Route standalone project workflows")
-    script = script.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    script = changed_files_from_env(workflow_job_step_script("changes", "Route standalone project workflows"))
     cases = (
         (None, "true", "true"),
         ("", "false", "false"),
@@ -813,8 +812,7 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
 
 
 def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> None:
-    script = workflow_job_step_script("changes", "Route standalone project workflows")
-    script = script.replace("/tmp/cmux-ci-changed-files.txt", '\"$CHANGED_FILES\"')
+    script = changed_files_from_env(workflow_job_step_script("changes", "Route standalone project workflows"))
     cases = (
         (".github/workflows/nightly.yml\nscripts/sparkle_generate_appcast.sh\n", "false"),
         (".github/workflows/release.yml\n", "false"),
@@ -840,9 +838,8 @@ def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> N
 
 
 def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None:
-    detector = detect_step_script().replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
-    route = workflow_job_step_script("changes", "Route standalone project workflows")
-    route = route.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    detector = changed_files_from_env(detect_step_script())
+    route = changed_files_from_env(workflow_job_step_script("changes", "Route standalone project workflows"))
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         git = root / "git"
@@ -1996,6 +1993,21 @@ def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
     raise AssertionError(f"{job_name} job not found")
 
 
+CI_CHANGED_FILES = "${RUNNER_TEMP}/cmux-ci-changed-files.txt"
+
+
+def changed_files_from_env(script: str) -> str:
+    """Make a changes-job step read its changed-file list from $CHANGED_FILES.
+
+    Fails when the step no longer names the list's path: a replace that
+    matches nothing would leave the step writing to an unset $RUNNER_TEMP
+    (the 20-red class after #49195 moved the file off /tmp).
+    """
+    assert CI_CHANGED_FILES in script, f"step no longer names {CI_CHANGED_FILES}"
+    return script.replace(CI_CHANGED_FILES, '"$CHANGED_FILES"')
+
+
+
 def isolate_ci_tmp(script: str, directory: Path) -> str:
     """Point a workflow step's fixed /tmp/cmux-* files into `directory`.
 
@@ -2004,7 +2016,9 @@ def isolate_ci_tmp(script: str, directory: Path) -> str:
     those files: one run then reads another's changed-file list, sees an empty
     diff, and routes nothing.
     """
-    return script.replace("/tmp/cmux-", f"{directory}/cmux-")
+    for prefix in ("/tmp/cmux-", "${RUNNER_TEMP}/cmux-", "$RUNNER_TEMP/cmux-"):
+        script = script.replace(prefix, f"{directory}/cmux-")
+    return script
 
 
 def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
