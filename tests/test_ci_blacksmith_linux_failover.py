@@ -19,7 +19,11 @@ on vCPUs, so a failover to a smaller size is the one likelier to start
 healthy routing still takes the Blacksmith label.
 
 Nightly, notarization, dev-daily and release/publish workflows are sequenced
-separately and are not checked here.
+separately and are not checked here. Nor is a runs-on line marked `# frozen-label:`,
+`# ephemeral-required:` or `# owned-pool-unfit:`: cmux#54437 froze those credentialed,
+provenance and write-token jobs to the one Blacksmith label they resolved to, the
+overflow picker included, and scripts/ci/check_runs_on_pools.py (EPHEMERAL_MARK)
+allows only a Blacksmith label there.
 """
 
 from __future__ import annotations
@@ -31,10 +35,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-# A runs-on line marked `# frozen-label: <why>` (or ephemeral-required, owned-pool-unfit) is one #54437 froze to the
-# one label it resolved to, deleting its CI_CLOUD_OVERFLOW_SAVED arm with the other pickers (Leo, 2026-11-27: the
-# pickers "deleted now, not after a soak"). Its literal is its trust rule; scripts/ci/check_runs_on_pools.py reads the
-# same mark and allows only a Blacksmith label there, so this guard skips it rather than asking the picker back.
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 from check_runs_on_pools import EPHEMERAL_MARK  # noqa: E402
 
@@ -128,9 +128,10 @@ def offenders() -> list[str]:
         if EXCLUDED_NAME.search(path.name) or path.name in EXCLUDED_FILES:
             continue
         for number, line in enumerate(path.read_text().splitlines(), 1):
-            code = line.split(" #", 1)[0] if not line.lstrip().startswith("#") else ""
-            if code and EPHEMERAL_MARK.search(line):
+            # A frozen exception keeps its one label by design (cmux#54437); the mark is its reason.
+            if EPHEMERAL_MARK.search(line):
                 continue
+            code = line.split(" #", 1)[0] if not line.lstrip().startswith("#") else ""
             # An allowlist of labels vars.LINUX_RUNNER may name is double-quoted JSON, not a
             # runner literal: the switch points that variable at another Blacksmith size.
             code = ALLOWLIST.sub("", code)
@@ -149,6 +150,25 @@ class BlacksmithLinuxFailoverTest(unittest.TestCase):
             "these runner labels name Blacksmith Linux without the overflow failover; write "
             "`vars.CI_CLOUD_OVERFLOW_SAVED && '<another Blacksmith size>' || 'blacksmith-...'` for the final literal",
         )
+
+    def test_a_frozen_exception_line_keeps_its_label_and_an_unmarked_one_does_not(self) -> None:
+        import tempfile
+        global WORKFLOWS
+        line = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        saved = WORKFLOWS
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "w.yml").write_text(
+                "jobs:\n"
+                f"  deploy:\n    runs-on: {line} # frozen-label: credentialed job\n"
+                f"  token:\n    runs-on: {line} # ephemeral-required: trusted tokens\n"
+                f"  plain:\n    runs-on: {line}\n"
+                f"  noted:\n    runs-on: {line} # some other note\n", encoding="utf-8")
+            WORKFLOWS = Path(tmp)
+            try:
+                found = offenders()
+            finally:
+                WORKFLOWS = saved
+        self.assertEqual([f.split(": ")[0] for f in found], ["w.yml:7", "w.yml:9"])
 
     def test_no_failover_names_github_hosted_ubuntu(self) -> None:
         hosted = [
