@@ -1,0 +1,110 @@
+name: iOS release-bar read-back (hosted)
+run-name: ios read-back ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}
+
+# The simulator read-back of the iOS release bar (cmuxterm-hq goals/ios-release-bar-readback.json, read by the
+# synthetic probe ios-release-bar): the three simulator legs of cmuxterm-hq
+# docs/findings/ios-1.0-audit-2026-11-22/rerun.sh (every audit screen in two `shots` jobs, then the App Review
+# gate's reviewer-path suite and launch TTI), on the hosted macOS pool instead of fleet `simulator` steps.
+#
+# Why: the read-back went stale for 6 days (11-22 at c77e754f) because its only route was fleet simulator steps,
+# which queue for hours when the minis are leased or offline (2026-11-28 15:51Z: "no_capable_worker ... 6 offline"),
+# and a lane VM's broker dispatches no workflow. A push to a lane/ios-readback-** branch (the commit to read back)
+# runs this file from that branch, so any lane can re-run the read-back after a merge. The real-link pairing leg
+# stays cmux-next-pair-e2e-vm.yml (push lane/pair-e2e-**).
+#
+# A tool, not a gate: no pull request, merge queue or branch protection reads it. Evidence: one artifact per leg
+# (screens, SUMMARY.md, test results); the step judgments are written into the hq results file by whoever runs it.
+on:
+  push:
+    branches: ["lane/ios-readback-**"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The branch, tag or commit to read back
+        required: true
+        default: feat-cmux-next
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  leg:
+    name: read-back (${{ matrix.leg }})
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: shots-1
+            args: >-
+              shots
+              kbd-chat=-cmux-mobile-demo,kbd-chat
+              disclosure-chat=-cmux-mobile-demo,disclosure-chat
+              resume-chat=-cmux-mobile-demo,resume-chat
+              ws-chat-idle=-cmux-mobile-demo,ws-chat-idle
+              chief-open=-cmux-mobile-demo,chief-open
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Run the leg
+        id: run
+        env:
+          JOBS: "6"
+          ARGS: ${{ matrix.args }}
+        run: |
+          set -uo pipefail
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # shellcheck disable=SC2086 # ARGS is a word list by design
+          bash scripts/ci/cmux-next-ios-sim.sh $ARGS
+          rc=$?
+          echo "status=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      - name: Summary
+        if: ${{ !cancelled() }}
+        env:
+          LEG: ${{ matrix.leg }}
+          SHA: ${{ steps.run.outputs.sha }}
+          STATUS: ${{ steps.run.outputs.status }}
+        run: |
+          {
+            echo "### iOS read-back: $LEG at ${SHA:-unknown}"
+            echo
+            echo "exit status: ${STATUS:-none}"
+            echo
+            [ -f artifacts/ios-sim/SUMMARY.md ] && cat artifacts/ios-sim/SUMMARY.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-readback-${{ matrix.leg }}
+          path: |
+            artifacts/ios-sim/screens/
+            artifacts/ios-sim/*-attachments/
+            artifacts/ios-sim/*-tests.json
+            artifacts/ios-sim/*-console.txt
+            artifacts/ios-sim/ui-video-small.mp4
+            artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/ui-tests-failures.txt
+          retention-days: 7
+          if-no-files-found: warn

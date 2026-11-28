@@ -303,9 +303,17 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .cmuxMobileBackground
-        // A hard edge: text scrolled under the header stops at it instead of showing through
-        // into the title (iOS release bar read-back, 2026-11-22, shot 08; tbd d-189cea06b1).
-        scrollView.topEdgeEffect.style = .hard
+        // Before iOS 27 a hard edge plus `topFade` keeps text scrolled under the header from
+        // showing through into the title (iOS release bar read-back, 2026-11-22, shot 08;
+        // tbd d-189cea06b1). On iOS 27 there is no `topFade`, and a hard edge blurs only the
+        // band above its line: a row crossing it read half sharp against "Claude · cmux"
+        // (read-back 2026-11-28, run 46162564784). The soft edge blurs the whole header
+        // band under the glass, as Chief's does.
+        if #available(iOS 27, *) {
+            scrollView.topEdgeEffect.style = .soft
+        } else {
+            scrollView.topEdgeEffect.style = .hard
+        }
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
