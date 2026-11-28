@@ -1,1 +1,1 @@
-(() => { const s = document.createElement("style"); s.textContent = "html .acpmux-spacer > .acpmux-thread{will-change:auto}"; (document.head||document.documentElement).appendChild(s); })();
+(() => { const add = () => { const s = document.createElement("style"); s.textContent = "html .acpmux-spacer > .acpmux-thread{will-change:auto}"; document.head.appendChild(s); }; if (document.head) add(); else document.addEventListener("DOMContentLoaded", add); })();

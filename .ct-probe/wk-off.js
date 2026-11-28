@@ -1,4 +1,4 @@
-(() => { const s = document.createElement("style"); s.textContent = "html .acpmux-spacer > .acpmux-thread{will-change:auto}"; (document.head||document.documentElement).appendChild(s); })();
+(() => { const add = () => { const s = document.createElement("style"); s.textContent = "html .acpmux-spacer > .acpmux-thread{will-change:auto}"; document.head.appendChild(s); }; if (document.head) add(); else document.addEventListener("DOMContentLoaded", add); })();
 // WebKit cost probe for composer-typing.bench.ts --probe: time spent per JS entry point and per forced layout,
 // named by source line, plus rAF frame gaps split into JS and non-JS time.
 (() => {
