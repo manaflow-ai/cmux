@@ -23,6 +23,10 @@
 //! - `controller.remove_pruned` `{path}` answers `{edits}`: the edits that
 //!   remove `path` and the objects it empties.
 //! - `controller.replace` `{root, path, value?}` answers `{root}`.
+//! - `controller.replace_many` `{root, entries: [{path, value?}], managed?:
+//!   [dotted]}` answers `{root}`: each entry replaced in order, in one call
+//!   (a preview's linked keys, a theme file's values), skipping an entry a
+//!   managed key overlaps (Swift `ThemeFileOverlay.applied(to:managed:)`).
 //! - `controller.theme_file_notes` `{root, file_keys: [dotted], density?,
 //!   managed?: [dotted]}` answers `{diagnostics}`: the note at each key the
 //!   active theme file sets (or the refusal of a name that is no theme file
@@ -58,6 +62,7 @@ pub fn call(op: &str, request: &Value) -> Option<Result<Value, OpError>> {
             path_of(request).map(|path| json!({ "edits": removing_pruned(&path) }))
         }
         "controller.replace" => replace_op(request),
+        "controller.replace_many" => replace_many_op(request),
         "controller.theme_file_notes" => theme_file_notes(request),
         "controller.see_through" => see_through(request),
         _ => return None,
@@ -236,18 +241,49 @@ fn load_root(request: &Value) -> Result<Value, OpError> {
 /// the objects along the way are made either way (Swift
 /// `SettingsController.replacing`).
 pub fn replacing(path: &[String], value: Option<Value>, root: &Value) -> Value {
-    let Some((key, rest)) = path.split_first() else { return value.unwrap_or(Value::Null) };
-    let mut members = root.as_object().cloned().unwrap_or_default();
+    let mut root = root.clone();
+    replace_in(&mut root, path, value);
+    root
+}
+
+/// [`replacing`] in place, so a batch copies the document once rather than
+/// once per entry. A non-object on the way becomes an object.
+pub fn replace_in(root: &mut Value, path: &[String], value: Option<Value>) {
+    let Some((key, rest)) = path.split_first() else {
+        *root = value.unwrap_or(Value::Null);
+        return;
+    };
+    if !root.is_object() {
+        *root = Value::Object(Map::new());
+    }
+    let Value::Object(members) = root else { return };
     if rest.is_empty() {
         match value {
             Some(value) => members.insert(key.clone(), value),
             None => members.remove(key),
         };
     } else {
-        let child = members.get(key).cloned().unwrap_or_else(|| json!({}));
-        members.insert(key.clone(), replacing(rest, value, &child));
+        let child = members.entry(key.clone()).or_insert_with(|| Value::Object(Map::new()));
+        replace_in(child, rest, value);
     }
-    Value::Object(members)
+}
+
+/// `root` with each `(path, value)` of `entries` replaced in order, skipping
+/// an entry whose key a managed key (dotted) sets, holds or lies inside.
+pub fn replacing_many(
+    entries: impl IntoIterator<Item = (Vec<String>, Option<Value>)>,
+    managed: &BTreeSet<String>,
+    root: &Value,
+) -> Value {
+    let mut root = root.clone();
+    for (path, value) in entries {
+        let key = dotted(&path);
+        if managed.iter().any(|held| overlaps(held, &key)) {
+            continue;
+        }
+        replace_in(&mut root, &path, value);
+    }
+    root
 }
 
 /// The edits that remove `path` and then each parent it leaves empty.
@@ -290,6 +326,15 @@ pub fn applying(edits: &[Value], root: &Value) -> Result<Value, OpError> {
 fn apply_edits(request: &Value) -> Result<Value, OpError> {
     let root = request.get("root").unwrap_or(&Value::Null);
     Ok(json!({ "root": applying(array(request, "edits")?, root)? }))
+}
+
+fn replace_many_op(request: &Value) -> Result<Value, OpError> {
+    let root = request.get("root").unwrap_or(&Value::Null);
+    let entries = array(request, "entries")?
+        .iter()
+        .map(|entry| Ok((path_of(entry)?, entry.get("value").cloned())))
+        .collect::<Result<Vec<_>, OpError>>()?;
+    Ok(json!({ "root": replacing_many(entries, &strings(request, "managed")?, root) }))
 }
 
 fn replace_op(request: &Value) -> Result<Value, OpError> {
