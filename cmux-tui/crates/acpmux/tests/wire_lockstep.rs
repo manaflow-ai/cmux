@@ -299,6 +299,11 @@ const KNOWN_GAPS: &[(&str, &str)] = &[
     ("method:_acpmux/steer_withdraw", "an agent passthrough, as _acpmux/subagent_stop"),
     ("method:_acpmux/step_now", "an agent passthrough, as _acpmux/subagent_stop"),
     (
+        "method:_acpmux/connections/grok.hook",
+        "retired: server/requests.rs answers -32601 on every connection (spawn_route_tests \
+         asserts it), yet the protocol registry (protocol/mod.rs) still lists it",
+    ),
+    (
         "field:_meta.acpmux#personVerified",
         "stamped on a forwarded prompt (server/remote_guard.rs:418, :437) but not declared in \
          AcpmuxRequestMeta (protocol registry)",
