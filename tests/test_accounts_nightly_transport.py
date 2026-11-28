@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import plistlib
 import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 from unittest import mock
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -28,6 +31,110 @@ class TransportTests(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
         return path
+
+    def host_cmux(self, *, doctor=0, status=None):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        log = Path(folder.name) / "calls.jsonl"
+        identity = status if status is not None else {
+            "status": "running", "session": "cmux-app-nightly", "pid": 123,
+            "socket": "/tmp/verified-nightly.sock"}
+        path = self.fake_cmux(
+            "import json, os, sys\n"
+            f"with open({str(log)!r}, 'a') as f:\n"
+            " f.write(json.dumps({'argv': sys.argv[1:], 'socket': os.environ.get('CMUX_TUI_SOCKET'), "
+            "'mux': os.environ.get('CMUX_MUX_SOCKET'), 'tag': os.environ.get('CMUX_TAG'), "
+            "'bundle': os.environ.get('CMUX_BUNDLE_ID'), 'app': os.environ.get('CMUX_SOCKET_PATH')}) + '\\n')\n"
+            "if sys.argv[-2:] == ['server', 'status']:\n"
+            f" print(json.dumps({identity!r})); sys.exit(0)\n"
+            "if 'doctor' in sys.argv:\n"
+            f" sys.exit({doctor})\n"
+            "for line in sys.stdin:\n"
+            " req = json.loads(line)\n"
+            " if 'id' not in req: continue\n"
+            " result = {} if req['method'] == 'initialize' else {'isError': True}\n"
+            " print(json.dumps({'id': req['id'], 'result': result}), flush=True)\n")
+        patch = mock.patch.object(PROBE, "NIGHTLY_HOST_CLI", str(path))
+        patch.start()
+        self.addCleanup(patch.stop)
+        return log
+
+    def test_nightly_uses_verified_host_for_doctor_and_mcp_without_fallback(self):
+        log = self.host_cmux()
+        with mock.patch.dict(os.environ, {"CMUX_TUI_SOCKET": "/tmp/probe.sock",
+                                         "CMUX_MUX_SOCKET": "/tmp/other.sock", "CMUX_TAG": "probe",
+                                         "CMUX_BUNDLE_ID": "com.example.probe", "CMUX_SOCKET_PATH": "/tmp/app.sock"}), \
+                mock.patch.object(PROBE.shutil, "which", side_effect=AssertionError("PATH fallback")):
+            client = PROBE.ComputerUse(host="nightly")
+            try:
+                with self.assertRaisesRegex(PROBE.ProbeError, "refused or failed"):
+                    client.call("list_windows")
+                self.assertEqual(client.sequence, 2)
+            finally:
+                client.close()
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertEqual([call["argv"] for call in calls], [
+            ["--session", "cmux-app-nightly", "--json", "server", "status"],
+            ["--socket", "/tmp/verified-nightly.sock", "computer-use", "doctor", "--json"],
+            ["computer-use", "mcp"]])
+        self.assertIsNone(calls[0]["socket"])
+        self.assertTrue(all(call[key] is None for call in calls for key in ("mux", "tag", "bundle", "app")))
+        self.assertEqual([call["socket"] for call in calls[1:]], ["/tmp/verified-nightly.sock"] * 2)
+        self.assertEqual(client.host_receipt["pid"], 123)
+
+    def test_failed_doctor_never_starts_mcp(self):
+        log = self.host_cmux(doctor=3)
+        with self.assertRaisesRegex(PROBE.ProbeError, "doctor failed.*exit=3"):
+            PROBE.ComputerUse(host="nightly")
+        self.assertEqual(len(log.read_text().splitlines()), 2)
+
+    def test_wrong_session_never_runs_doctor(self):
+        log = self.host_cmux(status={"status": "running", "session": "probe", "pid": 1,
+                                     "socket": "/tmp/probe.sock"})
+        with self.assertRaisesRegex(PROBE.ProbeError, "no verified identity"):
+            PROBE.ComputerUse(host="nightly")
+        self.assertEqual(len(log.read_text().splitlines()), 1)
+
+    def test_failed_doctor_prevents_accounts_action(self):
+        log = self.host_cmux(doctor=3)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "Contents").mkdir()
+            (root / "Contents/Info.plist").write_bytes(plistlib.dumps({}))
+            probe = PROBE.Probe(SimpleNamespace(app=root, out=root / "out", cu_host="nightly"))
+            with mock.patch.object(probe, "action") as action:
+                with self.assertRaises(PROBE.ProbeError):
+                    probe.run()
+            action.assert_not_called()
+        self.assertEqual(len(log.read_text().splitlines()), 2)
+
+    def test_failed_doctor_prevents_agent_prompts_install_or_workspace(self):
+        self.host_cmux(doctor=3)
+        spec = importlib.util.spec_from_file_location(
+            "agent_prompts", ROOT / "scripts/measure/ext-rows-agent-prompts.py")
+        prompts = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(prompts)
+        with tempfile.TemporaryDirectory() as folder:
+            ctx = SimpleNamespace(app=Path(folder), control="private", pid_file=Path(folder) / "pid",
+                                  work=Path(folder), token="fixture", cu_host="nightly", rpc=mock.Mock())
+            core = SimpleNamespace(ROOT=ROOT, load=mock.Mock(return_value=PROBE), install_customize=mock.Mock())
+            result = prompts.run(ctx, core)
+            self.assertFalse(result["checks"]["gui_flow"])
+            self.assertIn("doctor failed", result["error"])
+            ctx.rpc.assert_not_called()
+            core.install_customize.assert_not_called()
+
+    def test_accounts_launcher_arguments_are_accepted_by_probe(self):
+        spec = importlib.util.spec_from_file_location(
+            "accounts_launch", ROOT / "scripts/measure/accounts-nightly-launch.py")
+        launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launch)
+        for host in (None, "nightly"):
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as folder:
+                command = launch.probe_command(Path(folder), 123, "/tmp/private.sock", folder, host)
+                with mock.patch.object(PROBE.Probe, "run", return_value=None), mock.patch("builtins.print"):
+                    self.assertEqual(PROBE.main(command[2:]), 0)
+                self.assertEqual("--cu-host" in command, host is not None)
 
     def test_startup_failure_names_executable_exit_and_redacts_secret(self):
         path = self.fake_cmux(

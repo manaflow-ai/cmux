@@ -11,6 +11,7 @@
 #     --script scripts/measure/ext-rows-nightly.sh --ref <sha> [--arg=dmg=URL] [--arg=rows=a,b] \
 #     --artifact .build/ext-rows-nightly/report.tgz --timeout 1200
 #   dmg=URL    the nightly DMG (default: the newest in the NEXT feed)
+#   cu_host=nightly  agent_prompts uses the installed host NIGHTLY after read-only status/doctor checks
 #   rows=a,b   some rows only (default: every row in ext-rows-nightly.py ROWS)
 #   mode=cli   no launch (default off): the copied bundle's own cmux-tui daemon runs headless on a socket, data,
 #              home and customize folder under a temp folder, and the rows run through its CLI; rows that need
@@ -26,14 +27,17 @@ root="$PWD"
 out="$root/.build/ext-rows-nightly"
 rm -rf "$out" && mkdir -p "$out"
 dmg="" rows="" mode="app"
+cu_args=()
 for arg in "$@"; do
   case "$arg" in
     dmg=https://*) dmg="${arg#dmg=}" ;;
     rows=*) rows="${arg#rows=}" ;;
     mode=cli) mode="cli" ;;
+    cu_host=nightly) cu_args=(--cu-host nightly) ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+[[ "$mode" != cli || ${#cu_args[@]} == 0 ]] || { echo "cu_host=nightly requires app mode" >&2; exit 2; }
 [[ -z "$rows" || "$rows" =~ ^[a-z_,]+$ ]] || { echo "rows=a,b takes row names" >&2; exit 2; }
 if [[ -z "$dmg" ]]; then
   dmg="$(curl -fsSL --retry 3 --retry-all-errors https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
@@ -119,7 +123,7 @@ fi
 "$side" launch "$name" >&2 || exit 3
 python3 scripts/measure/ext-rows-nightly.py --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \
   --control-socket "$("$side" socket "$name")" --mcp-config "$config" \
-  --customize "$CMUX_SIDE_ROOT/$name/customize" --out "$out" ${rows:+--rows "$rows"} 2>&1 | tee "$out/run.log"
+  --customize "$CMUX_SIDE_ROOT/$name/customize" --out "$out" "${cu_args[@]}" ${rows:+--rows "$rows"} 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . 2>/dev/null || true
