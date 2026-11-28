@@ -337,8 +337,12 @@ PARTS = [
     # Leo 2026-11-25 "when you press enter, the stuff should just start playing": the agent chat's Enter to the sent
     # row's frame, its reserved turn in that frame, layout shifts per send, first token and chat switch, plain, in a
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
+    # goal: NOW's chat_snappy_send_paint_p95_ms (goal snappy-enter-paint), so once due it goes right after the build
+    # (part_order). Without it the part kept its PARTS place behind every stale Mac part and the row read one run, at
+    # e7e5eceb on 2026-11-25 08:50Z, for 2 days. goal_rows: a store without the plain send_paint row stays due.
     {"name": "chat-snappy", "args": [*MEASURE, "--config=bench", "--suite=chat-snappy"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy", "run_seconds": 1800},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy",
+     "goal": "snappy-enter-paint", "goal_rows": r"chat_snappy\.none\.send_paint@", "run_seconds": 1800},
     # Goal hot-swap-fast: a webview .tsx save to the first changed frame of the focused pane, the unfocused pane and a
     # hidden tab's show, on the dev server, with every other region's draft kept (scripts/measure/graceful-swap-cron.py
     # over graceful-swap-fleet.py's latency series, no films; hot_swap.mac.<surface>.p95_ms, bars 150/300/100 ms, plus
@@ -1409,9 +1413,14 @@ def linux_bench_runs(root, part="diff-viewer"):
         # linux job's cap covers both (linux_job_minutes). A cold build of acpmux, cmux-tui and its Zig terminal engine
         # outlasted 38 minutes on a 4-vCPU runner (2026-11-17); its leg runs on the one cmux-linux label like the others.
         # The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
+        # all-live: the same 1,000 items with lazy start off (every shell started at once), in a run of its own after
+        # the product arm, its rows named infinite_items.all_live.nN.* (--row-arm) beside the product's
+        # infinite_items.nN.*: NOW shows what lazy start saves next to what it costs (practices gap c155dd8eab85).
         script = os.path.join(root, INFINITE_ITEMS)
         return {"build": (["bash", script, "build-only"], root or ".", {}),
-                "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {})}
+                "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {}),
+                "all-live": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "--lazy-start=off",
+                              "--row-arm=all_live"], root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -4730,14 +4739,23 @@ def cmd_run_linux_part(o):
                 # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
                 # rounds run first (cmux#57939), and a bare `report = value` dropped them, so the board kept the
                 # one-run ratio 4 more days (perf cron run 45853686955: 6 rounds, token 1.163, nothing stored).
-                report = {**value, **{k: v for k, v in report.items() if k == "paired"}}
+                # A part of more than one row run (infinite-items' suite and all-live) keeps every run's rows: the
+                # later run's rows are added to the earlier's, not put in their place.
+                rows = [r for r in report.get("rows") or [] if isinstance(r, dict)] \
+                    + [r for r in value.get("rows") or [] if isinstance(r, dict)]
+                report = {**value, **{k: v for k, v in report.items() if k == "paired"}, "rows": rows}
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
                 if failed:
                     report["incomplete"] = [f"{f.get('bench')}: {f.get('why')}" for f in failed]
                     # A bench's setup failure (no browser) is in its own tail, not its exit code: record_part reads it.
                     tail += [str(x) for f in failed for x in f.get("tail") or [] if SETUP_FAILURE_RE.search(str(x))][-3:]
                     tail += [f"{f.get('bench')}: {f.get('why')}" for f in failed]
-            ok = isinstance(value, dict) and bool(value.get("rows"))
+            # The first row run decides the part (the product arm); a later arm that failed leaves its rows out and
+            # says so in the tail, not a failed part that drops the product arm's rows.
+            if name == next(n for n in runs if n not in ("build", "paired")):
+                ok = isinstance(value, dict) and bool(value.get("rows"))
+            elif name != "build" and not (isinstance(value, dict) and value.get("rows")):
+                report["incomplete"] = (report.get("incomplete") or []) + [f"{name}: no rows (exit {code})"]
         elif code != 0 or value is None:
             ok = False
         else:
