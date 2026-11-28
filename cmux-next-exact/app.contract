@@ -1,0 +1,130 @@
+// cmux (Exact): Slack-style tabs Home, DMs, Activity, Search, More, on mock data.
+use EmptyState from "exact:content"
+
+routes nav
+  tab home "/"
+    workspace "/w/:id"
+  tab dms "/dms"
+    chat "/dms/:id"
+  tab activity "/activity"
+  tab search "/search"
+  tab more "/more"
+
+shape Item
+  id: string
+  name: string
+  detail: string
+  meta: string
+
+fn title(n: string): string = n == "home" ? "Manaflow" : n == "dms" ? "DMs" : n == "activity" ? "Activity" : n == "search" ? "Search" : "More"
+fn nameOf(xs: Item[], id: string): string = match first(xs.filter(p => p.id == id)) { case some(p) => p.name, case none => "" }
+fn matches(p: Item, q: string): bool = p.name.toLowerCase().includes(q.trim().toLowerCase()) or p.detail.toLowerCase().includes(q.trim().toLowerCase())
+
+component App
+  state query = ""
+  state answered = ""
+  resource workspaces = loadWorkspaces() as shape Item[] else empty()
+  resource dms = loadDms() as shape Item[] else empty()
+  resource feed = loadFeed() as shape Item[] else empty()
+  resource settings = loadSettings() as shape Item[] else empty()
+  derive found = workspaces.concat(dms).filter(p => query.trim().length > 0 and matches(p, query))
+  action pick(name: string)
+    nav = select(nav, name)
+  action follow(url: string)
+    nav = go(nav, url)
+  action search(v: string)
+    query = v
+  action answer(v: string)
+    answered = v
+  view
+    main navigationKey=`${top(nav).id}` navigate=follow testId="app" width="100%" height="100%"
+      display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key=e.id
+              column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0
+                display="flex" flex-direction="column"
+                header display="flex" align-items="center" gap=8 padding="8px 16px"
+                  text (e.name == "workspace" ? nameOf(workspaces, e.params.id) : e.name == "chat" ? nameOf(dms, e.params.id) : title(e.name))
+                    role="heading" aria-level=(e.name == "workspace" or e.name == "chat" ? 2 : 1) flex=1
+                if e.name == "home"
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      for p in workspaces key=p.id
+                        link href=path("workspace", p.id) testId=`home-${p.id}`
+                          image "symbol:layers"
+                          column flex=1 min-width=0 gap=2
+                            text p.name
+                            text p.detail font="-exact-subheadline" color="-exact-secondary-label"
+                          text p.meta font="-exact-footnote" color="-exact-secondary-label"
+                else if e.name == "dms"
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      for p in dms key=p.id
+                        link href=path("chat", p.id) testId=`dm-${p.id}`
+                          image "symbol:person"
+                          column flex=1 min-width=0 gap=2
+                            text p.name
+                            text p.detail font="-exact-subheadline" color="-exact-secondary-label"
+                          text p.meta font="-exact-footnote" color="-exact-secondary-label"
+                else if e.name == "activity"
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    for p in feed key=p.id
+                      section
+                        column gap=4 padding-top=6 padding-bottom=6 flex=1 min-width=0
+                          text p.meta font="-exact-footnote" color="-exact-secondary-label"
+                          text p.name
+                          text p.detail font="-exact-subheadline" color="-exact-secondary-label"
+                          if p.id == "ask" and answered == ""
+                            row gap=8
+                              button press=answer("Yes") testId="ask-yes"
+                                text "Yes"
+                              button press=answer("No") testId="ask-no"
+                                text "No"
+                          if p.id == "ask" and answered != ""
+                            text `You answered ${answered}` testId="answered"
+                else if e.name == "search"
+                  column padding="0 16px" gap=8
+                    input type="search" value=query input=search placeholder="Search workspaces and agents"
+                      aria-label="Search" testId="search" width="100%"
+                  if found.length == 0
+                    EmptyState(symbol="symbol:search", title="Search cmux", message="Workspaces, agents and people.")
+                  else
+                    list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                      section
+                        for p in found key=p.id
+                          row
+                            text p.name flex=1
+                            text p.meta color="-exact-secondary-label"
+                else if e.name == "more"
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      for p in settings key=p.id
+                        row
+                          text p.name flex=1
+                          text p.detail color="-exact-secondary-label"
+                else
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      row padding-top=10 padding-bottom=10
+                        text (e.name == "chat" ? "What's running on my Macs right now?" : "Claude Code is working on feat-cmux-next.") flex=1 min-width=0 testId="detail"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home") testId="tab-home" flex=1
+          image "symbol:home"
+          text "Home"
+        button role="tab" aria-controls="panel-dms" aria-selected=(nav.tab == "dms") press=pick("dms") testId="tab-dms" flex=1
+          image "symbol:messages"
+          text "DMs"
+        button role="tab" aria-controls="panel-activity" aria-selected=(nav.tab == "activity") press=pick("activity") testId="tab-activity" flex=1
+          image "symbol:activity"
+          text "Activity"
+          if answered == ""
+            row background-color="-exact-system-red" border-radius=12
+              text "1"
+        button role="tab" aria-controls="panel-search" aria-selected=(nav.tab == "search") press=pick("search") testId="tab-search" flex=1
+          image "symbol:search"
+          text "Search"
+        button role="tab" aria-controls="panel-more" aria-selected=(nav.tab == "more") press=pick("more") testId="tab-more" flex=1
+          image "symbol:more"
+          text "More"

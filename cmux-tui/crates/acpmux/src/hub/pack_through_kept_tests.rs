@@ -113,8 +113,8 @@ fn a_pack_through_keeps_the_sealed_segments_the_log_still_holds() {
     assert_eq!(m, want, "the pack is the whole pack of the same lines");
     assert_eq!(digest, want_digest);
 
-    // A daemon that never checked them: hashed as they stream, the same pack.
-    hub.pack_checked.lock().unwrap().clear();
+    // A daemon that never checked them (and kept no trust): hashed as they stream, the same pack.
+    hub.forget_pack_trust(id);
     let work = root.path().join("work-checked");
     let (m, stats, digest) = hub.pack_through(&session, through, &store, &work).unwrap();
     assert_eq!(stats.kept_segments as usize, n, "{stats:?}");
@@ -211,27 +211,67 @@ fn pack_through_bench() {
         );
         let _ = std::fs::remove_dir_all(&work);
     }
-    for (case, trusted) in [("after a seal", true), ("after a restart", false)] {
+    // After a seal (this daemon checked the segments); after a restart that kept no trust (the
+    // segments checked against the whole log again, as every restart did before
+    // `pack_trust.rs`); after a restart that kept it.
+    for (case, restart) in [
+        ("after a seal", None),
+        ("after a restart, trust not kept", Some(false)),
+        ("after a restart, trust kept", Some(true)),
+    ] {
         append(&hub, &session, 1_000, 200, &mut text);
-        if !trusted {
-            hub.pack_checked.lock().unwrap().clear();
+        match restart {
+            None => {}
+            Some(false) => hub.forget_pack_trust(id),
+            Some(true) => hub.pack_checked.lock().unwrap().clear(),
         }
         let through = session.read_meta(|m| m.last_seq);
-        let work = root.path().join(format!("work-{trusted}"));
-        let (before, at) = (written(), Instant::now());
+        let work = root.path().join(format!("work-{restart:?}"));
+        let (before, cpu, at) = (written(), cpu_ms(), Instant::now());
         let (_, stats, _) = hub.pack_through(&session, through, &store, &work).unwrap();
         let took = at.elapsed();
         let bytes = written().zip(before).map(|(a, b)| a - b);
+        let cpu = cpu_ms().zip(cpu).map(|(a, b)| a - b);
         eprintln!(
-            "BENCH after, pack_through {case}: {} bytes written, {took:?}, {} of {} log bytes encoded, \
-             {} segments kept",
+            "BENCH after, pack_through {case}: {} bytes written, {took:?}, {} ms CPU, {} of {} log \
+             bytes encoded, {} segments kept",
             bytes.map_or("?".into(), |b| b.to_string()),
+            cpu.map_or("?".into(), |c| c.to_string()),
             stats.encoded_bytes,
             stats.raw_bytes,
             stats.kept_segments,
         );
         let _ = std::fs::remove_dir_all(&work);
     }
+    // A daemon's first seal of the chat after a restart, as the pack worker runs it.
+    for (case, kept) in [("trust not kept", false), ("trust kept", true)] {
+        append(&hub, &session, 25_000, 200, &mut text);
+        match kept {
+            false => hub.forget_pack_trust(id),
+            true => hub.pack_checked.lock().unwrap().clear(),
+        }
+        let (cpu, at) = (cpu_ms(), Instant::now());
+        let sealed = hub.seal_pack(id).unwrap().unwrap();
+        let took = at.elapsed();
+        let cpu = cpu_ms().zip(cpu).map(|(a, b)| a - b);
+        eprintln!(
+            "BENCH first seal after a restart, {case}: {took:?}, {} ms CPU, extended {}, {} of {} \
+             log bytes encoded",
+            cpu.map_or("?".into(), |c| c.to_string()),
+            sealed.extended,
+            sealed.stats.encoded_bytes,
+            sealed.stats.raw_bytes,
+        );
+    }
+}
+
+/// This process's CPU time so far, user and system, in ms (Linux `/proc/self/stat`, in clock
+/// ticks of 10 ms).
+fn cpu_ms() -> Option<u64> {
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    let fields: Vec<&str> = stat.rsplit_once(") ")?.1.split(' ').collect();
+    let ticks: u64 = fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
+    Some(ticks * 10)
 }
 
 /// The scratch of a daemon killed while it wrote a chat's lines (`transfer_out.rs` `scratch_dir`)

@@ -387,6 +387,10 @@ jobs:
             && CI_PATHS_FILE="$lines" python3 -I scripts/ci/web_subareas.py has agent_pane; then
             echo "routed=true" >> "$GITHUB_OUTPUT"
           fi
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        if: ${{ steps.acpmux.outputs.routed == 'true' }}
+        uses: ./.github/actions/runner-cargo-home
       - name: Restore the agent pane's acpmux cargo build
         if: ${{ steps.acpmux.outputs.routed == 'true' }}
         continue-on-error: true
@@ -790,6 +794,8 @@ jobs:
     if: ${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       contents: read
       actions: read
