@@ -189,6 +189,8 @@ jobs:
             artifacts/ios-sim/simctl-launch-pids.txt
             artifacts/ios-sim/simctl-first-connect-floor.json
             artifacts/ios-sim/simctl-launch-marks-floor.ndjson
+            artifacts/ios-sim/simctl-first-connect-floor-webrtc.json
+            artifacts/ios-sim/simctl-launch-marks-floor-webrtc.ndjson
             artifacts/ios-sim/premain*
             artifacts/ios-sim/premain-trace/
             artifacts/ios-sim/simctl-launch-cold.png

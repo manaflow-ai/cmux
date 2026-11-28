@@ -45,6 +45,16 @@ if floor_app="$(bash "$measure/ios-launch-floor/build.sh" "$work/floor" 2>"$out/
 else
   echo "floor build failed: see premain-floor-build.err" >&2
 fi
+# 1b. Floor plus cmux's WebRTC.framework: its main minus the floor's is WebRTC's pre-main cost.
+echo "== premain: floor + WebRTC"
+if [[ -d "$app/Frameworks/WebRTC.framework" ]] &&
+   fw_app="$(bash "$measure/ios-launch-floor/build.sh" "$work/floor-webrtc" "$app/Frameworks/WebRTC.framework" \
+     2>"$out/premain-floor-webrtc-build.err" | tail -1)" && [[ -d "$fw_app" ]]; then
+  bounded 600 bash "$measure/ios-first-connect-simctl.sh" --app "$fw_app" --runs 10 --out "$out" --tag floor-webrtc \
+    >"$out/premain-floor-webrtc.log" 2>&1 || echo "floor+WebRTC arm failed: see premain-floor-webrtc.log" >&2
+else
+  echo "floor+WebRTC build failed (or the app embeds no WebRTC): see premain-floor-webrtc-build.err" >&2
+fi
 
 # 2. Inventory.
 echo "== premain: inventory"
@@ -101,10 +111,19 @@ for _ in 1 2; do
   sleep 1
 done
 mkdir -p "$out/premain-trace"
-if bounded 240 xcrun xctrace record --template 'App Launch' --device "$udid" --time-limit 15s \
+# The selected Xcode can be a release candidate whose Instruments does not load on the runner's macOS
+# (Xcode 27.2 RC: `Symbol not found ... libswiftos.dylib`); record with the newest stable Xcode on the image
+# when there is one, else the selected one.
+xdev="$(xcode-select -p)"
+for x in $(ls -d /Applications/Xcode*.app 2>/dev/null | grep -viE 'release_candidate|beta|_rc' | sort -V -r); do
+  [[ -x "$x/Contents/Developer/usr/bin/xctrace" ]] && { xdev="$x/Contents/Developer"; break; }
+done
+echo "xctrace from $xdev" | tee "$out/premain-trace/xcode.txt"
+xctrace() { DEVELOPER_DIR="$xdev" xcrun xctrace "$@"; }
+if bounded 240 env DEVELOPER_DIR="$xdev" xcrun xctrace record --template 'App Launch' --device "$udid" --time-limit 15s \
      --output "$trace" --env CMUX_MOBILE_MOCK_AUTH=1 --launch -- "$app" -cmuxMobile.setupComplete YES \
      >"$out/premain-trace/record.log" 2>&1 && [[ -d "$trace" ]]; then
-  xcrun xctrace export --input "$trace" --toc >"$out/premain-trace/toc.xml" 2>"$out/premain-trace/toc.err" || true
+  xctrace export --input "$trace" --toc >"$out/premain-trace/toc.xml" 2>"$out/premain-trace/toc.err" || true
   python3 -I - "$out/premain-trace/toc.xml" <<'PY' >"$work/schemas.txt"
 import sys, xml.etree.ElementTree as ET
 try:
@@ -119,7 +138,7 @@ PY
   sort -u "$work/schemas.txt" | while read -r schema; do
     case "$schema" in
       *life*|*dyld*|*static*|*init*|*launch*|*process*|*thread-state*|*time-profile*|*region*|*os-signpost*)
-        bounded 120 xcrun xctrace export --input "$trace" \
+        bounded 120 env DEVELOPER_DIR="$xdev" xcrun xctrace export --input "$trace" \
           --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$schema\"]" \
           >"$out/premain-trace/$schema.xml" 2>/dev/null || true ;;
     esac
@@ -181,13 +200,17 @@ python3 -I - "$out" <<'PY'
 import json, pathlib, sys
 o = pathlib.Path(sys.argv[1])
 line = {}
-for name, key in (("simctl-first-connect.json", "app"), ("simctl-first-connect-floor.json", "floor")):
+for name, key in (("simctl-first-connect.json", "app"), ("simctl-first-connect-floor.json", "floor"),
+                  ("simctl-first-connect-floor-webrtc.json", "floor_webrtc")):
     p = o / name
     if p.exists():
         d = json.loads(p.read_text())
         line[key] = {m: d["marks"][m]["p90_ms"] for m in ("main", "did_finish_launching", "workspaces_list_frame")
                      if m in d["marks"]}
         line[key]["spawn_lead_p90"] = d.get("spawn", {}).get("process_start_minus_simctl_call_ms", {}).get("p90")
+f, w = line.get("floor", {}).get("main"), line.get("floor_webrtc", {}).get("main")
+if f is not None and w is not None:
+    line["webrtc_premain_ms_p90"] = w - f
 inv = o / "premain-inventory.json"
 if inv.exists():
     d = json.loads(inv.read_text())
