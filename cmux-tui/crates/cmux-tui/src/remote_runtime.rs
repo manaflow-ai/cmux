@@ -654,6 +654,11 @@ pub struct ClientRuntimeOptions {
     pub providers: Arc<cmux_remote::provider::ProviderRegistry>,
     pub identity: StaticIdentity,
     pub expected_daemon: Option<[u8; 32]>,
+    /// The pinned daemon offered IK on its last connection ([`KnownDaemon::takes_ik`]): the
+    /// first connect runs IK instead of XX, one round trip shorter.
+    ///
+    /// [`KnownDaemon::takes_ik`]: cmux_remote::identity::KnownDaemon::takes_ik
+    pub daemon_took_ik: bool,
     pub auth: ClientAuthMode,
     pub device_name: String,
     pub session: SessionId,
@@ -696,6 +701,12 @@ pub struct ClientRuntimeHandle {
 impl ClientRuntimeHandle {
     pub fn info(&self) -> &ClientRuntimeInfo {
         &self.info
+    }
+
+    /// Whether the daemon offered IK on every link of this connection, to keep for the next cold
+    /// connect ([`ClientRuntimeOptions::daemon_took_ik`]).
+    pub fn daemon_takes_ik(&self) -> bool {
+        self.connection.daemon_takes_ik()
     }
 
     pub fn multiplexer(&self) -> &Arc<ServiceMultiplexer> {
@@ -1321,7 +1332,7 @@ impl RuntimeInitialRouteAttempt<'_> {
         let connection = tokio::select! {
             result = tokio::time::timeout_at(
                 connection_deadline,
-                ClientConnection::connect_with_reconnect_groups(
+                ClientConnection::connect_with_ik_hint(
                     group.clone(),
                     ClientConnectionConfig {
                         identity: self.options.identity.clone(),
@@ -1341,6 +1352,7 @@ impl RuntimeInitialRouteAttempt<'_> {
                         },
                     },
                     Some(reconnect_groups),
+                    self.options.daemon_took_ik,
                 ),
             ) => match result {
                 Ok(connection) => connection,

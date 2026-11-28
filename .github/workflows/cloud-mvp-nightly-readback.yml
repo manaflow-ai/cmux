@@ -95,7 +95,7 @@ jobs:
             --key "cloud-mvp-readback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}" \
             --artifact .build/cloud-mvp-nightly-readback/report.tgz \
             --timeout 2400 --queue-timeout 10800 2>&1 | tee "$out/step.log" || status=${PIPESTATUS[0]}
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$out/step.log" | head -1 | cut -d' ' -f2)"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$out/step.log" | head -1 | cut -d' ' -f2 || true)"
           if [[ "$status" == 75 && -n "$step" ]]; then
             # Not started within the queue wait: the step stays queued after the client stops waiting.
             "$client" cancel "$step" --reason "cloud MVP readback: no display Mac within 3 h" || true
