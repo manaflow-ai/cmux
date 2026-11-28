@@ -900,7 +900,7 @@ async fn check_inner(
 /// `acp.trust.*` request on. A session this daemon holds, an unknown key or none is not one.
 fn names_a_peers_session(hub: &crate::hub::Hub, params: &Value) -> bool {
     super::session_key(params)
-        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some())
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.remote_route(key).is_some())
 }
 
 /// The folder an `acp.trust.set` from a connection that is not the unix socket records on this
@@ -1199,7 +1199,7 @@ pub(super) async fn web_starts_asking(
     // chat would: the same remote start rule, so a family with no reviewed asking mode is refused.
     // Of a chat this machine runs; a peer's chat is the peer's to judge (forwarded `via: web`).
     let peer_chat = super::session_key(params)
-        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some());
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.remote_route(key).is_some());
     if m == method::SESSION_FORK
         && web
         && !peer_chat
@@ -1341,7 +1341,7 @@ pub(super) async fn web_starts_asking(
             Ok(s) => hub.web_control_check(&s, control, device),
             // A configured peer's session: forwarded with `via: web`, so
             // that peer applies the Web's rules on its own fresh state.
-            Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
+            Err(_) if hub.remote_route(key).is_some() => Ok(()),
             // A local not-found or ambiguous key is refused, never assumed
             // to be a peer's.
             Err(e) => Err(e),

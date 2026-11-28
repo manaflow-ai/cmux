@@ -776,7 +776,7 @@ impl Hub {
         if let Some((host, rest)) = name.split_once('/') {
             return !host.is_empty() && !rest.is_empty();
         }
-        !name.is_empty() && (self.resolve(name).is_ok() || self.resolve_remote(name).is_some())
+        !name.is_empty() && (self.resolve(name).is_ok() || self.remote_route(name).is_some())
     }
 
     /// Where a prompt to bridged chat `session` goes now: its app's inbox or thread, while that

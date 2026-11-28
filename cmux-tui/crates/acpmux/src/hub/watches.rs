@@ -328,8 +328,8 @@ pub fn resolve(hub: &Hub, key: &str) -> Result<String, RpcError> {
     if let Ok(s) = hub.resolve(key) {
         return Ok(s.id.clone());
     }
-    hub.resolve_remote(key)
-        .map(|(p, id, _)| format!("{}/{id}", p.name))
+    hub.remote_route(key)
+        .map(|(p, id)| format!("{}/{id}", p.name))
         .or_else(|| {
             let id = hub.mesh_book_resolve(key)?;
             let host = key

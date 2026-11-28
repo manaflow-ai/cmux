@@ -110,7 +110,7 @@ impl Hub {
     /// peer). None leaves `target` as it is.
     pub fn successor_for(&self, target: &str) -> Option<Result<String, RpcError>> {
         let reachable = self.resolve(target).is_ok()
-            || (self.resolve_remote(target).is_some() && self.peer_down_for(target).is_none());
+            || (self.remote_route(target).is_some() && self.peer_down_for(target).is_none());
         if reachable {
             return None;
         }

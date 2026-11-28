@@ -371,7 +371,7 @@ pub(super) async fn forward(
     }
     // A message to a chat on a peer ends that peer's typing wake as sent (`compose_wake.rs`).
     if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
-        && let Some(peer) = session_key(params).ok().and_then(|key| hub.resolve_remote(key))
+        && let Some(peer) = session_key(params).ok().and_then(|key| hub.remote_route(key))
     {
         crate::compose_wake::sent(&peer.0.name);
     }
@@ -384,7 +384,7 @@ pub(super) async fn forward(
         let mut fields = crate::xhost_audit::prompt_fields(params);
         let peer = session_key(params)
             .ok()
-            .and_then(|key| hub.resolve_remote(key))
+            .and_then(|key| hub.remote_route(key))
             .map(|r| r.0.name.clone());
         fields.set("via", json!("peer"));
         fields.set("toHost", json!(peer));
@@ -555,7 +555,7 @@ async fn forward_inner(
     if matches!(m, method::ACP_TRUST_GET | method::ACP_TRUST_SET)
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
-        && let Some((peer, id, _)) = hub.resolve_remote(key)
+        && let Some((peer, id)) = hub.remote_route(key)
     {
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));

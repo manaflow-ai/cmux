@@ -45,7 +45,7 @@ pub(in crate::server) fn check(
         Ok(_) if auth == crate::server::ConnAuth::CarrierTeam => Ok(()),
         Ok(_) if sender.is_some_and(|d| hub.pairing.own_phone(d)) => Ok(()),
         Ok(_) => Err(refused()),
-        Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
+        Err(_) if hub.remote_route(key).is_some() => Ok(()),
         Err(e) => Err(RpcError::invalid_params(format!(
             "session/cancel from a remote WebSocket connection is refused: the session cannot be resolved ({})",
             e.message
