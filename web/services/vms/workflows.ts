@@ -39,6 +39,7 @@ import type {
   VMStats,
   VMStatus,
 } from "./drivers";
+import { SANDBOX_VM_IDEMPOTENCY_PREFIX } from "../runs/model";
 import { isProviderId, vmCapabilitiesFor } from "./drivers";
 import {
   VmBillingGateway,
