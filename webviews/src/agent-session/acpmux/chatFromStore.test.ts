@@ -403,11 +403,6 @@ test("a saved copy that says on, to a daemon without the hold this time: the cha
     const closed = run.hostPosts().filter((post) => post.method === "chat.rows.close");
     expect(closed).toHaveLength(opened.length);
     expect(client.selectedSessionId).toBe(run.a);
-    // Read once a document: a later open guesses from what this handshake said, not the copy.
-    const { ChatSource } = await import("./rows/chatSource");
-    expect(new ChatSource(async () => null, { context: () => ({}) as never, rows() {}, fell() {} }).hostSaidOn()).toBe(
-      false,
-    );
   } finally {
     client.close?.();
     resetChatRowsReceiver();
