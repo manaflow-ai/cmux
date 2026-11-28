@@ -282,6 +282,8 @@ fn a_named_machine_this_run_makes_is_replaced_when_it_never_connects() {
         ok(json!({"deleted": true})),
         signed_in(),
         started(),
+        // Folderless, so the start reads where the chat runs (one exec after it is ready).
+        exec_out("@@cwd\n[]\n"),
     ]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--name", "lane-x"])) else {
         panic!("{:?}", fake.ran)
