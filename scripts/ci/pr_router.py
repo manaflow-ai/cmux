@@ -943,6 +943,60 @@ def nightly_gate_table(callees: dict, files: list[str] | None, decided: tuple[st
     return (table + jobs, only) if jobs else (table, [])
 
 
+AREA_REPORT_ROWS = 60
+AREA_REPORT_WARNINGS = 20
+
+
+def area_report(files: list[str] | None, path: Path | None = None) -> tuple[list[str], list[str]]:
+    """Every head's path -> area -> checks log, and one fail-open warning per changed file the area map misses.
+
+    shadow-leo for Leo, 2026-11-28 (ask c-b8f3358600): "on every PR, log which area the paths mapped to and which
+    tests/benches ran, and flag any changed file that matched NO area as a one-line fail-open warning, not a
+    failure ... that list IS your map backlog". The miss is loud (an annotation on the head) and never red; a
+    map that does not load says so and the head goes on. Returns (summary lines, annotation lines)."""
+    if files is None:
+        return ["### CI area map", "", "changed files unknown: no area report (fail open)", ""], []
+    index = area_index(path)
+    if index is None:
+        return (["### CI area map", "", "docs/benches/relevance-map.toml does not load: no area report (fail open)", ""],
+                ["::warning title=CI area map::docs/benches/relevance-map.toml does not load; no path was mapped (fail open)"])
+    from benchlib import relevance  # noqa: PLC0415 - area_index put scripts/bench on sys.path
+    doc = relevance.plan(index, list(files))
+    by_name = {a["name"]: a for a in doc["areas"]}
+
+    def checks(row: dict) -> str:
+        got = []
+        for name in (row["area"], row["unit"]):
+            a = by_name.get(name) if name else None
+            if a is None:
+                continue
+            got += [f"bench `{b}`" for b in a["benches"]] + [f"`{c}`" for c in a["run"] + a["checks"]]
+            if a["tests"]:
+                got.append(f"{len(a['tests'])} test(s)")
+        return ", ".join(dict.fromkeys(got)) or "none"
+
+    unmapped = doc["unmapped"]
+    lines = ["### CI area map", "",
+             f"{len(files)} changed file(s), {len(files) - len(unmapped)} mapped, {len(unmapped)} matched no area "
+             "(docs/benches/relevance-map.toml; scripts/bench/cmux-bench for-paths prints the same)", "",
+             "| path | area | unit | benches, budgets, tests |", "|---|---|---|---|"]
+    for row in doc["paths"][:AREA_REPORT_ROWS]:
+        lines.append(f"| `{row['path']}` | {row['area'] or '**none**'} | {row['unit'] or '-'} | {checks(row)} |")
+    if len(doc["paths"]) > AREA_REPORT_ROWS:
+        lines.append(f"| ... {len(doc['rows']) - AREA_REPORT_ROWS} more | | | |")
+    budgets = [a for a in doc["areas"] if a.get("budget")]
+    if budgets:
+        lines += ["", "Budgets: " + "; ".join(f"{a['name']}: {a['budget']}" for a in budgets)]
+    lines.append("")
+    notes = [f"::warning file={f},title=CI area map::{f} matches no area or unit in docs/benches/relevance-map.toml; "
+             f"it ran only the default checks (fail open). Add an [[area]] or run `cmux-bench for-paths --write`."
+             for f in unmapped[:AREA_REPORT_WARNINGS]]
+    if len(unmapped) > AREA_REPORT_WARNINGS:
+        notes.append(f"::warning title=CI area map::{len(unmapped) - AREA_REPORT_WARNINGS} more changed files match no area "
+                     "(see the router's summary)")
+    return lines, notes
+
+
 def areas_output(files: list[str] | None) -> str:
     """The route job's `areas` output: the change's CI areas as a JSON list, or `all` when it cannot tell."""
     got = change_areas(files)
@@ -972,8 +1026,15 @@ def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None
              f"ios fast verdict runner: {'skips' if ios_skip[0] else 'plans'} ({ios_skip[1]})", "",
              "| workflow | starts | why |", "|---|---|---|"]
     lines += [f"| `{name}` | {'yes' if name in start else 'no'} | {reason} |" for name, reason in sorted(why.items())]
+    try:
+        report, notes = area_report(files)
+    except Exception as err:  # noqa: BLE001 - the area report never fails a route
+        report, notes = [], [f"::warning title=CI area map::area report failed ({type(err).__name__}: {err}); fail open"]
+    lines += [""] + report
     text = "\n".join(lines) + "\n"
     print(text)
+    for note in notes:
+        print(note)
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
             f.write(text)

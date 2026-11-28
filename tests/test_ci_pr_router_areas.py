@@ -112,5 +112,42 @@ class MotionFramesReadsAreas(unittest.TestCase):
         self.assertEqual(local, [])
 
 
+class AreaReport(unittest.TestCase):
+    """shadow-leo for Leo (c-b8f3358600): every head logs path -> area -> checks, and a changed file that matches no
+    area is a one-line fail-open warning, never a failure."""
+
+    def test_mapped_path_logs_its_area_and_checks(self):
+        lines, notes = pr_router.area_report([LAYOUT])
+        text = "\n".join(lines)
+        self.assertIn("### CI area map", text)
+        self.assertIn(f"| `{LAYOUT}` | Pane layout |", text)
+        self.assertIn("0 matched no area", text)
+        self.assertEqual(notes, [])
+
+    def test_unmapped_path_is_one_warning(self):
+        lines, notes = pr_router.area_report([LAYOUT, "zz-nowhere/file.txt"])
+        self.assertIn("1 matched no area", "\n".join(lines))
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("::warning file=zz-nowhere/file.txt,title=CI area map::"))
+        self.assertNotIn("::error", notes[0])
+
+    def test_many_unmapped_cap_the_annotations(self):
+        files = [f"zz-nowhere/{i}.txt" for i in range(pr_router.AREA_REPORT_WARNINGS + 5)]
+        lines, notes = pr_router.area_report(files)
+        self.assertEqual(len(notes), pr_router.AREA_REPORT_WARNINGS + 1)
+        self.assertIn("5 more changed files", notes[-1])
+
+    def test_unknown_files_or_map_fail_open(self):
+        lines, notes = pr_router.area_report(None)
+        self.assertIn("fail open", "\n".join(lines))
+        self.assertEqual(notes, [])
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d) / "map.toml"
+            bad.write_text("not = [toml")
+            lines, notes = pr_router.area_report([LAYOUT], bad)
+        self.assertIn("does not load", "\n".join(lines))
+        self.assertTrue(notes and notes[0].startswith("::warning"))
+
+
 if __name__ == "__main__":
     unittest.main()
