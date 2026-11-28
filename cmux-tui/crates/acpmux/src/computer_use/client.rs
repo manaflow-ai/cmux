@@ -426,9 +426,25 @@ fn open_admitted(
 }
 
 fn exchange(endpoint: &Endpoint, request: &Value) -> Result<Value, Attempt> {
+    exchange_with(endpoint, request, true)
+}
+
+/// One request to the worker at `endpoint`, answered within the hello's read timeout
+/// ([`HELLO_WAIT`]): no retry, no presence connection and never a wait on the person. For acpmux's
+/// own passive reads (turn frames of a native window, `hub/turn_frames_native.rs`), which give up
+/// rather than wait. The worker's result, or why there was none.
+pub(crate) fn call_bounded(endpoint: &Endpoint, request: &Value) -> Result<Value, String> {
+    exchange_with(endpoint, request, false).map_err(|e| match e {
+        Attempt::Transport(why) | Attempt::Worker(why) => why,
+    })
+}
+
+fn exchange_with(endpoint: &Endpoint, request: &Value, wait: bool) -> Result<Value, Attempt> {
     let transport = |e: io::Error| Attempt::Transport(e.to_string());
     let (mut reader, unbounded) = open_admitted(endpoint)?;
-    unbounded();
+    if wait {
+        unbounded();
+    }
     let mut line = request.to_string();
     line.push('\n');
     reader.get_mut().write_all(line.as_bytes()).map_err(transport)?;
