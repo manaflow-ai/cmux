@@ -48,7 +48,7 @@ fn repo(root: &Path) -> (PathBuf, String) {
 
 fn mount(bare: &Path, commit: &str, at: &Path, keep: &Path, ready: &Path) -> Child {
     let _ = std::fs::remove_file(ready);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-projection"))
+    let mut child = Command::new(projection_bin())
         .args(["git-mount", "--git-dir"])
         .arg(bare)
         .args(["--commit", commit, "--at"])
@@ -141,7 +141,7 @@ fn a_stopped_mount_unmounts_and_a_killed_one_mounts_again_with_its_edits() {
 
 fn lower(bare: &Path, commit: &str, at: &Path, keep: &Path, index: &Path, ready: &Path) -> Child {
     let _ = std::fs::remove_file(ready);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-projection"))
+    let mut child = Command::new(projection_bin())
         .args(["git-lower", "--git-dir"])
         .arg(bare)
         .args(["--commit", commit, "--at"])
@@ -198,4 +198,13 @@ fn a_lower_is_read_only_and_its_index_matches_it() {
     assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
     assert!(wait_exit(&mut child).success());
     assert!(!mounted(&at));
+}
+
+/// The `cmux-projection` binary: set at compile time by `cargo test`, at run time only under
+/// `cargo check`/`clippy` on Rust 1.95, where `env!` failed and turned clippy red.
+fn projection_bin() -> String {
+    option_env!("CARGO_BIN_EXE_cmux-projection")
+        .map(str::to_owned)
+        .or_else(|| std::env::var("CARGO_BIN_EXE_cmux-projection").ok())
+        .expect("cargo sets CARGO_BIN_EXE_cmux-projection for integration tests")
 }

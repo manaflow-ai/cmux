@@ -38,10 +38,10 @@ import Foundation
 /// ``nightlyInterval`` (Leo 2026-10-26: "am I on the latest nightly here, or not? ... why is the
 /// last nightly, like, four fucking hours away?"). nightly-next ships every 20 to 40 minutes, and
 /// the hourly Sparkle schedule left a NIGHTLY an hour or more behind. A newer build is asked for at
-/// once, whether or not its deltas are listed yet: the offer is never held back for them. A build a
-/// release push found without deltas is offered at once, but its automatic download waits up to
-/// ``DeltaWaitPolicy/window`` for the deltas (RFD 0166 U1: ~13.6 MB instead of ~243 MB); a click
-/// never waits (``UpdaterService/acceptAvailable``).
+/// once, whether or not its deltas are listed yet: neither the offer nor its automatic download is
+/// held back for them (Leo 2026-11-27: "background + incremental should be on by default"). The
+/// nightly publish lists deltas 40 to 70 minutes after the full archive, so a wait for them at a
+/// release push only left the update on a Download button; a later read takes the delta once listed.
 @MainActor
 final class TipUpdateCheck {
     /// How often the tip app reads its feed while nothing waits (an internal constant, not a setting).
@@ -65,17 +65,12 @@ final class TipUpdateCheck {
     /// The newest build this check asked the driver for.
     private(set) var asked: String?
     let timer: DemandTimer
-    /// The build whose download waits for its deltas, if any (``holdDownload(build:updater:)``).
-    private(set) var deltaWaitBuild: String?
-    /// The next feed read while a download waits for deltas (one-shot; cancelled when the wait ends).
-    let deltaTimer: DemandTimer
-    private var deltaWaited: Duration = .zero
-    /// The next read was started by a release push.
-    private var pushDriven = false
+    /// A DEV update-harness copy takes a NIGHTLY's fast check (``UpdaterService/debugReleasePush(_:)``),
+    /// so a simulated release push runs the path a NIGHTLY's does.
+    var simulatesNightly = false
 
     init(clock: any Clock<Duration>) {
         timer = DemandTimer(owner: "UpdaterService.tipCheck", clock: clock)
-        deltaTimer = DemandTimer(owner: "UpdaterService.deltaWait", clock: clock)
     }
 
     /// A changed `updates.checkAutomatically`: off ends the pending deadline, on arms one an interval from now.
@@ -83,7 +78,6 @@ final class TipUpdateCheck {
         if self.automatic != automatic {
             self.automatic = automatic
             timer.cancel()
-            if !automatic { endDeltaWait(updater) }
         }
         refresh(updater)
     }
@@ -92,7 +86,7 @@ final class TipUpdateCheck {
     /// Called when the phase, the schedule, the download or managed policy moves, and when the sheet closes.
     func refresh(_ updater: UpdaterService) {
         guard mayCheck(updater) else { return timer.cancel() }
-        guard task == nil, !timer.isScheduled, let interval = Self.interval(for: updater.identity) else { return }
+        guard task == nil, !timer.isScheduled, let interval = readInterval(updater) else { return }
         timer.schedule(after: .seconds(interval)) { @MainActor [weak self, weak updater] in
             guard let self, let updater else { return }
             self.run(updater)
@@ -107,14 +101,16 @@ final class TipUpdateCheck {
         guard task == nil else { return true }
         guard mayCheck(updater) else { return false }
         timer.cancel()
-        pushDriven = true
         run(updater)
-        pushDriven = false
         return task != nil
     }
 
+    private func readInterval(_ updater: UpdaterService) -> TimeInterval? {
+        Self.interval(for: updater.identity) ?? (simulatesNightly ? Self.nightlyInterval : nil)
+    }
+
     private func mayCheck(_ updater: UpdaterService) -> Bool {
-        guard Self.interval(for: updater.identity) != nil, automatic, updater.isStarted, updater.settingsApplied, updater.disabledReason == nil,
+        guard readInterval(updater) != nil, automatic, updater.isStarted, updater.settingsApplied, updater.disabledReason == nil,
               !updater.flow.installRequested, !updater.isSheetPresented(), !updater.isOffManagedChannel else { return false }
         switch updater.flow.phase {
         case .hidden, .note: return true
@@ -130,18 +126,17 @@ final class TipUpdateCheck {
     private func run(_ updater: UpdaterService) {
         guard task == nil, mayCheck(updater) else { return }
         let probe = updater.probe()
-        let push = pushDriven
         task = Task { [weak self, weak updater] in
             let failure = await probe.value
             guard let self, let updater else { return }
             self.task = nil
-            self.finish(failure: failure, pushed: push, updater: updater)
+            self.finish(failure: failure, updater: updater)
             self.refresh(updater)
         }
     }
 
     /// The feed answered: a build newer than the running one (and than a rollback's skip) is checked for once.
-    private func finish(failure: String?, pushed: Bool, updater: UpdaterService) {
+    private func finish(failure: String?, updater: UpdaterService) {
         guard failure == nil, mayCheck(updater), case .updateAvailable(let item)? = updater.lastProbe?.outcome else { return }
         if let skip = updater.defaults.string(forKey: UpdaterService.skipsBuildsThroughKey),
            !AppcastSelector.isOlder(skip, than: item.version) { return }
@@ -153,73 +148,7 @@ final class TipUpdateCheck {
             updater.dismissAvailable()
         }
         asked = item.version
-        // A pushed build without deltas is offered now; its automatic download waits for them.
-        if pushed, updater.downloadsFoundUpdates,
-           DeltaWaitPolicy.decide(listsDeltas: item.listsDeltas, userAsked: false, waited: .zero) == .wait {
-            holdDownload(build: item.version, updater: updater)
-        }
         updater.log.append("fast check: build \(item.version) is newer than build \(updater.identity.build): checking")
-        if let startCheck { startCheck() } else { updater.controller?.checkForUpdates() }
-    }
-
-    /// Holds the automatic download of `build` (``UpdaterService/downloadHeldForDeltas``) and reads
-    /// the feed every ``DeltaWaitPolicy/recheck`` until it lists deltas or the window ends.
-    private func holdDownload(build: String, updater: UpdaterService) {
-        deltaWaitBuild = build
-        deltaWaited = .zero
-        updater.downloadHeldForDeltas = true
-        updater.applyDownloadPolicy()
-        updater.log.append("delta wait: build \(build) lists no deltas; its download waits up to \(DeltaWaitPolicy.window)")
-        armDeltaRead(updater)
-    }
-
-    private func armDeltaRead(_ updater: UpdaterService) {
-        deltaTimer.schedule(after: DeltaWaitPolicy.recheck) { @MainActor [weak self, weak updater] in
-            guard let self, let updater else { return }
-            await self.deltaRead(updater)
-        }
-    }
-
-    private func deltaRead(_ updater: UpdaterService) async {
-        guard let build = deltaWaitBuild else { return }
-        deltaWaited += DeltaWaitPolicy.recheck
-        // The person's click took the build (or the phase moved on): nothing left to hold.
-        switch updater.flow.phase {
-        case .downloading, .ready, .installing: return endDeltaWait(updater)
-        case .hidden, .note, .checking, .available: break
-        }
-        _ = await updater.probe().value
-        guard deltaWaitBuild == build else { return }
-        var listed = false
-        var newer = false
-        if case .updateAvailable(let item)? = updater.lastProbe?.outcome {
-            listed = item.version == build && item.listsDeltas
-            // A newer build ends this wait: the next read asks for that one.
-            newer = item.version != build
-        }
-        if DeltaWaitPolicy.decide(listsDeltas: listed || newer, userAsked: false, waited: deltaWaited) == .download {
-            updater.log.append("delta wait: build \(build) \(listed ? "lists deltas" : "waited the whole window"): downloading")
-            endDeltaWait(updater, refetch: listed)
-        } else {
-            armDeltaRead(updater)
-        }
-    }
-
-    /// Ends the wait and the download goes ahead. With `refetch` (the deltas are listed now) the
-    /// waiting item, found before they were, is dismissed and the check runs again so Sparkle
-    /// picks the delta; otherwise the found item downloads as it is (the full archive).
-    func endDeltaWait(_ updater: UpdaterService, refetch: Bool = false) {
-        guard deltaWaitBuild != nil else { return }
-        deltaWaitBuild = nil
-        deltaTimer.cancel()
-        var refetching = false
-        if refetch, case .available = updater.flow.phase {
-            updater.dismissAvailable()
-            refetching = true
-        }
-        updater.downloadHeldForDeltas = false
-        updater.applyDownloadPolicy()
-        guard refetching else { return }
         if let startCheck { startCheck() } else { updater.controller?.checkForUpdates() }
     }
 }

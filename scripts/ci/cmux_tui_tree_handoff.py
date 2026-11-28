@@ -107,8 +107,11 @@ COULD_NOT_COMPILE = re.compile(r"\berror: could not compile `")
 # on a clean runner can pass, so these are no evidence the source is broken.
 RUNNER_CODES = frozenset({"0460", "0461", "0462", "0463", "0464", "0514", "0519", "0523", "0786"})
 # rustc killed or starved by the runner: also ends in "could not compile", and a re-run can pass.
+# A lost runner (job 140873130298, 2026-11-28: "The runner has received a shutdown signal", then "The operation was
+# canceled") is not the source's fault either, even when rustc printed an error before the runner went away.
 RUNNER_FAULT = re.compile(r"signal: 9\b|SIGKILL|SIGSEGV|out of memory|No space left on device|\bKilled\b|"
-                          r"memory allocation of \d+ bytes failed", re.IGNORECASE)
+                          r"memory allocation of \d+ bytes failed|The runner has received a shutdown signal|"
+                          r"The operation was canceled|lost communication with the server", re.IGNORECASE)
 GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" / "glaeda" / "gh") / "budget.json"
 
 
@@ -352,6 +355,13 @@ def rerun_published(repo: str, run_id: int, key: str) -> None:
         raise RuntimeError("; ".join(failed))
 
 
+def _output(name: str, value: str) -> None:
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"{name}={value}\n")
+
+
 def handoff(repo: str, run_id: int, key: str) -> None:
     jobs = _list(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
 
@@ -371,6 +381,9 @@ def handoff(repo: str, run_id: int, key: str) -> None:
               f"attestation; a re-run would spend the same quota. Tree {key} is left for the next push of the key.")
         return
     if compile_error_failure(jobs, log_of):
+        # RED_TREE_MARK: the workflow saves cmux-tui-red-tree-<key>, and tree-preflight of a later feat-cmux-next push
+        # of the same key skips its builds instead of failing the same way (base-coalesce re-opens the window on a red).
+        _output("red_tree", "true")
         print(f"::warning title=tree hand-off skipped::run {run_id} failed on a Rust compile error in a build leg; a "
               f"run that deferred tree {key} builds the same source and fails the same way. The next push of a new "
               "key builds it; a person can still re-run a run by hand (gh run rerun RUN).")

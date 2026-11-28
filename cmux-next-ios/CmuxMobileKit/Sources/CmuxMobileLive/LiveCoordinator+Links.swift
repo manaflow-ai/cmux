@@ -1141,6 +1141,15 @@ extension LiveCoordinator {
         return listed != built
     }
 
+    /// The Mac sent its workspaces: a "didn't send its workspaces" left by the deadline on a slow
+    /// first load no longer stands, so Diagnostics drops it with no Retry (Leo, 2026-11-27: "An error
+    /// set by a timeout clears when the next good data arrives").
+    func workspacesArrived(_ session: MacSession) {
+        guard session.daemonError != nil else { return }
+        session.daemonError = nil
+        updateDiagnostics(session)
+    }
+
     private func apply(_ tree: DaemonTree, session: MacSession) {
         let macID = session.macID
         guard sessions[macID] === session else { return }
@@ -1165,6 +1174,7 @@ extension LiveCoordinator {
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
+        workspacesArrived(session)
         // Rows of tabs and workspaces closed on the Mac or on this phone leave the Feed.
         feedStore.setOpenTabs(FeedOpenTabs(tree: tree), macID: macID)
         session.fedData = true
