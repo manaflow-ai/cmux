@@ -51,8 +51,8 @@ for attempt in 1 2 3; do
   status=${PIPESTATUS[0]}
   set -e
   if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi
-  if [ "$status" -ne 0 ] && grep -q 'signal: 9, SIGKILL' "$log"; then
-    echo "::error::the runner killed rustc or a test (SIGKILL, most often out of memory) at CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS; not a test failure of $member"
+  if [ "$status" -eq 137 ] || { [ "$status" -ne 0 ] && grep -q 'signal: 9, SIGKILL' "$log"; }; then
+    echo "::error::the runner killed cargo, rustc or a test (SIGKILL, exit $status; out of memory is the usual cause, not confirmed here) at CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS; not a test failure of $member"
     break
   fi
   if [ "$status" -eq 0 ]; then
