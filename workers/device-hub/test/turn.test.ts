@@ -113,3 +113,39 @@ describe("parsePlatformIce", () => {
     }
   });
 });
+
+describe("own relay (TURN_SELF_*)", () => {
+  beforeEach(() => {
+    mockOutbound();
+    outbound.length = 0;
+    platformTurn.calls.length = 0;
+    platformTurn.answer = { body: { ice: PLATFORM_ICE } };
+  });
+
+  const own = { TURN_SELF_URLS: " turn:relay.test:3478?transport=udp, turns:relay.test:5349?transport=tcp ,http://x", TURN_SELF_SECRET: "s3cret", TURN_SELF_ACCOUNTS: "*" };
+
+  for (const source of ["local", "platform-first", "platform"]) {
+    it(`mints REST credentials locally in ${source} and calls nobody`, async () => {
+      expect(await mintTurn(env({ ...own, TURN_SOURCE: source }), { now: 1_700_000_000_000 })).toEqual([
+        { urls: ["turn:relay.test:3478?transport=udp", "turns:relay.test:5349?transport=tcp"], username: "1700003600:cmux", credential: "7VMpMC8AWcGbF4AzzxSCkc579xI=" },
+      ]);
+      expect(outbound.length).toBe(0);
+      expect(platformTurn.calls.length).toBe(0);
+    });
+  }
+
+  it("is off without the secret or without a turn: URL", async () => {
+    expect(await mintTurn(env({ TURN_SELF_URLS: own.TURN_SELF_URLS, TURN_SOURCE: "platform-first" }))).toEqual(PLATFORM_ICE);
+    expect(await mintTurn(env({ TURN_SELF_URLS: "http://x", TURN_SELF_SECRET: "s3cret", TURN_SOURCE: "platform-first" }))).toEqual(PLATFORM_ICE);
+  });
+
+  it("reaches only the users TURN_SELF_ACCOUNTS names", async () => {
+    const named = { ...own, TURN_SELF_ACCOUNTS: " u-probe ,u-two", TURN_SOURCE: "platform-first" };
+    expect((await mintTurn(env(named), { userId: "u-probe" }))[0]?.username).toMatch(/:cmux$/);
+    expect(await mintTurn(env(named), { userId: "u-other" })).toEqual(PLATFORM_ICE);
+    expect(await mintTurn(env(named))).toEqual(PLATFORM_ICE);
+    for (const TURN_SELF_ACCOUNTS of [undefined, "", " , "]) {
+      expect(await mintTurn(env({ ...own, TURN_SELF_ACCOUNTS, TURN_SOURCE: "platform-first" }), { userId: "u-probe" })).toEqual(PLATFORM_ICE);
+    }
+  });
+});
