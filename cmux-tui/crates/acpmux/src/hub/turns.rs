@@ -1402,6 +1402,12 @@ impl Hub {
                 json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
             );
         }
+        // What a sidecar rule found at the last turn's end, said once (`sidecars.rs`).
+        if !resumed && let Some(said) = self.sidecars_start(session) {
+            blocks.push(
+                json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
         session.stderr_tail.lock().unwrap().clear();
         // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
         session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
@@ -1415,6 +1421,8 @@ impl Hub {
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
         super::turn_shots::turn_began(session, &turn_id);
+        // The gap it ends joins the chat's rhythm (`residency.rs`).
+        self.rhythm_turn_began(session);
         // Its frames as the page forms (`turn_frames.rs`), at no agent tokens.
         super::turn_frames::turn_began(session, &turn_id);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
