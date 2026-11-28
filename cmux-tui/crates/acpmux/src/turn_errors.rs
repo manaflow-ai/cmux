@@ -142,6 +142,18 @@ pub fn says_connection_dropped(message: &str) -> bool {
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
 }
 
+/// A provider denied access to the selected model.
+pub(crate) fn model_not_available(message: &str) -> bool {
+    let text = message.to_ascii_lowercase();
+    ["model_not_found", "model not found"].into_iter().any(|phrase| text.contains(phrase))
+        || ["no access", "does not have access", "do not have access"].into_iter().any(|denial| {
+            text.split_once(denial).is_some_and(|(_, tail)| {
+                tail.starts_with(" to model") || tail.starts_with(" to the model")
+            })
+        })
+        || text.contains("model") && text.contains("does not exist or you do not have access")
+}
+
 /// Does an agent error say nobody listened where the model was: the connection was refused
 /// (`ECONNREFUSED`), as when the inference gateway is down? A dropped connection
 /// ([`says_connection_dropped`]) whose outage ends only when the gateway is back, so its

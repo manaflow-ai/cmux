@@ -504,7 +504,10 @@ export class SubagentFold {
     const agent: Subagent = {
       id: `run:${call}`,
       parent: null,
-      name: promptTitle(run.prompt) ?? description ?? label ?? "acpmux",
+      // Never "acpmux": the tool that started it names nothing (Leo, 2026-11-27, on an "acpmux"
+      // chip in the composer hat). Its session's name, else empty, which every line reads as the
+      // localized "Subagent" (subsessions.ts `subagentDisplayName`).
+      name: promptTitle(run.prompt) ?? description ?? label ?? run.session ?? "",
       ...(description && { task: description }),
       ...((label || model) && { kind: [label, model].filter(Boolean).join(" · ") }),
       state: "running",

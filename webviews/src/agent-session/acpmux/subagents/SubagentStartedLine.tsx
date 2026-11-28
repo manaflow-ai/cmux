@@ -164,7 +164,8 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
               at === 0 && !before ? "cv-subagent-started__name cv-subagent-started__lead" : "cv-subagent-started__name"
             }
             ariaLabel={t("subagents.open", { name: part.value })}
-            attributes={{ "data-at": String(at) }}
+            // Its name again for the chip's width floor (SubagentStartedLine.css `data-name`).
+            attributes={{ "data-at": String(at), "data-name": part.value }}
             onClick={open && (() => open(agent.id))}
           />
         </SubagentChipPreview>
