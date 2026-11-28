@@ -22,7 +22,7 @@ struct GeneratedRequestPayloadGoldenTests {
         _ = CloseScreenRequest.init(screen:endTerminals:)
         _ = CloseTabsRequest.init(surfaces:endTerminals:transaction:mutation:reason:)
         _ = CloseTabGroupRequest.init(group:endTerminals:)
-        _ = CloseWorkspaceRequest.init(workspace:endTerminals:reason:ifEmpty:mutation:)
+        _ = CloseWorkspaceRequest.init(workspace:endTerminals:reason:ifEmpty:reportClosedIDs:mutation:)
         _ = RenameWorkspaceRequest.init(workspace:name:source:expectedNameRevision:release:mutation:)
         _ = MoveWorkspaceRequest.init(workspace:index:mutation:)
         _ = SetWorkspaceMetadataRequest.init(workspace:color:icon:title:pinned:markedUnread:keepAwake:mutation:)
