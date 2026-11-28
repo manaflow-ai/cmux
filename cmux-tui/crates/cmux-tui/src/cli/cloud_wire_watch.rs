@@ -147,35 +147,9 @@ pub(crate) async fn watch(input: &[u8], emit: &mut impl FnMut(&Value)) -> Value 
         Ok(ticket) => ticket,
         Err(error) => return closed(None, Some(&error)),
     };
-    let mut request = match wire.socket.as_str().into_client_request() {
-        Ok(request) => request,
-        Err(error) => return closed(None, Some(&error.to_string())),
-    };
-    let headers = request.headers_mut();
-    let Ok(mut protocols) = HeaderValue::from_str(&protocols(&ticket, wire.team.as_deref())) else {
-        return closed(None, Some("the ticket is not a header value"));
-    };
-    protocols.set_sensitive(true);
-    headers.insert("sec-websocket-protocol", protocols);
-    if let Some(version) = wire.version.as_deref().and_then(|v| HeaderValue::from_str(v).ok()) {
-        headers.insert("x-cmux-client-version", version);
-    }
-    if let Err(error) = cmux_build_space::insert(headers) {
-        return closed(None, Some(&error.to_string()));
-    }
-    let config = WebSocketConfig::default()
-        .max_message_size(Some(MAX_MESSAGE))
-        .max_frame_size(Some(MAX_MESSAGE));
-    let connect = cmux_egress::ws::connect_async_with_config(
-        request,
-        Some(config),
-        false,
-        "cmux_tui::cli::cloud_wire_watch",
-    );
-    let mut stream = match tokio::time::timeout(TIMEOUT, connect).await {
-        Err(_) => return closed(None, Some("handshake timed out")),
-        Ok(Err(error)) => return closed(None, Some(&error.to_string())),
-        Ok(Ok((stream, _))) => stream,
+    let mut stream = match open(&wire, &ticket).await {
+        Ok(stream) => stream,
+        Err(last) => return last,
     };
     while let Some(message) = stream.next().await {
         let bytes = match message {
@@ -203,6 +177,45 @@ pub(crate) async fn watch(input: &[u8], emit: &mut impl FnMut(&Value)) -> Value 
         emit(&frame);
     }
     closed(None, None)
+}
+
+type Socket = tokio_tungstenite::WebSocketStream<
+    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+>;
+
+/// Opens the wire socket with `ticket`: the ticket and the team ride in the
+/// subprotocol, the access token never does. `Err` is the closing line.
+pub(crate) async fn open(wire: &Wire, ticket: &str) -> Result<Socket, Value> {
+    let mut request = match wire.socket.as_str().into_client_request() {
+        Ok(request) => request,
+        Err(error) => return Err(closed(None, Some(&error.to_string()))),
+    };
+    let headers = request.headers_mut();
+    let Ok(mut protocols) = HeaderValue::from_str(&protocols(ticket, wire.team.as_deref())) else {
+        return Err(closed(None, Some("the ticket is not a header value")));
+    };
+    protocols.set_sensitive(true);
+    headers.insert("sec-websocket-protocol", protocols);
+    if let Some(version) = wire.version.as_deref().and_then(|v| HeaderValue::from_str(v).ok()) {
+        headers.insert("x-cmux-client-version", version);
+    }
+    if let Err(error) = cmux_build_space::insert(headers) {
+        return Err(closed(None, Some(&error.to_string())));
+    }
+    let config = WebSocketConfig::default()
+        .max_message_size(Some(MAX_MESSAGE))
+        .max_frame_size(Some(MAX_MESSAGE));
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui::cli::cloud_wire_watch",
+    );
+    match tokio::time::timeout(TIMEOUT, connect).await {
+        Err(_) => Err(closed(None, Some("handshake timed out"))),
+        Ok(Err(error)) => Err(closed(None, Some(&error.to_string()))),
+        Ok(Ok((stream, _))) => Ok(stream),
+    }
 }
 
 #[cfg(test)]
