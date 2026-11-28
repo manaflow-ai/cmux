@@ -862,6 +862,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
     )
     covered = f"since `{plan['base'][:11]}` ({plan['files']} files changed)" if plan["base"] else "with no earlier batch run (every suite)"
     summary(args.summary, f"Batch on `{args.sha[:11]}` {covered}: {', '.join(plan['suites']) or 'no suite reached'}.")
+    if plan["tip_compile_base"] == "--all":
+        summary(args.summary, "No verified tip compile checkpoint was available. The fleet will compile all macOS package test targets.")
     return 0
 
 
