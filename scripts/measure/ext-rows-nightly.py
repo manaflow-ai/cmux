@@ -346,24 +346,42 @@ row_chat_widget.needs_app = True
 def row_newtab(ctx: Ctx) -> dict:
     """The New Tab page (#42998): with `tabs.newTabApp` naming a `cmux.newtab/1` app (`cmux settings set`), a
     new tab mounts it: the window's `apps.views` holds a cmux.newtab/1 view with its words, and the render
-    export ran (`apps-logs`)."""
+    export ran (`apps-logs`). A saved change to its script then shows in that open page, with no new tab and
+    no relaunch (`save_changed_page`)."""
     word = f"{ctx.token} new tab"
     install = install_customize(ctx, {
         "name": "Rows new tab", "description": "A New Tab page.", "runtime": {"main": "main.js"},
         "implements": {"cmux.newtab/1": {"export": "renderNewTab", "title": "Rows new tab", "symbol": "house"}}},
-        {"main.js": ("function renderNewTab() {\n"
-                     f"  console.log({json.dumps(word)} + ' rendered')\n"
-                     f"  return VStack([Panel({{ title: 'Rows' }}, [Text({json.dumps(word)})])])\n}}\n"
-                     "globalThis.__cmuxAppExports = { renderNewTab }\n")})
+        {"main.js": newtab_script(word)})
     setting = ctx.ext(["settings", "set", "tabs.newTabApp", CUSTOMIZE_APP], timeout=30)
     opened = ctx.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
     shown = wait_for(lambda: [v for v in views(ctx, "cmux.newtab/1")
                               if any(word in t for t in v.get("texts") or [])], wait=20)
     logged = logs_with(ctx, word, wait=5)
+    # The hot-reload half: one saved change to the page's script, and the New Tab page already open shows it,
+    # with no new tab opened and the copy the same process (no relaunch).
+    saved_word, pid_before = f"{ctx.token} saved tab", app_pid(ctx)
+    resave = install_customize(ctx, {
+        "name": "Rows new tab", "description": "A New Tab page.", "runtime": {"main": "main.js"},
+        "implements": {"cmux.newtab/1": {"export": "renderNewTab", "title": "Rows new tab", "symbol": "house"}}},
+        {"main.js": newtab_script(saved_word)})
+    changed = wait_for(lambda: [v for v in views(ctx, "cmux.newtab/1")
+                                if any(saved_word in t for t in v.get("texts") or [])], wait=20)
+    same_copy = app_pid(ctx) == pid_before
     return {"checks": {"installed": install["installed"], "setting_set": setting.get("exit") == 0,
-                       "new_tab_shows_page": bool(shown) or bool(logged)},
+                       "new_tab_shows_page": bool(shown) or bool(logged),
+                       "save_changed_page": bool(shown) and resave["installed"] and bool(changed) and same_copy},
             "install": install, "settings_set": setting, "open": opened,
-            "views": shown or views(ctx), "log_lines": logged}
+            "views": shown or views(ctx), "log_lines": logged,
+            "save_change": {"install": resave, "word": saved_word, "views": changed, "same_copy": same_copy,
+                            "pid": pid_before}}
+
+
+def newtab_script(word: str) -> str:
+    return ("function renderNewTab() {\n"
+            f"  console.log({json.dumps(word)} + ' rendered')\n"
+            f"  return VStack([Panel({{ title: 'Rows' }}, [Text({json.dumps(word)})])])\n}}\n"
+            "globalThis.__cmuxAppExports = { renderNewTab }\n")
 
 
 row_newtab.needs_app = True
@@ -477,8 +495,58 @@ def row_ext_new(ctx: Ctx) -> dict:
             **({"new_error": made.get("stderr") or made.get("output")} if made.get("exit") != 0 else {}),
             **({"shot_error": shot.get("stderr") or shot.get("output")} if not loaded else {})}
         keep_in_work(ctx, folder)
-    return {"checks": {f"kind_{k}": v["ok"] for k, v in per_kind.items()} | {"kinds_listed": bool(kinds)},
-            "kinds": kinds, "per_kind": per_kind}
+    checks = {f"kind_{k}": v["ok"] for k, v in per_kind.items()} | {"kinds_listed": bool(kinds)}
+    out = {"kinds": kinds, "per_kind": per_kind}
+    # The hot-reload half: one saved change to a scaffold, and the next `ext shot` scene shows it while the
+    # same copy runs. A headless daemon draws no scene, so with no Mac app the check is skipped, not passed.
+    kind = "section" if "section" in per_kind else next((k for k in per_kind if k != "command"), None)
+    if not ctx.control:
+        out["skipped_checks"] = {"save_changed_shot": "needs the Mac app: a headless daemon draws no scene"}
+    elif kind:
+        saved = save_change_shot(ctx, scaffold_folder_path(ctx, f"new-{kind}"), kind)
+        checks["save_changed_shot"] = saved["changed"]
+        out["save_change"] = saved
+    return {"checks": checks, **out}
+
+
+def scaffold_folder_path(ctx: Ctx, name: str) -> Path:
+    """Where `scaffold_folder(ctx, name)` put a scaffold (not emptied)."""
+    return ctx.fresh / name
+
+
+def app_pid(ctx: Ctx) -> str | None:
+    """The side copy's pid from its pid file (none with --cli): the same pid after a save means no relaunch."""
+    try:
+        return ctx.pid_file.read_text().strip() if ctx.pid_file else None
+    except OSError:
+        return None
+
+
+def save_change_shot(ctx: Ctx, folder: Path, kind: str) -> dict:
+    """`ext shot` of a scaffold, one saved edit (its first `title: "..."` words, in src/main.ts and the built
+    dist/main.js alike, so the packer's rebuild and the committed build agree), then `ext shot` again. Changed
+    when the second scene holds the new words, differs from the first, and the copy is the same process (its
+    pid file and control socket unchanged): no relaunch."""
+    word = f"Saved {ctx.token}"
+    pid_before, control_before = app_pid(ctx), ctx.control
+    first = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / f"save-{kind}-before.png")])
+    built = folder / "dist/main.js"
+    found = re.search(r'title: "([^"{}$]+)"', built.read_text()) if built.is_file() else None
+    edited = []
+    if found:
+        for rel in ("src/main.ts", "dist/main.js"):
+            path = folder / rel
+            if path.is_file() and found.group(1) in (text := path.read_text()):
+                path.write_text(text.replace(found.group(1), word, 1))
+                edited.append(rel)
+    second = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / f"save-{kind}-after.png")])
+    before, after = scene_of(first) or [], scene_of(second) or []
+    same_copy = app_pid(ctx) == pid_before and ctx.control == control_before
+    return {"changed": bool(edited) and bool(after) and after != before and word in json.dumps(after)
+            and same_copy,
+            "kind": kind, "replaced": found.group(1) if found else None, "with": word, "edited": edited,
+            "same_copy": same_copy, "pid": pid_before, "shot_exits": [first.get("exit"), second.get("exit")],
+            "scene_before": before[:20], "scene_after": after[:20]}
 
 SIDE = Path(__file__).resolve().parents[2] / "scripts/cmux-next/side-instance.sh"
 
@@ -1025,12 +1093,13 @@ def row_settings(ctx: Ctx) -> dict:
 
 
 def row_git_install(ctx: Ctx) -> dict:
-    """Installs from a source (#42068 `cmux ext add SOURCE`, #44897 git references), with no network: a local
+    """Installs from a source (#42068 `cmux ext add SOURCE`, #44897 git references). With no network: a local
     folder (an `ext new` scaffold, itself a git repo) loads through `ext add` in the copy's daemon without
     installing, and only https repository references are taken. `ext add file://...` is refused, as are
     `catalog.get` (the consent card's fetch) of a `file://` URL, an `http://` URL ("only https repositories
-    install") and an https URL on a host that is not a public name; none of them fetches. A pinned https
-    install and `apps.update`'s `apps.update.needs_consent` need the network and a fetched app: not here."""
+    install") and an https URL on a host that is not a public name; none of them fetches. One pinned https
+    github.com link is fetched, loaded and listed (`github_url_installed`, the network). `apps.update`'s
+    `apps.update.needs_consent` needs an installed fetched app: not here."""
     folder = scaffold_folder(ctx, "git-src")
     made = ctx.ext(["ext", "new", f"rows-git{ctx.token[-4:]}", "--kind", "section", "--dir", str(folder),
                     "--json"], timeout=60)
@@ -1048,7 +1117,9 @@ def row_git_install(ctx: Ctx) -> dict:
         return reply.get("ok") is not True and text in json.dumps(reply.get("error"))
 
     keep_in_work(ctx, folder)
-    return {"checks": {"scaffolded": made.get("exit") == 0 and (folder / ".git").exists(),
+    github = github_install(ctx)
+    return {"checks": {"github_url_installed": github["installed"],
+                       "scaffolded": made.get("exit") == 0 and (folder / ".git").exists(),
                        "folder_added": added.get("exit") == 0 and answer.get("ok") is not False
                        and bool(answer.get("app")),
                        "file_url_add_refused": by_file.get("exit") not in (0, None),
@@ -1056,7 +1127,31 @@ def row_git_install(ctx: Ctx) -> dict:
                        "http_refused_https_only": said(stages["http"], "only https"),
                        "private_host_refused": said(stages["private_host"], "public host")},
             "new": {k: made.get(k) for k in ("exit", "json", "stderr")}, "add": added, "add_file_url": by_file,
-            "catalog_get": stages}
+            "catalog_get": stages, "github": github}
+
+
+# A public manaflow-ai example repository (its built script committed, so it loads with no build), pinned.
+GITHUB_PINNED_COMMIT = "045033d72611844e7d5fc421140cea4be4cf7a50"
+
+
+def github_install(ctx: Ctx) -> dict:
+    """`cmux ext add https://github.com/OWNER/REPO/tree/COMMIT` (the network): the daemon fetches that commit
+    and loads it, and `ext list --json` lists it with that link as where it came from. `--no-install` leaves
+    out the consent card, which only the person answers; the extension is loaded and listed either way.
+    Removed again after (`ext remove`)."""
+    link = f"https://github.com/manaflow-ai/focus-timer/tree/{GITHUB_PINNED_COMMIT}"
+    added = ctx.ext(["ext", "add", link, "--json", "--no-install"], timeout=180)
+    answer = added.get("json") if isinstance(added.get("json"), dict) else {}
+    listed = ctx.ext(["ext", "list", "--json"], timeout=60)
+    rows = [r for r in ((listed.get("json") or {}).get("extensions") or []) if isinstance(r, dict)]
+    row = next((r for r in rows if GITHUB_PINNED_COMMIT in json.dumps(r.get("from"))), None)
+    app = (row or {}).get("app") or answer.get("app")
+    removed = ctx.ext(["ext", "remove", app], timeout=60) if isinstance(app, str) and app.startswith("local/") \
+        else None
+    loaded = added.get("exit") == 0 and answer.get("ok") is True \
+        and (answer.get("from") or {}).get("commit") == GITHUB_PINNED_COMMIT
+    return {"installed": loaded and bool(row), "loaded": loaded, "listed": row, "link": link, "add": added,
+            "list_exit": listed.get("exit"), "removed": removed and removed.get("exit")}
 
 
 def row_toolbar(ctx: Ctx) -> dict:
