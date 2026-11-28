@@ -174,7 +174,7 @@ public struct CloudStartSessionStrings {
 
     /// A team launch would expose a credential from the machine's Claude settings file.
     package static var claudeSettingsSecret: String {
-        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
+        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude can't start on the team route: its settings file holds a credential that would be copied into the launch. Remove it from the file.", table: "CloudSessions", bundle: .localizedModule)
     }
 
     /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:

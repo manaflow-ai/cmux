@@ -106,6 +106,10 @@ public final class CloudPlaceFlows {
     /// Bumped once per AutoSize row the Cloud wire added (``autoSize(frame:team:)``); `placeJSON` reads it, so the header
     /// re-reads `autosize`.
     public private(set) var autoSizeRevision = 0
+    /// Each machine's AutoSize rows as Rust answered them right after a frame added one (``autoSize(frame:team:)``).
+    @ObservationIgnored private var autoSizeCache: [String: [Any]] = [:]
+    /// The last frame fed off the main actor; the next one waits for it, so Rust sees frames in arrival order.
+    @ObservationIgnored private var autoSizeFeed: Task<Void, Never>?
     /// The cmux-tui sessions folder (`CMUX_TUI_STATE_DIR`) the hybrid start drivers write under; nil reads no `start`.
     @ObservationIgnored private var startState: URL?
     /// Each session's `start` as of a revision, so a header read costs one FFI read per Show, not per read.
@@ -431,26 +435,41 @@ public final class CloudPlaceFlows {
     /// One Cloud wire frame for Rust's AutoSize feed (`cloud_autosize_frame`), which keeps every chat's AutoSize rows by
     /// machine record; a row added bumps ``autoSizeRevision``.
     public func autoSize(frame: Data, team: String?) {
-        // main-actor-ok: one ephemeral wire frame of a few hundred bytes, per AutoSize notice.
-        guard let object = try? JSONSerialization.jsonObject(with: frame) else { return }
+        let core = core, previous = autoSizeFeed
+        autoSizeFeed = Task { [weak self] in
+            await previous?.value
+            guard let fed = await Self.feedAutoSize(frame: frame, team: team, core: core), let self else { return }
+            if let machine = fed.machine { autoSizeCache[machine] = fed.rows }
+            autoSizeRevision &+= 1
+        }
+    }
+
+    /// One AutoSize frame's result: the machine it added a row for and that machine's rows, read only on the main actor after.
+    nonisolated private struct AutoSizeFed: @unchecked Sendable { let machine: String?; let rows: [Any] }
+
+    /// Feeds one frame to Rust and reads back the rows of the machine it added one for, off the main actor; nil when it
+    /// added none.
+    @concurrent nonisolated private static func feedAutoSize(frame: Data, team: String?, core: Core) async -> AutoSizeFed? {
+        guard let object = try? JSONSerialization.jsonObject(with: frame) else { return nil }
         var ask: [String: Any] = ["frame": object]
         if let team { ask["team"] = team }
         guard JSONSerialization.isValidJSONObject(ask), let request = try? JSONSerialization.data(withJSONObject: ask),
               let reply = core("cloud_autosize_frame", request),
-              // main-actor-ok: Rust's `{added, machine?}`.
               let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
-              answer["added"] as? Bool == true else { return }
-        autoSizeRevision &+= 1
+              answer["added"] as? Bool == true else { return nil }
+        guard let machine = answer["machine"] as? String,
+              let read = try? JSONSerialization.data(withJSONObject: ["machine": machine]),
+              let rows = core("cloud_autosize_chat", read),
+              let listed = try? JSONSerialization.jsonObject(with: rows) as? [String: Any] else {
+            return AutoSizeFed(machine: nil, rows: [])
+        }
+        return AutoSizeFed(machine: machine, rows: listed["rows"] as? [Any] ?? [])
     }
 
-    /// The AutoSize rows of `machine` (`cloud_autosize_chat`, ``autosize_row::Row`` each, oldest first); nil for none.
+    /// The AutoSize rows of `machine` (``autosize_row::Row`` each, oldest first), as read after its last added row; nil for none.
     func autoSizeRows(machine: String) -> [Any]? {
         _ = autoSizeRevision // observed: a new row re-reads the header
-        // main-actor-ok: one machine id; Rust answers at most 50 small rows.
-        guard let request = try? JSONSerialization.data(withJSONObject: ["machine": machine]),
-              let reply = core("cloud_autosize_chat", request),
-              let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
-              let rows = answer["rows"] as? [Any], !rows.isEmpty else { return nil }
+        guard let rows = autoSizeCache[machine], !rows.isEmpty else { return nil }
         return rows
     }
 

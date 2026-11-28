@@ -146,9 +146,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+QuestionKeys.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+RelayedAllow.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+Trust.swift": {
   "JSON / property-list encode": 1
  },
@@ -262,9 +259,6 @@
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Updates.swift": {
-  "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+VMAgentKey.swift": {
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift": {
@@ -554,6 +548,9 @@
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudSettingsPages.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 3
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextControl/SessionConsent/SessionConsentResponder+Nightly.swift": {
   "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
@@ -655,6 +652,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefLauncherPanel.swift": {
   "string scan inside a loop": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteService+Capture.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHubDebug.swift": {
   "JSON / property-list decode": 2,

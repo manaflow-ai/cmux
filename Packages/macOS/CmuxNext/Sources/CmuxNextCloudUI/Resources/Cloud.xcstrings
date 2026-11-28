@@ -12930,126 +12930,126 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection and try again."
+            "value": "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection to move it."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ستبقى هذه المحادثة على جهاز Mac لأن ميزة النقل إلى السحابة لا تستطيع نقل اتصال النموذج الخاص بها. اختر اتصالًا آخر وحاول مجددًا."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Ovaj razgovor ostaje na vašem Macu jer premještanje u oblak ne može prenijeti njegovu vezu s modelom. Odaberite drugu vezu i pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Denne chat bliver på din Mac, fordi Flyt til Cloud ikke kan overføre dens modelforbindelse. Vælg en anden forbindelse, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Dieser Chat bleibt auf deinem Mac, da seine Modellverbindung beim Verschieben in die Cloud nicht mitgenommen werden kann. Wähle eine andere Verbindung und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Este chat se queda en tu Mac porque Mover a la nube no puede transferir su conexión con el modelo. Elige otra conexión y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Cette discussion reste sur votre Mac, car le déplacement vers le cloud ne peut pas transférer sa connexion au modèle. Choisissez une autre connexion et réessayez."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Questa chat rimane sul Mac perché il trasferimento nel cloud non può includere la connessione al modello. Scegli un'altra connessione e riprova."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "モデル接続をクラウドに移せないため、このチャットは Mac に残ります。別の接続を選んで、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ការជជែកនេះនឹងនៅលើ Mac របស់អ្នក ព្រោះមុខងារផ្លាស់ទីទៅ Cloud មិនអាចផ្ទេរការតភ្ជាប់ទៅម៉ូដែលរបស់វាបានទេ។ ជ្រើសរើសការតភ្ជាប់ផ្សេង ហើយព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "클라우드로 이동할 때 모델 연결을 함께 옮길 수 없어 이 채팅은 Mac에 남습니다. 다른 연결을 선택하고 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Denne chatten blir på Macen fordi flytting til skyen ikke kan overføre modelltilkoblingen. Velg en annen tilkobling og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Ten czat pozostanie na Macu, ponieważ przeniesienie do chmury nie obejmuje jego połączenia z modelem. Wybierz inne połączenie i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Este chat fica no seu Mac porque a opção Mover para a nuvem não consegue transferir a conexão com o modelo. Escolha outra conexão e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Этот чат останется на вашем Mac, поскольку при переносе в облако нельзя перенести его подключение к модели. Выберите другое подключение и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "แชทนี้จะยังอยู่บน Mac ของคุณ เพราะการย้ายไปยัง Cloud ไม่สามารถย้ายการเชื่อมต่อกับโมเดลไปด้วยได้ เลือกการเชื่อมต่ออื่นแล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Buluta Taşı bu sohbetin model bağlantısını aktaramadığı için sohbet Mac'inizde kalır. Başka bir bağlantı seçip tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Цей чат залишиться на вашому Mac, оскільки під час перенесення в хмару неможливо перенести його підключення до моделі. Виберіть інше підключення та спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Cuộc trò chuyện này vẫn ở trên máy Mac vì tính năng Chuyển lên đám mây không thể chuyển kết nối mô hình của cuộc trò chuyện. Hãy chọn kết nối khác rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "此聊天会保留在你的 Mac 上，因为移至云端时无法一同转移它的模型连接。请选择其他连接后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "這則聊天會保留在你的 Mac 上，因為移至雲端時無法一併轉移它的模型連線。請選擇其他連線後再試一次。"
           }
         }

@@ -87,12 +87,15 @@ impl fmt::Display for ConnectionError {
             Self::GenerationChanged { expected, actual } => {
                 write!(formatter, "connection generation changed from {expected} to {actual}")
             }
+            // retry-prompt-ok: a diagnostic of the automatic reconnect, not a prompt.
             Self::ReconnectExhausted { attempts, last } => {
                 write!(formatter, "reconnect failed after {attempts} attempts: {last}")
             }
+            // retry-prompt-ok: a diagnostic of the automatic reconnect, not a prompt.
             Self::ReconnectAttemptTimedOut { timeout } => {
                 write!(formatter, "reconnect attempt timed out after {}ms", timeout.as_millis())
             }
+            // retry-prompt-ok: a diagnostic of the automatic reconnect, not a prompt.
             Self::ReconnectDeadlineExceeded { attempts } => {
                 write!(formatter, "reconnect deadline expired after {attempts} attempts")
             }

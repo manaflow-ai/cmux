@@ -689,9 +689,7 @@ test.each(["openai", "google", "vertex-express", "xai"])(
     expect(stop.textContent).toBe("Stop using on Cloud");
     await click(stop);
     expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, instance, keyRevision, on: false });
-    expect(key.textContent).toContain(
-      "Off for new chats. Older machines can keep using the key until their chats end.",
-    );
+    expect(key.textContent).toContain("Off for new chats; running chats keep the key until they end.");
     await act(async () => rendered.history.push("/settings/models"));
     const local = rendered.container.querySelector(`[data-card="models"] [data-connection="${id}"]`)!;
     await click(local.querySelector("[data-menu]")!);
