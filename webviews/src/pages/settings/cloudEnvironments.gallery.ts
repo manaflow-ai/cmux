@@ -37,8 +37,7 @@ export default settingsPageEntry({
           ],
         },
       },
-      note:
-        "Settings opened right after sign-in: the first environment reads find the list not read yet (hq probe run 46109146613); the Default Image menu reads again and lists the account's environment.",
+      note: "Settings opened right after sign-in: the first environment reads find the list not read yet (hq probe run 46109146613); the Default Image menu reads again and lists the account's environment.",
     },
   },
 });
