@@ -2542,6 +2542,105 @@
           "order": [],
           "response": "TerminalRegistryList"
         }
+      },
+      "objects": {
+        "TerminalColorOverrides": {
+          "type": "TerminalColorOverrides",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "App-authored OSC 10/11/12 colors, distinct from session defaults (`TerminalColors.overrides`)."
+          ],
+          "order": [
+            "fg",
+            "bg",
+            "cursor"
+          ]
+        },
+        "TerminalColors": {
+          "type": "TerminalColors",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Terminal colors captured with a replay or changed live. `nil` means \"use",
+            "the frontend theme\". Keys of `palette` are OSC 4 indexes."
+          ],
+          "order": [
+            "fg",
+            "bg",
+            "cursor",
+            "selection_bg",
+            "selection_fg",
+            "palette",
+            "cursor_style",
+            "cursor_blink",
+            "overrides"
+          ],
+          "fields": {
+            "selection_bg": {
+              "name": "selectionBackground"
+            },
+            "selection_fg": {
+              "name": "selectionForeground"
+            },
+            "palette": {
+              "default": "[:]"
+            },
+            "cursor_style": {
+              "type": "String",
+              "doc": [
+                "`\"block\" | \"underline\" | \"bar\"`. Apply after the replay: the replay omits DECSCUSR."
+              ]
+            }
+          }
+        },
+        "KittyImageAlias": {
+          "type": "KittyImageAlias",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One kitty image id alias of a replay: the image number a program used, and the id it now has."
+          ]
+        },
+        "KittyGraphicsState": {
+          "type": "KittyGraphicsState",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Kitty graphics sidecar of a daemon replay (the desktop fork restored it",
+            "with a kitty replay API; GhosttyNextKit restores images through snapshots)."
+          ],
+          "fields": {
+            "replay_cursor_offset": {
+              "doc": [
+                "Feed `data[..<offset]`, install the replay cursors, then feed the rest."
+              ]
+            }
+          },
+          "order": [
+            "image_bytes",
+            "inflight_bytes",
+            "images",
+            "placements",
+            "replay_cursor_offset",
+            "primary_replay_next_image_id",
+            "primary_next_image_id",
+            "alternate_replay_next_image_id",
+            "alternate_next_image_id"
+          ]
+        }
       }
     },
     "Conversations": {
