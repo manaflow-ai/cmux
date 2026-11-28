@@ -46,11 +46,13 @@ extension AppControl {
         struct Reply: Decodable { var status: Int; var body: String }
         let (access, team) = (issuer.accessToken, issuer.teamID)
         let daemon = CloudDaemon.owner(baseURL: baseURL, credential: { access }, teamID: { team }, machineIO: issuer.machineIO, run: run)
-        do {
-            let data = try await daemon.daemon("vm.agent_key_create", ["body_json": String(decoding: try JSONEncoder().encode(body), as: UTF8.self)], timeout: .seconds(24))
-            guard let reply = try? JSONDecoder().decode(Reply.self, from: data) else { return (0, Data(), "cloud.vm.agent_key_create answered no {status, body}") }
-            return (reply.status, Data(reply.body.utf8), nil)
-        } catch { return (0, Data(), "cloud.vm.agent_key_create: \(error)") }
+        var (data, failure) = (Data(), String?.none) // returns only after the awaiting do (swiftlang/swift#92698)
+        do { data = try await daemon.daemon("vm.agent_key_create", ["body_json": String(decoding: try JSONEncoder().encode(body), as: UTF8.self)], timeout: .seconds(24)) }
+        catch { failure = "cloud.vm.agent_key_create: \(error)" }
+        guard failure == nil, let reply = try? JSONDecoder().decode(Reply.self, from: data) else {
+            return (0, Data(), failure ?? "cloud.vm.agent_key_create answered no {status, body}")
+        }
+        return (reply.status, Data(reply.body.utf8), nil)
     }
 
     /// The signed-in session and its team, behind the Cloud policy (not Labs, Leo 2026-10-30).
