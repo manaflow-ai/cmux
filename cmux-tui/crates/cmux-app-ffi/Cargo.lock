@@ -242,10 +242,25 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-app-feed"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -263,6 +278,7 @@ dependencies = [
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
+ "cmux-design-core",
  "cmux-health-core",
  "cmux-home-rules",
  "cmux-interactivity",
@@ -327,6 +343,7 @@ dependencies = [
 name = "cmux-browser-rules"
 version = "0.1.0"
 dependencies = [
+ "cmux-url-input",
  "serde",
  "serde_json",
 ]
@@ -476,6 +493,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-design-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-egress"
 version = "1.0.0"
 dependencies = [
@@ -508,6 +533,16 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-general-category",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-feed-push-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
  "unicode-segmentation",
 ]
 
@@ -619,6 +654,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-feed",
  "cmux-app-workspace-creation",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
@@ -628,6 +664,7 @@ dependencies = [
  "cmux-cloud-start-core",
  "cmux-cloud-tasks",
  "cmux-error-journal",
+ "cmux-feed-push-core",
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",
@@ -682,6 +719,7 @@ version = "0.1.0"
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
+ "memchr",
  "serde",
  "serde_json",
  "unicode-general-category",
