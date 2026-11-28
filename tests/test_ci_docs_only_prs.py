@@ -204,6 +204,7 @@ def compiled_in() -> dict[str, str]:
 
 
 class DocsOnlyPullRequests(unittest.TestCase):
+    maxDiff = None
     def test_samples_are_docs_only(self):
         for name, files in SAMPLES.items():
             self.assertTrue(docs.docs_only(files), f"{name}: {[f for f in files if not docs.is_docs(f)]}")
