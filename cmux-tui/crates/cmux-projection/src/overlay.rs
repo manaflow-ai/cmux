@@ -12,10 +12,9 @@
 //!
 //! The state folder holds:
 //! - `upper/`: every file or folder the agent made or changed, at its relative path;
-//! - `whiteouts`: lower paths the agent deleted or renamed away, each ended by a NUL (a name may
-//!   hold a newline; an older file of newline-ended lines still reads). A new one is appended; the
-//!   file is rewritten only when one goes away, so deleting a big lower tree is linear in its
-//!   size, not quadratic, and a path without its end (a crash inside an append) is no whiteout;
+//! - `whiteouts`: the log of lower paths the agent deleted or renamed away ([`crate::whiteouts`]):
+//!   every change is one append (a whiteout, or a tombstone when one goes away), so deleting a big
+//!   lower tree and making it again is linear in its size, not quadratic. A torn last entry is none;
 //! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
 //!   to (a new manifest starts a fresh cache). The cache holds only clean copies of the Mac's
@@ -36,13 +35,14 @@ use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::lower::Lower;
 use crate::manifest::{Entry, Kind, Manifest, ROOT};
 use crate::upper::{RENAME_EXCHANGE, RENAME_NOREPLACE, SetTime, Stat, Upper, fmt};
+use crate::whiteouts::{parse_whiteouts, whiteouts_due};
 use crate::wire::Restat;
 use crate::{Fetch, FetchError, Fetched};
 
@@ -56,6 +56,8 @@ const RESTATED_FILE: &str = "restated";
 
 #[path = "overlay_room.rs"]
 mod room;
+#[path = "overlay_whiteouts.rs"]
+mod whiteouts_log;
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
@@ -389,6 +391,139 @@ struct Handle {
     lower: Option<u32>,
 }
 
+struct MutationGate {
+    state: Mutex<MutationState>,
+    drained: Condvar,
+    #[cfg(test)]
+    pause: Mutex<Option<TestMutationPause>>,
+}
+
+struct MutationState {
+    sealed: bool,
+    active: usize,
+    /// A write can hold a descriptor or a transaction between FUSE requests. Once any
+    /// mutation was admitted, replacing a directory can strand that later work.
+    admitted: bool,
+    replacing: bool,
+}
+
+#[cfg(test)]
+struct TestMutationPause {
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+struct MutationGuard<'a> {
+    gate: &'a MutationGate,
+    replacing: bool,
+}
+
+impl MutationGuard<'_> {
+    fn replacement_committed(&self) {
+        debug_assert!(self.replacing);
+        self.gate.state.lock().unwrap_or_else(PoisonError::into_inner).admitted = true;
+    }
+}
+
+impl Drop for MutationGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.active -= 1;
+        if self.replacing {
+            state.replacing = false;
+        }
+        if state.active == 0 {
+            self.gate.drained.notify_all();
+        }
+    }
+}
+
+impl MutationGate {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(MutationState {
+                sealed: false,
+                active: 0,
+                admitted: false,
+                replacing: false,
+            }),
+            drained: Condvar::new(),
+            #[cfg(test)]
+            pause: Mutex::new(None),
+        }
+    }
+
+    fn enter(&self) -> Result<MutationGuard<'_>, i32> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        while state.replacing && !state.sealed {
+            state = self.drained.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+        if state.sealed {
+            return Err(libc::EROFS);
+        }
+        state.admitted = true;
+        state.active += 1;
+        let admitted = MutationGuard { gate: self, replacing: false };
+        drop(state);
+        #[cfg(test)]
+        let pause = { self.pause.lock().unwrap_or_else(PoisonError::into_inner).take() };
+        #[cfg(test)]
+        if let Some(pause) = pause {
+            let _ = pause.entered.send(());
+            let _ = pause.release.recv();
+        }
+        Ok(admitted)
+    }
+
+    /// An opportunistic directory replacement may run only before the first mutation.
+    /// The guard excludes other admissions without holding the mutex across filesystem
+    /// work, so a concurrent seal still has a bounded wait. A fingerprint alone cannot
+    /// protect an open temporary file or a Git transaction.
+    fn replace_pristine(&self) -> Result<MutationGuard<'_>, i32> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.sealed {
+            return Err(libc::EROFS);
+        }
+        if state.admitted || state.replacing {
+            return Err(libc::EBUSY);
+        }
+        state.replacing = true;
+        state.active += 1;
+        Ok(MutationGuard { gate: self, replacing: true })
+    }
+
+    fn seal(&self, timeout: Duration) -> bool {
+        let started = Instant::now();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // Sticky even on timeout: a concurrent or retried detach must never reopen admission.
+        state.sealed = true;
+        self.drained.notify_all();
+        while state.active != 0 {
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, _) =
+                self.drained.wait_timeout(state, remaining).unwrap_or_else(PoisonError::into_inner);
+            state = next;
+        }
+        true
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).sealed
+    }
+
+    #[cfg(test)]
+    fn pause_next(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (entered, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release) = std::sync::mpsc::channel();
+        *self.pause.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(TestMutationPause { entered, release });
+        (entered_rx, release_tx)
+    }
+}
+
 /// One folder entry: inode, type, name, and its attributes when the manifest alone answers them.
 pub type Listed = (u64, Type, String, Option<Attr>);
 
@@ -406,6 +541,8 @@ pub struct Overlay {
     /// The whiteouts file may end in a torn entry (an append and both its repairs failed): the
     /// next change writes the whole file, not one more entry.
     whiteouts_stale: AtomicBool,
+    /// Whole entries in the whiteouts log (whiteouts and tombstones), against its compaction.
+    whiteouts_logged: AtomicUsize,
     inner: Mutex<Inner>,
     handles: Mutex<HashMap<u64, Handle>>,
     next_handle: AtomicU64,
@@ -438,6 +575,7 @@ pub struct Overlay {
     /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
     /// number.
     swap: RwLock<()>,
+    mutation: MutationGate,
     /// The access list this overlay records and replays ([`replay`]); `None` unless
     /// [`Overlay::with_replay`] asked for it.
     replay: Option<replay::Replay>,
@@ -549,43 +687,6 @@ fn read_range(file: &fs::File, offset: u64, len: usize) -> Option<Vec<u8>> {
         }
     }
     Some(bytes)
-}
-
-/// The whole whiteouts of `bytes` (each ended by a NUL, or by a newline in an older file); a last
-/// one without its end is a torn append, cut off as bytes (a crash can tear a name inside a
-/// multi-byte character). Each entry is decoded alone: one that is not UTF-8 is skipped, never
-/// the file with it. Says too whether the file must be written again (a torn tail to cut, an
-/// entry skipped, or the older format, so the next append starts an entry of its own).
-fn parse_whiteouts(bytes: &[u8]) -> (BTreeSet<String>, bool) {
-    let ends = if bytes.contains(&0) { 0 } else { b'\n' };
-    let mut skipped = false;
-    let whole = bytes
-        .split_inclusive(|byte| *byte == ends)
-        .filter_map(|path| path.strip_suffix(&[ends]))
-        .filter(|path| !path.is_empty())
-        .filter_map(|path| {
-            let path = String::from_utf8(path.to_vec()).ok();
-            skipped |= path.is_none();
-            path
-        })
-        .collect();
-    (whole, !bytes.is_empty() && (ends != 0 || bytes.last() != Some(&0) || skipped))
-}
-
-/// Appends `bytes` to `file` through `write`; when that fails part way (a full disk), cuts the
-/// file back to where it was, so no unterminated entry is left for the next append to glue onto.
-fn append_entry(
-    file: &mut fs::File,
-    bytes: &[u8],
-    write: impl FnOnce(&mut fs::File, &[u8]) -> std::io::Result<()>,
-) -> std::io::Result<()> {
-    let len = file.metadata()?.len();
-    let written = write(file, bytes);
-    if written.is_err() {
-        // A cut that fails too leaves the caller's full rewrite to end the torn entry.
-        file.set_len(len)?;
-    }
-    written
 }
 
 /// Whether `folder` holds a [`MARKERS`] file (a project's folder).
@@ -706,7 +807,8 @@ impl Overlay {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             read => read.with_context(|| format!("reading {}", whiteouts_file.display()))?,
         };
-        let (whiteouts, rewrite) = parse_whiteouts(&bytes);
+        let (whiteouts, logged, rewrite) = parse_whiteouts(&bytes);
+        let rewrite = rewrite || whiteouts_due(logged, whiteouts.len());
         let next = manifest.len() as u64 + 2;
         let cache_index = Mutex::new(cache_on_disk(&cache));
         let content =
@@ -726,6 +828,7 @@ impl Overlay {
             scratch,
             whiteouts_file,
             whiteouts_stale: AtomicBool::new(false),
+            whiteouts_logged: AtomicUsize::new(logged),
             inner: Mutex::new(Inner { whiteouts, next, ..Inner::default() }),
             handles: Mutex::new(HashMap::new()),
             next_handle: AtomicU64::new(1),
@@ -757,6 +860,7 @@ impl Overlay {
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
             swap: RwLock::new(()),
+            mutation: MutationGate::new(),
             replay: None,
             restated: Mutex::new(restated),
             generation,
@@ -768,7 +872,7 @@ impl Overlay {
         overlay.restore_pins(pins);
         if rewrite {
             // Cut a torn tail off now (or end an older file's entries with NULs), or the next
-            // append would glue a path onto it.
+            // append would glue a path onto it; a log grown past its live paths is compacted.
             let inner = overlay.lock();
             overlay.write_whiteouts(&inner).map_err(std::io::Error::from_raw_os_error)?;
         }
@@ -1119,21 +1223,6 @@ impl Overlay {
         Ok((parent, child))
     }
 
-    fn write_whiteouts(&self, inner: &Inner) -> Result<(), i32> {
-        let mut text = String::new();
-        for path in &inner.whiteouts {
-            text.push_str(path);
-            text.push('\0');
-        }
-        let temp = self.scratch_path();
-        let written = fs::write(&temp, text).and_then(|()| fs::rename(&temp, &self.whiteouts_file));
-        if written.is_err() {
-            let _ = fs::remove_file(&temp);
-        }
-        self.whiteouts_stale.store(written.is_err(), Ordering::Relaxed);
-        written.map_err(|error| io_errno(&error))
-    }
-
     fn set_whiteout(&self, path: &str, on: bool) -> Result<(), i32> {
         let mut inner = self.lock();
         let changed =
@@ -1141,20 +1230,11 @@ impl Overlay {
         if !changed {
             return Ok(());
         }
-        if on && !self.whiteouts_stale.load(Ordering::Relaxed) {
-            // A new whiteout is one appended entry (one write: a crash leaves it whole or not
-            // there), not a rewrite of every whiteout so far.
-            let entry = format!("{path}\0");
-            let appended = fs::OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(&self.whiteouts_file)
-                .and_then(|mut file| {
-                    append_entry(&mut file, entry.as_bytes(), |file, bytes| file.write_all(bytes))
-                });
-            if appended.is_ok() {
-                return Ok(());
-            }
+        // A new whiteout, or its tombstone, is one appended entry (one write: a crash leaves it
+        // whole or not there), not a rewrite of every whiteout so far.
+        let entry = if on { format!("{path}\0") } else { format!("/{path}\0") };
+        if self.append_whiteouts(&inner, entry.as_bytes(), 1) {
+            return Ok(());
         }
         let saved = self.write_whiteouts(&inner);
         if saved.is_err() {
@@ -1177,17 +1257,34 @@ impl Overlay {
         if !inner.whiteouts.contains(path) {
             return Ok(());
         }
-        let before = inner.whiteouts.clone();
-        inner.whiteouts.remove(path);
+        // One append: the names kept hidden first, the tombstone last, so a crash inside it
+        // leaves the path still deleted, never a remade folder showing its old names.
+        let mut entries = Vec::new();
+        let mut added = Vec::new();
         if let Some(index) = self.manifest.resolve(path) {
             for (_, entry) in self.manifest.children(index) {
-                inner.whiteouts.insert(join(path, &entry.name));
+                let child = join(path, &entry.name);
+                if inner.whiteouts.insert(child.clone()) {
+                    entries.extend_from_slice(child.as_bytes());
+                    entries.push(0);
+                    added.push(child);
+                }
             }
+        }
+        inner.whiteouts.remove(path);
+        entries.push(b'/');
+        entries.extend_from_slice(path.as_bytes());
+        entries.push(0);
+        if self.append_whiteouts(&inner, &entries, added.len() + 1) {
+            return Ok(());
         }
         let written = self.write_whiteouts(&inner);
         if written.is_err() {
             // What the file on disk still says: the path stays deleted.
-            inner.whiteouts = before;
+            for child in &added {
+                inner.whiteouts.remove(child);
+            }
+            inner.whiteouts.insert(path.to_owned());
         }
         written
     }
@@ -2052,6 +2149,10 @@ impl Overlay {
     /// Opens `ino` with open(2) `flags`. A write open copies a lower file up first; the handle
     /// then reads and writes the upper file's own descriptor.
     pub fn open_handle(&self, ino: u64, flags: i32) -> Result<u64, i32> {
+        let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
+        // Admission precedes resolving an inode: a directory swap that wins the gate may
+        // retire it, so the write must not continue from a path resolved before that swap.
+        let _mutation = write.then(|| self.mutation.enter()).transpose()?;
         if let Some(index) = self.retired_index(ino) {
             if flags & libc::O_ACCMODE != libc::O_RDONLY {
                 return Err(EISDIR);
@@ -2063,7 +2164,6 @@ impl Overlay {
         if let Some(Node::Lower(index)) = self.node(&path) {
             self.refuse_kept(index)?;
         }
-        let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
             match self.node(&path).ok_or(ENOENT)? {
                 Node::Lower(index) if flags & libc::O_TRUNC != 0 => {
@@ -2103,6 +2203,28 @@ impl Overlay {
         self.handles().get(&handle).and_then(|handle| handle.file.clone())
     }
 
+    /// Refuses new changes (`EROFS`) and waits at most `timeout` for admitted mutations.
+    /// Returns true only once they have drained, when the upper layer is safe to mark and
+    /// unmount. On timeout, admission stays sealed but admitted edits can still finish;
+    /// retain the mount and state and retry. Reads remain available throughout.
+    #[must_use]
+    pub fn seal(&self, timeout: Duration) -> bool {
+        self.mutation.seal(timeout)
+    }
+
+    /// Whether [`Overlay::seal`] was called.
+    #[must_use]
+    pub fn is_sealed(&self) -> bool {
+        self.mutation.is_sealed()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_mutation(
+        &self,
+    ) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        self.mutation.pause_next()
+    }
+
     /// Ends open handle `handle`.
     pub fn release(&self, handle: u64) {
         self.handles().remove(&handle);
@@ -2139,18 +2261,24 @@ impl Overlay {
         offset: u64,
         data: &[u8],
     ) -> Result<u32, i32> {
+        let _mutation = self.mutation.enter()?;
         match self.handle_file(handle) {
             Some(file) => self.with_room(|| {
                 file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
                 u32::try_from(data.len()).map_err(|_| EINVAL)
             }),
             None if self.handles().contains_key(&handle) => Err(EBADF),
-            None => self.write(ino, offset, data),
+            None => self.write_inner(ino, offset, data),
         }
     }
 
     /// Writes `ino` by its path (no open handle), copying a lower file up first.
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
+        let _mutation = self.mutation.enter()?;
+        self.write_inner(ino, offset, data)
+    }
+
+    fn write_inner(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
         self.with_room(|| {
             let path = self.path_of(ino)?;
             self.ensure_upper(&path)?;
@@ -2163,6 +2291,7 @@ impl Overlay {
     /// `fallocate(2)` through open handle `handle` (Linux).
     #[cfg(target_os = "linux")]
     pub fn fallocate(&self, handle: u64, offset: i64, length: i64, mode: i32) -> Result<(), i32> {
+        let _mutation = self.mutation.enter()?;
         let file = self.handle_file(handle).ok_or(EBADF)?;
         // SAFETY: the descriptor is open for the call.
         check(unsafe { libc::fallocate(file.as_raw_fd(), mode, offset, length) })
@@ -2207,6 +2336,7 @@ impl Overlay {
     /// level saved on every create after the first in a folder); an upper path already there is
     /// the disk's own `EEXIST`.
     pub fn create(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<(Attr, u64), i32> {
+        let _mutation = self.mutation.enter()?;
         self.with_room(|| self.create_once(parent, name, mode, who))
     }
 
@@ -2245,6 +2375,7 @@ impl Overlay {
     }
 
     pub fn mkdir(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<Attr, i32> {
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         self.with_room(|| self.in_folder(&parent, || self.upper.mkdir(&child, 0o700)))?;
@@ -2261,6 +2392,7 @@ impl Overlay {
         rdev: u64,
         who: Who,
     ) -> Result<Attr, i32> {
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         let format = mode & fmt::S_IFMT;
@@ -2284,6 +2416,7 @@ impl Overlay {
     }
 
     pub fn symlink(&self, parent: u64, name: &str, target: &Path, who: Who) -> Result<Attr, i32> {
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         let target = target.as_os_str().as_encoded_bytes();
@@ -2294,6 +2427,7 @@ impl Overlay {
 
     /// A new name `new_name` in `new_parent` for file `ino` (a hard link).
     pub fn link(&self, ino: u64, new_parent: u64, new_name: &str) -> Result<Attr, i32> {
+        let _mutation = self.mutation.enter()?;
         let from = self.path_of(ino)?;
         let node = self.node(&from).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) == Type::Dir {
@@ -2340,6 +2474,7 @@ impl Overlay {
     }
 
     pub fn unlink(&self, parent: u64, name: &str) -> Result<(), i32> {
+        let _mutation = self.mutation.enter()?;
         let (_, child) = self.child(parent, name)?;
         // The upper path first: the manifest is asked only when the disk has nothing there, and
         // the disk's refusal (EPERM in a sticky folder and the rest) is the answer as it said it.
@@ -2355,6 +2490,7 @@ impl Overlay {
     }
 
     pub fn rmdir(&self, parent: u64, name: &str) -> Result<(), i32> {
+        let _mutation = self.mutation.enter()?;
         let (_, child) = self.child(parent, name)?;
         if self.lower(&child).is_none() {
             // Only in the upper layer: one rmdir, the disk checks that it is a folder and empty.
@@ -2383,6 +2519,7 @@ impl Overlay {
         new_name: &str,
         flags: u32,
     ) -> Result<(), i32> {
+        let _mutation = self.mutation.enter()?;
         let (_, from) = self.child(parent, name)?;
         let (to_parent, to) = self.child(new_parent, new_name)?;
         let exchange = flags & RENAME_EXCHANGE != 0;
@@ -2504,6 +2641,7 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
+        let _mutation = (set != Set::default()).then(|| self.mutation.enter()).transpose()?;
         self.with_room(|| self.setattr_once(ino, handle, set))
     }
 
@@ -2637,6 +2775,7 @@ pub mod shared;
 
 #[path = "overlay_age.rs"]
 mod age;
+pub use age::age_unmounted;
 
 #[path = "overlay_bulk.rs"]
 pub mod bulk;

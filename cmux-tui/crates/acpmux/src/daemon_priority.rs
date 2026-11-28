@@ -2,7 +2,7 @@
 //! at load 10x its cores, `acpmux ls`, `send` and `register` still answer fast, whoever the load
 //! belongs to.
 //!
-//! `qos.rs` lowers acpmux's own agents (nice +5 on Linux, +11 or the utility clamp on macOS) and
+//! `qos.rs` lowers acpmux's own agents (nice +5 on Linux, +11 for an opted-in class on macOS) and
 //! `session_scope.rs` gives their scopes `CPUWeight` 40 or 50, but nothing raised the daemon: on a
 //! host whose load is not acpmux's children (builds, tests, other tools) it competed as an equal.
 //! So the daemon takes what an unprivileged user can take, each knob best effort:

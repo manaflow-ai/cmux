@@ -4,7 +4,7 @@ public import Foundation
 
 /// Runs `/usr/bin/osascript` with arguments and returns its standard output: the seam that
 /// ``MailAppVerificationSource`` reads Mail through, so tests pass a fake.
-public protocol VerificationScriptRunning: Sendable {
+public nonisolated protocol VerificationScriptRunning: Sendable {
     /// - Parameter arguments: The `osascript` arguments.
     /// - Returns: Standard output.
     /// - Throws: ``VerificationScriptFailure`` on a non-zero exit.

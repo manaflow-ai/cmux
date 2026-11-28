@@ -106,25 +106,21 @@ impl<W: Write> Backend for AtomicBackend<W> {
         let mut cells = std::mem::take(&mut links.forced);
         cells.extend(content.map(|(x, y, c)| ((y, x), c.clone())));
         let cells: Vec<_> = cells.into_iter().collect();
-        let mut start = 0;
-        while start < cells.len() {
-            let href = links.current.get(&cells[start].0).map(|(h, _)| h.as_str());
-            let mut end = start + 1;
-            while end < cells.len()
-                && links.current.get(&cells[end].0).map(|(h, _)| h.as_str()) == href
-            {
-                end += 1;
-            }
+        for group in cells.chunk_by(|a, b| {
+            links.current.get(&a.0).map(|(h, _)| h.as_str())
+                == links.current.get(&b.0).map(|(h, _)| h.as_str())
+        }) {
+            let Some(first) = group.first() else { continue };
+            let href = links.current.get(&first.0).map(|(h, _)| h.as_str());
             if let Some(href) = href {
                 // Never let content terminate an OSC sequence.
                 let safe: String = href.chars().filter(|c| !c.is_control()).collect();
                 write!(self.encoded, "\x1b]8;;{safe}\x1b\\")?;
             }
-            self.encoded.draw(cells[start..end].iter().map(|((y, x), c)| (*x, *y, c)))?;
+            self.encoded.draw(group.iter().map(|((y, x), c)| (*x, *y, c)))?;
             if href.is_some() {
                 self.encoded.write_all(b"\x1b]8;;\x1b\\")?;
             }
-            start = end;
         }
         Ok(())
     }
@@ -194,3 +190,7 @@ impl TerminalOutput {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "terminal_tests.rs"]
+mod tests;

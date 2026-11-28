@@ -180,7 +180,24 @@ pub(super) fn turn_records(
             started,
         ));
     }
-    for tool in &turn.tools {
+    // A line the harness wrote into the turn (a task notification, a peer's message) shows where
+    // it came, among the calls, as a user row marked with its origin: the pane folds it with the
+    // turn's work by that mark (`_meta.lineOrigin`, incomingMessage.ts), never as a prompt. It was
+    // read into the running turn, as a steer is (`steer`): it neither opens a turn nor splits one.
+    let harness = |out: &mut Vec<TurnRecord>, from: usize, to: usize| {
+        for (n, line) in
+            turn.harness.iter().enumerate().filter(|(_, l)| (from..to).contains(&l.after_tools))
+        {
+            out.push(record(
+                "mux",
+                "user_message",
+                json!({"text": line.text, "client": "adopt", "promptId": format!("{prompt_id}-harness-{n}"), "turnId": turn_id, "steer": true, "_meta": {"lineOrigin": line.origin.wire()}}),
+                line.at.or(started),
+            ));
+        }
+    };
+    for (i, tool) in turn.tools.iter().enumerate() {
+        harness(&mut out, i, i + 1);
         let start = tool.started_at.or(tool.ended_at).or(started);
         let mut call = tool.call.clone();
         call.set("sessionUpdate", json!("tool_call"));
@@ -192,6 +209,7 @@ pub(super) fn turn_records(
         done.set("toolCallId", json!(tool.id));
         out.push(record("in", "tool_call_update", update(done), tool.ended_at.or(start)));
     }
+    harness(&mut out, turn.tools.len(), usize::MAX);
     if !turn.answer.is_empty() {
         out.push(record(
             "in",

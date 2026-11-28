@@ -48,6 +48,10 @@ OWN_SUPERSESSION = {
     # (next_batch.py `superseded`), within its 15-minute timeout. Cancelling one
     # instead would read as a red run on the pull request.
     "cmux-next-batch.yml": "debounce runs supersede themselves and exit 0",
+    # Its seconds-long `changed` gate has no group on purpose: it diffs against the previous head, and a push that
+    # measures nothing must not cancel the head still being measured. The measuring `report` job cancels per pull
+    # request through its own job-level concurrency.
+    "chat-open-perf-report.yml": "the changed gate has no group; the report job cancels per pull request",
 }
 # Every context whose workflows must be bounded. Tests patch this name.
 REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))
@@ -149,8 +153,12 @@ def main() -> int:
     for path, workflow in workflows.items():
         if "pull_request" not in triggers(workflow):
             continue
-        # A group is the requirement; whether it cancels a superseded pull
-        # request run is checked by test_ci_pr_runs_cancel_superseded.py.
+        # Job-level groups also bound superseded work. Validate every job, including
+        # the explicitly preserved short gate, rather than exempt the whole workflow.
+        from test_ci_pr_runs_cancel_superseded import job_groups_problem
+
+        if not workflow.get("concurrency") and job_groups_problem(workflow, path.name, "pull_request") is None:
+            continue
         if not workflow.get("concurrency") and path.name not in OWN_SUPERSESSION:
             failures.append(
                 f"{path.relative_to(ROOT)} runs on pull_request with no "
@@ -173,7 +181,7 @@ def main() -> int:
 
     print(
         f"{len(REQUIRED_CONTEXTS)} required and always-bounded checks are bounded; "
-        "every pull_request workflow has a concurrency group"
+        "every pull_request workflow bounds superseded work"
     )
     return 0
 

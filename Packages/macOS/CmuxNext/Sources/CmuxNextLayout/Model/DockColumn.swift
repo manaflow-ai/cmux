@@ -2,7 +2,7 @@
 /// left and right, plans/cmux-next/layout-model.md for top and bottom). A
 /// left or right dock is a docked column; a top or bottom dock is a
 /// screen-wide band (a docked row) that holds one split tree.
-public nonisolated enum DockEdge: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum DockEdge: String, Hashable, Sendable, CaseIterable, Codable {
     case left, right, top, bottom
 
     /// Top and bottom: the dock is a horizontal band.
@@ -10,7 +10,7 @@ public nonisolated enum DockEdge: String, Hashable, Sendable, CaseIterable {
 }
 
 /// How a docked column shares the viewport with the scrolling strip.
-public nonisolated enum DockMode: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum DockMode: String, Hashable, Sendable, CaseIterable, Codable {
     /// The strip's viewport shrinks to leave room; nothing is covered.
     case docked
     /// The column floats over the strip, which keeps the full width.
@@ -21,7 +21,7 @@ public nonisolated enum DockMode: String, Hashable, Sendable, CaseIterable {
 
 /// A column pinned to one edge of the viewport. Daemon `columns[].dock`
 /// (`dock-columns-v1`); at most one per edge per screen.
-public nonisolated struct DockColumn: Hashable, Sendable {
+public nonisolated struct DockColumn: Hashable, Sendable, Codable {
     public var edge: DockEdge
     public var mode: DockMode
     public var role: DockRole?

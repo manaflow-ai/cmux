@@ -82,6 +82,22 @@ test("an adopt that differs only in its start keeps the screen mounted", () => {
   expect(sameNewTabScreen(prepared, adopted)).toBe(true);
 });
 
+// A split's page (NewTabPage.split) is its source pane's Cmd-T context plus an Open Tabs list: the spare prepared
+// with that context keeps its screen and takes the list in place, so the split's first frame draws it.
+test("a split's Open Tabs list keeps the prepared screen; a draft or another folder remounts it", () => {
+  const prepared = newTabHost({ newTab: { kind: "agent", cwd: PROJECT } })!;
+  const split = newTabHost({
+    newTab: { kind: "agent", cwd: PROJECT, inputToken: "t", openTabs: [{ id: "a", kind: "browser", title: "A" }] },
+  })!;
+  expect(split.openTabs?.length).toBe(1);
+  expect(sameNewTabScreen(prepared, split)).toBe(true);
+  expect(sameNewTabScreen(split, prepared)).toBe(true);
+  expect(sameNewTabScreen(prepared, newTabHost({ newTab: { kind: "agent", cwd: "/elsewhere" } })!)).toBe(false);
+  expect(sameNewTabScreen(prepared, newTabHost({ newTab: { kind: "agent", cwd: PROJECT, draft: "left" } })!)).toBe(
+    false,
+  );
+});
+
 // CMUX-682: a New Tab whose chats start on another machine says so from its first render, so a send
 // naming `@computer-use` holds as that machine's before the page's client connects.
 test("a New Tab on another machine reads startsRemote from its context; this Mac's has none", () => {

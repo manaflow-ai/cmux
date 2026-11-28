@@ -65,6 +65,12 @@ pub const STREAM_WINDOW_ENV: &str = "CMUX_WG_STREAM_WINDOW";
 pub const SYN_DATA_ENV: &str = "CMUX_WG_SYN_DATA";
 /// How long a connect with [`SYN_DATA_ENV`] holds its SYN for a first write.
 pub(crate) const SYN_DATA_HOLD: Duration = Duration::from_millis(30);
+/// How long a SYN carrying a first write waits for the writes right behind
+/// it, within [`SYN_DATA_HOLD`]. The link's first bytes reach the socket as
+/// two writes (62 and 304 bytes on the relay bench); a poll between them sent
+/// the SYN with the first alone, and the Mac answered the rest a round trip
+/// later (3 of 6 relay runs at rtt-400).
+pub(crate) const SYN_DATA_COALESCE: Duration = Duration::from_millis(5);
 
 /// Whether [`SYN_DATA_ENV`] is on.
 pub(crate) fn syn_data_from_env() -> bool {
@@ -573,6 +579,7 @@ impl TcpStack {
         if syn_data_from_env() {
             socket.set_syn_data(true);
             socket.set_syn_data_hold(smol_duration(SYN_DATA_HOLD));
+            socket.set_syn_data_coalesce(smol_duration(SYN_DATA_COALESCE));
         }
         socket.set_congestion_control(congestion);
         socket.set_min_rto(smoltcp::time::Duration::from_micros(

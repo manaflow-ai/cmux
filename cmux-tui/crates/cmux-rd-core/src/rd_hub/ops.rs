@@ -7,17 +7,26 @@ use super::access::{Access, ApprovalChoice, Scope, hub_startup_message, scope_to
 use super::host::{Host, HostEvent};
 use super::reason::{EndReason, HubError, HubReason, Refusal};
 use super::sharing::{default_sharing_step, sharing_state};
-use super::viewer::{Ticket, Viewer, ViewerEvent};
+use super::viewer::{Phase, Ticket, Viewer, ViewerEvent};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-/// This Mac's host reducer and every viewer tab's, by the app's tab id.
+/// The host reducers (one per app host, by its id; `""` when the request names none) and every
+/// viewer tab's, by the app's tab id.
 #[derive(Default)]
 pub struct RdHub {
-    host: Host,
+    hosts: HashMap<String, Host>,
     viewers: HashMap<String, Viewer>,
+}
+
+/// The host a request names (`host`, taken out of the request), else `""`.
+fn host_id(request: &mut Value) -> String {
+    match request.as_object_mut().and_then(|o| o.remove("host")) {
+        Some(Value::String(id)) => id,
+        _ => String::new(),
+    }
 }
 
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
@@ -37,6 +46,12 @@ struct Id {
 struct Open {
     id: String,
     device_id: String,
+}
+
+#[derive(Deserialize)]
+struct TabPhase {
+    id: String,
+    phase: Phase,
 }
 
 #[derive(Deserialize)]
@@ -104,11 +119,11 @@ impl RdHub {
         op.starts_with("rd_hub_")
     }
 
-    fn host_reply(&self) -> Result<Value, String> {
+    fn host_reply(host: &Host) -> Result<Value, String> {
         Ok(json!({
-            "state": encode(&self.host)?,
-            "indicator": encode(self.host.indicator())?,
-            "no_session_reason": encode(self.host.no_session_reason())?,
+            "state": encode(host)?,
+            "indicator": encode(host.indicator())?,
+            "no_session_reason": encode(host.no_session_reason())?,
         }))
     }
 
@@ -137,18 +152,34 @@ impl RdHub {
                 let TabTicket { id, ticket } = parse(request)?;
                 Ok(json!({ "accepts": self.viewer(&id)?.accepts(&ticket) }))
             }
+            "rd_hub_viewer_set_phase" => {
+                let TabPhase { id, phase } = parse(request)?;
+                let viewer = self.viewers.get_mut(&id).ok_or_else(|| format!("no viewer {id}"))?;
+                viewer.phase = phase;
+                encode(&*viewer)
+            }
             "rd_hub_viewer_close" => {
                 let Id { id } = parse(request)?;
                 Ok(json!({ "closed": self.viewers.remove(&id).is_some() }))
             }
             "rd_hub_host_event" => {
+                let mut request = request;
+                let host = self.hosts.entry(host_id(&mut request)).or_default();
                 let event: HostEvent = parse(request)?;
-                let effects = self.host.apply(event);
-                let mut reply = self.host_reply()?;
+                let effects = host.apply(event);
+                let mut reply = Self::host_reply(host)?;
                 reply["effects"] = encode(effects)?;
                 Ok(reply)
             }
-            "rd_hub_host_state" => self.host_reply(),
+            "rd_hub_host_state" => {
+                let mut request = request;
+                let id = host_id(&mut request);
+                Self::host_reply(self.hosts.get(&id).unwrap_or(&Host::default()))
+            }
+            "rd_hub_host_close" => {
+                let mut request = request;
+                Ok(json!({ "closed": self.hosts.remove(&host_id(&mut request)).is_some() }))
+            }
             "rd_hub_end_reason" => {
                 let ReasonRequest { reason } = parse(request)?;
                 let end = EndReason::parse(reason.as_deref());
@@ -308,6 +339,33 @@ mod tests {
             reply["effects"],
             json!([{"effect": "end_then_stop", "session_id": "s1", "reason": "host_stopped"}])
         );
+    }
+
+    #[test]
+    fn hosts_live_by_id_and_a_viewer_takes_a_phase() {
+        let mut m = RdHub::new();
+        let ticket = json!({"session_id": "s1", "scope": "full", "viewer_id": "v1", "viewer_name": "Air", "own_account": true});
+        m.call(
+            "rd_hub_host_event",
+            json!({"host": "h1", "event": "serve", "ticket": ticket, "hub": true, "consent_gate": false}),
+        )
+        .unwrap();
+        let state = |m: &mut RdHub, id: &str| {
+            m.call("rd_hub_host_state", json!({"host": id})).unwrap()["state"]["session"].clone()
+        };
+        assert_eq!(state(&mut m, "h1")["id"], "s1");
+        assert_eq!(state(&mut m, "h2"), Value::Null);
+        assert_eq!(m.call("rd_hub_host_close", json!({"host": "h1"})).unwrap()["closed"], true);
+        assert_eq!(state(&mut m, "h1"), Value::Null);
+
+        m.call("rd_hub_viewer_open", json!({"id": "t1", "device_id": "host"})).unwrap();
+        let phase = json!({"phase": "streaming", "session_id": "s1", "scope": "view"});
+        let state = m.call("rd_hub_viewer_set_phase", json!({"id": "t1", "phase": phase})).unwrap();
+        assert_eq!(state["phase"], phase);
+        let refused = json!({"phase": "refused", "refusal": {"refusal": "other", "reason": "x"}, "requested": "full"});
+        let state =
+            m.call("rd_hub_viewer_set_phase", json!({"id": "t1", "phase": refused})).unwrap();
+        assert_eq!(state["phase"], refused);
     }
 
     #[test]

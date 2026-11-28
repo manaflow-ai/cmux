@@ -46,7 +46,7 @@ permissions: {}
 
 concurrency:
   # Adding another label starts a run that skips; its own group keeps it from cancelling the real one.
-  group: cmux-next-motion-golden-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name != 'motion-golden' && github.run_id || 'run' }}
+  group: cmux-next-motion-golden-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name != 'motion-golden' && github.run_id || 'run' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -57,7 +57,7 @@ jobs:
   dispatch:
     # Only with the label, and on `labeled` only when the label added is this one.
     if: >-
-      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
+      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
       github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'motion-golden')
       && (github.event.action != 'labeled' || github.event.label.name == 'motion-golden')

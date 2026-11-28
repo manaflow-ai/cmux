@@ -82,11 +82,11 @@ final class CloudUploads {
             return AgentPaneReply.failure(code: "link_error", message: CloudUploadStrings.failed)
         }
         let folder = pastes.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
         let paths: [String]
         do {
             paths = try await Task.detached { try AgentPaneCloudAttachments.write(files, in: folder) }.value
         } catch {
+            await AgentPaneStageFiles.remove(folder, work: services.work)
             // The error's domain and code only: its description can name the file.
             let failure = error as NSError
             services.cloud.logger.error("cloud upload: could not write the pasted files: \(failure.domain, privacy: .public) \(failure.code)")
@@ -98,6 +98,7 @@ final class CloudUploads {
         } catch {
             answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
         }
+        await AgentPaneStageFiles.remove(folder, work: services.work)
         return reply(answer, names: files.map(\.name), services: services)
     }
 
@@ -126,18 +127,10 @@ final class CloudUploads {
             } else { target = found }
             if let refusal = Self.beginRefusal(name: name, size: size, manifest: batchToken == nil ? manifest : nil) { return refusal }
             guard let pastes = Self.pastes else { return failed }
-            let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { token in
-                let folder = pastes.appendingPathComponent("staged-" + token, isDirectory: true)
-                let file = folder.appendingPathComponent(name, isDirectory: false)
-                do {
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                    guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
-                } catch {
-                    try? FileManager.default.removeItem(at: folder)
-                    return nil
-                }
-                return (file, folder)
-            }
+            let folder = pastes.appendingPathComponent("staged-" + UUID().uuidString.lowercased(), isDirectory: true), file = folder.appendingPathComponent(name, isDirectory: false)
+            guard await AgentPaneStageFiles.make(file, in: folder, work: services.work) else { await AgentPaneStageFiles.remove(folder, work: services.work); return failed }
+            let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { _ in (file, folder) }
+            if begun == nil { await AgentPaneStageFiles.remove(folder, work: services.work) }
             guard let begun else { return failed }
             var response: [String: Any] = ["token": begun.token, "size": size, "chunkSize": AgentPaneStagedUploads<Target>.chunkBytes]
             if let batch = begun.batchToken { response["batchToken"] = batch }

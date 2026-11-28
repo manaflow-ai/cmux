@@ -36,9 +36,10 @@ import Testing
         #expect(store.turns.count == 1)
         #expect(shown.isUnconfirmed)
         #expect(shown.prompt == "run the tests\nand summarize")
-        #expect(store.isRunning)
-        let before = Self.rowIDs(store)
-        #expect(before.contains("u-\(AgentChatStore.localTurnID(id))"))
+        // While it is sending, the outgoing bubble draws it (`OutgoingMessagesView`, `store.outgoing`),
+        // not the transcript: one bubble, never two. The chat runs from the Mac's record on.
+        #expect(!store.isRunning)
+        #expect(!Self.rowIDs(store).contains("u-\(AgentChatStore.localTurnID(id))"))
         #expect(store.justSentRowKey() == AgentChatStore.localTurnID(id))
         #expect(store.justSentRowKey(now: ProcessInfo.processInfo.systemUptime + 2) == nil, "only a moment after the send")
 
@@ -49,7 +50,9 @@ import Testing
         #expect(turn.id == "t1")
         #expect(!turn.isUnconfirmed)
         #expect(turn.rowKey == AgentChatStore.localTurnID(id))
-        #expect(Self.rowIDs(store) == before, "same rows: nothing is taken out and put in again")
+        #expect(store.isRunning)
+        let rows = Self.rowIDs(store)
+        #expect(rows.contains("u-\(AgentChatStore.localTurnID(id))"), "the record keeps the sent turn's row key: no pop")
 
         // The turn goes on under the Mac's id: its answer and its end land in it.
         store.apply(.update(.agentMessageChunk(text: "All green.", messageId: "m1")))
@@ -107,8 +110,10 @@ import Testing
         // The Mac ran another prompt first: its updates must not land in the shown bubble's turn.
         store.apply(.userMessage(text: "from the Mac", promptId: "other", turnId: "t1", attachments: [], at: Date()))
         store.apply(.update(.agentMessageChunk(text: "Working on it.", messageId: "m1")))
-        #expect(store.turns.map(\.id) == ["t1"])
-        #expect(store.turns.last?.answerMarkdown == "Working on it.")
+        #expect(store.turns.first?.id == "t1")
+        #expect(store.turns.first?.answerMarkdown == "Working on it.")
+        #expect(store.turns.dropFirst().allSatisfy { $0.isUnconfirmed && $0.answerMarkdown.isEmpty },
+                "the shown prompt waits for its own record")
         store.apply(.turnResult(turnId: "t1", status: .completed, errorText: nil, at: Date()))
         store.apply(.userMessage(text: "mine", promptId: id, turnId: "t2", attachments: [], at: Date()))
         #expect(store.turns.map(\.id) == ["t1", "t2"], "each once, in the Mac's order")
@@ -121,8 +126,11 @@ import Testing
         store.apply(.userMessage(text: "first", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
         #expect(store.isRunning)
         store.send(prompt: "and the docs", steer: true)
+        // Drawn at once as a steer in the running turn, no new turn of its own.
         #expect(store.turns.count == 1)
-        #expect(store.turns.last?.items.isEmpty == true)
+        let steers = store.turns.last?.items.filter { if case .steer = $0 { true } else { false } } ?? []
+        #expect(steers.count == 1)
+        #expect(store.turns.last?.items.count == 1)
     }
 
     @Test func aSentPromptKeepsItsAttachmentsThroughTheRecord() throws {

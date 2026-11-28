@@ -11,158 +11,25 @@
 //! [`recovery`] is one exhaustive `match`: a new [`Class`] without a row does not compile, and the table test
 //! (recover_tests.rs) injects every class in [`Class::ALL`] and checks the start path recovers or passes it through.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::{Value, json};
+
+// The table itself is cmux-cloud-start-core's, shared with the app's chat pane start (`CloudStartChat.reply`, op
+// `cloud_start_pane_recovery`): one table for both starts, so a class added there is a row both answer.
+pub(super) use cmux_cloud_start_core::recover::{Action, Class, recovery};
+use cmux_cloud_start_core::recover::{RERUN_MAX_PAUSE, RERUN_PAUSE};
 
 use super::{
     Deadline, Machine, Outcome, Request, Runner, at, fresh, make_room, run_once, start_fault,
 };
 
-/// Declares [`Class`] and [`Class::ALL`] from one list, so `ALL` names every variant by construction.
-macro_rules! classes {
-    ($($(#[$doc:meta])* $name:ident,)*) => {
-        /// A Cloud chat error class of the start path, read from the error's `code` (and, for the app's own
-        /// `unavailable`, its words) by [`classify`].
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub(super) enum Class {
-            $($(#[$doc])* $name,)*
-        }
-
-        impl Class {
-            /// Every class, in declaration order.
-            pub(super) const ALL: &'static [Class] = &[$(Class::$name,)*];
-            /// Each class's variant name, in [`Class::ALL`]'s order (start_fault.rs reads `CMUX_CLOUD_FAULT` by it).
-            pub(super) const NAMES: &'static [&'static str] = &[$(stringify!($name),)*];
-        }
-    };
-}
-
-classes! {
-    /// `cloud.machine_stuck`: a machine this run made never came up within fresh.rs's bound.
-    MachineStuck,
-    /// `cloud.start_pending` with no chat yet: the machine (or its create) is still on its way.
-    StartPending,
-    /// `cloud.list_unread`: a connected app has not loaded its Cloud machines yet (`retryable: true`).
-    ListUnread,
-    /// `cloud.machine_cap`: the account is at its machine cap.
-    MachineCap,
-    /// `cloud.spend_cap`: the account is at its spend cap.
-    SpendCap,
-    /// `cloud.signed_out`: the app is signed out of Cloud.
-    SignedOut,
-    /// `cloud.account_changed`: the app is signed in to another account than `--account`.
-    AccountChanged,
-    /// `cloud.app_not_connected`: the Mac app is closed, or its Mac locked or asleep.
-    AppNotConnected,
-    /// The app's `unavailable` "No Cloud connection serves AGENT yet": no gateway serves the agent.
-    NoConnection,
-    /// `auth.*` (but `auth.required`): the machine's agent is not signed in to its own account.
-    AgentSignIn,
-    /// `agent.limit_reached`: the agent's account is out of usage until a time.
-    AgentLimit,
-    /// `agent_session.*`: the machine's acpmux refused the session (bad request, untrusted folder, ...).
-    AgentRefused,
-    /// `cloud.start_failed`: the machine failed at a final stage, or its create failed.
-    StartFailed,
-    /// `cloud.name_taken`: the `--name` is another machine's.
-    NameTaken,
-    /// `cloud.make_room_failed` and `cloud.make_room_archiving`: `--make-room` could not free a machine now.
-    MakeRoomFailed,
-    /// `chat.turn_failed`: the started chat's turn failed.
-    TurnFailed,
-    /// `chat.wait_timeout`: `--timeout` ran out waiting on the turn.
-    TurnTimeout,
-    /// `chat.lost` and `chat.unreachable`: the started chat cannot be read any more.
-    ChatUnreachable,
-    /// `chat.send_failed`: the prompt was not taken.
-    SendFailed,
-    /// `chat.permission_waiting`: the turn waits on a person's permission answer.
-    PermissionWaiting,
-}
-
-/// What runs on its own for a [`Class`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Action {
-    /// Release the stuck machine and start on a fresh one ([`fresh::replace_stuck`], which owns its own retries).
-    FreshMachine,
-    /// Pause, then start again on the machine the error names (never a second new machine), within the deadline.
-    RerunOnMachine,
-    /// Pause, then start again from the top, within the deadline.
-    Rerun,
-    /// Free the machine the cap refusal offers and start again once; only with `--make-room` (cap.rs), the
-    /// person's consent to delete a machine, so the default stays as it was.
-    MakeRoom,
-}
-
-/// THE table: the action for each class, or `None` where only a person can act, which is the one case that falls
-/// to click-through. Exhaustive on purpose: a new class needs its row here to compile.
-pub(super) fn recovery(class: Class) -> Option<Action> {
-    match class {
-        Class::MachineStuck => Some(Action::FreshMachine),
-        Class::StartPending => Some(Action::RerunOnMachine),
-        Class::ListUnread => Some(Action::Rerun),
-        Class::MachineCap => Some(Action::MakeRoom),
-        // A person signs in, opens or unlocks the app, picks the account, or adds a Cloud connection (the
-        // platform answers it `x-should-retry: false`): a rerun meets the same refusal.
-        Class::SignedOut
-        | Class::AccountChanged
-        | Class::AppNotConnected
-        | Class::NoConnection
-        | Class::AgentSignIn => None,
-        // Money or plan: raising a cap or waiting out an account's usage window is the person's call.
-        Class::SpendCap | Class::AgentLimit => None,
-        // Definitive refusals: the same request is refused again, and fresh.rs already rolls back a machine a
-        // refused start made.
-        Class::AgentRefused | Class::NameTaken | Class::MakeRoomFailed => None,
-        // A final-stage failure is not proven to be this run's own machine from its answer alone, so starting on
-        // a new one (and deleting this one) is not yet safe from here.
-        Class::StartFailed => None,
-        // The chat started: the machine's acpmux resumes a failed turn itself (turn_errors::resume_cause), and a
-        // rerun here would start a second chat with the same prompt.
-        Class::TurnFailed
-        | Class::TurnTimeout
-        | Class::ChatUnreachable
-        | Class::SendFailed
-        | Class::PermissionWaiting => None,
-    }
-}
-
 /// The class of a start error, from its `code` (and the app's words for `unavailable`); `None` for a code no class
-/// names, which passes through as before.
+/// names, which passes through as before (cmux-cloud-start-core `recover::classify`).
 pub(super) fn classify(error: &Value) -> Option<Class> {
     let code = at(error, "code").as_str().unwrap_or_default();
-    let class = match code {
-        fresh::STUCK_CODE => Class::MachineStuck,
-        // A start past the deadline, or one whose prompt may be on the machine, is not a machine still starting.
-        "cloud.start_pending" if !chat_may_exist(error) => Class::StartPending,
-        "cloud.list_unread" => Class::ListUnread,
-        "cloud.machine_cap" => Class::MachineCap,
-        "cloud.spend_cap" => Class::SpendCap,
-        "cloud.signed_out" => Class::SignedOut,
-        "cloud.account_changed" => Class::AccountChanged,
-        "cloud.app_not_connected" => Class::AppNotConnected,
-        "unavailable"
-            if at(error, "message")
-                .as_str()
-                .is_some_and(|text| text.starts_with("No Cloud connection serves")) =>
-        {
-            Class::NoConnection
-        }
-        "agent.limit_reached" => Class::AgentLimit,
-        "cloud.start_failed" => Class::StartFailed,
-        "cloud.name_taken" => Class::NameTaken,
-        "cloud.make_room_failed" | "cloud.make_room_archiving" => Class::MakeRoomFailed,
-        "chat.turn_failed" => Class::TurnFailed,
-        "chat.wait_timeout" => Class::TurnTimeout,
-        "chat.lost" | "chat.unreachable" => Class::ChatUnreachable,
-        "chat.send_failed" => Class::SendFailed,
-        "chat.permission_waiting" => Class::PermissionWaiting,
-        code if code.starts_with("agent_session.") => Class::AgentRefused,
-        code if code.starts_with("auth.") && code != "auth.required" => Class::AgentSignIn,
-        _ => return None,
-    };
-    Some(class)
+    let message = at(error, "message").as_str().unwrap_or_default();
+    cmux_cloud_start_core::recover::classify(code, message, chat_may_exist(error))
 }
 
 /// A pending answer that may have a chat behind it: the prompt was on its way (`sent: unknown`), or a chat had
@@ -171,11 +38,6 @@ fn chat_may_exist(error: &Value) -> bool {
     let details = at(error, "details");
     !at(details, "sent").is_null() || !at(details, "answer").is_null()
 }
-
-/// The first pause before a rerun; each next one doubles, up to [`RERUN_MAX_PAUSE`], always within the deadline.
-const RERUN_PAUSE: Duration = Duration::from_secs(5);
-/// The longest pause between reruns.
-const RERUN_MAX_PAUSE: Duration = Duration::from_secs(30);
 
 /// Runs the table on `outcome`, the start's first answer: while it is a failure whose class has an action that is
 /// not used up, that action runs and its answer is the next outcome. A class with no action, an unclassified code,

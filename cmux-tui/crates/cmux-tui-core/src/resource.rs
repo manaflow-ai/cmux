@@ -646,6 +646,8 @@ pub enum ResourceOperation {
     CloudVmPublicationApiKeys,
     #[serde(rename = "cloud.vm.revoke_publication_api_key")]
     CloudVmRevokePublicationApiKey,
+    #[serde(rename = "cloud.vm.agent_key_create")]
+    CloudVmAgentKeyCreate,
     #[serde(rename = "cloud.runs.create")]
     CloudRunsCreate,
     #[serde(rename = "cloud.runs.start")]
@@ -702,6 +704,8 @@ pub enum ResourceOperation {
     CloudPreviewsCreateLink,
     #[serde(rename = "cloud.previews.revoke_link")]
     CloudPreviewsRevokeLink,
+    #[serde(rename = "cloud.artifacts.read")]
+    CloudArtifactsRead,
     #[serde(rename = "cloud.machine.io")]
     CloudMachineIo,
     #[serde(rename = "cloud.machine.chat_access")]

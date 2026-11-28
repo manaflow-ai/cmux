@@ -236,9 +236,16 @@ impl Machines for CloudMachines {
             args.insert("size".into(), Value::from(size));
         }
         request.args = args;
-        let answer = cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new()))
-            .await
-            .map_err(|f| Self::failure(&f, &request))?;
+        // The exact route in every refusal: run 46172370728 read only "the Cloud API answered
+        // HTTP 404", which cannot tell a stale owner-API route (pre-#64491) from a wrong id.
+        let url = format!(
+            "{}/v1/machines/{machine}/fork",
+            cmux_cloud_client::backend::platform_for(&request.api, |k| std::env::var(k).ok())
+        );
+        let answer =
+            cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new())).await.map_err(
+                |f| format!("POST {url} (machine {machine}): {}", Self::failure(&f, &request)),
+            )?;
         answer
             .get("id")
             .and_then(Value::as_str)
@@ -570,6 +577,11 @@ async fn place_on<M: Machines, R: SubRun>(
         model: opts.model.clone(),
         sync_patch,
     };
+    crate::fork_spec::log(
+        &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::SubVm),
+        machine,
+        fork.id(),
+    );
     let ran = runner.run(fork.id(), &task).await;
     let fork_id = fork.id().to_owned();
     let ran = match ran {

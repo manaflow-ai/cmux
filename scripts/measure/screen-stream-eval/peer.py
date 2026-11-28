@@ -98,12 +98,14 @@ def serve(bind: str, port: int, token: str, folder: Path) -> None:
             if not self.authorized():
                 return
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
-            m = re.fullmatch(r"/(go|result|hello)/([0-9]+)", self.path)
+            m = re.fullmatch(r"/(go|result|hello|bye)/([0-9]+)", self.path)
             if not m:
                 return self.reply(404)
             kind, n = m.group(1), m.group(2)
             if kind == "hello":
                 (folder / "agent.json").write_text(json.dumps(body))
+            elif kind == "bye":  # the viewer Mac's step ended (any exit): the host stops waiting for it
+                put(folder / "bye.json", {"exit": int(body.get("exit", 1))})
             elif kind == "go":
                 cmd = json.loads((folder / f"cmd-{n}.json").read_text())
                 if cmd.get("go_file"):
@@ -145,6 +147,9 @@ def call(folder: Path, target: str, verb: str, args: list[str]) -> int:
     result = folder / f"result-{n}.json"
     deadline = time.monotonic() + CALL_WAIT_S
     while not result.exists():
+        if (folder / "bye.json").exists():
+            print(f"peer.py: the viewer Mac's step ended before {verb} answered", file=sys.stderr)
+            return 1
         if time.monotonic() > deadline:
             print(f"peer.py: the viewer Mac did not answer {verb} within {CALL_WAIT_S} s", file=sys.stderr)
             return 1

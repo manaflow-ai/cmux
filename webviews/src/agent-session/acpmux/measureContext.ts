@@ -20,8 +20,12 @@ import { prepare } from "@chenglou/pretext";
 
 type MeasureContext = Pick<OffscreenCanvasRenderingContext2D, "font" | "measureText">;
 
-/// About 2.4 MB of Blink's measured texts at most (1.2 KB each in the god chat's snapshot).
-export const MEASURES_PER_CANVAS = 2_000;
+/// About 0.3 MB of Blink's measured texts at most (1.2 KB each in the god chat's snapshot). Every
+/// open chat is a page with its own canvas, so this is paid once per chat: at 2,000 it was 2.5 MB of
+/// FrameShapeCache and 1.8 MB of PlainTextNode a grown chat's page (chat-100k-flat grown_x5's heap
+/// retainers), the most a grown page held over an empty one of any one place. Blink's copy saves no
+/// work: the library measures each word once and keeps its widths, so a new canvas costs only itself.
+export const MEASURES_PER_CANVAS = 250;
 
 let real: MeasureContext | undefined;
 let adopted = false;

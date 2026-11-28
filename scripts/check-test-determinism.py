@@ -4057,8 +4057,11 @@ def _is_private_ipv4(text: str) -> bool:
     return False
 
 
-def detect_fixed_port_bind(line: str) -> bool:
+def detect_fixed_port_bind(line: str, suffix: str) -> bool:
     if not _BIND_VERB.search(line):
+        return False
+    executable = _executable_code_positions(line, suffix)
+    if not any(executable[verb.start()] for verb in _BIND_VERB.finditer(line)):
         return False
     for match in _HOST_PORT_TUPLE.finditer(line):
         try:
@@ -6047,7 +6050,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
         if line_no in live_network_lines:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
-        if detect_fixed_port_bind(code):
+        if detect_fixed_port_bind(code, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
         if detect_sleep_then_assert(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
@@ -7789,6 +7792,11 @@ def _self_test() -> int:
             "tests/port.py",
             "server.bind(('127.0.0.1', 8080))\n",
             {RULE_FIXED_PORT_BIND},
+        ),
+        (
+            "webviews/test/port.test.ts",
+            'labelExposure("machine-chip.connect-800ms", timeline("connecting", 800));\n',
+            set(),
         ),
         (
             "tests/e.py",

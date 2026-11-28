@@ -222,9 +222,6 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.commit }}
-          # Full commit history without blobs, for the merge base below.
-          fetch-depth: 0
-          filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
@@ -241,6 +238,11 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         shell: bash
         run: |
+          # The merge base needs this commit's and the default branch's history: fetch just
+          # those two, without blobs or tags. fetch-depth: 0 fetched every branch and tag
+          # (44,922 refs), 210 s of a 4-minute job (job 141028508422).
+          git -c protocol.version=2 fetch --quiet --no-tags --no-recurse-submodules --filter=blob:none --unshallow \
+            origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH" "$(git rev-parse HEAD)"
           base="$(git merge-base HEAD "origin/$DEFAULT_BRANCH")"
           changed="$(git diff --name-only "$base" HEAD -- \
             cmux-tui/bindings/go-pane \
@@ -587,11 +589,11 @@ jobs:
           # Cargo target selectors keep this startup shard from compiling the
           # unrelated workspace test harnesses. The selected targets map to
           # the cmux_tui-* and terminal-* binaries checked below. The startup
-          # tests live in the cmux_tui library (src/main.rs); the cmux-tui
+          # tests live in the cmux_tui library (cmux-tui-lib, src/main.rs); the cmux-tui
           # bin's test binary has the same cmux_tui-<hash> name and none of
           # them, so it is not built here.
           cargo test \
-            -p cmux-tui --lib \
+            -p cmux-tui-lib --lib \
             -p ghostty-vt --test terminal \
             --locked --no-run --message-format=json \
             > target/cargo-test-binaries.jsonl
@@ -1173,6 +1175,8 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
           fi
+          # The runner image grants bwrap userns via its scoped AppArmor profile.
+          bwrap --unshare-all --ro-bind / / true
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
@@ -1337,7 +1341,7 @@ jobs:
             remote_cli::tests::iroh_route_candidates_keep_query_hints_isolated \
             remote_runtime::tests::route_auth_capability_is_derived_from_the_local_provider_registry
           do
-            cargo test --locked -p cmux-tui --lib --features iroh-transport \
+            cargo test --locked -p cmux-tui-lib --lib --features iroh-transport \
               "$test_name" -- --exact --color never | tee "$RUNNER_TEMP/iroh-feature-test.log"
             grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/iroh-feature-test.log"
           done
@@ -1367,6 +1371,8 @@ jobs:
         if: ${{ !cancelled() && inputs.mode == 'full' && (steps.focused.outcome == 'success' || steps.focused.outcome == 'failure') }}
         working-directory: cmux-tui
         run: |
+          # scripts/ci/cargo-mem-env.sh: one job per 6 GiB of a memory-capped slot, and the acpmux/cmux_tui rustc one at a time (-j2 alone still SIGKILLed both in 14 GiB).
+          source "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-env.sh"
           cargo build -p cmux-tui
           python3 scripts/smoke-tui.py
 
@@ -1492,6 +1498,11 @@ jobs:
           # breakaway marks its terminal (behavior tests through the daemon).
           cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
             --test windows_terminal_hosts -- --test-threads=1
+          # A child that leads its group runs in a job with what it starts:
+          # a drop or kill ends the tree, a detached one's tree outlives it;
+          # an owned child's tree (spawn_owned) ends with the process owning it.
+          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-process \
+            --test windows_tree
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through

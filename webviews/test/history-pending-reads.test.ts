@@ -2,9 +2,13 @@
 // cmux#41639). The page must not take that short list for the whole list and stop: it asks again by
 // itself, on one timer that backs off (1 s, 2 s, 4 s, then each 8 s), until a reply is complete.
 import { afterEach, expect, jest, test } from "bun:test";
-import { MockHistoryProvider } from "../src/pages/history/mockProvider";
-import { HistoryStore } from "../src/pages/history/store";
-import { HistoryOps, type HistoryEntry } from "../src/pages/history/types";
+import type { HistoryEntry } from "../src/pages/history/types";
+import { importWithDom } from "./support/importWithDom";
+
+type MockHistoryProvider = import("../src/pages/history/mockProvider").MockHistoryProvider;
+const { MockHistoryProvider } = await importWithDom(() => import("../src/pages/history/mockProvider"));
+const { HistoryStore } = await importWithDom(() => import("../src/pages/history/store"));
+const { HistoryOps } = await importWithDom(() => import("../src/pages/history/types"));
 
 const lists = (provider: MockHistoryProvider) => provider.calls.filter((call) => call.op === HistoryOps.list).length;
 
