@@ -26,8 +26,8 @@ class HotVerifyRecordPostTokenTest(unittest.TestCase):
             if post is None:
                 continue
             found = True
-            first = post["env"]["POST_TOKENS"].split()[0]
-            self.assertEqual(first, "${{ steps.cmux-bot-post-token.outputs.token }}")
+            first = post["env"]["POST_TOKENS"].split("}}")[0] + "}}"
+            self.assertEqual(first.strip(), "${{ steps.cmux-bot-post-token.outputs.token }}")
             mint = next(s for s in steps if s.get("id") == "cmux-bot-post-token")
             self.assertEqual(mint["with"].get("permission-issues"), "write")
         self.assertTrue(found)
