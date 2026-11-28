@@ -2398,15 +2398,22 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,
                               capture_output=True, text=True, errors="replace", timeout=APPLY_SECONDS)
-    if artifact.returncode == 3:
+    if artifact.returncode != 0:
+        # Exit 3 is "no bundle for this job"; a Linux-pool build that published only its zip answers the bundle
+        # fetch with a 404 and exit 1 instead (cmux#47278, 2026-11-28: the look failed after a 682 s build whose
+        # zip downloaded fine). The bundle is a faster form of the same app, so any failure falls back to the zip.
+        bundle_error = why_failed(artifact.stderr or artifact.stdout, 300) or "no output"
         archive = out / "fleet-app.zip"
-        _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        try:
+            _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        except LookError as error:
+            raise LookError(f"cmux-ci artifact {job}: {bundle_error}; its zip: {error}") from error
+        if artifact.returncode != 3:
+            log(f"no bundle for fleet app build {job} ({bundle_error}); used its zip")
         shutil.rmtree(bundle, ignore_errors=True)
         bundle.mkdir(parents=True, exist_ok=True)
         # ditto preserves the executable modes and framework symlinks in macOS app archives.
         _ci_run(["ditto", "-x", "-k", str(archive), str(bundle)], cwd=tree)
-    elif artifact.returncode != 0:
-        raise LookError(f"cmux-ci artifact {job}: {why_failed(artifact.stderr or artifact.stdout, 500) or 'no output'}")
     return _artifact_app(bundle)
 
 

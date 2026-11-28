@@ -598,7 +598,13 @@ class PlanTest(unittest.TestCase):
         }))
 
     def test_fleet_zip_fallback_preserves_app_archive_with_ditto(self):
-        scratch = Path(self.tmp.name) / "zip-fallback"
+        for code in (3, 1):
+            with self.subTest(bundle_exit=code):
+                self.zip_fallback(code)
+
+    def zip_fallback(self, code):
+        # Exit 1 too: a Linux-pool build's bundle fetch answered 404 (cmux#47278) while its zip was there.
+        scratch = Path(self.tmp.name) / f"zip-fallback-{code}"
         calls = []
 
         def run(argv, **kwargs):
@@ -606,8 +612,9 @@ class PlanTest(unittest.TestCase):
             if argv[1:3] == ["build", "cmux"]:
                 return subprocess.CompletedProcess(argv, 0, '{"id":"zip-job"}', "")
             if "--bundle" in argv:
+                Path(argv[3]).mkdir(parents=True, exist_ok=True)
                 (Path(argv[3]) / "partial").write_text("partial")
-                return subprocess.CompletedProcess(argv, 3, "", "no bundle")
+                return subprocess.CompletedProcess(argv, code, "", "no bundle")
             if argv[0] == "ditto":
                 bundle = Path(argv[-1])
                 self.assertFalse((bundle / "partial").exists())
