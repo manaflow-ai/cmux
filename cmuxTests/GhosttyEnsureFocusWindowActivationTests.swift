@@ -15,6 +15,18 @@ private final class StageManagerRightSidebarResponder: NSView, FeedKeyboardFocus
     override var acceptsFirstResponder: Bool { true }
 }
 
+/// Test window whose miniaturized state can be restored without AppKit UI.
+private final class EnsureFocusMiniaturizedTestWindow: NSWindow {
+    /// The simulated miniaturized state exposed to the focus policy.
+    var miniaturizedForTesting = true
+
+    /// Supplies deterministic miniaturized state without changing AppKit state.
+    override var isMiniaturized: Bool { miniaturizedForTesting }
+
+    /// Releases the test window without requiring AppKit UI state.
+    deinit {}
+}
+
 @MainActor
 @Suite("Window activation", .serialized)
 struct GhosttyEnsureFocusWindowActivationTests {
@@ -58,6 +70,33 @@ struct GhosttyEnsureFocusWindowActivationTests {
             targetWindow: targetWindow,
             applicationIsActive: false
         ))
+    }
+
+    /// Keeps deferred focus recovery disabled until a minimized window is restored.
+    @Test(arguments: [false, true])
+    func blocksDeferredActivationForMiniaturizedWindow(hasMainWindow: Bool) {
+        let manager = TabManager()
+        let targetWindow = EnsureFocusMiniaturizedTestWindow()
+
+        /// Evaluates focus recovery with the current simulated window state.
+        func allowsActivation() -> Bool {
+            shouldAllowEnsureFocusWindowActivation(
+                activeTabManager: manager,
+                targetTabManager: manager,
+                keyWindow: nil,
+                mainWindow: hasMainWindow ? targetWindow : nil,
+                targetWindow: targetWindow,
+                applicationIsActive: true
+            )
+        }
+
+        // Minimizing the last window leaves the app active. Deferred terminal
+        // focus must respect that choice even while window ownership is retained.
+        #expect(!allowsActivation())
+
+        // A user restore makes normal terminal focus recovery available again.
+        targetWindow.miniaturizedForTesting = false
+        #expect(allowsActivation())
     }
 
     @Test
