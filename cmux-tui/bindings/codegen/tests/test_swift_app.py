@@ -1216,5 +1216,15 @@ class RepositoryBindingsTests(unittest.TestCase):
             [],
         )
 
+class LoadBindingsTests(unittest.TestCase):
+    def test_a_repeated_key_is_refused_not_silently_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "bindings.json"
+            path.write_text('{"families": {"A": {"enums": {"X": {}}, "requests": {}, "enums": {"Y": {}}}}}',
+                            encoding="utf-8")
+            with self.assertRaisesRegex(BindingError, "duplicate key 'enums'"):
+                generate.load_bindings(path)
+
+
 if __name__ == "__main__":
     unittest.main()
