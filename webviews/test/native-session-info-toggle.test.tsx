@@ -11,7 +11,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { NativeSessionInfo as Model } from "../src/agent-session/acpmux/session-info/native/model";
-import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/nativeSessionInfoLoader";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";

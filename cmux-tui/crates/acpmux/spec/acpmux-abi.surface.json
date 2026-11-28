@@ -437,6 +437,12 @@
         "nullable": true
       }
     },
+    "event:_acpmux/prompt_held": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "event:_acpmux/room": {
       "/deltas": {
         "ty": "array"
@@ -2123,6 +2129,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -2435,6 +2444,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -2754,6 +2766,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -3063,6 +3078,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -3379,6 +3397,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -3685,6 +3706,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -4007,6 +4031,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -4318,6 +4345,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -4624,6 +4654,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -4940,6 +4973,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -5254,6 +5290,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -5563,6 +5602,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -5888,6 +5930,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -6205,6 +6250,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -6520,6 +6568,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -6845,6 +6896,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -7154,6 +7208,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -7489,6 +7546,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -7874,6 +7934,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -8265,6 +8328,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -8571,6 +8637,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -8915,6 +8984,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -9277,6 +9349,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -9983,6 +10058,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -10345,6 +10423,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -10654,6 +10735,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -11181,6 +11265,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -11546,6 +11633,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -11852,6 +11942,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -12174,6 +12267,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -12483,6 +12579,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -12800,6 +12899,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -13132,6 +13234,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -13503,6 +13608,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -13814,6 +13922,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -14123,6 +14234,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -14614,6 +14728,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -14956,6 +15073,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -15530,6 +15650,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -15865,6 +15988,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -16191,6 +16317,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -16505,6 +16634,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -16814,6 +16946,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -17134,6 +17269,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -17525,6 +17663,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -17843,6 +17984,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -18172,6 +18316,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -18790,6 +18937,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -19138,6 +19288,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -19450,6 +19603,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -19775,6 +19931,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -20098,6 +20257,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -20415,6 +20577,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -20723,6 +20888,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -21026,6 +21194,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -21338,6 +21509,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -21657,6 +21831,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -21974,6 +22151,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -22283,6 +22463,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -22608,6 +22791,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -22917,6 +23103,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -23278,6 +23467,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -23614,6 +23806,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -24002,6 +24197,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -24380,6 +24578,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -24906,6 +25107,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -25238,6 +25442,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -25547,6 +25754,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -25863,6 +26073,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -26172,6 +26385,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -26485,6 +26701,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -26791,6 +27010,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -27102,6 +27324,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -27427,6 +27652,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -27750,6 +27978,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -28059,6 +28290,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -28384,6 +28618,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -28705,6 +28942,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -29344,6 +29584,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -29662,6 +29905,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -30018,6 +30264,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -30451,6 +30700,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -30804,6 +31056,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -31228,6 +31483,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -31540,6 +31798,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -31907,6 +32168,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -32225,6 +32489,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -32565,6 +32832,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -32877,6 +33147,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
@@ -33199,6 +33472,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -33513,6 +33789,9 @@
       "/_meta/acpmux/vmBoundary": {
         "ty": "json"
       },
+      "/_meta/acpmux/waitForLink": {
+        "ty": "json"
+      },
       "/_meta/acpmux/waitStart": {
         "ty": "json"
       },
@@ -33822,6 +34101,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitForLink": {
         "ty": "json"
       },
       "/_meta/acpmux/waitStart": {
