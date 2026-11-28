@@ -14,7 +14,8 @@ use super::Reader;
 /// The key a theme file names its slot variants under.
 pub const KEY: &str = "slots";
 
-const SCHEMA: &str = include_str!("../../../../../schemas/theme/slots.json");
+/// schemas/theme/slots.json, also read by `cmux-theme-pack` so the binary carries one copy.
+pub static SCHEMA: &str = include_str!("../../../../../schemas/theme/slots.json");
 
 /// Each shipped slot id with its variant ids, in schemas/theme/slots.json order.
 pub fn known() -> &'static [(String, Vec<String>)] {

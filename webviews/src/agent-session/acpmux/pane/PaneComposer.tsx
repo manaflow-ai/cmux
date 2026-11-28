@@ -41,7 +41,6 @@ import { DictationNotice } from "../DictationNotice";
 import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { cloudAgentPick, cloudStartPick, rememberedCloudAgentPick } from "../cloudAgentPick";
-import { cloudLastPick } from "../cloudLastPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
@@ -51,7 +50,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { AutoSizeDock, MoveDock } from "../place/PlaceMounts";
+import { MoveDock, AutoSizeDock } from "../place/PlaceMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -89,7 +88,7 @@ import { untilAcpmuxTakesSends, paneSends } from "../sendWhenReady";
 import { keptAttachments, postComposerFilled } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
-import type { AutoRow, RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
+import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
@@ -1197,7 +1196,6 @@ export function drawPaneComposer({
                 const folder = once ?? cloudStartFolder(cloudSourcePick(projectDraft ?? composerSnapshot.summary?.cwd));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
-                // The agent picked for the machine (cloudAgentPick.ts) goes first: the chips show it.
                 // The agent, model and level the chips drew for this Cloud start (cloudAgentPick.ts
                 // `cloudStartPick`): Cloud's own pick, never this Mac's chat or last pick, so the start runs
                 // exactly what the chip says. Before, this send worked the agent out again from this Mac's
