@@ -52,6 +52,9 @@ Wire rules (the same JSON the hand-written types sent):
   Swift expressions on them (`set`, wire name to expression; such a field is no init parameter): a
   `RemoteTerminalRef` or `CellSize` the caller hands over whole, encoded as the fields it fills;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
+- a request field's `clamp` ({minimum, maximum, constant?}) clamps an integer in the init only, against a
+  `public static let` constant of the maximum when `constant` names one, else the literal maximum; the
+  property stays a plain `var`, so a value assigned after init is sent as assigned. A nil Optional stays nil.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
 (`type`) or a command's result (`result`). A `type` may also be an untagged union whose variants are all
@@ -137,6 +140,10 @@ _CONSTANT_KEYS = frozenset({"constant", "encode", "name", "doc"})
 _NO_CONSTANT = object()
 # A request field's nested object (`object`): a struct of the request whose fields follow the request rules.
 _NESTED_KEYS = frozenset({"name", "doc", "order", "fields", "omit"})
+# A request field may also clamp its value in the init (`clamp`): see _clamp.
+_REQUEST_FIELD_KEYS = _FIELD_KEYS | {"clamp"}
+_CLAMP_KEYS = frozenset({"minimum", "maximum", "constant"})
+_INTEGERS = frozenset({"Int", "Int32", "Int64", "UInt16", "UInt32", "UInt64"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 WHEN_TRUE = "when_true"
 IF_TRUE = "if_true"
@@ -309,6 +316,8 @@ class _Field:
     when: str | None = None
     # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
     prefer: str | None = None
+    # Clamped in the init only (`clamp`): (minimum, maximum, the static constant naming the maximum or None).
+    clamp: tuple[int, int, str | None] | None = None
     # The whole read as a Swift expression (`decode`), for a wire shape the schema states only in a constraint.
     decode: str | None = None
     # An optional boolean encoded only when true (the daemon default is false): `encode: when_true`, or
@@ -363,6 +372,15 @@ class _Field:
     def keyed(self) -> bool:
         return self.on_wire and not self.mutation and self.flat is None
 
+    def init_line(self) -> str:
+        if self.clamp is None:
+            return f"        self.{self.name} = {self.name}"
+        minimum, maximum, constant = self.clamp
+        bound = maximum if constant is None else f"Self.{constant}"
+        if self.optional:
+            return f"        self.{self.name} = {self.name}.map {{ min(max($0, {minimum}), {bound}) }}"
+        return f"        self.{self.name} = min(max({self.name}, {minimum}), {bound})"
+
     def encode_line(self) -> str:
         if self.mutation:
             return f"        try MutationFields(identity: {self.name}).encode(to: encoder)"
@@ -394,6 +412,28 @@ class _Field:
         if self.cases is not None:
             return [f"case {case}" + ("" if _bare(case) == wire else f" = {json.dumps(wire)}") for case, wire in self.cases]
         return [f"case {self.name}" + ("" if _bare(self.name) == self.wire else f" = {json.dumps(self.wire)}")]
+
+
+def _clamp(where: str, spec: Any, swift_type: str, update: bool) -> tuple[int, int, str | None] | None:
+    """A request field's `clamp`: the init stores min(max(value, minimum), Self.constant), the constant a
+    `public static let` of the maximum; without `constant` the init uses the literal maximum and the type
+    gains no static property (what a request with a literal bound and no public constant had). Only the init clamps: the property stays a plain `var`, so a value
+    assigned after init is sent as assigned (what the hand-written requests did)."""
+    if spec is None:
+        return None
+    spec = _check_keys(f"{where}.clamp", spec, _CLAMP_KEYS)
+    minimum, maximum, constant = spec.get("minimum"), spec.get("maximum"), spec.get("constant")
+    if not all(isinstance(value, int) and not isinstance(value, bool) for value in (minimum, maximum)):
+        raise BindingError(f"{where}.clamp: minimum and maximum are integers")
+    if minimum > maximum:
+        raise BindingError(f"{where}.clamp: minimum is above maximum")
+    if constant is not None and (
+        not isinstance(constant, str) or not _IDENTIFIER.fullmatch(constant) or constant in _KEYWORDS
+    ):
+        raise BindingError(f"{where}.clamp: constant is the Swift name of the maximum, like maxLimit")
+    if update or swift_type not in _INTEGERS:
+        raise BindingError(f"{where}.clamp: only an integer field (not an update) is clamped")
+    return minimum, maximum, constant
 
 
 class _Renderer:
@@ -516,7 +556,7 @@ class _Renderer:
         for wire in [*order, *rest]:
             spec = schema_fields[wire]
             override = _check_keys(
-                f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _FIELD_KEYS
+                f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _REQUEST_FIELD_KEYS
             )
             if override.get("constant", _NO_CONSTANT) is not _NO_CONSTANT:
                 result.append(self.constant_field(f"{where}.{wire}", wire, spec, override))
@@ -652,6 +692,7 @@ class _Renderer:
                 update=update,
                 when_true=when_true, true_value=true_value, decimal_uint64=decimal_uint64,
                 encode_when=encode_when if not read else None,
+                clamp=None if read else _clamp(f"{where}.{wire}", override.get("clamp"), swift_type, update),
                 if_true=if_true,
                 decimal=decimal,
             ))
@@ -828,6 +869,8 @@ class _Renderer:
         if (not isinstance(post_init, list) or not all(isinstance(n, str) and n in optional for n in post_init)
                 or len(set(post_init)) != len(post_init)):
             raise BindingError(f"{command}.initializer.post_init must list distinct optional properties")
+        if any(item.clamp is not None and _bare(item.name) in post_init for item in fields):
+            raise BindingError(f"{command}.initializer.post_init: a clamped field is clamped by the init, so it stays a parameter")
         # An always-sent constant and a field the init sets (`init.set`) take no parameter; an init-only one does.
         parameters = [item for item in fields if _bare(item.name) not in post_init and item.assigned is None
                       and (item.stored or item.init_only)]
@@ -845,7 +888,7 @@ class _Renderer:
         args = [item.parameter(explicit=_bare(item.name) in explicit, label=labels.get(_bare(item.name)))
                 for item in parameters]
         out = ["", f"    public init({', '.join(args)}) {{"]
-        out += [f"        self.{item.name} = {item.name if item.assigned is None else item.assigned}"
+        out += [item.init_line() if item.assigned is None else f"        self.{item.name} = {item.assigned}"
                 for item in fields if item.stored and _bare(item.name) not in post_init]
         out.append("    }")
         return out
@@ -1060,6 +1103,12 @@ class _Renderer:
                 raise BindingError(f"{command}: allow_unadvertised_capability must name the command's schema capability")
         elif capability:
             out.append(f"    public static let requiredCapability: String? = {json.dumps(capability)}")
+        constants = [item for item in fields if item.clamp is not None and item.clamp[2] is not None]
+        if len({item.clamp[2] for item in constants}) != len(constants):
+            raise BindingError(f"{command}: two clamped fields name the same constant")
+        for item in constants:
+            typed = "" if item.swift_type == "Int" else f": {item.swift_type}"
+            out.append(f"    public static let {item.clamp[2]}{typed} = {item.clamp[1]}")
         for enum in nested:
             out += ["", *enum.lines("    ")]
         if stored:
