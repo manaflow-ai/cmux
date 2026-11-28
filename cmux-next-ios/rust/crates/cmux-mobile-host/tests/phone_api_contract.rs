@@ -40,10 +40,12 @@ fn generated() -> Value {
     let acpmux = read_json(&repo().join("cmux-tui/crates/acpmux/spec/acpmux-protocol.json"));
     let daemon_commands: BTreeSet<&str> = ALLOWED_COMMANDS.iter().copied().collect();
     let acpmux_methods: BTreeSet<&str> = PHONE_ACPMUX_METHODS.iter().copied().collect();
+    let host_commands = cmux_mobile_host::api::host_daemon_commands();
     let inputs = Inputs {
         sdk: &sdk,
         acpmux: &acpmux,
         daemon_commands: &daemon_commands,
+        host_commands: &host_commands,
         acpmux_methods: &acpmux_methods,
         services: LINK_SERVICES,
     };

@@ -187,6 +187,28 @@ pub const PHONE_ACPMUX_METHODS: &[&str] = &[
     "_acpmux/watch",
 ];
 
+/// Daemon-service commands hostd answers itself (policy.rs), with their request schemas,
+/// since the daemon's `sdk-schema.json` does not know them.
+pub fn host_daemon_commands() -> Vec<(&'static str, Value)> {
+    vec![(
+        "notification-reply",
+        json!({
+            "type": "object",
+            "properties": {
+                "notification": {"type": "integer", "format": "uint64", "minimum": 0},
+                "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": format!("At most {} bytes.", crate::policy::NOTIFICATION_REPLY_MAX_BYTES),
+                },
+                "reply_id": {"type": "string", "description": "8 to 64 letters, digits or dashes."},
+            },
+            "required": ["notification", "text"],
+            "additionalProperties": false,
+        }),
+    )]
+}
+
 /// Whether this hostd serves `method` now, given its live `version` capabilities.
 pub fn served(method: &Value, capabilities: &[&str]) -> bool {
     let link = method["name"].as_str().is_some_and(|n| n.starts_with("link/"));

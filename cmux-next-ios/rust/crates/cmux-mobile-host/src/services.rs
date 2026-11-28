@@ -3538,6 +3538,7 @@ mod tests {
                 "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1",
+                "api-describe-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

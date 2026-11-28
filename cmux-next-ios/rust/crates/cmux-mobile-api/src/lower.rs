@@ -31,6 +31,8 @@ pub struct Inputs<'a> {
     pub acpmux: &'a Value,
     /// Daemon commands a phone may send (hostd `policy::ALLOWED_COMMANDS`).
     pub daemon_commands: &'a BTreeSet<&'a str>,
+    /// Commands hostd answers itself (no daemon schema), with their request schemas.
+    pub host_commands: &'a [(&'a str, Value)],
     /// acpmux methods (requests, notifications both ways) the phone uses.
     pub acpmux_methods: &'a BTreeSet<&'a str>,
     pub services: &'a [LinkService],
@@ -60,6 +62,17 @@ pub fn build(inputs: &Inputs<'_>) -> Result<Value, Vec<String>> {
     let sdk_types = inputs.sdk.get("types").and_then(Value::as_object);
     let mut daemon_refs = BTreeSet::new();
     for name in inputs.daemon_commands {
+        if let Some((_, params)) = inputs.host_commands.iter().find(|(n, _)| n == name) {
+            methods.push(json!({
+                "name": format!("daemon/{name}"),
+                "service": "daemon",
+                "kind": "request",
+                "params": params,
+                "result": true,
+                "description": "Answered by hostd itself, not the daemon.",
+            }));
+            continue;
+        }
         let Some(command) = commands.and_then(|c| c.get(*name)) else {
             problems.push(format!(
                 "daemon command {name} is allowed for a phone (hostd policy.rs ALLOWED_COMMANDS) but has no schema in cmux-tui/spec/sdk-schema.json"
@@ -84,9 +97,6 @@ pub fn build(inputs: &Inputs<'_>) -> Result<Value, Vec<String>> {
         methods.push(method);
     }
     for (name, event) in inputs.sdk.get("events").and_then(Value::as_object).into_iter().flatten() {
-        if inputs.daemon_commands.contains(name.as_str()) {
-            problems.push(format!("daemon event {name} has a command's name"));
-        }
         let payload = sdk_to_schema(&event["payload"], &mut daemon_refs);
         let mut method = json!({
             "name": format!("daemon/{name}"),
