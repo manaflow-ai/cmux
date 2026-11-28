@@ -137,7 +137,8 @@ fn raw_slot(y: f64, blocks: &[Block]) -> usize {
     let (mut low, mut high) = (0usize, blocks.len());
     while low < high {
         let mid = (low + high) / 2;
-        let range = blocks[mid].range;
+        let Some(block) = blocks.get(mid) else { break };
+        let range = block.range;
         if (range[0] + range[1]) / 2.0 < y {
             low = mid + 1;
         } else {
@@ -177,7 +178,9 @@ impl Plan {
         if accepts.len() != slots {
             accepts = vec![false; slots];
         }
-        accepts[origin] = true;
+        if let Some(accept) = accepts.get_mut(origin) {
+            *accept = true;
+        }
         Plan { blocks, card, trail, lead, group_top, origin, allowed: accepts }
     }
 
@@ -190,18 +193,23 @@ impl Plan {
     /// accepted one (the upper on a tie).
     pub fn slot(&self, centre: f64) -> usize {
         let raw = raw_slot(centre - self.card / 2.0, &self.blocks);
-        if self.allowed[raw] {
+        if self.allows(raw) {
             return raw;
         }
         for distance in 1..=self.blocks.len().max(1) {
-            if raw >= distance && self.allowed[raw - distance] {
+            if raw >= distance && self.allows(raw - distance) {
                 return raw - distance;
             }
-            if raw + distance <= self.blocks.len() && self.allowed[raw + distance] {
+            if raw + distance <= self.blocks.len() && self.allows(raw + distance) {
                 return raw + distance;
             }
         }
         self.origin
+    }
+
+    /// Whether `slot` takes the lifted card; a slot past the plan takes nothing.
+    fn allows(&self, slot: usize) -> bool {
+        self.allowed.get(slot).copied().unwrap_or(false)
     }
 
     /// The top of the card standing in `slot`.
@@ -220,7 +228,7 @@ pub fn card_height(rows: &[[f64; 2]], top: f64, full: f64, max_rows: usize) -> f
     if shown.len() <= max_rows + 1 {
         return full;
     }
-    full.min(shown[max_rows][1] - top)
+    shown.get(max_rows).map_or(full, |row| full.min(row[1] - top))
 }
 
 /// A dragged row standing in the gap: its y from the card's top and its height.
@@ -564,9 +572,9 @@ fn is_space(c: char) -> bool {
 pub fn non_redundant_detail(detail: Option<&str>, title: &str) -> Option<String> {
     let detail = non_empty(detail)?;
     let parts: Vec<&str> = detail.split(SEPARATOR).map(str::trim).collect();
-    if parts.len() == 2
-        && parts[0].to_lowercase() == "local"
-        && parts[1].to_lowercase() == title.trim().to_lowercase()
+    if let [kind, name] = parts.as_slice()
+        && kind.to_lowercase() == "local"
+        && name.to_lowercase() == title.trim().to_lowercase()
     {
         return None;
     }
@@ -737,11 +745,11 @@ pub fn compact(ws: &Workspace, set: &Elements) -> Content {
             items.clear();
         } else if let (Some(pick), Some(reported)) = (status, ws.reported.as_ref())
             && pick.entries
-            && reported.entries.len() == 1
+            && let [entry] = reported.entries.as_slice()
             && !pick.log
             && !pick.progress_label
         {
-            trailing = Some(reported.entries[0].clone());
+            trailing = Some(entry.clone());
             status = None;
         }
     }
