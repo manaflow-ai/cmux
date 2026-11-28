@@ -243,7 +243,7 @@ export const whoamiOverFetch =
       const name = joinName(displayName(body.name) ?? "");
       if (body.signed_in !== true || !name) return ANONYMOUS;
       const avatar = avatarUrl(body.avatar_url);
-      const linkRole = role(body.role, false);
+      const linkRole = role(body.role);
       return { signedIn: true, name, ...(avatar ? { avatarUrl: avatar } : {}), ...(linkRole ? { linkRole } : {}) };
     } catch {
       return ANONYMOUS;
