@@ -416,7 +416,7 @@ impl Moving<'_> {
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
-            let folder = plan::plan_folder(
+            let mut folder = plan::plan_folder(
                 cwd,
                 home,
                 checkout.as_ref(),
@@ -437,16 +437,26 @@ impl Moving<'_> {
             if plan::same_folder(&folder, args.cwd.is_some(), false, false) {
                 sent.set("sameFolder", json!(true));
             }
-            if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
-                let commit = tokio::task::spawn_blocking({
-                    let (top, branch, lane) =
-                        (c.top.clone(), branch.clone(), lane.map(str::to_owned));
-                    move || push_branch(&top, &branch, lane.as_deref())
+            if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&mut folder, &checkout) {
+                let (dest, commit) = tokio::task::spawn_blocking({
+                    let (top, dest, lane) =
+                        (c.top.clone(), format!("refs/heads/{branch}"), lane.map(str::to_owned));
+                    move || push_or_lane_branch(&dest, |to| push_branch(&top, to, lane.as_deref()))
                 })
                 .await??;
+                // A lane VM's git took it only as lane/BRANCH: the target checks that out.
+                if let Some(lane_branch) =
+                    dest.strip_prefix("refs/heads/").filter(|b| *b != branch.as_str())
+                {
+                    sent.set("pushedAs", json!(lane_branch));
+                    *branch = lane_branch.to_owned();
+                }
+                let branch = branch.clone();
+                let dirty = *dirty;
+                sent.set("folder", folder_value(&folder, home, args.cwd.is_some())?);
                 sent.set("branch", json!(branch));
                 sent.set("commit", json!(commit));
-                if *dirty {
+                if dirty {
                     sent.set("uncommittedLeftOn", json!(crate::pairing::machine_name()));
                 }
             }

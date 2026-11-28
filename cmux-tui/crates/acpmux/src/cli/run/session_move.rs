@@ -1128,7 +1128,7 @@ async fn prepare(
     o: &mut Outcome,
 ) -> Result<(Value, bool)> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
-    let folder = plan::plan_folder(
+    let mut folder = plan::plan_folder(
         cwd,
         home,
         checkout.as_ref(),
@@ -1184,19 +1184,27 @@ async fn prepare(
             }
         }
     }
-    if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
+    if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&mut folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
         // of this move's own, and the target checks that commit out detached.
         let dest = if *snapshot { snapshot_ref() } else { format!("refs/heads/{branch}") };
-        let commit = tokio::task::spawn_blocking({
+        let (dest, commit) = tokio::task::spawn_blocking({
             let (top, dest, ssh) = (c.top.clone(), dest.clone(), source.ssh().map(str::to_owned));
             let lane = lane_of(&o.name);
-            move || match ssh {
-                None => push_branch(&top, &dest, lane.as_deref()),
-                Some(ssh) => push_branch_on(&ssh, &top, &dest, lane.as_deref()),
+            move || {
+                push_or_lane_branch(&dest, |to| match &ssh {
+                    None => push_branch(&top, to, lane.as_deref()),
+                    Some(ssh) => push_branch_on(ssh, &top, to, lane.as_deref()),
+                })
             }
         })
         .await??;
+        if let Some(lane_branch) =
+            dest.strip_prefix("refs/heads/").filter(|b| *b != branch.as_str())
+        {
+            record.set("pushedAs", json!(lane_branch));
+            *branch = lane_branch.to_owned();
+        }
         record.set("branch", json!(branch));
         record.set("commit", json!(commit));
         if *snapshot {
@@ -1453,6 +1461,44 @@ fn push_branch_on(ssh: &str, top: &Path, dest: &str, lane: Option<&str>) -> Resu
         bail!("pushing {branch} to origin on {ssh} failed (it may have moved on there): {last}");
     }
     Ok(head)
+}
+
+/// What a lane VM's git says when it refuses a push to a branch outside `lane/`
+/// (leo-workspace `tools/lane_gh_vm.py`): it pushes only `lane/` branches and the heads of PRs
+/// the lane adopted.
+const OUTSIDE_LANE: &str = "is not under lane/";
+
+/// The `lane/` branch a push refused as [`OUTSIDE_LANE`] goes to instead: `lane/` and the
+/// branch's last part ([`lane_of`]'s characters), as the refusal itself suggests. `None` for a
+/// branch already under `lane/`, or with nothing left.
+pub(crate) fn lane_branch_for(branch: &str) -> Option<String> {
+    (!branch.starts_with("lane/")).then(|| lane_of(branch)).flatten().map(|n| format!("lane/{n}"))
+}
+
+/// Pushes HEAD to the full ref `dest` through `push`; when that is `refs/heads/BRANCH` and the
+/// source's git refuses it as [`OUTSIDE_LANE`] (a lane VM's chat on a branch like `ux-trust`),
+/// once more to `refs/heads/lane/BRANCH` ([`lane_branch_for`]), which the target then checks
+/// out. Returns the ref pushed and its commit. Before, the refusal failed the move and held
+/// the VM draining for deletion (gcp-codex-swarm-10, 2026-11-28).
+pub(crate) fn push_or_lane_branch(
+    dest: &str,
+    push: impl Fn(&str) -> Result<String>,
+) -> Result<(String, String)> {
+    match push(dest) {
+        Ok(commit) => Ok((dest.to_owned(), commit)),
+        Err(e) => {
+            let lane = dest.strip_prefix("refs/heads/").and_then(lane_branch_for);
+            match lane {
+                Some(lane) if format!("{e:#}").contains(OUTSIDE_LANE) => {
+                    let to = format!("refs/heads/{lane}");
+                    let commit = push(&to)
+                        .with_context(|| format!("{e:#}; then pushing it as {lane} failed too"))?;
+                    Ok((to, commit))
+                }
+                _ => Err(e),
+            }
+        }
+    }
 }
 
 /// Applies `carry` in the chat's new folder `there` on the ssh host `host` (this machine when

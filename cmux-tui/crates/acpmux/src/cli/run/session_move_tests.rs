@@ -1243,6 +1243,87 @@ fn a_moving_chats_lane_is_its_names_last_part() {
     assert_eq!(lane_of(""), None);
 }
 
+#[test]
+fn a_branch_outside_lane_moves_as_its_lane_branch() {
+    assert_eq!(lane_branch_for("ux-trust").as_deref(), Some("lane/ux-trust"));
+    assert_eq!(lane_branch_for("feat/ux trust").as_deref(), Some("lane/ux-trust"));
+    assert_eq!(lane_branch_for("lane/ux-trust"), None);
+    assert_eq!(lane_branch_for("..."), None);
+}
+
+/// A lane VM's git pushes only `lane/` branches: gcp-codex-swarm-10's held drain could not move
+/// a chat on `ux-trust` ("ux-trust is not under lane/ ... name it lane/<name>"), so the VM sat
+/// idle "draining for deletion". Origin's pre-receive hook stands in for that git.
+#[cfg(unix)]
+#[test]
+fn a_move_refused_outside_lane_pushes_as_lane_branch() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let git = |dir: &Path, args: &[&str]| {
+        let out = StdCommand::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let base = tempfile::tempdir().unwrap();
+    let origin = base.path().join("origin.git");
+    std::fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "-q", "--bare"]);
+    let src = base.path().join("src");
+    git(base.path(), &["clone", "-q", origin.to_str().unwrap(), "src"]);
+    git(&src, &["checkout", "-q", "-b", "ux-trust"]);
+    std::fs::write(src.join("a.txt"), "a").unwrap();
+    git(&src, &["add", "a.txt"]);
+    git(&src, &["commit", "-q", "-m", "a"]);
+    let head = git(&src, &["rev-parse", "HEAD"]);
+    let hook = origin.join("hooks/pre-receive");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(
+        &hook,
+        "#!/bin/sh
+while read -r old new ref; do case \"$ref\" in refs/heads/lane/*) ;; \
+         *) echo \"git push: ${ref#refs/heads/} is not under lane/ and no PR this lane adopted \
+         has it as its head: name it lane/<name>\" >&2; exit 1;; esac; done\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let on_origin = |r: &str| {
+        StdCommand::new("git")
+            .arg("-C")
+            .arg(&origin)
+            .args(["rev-parse", "-q", "--verify", r])
+            .output()
+            .unwrap()
+            .stdout
+    };
+
+    // Before: the branch's own push is refused, and the move failed with it.
+    let refused = push_branch(&src, "refs/heads/ux-trust", None).unwrap_err();
+    assert!(format!("{refused:#}").contains(OUTSIDE_LANE), "{refused:#}");
+
+    // After: the move pushes it as lane/ux-trust, and the target checks that out.
+    let (dest, commit) =
+        push_or_lane_branch("refs/heads/ux-trust", |to| push_branch(&src, to, None)).unwrap();
+    assert_eq!(dest, "refs/heads/lane/ux-trust");
+    assert_eq!(commit, head);
+    assert_eq!(String::from_utf8_lossy(&on_origin("refs/heads/lane/ux-trust")).trim(), head);
+    assert!(on_origin("refs/heads/ux-trust").is_empty());
+
+    // Any other refusal stays the move's error, with no second push.
+    let tries = std::cell::Cell::new(0);
+    let err = push_or_lane_branch("refs/heads/feat", |_| {
+        tries.set(tries.get() + 1);
+        Err(anyhow!("pushing feat to origin failed: rejected (fetch first)"))
+    })
+    .unwrap_err();
+    assert!(format!("{err:#}").contains("fetch first"));
+    assert_eq!(tries.get(), 1);
+}
+
 /// lane-gh refuses a write that names no lane ("lease acquisition requires a lane session"): a
 /// move is driven from outside the chat (the broker strips `ACPMUX_SESSION*`), so before this
 /// the move's own pushes named none and swarm-10's held-drain moves were refused there. Origin's
