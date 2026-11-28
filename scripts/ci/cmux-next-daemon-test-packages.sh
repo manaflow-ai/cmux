@@ -54,8 +54,6 @@ declared_test() {
   (( gathers == 1 )) && printf '%s\n' "$gather"
   return 0
 }
-# The workspace's exclude list (Cargo.toml `exclude = [...]`), as space-separated directories.
-excluded="$(awk '/^exclude *= *\[/ { inside = 1; next } inside && /^\]/ { inside = 0 } inside' Cargo.toml | tr -d ' ",' | tr '\n' ' ')"
 packages=()
 targets=()
 placed=1
@@ -68,9 +66,13 @@ while IFS= read -r file; do
   if [[ "$dir" != */* && ! -f "$dir/Cargo.toml" ]] || ! grep -q '^\[package\]' "$dir/Cargo.toml" 2>/dev/null; then
     echo "--workspace"; exit 0
   fi
-  # A crate with its own [workspace] (cmux-next-linux, #64481) or in the workspace's exclude list is no cmux-tui
-  # member: `-p` with its name fails "package ID specification ... did not match any packages", so skip its files.
-  if grep -q '^\[workspace\]' "$dir/Cargo.toml" || [[ " $excluded " == *" $dir "* ]]; then continue; fi
+  # A crate with its own [workspace] table is not a cmux-tui member (cmux-next-linux, cmux-rd-host: they link
+  # GTK and WebKitGTK, which the workspace build lacks), so `-p NAME` fails the whole job ("package ID
+  # specification `cmux-next-linux` did not match any packages"). #64481 added cmux-next-linux, whose
+  # `cmux_next_linux::` matched, at 2026-11-28 14:44Z: every feat-cmux-next window's run then failed
+  # here, no tree published, and no Cloud VM image roll was requested (run 46156345440). Its tests are
+  # its own workspace's, not this gate's.
+  grep -q '^\[workspace\]' "$dir/Cargo.toml" && continue
   name="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$dir/Cargo.toml" | head -n 1)"
   [[ -n "$name" ]] || { echo "--workspace"; exit 0; }
   packages+=("-p" "$name")
