@@ -1,0 +1,22 @@
+.device-glyph-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 4px 32px;
+  padding: 16px;
+  color: var(--text-primary, currentColor);
+}
+
+.device-glyph-gallery-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.device-glyph-gallery-boxes .ui-device-glyph {
+  outline: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
+}
+
+.device-glyph-gallery-row[data-offline] span {
+  opacity: 0.5;
+}

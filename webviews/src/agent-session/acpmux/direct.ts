@@ -283,6 +283,7 @@ import { promptCoachEnabled } from "./chatDisplay";
 import { afterNextPaint } from "./afterNextPaint";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
+import { noteDeviceKinds } from "../../ui/deviceKinds";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -17218,6 +17219,7 @@ export class AcpmuxDirectClient {
           .filter((peer: string | undefined): peer is string => Boolean(peer))
       : [];
     this.peerKinds = peerKindsFromStatus(status);
+    noteDeviceKinds(status);
     this.peerCloudRegistries = peerCloudRegistriesFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerAgentLogin = peerAgentLoginFromStatus(status);
