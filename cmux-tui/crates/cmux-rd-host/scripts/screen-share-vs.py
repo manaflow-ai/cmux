@@ -467,6 +467,58 @@ def sample_sums(rows, keys):
     return out
 
 
+# A drift between two trials' clock anchors above this is no clock (macOS slews at most 500 ppm):
+# the trial then keeps its own offset, flat.
+MAX_DRIFT_PPM = 1000
+
+
+def clock_anchor(rec):
+    """A key trial's clock anchor, (viewer ns, host-minus-viewer offset ns), or None: the bench's
+    in-session estimate (`stage_ledger.offset_us`, host = viewer + offset) at its session's start
+    (`first_frame_times.start_ns`). The estimate is the least-RTT ping of the bench's window, which
+    over one ~4 s trial is the burst at the session's start."""
+    sl = rec.get("stage_ledger")
+    off_us = sl.get("offset_us") if isinstance(sl, dict) and sl.get("schema") == LEDGER_SCHEMA else None
+    start = (rec.get("first_frame_times") or {}).get("start_ns")
+    if not isinstance(off_us, (int, float)) or isinstance(off_us, bool) or not isinstance(start, int):
+        return None
+    return (start, int(round(off_us * 1000)))
+
+
+def trial_clock(rec, run_clock, prev=None, nxt=None):
+    """The host-minus-viewer clock a key trial's cross-host spans read (breakdown up,
+    first_packet, down; the first frame's signal and down): the line from this trial's anchor
+    (clock_anchor) to the next trial's (NXT), else from the previous one's (PREV, extrapolated),
+    else this trial's offset flat, else the run's (RUN_CLOCK, probed once before the legs). The two
+    Macs' clocks drift apart up to ~0.3 ms a second, so the run's offset alone biased every
+    cross-host span by the drift: per-press down read -4.3 ms by trial 10 of r12c2 and +6.3 ms on
+    r12e (the ledger's Network row: 0.76), and a trial's own offset flat still left a ~1 ms slope
+    inside the trial (2026-11-28). Returns {"offset_ns" at "anchor_ns", "drift_ppm", "source",
+    "minus_run_ms"}; offset_at reads it at a viewer time."""
+    run_ns = run_clock["offset_ns"]
+    own = clock_anchor(rec)
+    if own is None:
+        return {"offset_ns": run_ns, "anchor_ns": None, "drift_ppm": 0.0, "source": "run",
+                "minus_run_ms": 0.0}
+    source, ppm = "stage_ledger", 0.0
+    for other, how in ((nxt, "interpolated"), (prev, "extrapolated")):
+        if other is None or other[0] == own[0]:
+            continue
+        slope = (other[1] - own[1]) / (other[0] - own[0]) * 1e6
+        if abs(slope) <= MAX_DRIFT_PPM:
+            source, ppm = how, round(slope, 3)
+            break
+    return {"offset_ns": own[1], "anchor_ns": own[0], "drift_ppm": ppm, "source": source,
+            "minus_run_ms": round((own[1] - run_ns) / 1e6, 3)}
+
+
+def offset_at(clock, viewer_ns):
+    """CLOCK's (trial_clock) host-minus-viewer offset (ns) at VIEWER_NS."""
+    if clock.get("anchor_ns") is None or viewer_ns is None:
+        return clock["offset_ns"]
+    return clock["offset_ns"] + clock["drift_ppm"] * 1e-6 * (viewer_ns - clock["anchor_ns"])
+
+
 def ledger_stages(ledger):
     """One frame's stage ledger as {row: ms}; a stage with a missing field is absent, not zero."""
     if not isinstance(ledger, dict) or ledger.get("schema") != LEDGER_SCHEMA:
@@ -1330,7 +1382,10 @@ VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
 # timing and loss variables, checked here and again by the rig. Both are cmux-rd-host's
 # measurement switches (mac/capture.rs): the ScreenCaptureKit surface-pool depth, and the raise of
 # the captured display to its fastest refresh for the serve process.
-HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]"}
+# The third is cmux-encode's (videotoolbox.rs power_efficiency): VideoToolbox's
+# MaximizePowerEfficiency hint, 1 on, 0 off (unset: the shipping default).
+HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]",
+            "CMUX_RD_VT_POWER_EFFICIENT": r"[01]"}
 
 
 def checked_env(items):
@@ -2947,13 +3002,15 @@ class Orchestrator:
         return f"{state}; stderr: {tail.strip() or '(empty)'}"
 
     def first_frame_breakdown(self, rec, timing, offset_ns):
-        """connect -> first decoded frame, split with the host's log (ms, viewer clock)."""
+        """connect -> first decoded frame, split with the host's log (ms, viewer clock).
+        OFFSET_NS: host minus viewer, a number or a trial_clock (read at the session's start)."""
         t = rec.get("first_frame_times")
         opened = next((x for x in timing if "open_us" in x), None)
         f = next((x for x in timing if t and x.get("capture_us", x.get("release_us")) == t.get("capture_us")), None)
         if not (t and opened and f):
             return None
-        off_us = offset_ns / 1000.0
+        clock = offset_ns if isinstance(offset_ns, dict) else {"offset_ns": offset_ns}
+        off_us = offset_at(clock, t.get("start_ns")) / 1000.0
         start = t["start_ns"] / 1000.0
         arrived = f.get("arrived_us")
 
@@ -2978,7 +3035,9 @@ class Orchestrator:
         }
 
     def breakdown(self, rec, timing, offset_ns):
-        """Per key press: where the time went, on the viewer's clock (ms)."""
+        """Per key press: where the time went, on the viewer's clock (ms). OFFSET_NS: host minus
+        viewer, a number or a trial_clock (read at each press's send, so a drifting pair's
+        cross-host spans stay right)."""
         frames = {}
         injects = []
         for line in timing:
@@ -2988,9 +3047,10 @@ class Orchestrator:
                 frames[line.get("capture_us", line["release_us"])] = line
         injects.sort(key=lambda x: x["inject_us"])
         rows = []
-        off_us = offset_ns / 1000.0
+        clock = offset_ns if isinstance(offset_ns, dict) else {"offset_ns": offset_ns}
+        off_us = clock["offset_ns"] / 1000.0
 
-        def v(host_us):  # a host time (µs) on the viewer's clock
+        def v(host_us):  # a host time (µs) on the viewer's clock, at this press's offset
             return host_us - off_us
 
         def ms(us):
@@ -2999,6 +3059,7 @@ class Orchestrator:
         for s in rec.get("sample_times") or []:
             f = frames.get(s["capture_us"])
             sent = s["sent_ns"] / 1000.0
+            off_us = offset_at(clock, s["sent_ns"]) / 1000.0
             # The first injection the host read after this press was sent (1 ms of slack for
             # the clock estimate).
             inj = next((i for i in injects if i.get("recv_us") and v(i["recv_us"]) >= sent - 1000), None)
@@ -3085,15 +3146,46 @@ class Orchestrator:
         out = self.host.run(f"cat {timing} 2>/dev/null; : > {timing}", timeout=60)
         return [json.loads(x) for x in out.splitlines() if x.strip()]
 
+    def finish_trial(self, rec, timing, clock):
+        """A key trial's breakdown on its clock (trial_clock's dict); returns its rows."""
+        rec["breakdown_clock"] = clock
+        rec["breakdown"] = self.breakdown(rec, timing, clock)
+        ff = self.first_frame_breakdown(rec, timing, clock)
+        if ff:
+            rec["first_frame_breakdown"] = ff
+            self.ff_rows.append(ff)
+        rec.pop("sample_times", None)
+        return rec["breakdown"]
+
     def run_cmux(self, clock):
         firsts, g2g, fps, rows = [], [], [], []
         clipboard = getattr(self.a, "cmux_input", "key") == "clipboard"
+        # A trial's cross-host spans read the clock line from its anchor to the next trial's
+        # (trial_clock), so a trial with an anchor waits, unlogged, for the next anchor (or the
+        # last trial); the records after it wait too, to keep run.jsonl in trial order.
+        held, held_anchor, last_anchor = [], None, None
+
+        def release(nxt):
+            nonlocal held, held_anchor, last_anchor
+            out = []
+            for r, t in held:
+                if t is not None:
+                    out += self.finish_trial(r, t, trial_clock(r, clock, last_anchor, nxt))
+                self.log(r)
+            held, last_anchor, held_anchor = [], held_anchor or last_anchor, None
+            return out
         # The first session after the rig starts can miss every key (the marker window is
         # not key yet), so warm-up attempts are logged but not counted.
         for n in range(1 - self.a.warmup, self.a.trials + 1):
             origin = self.marker([])
             rec = self.cmux_attempt(origin, "key")
             timing = self.host_timing()
+            keep = getattr(self.a, "keep_timing", None)
+            if keep:
+                # Every frame line of the attempt as the host logged it (idr_reason,
+                # target_kbps, its times), for per-frame analysis beyond the breakdown's join.
+                with open(keep, "a") as f:
+                    f.write(json.dumps({"trial": n, "warmup": n < 1, "lines": timing}) + "\n")
             if n < 1:
                 rec.pop("sample_times", None)
                 self.log(dict(rec, warmup=True))
@@ -3111,14 +3203,23 @@ class Orchestrator:
                                  if s.get("ledger")]
                 if rec.get("stage_ledger"):
                     self.summaries.append(rec["stage_ledger"])
-                rec["breakdown"] = self.breakdown(rec, timing, clock["offset_ns"])
-                rows += rec["breakdown"]
-                ff = self.first_frame_breakdown(rec, timing, clock["offset_ns"])
-                if ff:
-                    rec["first_frame_breakdown"] = ff
-                    self.ff_rows.append(ff)
+                anchor = clock_anchor(rec)
+                if anchor is not None:
+                    rows += release(anchor)
+                    held_anchor = anchor
+                    held.append((rec, timing))
+                elif held:
+                    held.append((rec, timing))
+                else:  # no anchor (an older bench): the run's offset, at once
+                    rows += self.finish_trial(rec, timing, trial_clock(rec, clock))
+                    self.log(rec)
+                continue
             rec.pop("sample_times", None)
-            self.log(rec)
+            if held:
+                held.append((rec, None))
+            else:
+                self.log(rec)
+        rows += release(None)
         for n in range(1, self.a.fps_trials + 1):
             origin = self.marker(["--tick", "--motion"])
             geo = self.motion_geometry()
@@ -3838,6 +3939,9 @@ def build_parser():
                    help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
                         "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
                         "row records host_test_loss_pct")
+    r.add_argument("--keep-timing", metavar="PATH",
+                   help="append each key attempt's host CMUX_RD_TIMING_LOG lines to PATH, one JSON "
+                        "line per attempt ({trial, warmup, lines})")
     r.add_argument("--host-env", action="append", metavar="NAME=VALUE",
                    help="an environment variable on the host's `cmux-rd serve`, repeatable; only "
                         + ", ".join(sorted(HOST_ENV)) + ". Each row records host_env")

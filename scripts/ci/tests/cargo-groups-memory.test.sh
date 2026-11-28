@@ -90,14 +90,39 @@ grep -q 'error: cargo group(s) 2 failed' <<<"$out" || { echo "$out"; echo "FAIL:
 # 9. OOM_RERUN_ALONE: a group the kernel OOM-killed reruns once alone and passes when the rerun fits (the survivor
 # twin finished, so only the killed crate builds again); a group killed twice still fails (case 7).
 mark="$tmp/killed-once"; rm -f "$mark"
-once='if [ ! -e '"$mark"' ]; then : > '"$mark"'; echo "process did not exit successfully: rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 9" > '"$tmp/vmstat"'; exit 101; fi; echo "built on the rerun"'
+once='if [ ! -e '"$mark"' ]; then : > '"$mark"'; echo "process did not exit successfully: rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 9" > '"$tmp/vmstat"'; exit 101; fi; echo "built on the rerun with $CARGO_BUILD_JOBS jobs"'
 echo "oom_kill 3" > "$tmp/vmstat"
 out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "$once" "" "echo b" 2>&1) || { echo "$out"; echo "FAIL: an OOM-killed group did not pass on its rerun"; exit 1; }
 grep -q 'cargo group 1 (): the kernel OOM-killed a process (exit 101); rerunning it once alone' <<<"$out" || { echo "$out"; echo "FAIL: no rerun line"; exit 1; }
 grep -q 'built on the rerun' <<<"$out" || { echo "$out"; echo "FAIL: the rerun did not run"; exit 1; }
+# Alone at 3 jobs, the cmux-tui group's rerun still lost cmux_tui and acpmux together (run 46161772976): one job.
+grep -q 'built on the rerun with 1 jobs' <<<"$out" || { echo "$out"; echo "FAIL: the OOM rerun did not run with one job"; exit 1; }
 grep -q 'cargo group 1 () rerun: [0-9]* s' <<<"$out" || { echo "$out"; echo "FAIL: no rerun time"; exit 1; }
 ! grep -q 'out of memory' <<<"$out" || { echo "$out"; echo "FAIL: a passing rerun still reported OOM"; exit 1; }
 out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo 'error[E0308]: mismatched types'; exit 101" 2>&1) || true
 ! grep -q 'rerunning' <<<"$out" || { echo "$out"; echo "FAIL: a compile error was rerun"; exit 1; }
+
+# 10. HEAVY_GROUPS_ONE_AT_A_TIME: the shipped musl legs' fat-LTO groups (CARGO_GROUPS_HEAVY, group 1 and the
+# acpmux group) never run together unless the budget holds 16 GiB each; the light groups still run beside them.
+# Under memory.max 14 GiB groups 1 and 5 lost acpmux to the kernel even with #64863's three-group cap (runs
+# 46161165035 and 46161772976, 2026-11-28).
+echo $((14 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 500
+conc="$tmp/heavy"; : > "$conc"
+h='echo "start $N" >> '"$conc"'; sleep 0.4; echo "end $N" >> '"$conc"
+l='echo light >> '"$conc"
+out=$(FAKE_NPROC=8 CARGO_GROUPS_HEAVY="1 3" bash "$script" "$tmp/target" x86_64-unknown-linux-gnu \
+  "" "N=1; $h" "" "$l" "" "N=3; $h" "" "$l" 2>&1) || { echo "$out"; echo "FAIL: heavy groups failed"; exit 1; }
+grep -q 'memory.max 14 GiB holds fewer than 2 heavy groups (1 3) at 16 GiB each: one at a time' <<<"$out" || { echo "$out"; echo "FAIL: no heavy line"; exit 1; }
+peak=$(awk '/^start/{n++; if(n>m)m=n} /^end/{n--} END{print m}' "$conc")
+((peak == 1)) || { cat "$conc"; echo "FAIL: $peak heavy groups at once under a 14 GiB cap, want 1"; exit 1; }
+# The light group after the deferred heavy one did not wait for it: it ran before group 3 started.
+awk '/^start 3/{exit !seen} /light/{l++; if (l == 2) seen = 1}' "$conc" || { cat "$conc"; echo "FAIL: a light group waited behind a heavy one"; exit 1; }
+# With room for both (64 GiB, no cap), they still run together.
+echo $((64 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; : > "$conc"
+out=$(FAKE_NPROC=16 CARGO_GROUPS_HEAVY="1 3" bash "$script" "$tmp/target" x86_64-unknown-linux-gnu \
+  "" "N=1; $h" "" "$l" "" "N=3; $h" 2>&1) || { echo "$out"; echo "FAIL: roomy heavy groups failed"; exit 1; }
+! grep -q 'heavy groups' <<<"$out" || { echo "$out"; echo "FAIL: serialized heavy groups with room for both"; exit 1; }
+peak=$(awk '/^start/{n++; if(n>m)m=n} /^end/{n--} END{print m}' "$conc")
+((peak == 2)) || { cat "$conc"; echo "FAIL: $peak heavy groups at once with room for both, want 2"; exit 1; }
 
 echo PASS

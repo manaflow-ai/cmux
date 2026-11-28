@@ -575,6 +575,18 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       - name: Protocol changes need compat rules
         working-directory: cmux-tui
         run: cargo run --locked -p cmux-api-compat --bin api-compat-check
@@ -632,6 +644,18 @@ jobs:
       - name: Set up pinned Rust
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
 
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
       - name: Cache cargo build
@@ -845,6 +869,18 @@ jobs:
       - name: Set up pinned Rust
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
 
       # The test step's library runner: a three-crate workspace, about 10 s.
       - name: Test the library test runner
@@ -1260,6 +1296,18 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       - name: Cache cargo build
         id: rust-cache
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1407,6 +1455,18 @@ jobs:
       - name: Set up pinned Rust
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
 
       # Keyed on the toolchain and the UTC day, not cmux-tui/Cargo.lock (24 changes in the 24 h to 2026-11-28
       # 02:30Z, each one a new entry in the 10 GB GitHub cache that evicts the rest): one save a day.
@@ -1569,6 +1629,18 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       - name: Install wasm32 target
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: rustup target add wasm32-unknown-unknown
@@ -1709,6 +1781,18 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       # Warm start (projected fleet checkouts; Leo, 2026-11-17: "what if we were able to adopt
       # that... for our own workflows? our own remote machines, our own ci?"): the last
       # feat-cmux-next clippy's whole target dir and cargo registry on a Blacksmith sticky disk,
@@ -1839,6 +1923,8 @@ jobs:
         id: clippy
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          # The job's timeout-minutes: the autofix's full rebuild is tried only when it ends 10 min before it.
+          CLIPPY_JOB_MINUTES: "40"
           AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' && github.event.pull_request.head.sha || '' }}
         run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" ${AUTOFIXED_OK:+--autofixed-ok "$AUTOFIXED_OK"}
 

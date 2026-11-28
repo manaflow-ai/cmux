@@ -462,8 +462,9 @@ jobs:
     # runner's disk (run 45710386290, "No space left on device"), so the journeys and production never ran.
     # It now builds as cloud-journey-pr.yml's journey does: the same profile env (so the R2 key below matches
     # the one its `seed` job saves on feat-cmux-next) and its compiled dependencies restored from R2.
-    # tests/test_ci_relay_journey_build_cache.py keeps the two in step.
-    timeout-minutes: 50
+    # tests/test_ci_relay_journey_build_cache.py keeps the two in step. 70 minutes: a cold build at -j2 (6 GiB a job
+    # in a 14 GiB cmux-linux slot; -j4 SIGKILLed the acpmux rustc 24 min in, runs 46160737133 and 46163835969).
+    timeout-minutes: 70
     env:
       CARGO_PROFILE_DEV_OPT_LEVEL: "0"
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -547,7 +548,7 @@ jobs:
         run: |
           set -euo pipefail
           target_dir="${CARGO_TARGET_DIR:-target}"
-          # One job per 3 GiB of a memory-capped pool slot: -j at every host thread SIGKILLed rustc (job 140983092431).
+          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
           CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
           if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
