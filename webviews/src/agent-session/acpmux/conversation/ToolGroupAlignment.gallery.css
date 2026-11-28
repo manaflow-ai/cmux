@@ -28,7 +28,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--tg-space-16);
-  margin-bottom: 16px;
+  margin-bottom: var(--ds-space-fixed-4);
   color: var(--cv-text);
   font-size: var(--text-title);
   font-weight: var(--weight-emphasis);

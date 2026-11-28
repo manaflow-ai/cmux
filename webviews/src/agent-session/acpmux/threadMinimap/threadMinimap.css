@@ -711,7 +711,7 @@
   opacity: 0.25;
 }
 .acpmux-minimap__rail[data-replies-look="lanes"] .acpmux-minimap__tick[data-reply] .acpmux-minimap__bar {
-  margin-inline-start: 8px;
+  margin-inline-start: var(--ds-space-fixed-2);
   width: 18px;
 }
 /* The head control (RailShowControl.tsx): the list's name in the rail's muted type, just above its

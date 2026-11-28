@@ -14,9 +14,9 @@
 .stash-header {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-width: 0;
-  padding: 16px var(--page-edge) 12px;
+  padding: var(--ds-space-fixed-4) var(--page-edge) var(--ds-space-fixed-3);
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -24,8 +24,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 12px;
-  row-gap: 4px;
+  column-gap: var(--ds-space-fixed-3);
+  row-gap: var(--ds-space-fixed-1);
   min-width: 0;
 }
 
@@ -46,7 +46,7 @@
   border: 0;
   background: transparent;
   color: var(--page-text-2);
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-control);
   cursor: default;
 }
@@ -73,7 +73,7 @@
   width: 100%;
   font: inherit;
   font-size: var(--text-title);
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-lg);
   border: 1px solid var(--page-separator);
   background: transparent;
@@ -94,7 +94,7 @@
 .stash-import {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .stash-import-hint,
@@ -114,7 +114,7 @@
 .stash-import-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 
 .stash-list {
@@ -122,7 +122,7 @@
   overflow-y: auto;
   /* Rows pad their hover pill by 8 px: their text starts on the page edge. The top and bottom space
      is the virtualizer's (StashPage.tsx `paddingStart`, `paddingEnd`). */
-  padding: 0 calc(var(--page-edge) - 8px);
+  padding: 0 calc(var(--page-edge) - var(--ds-space-fixed-2));
 }
 
 /* Windowed: only the headers and rows near the viewport are mounted, each placed at its offset. */
@@ -147,8 +147,8 @@
 .stash-group-header {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin: 12px 8px 4px;
+  gap: var(--ds-space-fixed-3);
+  margin: var(--ds-space-fixed-3) var(--ds-space-fixed-2) var(--ds-space-fixed-1);
   min-width: 0;
 }
 
@@ -177,13 +177,13 @@
 .stash-group-restore {
   flex-shrink: 0;
   margin-inline-start: auto;
-  margin-inline-end: -8px;
+  margin-inline-end: calc(-1 * var(--ds-space-fixed-2));
 }
 
 .stash-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   height: 28px;
   border-radius: var(--ds-radius-md);
 }
@@ -198,11 +198,11 @@
 .stash-row-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   flex: 1;
   min-width: 0;
   height: 100%;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border: 0;
   border-radius: var(--ds-radius-md);
   background: transparent;
@@ -250,6 +250,6 @@
   display: grid;
   place-items: center;
   color: var(--page-text-3);
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   text-align: center;
 }

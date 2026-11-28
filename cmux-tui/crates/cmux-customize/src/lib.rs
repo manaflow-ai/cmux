@@ -97,6 +97,8 @@ pub struct Status {
     pub changes: Vec<Change>,
     /// What stops an apply, by file and line. Empty means it would apply.
     pub problems: Vec<Problem>,
+    /// Authoring advice for changed files. Applying a draft always permits these.
+    pub warnings: Vec<Problem>,
     /// Files left out of generations (too large, too many).
     pub skipped: Vec<Skipped>,
     /// Milliseconds from the latest ask to the first file it changed: the

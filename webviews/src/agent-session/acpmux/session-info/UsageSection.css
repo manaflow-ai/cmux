@@ -3,7 +3,7 @@
    fills only its own button, never the row around it. */
 .acpmux-session-info-usage {
   min-width: 0;
-  padding-bottom: 4px;
+  padding-bottom: var(--ds-space-fixed-1);
 }
 .acpmux-session-info-usage__value {
   color: var(--agent-text);
@@ -18,9 +18,9 @@
 .acpmux-session-info-usage__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   height: 28px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
 }
 .acpmux-session-info-usage__title {
   color: var(--agent-muted);
@@ -28,7 +28,7 @@
 }
 .acpmux-session-info-usage__sort {
   display: flex;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   margin: 0 0 0 auto;
   padding: 0;
@@ -36,7 +36,7 @@
 }
 .acpmux-session-info-usage__sort-option {
   height: 20px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border: 0;
   border-radius: 5px;
   background: transparent;
@@ -59,7 +59,7 @@
 .acpmux-session-info-usage__action {
   flex: none;
   height: 20px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border: 0;
   border-radius: 5px;
   background: transparent;

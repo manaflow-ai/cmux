@@ -42,13 +42,13 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 8px;
+  padding-bottom: var(--ds-space-fixed-2);
 }
 
 .pcd-project,
 .pcd-needs {
   position: relative;
-  padding-top: 8px;
+  padding-top: var(--ds-space-fixed-2);
 }
 
 .pcd-row {
@@ -131,7 +131,7 @@
   margin-inline-start: auto;
   min-width: var(--pcd-chip);
   height: var(--pcd-chip);
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   box-sizing: border-box;
   border-radius: 8px;
   font-size: var(--text-caption);
@@ -162,7 +162,7 @@ button.pcd-header {
 .pcd-more-text {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
 }
 /* "··· 31 more": the glyph on the icon column, quieter ink. */
@@ -255,8 +255,8 @@ button.pcd-header {
 /* label: only the name gets a small glass capsule; the rows pass beside it. */
 .pcd-project[data-sticky="label"] .pcd-header-text {
   justify-self: start;
-  margin-inline-start: -8px;
-  padding: 0 8px;
+  margin-inline-start: calc(-1 * var(--ds-space-fixed-2));
+  padding: 0 var(--ds-space-fixed-2);
   line-height: 20px;
   border-radius: 999px;
 }
@@ -292,7 +292,7 @@ button.pcd-header {
   position: static;
 }
 .pcd-needs[data-style="tinted"] {
-  margin: 8px var(--pcd-inset) 0;
+  margin: var(--ds-space-fixed-2) var(--pcd-inset) 0;
   padding-top: 0;
   border-radius: 12px;
   background: color-mix(in srgb, var(--pcd-yellow) 7%, transparent);

@@ -5,6 +5,7 @@
    - A hover or press fill covers its own row or control, never its neighbours.
    - Press and selection change the fill only, never weight, size or icon (design/pressed-state.md).
    - Fills ease on the quick step; Reduce Motion makes every change instant. Nothing here loops. */
+@import "../pages/shared/fixed-spacing.css";
 @import "../ui/ui.css";
 
 :where(.kit-list, .kit-row, .kit-pill, .kit-avatar, .kit-field) {
@@ -136,6 +137,52 @@ button.kit-row:focus-visible {
   gap: var(--ds-space-1);
   margin-inline-start: auto;
   color: var(--ds-color-muted);
+}
+
+/* Share the text column between the primary target and its secondary controls. The controls
+   are siblings of the primary button and out of flow, so even a wide action cannot size a row.
+   The leading mark and trailing status each keep their normal width and gap. */
+.kit-row-item.ui-reveal-host {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.kit-row-item.ui-reveal-host > .kit-row {
+  grid-area: 1 / 1 / 2 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  column-gap: 0;
+}
+.kit-row-item.ui-reveal-host .kit-row-lead {
+  grid-column: 1;
+  margin-inline-end: var(--ds-space-2);
+}
+.kit-row-item.ui-reveal-host .kit-row-text,
+.kit-row-actions {
+  grid-area: 1 / 2 / 2 / 3;
+}
+.kit-row-item.ui-reveal-host :is(.kit-row-title, .kit-row-subtitle) {
+  text-overflow: clip;
+}
+.kit-row-item.ui-reveal-host .kit-row-trail {
+  grid-column: 3;
+  margin-inline-start: var(--ds-space-2);
+}
+.kit-row-actions {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.kit-row-item:has(.kit-row-actions:hover) > button.kit-row:not([data-selected]) {
+  background: var(--ds-color-hover);
+}
+@media (hover: none) {
+  .kit-row-actions.ui-reveal {
+    opacity: 1;
+  }
 }
 
 /* PILL */

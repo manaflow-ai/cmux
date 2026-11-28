@@ -4,9 +4,9 @@
 .ttp-stage {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   width: 240px;
-  padding: 8px 0;
+  padding: var(--ds-space-fixed-2) 0;
   font-family: var(--font-ui);
   color: var(--cmux-text, CanvasText);
 }
@@ -21,13 +21,13 @@
   display: flex;
   align-items: center;
   min-height: var(--grid-row-comfortable);
-  margin: 0 8px;
-  padding: 0 0 0 8px;
+  margin: 0 var(--ds-space-fixed-2);
+  padding: 0 0 0 var(--ds-space-fixed-2);
   border-radius: 8px;
   box-sizing: border-box;
 }
 .ttp-row[data-has-tail] {
-  padding-block: 4px;
+  padding-block: var(--ds-space-fixed-1);
 }
 .ttp-row[data-selected] {
   background: var(--cmux-selection, var(--cmux-hover));
@@ -51,7 +51,7 @@
 .ttp-tail {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   height: var(--text-detail--line-height);
   font-size: var(--text-detail);
@@ -97,7 +97,7 @@
   justify-content: center;
   width: var(--grid-icon-box);
   height: var(--text-body--line-height);
-  margin-right: 8px;
+  margin-right: var(--ds-space-fixed-2);
 }
 /* With a tail line the mark stays on the title's line, not the row's centre. */
 .ttp-row[data-has-tail] .ttp-trail {
@@ -105,7 +105,7 @@
 }
 .ttp-next {
   align-self: flex-start;
-  margin-left: 16px;
+  margin-left: var(--ds-space-fixed-4);
   font: inherit;
   font-size: var(--text-detail);
 }

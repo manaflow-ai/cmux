@@ -6,7 +6,7 @@
   --wf-row: 22px;
   --wf-tone: color-mix(in srgb, var(--cv-fg) 42%, transparent);
   container-type: inline-size;
-  margin: 4px 0 12px;
+  margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-3);
   font-size: var(--text-detail);
   color: var(--cv-activity-text, var(--cv-text));
 }
@@ -17,7 +17,7 @@
   display: grid;
   grid-template-columns: var(--wf-label-width, 38%) minmax(0, 1fr) var(--wf-time);
   align-items: baseline;
-  column-gap: 8px;
+  column-gap: var(--ds-space-fixed-2);
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--cv-fg) 45%, transparent);
 }
@@ -37,7 +37,7 @@
 .cv-waterfall__axis {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  padding-bottom: 4px;
+  padding-bottom: var(--ds-space-fixed-1);
   border-bottom: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
 }
 
@@ -51,7 +51,7 @@
 
 .cv-waterfall__rows {
   list-style: none;
-  margin: 4px 0 0;
+  margin: var(--ds-space-fixed-1) 0 0;
   padding: 0;
 }
 
@@ -60,7 +60,7 @@
   display: grid;
   grid-template-columns: var(--wf-label-width, 38%) minmax(0, 1fr) var(--wf-time);
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   width: 100%;
   min-height: var(--wf-row);
   padding: 0;
@@ -81,7 +81,7 @@
 .cv-waterfall__label {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
 }
 
@@ -93,7 +93,7 @@
 
 .cv-waterfall__tag {
   flex: none;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border-radius: 4px;
   font-size: 0.9em;
   background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
@@ -107,7 +107,7 @@
 .cv-waterfall__track {
   position: relative;
   /* An 8px bar: the track is its padding, on the spacing scale. */
-  padding-block: 4px;
+  padding-block: var(--ds-space-fixed-1);
   border-radius: 4px;
   background: var(--ds-surface-card);
 }
@@ -192,7 +192,7 @@
 }
 
 .cv-waterfall__more {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
   padding: 0;
   border: 0;
   background: none;
@@ -207,7 +207,7 @@
 /* Plain (a turn not worth a chart: one call, or mostly the model): each line its name and its
    time, no axis and no bars, and no head: two or more lines end on a Total line under a hairline. */
 .cv-waterfall__line.is-total {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
   border-top: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
   border-radius: 0;
 }
@@ -221,7 +221,7 @@
 .cv-waterfall__line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   width: 100%;
   min-height: var(--wf-row);
   padding: 0;
@@ -257,13 +257,13 @@
 /* With no label column, the summary takes its own line over the full-width axis. */
 .cv-waterfall.is-stacked .cv-waterfall__head {
   grid-template-columns: minmax(0, 1fr);
-  row-gap: 4px;
+  row-gap: var(--ds-space-fixed-1);
 }
 
 .cv-waterfall.is-stacked .cv-waterfall__span {
   grid-template-columns: minmax(0, 1fr) auto;
-  row-gap: 4px;
-  padding: 4px 0;
+  row-gap: var(--ds-space-fixed-1);
+  padding: var(--ds-space-fixed-1) 0;
 }
 
 .cv-waterfall.is-stacked .cv-waterfall__track {
@@ -275,13 +275,13 @@
 @container (max-width: 420px) {
   .cv-waterfall.is-bars .cv-waterfall__head {
     grid-template-columns: minmax(0, 1fr);
-    row-gap: 4px;
+    row-gap: var(--ds-space-fixed-1);
   }
 
   .cv-waterfall.is-bars .cv-waterfall__span {
     grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 4px;
-    padding: 4px 0;
+    row-gap: var(--ds-space-fixed-1);
+    padding: var(--ds-space-fixed-1) 0;
   }
 
   .cv-waterfall.is-bars .cv-waterfall__track {

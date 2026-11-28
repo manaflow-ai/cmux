@@ -3,8 +3,8 @@
   display: grid;
   align-content: start;
   justify-items: start;
-  gap: 16px;
-  padding: 24px;
+  gap: var(--ds-space-fixed-4);
+  padding: var(--ds-space-fixed-5);
   color: var(--cmux-text, CanvasText);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -13,8 +13,8 @@
 .motion-demo-tabs,
 .motion-demo-segmented {
   display: flex;
-  gap: 4px;
-  padding: 4px;
+  gap: var(--ds-space-fixed-1);
+  padding: var(--ds-space-fixed-1);
   border-radius: 999px;
   background: color-mix(in srgb, CanvasText 6%, transparent);
 }
@@ -26,7 +26,7 @@
 .motion-demo-tab,
 .motion-demo-segment {
   height: 28px;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   border: 0;
   border-radius: 999px;
   background: none;
@@ -41,7 +41,7 @@
 
 .motion-demo-tabs--chunky .motion-demo-tab {
   height: 32px;
-  padding: 0 16px;
+  padding: 0 var(--ds-space-fixed-4);
   font-weight: 600;
 }
 
@@ -68,13 +68,13 @@
 .motion-demo-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .motion-demo-card {
   display: grid;
-  gap: 4px;
-  padding: 12px;
+  gap: var(--ds-space-fixed-1);
+  padding: var(--ds-space-fixed-3);
   border: 0;
   border-radius: 12px;
   background: color-mix(in srgb, CanvasText 8%, transparent);
@@ -95,7 +95,7 @@
 
 .motion-demo-rows {
   display: grid;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   width: min(100%, 320px);
   margin: 0;
   padding: 0;
@@ -107,7 +107,7 @@
   align-items: center;
   justify-content: space-between;
   height: 28px;
-  padding: 0 4px 0 8px;
+  padding: 0 var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
 }
 
 .motion-demo-more {
@@ -140,7 +140,7 @@
   display: grid;
   place-items: center;
   aspect-ratio: 16 / 7;
-  margin: 24px;
+  margin: var(--ds-space-fixed-5);
   overflow: hidden;
   border-radius: 12px;
   background: color-mix(in srgb, CanvasText 4%, Canvas);
@@ -152,7 +152,7 @@
   position: relative;
   z-index: var(--layer-raised);
   display: grid;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   text-align: center;
 }
 
@@ -167,14 +167,14 @@
 .dwell-demo {
   display: grid;
   gap: var(--ds-space-2, 8px);
-  padding: 12px 16px;
+  padding: var(--ds-space-fixed-3) var(--ds-space-fixed-4);
   font-size: var(--text-detail);
 }
 .dwell-demo__lane {
   display: grid;
   grid-template-columns: 92px 200px 1fr 70px;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   height: var(--grid-row-comfortable, 32px);
 }
 .dwell-demo__label,
@@ -185,8 +185,8 @@
 .dwell-demo__row {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border-radius: 6px;
   background: color-mix(in srgb, CanvasText 5%, transparent);
 }

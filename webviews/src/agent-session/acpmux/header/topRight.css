@@ -29,7 +29,7 @@
 .acpmux-topright-strip{display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step))}
 .acpmux-topright-strip-rest,.acpmux-topright-strip-tabs{display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step))}
 .acpmux-topright-strip[data-docked] .acpmux-topright-strip-rest .acpmux-header-tool{opacity:.7}
-.acpmux-topright-strip-tabs{align-self:stretch;align-items:flex-end;margin-inline-start:var(--grid-half-step);padding-inline:8px}
+.acpmux-topright-strip-tabs{align-self:stretch;align-items:flex-end;margin-inline-start:var(--grid-half-step);padding-inline:var(--ds-space-fixed-2)}
 .acpmux-header-tools .acpmux-header-tool.acpmux-topright-tab,.acpmux-header-tools .acpmux-header-tool.acpmux-topright-tab:not(:disabled):hover{--acpmux-topright-tab-height:calc(var(--acpmux-header-tool-size,var(--grid-pill,24px)) + 2px);position:relative;width:calc(var(--acpmux-header-tool-size,var(--grid-pill,24px)) + 8px);height:var(--acpmux-topright-tab-height);border-radius:var(--ds-radius-md,6px) var(--ds-radius-md,6px) 0 0;background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
 .acpmux-topright-tab::before,.acpmux-topright-tab::after{content:"";position:absolute;inset-block-end:0;--acpmux-topright-foot-size:6px;width:var(--acpmux-topright-foot-size);height:var(--acpmux-topright-foot-size);pointer-events:none;background:radial-gradient(circle at var(--acpmux-topright-foot,0 0),transparent 5.5px,var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent)) 6px)}
 .acpmux-topright-tab::before{inset-inline-end:100%;--acpmux-topright-foot:0 0}
@@ -40,7 +40,7 @@
 .ui-popup.acpmux-topright-dock-popover{width:232px}
 .acpmux-topright-dock-glyph{display:inline-flex;color:var(--agent-muted)}
 .acpmux-topright-dock-glyph[data-on]{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
-.acpmux-topright-dock-popover .ui-menu-group-label{padding:4px var(--ui-row-padding-inline,8px) 0;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-topright-dock-popover .ui-menu-group-label{padding:var(--ds-space-fixed-1) var(--ui-row-padding-inline,8px) 0;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 
 @media (prefers-reduced-motion:reduce){.acpmux-topright-morph-set .acpmux-header-tool{transform:none;transition-delay:0s}.acpmux-topright-face{animation:none}}
 html[data-cmux-motion=reduced] .acpmux-topright-morph-set .acpmux-header-tool,html[data-agent-motion=reduced] .acpmux-topright-morph-set .acpmux-header-tool{transform:none;transition-delay:0s}

@@ -8,17 +8,17 @@
   flex-direction: column;
   box-sizing: border-box;
   min-width: 0;
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
 }
 .acpmux-question-row,
 .acpmux-question-row-sizer {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   width: 100%;
   min-height: calc(var(--ds-control-primary, 32px) + var(--ds-space-1, 4px));
   box-sizing: border-box;
-  padding: 8px;
+  padding: var(--ds-space-fixed-2);
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -83,15 +83,15 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px 12px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3) var(--ds-space-fixed-3);
 }
 /* A yes-or-no ask (model.ts consentChoice), as ChatGPT's consent card draws it: the question with
    one muted line of what Allow does under it, then its two buttons, Allow filled (esc and Return
    still answer; the card draws no keycaps). */
 .acpmux-question-scope {
   display: block;
-  padding-top: 4px;
+  padding-top: var(--ds-space-fixed-1);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-weight: normal;
@@ -99,13 +99,13 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-question[data-consent] .acpmux-question-actions {
-  padding-top: 12px;
+  padding-top: var(--ds-space-fixed-3);
   box-shadow: none;
 }
 .acpmux-question-skip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 /* Every pending ask is one card (Lucas, 2026-11-24; lab outputs/2026-11-23-needs-input). It draws on

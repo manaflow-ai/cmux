@@ -94,7 +94,7 @@
 /* A live counter: a glyph and a number in a box as wide as "9+", so a change never moves the row. */
 .acpmux-composer-status-count {
   gap: var(--grid-half-step);
-  padding-inline: 4px;
+  padding-inline: var(--ds-space-fixed-1);
   font-size: var(--text-control);
   line-height: 16px;
 }
@@ -108,7 +108,7 @@
 /* The rundown card: the pane's glass hover card (ui/Tooltip.tsx), its look untouched. */
 .acpmux-status-rundown {
   display: grid;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 200px;
   max-width: 320px;
   font-size: var(--text-control);
@@ -121,7 +121,7 @@
 .acpmux-status-list,
 .acpmux-status-facts {
   display: grid;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -129,7 +129,7 @@
 .acpmux-status-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: 20px;
 }
 .acpmux-status-row-words {
@@ -150,7 +150,7 @@
 }
 .acpmux-status-action {
   flex: none;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: 4px;
   background: none;
@@ -159,7 +159,7 @@
 }
 .acpmux-status-fact {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 .acpmux-status-fact > dt {
   flex: none;
@@ -179,7 +179,7 @@
 .acpmux-status-hint {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   color: var(--agent-muted);
   visibility: hidden;
 }
@@ -200,7 +200,7 @@
   order: -1;
   flex: 1 1 0;
   min-width: 0;
-  margin-inline: 8px auto;
+  margin-inline: var(--ds-space-fixed-2) auto;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -216,7 +216,7 @@
   min-width: 0;
   max-width: 18ch;
   min-height: var(--grid-composer-quiet-row-height, 28px);
-  padding: 0 4px 0 0;
+  padding: 0 var(--ds-space-fixed-1) 0 0;
   border: 0;
   background: none;
   overflow: hidden;

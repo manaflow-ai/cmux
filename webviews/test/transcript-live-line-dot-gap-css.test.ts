@@ -6,6 +6,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { designTokenValue } from "./support/gridTokens";
 
 const css = readFileSync(
   path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
@@ -23,6 +24,8 @@ const declared = (selector: string, property: string) =>
 
 test("the line's counts take back its grid gap, so the dot has 4px on each side", () => {
   expect(declared(".cv-worked", "gap")).toEqual(["var(--grid-gap)"]);
-  expect(declared(".cv-worked__count", "gap")).toEqual(["4px"]);
-  expect(declared(".cv-worked__count", "margin-left")).toEqual(["calc(4px-var(--grid-gap))"]);
+  const dotGap = "var(--ds-space-fixed-1)";
+  expect(designTokenValue("--ds-space-fixed-1")).toBe("4px");
+  expect(declared(".cv-worked__count", "gap")).toEqual([dotGap]);
+  expect(declared(".cv-worked__count", "margin-left")).toEqual([`calc(${dotGap}-var(--grid-gap))`]);
 });

@@ -10,7 +10,7 @@
   /* One heading line and a step of air, about the minimal template's empty room (screen.css
      .nt-composer-room), on the spacing scale. */
   min-height: var(--text-heading--line-height);
-  padding-top: 8px;
+  padding-top: var(--ds-space-fixed-2);
 }
 .nt-app-slot {
   width: min(100%, var(--cv-column, 720px));

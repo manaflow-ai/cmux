@@ -1,7 +1,7 @@
 .cv-tool-with-visual {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 .cv-tool-with-visual > .cv-tool {
@@ -45,7 +45,7 @@
   object-fit: contain;
 }
 .cv-tool-visual-card__caption {
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -11,7 +11,7 @@
 .slot-thinking {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   max-width: 100%;
 }

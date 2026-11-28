@@ -61,7 +61,7 @@
 .ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--menu-destructive,var(--cmux-app-danger,var(--agent-danger,var(--agent-text))))}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-menu-key{flex:none}
-.ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
+.ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:var(--ds-space-fixed-1) var(--ds-space-fixed-2);background:var(--agent-border)}
 /* The agent pane does not load src/ui/ui.css, so the pane carries the primitive's stacking: every Base UI overlay
    (menus, popovers, comboboxes, tooltips) portals to the page root and must draw above the composer card and the
    transcript (cx-lzld: the folder menu drew under the card). The chat menu also carries the submenu chevron. */
@@ -75,23 +75,23 @@
 
 /* Keep status text out of sizing: long translations and error details never move the tools. */
 .acpmux-header-status-slot{--acpmux-header-control-height:26px;position:relative;flex:1 1 0;min-width:0;height:26px}
-.acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
+.acpmux-header-status-content{display:flex;align-items:center;gap:var(--ds-space-fixed-1);min-width:0;height:var(--acpmux-header-control-height)}
 /* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
-.acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
+.acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 var(--ds-space-fixed-1);color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
 /* Whose subagent a subagent's own pane shows, beside its name on the same line (PaneBody.tsx, subagentPanes.ts
    paneHeading): muted metadata, never wider than the room left. */
 .acpmux-subagent-of{flex:0 1 auto;min-width:3ch;max-width:min(42vw,360px);padding:0 var(--ds-space-1);color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
 /* Header Path (agentPane.display.headerBreadcrumb, off by default; Taste Board #20): repo / branch / title
    as one monospace path. The leading parts are muted and shrink first; the slashes are fainter still. */
-.acpmux-thread-crumbs{display:flex;align-items:baseline;min-width:0;max-width:60vw;padding:0 4px;font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--text-control);line-height:var(--acpmux-header-control-height,26px);white-space:nowrap;overflow:hidden;cursor:default;user-select:none}
+.acpmux-thread-crumbs{display:flex;align-items:baseline;min-width:0;max-width:60vw;padding:0 var(--ds-space-fixed-1);font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--text-control);line-height:var(--acpmux-header-control-height,26px);white-space:nowrap;overflow:hidden;cursor:default;user-select:none}
 .acpmux-thread-crumb{flex:0 1000 auto;min-width:3ch;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-thread-crumb-sep{flex:none;color:color-mix(in srgb,var(--agent-muted) 55%,transparent)}
 .acpmux-thread-crumbs .acpmux-thread-title{flex:0 1 auto;padding:0;max-width:none;font-family:inherit;font-size:inherit}
 .acpmux-delete-dialog.ui-dialog{--ui-dialog-padding:var(--ds-space-4)}
 .acpmux-delete-dialog{max-width:360px;padding:var(--ui-dialog-padding,var(--ds-space-4));color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
-.acpmux-delete-dialog p{margin:8px 0 16px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-delete-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
+.acpmux-delete-dialog p{margin:var(--ds-space-fixed-2) 0 var(--ds-space-fixed-4);color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-delete-dialog-actions{display:flex;justify-content:flex-end;gap:var(--ds-space-fixed-2)}
 .acpmux-header-status-content>.acpmux-env-line{position:static;inset:auto;flex:0 1 auto;min-width:0;max-width:min(42vw,360px);height:var(--acpmux-header-control-height)}
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-status>svg{flex:none}
@@ -111,12 +111,12 @@
 .acpmux-header-pr[data-checks][data-checks=pending]::after{background:var(--agent-status-warning)}
 .acpmux-header-pr[data-checks][data-checks=failing]::after{background:var(--agent-status-failure)}
 /* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip. */
-.acpmux-header-tool.acpmux-header-worktree{width:auto;gap:4px;min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-header-tool.acpmux-header-worktree{width:auto;gap:var(--ds-space-fixed-1);min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-header-worktree>svg{flex:none}
 .acpmux-header-worktree-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-header-worktree-detail{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* The default-off live-tree slice: a quiet marker beside the chat's worktree pill. */
-.acpmux-header-tool.acpmux-header-live-tree{width:auto;gap:4px;min-width:0;padding:0 calc(var(--ds-space-1) + var(--grid-half-step));color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-header-tool.acpmux-header-live-tree{width:auto;gap:var(--ds-space-fixed-1);min-width:0;padding:0 calc(var(--ds-space-1) + var(--grid-half-step));color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-header-live-tree>svg{flex:none}
 .acpmux-live-tree-status{width:280px}
 /* chat-surface-allow: the default-off live tree experiment (#48507), kept as tried until it ships */
@@ -139,13 +139,13 @@
 .acpmux-pr-title{display:block;padding:0 6px;color:var(--agent-text);font-weight:600;text-decoration:none;overflow-wrap:anywhere}
 .acpmux-pr-title:hover{text-decoration:underline}
 .acpmux-pr-title:focus-visible,.acpmux-pr-check>a:focus-visible{outline:2px solid var(--agent-accent);outline-offset:-2px;border-radius:4px}
-.acpmux-pr-facts{display:flex;flex-wrap:wrap;gap:4px 8px;padding:2px 6px 6px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-pr-facts{display:flex;flex-wrap:wrap;gap:var(--ds-space-fixed-1) var(--ds-space-fixed-2);padding:2px 6px 6px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-state[data-state=open]{color:var(--agent-status-success)}
 .acpmux-pr-state[data-state=merged]{color:var(--agent-status-merged)}
 .acpmux-pr-state[data-state=closed],.acpmux-pr-conflicts,.acpmux-pr-review[data-review=changes_requested]{color:var(--agent-status-failure)}
 .acpmux-pr-review[data-review=approved]{color:var(--agent-status-success)}
-.acpmux-pr-checks{margin:0;padding:4px 0 0;list-style:none;border-top:.5px solid var(--acpmux-composer-edge)}
-.acpmux-pr-check{display:flex;align-items:center;gap:8px;min-height:26px;padding:0 6px;border-radius:6px}
+.acpmux-pr-checks{margin:0;padding:var(--ds-space-fixed-1) 0 0;list-style:none;border-top:.5px solid var(--acpmux-composer-edge)}
+.acpmux-pr-check{display:flex;align-items:center;gap:var(--ds-space-fixed-2);min-height:26px;padding:0 6px;border-radius:6px}
 .acpmux-pr-check::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--agent-status-success)}
 .acpmux-pr-check[data-state=pending]::before{background:var(--agent-status-warning)}
 .acpmux-pr-check[data-state=failed]::before{background:var(--agent-status-failure)}
@@ -185,7 +185,7 @@
 .acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
 /* In the tab row the warning leads the tools (ChatHeaderInlineStatus): the slot is under the tabs. */
-.acpmux-status.acpmux-status--inline{position:static;inset:auto;flex:0 1 auto;max-width:160px;height:26px;padding:0 4px}
+.acpmux-status.acpmux-status--inline{position:static;inset:auto;flex:0 1 auto;max-width:160px;height:26px;padding:0 var(--ds-space-fixed-1)}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
 .acpmux-header[data-tab-row]::after{content:none}
 /* A pane with one tab (header/tabRow.ts `soloTab`): the row is no band over the chat. The transcript runs up to the
@@ -222,16 +222,16 @@
 .acpmux-header-tools .acpmux-header-new .acpmux-header-new-more{width:14px;border-start-start-radius:0;border-end-start-radius:0}
 /* The menu's preview of where the kind under the pointer opens: the chat, and the new tab right of it. */
 .acpmux-header-new-popover{min-width:220px}
-.acpmux-header-new-preview{margin:4px 4px 8px;padding:8px;border-radius:var(--ds-radius-md,6px);background:var(--ds-surface-card);font-size:var(--text-caption);line-height:1.3}
-.acpmux-header-new-preview-pane{display:grid;grid-template-columns:1fr 1fr;gap:4px;aspect-ratio:5/2;margin-bottom:8px}
+.acpmux-header-new-preview{margin:var(--ds-space-fixed-1) var(--ds-space-fixed-1) var(--ds-space-fixed-2);padding:var(--ds-space-fixed-2);border-radius:var(--ds-radius-md,6px);background:var(--ds-surface-card);font-size:var(--text-caption);line-height:1.3}
+.acpmux-header-new-preview-pane{display:grid;grid-template-columns:1fr 1fr;gap:var(--ds-space-fixed-1);aspect-ratio:5/2;margin-bottom:var(--ds-space-fixed-2)}
 .acpmux-header-new-preview-chat,.acpmux-header-new-preview-tab{border-radius:4px}
-.acpmux-header-new-preview-chat{display:flex;flex-direction:column;justify-content:flex-end;gap:4px;padding:8px;background:var(--ds-surface-inset)}
+.acpmux-header-new-preview-chat{display:flex;flex-direction:column;justify-content:flex-end;gap:var(--ds-space-fixed-1);padding:var(--ds-space-fixed-2);background:var(--ds-surface-inset)}
 .acpmux-header-new-preview-chat>i{display:block;border-top:3px solid color-mix(in srgb,var(--agent-text) 18%,transparent);border-radius:4px}
 .acpmux-header-new-preview-chat>i:nth-child(2){width:70%}
 .acpmux-header-new-preview-tab{display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 14%,transparent);color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
-.acpmux-header-new-preview-text{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.acpmux-header-new-preview-text{display:flex;align-items:baseline;justify-content:space-between;gap:var(--ds-space-fixed-2)}
 .acpmux-header-new-preview-name{font-weight:var(--weight-emphasis);color:var(--agent-text)}
-.acpmux-header-new-preview-detail{display:grid;margin-top:4px;color:var(--agent-muted)}
+.acpmux-header-new-preview-detail{display:grid;margin-top:var(--ds-space-fixed-1);color:var(--agent-muted)}
 .acpmux-header-new-preview-detail>span{grid-area:1/1}
 .acpmux-header-new-preview-detail>span:not([data-shown]){visibility:hidden}
 
@@ -310,9 +310,9 @@
   z-index: var(--layer-tooltip, 1000);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   box-sizing: border-box;
-  padding: 0 8px 0 4px;
+  padding: 0 var(--ds-space-fixed-2) 0 var(--ds-space-fixed-1);
   border-radius: var(--ds-radius-md, 6px);
   background: color-mix(in srgb, var(--agent-text) 12%, var(--agent-page-bg, Canvas));
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
@@ -385,9 +385,9 @@
 .acpmux-header-preview-pane {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   aspect-ratio: 5 / 2;
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-fixed-2);
 }
 .acpmux-header-preview-pane-down {
   grid-template-columns: 1fr;
@@ -403,8 +403,8 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 4px;
-  padding: 8px;
+  gap: var(--ds-space-fixed-1);
+  padding: var(--ds-space-fixed-2);
 }
 .acpmux-header-preview-chat > i {
   display: block;
@@ -459,7 +459,7 @@
   flex: none;
 }
 .acpmux-header-preview-detail {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
   color: var(--agent-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -503,7 +503,7 @@
 .acpmux-glass-title-name,.acpmux-glass-title-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-glass-title-detail{color:var(--agent-muted);font-size:var(--text-caption);font-weight:normal;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-live-tree-results{list-style:none;margin:0;padding:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));font-size:var(--text-detail)}
-.acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
+.acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:var(--ds-space-fixed-3)}
 /* A row accessory (tabRow.ts TAB_ROW_ACCESSORY) with no room in the half of the row the tabs give up hides whole; the
    tools stay where they are. */
 [data-tab-row-accessories="hidden"] [data-tab-row-accessory] {

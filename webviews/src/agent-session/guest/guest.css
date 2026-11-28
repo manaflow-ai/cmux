@@ -5,10 +5,10 @@
   box-sizing: border-box;
   max-width: 400px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: var(--ds-space-fixed-6) var(--ds-space-fixed-5);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-height: 100%;
   justify-content: center;
 }
@@ -32,7 +32,7 @@
 }
 .guest-live__view-only {
   margin: 0;
-  padding: 4px 0;
+  padding: var(--ds-space-fixed-1) 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -40,15 +40,15 @@
 }
 .guest-join {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--ds-space-fixed-2);
+  margin-top: var(--ds-space-fixed-1);
 }
 .guest-join__name {
   flex: 1;
   min-width: 0;
   height: 32px;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   border: 1px solid var(--agent-border);
   border-radius: 8px;
   background: var(--agent-input-bg);
@@ -63,7 +63,7 @@
 .guest-join__button {
   flex: none;
   height: 32px;
-  padding: 0 16px;
+  padding: 0 var(--ds-space-fixed-4);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: var(--agent-accent);
@@ -186,8 +186,8 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px var(--guest-inset);
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-2) var(--guest-inset);
   border-bottom: 1px solid var(--agent-border);
 }
 [data-borders="none"] .guest-live__header {
@@ -224,7 +224,7 @@
   left: 0;
   right: 0;
   margin: 0;
-  padding: 8px var(--guest-inset);
+  padding: var(--ds-space-fixed-2) var(--guest-inset);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -235,10 +235,10 @@
 .guest-live__ask {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   flex: none;
   margin: 0;
-  padding: 8px var(--guest-inset);
+  padding: var(--ds-space-fixed-2) var(--guest-inset);
   border-top: 1px solid var(--agent-border);
   color: var(--agent-text);
   font-size: var(--text-detail);
@@ -274,8 +274,8 @@
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px var(--guest-inset) 12px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-2) var(--guest-inset) var(--ds-space-fixed-3);
   border-top: 1px solid var(--agent-border);
 }
 [data-borders="none"] .guest-live__dock {
@@ -284,12 +284,12 @@
 .guest-mine {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   max-height: 40vh;
   overflow-y: auto;
 }
 .guest-mine__held {
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 /* The owner's waiting follow-ups: a shorter list than the guest's own, so both fit above the composer. */
 .guest-queue {
@@ -353,7 +353,7 @@
 .guest-mine__decided {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 .guest-mine__decided-text {
@@ -391,7 +391,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 .guest-composer__field {
   flex: 1;
@@ -399,7 +399,7 @@
   min-height: 32px;
   max-height: 160px;
   box-sizing: border-box;
-  padding: 4px 12px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   border: 1px solid var(--agent-border);
   border-radius: 8px;
   background: var(--agent-input-bg);

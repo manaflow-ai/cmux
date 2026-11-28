@@ -7,14 +7,6 @@
 .kit-gallery-panel {
   position: relative;
   padding: var(--ds-space-4);
-  /* The glass surface is declared on :root (ui/glass/glass.css), so its var() resolves to the
-     page's theme; declare it again here so a popup in this panel frosts this panel's surface. */
-  /* glass-opaque-allow: the surface glass frosts (glass.css :root declares the same), not a fill */
-  --glass-surface: var(--cmux-surface-solid, Canvas);
-  --transient-surface-veil: light-dark(
-    color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-light-veil-alpha) * 100%), transparent),
-    color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-dark-veil-alpha) * 100%), transparent)
-  );
 }
 .kit-gallery-stack {
   display: flex;

@@ -1,5 +1,5 @@
 .status-glyphs-stage {
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   color: var(--cmux-app-text, CanvasText);
   background-size: cover;
 }

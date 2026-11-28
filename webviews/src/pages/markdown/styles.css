@@ -441,7 +441,7 @@ body {
   display: inline-flex;
   max-width: 100%;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   padding: 4px 6px;
   border: 1px solid var(--cmux-md-border-color);
   border-radius: var(--cmux-md-code-radius);
@@ -767,7 +767,7 @@ body {
   top: 0.35em;
   left: 0.8em;
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   align-items: center;
   max-width: calc(100% - 6em);
   line-height: 1.2;
@@ -778,8 +778,8 @@ body {
 
 .md-run-button {
   border: 0;
-  padding: 0 4px;
-  margin: 0 -4px;
+  padding: 0 var(--ds-space-fixed-1);
+  margin: 0 calc(-1 * var(--ds-space-fixed-1));
   border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-md-faint-color);
@@ -789,7 +789,7 @@ body {
 
 .md-run-button::before {
   content: "\25B6\FE0E";
-  margin-inline-end: 4px;
+  margin-inline-end: var(--ds-space-fixed-1);
   font-size: 0.75em;
 }
 
@@ -841,7 +841,7 @@ body {
 
 .md-code-diagram .md-diagram {
   display: block;
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   overflow-x: auto;
   text-align: center;
   cursor: text;
@@ -1186,7 +1186,7 @@ body {
 }
 
 .md-link-suggestions {
-  margin: 4px 0 0;
+  margin: var(--ds-space-fixed-1) 0 0;
   padding: 0;
   list-style: none;
   max-height: 220px;
@@ -1252,7 +1252,7 @@ body {
 .md-reading-body {
   display: grid;
   gap: var(--ds-space-3);
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   font-size: var(--cmux-md-ui-font-size);
 }
 
@@ -1260,7 +1260,7 @@ body {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 4px 8px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   margin: 0;
   padding: 0;
   border: 0;
@@ -1441,7 +1441,7 @@ body {
 }
 
 .md-reading-footer .md-button {
-  margin-top: 8px;
+  margin-top: var(--ds-space-fixed-2);
 }
 
 /* `markdown.theme`: light or dark paper whatever the app's theme. The page's base colors
@@ -1685,7 +1685,7 @@ body {
 
 .cmux-comment-card blockquote {
   margin: 0 0 6px;
-  padding-left: 8px;
+  padding-left: var(--ds-space-fixed-2);
   border-left: 2px solid var(--cmux-md-border-color);
   color: var(--cmux-md-muted-color);
   white-space: pre-wrap;
@@ -1694,7 +1694,7 @@ body {
 }
 
 .cmux-comment-card p {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-fixed-2);
   white-space: pre-wrap;
 }
 
@@ -1775,7 +1775,7 @@ body {
 .md-outline-dash[data-active] {
   transform: scaleY(1.5);
   width: calc(100% - var(--md-dash-inset) + 4px);
-  margin-left: calc(var(--md-dash-inset) - 4px);
+  margin-left: calc(var(--md-dash-inset) - var(--ds-space-fixed-1));
   background: var(--cmux-md-link-color);
   opacity: 1;
 }

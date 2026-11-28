@@ -10,7 +10,7 @@
 
 .minimap-tick-gallery-copy {
   display: grid;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);

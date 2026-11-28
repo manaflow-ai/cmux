@@ -5,7 +5,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   color: var(--agent-text);
   background: var(--agent-page-bg);
 }
