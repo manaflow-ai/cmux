@@ -406,6 +406,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         event_count: 0,
         turn_count: 0,
         usage: None,
+        cold_batch_due: None,
         context_breakdown: None,
         cmux_context: None,
         cmux_preset_prompt: None,
