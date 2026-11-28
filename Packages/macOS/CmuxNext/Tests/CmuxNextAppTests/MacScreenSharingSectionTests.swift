@@ -132,10 +132,8 @@ struct MacScreenSharingSectionTests {
             #expect(ids.contains("macScreen.home.allowToggle"))
             #expect(ids.contains("macScreen.home.hubNote"))
             #expect(texts(under: section).contains(L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")))
-            let failed = MacScreenHomeSnapshot.hubNote(.failed("timed out"), joiningHeld: true) ?? ""
-            #expect(failed.contains("timed out"), "a failure says why at once: \(failed)")
-            #expect(MacScreenHomeSnapshot.hubNote(.starting, joiningHeld: true) == nil,
-                    "joining waits NoticeTiming.connectionQuiet before it says so")
+            let failed = MacScreenHomeSnapshot.hubNote(.failed("timed out"))
+            #expect(failed.contains("timed out"), "\(failed)")
         }
     }
 

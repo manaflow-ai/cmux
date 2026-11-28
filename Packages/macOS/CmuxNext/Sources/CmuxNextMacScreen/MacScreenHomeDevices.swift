@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextDevices
+import CmuxNextWakeups
 import Foundation
 
 /// What the home page reads of the device hub: the hub (while signed in),
@@ -139,15 +140,14 @@ struct MacScreenHomeSnapshot: Equatable {
                 // says why. Gating the section on registration hid it (and its permissions) for as long as the
                 // hub was unreachable (run 45954248647: socket connect timeouts, no This Mac section).
                 let registered = hub.thisDevice != nil || hub.status == .ready
-                // Joining is a state that usually ends on its own: it waits the shared quiet bound before it says so.
-                home.joiningHold.update(!registered && !Self.failed(hub.status)) { [weak home] in home?.render() }
                 let hubHost = source.hubHost
                 sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy || !registered,
                                   screenRecordingGranted: home.host.screenRecordingGranted,
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status, joiningHeld: home.joiningHold.held))
+                                  hubNote: home.hubNoteShows(registered: registered, status: hub.status)
+                                      ? Self.hubNote(hub.status) : nil)
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -171,22 +171,19 @@ struct MacScreenHomeSnapshot: Equatable {
         }
     }
 
-    /// How long This Mac's "Connecting this Mac to the device hub…" waits before it shows (``NoticeTiming/connectionQuiet``):
-    /// a join that lands under it draws no note at all.
-    static let joiningQuiet = NoticeTiming.connectionQuiet
+    /// The hold on "Connecting this Mac to the device hub…": a join that lands under ``NoticeTiming/connectionQuiet``
+    /// says nothing; a failure (its own words, `thisMacHubFailed`) shows at once.
+    @MainActor
+    static func hubJoiningHold() -> QuietHold {
+        QuietHold(owner: "macScreen.home.hubJoining", delay: NoticeTiming.connectionQuiet)
+    }
 
-    /// What This Mac says while this device is not on the hub yet: connecting (once it has lasted ``joiningQuiet``;
-    /// nil while `joiningHeld`), or at once why it could not register.
-    static func hubNote(_ status: DeviceHub.Status, joiningHeld: Bool = false) -> String? {
+    /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
+    static func hubNote(_ status: DeviceHub.Status) -> String {
         if case let .failed(reason) = status {
             return L.t("macScreen.home.thisMacHubFailed", "This Mac could not reach the device hub: \(reason). cmux keeps trying.")
         }
-        return joiningHeld ? nil : L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")
-    }
-
-    private static func failed(_ status: DeviceHub.Status) -> Bool {
-        if case .failed = status { return true }
-        return false
+        return L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")
     }
 
     /// One hub device as the page shows it.
