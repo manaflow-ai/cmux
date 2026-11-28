@@ -1382,7 +1382,10 @@ VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
 # timing and loss variables, checked here and again by the rig. Both are cmux-rd-host's
 # measurement switches (mac/capture.rs): the ScreenCaptureKit surface-pool depth, and the raise of
 # the captured display to its fastest refresh for the serve process.
-HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]"}
+# The third is cmux-encode's (videotoolbox.rs power_efficiency): VideoToolbox's
+# MaximizePowerEfficiency hint, 1 on, 0 off (unset: the shipping default).
+HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]",
+            "CMUX_RD_VT_POWER_EFFICIENT": r"[01]"}
 
 
 def checked_env(items):
@@ -1762,7 +1765,7 @@ def redact_vnc(text):
     return re.sub(r"(vnc://[^:/@\s]*:)[^@\s]*@", r"\1***@", text or "")
 
 
-def screen_sharing_window(windows, host, exclude=()):
+def screen_sharing_window(windows, host, exclude=(), launched=()):
     """The Screen Sharing.app window showing HOST in WINDOWS (SS_WINDOWS_SWIFT's list, front to
     back): its {pid, window, title}, the frontmost normal-layer window owned by Screen Sharing
     whose title names HOST, skipping ids in EXCLUDE (there before). None when none names HOST:
@@ -1771,8 +1774,12 @@ def screen_sharing_window(windows, host, exclude=()):
             and w.get("layer") == 0 and w.get("window") and w["window"] not in exclude
             and (w.get("w") or 0) >= 200 and (w.get("h") or 0) >= 200]
     named = [w for w in ours if host and host in (w.get("title") or "")]
-    pick = (named or [None])[0]
-    return {k: pick[k] for k in ("pid", "window", "title")} if pick else None
+    if named:
+        return {**{k: named[0][k] for k in ("pid", "window", "title")}, "matched": "title"}
+    fresh = [w for w in ours if w.get("pid") in set(launched or ())]
+    if len(fresh) == 1 and not any(w.get("title") for w in ours):
+        return {**{k: fresh[0][k] for k in ("pid", "window", "title")}, "matched": "launched pid"}
+    return None
 
 
 def screen_sharing_pids():
@@ -1851,7 +1858,8 @@ def cmd_apple(args):
             deadline, win, windows = time.time() + args.wait, None, []
             while True:
                 windows = list_windows(state)
-                win = screen_sharing_window(windows, args.host, exclude=old)
+                win = screen_sharing_window(windows, args.host, exclude=old,
+                                            launched=screen_sharing_pids() - ran)
                 if win or time.time() >= deadline:
                     break
                 time.sleep(1)  # bounded wait (--wait) for the window to connect
@@ -3177,6 +3185,12 @@ class Orchestrator:
             origin = self.marker([])
             rec = self.cmux_attempt(origin, "key")
             timing = self.host_timing()
+            keep = getattr(self.a, "keep_timing", None)
+            if keep:
+                # Every frame line of the attempt as the host logged it (idr_reason,
+                # target_kbps, its times), for per-frame analysis beyond the breakdown's join.
+                with open(keep, "a") as f:
+                    f.write(json.dumps({"trial": n, "warmup": n < 1, "lines": timing}) + "\n")
             if n < 1:
                 rec.pop("sample_times", None)
                 self.log(dict(rec, warmup=True))
@@ -3930,6 +3944,9 @@ def build_parser():
                    help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
                         "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
                         "row records host_test_loss_pct")
+    r.add_argument("--keep-timing", metavar="PATH",
+                   help="append each key attempt's host CMUX_RD_TIMING_LOG lines to PATH, one JSON "
+                        "line per attempt ({trial, warmup, lines})")
     r.add_argument("--host-env", action="append", metavar="NAME=VALUE",
                    help="an environment variable on the host's `cmux-rd serve`, repeatable; only "
                         + ", ".join(sorted(HOST_ENV)) + ". Each row records host_env")
