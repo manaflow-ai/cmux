@@ -8,6 +8,8 @@ import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
 import { HarnessUpdatesContext } from "./harnessUpdateList";
 import { rememberFullAccess, rememberStartMode } from "./startMode";
+import { OnNewTab } from "./newTabComposer";
+import { newTabStart } from "./newtab/chipDefaults";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -27,6 +29,9 @@ type Props = {
   /// A new chat before its first send, whose acpmux on this Mac answers `start` for its start mode;
   /// `cloud`: Cloud is picked as where it runs, so its first send starts it on a Cloud machine.
   newChat?: { start: { modeId: string; name: string }; cloud?: boolean };
+  /// A New Tab opened after a chat on this Mac picked Haiku: acpmux saved Haiku as its start
+  /// (`start`, source saved) and names New Tab's own start apart (`start.newTab`, Opus 5.5).
+  newTabAfterChatPick?: boolean;
 };
 
 const directAccounts: ChatAccounts = {
@@ -199,7 +204,65 @@ const codexSnapshot: AcpmuxSnapshot = {
 };
 
 function GalleryComposerPickers(props: Props) {
+  if (props.newTabAfterChatPick) return <GalleryNewTabAfterChatPick />;
   return props.newChat ? <GalleryNewChatPickers {...props.newChat} /> : <GalleryStartedPickers {...props} />;
+}
+
+/// acpmux's harness listing after a chat picked Haiku (start_defaults.rs): the pick is the next
+/// chat's saved start, and New Tab's own start (`newTab`) is the chain below that pick, Opus 5.5.
+const afterChatPickCatalog: AcpmuxSnapshot["catalog"] = [
+  {
+    id: "claude-sr2",
+    name: "Claude Code",
+    family: "claude-sr2",
+    models: claudeCodeModels,
+    start: { model: "haiku", modelSource: "saved", newTab: { model: "opus", modelSource: "catalog" } },
+  },
+];
+
+/// The chat that picked Haiku, and a New Tab opened after it, as NewTabPage.tsx draws its chips
+/// (newTabStart under OnNewTab). Leo 2026-11-27: "it should purely just be new tab".
+function GalleryNewTabAfterChatPick() {
+  const chat: AcpmuxSnapshot = {
+    ...claudeSnapshot,
+    catalog: afterChatPickCatalog,
+    summary: { ...claudeSnapshot.summary!, model: "haiku" },
+  };
+  const blank: AcpmuxSnapshot = { ...claudeSnapshot, catalog: afterChatPickCatalog, summary: undefined };
+  const { snapshot: newTab } = newTabStart(
+    blank,
+    blank.catalog,
+    undefined,
+    undefined,
+    { harness: "", model: "" },
+    true,
+  );
+  const rail = (snapshot: AcpmuxSnapshot) => (
+    <ComposerPickers
+      snapshot={snapshot}
+      harnessesListed
+      onModel={() => undefined}
+      onMode={() => undefined}
+      onEffort={() => undefined}
+      showPlan
+    />
+  );
+  return (
+    <ChatAccountsContext.Provider value={galleryAccounts}>
+      <div className="acpmux-composer-gallery-shell">
+        <div className="acpmux-composer-gallery-copy">
+          <strong>Chat, after picking Haiku</strong>
+          <span>The chat runs the model it picked.</span>
+        </div>
+        {rail(chat)}
+        <div className="acpmux-composer-gallery-copy">
+          <strong>New Tab, opened after</strong>
+          <span>New Tab names its own default, not the chat&apos;s pick.</span>
+        </div>
+        <OnNewTab.Provider value>{rail(newTab)}</OnNewTab.Provider>
+      </div>
+    </ChatAccountsContext.Provider>
+  );
 }
 
 /// The access chip names `mode` (not the bare word Mode).
@@ -611,6 +674,16 @@ export default componentEntry<Props>({
     ]),
   variants: {
     closed: { props: {} },
+    "new-tab-after-chat-pick": {
+      height: 360,
+      note: "A chat on this Mac picked Haiku, then a New Tab opened: the chat's rail names Haiku 5.5 and New Tab's names its own default, Opus 5.5, never the chat's pick (Leo 2026-11-27: \"it should purely just be new tab\").",
+      props: { newTabAfterChatPick: true },
+      play: async (ctx) => {
+        const names = () => [...ctx.document.querySelectorAll(".acpmux-chips")].map((rail) => rail.textContent ?? "");
+        await ctx.waitFor(() => names().length === 2 && names()[0]!.includes("Haiku"));
+        if (!names()[1]!.includes("Opus")) throw new Error(`New Tab's rail reads ${names()[1]}, not Opus 5.5`);
+      },
+    },
     "new-chat-here": {
       note: "A new chat on this Mac: the access chip names the mode this Mac's acpmux starts it in, Bypass permissions.",
       props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" } } },
