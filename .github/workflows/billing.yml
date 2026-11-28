@@ -447,7 +447,7 @@ jobs:
           bun test --isolate "${files[@]}"
 
       # The service container can vanish mid-job on a shared Linux host: run
-      # 46132702035 (hetzner-1-8) had it healthy at 09:55Z and gone ("No such
+      # 46132702035 had it healthy at 09:55Z and gone ("No such
       # container" at teardown) when the migrations got ECONNREFUSED at 10:01Z.
       # So the database steps check it first: when it is down, the step logs
       # what docker knows of it (for the cause) and starts a job-owned postgres,
