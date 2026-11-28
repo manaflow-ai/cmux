@@ -9,6 +9,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -97,6 +98,8 @@ test("a scroll, an edited prompt and a hover render only the rail's rows they ch
   try {
     acpmuxPerf.resetRenders();
     await render(rows);
+    // The rail's ticks draw in the frame after the chat's first paint (#59677, railFrame).
+    await railFrame();
     const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
     const drawn = () =>
       new Set([...list.querySelectorAll<HTMLElement>("[data-tick]")].map((tick) => tick.dataset.tick));

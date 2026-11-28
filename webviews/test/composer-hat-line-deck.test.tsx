@@ -54,6 +54,7 @@ const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { trayItems } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
+const { DECK_MARKS } = await import("../src/agent-session/acpmux/subagents/HatHeadDeck");
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
 type StartedSession = import("../src/agent-session/acpmux/started/startedSessions").StartedSession;
@@ -103,7 +104,9 @@ async function mount(arm: string, props: Record<string, unknown> = {}) {
   );
   const head = () => host.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
   const title = () => host.querySelector(".acpmux-running-tray__title")?.textContent ?? "";
-  const marks = () => [...host.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark")];
+  // The lines' own marks; `trail` pads the deck with blank slots to DECK_MARKS (#61105), which open nothing.
+  const marks = () => [...host.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark:not([data-blank])")];
+  const blanks = () => [...host.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark[data-blank]")];
   // React's enter and leave come from pointerover and pointerout with the node the pointer came from.
   const enter = async (node: Element, from: Element | null = null) =>
     act(async () => {
@@ -117,14 +120,16 @@ async function mount(arm: string, props: Record<string, unknown> = {}) {
     act(async () => {
       node.dispatchEvent(new dom.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: to }));
     });
-  return { host, head, title, marks, enter, leave, done: async () => act(async () => root.unmount()) };
+  return { host, head, title, marks, blanks, enter, leave, done: async () => act(async () => root.unmount()) };
 }
 
 describe("the one-line hat's marks", () => {
   test("trail draws the marks after the sentence, and no hide eye: the top-edge tab hides it", async () => {
-    const { host, marks, done } = await mount("trail", { onTuck: () => {} });
+    const { host, marks, blanks, done } = await mount("trail", { onTuck: () => {} });
     try {
       expect(marks().length).toBe(3);
+      // The deck keeps every slot, so "+N more" sits in one place however many lines run (#61105).
+      expect(marks().length + blanks().length).toBe(DECK_MARKS);
       const deck = host.querySelector(".acpmux-hat-deck")!;
       expect(deck.getAttribute("data-at")).toBe("trail");
       const title = host.querySelector(".acpmux-running-tray__title")!;

@@ -24,6 +24,7 @@ import {
 import { promptTurns, trackEditableTurns } from "../src/agent-session/acpmux/conversation/editPrompt";
 import { TurnActionsContext, type TurnActions } from "../src/agent-session/acpmux/conversation/turnActions";
 import { UserBubble } from "../src/agent-session/acpmux/conversation/UserBubble";
+import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 10, 11, 9, 0, 0);
 const CHAT = "sr2-chat";
@@ -60,6 +61,8 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   resetKnownForksAnyTurnForTests();
   for (const client of live) client.close();
   live = [];

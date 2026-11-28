@@ -206,31 +206,35 @@ test("a turn with no summary that the person's next prompt opened over ends on a
 const markup = (footer: AcpmuxRow) => renderToStaticMarkup(createElement(TurnFooter, { row: footer }));
 const COPY = 'aria-label="Copy"';
 
+// `after` comes after his message in time too: built before the call, each is stamped again here, as
+// a call that started before his message would make it a late steer (turns.ts `lateSteersLast`).
 const steeredThenEnded = (after: AcpmuxRow[] = []) => [
   row("u", "user", { text: "Plan the transfer work" }),
   row("r1", "assistant", { text: "Got it. I've dropped the plan." }),
   row("s1", "user", { text: "THIS IS THE THING", steer: "landed" }),
-  ...after,
+  ...after.map((each) => ({ ...each, at: (at += 10_000) })),
   row("sum", "turnSummary", { status: "completed", durationMs: 30_000 }),
 ];
+// His message came as the agent finished (no call after it), so since #56293 it is a late steer: the
+// reply draws under it, as the turn's last word, and the turn's own footer under the reply is the one
+// row, with its Copy (Leo, 2026-11-25: "i steer RIGHT before you finish a turn but your completed sent
+// message goes above mine"). Still one row, never a second one after his message.
+const ONE_ROW = "sum";
 
 for (const family of ["claude", "codex"])
   test(`${family}: a turn that ended right after the person's message draws one row, over his message`, () => {
     for (const working of [true, false]) {
       const view = turnView(steeredThenEnded(), new Set(), { working, agentFamily: family, now: START + 1e6 });
-      // One row that shows: the one over his message, with its Copy.
+      // One row that shows: the turn's own, under the reply drawn under his message, with its Copy.
       const shown = footers(view).filter((each) => !isEmptyFooter(each));
-      expect(ids(shown)).toEqual([`${SUPERSEDED}-s1`]);
+      expect(ids(shown)).toEqual([ONE_ROW]);
       expect(markup(shown[0]!)).toContain(COPY);
-      // The footer under his message, where drawn, has nothing new: no Copy, no Read aloud, no line.
-      const under = view.find((each) => each.id === "sum");
-      if (!working) expect(under).toBeDefined();
-      if (under) {
-        expect(under.text).toBeUndefined();
-        expect(under.turnCopy).toBeUndefined();
-        expect(markup(under)).toContain("cv-turn-actions--empty");
-        expect(markup(under)).not.toContain(COPY);
-      }
+      expect(shown[0]!.answerId).toBe("r1");
+      const list = ids(view);
+      expect(list.indexOf("s1")).toBeLessThan(list.indexOf("r1"));
+      expect(list.indexOf("r1")).toBeLessThan(list.indexOf(ONE_ROW));
+      // No row over his message copies the same reply again.
+      expect(view.find((each) => each.id === `${SUPERSEDED}-s1`)).toBeUndefined();
     }
   });
 
@@ -299,7 +303,7 @@ for (const ending of ["summary", "next prompt"] as const)
 test("two messages in a row, then the turn ended: still no row under them", () => {
   const second = row("s2", "user", { text: "AND THIS", steer: "landed" });
   const view = turnView(steeredThenEnded([second]), new Set(), { agentFamily: "claude", now: START + 1e6 });
-  expect(ids(footers(view).filter((each) => !isEmptyFooter(each)))).toEqual([`${SUPERSEDED}-s1`]);
+  expect(ids(footers(view).filter((each) => !isEmptyFooter(each)))).toEqual([ONE_ROW]);
 });
 
 // G04 (cmuxterm-hq#13766): every finished turn ends on its row, a turn of calls alone too. Calls the
@@ -344,7 +348,7 @@ test("send a message: no assistant action row until assistant content arrives", 
     footers(live)
       .filter((each) => !isEmptyFooter(each))
       .map((each) => each.id),
-  ).toEqual([`${SUPERSEDED}-s1`]);
+  ).toEqual([ONE_ROW]);
   // Once the carried turn says something and ends, its reply ends on its own row.
   const answered = [
     ...carried,

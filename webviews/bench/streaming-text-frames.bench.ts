@@ -14,7 +14,7 @@
 /// <reference types="bun" />
 import { chromium } from "./browsers";
 import type { StreamReport } from "../test/browser/streaming-text.harness";
-import { gotoBenchPage, serveBenchPage } from "./support/benchPage";
+import { gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -61,6 +61,8 @@ try {
       });
       await gotoBenchPage(page, served);
       await page.waitForFunction(() => "__streamingText" in window, null, { timeout: 60_000 });
+      // A number from React's development bundle is not the user's (bench-serves-production.test.ts).
+      if (round === 0) await requireProductionReact(page, { dev: served.dev });
       await page.getByText("History answer 6.").waitFor();
       await page.waitForFunction(
         () => document.fonts.status === "loaded" && (document.querySelector(".acpmux-scroll")?.scrollHeight ?? 0) > 0,

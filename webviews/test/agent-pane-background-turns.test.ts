@@ -31,11 +31,14 @@ import { TRANSCRIPT_TURN_GAP, transcriptGap } from "../src/agent-session/acpmux/
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
 // These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
-// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+// turn's calls inline, with no line (backgroundTurnInline.test.ts). They pin the `groups` hat head too:
+// under the default `line` head a background subagent's end draws in the composer hat, not the
+// transcript (#56287), so the late done lines these fold would not be drawn at all.
 beforeAll(() => {
   globalThis.cmuxExperiments = {
     ...globalThis.cmuxExperiments,
     "background-turn-look": "line",
+    "subagent-tray-fold-head": "groups",
   };
 });
 afterAll(() => {
@@ -446,8 +449,10 @@ test("a subagent done after the next user prompt stays folded with its owner bac
   expect(closed.some((item) => item.id === "prompt-2")).toBe(true);
   expect(closed.some((item) => item.id === "answer-2")).toBe(true);
 
-  // Disclosure of the original background line reveals the late completion in chronology order.
-  const opened = drawn([...tray], [owner]);
+  // A late done line is the work of the turn it arrived in (#53268: a harness end folds as a tool
+  // call), so it draws with its original line open and that turn's Worked for open, in chronology.
+  expect(drawn([...tray], ["worked-prompt-2"]).some((item) => item.id === done.id)).toBe(false);
+  const opened = drawn([...tray], [owner, "worked-prompt-2"]);
   expect(opened.some((item) => item.id === done.id)).toBe(true);
   expect(opened.indexOf(opened.find((item) => item.id === done.id)!)).toBeGreaterThan(
     opened.findIndex((item) => item.id === "prompt-2"),
@@ -560,8 +565,9 @@ test("a late subagent done line follows its line's toggles across reused turn vi
   const closedSet = new Set<string>();
   const closed = turnViewFrom(tray, closedSet, { now });
   expect(shows(closed)).toBe(false);
-  // Open the original line: the later turn holding the done line draws it.
-  const opened = turnViewFrom(tray, new Set([owner]), { now }, closed);
+  // Open the original line and the Worked for of the later turn holding the done line (#53268: it
+  // folds as that turn's work): that turn draws it.
+  const opened = turnViewFrom(tray, new Set([owner, "worked-prompt-2"]), { now }, closed);
   expect(shows(opened)).toBe(true);
   // Close it again from the open view: hidden again, not a stale open row.
   const closedAgain = turnViewFrom(tray, new Set<string>(), { now }, opened);
@@ -574,7 +580,7 @@ test("a late subagent done line follows its line's toggles across reused turn vi
   expect(shows(next)).toBe(false);
   expect(next.rows.some((item) => item.id === "answer-3b")).toBe(true);
   // ... and shows it while the line is open.
-  const openSet = new Set([owner]);
+  const openSet = new Set([owner, "worked-prompt-2"]);
   const openBase = turnViewFrom(tray, openSet, { now });
   const openNext = turnViewFrom(streamed, openSet, { now }, openBase);
   expect(openNext.reusedRows).toBeGreaterThan(0);

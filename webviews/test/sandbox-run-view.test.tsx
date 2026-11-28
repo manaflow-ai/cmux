@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { importWithDom } from "./support/importWithDom";
 import { actTurn, until } from "./support/until";
+import { settleReact } from "./support/domTeardown";
 
 const { translate: t } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 const { runSandbox } = await importWithDom(() => import("../src/agent-session/acpmux/sandboxRun"));
@@ -77,6 +78,7 @@ test("a running card whose newest read failed reads again on its own, with no Ch
   } finally {
     await act(async () => root.unmount());
     setLastingGrace(LASTING_MS);
+    await settleReact();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
       else scope[key] = value;

@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { ComposerAttachment } from "../attachments";
 import { useKeptAttachments, type KeptAttachments } from "./keptAttachments";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -26,6 +27,8 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   dom?.window.close();

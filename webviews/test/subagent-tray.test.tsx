@@ -499,8 +499,10 @@ describe("the tray", () => {
   test("several get a header and start folded to it, however few (cmux#28875)", async () => {
     pinFoldHead("counts");
     const now = Date.now();
+    // A known harness no mark draws ("acme"): since #62299 the stack leaves a harnessless agent's
+    // slot blank, and a harness with no logo draws the sparkle in its tone, which this checks.
     const few = trayItems(
-      [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
+      [agent("A", { startedAt: now - 5000, harness: "acme" }), agent("B", { startedAt: now - 4000, harness: "acme" })],
       [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
       NONE,
       true,
@@ -883,7 +885,11 @@ describe("the tray", () => {
       expect(opened).toEqual(["agent:Watcher"]);
       for (const line of lines.slice(1))
         await act(async () =>
-          line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click(),
+          // A command's detail leads with its Shell block, so its own Open in terminal is named (#53464).
+          (
+            line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] .acpmux-running-tray__terminal") ??
+            line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!
+          ).click(),
         );
       expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
       await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-session-info-stop")!.click());
@@ -1024,7 +1030,13 @@ describe("a tray line says what it is and what a click does", () => {
       // It expands to its tail in place; the tail's button opens its terminal.
       await act(async () => button.click());
       expect(opened).toEqual([]);
-      await act(async () => line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click());
+      // The detail leads with the chat's Shell block; Open in terminal is its foot's named button (#53464).
+      await act(async () =>
+        line
+          .closest("li")!
+          .querySelector<HTMLButtonElement>("[data-line-detail] .acpmux-running-tray__terminal")!
+          .click(),
+      );
       expect(opened).toEqual(["s/1"]);
       // One stop control on the line, and it says exactly what it stops.
       const stops = [...root.querySelectorAll<HTMLButtonElement>("button")].filter((each) =>

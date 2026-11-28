@@ -119,7 +119,7 @@ test("the completed summary retains the actual turn start after the live clock c
   }
 });
 
-test("an intervening turn_end does not change the frozen work duration", async () => {
+test("the work duration holds at the answer while running, then reads to the turn's last event (#60596)", async () => {
   const history = records(CHAT, [
     ...opening,
     event("progress", "Checking the caller.", "commentary"),
@@ -133,15 +133,19 @@ test("an intervening turn_end does not change the frozen work duration", async (
       )?.durationMs;
     const reply = daemon.rows().find((row) => row.assistantPhase === "final_answer")!;
     expect(reply.turnStartedAtMs).toBe(history[1]!.at);
-    expect(duration()).toBe(2_000);
+    // Worked for is the turn's wall span (#60596), not turn start to the first final answer: running,
+    // it holds at the answer, counted from the prompt (0s to 3s here).
+    expect(duration()).toBe(3_000);
     daemon.push([["mux", "turn_end", { turnId: "turn" }]]);
     await settle();
-    expect(duration()).toBe(2_000);
+    // Ended, it reads to the turn's last event, the held value or more (#60596): turn_end at 4s.
+    expect(duration()).toBe(4_000);
     daemon.push([["mux", "turn_result", { turnId: "turn", status: "completed" }]]);
     await settle();
     const final = daemon.rows().find((row) => row.assistantPhase === "final_answer")!;
     expect(final.turnStartedAtMs).toBe(reply.turnStartedAtMs);
-    expect(duration()).toBe(2_000);
+    // The harness's turn_result, at 5s, is the turn's last event now.
+    expect(duration()).toBe(5_000);
   } finally {
     daemon.client.close();
   }

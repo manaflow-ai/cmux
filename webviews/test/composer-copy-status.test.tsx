@@ -7,6 +7,7 @@ import { ComposerBox } from "../src/agent-session/acpmux/ComposerBox";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -67,7 +68,9 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

@@ -43,12 +43,13 @@ const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip
 // still drew their own or the solid popup surface a month after that ask (Leo 2026-10-21: "WHERE IS
 // THE GLASS EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT") are named
 // here too, so none goes solid again.
+// The model picker's account card (acpmux-cols-card) left this list in #63232: it is a strip in the
+// picker's flow now, inside the popover's own glass, not a surface floating over it (no glass in glass).
 const REQUIRED_GLASS_CLASSES = new Set([
   "acpmux-omni",
   "page-menu",
   "acpmux-header-preview",
   "acpmux-file-search",
-  "acpmux-cols-card",
   "acpmux-drop-refusal",
   "hm-suggestions",
   "hc-msg-toolbar",
@@ -487,7 +488,8 @@ export function findSolidRoleTooltips(srcDir: string = SRC): string[] {
       const tag = text.slice(open, at + 400);
       const end = tag.search(/\n\s*>|\/>|>\s*\n/);
       const attributes = end < 0 ? tag : tag.slice(0, end);
-      const classes = /\bclassName\s*=\s*(?:\{\s*)?["`]([^"`]*)["`]/.exec(attributes)?.[1] ?? "";
+      // A class list joined by cx(...) counts by its first literal (ui/Tooltip.tsx: cx("ui-tooltip ui-glass", className)).
+      const classes = /\bclassName\s*=\s*(?:\{\s*)?(?:cx\(\s*)?["`]([^"`]*)["`]/.exec(attributes)?.[1] ?? "";
       if (classes.split(/\s+/).includes("ui-glass")) continue;
       const line = text.slice(0, at).split("\n").length;
       found.push(`${where}:${line}: ${JSON.stringify(classes)}`);

@@ -187,9 +187,10 @@ test("joined, the owner's transcript draws read only; an ask shows who it waits 
   await roomFrames();
   expect(page.host.textContent).toContain("Fix the flaky upload retry test");
   expect(page.host.textContent).toContain(translate("guest.live.sharedBy", { owner: "Sam Rivera" }));
-  // The owner's `bun test src/upload.test.ts --rerun-each 5` failed, so its row keeps the command
-  // line: a failed call never reads as what it would have done (commandActions.ts).
-  expect(page.host.textContent).toContain("Ran bun test src/upload.test.ts --rerun-each 5");
+  // The owner's `bun test src/upload.test.ts --rerun-each 5` failed, so its row says what it was
+  // doing and that it failed, never what it would have done (commandActions.ts commandSaid: test
+  // commands are labeled by outcome since #56205).
+  expect(page.host.textContent).toContain("Testing upload failed");
   expect(page.host.textContent).not.toContain("Ran tests in upload.test.ts");
   expect(page.host.textContent).toContain(translate("guest.live.waitingAnswer", { owner: "Sam Rivera" }));
   // Who else is here: the owner, never this guest.
@@ -452,13 +453,14 @@ test("a transcript chunk that fails to load is tried again on its own and the ch
   await roomFrames();
   expect(page.host.querySelector(".guest-live__transcript [role=alert]")).toBeNull();
   expect(page.host.querySelector(".guest-live__transcript button")).toBeNull();
-  expect(page.host.textContent).not.toContain("bun test src/upload.test.ts --rerun-each 5");
+  // The owner's failed test run (its row reads by outcome since #56205) is in the chunk that failed.
+  expect(page.host.textContent).not.toContain("Testing upload failed");
   expect(page.host.querySelector(".guest-live__dock textarea")).not.toBeNull();
   fail = false;
   await until(() => asked >= 2, actTurn);
   await roomFrames();
   expect(asked).toBe(2);
-  expect(page.host.textContent).toContain("bun test src/upload.test.ts --rerun-each 5");
+  expect(page.host.textContent).toContain("Testing upload failed");
   await page.unmount();
 });
 

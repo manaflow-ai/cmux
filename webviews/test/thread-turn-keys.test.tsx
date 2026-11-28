@@ -4,6 +4,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -53,6 +54,16 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { config
 // Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
+// The content's height, as the browser reports it: the spacer's, rounded (support/jsdomScroller.ts).
+// The transcript reads it to tell a reader's scroll up from the browser's spring back at the end
+// (VirtualTranscript.tsx `sprangBack`, #48114); jsdom's 0 read every scroll up as a spring back.
+Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+  configurable: true,
+  get(this: HTMLElement) {
+    const height = parseFloat(this.querySelector?.<HTMLElement>(":scope > .acpmux-spacer")?.style.height ?? "");
+    return Number.isFinite(height) ? Math.round(height) : this.clientHeight;
+  },
+});
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
   get(this: object) {
@@ -90,6 +101,9 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
         <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
+    // The rail's turns and ticks, which the keys step through, draw in the frame after the chat's
+    // first paint (#59677).
+    await railFrame();
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
     // The app's Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down) reach the page as bridge
@@ -175,6 +189,9 @@ test("Next Turn steps past a retried prompt beside acpmux's echo of it", async (
         />,
       ),
     );
+    // The rail's turns and ticks, which the keys step through, draw in the frame after the chat's
+    // first paint (#59677).
+    await railFrame();
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
     const prompts = dup.filter((entry) => entry.kind === "user");

@@ -5,11 +5,14 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { copyShowsRunningTurn } from "./live";
 import { SNAPSHOT_HOST_TAG, SNAPSHOT_SHOWN_GLOBAL } from "./shared";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const globals = globalThis as unknown as Record<string, unknown>;
 const had = { window: "window" in globals, document: "document" in globals };
 const saved = { window: globals.window, document: globals.document };
-afterEach(() => {
+afterEach(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   for (const key of ["window", "document"] as const) {
     if (had[key]) globals[key] = saved[key];
     else delete globals[key];

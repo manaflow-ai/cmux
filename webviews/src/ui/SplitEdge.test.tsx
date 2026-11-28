@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { openDeclarations } from "../layout/motionContract";
 import { declareSplitResize, SplitEdge, splitEdgeWidth } from "./SplitEdge";
+import { settleReact } from "../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -73,7 +74,9 @@ const flushFrames = () => {
   for (const run of due) run();
 };
 
-afterEach(() => {
+afterEach(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   act(() => root?.unmount());
   root = undefined;
   dom?.window.localStorage.clear();
