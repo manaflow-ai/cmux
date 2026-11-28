@@ -117,6 +117,7 @@ mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
 mod fork_model;
+mod fork_own_process;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
@@ -444,6 +445,7 @@ mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
+mod team_settings;
 mod terminal_input;
 #[cfg(test)]
 mod time_breakdown_restore_tests;
@@ -477,6 +479,7 @@ mod translator_queue_tests;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
 mod trust_wait;
+mod turn_artifacts;
 mod turn_attestation;
 pub(crate) mod turn_cap;
 mod turn_checkpoint;
@@ -1241,6 +1244,8 @@ pub struct Hub {
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// RFD 0170's team directory for the navigator, picker and Session Info (`team_directory.rs`).
     pub(super) team_directory: team_directory::TeamDirectoryCell,
+    /// RFD 0170 phase 4's customization and Slack bindings (`team_settings.rs`).
+    pub(super) team_settings: team_settings::TeamSettingsCell,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
     pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1804,6 +1809,7 @@ impl Hub {
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        let team_settings_path = home.as_ref().map(|h| h.join(team_settings::FILE));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1879,6 +1885,7 @@ impl Hub {
             pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
             team_directory: Default::default(),
+            team_settings: team_settings::TeamSettingsCell::new(team_settings_path),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
@@ -2653,6 +2660,7 @@ impl Hub {
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(fork_from),
+            agent_fork: StdMutex::new(None),
             applied: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
@@ -3255,6 +3263,8 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
         turn_frames::record(&session.id, kind, &msg);
+        // The turn's artifact card gathers its edits, tests and PRs (`turn_artifacts.rs`).
+        turn_artifacts::record(&session.id, kind, &msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
