@@ -344,7 +344,7 @@ Rules added after the correctness review (2026-11-23):
 Moving a chat by hand, as built (2026-11-24):
 
 The store's side of "Modes and moving a chat by hand" below. The pure rules are `move.ts` (`move`, `give`); the
-Rust mirror is `cmux-auto-session/src/fake/moves.rs`, and the conformance vectors replay both.
+Rust mirror is `cmux-auto-session/src/test_support/fake/moves.rs`, and the conformance vectors replay both.
 
 - `POST :id/move` (owner; a machine is answered 403) `{to: "cloud" | "local", device?: "device:<id>"}` ->
   `{session}`. `device` is taken only with `to: "local"` (400 `validation.invalid` otherwise). A chat with Auto
