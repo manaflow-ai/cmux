@@ -84,6 +84,18 @@ no time field is signed, so two signings of one build are the same bytes:
   {"schema": 1, "purpose": "cmux-mac-app-build", "commit": "<sha>", "configuration": "release", "arch": "arm64",
    "app": {"url", "sha256", "size"}, "run_id": "<github run id>"}
 
+`payload --rollout-pct N` (cloud-machine only) signs the build's staged rollout share, `"rollout": {"pct": N}`
+(cmuxterm-hq RFD 0224 phase 3): a machine takes the build when its bucket, hash(host id, commit) mod 100, is below N
+(cmux-tui/crates/cmux-rollout); without the flag the field is left out and every machine takes it, as before.
+
+`step` is the ring gate between those shares (RFD 0224: "Cloud steps 1 / 10 / 50 / 100, each step only after the
+inventory shows no `update-failed` from the step before"): from the channel's verified current file (--current) and
+the version inventory of its commit (--inventory, JSON {"commit", "updated", "update_failed"}), it writes the same
+build at the next share of ROLLOUT_STEPS, re-signed with a fresh published_at, or holds (exit 3, the reason on
+stderr) when the inventory names another commit, shows an `update-failed`, has fewer than --min-updated machines on
+the build, or the current share is younger than --min-seconds. web-ota-pointer.py newer takes the wider file of the
+same build (widens) and nothing narrower; the kill switch stays `revoked` and `rollback`, never a smaller share.
+
 An installer holds the channel pointer to expires_at; the per-commit file carries the same field,
 but an installer that asks for a version by name does not enforce it.
 
@@ -92,6 +104,7 @@ Usage:
       --committed-at T --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V] [--min-sequence N]]
       [--tree-key K] [--purpose mac-live --live-from F [--screen-sharing-helper R]]
   cmux-machine-channel.py payload --purpose mac-app --commit SHA --zip APP.ZIP --url URL --run-id ID --out P
+  cmux-machine-channel.py step --current F --keys KEYS --inventory J --out P [--min-seconds S] [--min-updated N]
   cmux-machine-channel.py alias --tree-release R --keys KEYS --tree-key K --channel C --commit SHA
       --committed-at T --out P [--min-sequence N]
 """
@@ -116,6 +129,12 @@ TARGETS = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
 NAMES = ("cmux-tui", "cmux-tui-hook")
 # A machine refuses a channel file older than this: CI re-signs on every push that builds.
 LIFETIME = 30 * 24 * 3600
+# The Cloud staged rollout's shares (RFD 0224), in order; `step` moves the channel's build to the next one.
+ROLLOUT_STEPS = (1, 10, 50, 100)
+# `step` holds a share at least this long, so the inventory has seen the machines it let in.
+ROLLOUT_STEP_MIN_SECONDS = 30 * 60
+# `step` exit code for a hold: web-ota-pointer.py SKIP, "nothing to publish".
+HOLD = 3
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 POINTER = os.path.join(ROOT, "scripts", "cmux-next", "web-ota-pointer.py")
 
@@ -328,6 +347,8 @@ def payload(args):
         fail("--channel, --cargo-version and --min-sequence are for --purpose linux-release")
     if args.tree_key and not release:
         fail("--tree-key is for --purpose linux-release")
+    if args.rollout_pct is not None and (release or not 0 <= args.rollout_pct <= 100):
+        fail("--rollout-pct is a share from 0 to 100 of the cloud-machine payload")
     if args.tree_key and not re.fullmatch(r"[0-9a-f]{40}", args.tree_key):
         fail(f"bad tree key {args.tree_key!r}")
     if release and not args.binaries_dir:
@@ -393,7 +414,7 @@ def payload(args):
             "key": hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest(),
             "commit": args.commit, "committed_at": committed_at,
             "published_at": now, "expires_at": now + LIFETIME, "targets": targets,
-        }
+        } | ({"rollout": {"pct": args.rollout_pct}} if args.rollout_pct is not None else {})
     with open(args.out, "wb") as out:
         out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
 
@@ -451,6 +472,55 @@ def rollback(args):
     value = proven | {"committed_at": int(over["committed_at"]) + 1, "published_at": now, "expires_at": now + LIFETIME}
     with open(args.out, "wb") as out:
         out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+
+
+def rollout_pct(value):
+    rollout = value.get("rollout")
+    pct = rollout.get("pct") if isinstance(rollout, dict) else None
+    return pct if isinstance(pct, int) and not isinstance(pct, bool) and 0 <= pct <= 100 else 100
+
+
+def hold(reason):
+    print(f"cmux-machine-channel: step holds: {reason}", file=sys.stderr)
+    return HOLD
+
+
+def step(args):
+    """The ring gate's next share of the channel's current build, or a hold (HOLD) and why."""
+    r = subprocess.run([sys.executable, POINTER, "verify", "--pointer", args.current, "--keys", args.keys,
+                        "--purpose", PURPOSE, "--channel", CHANNEL, "--allow-expired"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        fail(f"{args.current} does not verify: {r.stderr.strip()}")
+    current = json.loads(r.stdout)
+    pct = rollout_pct(current)
+    later = [s for s in ROLLOUT_STEPS if s > pct]
+    if not later:
+        return hold(f"{current['commit'][:12]} is at {pct}%, every machine")
+    try:
+        with open(args.inventory) as f:
+            inventory = json.load(f)
+    except (OSError, ValueError) as error:
+        return hold(f"no inventory to gate on ({error})")
+    counts = {k: inventory.get(k) for k in ("updated", "update_failed")}
+    if inventory.get("commit") != current["commit"]:
+        return hold(f"the inventory is of {str(inventory.get('commit'))[:12]}, not the channel's {current['commit'][:12]}")
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in counts.values()):
+        return hold(f"the inventory's counts are not counts: {counts}")
+    if counts["update_failed"]:
+        return hold(f"{counts['update_failed']} update-failed on {current['commit'][:12]} at {pct}%")
+    if counts["updated"] < args.min_updated:
+        return hold(f"{counts['updated']} of the {args.min_updated} machines needed run {current['commit'][:12]} at {pct}%")
+    now = int(args.now if args.now is not None else time.time())
+    age = now - int(current["published_at"])
+    if age < args.min_seconds:
+        return hold(f"{pct}% is {age} s old, under {args.min_seconds} s")
+    value = current | {"rollout": {"pct": later[0]}, "published_at": now, "expires_at": now + LIFETIME}
+    with open(args.out, "wb") as out:
+        out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+    print(f"cmux-machine-channel: step {current['commit'][:12]} {pct}% -> {later[0]}% "
+          f"({counts['updated']} updated, 0 update-failed)", file=sys.stderr)
+    return 0
 
 
 def repoint(args):
@@ -511,6 +581,16 @@ def main(argv):
     p.add_argument("--machine-path", action="store_true",
                    help="name the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>")
     p.add_argument("--tree-key", help="--purpose linux-release: name the tree's copies, cmux-tui/tree/<key>/")
+    p.add_argument("--rollout-pct", type=int,
+                   help="--purpose cloud-machine: sign the staged rollout share (rollout.pct); default every machine")
+    st = sub.add_parser("step", help="the Cloud machine channel's next staged rollout share, gated on the inventory")
+    for name in ("--current", "--keys", "--inventory", "--out"):
+        st.add_argument(name, required=True)
+    st.add_argument("--min-seconds", type=int, default=ROLLOUT_STEP_MIN_SECONDS,
+                    help="hold a share at least this long")
+    st.add_argument("--min-updated", type=int, default=1,
+                    help="machines that must run the build, with no update-failed, before the next share")
+    st.add_argument("--now", type=int, help=argparse.SUPPRESS)
     a = sub.add_parser("alias", help="the release.json payload of a commit that shares a published tree")
     for name in ("--tree-release", "--keys", "--tree-key", "--channel", "--commit", "--committed-at", "--out"):
         a.add_argument(name, required=True)
@@ -532,6 +612,8 @@ def main(argv):
         rollback(args)
     elif args.command == "repoint":
         repoint(args)
+    elif args.command == "step":
+        return step(args)
     else:
         payload(args)
     return 0
