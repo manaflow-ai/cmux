@@ -59,6 +59,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon transcript-offload",
+        &[
+            ("What a pass would copy and remove", "acpmux daemon transcript-offload --dry-run"),
+            (
+                "Offload transcripts unchanged for 30 days",
+                "acpmux daemon transcript-offload --older-than-days 30",
+            ),
+            ("Bring every transcript back", "acpmux daemon transcript-offload --restore-all"),
+        ],
+    ),
+    (
         "daemon restart",
         &[("Restart the daemon; hosted sessions resume after", "acpmux daemon restart")],
     ),
@@ -177,7 +188,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Probe every harness for its models again", "acpmux daemon models --refresh"),
         ],
     ),
-    ("daemon felt", &[("Show felt-latency p50, p90 and p99", "acpmux daemon felt")]),
+    (
+        "daemon felt",
+        &[
+            ("Show felt-latency p50, p90 and p99", "acpmux daemon felt"),
+            ("The same as JSON", "acpmux --json daemon felt"),
+        ],
+    ),
     (
         "daemon placement",
         &[(

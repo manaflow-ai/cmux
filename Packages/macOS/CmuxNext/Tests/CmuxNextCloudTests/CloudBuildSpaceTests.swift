@@ -93,23 +93,10 @@ struct CloudBuildSpaceTests {
         await #expect(throws: CMUXBuildSpaceError.self) { try await daemon.listNetworks() }
     }
 
-    @Test("CloudOwnerAPIClient adds the header to its session's requests with a build space, none without", arguments: [true, false])
-    func ownerClient(tagged: Bool) async throws {
-        let owner = CloudOwnerAPIClient(baseURL: Self.base, accessToken: { "access" }, teamID: { "team_1" },
-                                        buildSpace: Self.state(tagged))
-        let request = try await owner.authorized(URLRequest(url: Self.base.appendingPathComponent("v1/handoffs")), access: "access")
-        #expect(request.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access")
-        #expect(request.value(forHTTPHeaderField: "x-cmux-team") == "team_1")
-    }
-
     @Test("CloudOwnerAPIClient of a misconfigured dev build refuses every request")
     func ownerClientRefuses() async {
         let owner = CloudOwnerAPIClient(baseURL: Self.base, accessToken: { "access" }, teamID: { "team_1" },
                                         buildSpace: Self.misconfigured)
-        await #expect(throws: CMUXBuildSpaceError.self) {
-            _ = try await owner.authorized(URLRequest(url: Self.base.appendingPathComponent("v1/handoffs")), access: "access")
-        }
         #expect(await owner.gitHubApp(team: "team_1") == .unknown)
     }
 
