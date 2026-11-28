@@ -20,6 +20,7 @@
 //! | `browser_rules_input_*` | see [`crate::input`] | |
 //! | `browser_rules_tab_state_committed_security` | `{url, hasOnlySecureContent, certificateBypassed}` | the [`SecurityState`](crate::tab_state::SecurityState) |
 //! | `browser_rules_automation_*` | see [`crate::automation_ops`] | |
+//! | `browser_rules_link_*` | see [`crate::link_routes`] | |
 
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
@@ -154,6 +155,9 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
         return answer;
     }
     if let Some(answer) = crate::automation_ops::call(op, request.clone()) {
+        return answer;
+    }
+    if let Some(answer) = crate::link_routes::call(op, request.clone()) {
         return answer;
     }
     match op {

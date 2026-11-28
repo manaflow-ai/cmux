@@ -26,8 +26,9 @@ public nonisolated struct ChromiumInternalURL: Sendable, Equatable {
         self.url = url
     }
 
-    /// Whether `url` is a page only a Chromium tab can show.
+    /// Whether `url` is a page only a Chromium tab can show. The rule is Rust's (cmux-browser-rules
+    /// `link_routes.rs`, over BrowserLinkRulesFFI).
     public static func needsChromium(_ url: URL) -> Bool {
-        url.scheme.map { chromiumSchemes.contains($0.lowercased()) } ?? false
+        BrowserLinkRulesFFI.call("needs_chromium", ["scheme": url.scheme ?? NSNull()]) as? Bool ?? false
     }
 }

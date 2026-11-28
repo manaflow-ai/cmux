@@ -26,7 +26,15 @@ public nonisolated struct BrowserPopupRequest: Hashable, Sendable {
             self.init()
             return
         }
-        let origin = features.origin == .zero ? nil : features.origin
-        self.init(size: CGSize(width: max(features.width, 0), height: max(features.height, 0)), origin: origin)
+        // The rule is Rust's (cmux-browser-rules `link_routes.rs`, over BrowserLinkRulesFFI).
+        let rect: [String: Any] = ["x": Double(features.origin.x), "y": Double(features.origin.y), "width": Double(features.width), "height": Double(features.height)]
+        guard features.origin.x.isFinite, features.origin.y.isFinite, features.width.isFinite, features.height.isFinite,
+              let answer = BrowserLinkRulesFFI.call("popup_request", ["features": rect]) as? [String: Any],
+              let width = (answer["width"] as? NSNumber)?.doubleValue, let height = (answer["height"] as? NSNumber)?.doubleValue else {
+            self.init()
+            return
+        }
+        let origin = (answer["x"] as? NSNumber).flatMap { x in (answer["y"] as? NSNumber).map { CGPoint(x: x.doubleValue, y: $0.doubleValue) } }
+        self.init(size: CGSize(width: width, height: height), origin: origin)
     }
 }
