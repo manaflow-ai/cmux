@@ -125,3 +125,26 @@ fn read_run_last_command_survives_a_reconnect_to_the_same_host() {
 fn last_output_json_names_the_time_as_a_decimal_string() {
     assert_eq!(last_output_json(1_792_000_000_123), json!({"at_ms": "1792000000123"}));
 }
+
+#[test]
+fn arming_the_notify_when_done_watch_is_a_published_edge() {
+    let mut activity = ShellActivity::default();
+    assert!(!activity.take_edge_change());
+    activity.set_notify_when_done(true);
+    assert!(activity.take_edge_change(), "arming republishes the record");
+    assert!(!activity.take_edge_change());
+    activity.observe(ShellMark::CommandStart, 1_000);
+    activity.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 193_000);
+    let fired = activity.take_done_notice().expect("the watch fired");
+    assert_eq!(fired.exit_code, Some(0));
+    assert_eq!(activity.take_done_notice(), None, "once");
+    assert!(!activity.notify_when_done());
+}
+
+#[test]
+fn duration_text_reads_like_a_person_would_say_it() {
+    assert_eq!(duration_text(850), "850ms");
+    assert_eq!(duration_text(42_000), "42s");
+    assert_eq!(duration_text(192_000), "3m 12s");
+    assert_eq!(duration_text(3_900_000), "1h 5m");
+}

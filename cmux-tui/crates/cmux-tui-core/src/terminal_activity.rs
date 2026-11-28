@@ -37,6 +37,12 @@
 //! part of the terminal-host handoff, so a daemon that adopts a terminal
 //! after a restart learns it from the next command.
 //!
+//! `notify_when_done` is a one-shot watch (`terminal-notify-when-done-v1`):
+//! armed, the next command the shell finishes posts one terminal
+//! notification ("Command finished" or "Command failed", with the exit code
+//! and run time), then it disarms. It lives in memory, so a daemon restart
+//! drops it rather than firing twice.
+//!
 //! `last_output` is when the terminal last printed anything, with or
 //! without shell integration. Reads (`terminal.list`, `terminal.show`) and
 //! every other publish carry the exact time; output on its own pushes an
@@ -144,6 +150,12 @@ pub(crate) struct ShellActivity {
     published: (Option<u64>, bool, Option<u64>),
     published_output_ms: Option<u64>,
     published_last_command: Option<LastCommand>,
+    /// Armed by `set-terminal-notify-when-done`: the next command to finish
+    /// posts one notification, then this disarms.
+    notify_when_done: bool,
+    published_notify_when_done: bool,
+    /// The finished command an armed watch fired for, until taken.
+    done_notice: Option<LastCommand>,
 }
 
 impl ShellActivity {
@@ -176,12 +188,30 @@ impl ShellActivity {
     }
 
     fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) {
-        self.last_command = Some(LastCommand {
-            exit_code,
-            started_at_ms: self.busy_since_ms,
-            finished_at_ms: now_ms,
-        });
+        let last =
+            LastCommand { exit_code, started_at_ms: self.busy_since_ms, finished_at_ms: now_ms };
+        self.last_command = Some(last);
+        if std::mem::take(&mut self.notify_when_done) {
+            self.done_notice = Some(last);
+        }
         self.end();
+    }
+
+    /// Arms (or disarms) the one-shot watch: the next command the shell
+    /// finishes (OSC 133 `D`, or a prompt that ends a running command) posts
+    /// one notification, then the watch disarms.
+    pub(crate) fn set_notify_when_done(&mut self, on: bool) {
+        self.notify_when_done = on;
+    }
+
+    /// Whether the one-shot watch is armed.
+    pub(crate) fn notify_when_done(&self) -> bool {
+        self.notify_when_done
+    }
+
+    /// The command an armed watch fired for, once.
+    pub(crate) fn take_done_notice(&mut self) -> Option<LastCommand> {
+        self.done_notice.take()
     }
 
     /// The last command the shell finished, if one did.
@@ -278,6 +308,9 @@ impl ShellActivity {
             self.last_command = previous.last_command;
             self.published_last_command = previous.published_last_command;
         }
+        // Nor an armed watch: the command it waits on still runs.
+        self.notify_when_done |= previous.notify_when_done;
+        self.published_notify_when_done = previous.published_notify_when_done;
     }
 
     /// Whether the command or prompt fact changed, or the last output moved
@@ -298,6 +331,7 @@ impl ShellActivity {
             self.published = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
             self.published_output_ms = self.last_output_ms;
             self.published_last_command = self.last_command;
+            self.published_notify_when_done = self.notify_when_done;
         }
         changed
     }
@@ -322,6 +356,7 @@ impl ShellActivity {
     fn has_edge_change(&self) -> bool {
         (self.busy_since_ms, self.interactive, self.prompt_since_ms) != self.published
             || self.last_command != self.published_last_command
+            || self.notify_when_done != self.published_notify_when_done
     }
 
     fn has_output_change(&self) -> bool {
@@ -376,3 +411,21 @@ pub(crate) fn busy_json(since_ms: u64) -> Value {
 #[cfg(test)]
 #[path = "terminal_activity_tests.rs"]
 mod tests;
+
+/// A command's run time as a notification shows it: `850ms`, `42s`,
+/// `3m 12s`, `1h 5m`.
+pub(crate) fn duration_text(ms: u64) -> String {
+    let seconds = ms / 1_000;
+    match seconds {
+        0 => format!("{ms}ms"),
+        1..60 => format!("{seconds}s"),
+        60..3_600 => format!("{}m {}s", seconds / 60, seconds % 60),
+        _ => format!("{}h {}m", seconds / 3_600, seconds % 3_600 / 60),
+    }
+}
+
+/// The `notify_when_done` field of a terminal record: present only while
+/// the one-shot watch is armed.
+pub(crate) fn notify_when_done_json() -> Value {
+    json!(true)
+}

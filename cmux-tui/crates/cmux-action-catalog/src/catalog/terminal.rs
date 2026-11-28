@@ -167,6 +167,22 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "terminal pin-tail",
         ..Action::DEFAULT
     },
+    // Notify When Command Finishes: one notification when the tab's terminal's next shell command
+    // finishes (OSC 133), then the watch disarms (`terminal-notify-when-done-v1`). In the
+    // workspace category for the same HandlerCoverage reason as pinTail.
+    Action {
+        id: "terminal.notifyWhenDone",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.notifyWhenDone", "Notify When Command Finishes"),
+        keywords: &["notify", "notification", "bell", "alert", "done", "finished", "command", "long", "build", "watch"],
+        category: "workspace",
+        symbol: "bell.badge",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ON.optional()],
+        targets: &["tab"],
+        cli_name: "terminal notify-when-done",
+        ..Action::DEFAULT
+    },
     // Show Terminal in New Tab: a new tab in the pane showing a live terminal (one kept running
     // after its tab closed, or another tab's), as `cmux terminal <term> project` (the daemon's
     // verb, terminal.project). In the workspace category: the row adds a tab, and a row in a

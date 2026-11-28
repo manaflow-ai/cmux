@@ -131,6 +131,23 @@ fn terminal_pin_tail_maps_to_set_terminal_tail_pin() {
     }
 }
 
+#[test]
+fn terminal_notify_when_done_plans_the_one_shot_watch() {
+    const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+    let on = raw_request(&["terminal", TERMINAL, "notify-when-done", "on"]);
+    assert_eq!(on["cmd"], "set-terminal-notify-when-done");
+    assert_eq!(on["terminal"], TERMINAL);
+    assert_eq!(on["on"], true);
+    let off = raw_request(&["terminal", TERMINAL, "notify-when-done", "off"]);
+    assert_eq!(off["on"], false);
+    for bad in [
+        ["terminal", "@2", "notify-when-done", "on"],
+        ["terminal", TERMINAL, "notify-when-done", "maybe"],
+    ] {
+        assert!(parse(&strings(&bad), super::super::Surface::CmuxTui).is_err());
+    }
+}
+
 fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783'
+IR_SHA256 = 'ed2535a9c48f3811c86e07a70a8708f3080da38797585ca6751be8dae6874fe6'
 
 
 @dataclass(frozen=True)
@@ -3614,6 +3614,19 @@ COMMANDS = {
             'keep': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-terminal-notify-when-done': CommandMetadata(
+        'set-terminal-notify-when-done',
+        'control',
+        12,
+        'terminal-notify-when-done-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'on': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal': CommandFieldMetadata(None, None),
         },
     ),
     'set-terminal-tail-pin': CommandMetadata(

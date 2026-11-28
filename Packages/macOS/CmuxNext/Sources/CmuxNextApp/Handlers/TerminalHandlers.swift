@@ -21,6 +21,7 @@ enum TerminalHandlers {
         TerminalHandlers.bindInput(into: registry, context: ctx)
         bindKeep(registry, ctx)
         bindPinTail(registry, ctx)
+        bindNotifyWhenDone(registry, ctx)
         bindCopyMode(registry, ctx)
         TextBoxHandlers.bind(into: registry, context: ctx)
         bindComments(into: registry, context: ctx)
@@ -142,6 +143,21 @@ enum TerminalHandlers {
             // action-wait-allow: the pin lives only in the daemon's terminal, which draws the line; the app keeps no copy to show first
             return .waiting(.daemonEcho) {
                 do { _ = try await connection.setTerminalTailPin(.surface(surface), pinned: pinned); return nil } catch { return ActionWorkFailure("set-terminal-tail-pin", error) }
+            }
+        })
+    }
+
+    /// Notify When Command Finishes, `terminal notify-when-done on|off`: one notification when the tab's
+    /// terminal's next shell command finishes (`terminal-notify-when-done-v1`); off disarms it.
+    private static func bindNotifyWhenDone(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bindEffect("terminal.notifyWhenDone", unavailable: ctx.needs(DaemonCapability.terminalNotifyWhenDone.rawValue), effect: { invocation in
+            guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
+            guard tab.kind == .pty else { return .refused(RefusalStrings.notATerminal) }
+            guard let connection = ctx.connection() else { return .done }
+            let on = invocation["on"]?.boolValue ?? true, surface = tab.surface
+            // action-wait-allow: the watch lives only in the daemon's terminal, which posts the notification; the app keeps no copy
+            return .waiting(.daemonEcho) {
+                do { _ = try await connection.setTerminalNotifyWhenDone(.surface(surface), on: on); return nil } catch { return ActionWorkFailure("set-terminal-notify-when-done", error) }
             }
         })
     }

@@ -35,6 +35,8 @@ struct BoundActionCatalogTests {
         // Set My Picture…, Make This Agent a Chief and Show Last Line in Sidebar (step B) bind before
         // the re-pin carries their step A rows (#50757): until then they do nothing.
         "home.setMyAvatar", "agentPane.adoptAsChief", "terminal.pinTail",
+        // Notify When Command Finishes binds before the re-pin carries its Rust row: until then it does nothing.
+        "terminal.notifyWhenDone",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {

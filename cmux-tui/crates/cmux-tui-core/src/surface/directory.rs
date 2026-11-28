@@ -49,6 +49,31 @@ impl Surface {
             .prompt_since()
     }
 
+    /// Whether the terminal's one-shot command-finish watch is armed:
+    /// `extra.notify_when_done` (`terminal-notify-when-done-v1`).
+    pub(crate) fn terminal_notify_when_done(&self) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            pty.terminal_metadata
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .activity
+                .notify_when_done()
+        })
+    }
+
+    /// Arms or disarms the terminal's one-shot command-finish watch and
+    /// publishes the change. False when the surface is not a terminal.
+    pub(crate) fn set_terminal_notify_when_done(&self, on: bool) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        pty.terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .set_notify_when_done(on);
+        self.publish_pending_progress();
+        true
+    }
+
     /// The last command the terminal's shell finished (OSC 133 `D`):
     /// `extra.last_command` (`terminal-exit-status-v1`).
     pub(crate) fn terminal_last_command(&self) -> Option<crate::terminal_activity::LastCommand> {

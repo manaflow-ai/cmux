@@ -187,6 +187,7 @@
     "terminal-frontend-shell-integration-v1",
     "terminal-input-while-creating-v1",
     "terminal-last-command-v1",
+    "terminal-notify-when-done-v1",
     "terminal-pending-sequence-v1",
     "terminal-placement-env-v1",
     "terminal-reap-v1",

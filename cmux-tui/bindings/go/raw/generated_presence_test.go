@@ -40149,6 +40149,110 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "terminal_id", true, "\"value\"")
 	})
+	t.Run("SetTerminalNotifyWhenDoneRequest.Surface", func(t *testing.T) {
+		var missing SetTerminalNotifyWhenDoneRequest
+		if err := json.Unmarshal([]byte("{\"on\":true}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Surface.IsAbsent() {
+			t.Fatal("Surface did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "surface", false, "")
+		var nullValue SetTerminalNotifyWhenDoneRequest
+		if err := json.Unmarshal([]byte("{\"on\":true,\"surface\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Surface.IsNull() {
+			t.Fatal("Surface did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "surface", true, "null")
+		var presentValue SetTerminalNotifyWhenDoneRequest
+		if err := json.Unmarshal([]byte("{\"on\":true,\"surface\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Surface.Get(); !ok {
+			t.Fatal("Surface did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "surface", true, "1")
+	})
+	t.Run("SetTerminalNotifyWhenDoneRequest.Terminal", func(t *testing.T) {
+		var missing SetTerminalNotifyWhenDoneRequest
+		if err := json.Unmarshal([]byte("{\"on\":true}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Terminal.IsAbsent() {
+			t.Fatal("Terminal did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "terminal", false, "")
+		var nullValue SetTerminalNotifyWhenDoneRequest
+		if err := json.Unmarshal([]byte("{\"on\":true,\"terminal\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Terminal.IsNull() {
+			t.Fatal("Terminal did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "terminal", true, "null")
+		var presentValue SetTerminalNotifyWhenDoneRequest
+		if err := json.Unmarshal([]byte("{\"on\":true,\"terminal\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Terminal.Get(); !ok {
+			t.Fatal("Terminal did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "terminal", true, "\"value\"")
+	})
+	t.Run("SetTerminalNotifyWhenDoneOptions.Surface", func(t *testing.T) {
+		var missing SetTerminalNotifyWhenDoneOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Surface.IsAbsent() {
+			t.Fatal("Surface did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "surface", false, "")
+		var nullValue SetTerminalNotifyWhenDoneOptions
+		if err := json.Unmarshal([]byte("{\"surface\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Surface.IsNull() {
+			t.Fatal("Surface did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "surface", true, "null")
+		var presentValue SetTerminalNotifyWhenDoneOptions
+		if err := json.Unmarshal([]byte("{\"surface\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Surface.Get(); !ok {
+			t.Fatal("Surface did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "surface", true, "1")
+	})
+	t.Run("SetTerminalNotifyWhenDoneOptions.Terminal", func(t *testing.T) {
+		var missing SetTerminalNotifyWhenDoneOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Terminal.IsAbsent() {
+			t.Fatal("Terminal did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "terminal", false, "")
+		var nullValue SetTerminalNotifyWhenDoneOptions
+		if err := json.Unmarshal([]byte("{\"terminal\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Terminal.IsNull() {
+			t.Fatal("Terminal did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "terminal", true, "null")
+		var presentValue SetTerminalNotifyWhenDoneOptions
+		if err := json.Unmarshal([]byte("{\"terminal\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Terminal.Get(); !ok {
+			t.Fatal("Terminal did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "terminal", true, "\"value\"")
+	})
 	t.Run("SetTerminalTailPinRequest.Surface", func(t *testing.T) {
 		var missing SetTerminalTailPinRequest
 		if err := json.Unmarshal([]byte("{\"pinned\":true}"), &missing); err != nil {
@@ -52618,6 +52722,18 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field terminal_id decoded successfully")
 		}
 	})
+	t.Run("SetTerminalNotifyWhenDoneResult.On", func(t *testing.T) {
+		var decoded SetTerminalNotifyWhenDoneResult
+		if err := json.Unmarshal([]byte("{\"terminal\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field on decoded successfully")
+		}
+	})
+	t.Run("SetTerminalNotifyWhenDoneResult.Terminal", func(t *testing.T) {
+		var decoded SetTerminalNotifyWhenDoneResult
+		if err := json.Unmarshal([]byte("{\"on\":true}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal decoded successfully")
+		}
+	})
 	t.Run("SetTerminalTailPinResult.Pinned", func(t *testing.T) {
 		var decoded SetTerminalTailPinResult
 		if err := json.Unmarshal([]byte("{\"terminal\":\"value\"}"), &decoded); err == nil {
@@ -56708,6 +56824,12 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 		var decoded SetTerminalKeepRequest
 		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
 			t.Fatal("missing required field keep decoded successfully")
+		}
+	})
+	t.Run("SetTerminalNotifyWhenDoneRequest.On", func(t *testing.T) {
+		var decoded SetTerminalNotifyWhenDoneRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field on decoded successfully")
 		}
 	})
 	t.Run("SetTerminalTailPinRequest.Pinned", func(t *testing.T) {
@@ -62197,6 +62319,18 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field terminal_id accepted null")
 		}
 	})
+	t.Run("SetTerminalNotifyWhenDoneResult.On", func(t *testing.T) {
+		var decoded SetTerminalNotifyWhenDoneResult
+		if err := json.Unmarshal([]byte("{\"on\":null,\"terminal\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field on accepted null")
+		}
+	})
+	t.Run("SetTerminalNotifyWhenDoneResult.Terminal", func(t *testing.T) {
+		var decoded SetTerminalNotifyWhenDoneResult
+		if err := json.Unmarshal([]byte("{\"on\":true,\"terminal\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal accepted null")
+		}
+	})
 	t.Run("SetTerminalTailPinResult.Pinned", func(t *testing.T) {
 		var decoded SetTerminalTailPinResult
 		if err := json.Unmarshal([]byte("{\"pinned\":null,\"terminal\":\"value\"}"), &decoded); err == nil {
@@ -65855,6 +65989,12 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded SetTerminalKeepRequest
 		if err := json.Unmarshal([]byte("{\"keep\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field keep accepted null")
+		}
+	})
+	t.Run("SetTerminalNotifyWhenDoneRequest.On", func(t *testing.T) {
+		var decoded SetTerminalNotifyWhenDoneRequest
+		if err := json.Unmarshal([]byte("{\"on\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field on accepted null")
 		}
 	})
 	t.Run("SetTerminalTailPinRequest.Pinned", func(t *testing.T) {
@@ -70022,12 +70162,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1972
-	generatedOptionalNullableFieldCount    = 1365
+	generatedFieldShapeCount               = 1976
+	generatedOptionalNullableFieldCount    = 1369
 	generatedRequiredNullableFieldCount    = 178
 	generatedOptionalNonnullableFieldCount = 429
-	generatedRequiredFieldCount            = 1662
-	generatedRequiredNonnullableFieldCount = 1484
+	generatedRequiredFieldCount            = 1665
+	generatedRequiredNonnullableFieldCount = 1487
 	generatedConstrainedFieldCount         = 139
 	generatedEncodedConstrainedFieldCount  = 139
 )

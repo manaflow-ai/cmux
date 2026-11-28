@@ -277,6 +277,7 @@ USAGE
     [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
   cmux terminal <term_id>|current pin-tail on|off
+  cmux terminal <term_id>|current notify-when-done on|off
 
 list --cwd <path> keeps the terminals in <path> or a folder inside it.
 screen read and copy print the text; --details (or --json) gives the whole
@@ -287,6 +288,8 @@ scrollback. screen wait prints its result either way; when the timeout passes
 without a match it says timed_out: true and exits 124. --new matches only output printed below the
 cursor's line after the call, never a typed command's echo or older output. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
+notify-when-done on posts one notification when the terminal's next shell
+command finishes (needs shell integration), then turns itself off.
 close --if-unplaced ends the terminal only when it has no tab, no keep mark
 and no attach stream; otherwise it fails and changes nothing.
 status prints the program status records (OSC 7501) the terminal's

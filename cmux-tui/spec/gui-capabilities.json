@@ -174,6 +174,10 @@
       "`set-terminal-tail-pin`: a terminal's last output line under its workspace in the",
       "sidebar (Show Last Line in Sidebar, `cmux terminal <term> pin-tail on|off`)."
     ]},
+    {"case": "terminalNotifyWhenDone", "wire": "terminal-notify-when-done-v1", "tier": "optional", "doc": [
+      "`set-terminal-notify-when-done`: one notification when the terminal's next shell command",
+      "finishes (Notify When Command Finishes, `cmux terminal <term> notify-when-done on|off`)."
+    ]},
     {"case": "resumeCommand", "wire": "resume-command", "tier": "optional", "doc": [
       "`terminal-resume-command`: a person's resume command for one terminal,",
       "typed on the new prompt when the daemon respawns it."

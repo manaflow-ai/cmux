@@ -325,6 +325,41 @@ pub(super) fn parse_terminal(
                 stream: false,
             }))
         }
+        [selector, "notify-when-done", state] => {
+            // `current` is the terminal the command runs in.
+            let caller = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+            let selector = match (*selector, caller) {
+                ("current", Some(caller)) => caller,
+                ("current", None) => {
+                    return Err(UsageError::new(
+                        "terminal current notify-when-done needs a caller terminal (CMUX_TUI_TERMINAL_ID is not set); pass a term_ ID",
+                    ));
+                }
+                (selector, _) if matches!(Selector::parse(selector), Ok(Selector::Id(_))) => {
+                    selector.to_owned()
+                }
+                _ => {
+                    return Err(UsageError::new(
+                        "terminal notify-when-done needs a term_ terminal ID or current",
+                    ));
+                }
+            };
+            validate_prefixed_id("terminal", "term", &selector)?;
+            let on = match *state {
+                "on" => true,
+                "off" => false,
+                _ => return Err(UsageError::new("terminal notify-when-done must be on or off")),
+            };
+            Ok(CommandPlan::RawCommand(super::super::raw::RawCommandPlan {
+                request: json!({
+                    "id": 1,
+                    "cmd": "set-terminal-notify-when-done",
+                    "terminal": selector,
+                    "on": on,
+                }),
+                stream: false,
+            }))
+        }
         _ => usage("terminal action"),
     }
 }

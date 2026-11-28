@@ -3934,6 +3934,16 @@ pub struct SetTerminalKeepRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalNotifyWhenDoneRequest {
+    pub on: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetTerminalTailPinRequest {
     pub pinned: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -6171,6 +6181,10 @@ impl CmuxClient {
 
     pub fn set_terminal_keep(&mut self, request: SetTerminalKeepRequest) -> Result<T::SetTerminalKeepResult> {
         self.execute(&SET_TERMINAL_KEEP_METADATA, &request)
+    }
+
+    pub fn set_terminal_notify_when_done(&mut self, request: SetTerminalNotifyWhenDoneRequest) -> Result<T::SetTerminalNotifyWhenDoneResult> {
+        self.execute(&SET_TERMINAL_NOTIFY_WHEN_DONE_METADATA, &request)
     }
 
     pub fn set_terminal_tail_pin(&mut self, request: SetTerminalTailPinRequest) -> Result<T::SetTerminalTailPinResult> {

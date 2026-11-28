@@ -32009,6 +32009,135 @@ func (value *SetTerminalKeepOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// SetTerminalNotifyWhenDoneRequest is the exact set-terminal-notify-when-done wire payload.
+type SetTerminalNotifyWhenDoneRequest struct {
+	On       bool             `json:"on"`
+	Surface  Presence[ID]     `json:"-"`
+	Terminal Presence[string] `json:"-"`
+}
+
+func (value SetTerminalNotifyWhenDoneRequest) MarshalJSON() ([]byte, error) {
+	type wire SetTerminalNotifyWhenDoneRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Surface.IsAbsent() {
+		delete(object, "surface")
+	} else if value.Surface.IsNull() {
+		object["surface"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Surface.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetTerminalNotifyWhenDoneRequest.Surface: %w", err)
+		}
+		object["surface"] = encodedField
+	}
+	if value.Terminal.IsAbsent() {
+		delete(object, "terminal")
+	} else if value.Terminal.IsNull() {
+		object["terminal"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Terminal.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetTerminalNotifyWhenDoneRequest.Terminal: %w", err)
+		}
+		object["terminal"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SetTerminalNotifyWhenDoneRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneRequest: expected object")
+	}
+	var fields struct {
+		On       *bool            `json:"on"`
+		Surface  Presence[ID]     `json:"surface"`
+		Terminal Presence[string] `json:"terminal"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneRequest: %w", err)
+	}
+	type wire SetTerminalNotifyWhenDoneRequest
+	var decoded wire
+	if fields.On == nil {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneRequest: required field on is missing or null")
+	}
+	decoded.On = *fields.On
+	decoded.Surface = fields.Surface
+	decoded.Terminal = fields.Terminal
+	*value = SetTerminalNotifyWhenDoneRequest(decoded)
+	return nil
+}
+
+type SetTerminalNotifyWhenDoneOptions struct {
+	Surface  Presence[ID]     `json:"-"`
+	Terminal Presence[string] `json:"-"`
+}
+
+func (value SetTerminalNotifyWhenDoneOptions) MarshalJSON() ([]byte, error) {
+	type wire SetTerminalNotifyWhenDoneOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Surface.IsAbsent() {
+		delete(object, "surface")
+	} else if value.Surface.IsNull() {
+		object["surface"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Surface.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetTerminalNotifyWhenDoneOptions.Surface: %w", err)
+		}
+		object["surface"] = encodedField
+	}
+	if value.Terminal.IsAbsent() {
+		delete(object, "terminal")
+	} else if value.Terminal.IsNull() {
+		object["terminal"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Terminal.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetTerminalNotifyWhenDoneOptions.Terminal: %w", err)
+		}
+		object["terminal"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *SetTerminalNotifyWhenDoneOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneOptions: expected object")
+	}
+	var fields struct {
+		Surface  Presence[ID]     `json:"surface"`
+		Terminal Presence[string] `json:"terminal"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode SetTerminalNotifyWhenDoneOptions: %w", err)
+	}
+	type wire SetTerminalNotifyWhenDoneOptions
+	var decoded wire
+	decoded.Surface = fields.Surface
+	decoded.Terminal = fields.Terminal
+	*value = SetTerminalNotifyWhenDoneOptions(decoded)
+	return nil
+}
+
 // SetTerminalTailPinRequest is the exact set-terminal-tail-pin wire payload.
 type SetTerminalTailPinRequest struct {
 	Pinned   bool             `json:"pinned"`
@@ -40676,6 +40805,18 @@ func (c *Client) SetTerminalKeep(ctx context.Context, keep bool, options SetTerm
 		return result, err
 	}
 	err = c.requestGenerated(ctx, commandMetadata["set-terminal-keep"], "set-terminal-keep", params, &result)
+	return result, err
+}
+
+// SetTerminalNotifyWhenDone sends set-terminal-notify-when-done. Protocol v12; authority control.
+func (c *Client) SetTerminalNotifyWhenDone(ctx context.Context, on bool, options SetTerminalNotifyWhenDoneOptions) (SetTerminalNotifyWhenDoneResult, error) {
+	var result SetTerminalNotifyWhenDoneResult
+	params, err := mergeCommandParams(map[string]any{"on": on}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode set-terminal-notify-when-done parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["set-terminal-notify-when-done"], "set-terminal-notify-when-done", params, &result)
 	return result, err
 }
 

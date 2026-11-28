@@ -279,6 +279,30 @@ pub(super) fn set_terminal_tail_pin(
     Ok(json!({ "terminal": terminal.as_str(), "pinned": pinned }))
 }
 
+/// `set-terminal-notify-when-done`: arms or disarms the one-shot watch that
+/// posts one notification when the terminal's next shell command finishes.
+pub(super) fn set_terminal_notify_when_done(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal: Option<String>,
+    on: bool,
+) -> anyhow::Result<Value> {
+    let surface = match (surface, terminal) {
+        (Some(surface), None) => surface,
+        (None, Some(terminal)) => mux
+            .placed_surface_of_terminal(&terminal)
+            .ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?,
+        _ => anyhow::bail!("bad request: exactly one of surface or terminal"),
+    };
+    let surface = mux.surface(surface).ok_or_else(|| anyhow::anyhow!("surface_not_found"))?;
+    let terminal =
+        surface.terminal_public_id().cloned().ok_or_else(|| anyhow::anyhow!("not_a_terminal"))?;
+    if !surface.set_terminal_notify_when_done(on) {
+        anyhow::bail!("not_a_terminal");
+    }
+    Ok(json!({ "terminal": terminal.as_str(), "on": on }))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn create_terminal(
     mux: &Arc<Mux>,

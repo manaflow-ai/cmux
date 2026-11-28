@@ -1351,6 +1351,11 @@ public abstract class GeneratedCmuxClient {
         return SetTerminalKeepResult.fromWire(result);
     }
 
+    public final SetTerminalNotifyWhenDoneResult setTerminalNotifyWhenDone(SetTerminalNotifyWhenDoneRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_TERMINAL_NOTIFY_WHEN_DONE, request.toWire());
+        return SetTerminalNotifyWhenDoneResult.fromWire(result);
+    }
+
     public final SetTerminalTailPinResult setTerminalTailPin(SetTerminalTailPinRequest request) throws CmuxException {
         Object result = execute(Commands.SET_TERMINAL_TAIL_PIN, request.toWire());
         return SetTerminalTailPinResult.fromWire(result);

@@ -802,8 +802,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "5e45ca5b9aaba93dc5ae66526bc0aeb19d20fa3ace7f6b60fc94da96d1e61961",
-      "size": 87896
+      "sha256": "8a12ede137aebafe770e2a8c4b14c8c08b0c3f1cfcc9d31aeb4a5121ddd65db3",
+      "size": 88198
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -1527,8 +1527,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "6cf4b0dfaa48779e199c637b773349f7bf9e6de801bf7152b005e87d12f64ab9",
-      "size": 75003
+      "sha256": "63b144118adb4047bc69704ff33f73d2f7989ddeff2d6a988dea2115dda0149e",
+      "size": 75306
     },
     {
       "path": "GetBlobRequest.java",
@@ -2342,7 +2342,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "d3ab11789f6b9e9383170c9d0875ada885f52a50ee19c1008f6581ced100679e",
+      "sha256": "dba330cdaa8779f0e47db21946f585faf621d366f4ce7d291c9352d04c272cc7",
       "size": 8753
     },
     {
@@ -3094,6 +3094,16 @@
       "path": "SetTerminalKeepResult.java",
       "sha256": "173eb66d377669f0a5b05c9fa51ecde970239911fe6e6c06897fe91df4d6b0c1",
       "size": 3555
+    },
+    {
+      "path": "SetTerminalNotifyWhenDoneRequest.java",
+      "sha256": "db0809219504cf4a55c4541823473f2dd3fc37788e8348980f7b6fba7800b062",
+      "size": 3395
+    },
+    {
+      "path": "SetTerminalNotifyWhenDoneResult.java",
+      "sha256": "d5faf42a5ff18fbcbd1a1201b0e9083dc499d33af28fabbe17cec7d809f29213",
+      "size": 2681
     },
     {
       "path": "SetTerminalTailPinRequest.java",
@@ -3937,7 +3947,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "d2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783",
+  "ir_sha256": "ed2535a9c48f3811c86e07a70a8708f3080da38797585ca6751be8dae6874fe6",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
