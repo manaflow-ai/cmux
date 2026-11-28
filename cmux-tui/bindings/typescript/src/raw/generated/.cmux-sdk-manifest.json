@@ -17,17 +17,17 @@
     },
     {
       "path": "metadata.ts",
-      "sha256": "b379d1dd5d8e7699dcea48265508f8754615528ed66a18bac7d60ada742cdf52",
-      "size": 913695
+      "sha256": "840a7dd66a72ef2bf18919edb0511316dfa315cd9b00771a5cd85613fce41147",
+      "size": 914134
     },
     {
       "path": "types.ts",
-      "sha256": "b5a214419c3bec8db05776c9565d9e5c8f4725c05967ce02f399ef6edfb60770",
-      "size": 57730
+      "sha256": "2d694c650104d80809f8860edbb2b34137b803edee416aca9138b187da76731f",
+      "size": 57947
     }
   ],
   "format": 1,
-  "ir_sha256": "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c",
+  "ir_sha256": "d2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783",
   "language": "typescript",
   "mux_protocol": 12,
   "schema_version": 2

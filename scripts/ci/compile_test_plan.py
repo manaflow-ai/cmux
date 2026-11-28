@@ -5,9 +5,8 @@ fleet/compile-check (.github/workflows/fleet-compile-check.yml) compiles the
 app executable, which links no test target. A change can still break a test
 target's compile (#23360: a throwing call inside `#expect` without `try`;
 #23163: a fake that missed a protocol requirement). This picks what the
-advisory fleet-test-compile.yml check builds (`package-test-lane.sh
-compile-tests` on a fleet Mac), from the files the change touches; an empty
-plan queues no Mac:
+post-merge test-target compile builds (`package-test-lane.sh compile-tests`
+on a fleet Mac), from the files the change touches; an empty plan queues no Mac:
 
   CmuxNext    the test targets that depend on a changed target, from the
               SwiftPM target graph (Packages/macOS/CmuxNext/ci-target-graph.json,
