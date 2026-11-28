@@ -4,7 +4,8 @@
 // the text's cover still left in 180 ms, as `.ui-reveal-text` (ui/motion/motion.css) loads later at
 // the same specificity and won. cmux#63281 scoped the leave rule under the row. This draws the
 // composer gallery's two queued prompts and reads each row's computed timing: the text's cover and
-// the actions leave in 80 ms (0 s under reduced motion) and come in on 120 ms when hovered.
+// the actions leave in 80 ms (0 ms under reduced motion) and come in on 120 ms when hovered. Times
+// are whole milliseconds: Reduce Motion's clamp (pages/shared/desktop.css) leaves 0.01 ms, which is 0.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -38,7 +39,8 @@ await requireBrowserLane("queued-clamp-exit-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  type Timing = { cover: string; actions: string };
+  /// Milliseconds, rounded to whole ones.
+  type Timing = { cover: number; actions: number };
 
   /// Each queued row's computed transition durations, at rest and with the pointer on the first row.
   async function timings(reducedMotion: boolean): Promise<{ rest: Timing[]; hovered: Timing }> {
@@ -59,12 +61,13 @@ await requireBrowserLane("queued-clamp-exit-browser.test.ts", async () => {
         });
       await page.waitForSelector(".acpmux-queued .acpmux-queued-clamp", { timeout: 60_000 });
       const read = () =>
-        page.evaluate(() =>
-          [...document.querySelectorAll<HTMLElement>(".acpmux-queued")].map((row) => ({
-            cover: getComputedStyle(row.querySelector(".acpmux-queued-clamp")!).transitionDuration,
-            actions: getComputedStyle(row.querySelector(".acpmux-queued-actions")!).transitionDuration,
-          })),
-        );
+        page.evaluate(() => {
+          const ms = (el: Element) => Math.round(parseFloat(getComputedStyle(el).transitionDuration) * 1000);
+          return [...document.querySelectorAll<HTMLElement>(".acpmux-queued")].map((row) => ({
+            cover: ms(row.querySelector(".acpmux-queued-clamp")!),
+            actions: ms(row.querySelector(".acpmux-queued-actions")!),
+          }));
+        });
       const rest = await read();
       await page.hover(".acpmux-queued >> nth=0");
       const hovered = (await read())[0]!;
@@ -77,14 +80,14 @@ await requireBrowserLane("queued-clamp-exit-browser.test.ts", async () => {
   test("the queued text's cover leaves in 80 ms with its actions, and comes in on 120 ms", async () => {
     const { rest, hovered } = await timings(false);
     expect(rest.length).toBe(2);
-    for (const row of rest) expect(row).toEqual({ cover: "0.08s", actions: "0.08s" });
-    expect(hovered).toEqual({ cover: "0.12s", actions: "0.12s" });
+    for (const row of rest) expect(row).toEqual({ cover: 80, actions: 80 });
+    expect(hovered).toEqual({ cover: 120, actions: 120 });
   });
 
   test("under reduced motion the queued row neither leaves nor comes in over time", async () => {
     const { rest, hovered } = await timings(true);
     expect(rest.length).toBe(2);
-    for (const row of rest) expect(row).toEqual({ cover: "0s", actions: "0s" });
-    expect(hovered).toEqual({ cover: "0s", actions: "0s" });
+    for (const row of rest) expect(row).toEqual({ cover: 0, actions: 0 });
+    expect(hovered).toEqual({ cover: 0, actions: 0 });
   });
 });
