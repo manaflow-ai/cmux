@@ -25374,61 +25374,120 @@
         }
       }
     },
-    "mobile.pairing.appNotRunning": {
+    "mobile.pairing.connectionRefused": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac is reachable, but cmux isn't running there (or mobile pairing is off). Open cmux on the Mac, then try again."
+            "value": "Your Mac answered, but nothing on its pairing port accepted the connection."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macには接続できますが、cmuxが起動していません（またはモバイルのペア設定がオフです）。Macでcmuxを開いてから、もう一度お試しください。"
+            "value": "Macは応答しましたが、ペアリングポートで接続を受け付けるものがありませんでした。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ihr Mac ist erreichbar, aber cmux läuft dort nicht (oder die mobile Kopplung ist deaktiviert). Öffnen Sie cmux auf dem Mac und versuchen Sie es erneut."
+            "value": "Ihr Mac hat geantwortet, aber auf seinem Kopplungsport hat nichts die Verbindung angenommen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre Mac est accessible, mais cmux n'y fonctionne pas (ou le couplage mobile est désactivé). Ouvrez cmux sur Mac, puis réessayez."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكن الوصول إلى جهاز Mac الخاص بك، ولكن cmux لا يعمل هناك (أو تم إيقاف إقران الهاتف المحمول). افتح cmux على جهاز Mac، ثم حاول مرة أخرى."
+            "value": "Votre Mac a répondu, mais rien n’a accepté la connexion sur son port de jumelage."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se puede acceder a tu Mac, pero cmux no se ejecuta allí (o el emparejamiento móvil está desactivado). Abra cmux en Mac y vuelva a intentarlo."
+            "value": "Tu Mac respondió, pero nada aceptó la conexión en su puerto de emparejamiento."
           }
         },
-        "zh-Hant": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "您的 Mac 可以訪問，但 cmux 未在其中運行（或移動配對已關閉）。在 Mac 上開啟 cmux，然後重試。"
+            "value": "استجاب جهاز Mac، لكن لم يقبل أي شيء الاتصال على منفذ الاقتران الخاص به."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您的 Mac 可以访问，但 cmux 未在其中运行（或移动配对已关闭）。在 Mac 上打开 cmux，然后重试。"
+            "value": "你的 Mac 有响应，但其配对端口上没有程序接受连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 有回應，但其配對連接埠上沒有程式接受連線。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac에 연결할 수 있지만 cmux가 실행되지 않습니다(또는 모바일 페어링이 꺼져 있음). Mac에서 cmux를 열고 다시 시도하세요."
+            "value": "Mac이 응답했지만 페어링 포트에서 연결을 수락한 항목이 없습니다."
+          }
+        }
+      }
+    },
+    "mobile.pairing.connectionRefusedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac answered at %@:%d, but nothing on that port accepted the connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macは%@:%dで応答しましたが、そのポートで接続を受け付けるものがありませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihr Mac hat unter %@:%d geantwortet, aber auf diesem Port hat nichts die Verbindung angenommen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre Mac a répondu à %@:%d, mais rien n’a accepté la connexion sur ce port."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu Mac respondió en %@:%d, pero nada aceptó la conexión en ese puerto."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استجاب جهاز Mac على %@:%d، لكن لم يقبل أي شيء الاتصال على هذا المنفذ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 在 %@:%d 有响应，但该端口上没有程序接受连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 在 %@:%d 有回應，但該連接埠上沒有程式接受連線。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac이 %@:%d에서 응답했지만 해당 포트에서 연결을 수락한 항목이 없습니다."
           }
         }
       }
@@ -27081,6 +27140,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac에서 cmux를 업데이트하면 저장된 컴퓨터가 자동으로 다시 연결됩니다. 로그아웃하거나 다시 페어링할 필요가 없습니다."
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.connectionRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the Mac, open cmux > Settings > Mobile and check that iOS pairing is on and the port matches. If the Mac's pairing window shows no QR code, it can't accept Tailscale connections yet. Set this computer's Connection Method to Iroh instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmux > 設定 > モバイルを開き、iOSペアリングがオンでポートが一致しているか確認してください。MacのペアリングウインドウにQRコードが表示されない場合、そのMacはまだTailscale接続を受け付けられません。代わりにこのコンピュータの接続方法をIrohに設定してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen Sie auf dem Mac cmux > Einstellungen > Mobil und prüfen Sie, ob die iOS-Kopplung aktiviert ist und der Port übereinstimmt. Zeigt das Kopplungsfenster des Mac keinen QR-Code, kann er noch keine Tailscale-Verbindungen annehmen. Stellen Sie die Verbindungsmethode dieses Computers stattdessen auf Iroh."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur le Mac, ouvrez cmux > Réglages > Mobile et vérifiez que le jumelage iOS est activé et que le port correspond. Si la fenêtre de jumelage du Mac n’affiche aucun QR code, il ne peut pas encore accepter les connexions Tailscale. Réglez plutôt la méthode de connexion de cet ordinateur sur Iroh."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el Mac, abre cmux > Ajustes > Móvil y comprueba que el emparejamiento con iOS está activado y que el puerto coincide. Si la ventana de emparejamiento del Mac no muestra ningún código QR, todavía no puede aceptar conexiones de Tailscale. En su lugar, configura el método de conexión de este ordenador en Iroh."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، افتح cmux > الإعدادات > الجوال وتحقق من تشغيل اقتران iOS ومن تطابق المنفذ. إذا لم تعرض نافذة الاقتران على جهاز Mac رمز QR، فلا يمكنه قبول اتصالات Tailscale بعد. اضبط طريقة الاتصال لهذا الكمبيوتر على إيروه بدلاً من ذلك."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上打开 cmux > 设置 > 移动设备，确认 iOS 配对已开启且端口一致。如果 Mac 的配对窗口没有显示二维码，它暂时还无法接受 Tailscale 连接。请改为将这台电脑的连接方式设为伊罗。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上開啟 cmux > 設定 > 行動裝置，確認 iOS 配對已開啟且連接埠一致。如果 Mac 的配對視窗沒有顯示 QR 碼，它暫時還無法接受 Tailscale 連線。請改為將這台電腦的連接方式設為伊羅。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 cmux > 설정 > 모바일을 열고 iOS 페어링이 켜져 있고 포트가 일치하는지 확인하세요. Mac의 페어링 창에 QR 코드가 표시되지 않으면 아직 Tailscale 연결을 수락할 수 없습니다. 대신 이 컴퓨터의 연결 방법을 이로로 설정하세요."
           }
         }
       }

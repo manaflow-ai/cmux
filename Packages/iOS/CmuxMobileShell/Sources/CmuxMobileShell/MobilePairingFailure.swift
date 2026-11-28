@@ -31,9 +31,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// Could not route to a selected legacy host address. Iroh routes carry no
     /// host here because their EndpointID is resolved by the transport layer.
     case hostUnreachable(host: String?, port: Int?)
-    /// The address was reachable but nothing accepted the connection: cmux is not
-    /// running on the Mac, or mobile pairing is off (it is off by default in
-    /// Release).
+    /// The address was reachable but nothing accepted a TCP connection: cmux is
+    /// not running, iOS pairing is off, the port differs, or the Mac's cmux
+    /// pairs only over Iroh and has no Tailscale listener.
     case listenerNotRunning(host: String?, port: Int?)
     /// iOS blocked the connection on Local Network privacy grounds.
     case localNetworkBlocked
@@ -239,10 +239,16 @@ extension MobilePairingFailureCategory {
                 port: port
             )
         case let .listenerNotRunning(host, port):
-            _ = (host, port)
-            return L10n.string(
-                "mobile.pairing.appNotRunning",
-                defaultValue: "Your Mac is reachable, but cmux isn't running there (or mobile pairing is off). Open cmux on the Mac, then try again."
+            // A refusal proves only that nothing accepts TCP on this port. A
+            // running Mac that pairs over Iroh alone refuses it too, so the
+            // copy names the address and does not claim cmux is closed.
+            return Self.hostPortMessage(
+                key: "mobile.pairing.connectionRefusedFormat",
+                defaultValue: "Your Mac answered at %@:%d, but nothing on that port accepted the connection.",
+                fallbackKey: "mobile.pairing.connectionRefused",
+                fallbackDefaultValue: "Your Mac answered, but nothing on its pairing port accepted the connection.",
+                host: host,
+                port: port
             )
         case .localNetworkBlocked:
             return L10n.string(
@@ -468,7 +474,12 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.reachability",
                 defaultValue: "Iroh reconnects automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
             )
-        case .listenerNotRunning, .connectionDropped:
+        case .listenerNotRunning:
+            return L10n.string(
+                "mobile.pairing.guidance.connectionRefused",
+                defaultValue: "On the Mac, open cmux > Settings > Mobile and check that iOS pairing is on and the port matches. If the Mac's pairing window shows no QR code, it can't accept Tailscale connections yet. Set this computer's Connection Method to Iroh instead."
+            )
+        case .connectionDropped:
             return L10n.string(
                 "mobile.pairing.guidance.openMacApp",
                 defaultValue: "Open cmux on your Mac, then scan the QR or link from it again."
