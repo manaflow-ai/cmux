@@ -4,7 +4,8 @@ before and after, and hands them to the agent that pushed, with no app build and
 
     ui-preview-worker.py serve --state DIR [--bind ADDR] [--port 8765] [--public URL] [--send CMD]
                                [--publish-receipts CMD] [--no-warm] [--no-swift] [--swift-peer URL|--swift-pull]
-                               [--follow]
+                               [--swift-reach CMD] [--follow]
+    ui-preview-worker.py shoot --state DIR --job B64JSON
     ui-preview-worker.py pull --state DIR --from URL[,URL...] [--no-warm]
     ui-preview-worker.py once --state DIR [REQUEST.json|-] [--send CMD] [--public URL]
     ui-preview-worker.py warm --state DIR
@@ -24,6 +25,10 @@ request, and every Swift push was a miss.
 SSH port, so a POST to the Mac's :8765 never answered and no Swift look ever posted. Instead the worker queues each
 Swift ask and the Mac's `pull --from URL` takes it over its own outbound connection (GET URL/swift/next, a 25 s
 long-poll), shoots it and answers POST URL/swift/result/ID, the /shoot answer's shape. The Mac listens on nothing.
+--swift-reach CMD (with --swift-pull) is the standby path when no Mac has pulled in PULL_STALE_S (the one pulling Mac
+is asleep or off): the worker runs CMD with {job} replaced by the ask as base64 JSON, a command that reaches another
+display Mac over a path the worker already has (its SSH reach, no new ACL rule) and runs `shoot --job {job}` there;
+the last JSON line of its stdout is the /shoot answer. A Mac that pulls again takes the next ask back over :8765.
 `publish FILE HOST` writes FILE (the receipts) as ui-preview/HOST.json on cmuxterm-hq's now-census through the
 broker's state_put, which NOW's ui_preview.p95_push_to_post_s reads:
 `--publish-receipts 'python3 ui-preview-worker.py publish {file} {host}'`.
@@ -180,6 +185,7 @@ PEER_SECONDS = 10 * 60
 PULL_POLL_S = 25  # GET /swift/next holds this long for a job before answering 204
 PULL_STALE_S = 90  # no Mac asked for a job this long: a Swift ask fails at once instead of waiting PEER_SECONDS
 PULL = "pull"  # worker.swift_peer under --swift-pull: a pulling Mac shoots the Swift scenes
+REACH_SECONDS = PEER_SECONDS + 120  # --swift-reach: the reach's connect and lease on top of the peer's own bound
 
 
 class SwiftPulls:
@@ -216,6 +222,11 @@ class SwiftPulls:
             self.cond.wait_for(lambda: self.waiting, timeout)
             self.polled_at = time.monotonic()
             return self.waiting.pop(0) if self.waiting else None
+
+    def fresh(self) -> bool:
+        """A Mac asked for a job within PULL_STALE_S: an ask now goes to it."""
+        with self.cond:
+            return time.monotonic() - self.polled_at <= PULL_STALE_S
 
     def answer(self, job_id: str, doc: dict) -> bool:
         with self.cond:
@@ -797,6 +808,7 @@ class Worker:
         self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes;
         # PULL under --swift-pull: a display Mac's `pull` takes them from self.pulls
         self.pulls = SwiftPulls()
+        self.swift_reach = ""  # serve --swift-reach CMD: the standby Mac's `shoot`, run when no Mac pulls
         self.mirror = MIRROR if (MIRROR / "objects").is_dir() else None
         self.publisher = Publisher(self)
         # The pictures go to pr-media too when this host has a broker client and a writer lane-gh accepts for a PR's
@@ -1057,7 +1069,10 @@ class Worker:
             shutil.rmtree(out)
         out.mkdir(parents=True)
         if self.swift_peer == PULL:
-            return self._peer_shots(self.pulls.ask({"sha": sha, "scenes": scenes, "branch": branch}), scenes, out)
+            job = {"sha": sha, "scenes": scenes, "branch": branch}
+            if self.swift_reach and not self.pulls.fresh():
+                return self._peer_shots(self.reach_shoot(job), scenes, out)
+            return self._peer_shots(self.pulls.ask(job), scenes, out)
         body = json.dumps({"sha": sha, "scenes": scenes, "branch": branch}).encode()
         request = urllib.request.Request(self.swift_peer.rstrip("/") + "/shoot", data=body,
                                          headers={"Content-Type": "application/json"})
@@ -1070,6 +1085,31 @@ class Worker:
         except (OSError, ValueError) as err:
             raise LookError(f"the Swift peer {self.swift_peer} did not answer: {err}") from None
         return self._peer_shots(doc, scenes, out)
+
+    def reach_shoot(self, job: dict) -> dict:
+        """--swift-reach: run the standby command with the ask as base64 JSON; its last JSON line is the answer."""
+        encoded = base64.b64encode(json.dumps(job).encode()).decode()
+        argv = [a.replace("{job}", encoded) for a in shlex.split(self.swift_reach)]
+        started = time.monotonic()
+        try:
+            done = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                  timeout=REACH_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise LookError(f"the standby Swift Mac did not answer in {REACH_SECONDS} s") from None
+        except OSError as err:
+            raise LookError(f"the standby Swift reach did not run: {err}") from None
+        log(f"swift-reach: {job['sha'][:12]} {job['scenes']} exit {done.returncode} in "
+            f"{time.monotonic() - started:.1f} s")
+        for line in reversed(done.stdout.splitlines()):
+            if line.startswith("{"):
+                try:
+                    doc = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(doc, dict):
+                    return doc
+        raise LookError(f"the standby Swift Mac answered no JSON (exit {done.returncode}): "
+                        f"{tail(done.stderr or done.stdout)}")
 
     @staticmethod
     def _peer_shots(doc: dict, scenes: list[str], out: Path) -> dict:
@@ -2027,6 +2067,7 @@ def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
     worker.swift_on = not args.no_swift
     worker.swift_peer = PULL if args.swift_pull else (args.swift_peer or "")
+    worker.swift_reach = (args.swift_reach or "") if args.swift_pull else ""
     bind = args.bind or tailnet_address() or "127.0.0.1"
     if not worker.public:
         worker.public = f"http://{bind}:{args.port}"
@@ -2103,6 +2144,27 @@ def command_pull(args) -> int:
     finally:
         worker.stop_shooter()
     return 0
+
+
+def command_shoot(args) -> int:
+    """One Swift ask, answered on stdout as one JSON line (the /shoot answer, or {"error"}): the far end of
+    serve --swift-reach, run over the web worker's reach to this display Mac."""
+    try:
+        job = json.loads(base64.b64decode(args.job, validate=True))
+    except (ValueError, TypeError) as err:
+        print(json.dumps({"error": f"--job is not base64 JSON: {err}"[:500]}))
+        return 2
+    worker = Worker(Path(args.state), None, None, None)
+    try:
+        doc = worker.peer_answer(job)
+    except LookError as err:
+        doc = {"error": str(err)[:500]}
+    except Exception as err:  # noqa: BLE001 - the caller reads the error line, not a traceback
+        doc = {"error": f"{type(err).__name__}: {err}"[:500]}
+    finally:
+        worker.stop_shooter()
+    sys.stdout.write("\n" + json.dumps(doc) + "\n")
+    return 1 if doc.get("error") else 0
 
 
 def read_request(source: str) -> dict:
@@ -2232,6 +2294,9 @@ def main(argv: list[str] | None = None) -> int:
                                                 "that shoots the Swift scenes (POST /shoot)")
             p.add_argument("--swift-pull", action="store_true",
                            help="with --no-swift: queue the Swift scenes for a display Mac's `pull` (GET /swift/next)")
+            p.add_argument("--swift-reach", help="with --swift-pull: when no Mac has pulled lately, run this "
+                                                 "command ({job}: the ask, base64 JSON) that runs `shoot` on a "
+                                                 "standby display Mac; its last JSON stdout line is the answer")
             p.add_argument("--follow", action="store_true",
                            help="take requests from the lane-gh broker's push trigger (ui_preview_requests)")
         else:
@@ -2245,6 +2310,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--state", required=True)
     p.add_argument("--from", dest="from_", required=True, help="the web workers' serve URLs, comma-separated")
     p.add_argument("--no-warm", action="store_true")
+    p = sub.add_parser("shoot", help="one Swift ask (base64 JSON) shot here, answered as a JSON line")
+    p.add_argument("--state", required=True)
+    p.add_argument("--job", required=True)
     p = sub.add_parser("submit")
     p.add_argument("--to", required=True)
     p.add_argument("request", nargs="?", default="-")
@@ -2256,7 +2324,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("host")
     args = ap.parse_args(argv)
     return {"serve": command_serve, "once": command_once, "warm": command_warm, "submit": command_submit,
-            "publish": command_publish, "pull": command_pull,
+            "publish": command_publish, "pull": command_pull, "shoot": command_shoot,
             "map": command_map}[args.command](args)
 
 
