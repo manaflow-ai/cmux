@@ -23,6 +23,7 @@ use crate::dial::{LinkPath, TransportKind};
 use crate::hybrid::SignalingSource;
 use crate::key_echo;
 use crate::link::{Link, PingStats};
+use crate::outbox_wait::{OutboxWait, OutboxWaitSummary};
 use crate::timing::Timeline;
 
 /// The `v` of the frame this side sends.
@@ -170,6 +171,10 @@ pub struct LinkStat {
     /// The slowest of them: `[seconds since the link came up, ack ms (-1: none yet), echo ms]`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub spikes: Vec<[i64; 3]>,
+    /// Frames written since the last stat: µs from entering the link's outbox to the flush that
+    /// handed them to the transport ([`crate::outbox_wait`]). Slow with `rtt` fast is this side.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outbox_us: Option<OutboxWaitSummary>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -210,6 +215,13 @@ impl LinkStat {
                 [at.min(30 * 86_400), s.ack_ms.map_or(-1, i64::from), i64::from(s.echo_ms)]
             })
             .collect();
+        self
+    }
+
+    /// Carry the outbox waits since the last stat.
+    #[must_use]
+    pub fn with_outbox(mut self, wait: &OutboxWait) -> Self {
+        self.outbox_us = wait.summary();
         self
     }
 }
@@ -335,6 +347,7 @@ impl Reporter {
             ack: None,
             spike_count: 0,
             spikes: Vec::new(),
+            outbox_us: None,
         })
     }
 }
@@ -391,7 +404,9 @@ pub fn spawn(
                     None,
                     cellular(),
                 )
-                .map(|stat| stat.with_keys(&key_echo::take(), reporter.up_at));
+                .map(|stat| {
+                    stat.with_keys(&key_echo::take(), reporter.up_at).with_outbox(&link.take_outbox_wait())
+                });
             if let Some(mut stat) = stat {
                 stat.portmap = portmap();
                 if !send(&signaling, &hop_session, stat).await {
@@ -432,7 +447,8 @@ pub fn spawn(
                 cellular(),
             );
             let Some(stat) = stat else { return };
-            let mut stat = stat.with_keys(&key_echo::take(), reporter.up_at);
+            let mut stat =
+                stat.with_keys(&key_echo::take(), reporter.up_at).with_outbox(&link.take_outbox_wait());
             stat.portmap = portmap();
             if !send(&signaling, &hop_session, stat).await || reason == Reason::End {
                 return;
@@ -577,6 +593,12 @@ mod tests {
                 .bounded(),
         );
         stat.portmap = Some(PortmapStat { by: "nat-pmp", used: false });
+        let mut wait = OutboxWait::default();
+        wait.record(u64::MAX);
+        stat = stat.with_outbox(&wait);
+        assert_eq!(stat.outbox_us.unwrap().max, crate::outbox_wait::MAX_US);
+        let m = crate::outbox_wait::MAX_US;
+        stat.outbox_us = Some(OutboxWaitSummary { n: 100_000_000, p50: m, p95: m, p99: m, max: m });
         let text = stat.to_text();
         assert!(text.len() <= MAX_FRAME_BYTES, "{} bytes: {text}", text.len());
         assert!(text.contains(r#""portmap":{"by":"nat-pmp","used":false}"#), "{text}");

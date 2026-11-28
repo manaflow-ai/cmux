@@ -64,11 +64,14 @@ pub struct Frame {
     /// Set when the link's writer has handed this frame to its transport
     /// (`ChannelSender::send_marked`); never on the wire.
     pub flushed: Option<FlushMark>,
+    /// When the link's outbox took this frame, for its outbox wait
+    /// ([`crate::outbox_wait`]); never on the wire.
+    pub queued_at: Option<tokio::time::Instant>,
 }
 
 impl Frame {
     pub fn new(channel: u32, kind: FrameType, payload: impl Into<Bytes>) -> Self {
-        Self { channel, kind, payload: payload.into(), flushed: None }
+        Self { channel, kind, payload: payload.into(), flushed: None, queued_at: None }
     }
 
     /// Compress a held write independently. The four-byte size keeps queue
