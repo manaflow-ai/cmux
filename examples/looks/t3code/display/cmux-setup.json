@@ -18,6 +18,8 @@
     "agentPane.display.font.lineHeight": 1.625,
     "agentPane.display.code.scale": 0.925,
     "agentPane.display.transcriptView": "normal",
+    // The app draws a reply's text as it arrives, with no fade (its markdown renderer has no reveal).
+    "agentPane.display.streaming": "instant",
     "agentPane.display.minimap": "off",
     "agentPane.editedFiles.show": "collapsed",
     "agentPane.editedFiles.scope": "turn"

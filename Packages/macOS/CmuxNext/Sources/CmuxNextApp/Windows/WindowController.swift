@@ -324,7 +324,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.unpark()
         } else {
             kept?.teardown()
-            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state); controller.layoutView.holdAttention() // cold: its rings wait too (cmux#59901)
         }
         content = controller
         // Panes pan and spring per display frame: shortcut chips over them follow.
@@ -335,7 +335,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         DebugWorkspaceSwitch.mark(self, "content")
         sidebar.sameTurn.syncNow(rows: sidebar.sameTurn.listsAnotherSpace(than: state.profileID.rawValue) || ((controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id))))
         DebugWorkspaceSwitch.mark(self, "sidebar")
-        root.show(controller.contentView)
+        root.show(controller.contentView); controller.layoutView.releaseHeldAttention { [hold = root.paintHold, view = controller.contentView] release in hold.kept.map { $0 !== view && hold.afterHold(of: $0, release) } ?? false } // never on the kept workspace
         DebugWorkspaceSwitch.mark(self, "root")
         arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,

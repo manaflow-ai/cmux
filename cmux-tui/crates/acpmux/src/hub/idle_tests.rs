@@ -215,6 +215,44 @@ async fn an_update_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() 
     hub.shutdown_all().await;
 }
 
+#[tokio::test]
+async fn an_account_restart_keeps_background_work_after_the_turn_settles() {
+    let (hub, session) = chat().await;
+    let child = hub.child_for(&session).await.unwrap();
+    let ids = std::collections::BTreeSet::from([session.id.clone()]);
+    let (shown, showing) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    *hub.turn_shown_seam.lock().unwrap() = Some((shown, released));
+    let prompt = || vec![json!({"type": "text", "text": "hello"})];
+    let turn = tokio::spawn({
+        let (hub, session) = (hub.clone(), session.clone());
+        async move { hub.prompt(&session, prompt(), "test", false).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), showing).await.unwrap().unwrap();
+    assert!(session.turn().is_some());
+    let process = |state: &str| {
+        let update = json!({"params": {"update": {"sessionUpdate": "background_task_update",
+            "toolCallId": "worker", "taskId": "worker", "state": state, "command": "serve"}}});
+        let event = hub.append(&session, "in", "background_task_update", update);
+        hub.note_process(&session, &event, None);
+    };
+    process("running");
+    let restarts = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!((restarts.now, restarts.after_turn), (0, 1));
+    release.send(()).unwrap();
+    turn.await.unwrap().unwrap();
+
+    assert!(hub.holds_work_below(&session));
+    assert!(session.route_switch.load(Ordering::SeqCst));
+    assert!(Arc::ptr_eq(&child, &hub.child_for(&session).await.unwrap()));
+
+    process("completed");
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    assert!(!Arc::ptr_eq(&child, &hub.child_for(&session).await.unwrap()));
+    assert!(!session.route_switch.load(Ordering::SeqCst));
+    hub.shutdown_all().await;
+}
+
 /// An unstored Claude chat whose failed turn did work stays awake only while Claude has not
 /// stored its conversation: once the conversation's transcript is in the store its profile
 /// reads, the idle pass clears the flags and it may sleep (its next wake resumes it). Red on

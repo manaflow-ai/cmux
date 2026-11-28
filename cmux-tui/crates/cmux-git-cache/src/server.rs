@@ -186,7 +186,7 @@ impl State {
         if n > 0 {
             eprintln!("git-cache: gave back {n} partial writes left behind, {} MiB", bytes >> 20);
         }
-        let probe = reqwest::Client::builder()
+        let probe = cmux_egress::client_builder("cmux_git_cache::archive_probe")
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())

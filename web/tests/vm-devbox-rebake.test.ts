@@ -179,6 +179,38 @@ describe("retryFreestyleOverload", () => {
     expect(calls).toBeGreaterThan(1);
   });
 
+  test("asks again after a 409 VM_NON_RESPONSIVE start, and rethrows other 409s", async () => {
+    // Rebake run 46028301324 attempt 3: the verify's second vms.create answered 409 VM_NON_RESPONSIVE.
+    const nonResponsive = Object.assign(new Error("vm stopped responding: timed out reading from guest agent"), { status: 409, code: "VM_NON_RESPONSIVE" });
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 2) throw nonResponsive;
+      return "vm-2";
+    }, 1_000, 1);
+    expect(vm).toBe("vm-2");
+    expect(calls).toBe(2);
+    const conflict = Object.assign(new Error("name taken"), { status: 409, code: "CONFLICT" });
+    calls = 0;
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw conflict; }, 1_000, 1)).rejects.toBe(conflict);
+    expect(calls).toBe(1);
+  });
+
+  test("an ask that outlasts the budget in Freestyle's queue is still asked again", async () => {
+    // Rebake run 46028301324: the verify start sat ten minutes in the capacity queue, then 429.
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        throw overloaded;
+      }
+      return "vm-1";
+    }, 30, 5);
+    expect(vm).toBe("vm-1");
+    expect(calls).toBe(3);
+  });
+
   test("with isFreestyleTransient asks again after a 500, as a resize needs, and still rethrows a 4xx", async () => {
     // Rebake run 45889121287: POST /v5/vms/ID/resize answered 500 INTERNAL_ERROR once.
     const internal = Object.assign(new Error("Internal server error"), { status: 500, code: "INTERNAL_ERROR" });
