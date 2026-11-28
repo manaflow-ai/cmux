@@ -316,7 +316,7 @@ extension SettingsModels {
         let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard claudeLoginTasks[target] == nil, let attempt = claudeLoginAttempts[target],
               attempt.recoverySession == recoverySession, machine == nil || attempt.machine?.id == machine,
-              claudeLoginState(target).phase == "code", Self.isOneWord(code), code.utf8.count <= 4096 else { return }
+              claudeLoginState(target).phase == "code", ModelSecret(code).isOneWordAsGiven(code), code.utf8.count <= 4096 else { return }
         let account = cloudClaudeAccount?()
         guard target == .mac || cloudClaudeStateAccount == account else { return }
         claudeLoginTimers.removeValue(forKey: target)?.cancel()

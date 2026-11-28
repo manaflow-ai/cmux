@@ -22,14 +22,10 @@ import CmuxNextWakeups
 @MainActor
 @Observable
 public final class SettingsModels {
-    /// acpmux's connection kinds and providers the page draws (`ModelConnection`).
-    nonisolated static let kinds: Set<String> = ["codex-login", "claude-login", "subscription", "native-login", "chatgpt-plan", "claude-token", "grok-plan", "copilot-plan", "kimi-plan", "api-key", "endpoint"]
-    nonisolated static let providers: Set<String> = ["openai", "anthropic", "openrouter", "google", "vertex-express", "xai"]
     /// `chatgpt.wait` rounds (each up to 25 s) before an attempt is given up: about 15 minutes.
     nonisolated static let chatgptRounds = 36
     /// Failed `chatgpt.wait` calls in a row (no answer) before the attempt is given up.
     nonisolated static let chatgptFailures = 3
-    nonisolated static let keyLimit = 16_384
 
     /// The page's connections (`ModelConnection`), in acpmux's order.
     private(set) var connections: [JSONValue] = []
@@ -235,7 +231,8 @@ public final class SettingsModels {
 
     /// An acpmux `ConnectionsState`: its connections as the page draws them, and its spread.
     func apply(_ reply: JSONValue, preserveNativeSignIns: Bool = false) {
-        var updated = (reply["connections"]?.arrayValue ?? []).compactMap(Self.connection)
+        // Rust's `models.connections` (cmux-config app_ops/models.rs) reads each as the page's `ModelConnection`.
+        var updated = SettingsRust.answer("models.connections", ["connections": reply["connections"] ?? .array([])])["connections"]?.arrayValue ?? []
         if preserveNativeSignIns {
             let ids = Set(updated.compactMap { $0["id"]?.stringValue })
             updated.append(contentsOf: connections.filter {
@@ -247,41 +244,6 @@ public final class SettingsModels {
         if let on = reply["spread"]?.boolValue { daemonSpread = on }
         available = true
         onConnections?()
-    }
-
-    /// One acpmux `Connection` as the page's `ModelConnection` (camelCase). `servesCloud`: whether it can
-    /// serve a Cloud chat (Revision 2: the Mac CLI logins do not).
-    nonisolated static func connection(_ value: JSONValue) -> JSONValue? {
-        guard let id = value["id"]?.stringValue, !id.isEmpty, let kind = value["kind"]?.stringValue, kinds.contains(kind) else { return nil }
-        let strings = { (key: String, camel: String) -> JSONValue in
-            .array((value[key]?.arrayValue ?? value[camel]?.arrayValue ?? []).compactMap { $0.stringValue.map(JSONValue.string) })
-        }
-        let text = { (key: String) -> JSONValue in value[key]?.stringValue.map(JSONValue.string) ?? .null }
-        let provider = value["provider"]?.stringValue.flatMap { provider in
-            if kind == "endpoint" || kind == "grok-plan" || kind == "copilot-plan" || kind == "kimi-plan" || providers.contains(provider) { return provider }
-            if kind == "native-login", ["gemini", "grok", "cursor"].contains(provider) { return provider }
-            return nil
-        } ?? (kind == "claude-login" || kind == "claude-token" ? "anthropic" : "openai")
-        let servesCloud = value["serves_cloud"]?.boolValue ?? value["servesCloud"]?.boolValue ?? false
-        return [
-            "id": .string(id), "kind": .string(kind), "provider": .string(provider),
-            "credentialInstance": text("credential_instance"),
-            "keyRevision": text("key_revision"),
-            "families": strings("families", "families"), "label": .string(value["label"]?.stringValue ?? id),
-            "email": text("email"), "plan": text("plan"),
-            "signedIn": .bool(value["signed_in"]?.boolValue ?? value["signedIn"]?.boolValue ?? false),
-            "signInReason": text("sign_in_reason"),
-            "enabled": .bool(value["enabled"]?.boolValue ?? false),
-            "defaultFor": strings("default_for", "defaultFor"),
-            "servesCloud": .bool(servesCloud),
-            "canServeCloud": .bool(value["can_serve_cloud"]?.boolValue ?? servesCloud),
-            "cloudFamilies": value["cloud_families"] ?? strings("families", "families"),
-            "canCheckAccess": .bool(value["can_check_access"]?.boolValue ?? false),
-            "canReplaceKey": .bool(value["can_replace_key"]?.boolValue ?? false),
-            "endpoint": value["endpoint"] ?? .null,
-            "launchHarness": text("launch_harness"),
-            "expiresAt": value["expires_at"] ?? .null,
-        ]
     }
 
     // MARK: Watching
@@ -517,8 +479,8 @@ public final class SettingsModels {
                 replacement = nil
             }
             if params["verifyAccess"]?.boolValue == true {
-                let trimmed = Self.withoutWhitespace(key)
-                guard Self.providers.contains(provider), Self.isModelAPIKey(trimmed) else {
+                let secret = ModelSecret(key, provider: provider), trimmed = secret.clean
+                guard secret.providerKnown, secret.apiKey else {
                     throw PageError.invalidParams("addKey needs a known provider and a key with no spaces")
                 }
                 let result: JSONValue
@@ -575,7 +537,7 @@ public final class SettingsModels {
             }) else { throw PageError.invalidParams("checkAccess needs a listed API-key connection") }
             request["id"] = id
         } else {
-            if let provider = params["provider"]?.stringValue, Self.providers.contains(provider) {
+            if let provider = params["provider"]?.stringValue, ModelSecret("", provider: provider).providerKnown {
                 request["provider"] = provider
             } else if let base = params["baseUrl"]?.stringValue, !base.isEmpty, base.utf8.count <= 2048 {
                 request["baseUrl"] = base
@@ -583,7 +545,7 @@ public final class SettingsModels {
                 throw PageError.invalidParams("checkAccess needs a provider or base URL")
             }
             if let key = params["key"]?.stringValue {
-                guard Self.isModelAPIKey(key) else { throw PageError.invalidParams("invalid API key format") }
+                guard ModelSecret(key).isAPIKeyAsGiven(key) else { throw PageError.invalidParams("invalid API key format") }
                 request["apiKey"] = key
             }
         }
@@ -685,4 +647,28 @@ public final class SettingsModels {
         if case .refused(let code)? = error as? TeamAgentKeys.Failure { return PageError(code: "cmux.models.\(code)", message: code) }
         return PageError(code: "cmux.models.failed", message: "the change could not be made")
     }
+}
+
+/// What Rust's `models.secret` (cmux-config app_ops/models.rs) reads a pasted key or token as: `clean` is
+/// it with every space, line break and invisible space taken out; the checks read `clean`, `kind` the text
+/// as given. A failed call reads as nothing valid.
+nonisolated struct ModelSecret {
+    let clean: String
+    let oneWord: Bool, apiKey: Bool, claudeToken: Bool, providerKnown: Bool
+    /// `oauth` (a Claude setup token or a sign-in file) or `api_key`.
+    let kind: String
+
+    init(_ secret: String, provider: String? = nil) {
+        let reply = SettingsRust.answer("models.secret", ["secret": .string(secret), "provider": provider.map(JSONValue.string) ?? .null])
+        clean = reply["clean"]?.stringValue ?? ""
+        oneWord = reply["oneWord"]?.boolValue == true
+        apiKey = reply["apiKey"]?.boolValue == true
+        claudeToken = reply["claudeToken"]?.boolValue == true
+        providerKnown = reply["providerKnown"]?.boolValue == true
+        kind = reply["kind"]?.stringValue ?? "api_key"
+    }
+
+    /// Whether `text` itself, with nothing taken out, is one word (an API key when `apiKey`).
+    func isOneWordAsGiven(_ text: String) -> Bool { clean == text && oneWord }
+    func isAPIKeyAsGiven(_ text: String) -> Bool { clean == text && apiKey }
 }
