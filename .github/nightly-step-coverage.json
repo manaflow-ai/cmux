@@ -213,6 +213,8 @@
         "Resolve cmux-tui client commit": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Choose the build commit": {"plumbing": true},
         "Leave the build slot to a newer nightly-next push": {"plumbing": true},
+        "Check out the build ref from the host's git mirror": {"plumbing": true},
+        "Drop the mirror-borrowing git store": {"plumbing": true},
         "Record pending tree dependency": {"nightly_only": "records the selected nightly build's attempt-scoped cmux-tui tree dependency for publication recovery; pull requests do not select or publish a nightly tree"}},
       "prepare-nightly-variant-primary": {
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
