@@ -12,123 +12,123 @@
           }
         },
         "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "نقل لأسفل"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل لأسفل"
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pomjeri dolje"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri dolje"
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Flyt ned"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt ned"
           }
         },
         "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nach unten"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach unten"
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bajar"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bajar"
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Descendre"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descendre"
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sposta giù"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta giù"
           }
         },
         "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下へ移動"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下へ移動"
           }
         },
         "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ផ្លាស់ទីចុះ"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីចុះ"
           }
         },
         "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "아래로 이동"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아래로 이동"
           }
         },
         "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Flytt ned"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt ned"
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Przenieś w dół"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś w dół"
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mover para baixo"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover para baixo"
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Переместить вниз"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить вниз"
           }
         },
         "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ย้ายลง"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายลง"
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aşağı Taşı"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aşağı Taşı"
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перемістити вниз"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити вниз"
           }
         },
         "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Di chuyển xuống"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuyển xuống"
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下移"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下移"
           }
         },
         "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下移"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下移"
           }
         }
       }

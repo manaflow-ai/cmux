@@ -12,21 +12,21 @@
           }
         },
         "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "في انتظار إكمال تسجيل دخولك إلى ChatGPT في المتصفح…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار إكمال تسجيل دخولك إلى ChatGPT في المتصفح…"
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Čeka se da završiš prijavu na ChatGPT u pregledniku…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka se da završiš prijavu na ChatGPT u pregledniku…"
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Venter på, at du afslutter login på ChatGPT i din browser …"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på, at du afslutter login på ChatGPT i din browser …"
           }
         },
         "de" : {
@@ -48,27 +48,27 @@
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "In attesa che tu completi l’accesso a ChatGPT nel browser…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa che tu completi l’accesso a ChatGPT nel browser…"
           }
         },
         "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ブラウザで ChatGPT へのサインインが完了するのを待っています…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラウザで ChatGPT へのサインインが完了するのを待っています…"
           }
         },
         "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "កំពុងរង់ចាំអ្នកបញ្ចប់ការចូល ChatGPT ក្នុងកម្មវិធីរុករក…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំអ្នកបញ្ចប់ការចូល ChatGPT ក្នុងកម្មវិធីរុករក…"
           }
         },
         "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "브라우저에서 ChatGPT 로그인을 마칠 때까지 기다리는 중…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저에서 ChatGPT 로그인을 마칠 때까지 기다리는 중…"
           }
         },
         "nb" : {
@@ -78,57 +78,57 @@
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Czekam, aż dokończysz logowanie do ChatGPT w przeglądarce…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czekam, aż dokończysz logowanie do ChatGPT w przeglądarce…"
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aguardando você terminar de entrar no ChatGPT no navegador…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando você terminar de entrar no ChatGPT no navegador…"
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ожидание завершения входа в ChatGPT в браузере…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание завершения входа в ChatGPT в браузере…"
           }
         },
         "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "กำลังรอให้คุณลงชื่อเข้า ChatGPT ในเบราว์เซอร์ให้เสร็จ…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอให้คุณลงชื่อเข้า ChatGPT ในเบราว์เซอร์ให้เสร็จ…"
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tarayıcıda ChatGPT girişini tamamlamanız bekleniyor…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcıda ChatGPT girişini tamamlamanız bekleniyor…"
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Очікування завершення входу в ChatGPT у браузері…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування завершення входу в ChatGPT у браузері…"
           }
         },
         "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Đang chờ bạn hoàn tất đăng nhập ChatGPT trong trình duyệt…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ bạn hoàn tất đăng nhập ChatGPT trong trình duyệt…"
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在等待你在浏览器中完成 ChatGPT 登录…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待你在浏览器中完成 ChatGPT 登录…"
           }
         },
         "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在等待你在瀏覽器中完成 ChatGPT 登入…"
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待你在瀏覽器中完成 ChatGPT 登入…"
           }
         }
       }
