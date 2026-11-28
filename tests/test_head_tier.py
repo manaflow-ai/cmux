@@ -1857,7 +1857,7 @@ class PostMergeTierTests(unittest.TestCase):
                                                    "CI_RED_BASE_MERGE_RERUN": "0"}):
             self.assertNotEqual(head_tier.decide("pull_request", ev)[0], "none")
 
-    def test_both_workflows_pass_the_switch_default_off(self) -> None:
+    def test_both_workflows_pass_the_switch_default_on(self) -> None:
         for workflow in ("cmux-tui-spec.yml", "rust-workspaces.yml"):
             text = (ROOT / ".github" / "workflows" / workflow).read_text()
-            self.assertIn("CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '0' }}", text, workflow)
+            self.assertIn("CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '1' }}", text, workflow)
