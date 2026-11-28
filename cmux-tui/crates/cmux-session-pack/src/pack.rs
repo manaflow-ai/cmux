@@ -147,6 +147,39 @@ pub fn pack_after(
     encode_after(store, name, kept, &data, params).map(Some)
 }
 
+/// Packs session `name`'s log after its pack's first `keep` sealed segments into `store`: `files`
+/// back to back are the log's lines after them, and those segments are kept as they are,
+/// unchecked (the caller checked them against the log, or trusts that nothing rewrote it since a
+/// pack that did). Unlike [`pack_after`] the pack may hold more sealed segments than `keep`: the
+/// ones after are packed again from `files`, so a pack through an earlier line than the pack
+/// reaches cuts it back there, as [`pack`] does. A writer that holds the log as records, not as a
+/// file, calls it so that a pack costs the lines after the kept segments, not the whole log.
+/// `Ok(None)` when the pack has fewer than `keep` sealed segments, none at all, other params or
+/// marks of an older turn rule: the caller packs with [`pack`].
+pub fn pack_kept(
+    store: &Store,
+    name: &str,
+    keep: usize,
+    files: &[PathBuf],
+    params: &Params,
+) -> Result<Option<(Manifest, PackStats)>> {
+    check_name(name)?;
+    let Some(old) = Manifest::load(store, name)? else { return Ok(None) };
+    if old.params != *params || old.turn_rule < TURN_RULE || keep == 0 {
+        return Ok(None);
+    }
+    let kept: Vec<Segment> = old.segments.into_iter().take_while(|s| s.sealed).take(keep).collect();
+    if kept.len() != keep {
+        return Ok(None);
+    }
+    let mut data = Vec::new();
+    for path in files {
+        let mut f = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        f.read_to_end(&mut data)?;
+    }
+    encode_after(store, name, kept, &data, params).map(Some)
+}
+
 /// Encodes `data`, the log after the segments `kept`, into `store` and saves the manifest.
 fn encode_after(
     store: &Store,
@@ -291,4 +324,74 @@ fn encode_after(
     stats.stored_bytes = manifest.stored_bytes();
     stats.manifest_bytes = manifest.to_json()?.len() as u64;
     Ok((manifest, stats))
+}
+
+/// Checks a pack's sealed segments against the log's lines as they are made: each segment's
+/// BLAKE3 of its `raw` bytes against its `raw_hash`, in order, nothing written anywhere. The
+/// first that differs stops the lines ([`std::io::Write`] fails, `diverged` set).
+pub struct SegmentCheck {
+    want: Vec<(u64, String)>,
+    at: usize,
+    filled: u64,
+    hasher: blake3::Hasher,
+    diverged: bool,
+}
+
+impl SegmentCheck {
+    /// A check of `segments`, the first of a pack and in order, against lines from the log's start.
+    pub fn new(segments: &[&Segment]) -> Self {
+        Self {
+            want: segments.iter().map(|s| (s.raw, s.raw_hash.clone())).collect(),
+            at: 0,
+            filled: 0,
+            hasher: blake3::Hasher::new(),
+            diverged: false,
+        }
+    }
+
+    /// How many segments, from the first, the lines held byte for byte.
+    pub fn matched(&self) -> usize {
+        self.at
+    }
+
+    /// Whether a segment differed (the write that failed was this check, not the lines).
+    pub fn diverged(&self) -> bool {
+        self.diverged
+    }
+
+    fn diverge(&mut self) -> std::io::Error {
+        self.diverged = true;
+        std::io::Error::other("the log no longer holds the pack's segment")
+    }
+}
+
+impl std::io::Write for SegmentCheck {
+    fn write(&mut self, mut buf: &[u8]) -> std::io::Result<usize> {
+        if self.diverged {
+            return Err(std::io::Error::other("the log no longer holds the pack's segment"));
+        }
+        let len = buf.len();
+        while !buf.is_empty() {
+            let Some(&(raw, _)) = self.want.get(self.at) else { return Err(self.diverge()) };
+            let room = usize::try_from(raw.saturating_sub(self.filled)).unwrap_or(usize::MAX);
+            let (now, rest) = buf.split_at(room.min(buf.len()));
+            self.hasher.update(now);
+            self.filled += now.len() as u64;
+            buf = rest;
+            if self.filled >= raw {
+                let hash = self.hasher.finalize();
+                if self.want.get(self.at).is_none_or(|(_, want)| hash.to_hex().as_str() != want) {
+                    return Err(self.diverge());
+                }
+                self.at += 1;
+                self.filled = 0;
+                self.hasher.reset();
+            }
+        }
+        Ok(len)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }

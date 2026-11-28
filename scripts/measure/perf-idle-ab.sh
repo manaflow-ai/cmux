@@ -17,6 +17,12 @@
 #                       shipped_isolation: its own home, keychain and defaults; refused beside another copy of
 #                       the bundle id). Prints IDLE-AB nightly <url> version <v> commit <sha>. A Release app has
 #                       no debug.* methods: the wakeup ledger and live-page rows are empty, the footprint rows not
+#   peer=claude|chatgpt in the place of base= and head=, as dmg= is: no build. The vendor's public app
+#                       (scripts/perf-bench/fetch_browsers.py, a generic User-Agent) fetched into a new empty folder
+#                       of the step's scratch and launched in both arms by scripts/perf-bench/peer_idle.py: its own
+#                       empty home, --settle 20 s, then measure= s idle, phys_footprint per process kind. Each launch
+#                       writes runs/<arm>-<round>-terminal.json in bench_memory.py's shape (total_footprint_mb, kinds),
+#                       so the summary below and NOW's idle-footprint reconciler read it as cmux NEXT's. chats=0 only.
 #   rounds=N            launches per arm and chat count (default 5, at most 8)
 #   chats=0,1,10        idle chat counts: 0 is one terminal workspace (no chat); N is N agent chats on the
 #                       acpmux test agent, each answered once, plus the launch workspace (no chat)
@@ -51,6 +57,10 @@
 #                       printed as VMMAP-BREAKDOWN lines (default 1; each call bounded at 20 s, outside the window)
 #   chief_steady=S      before each window, wait at most S s until the Chief's process count has not changed for
 #                       10 s (default 60, 0 for no wait): a window then measures one launch state, not a start
+#   chief_up=S          before each window (and before chief_steady=), wait at most S s until the Chief's brain
+#                       (optchat-chief) runs, so the window measures the Chief-up launch state goal ram-baseline
+#                       judges (decision B, 2026-11-28); a launch it never came up in fails (exit 1) and its
+#                       report's launch_state says chief_up_timed_out (default 0: no wait, as before)
 #   home=1              after each arm's idle launches of a round, one more fresh launch of that arm
 #                       (scripts/cmux-next/chief-start-probe.py): at rest, whether the Chief's brain host runs and
 #                       which Home view asked for it; then Home's first open and the first Chief reply after it.
@@ -92,7 +102,7 @@ cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
 base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 settings_open=0 chats_given=false home=0
-relaunch=0 app_env=() vmmap=1 chief_steady=60 dmg=""
+relaunch=0 app_env=() vmmap=1 chief_steady=60 chief_up=0 dmg="" peer=""
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
@@ -110,11 +120,18 @@ for arg in "$@"; do
     env=*) app_env+=(--env "${arg#env=}") ;;
     vmmap=*) vmmap="${arg#vmmap=}" ;;
     chief_steady=*) chief_steady="${arg#chief_steady=}" ;;
+    chief_up=*) chief_up="${arg#chief_up=}" ;;
     dmg=nightly|dmg=https://*) dmg="${arg#dmg=}" ;;
+    peer=claude|peer=chatgpt) peer="${arg#peer=}" ;;
     *) echo "perf-idle-ab.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-if [ -n "$dmg" ]; then
+if [ -n "$peer" ]; then
+  [ -z "$base$head$dmg" ] || { echo "peer= is in the place of base=, head= and dmg=: give one" >&2; exit 2; }
+  [ "$chats" = 0 ] && [ -z "$cells" ] && [ "$relaunch" = 0 ] && [ "$home" = 0 ] && [ "$settings_open" = 0 ] \
+    || { echo "peer= measures one idle launch: chats=0, and no cells=, relaunch=, home= or settings_open=" >&2; exit 2; }
+  dmg=peer  # below, peer= is a no-build run as dmg= is (nothing checked out or built)
+elif [ -n "$dmg" ]; then
   [ -z "$base$head" ] || { echo "dmg= is in the place of base= and head=: give one of the two" >&2; exit 2; }
 else
   [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= must be 40-hex commits (or dmg=nightly)" >&2; exit 2; }
@@ -125,6 +142,7 @@ cell_form='[1-9][0-9]*:(none:rest|(small|large):(rest|scroll))'
 [[ -z "$cells" || "$cells" =~ ^$cell_form(,$cell_form)*$ ]] || { echo "cells= must be CHATS:none:rest or CHATS:small|large:rest|scroll, joined by commas" >&2; exit 2; }
 [[ "$unfocused" =~ ^[0-9]+$ ]] || { echo "bad unfocused=" >&2; exit 2; }
 [[ "$vmmap" =~ ^[01]$ && "$chief_steady" =~ ^[0-9]+$ ]] && (( chief_steady <= 300 )) || { echo "vmmap= must be 0 or 1, chief_steady= 0 to 300" >&2; exit 2; }
+[[ "$chief_up" =~ ^[0-9]+$ ]] && (( chief_up <= 300 )) || { echo "chief_up= must be 0 to 300" >&2; exit 2; }
 [[ "$relaunch" =~ ^(0|1|cold|warm)$ ]] || { echo "relaunch= must be 0, 1 (cold) or warm" >&2; exit 2; }
 for ((k = 1; k < ${#app_env[@]}; k += 2)); do
   [[ "${app_env[k]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo "env= must be NAME=VALUE" >&2; exit 2; }
@@ -272,7 +290,17 @@ nightly_app() {  # nightly_app: the DMG (dmg=) copied into the scratch, as both 
   commit="$(plutil -extract CMUXCommit raw -o - "$app_base/Contents/Info.plist" 2>/dev/null || true)"
   echo "IDLE-AB nightly $url version ${version:-?} commit ${commit:-?}"
 }
-if [ -n "$dmg" ]; then
+peer_app() {  # peer_app: the vendor's app (peer=), fetched into a new empty folder of the scratch, as both arms' app
+  local line
+  mkdir "$scratch/peer-apps" || return 3
+  line="$(python3 -I scripts/perf-bench/fetch_browsers.py --cache "$scratch/peer-apps" "$peer" | grep "^$peer=" | tail -n 1)"
+  [ -n "$line" ] && [ -d "${line#*=}" ] || { echo "IDLE-AB peer: $peer could not be fetched" >&2; return 3; }
+  app_base="${line#*=}" app_head="$app_base"
+  echo "IDLE-AB peer $peer app $(basename "$app_base") version $(plutil -extract CFBundleShortVersionString raw -o - "$app_base/Contents/Info.plist" 2>/dev/null || echo '?')"
+}
+if [ -n "$peer" ]; then
+  peer_app || exit 3
+elif [ -n "$dmg" ]; then
   nightly_app || exit 3
 else
   build_arm base "$base" || exit 3
@@ -298,12 +326,20 @@ attribute=(--attribute --attribute-kinds "$kinds" --attribute-trace "$trace")
 # cmux mcp serve and optchat-chief, parsed per region (vmmap_regions.py); before it, a wait of at most
 # 60 s for the Chief's processes to stop changing, so each window is one launch state (see launch_state).
 (( vmmap )) && attribute+=(--vmmap-breakdown)
+(( chief_up )) && attribute+=(--chief-up "$chief_up")
 (( chief_steady )) && attribute+=(--chief-steady "$chief_steady")
 status=0
 run_arm() {  # run_arm ARM ROUND
   local arm="$1" i="$2" app rc
   app="$(app_of "$1")"
   echo "IDLE-AB round $i $arm load $(uptime | sed 's/.*load averages*: //')"
+  if [ -n "$peer" ]; then
+    python3 -I scripts/perf-bench/peer_idle.py --name "$peer" --app "$app" --profile "$scratch/profile-$arm-$i" \
+      --settle 20 --measure "$measure" --out "$out/runs/$arm-$i-terminal.json" > "$out/runs/$arm-$i-terminal.log" 2>&1
+    rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-terminal.log"; }
+    grep -h '^PEER-IDLE ' "$out/runs/$arm-$i-terminal.log" | sed "s/^/IDLE-AB $arm $i /"
+    return
+  fi
   if $terminal; then
     python3 "$harness/bench_memory.py" --app "$app" --workspaces 1 --mix terminal --settle 20 --measure "$measure" \
       --top 8 "${attribute[@]}" ${relaunch_args[@]+"${relaunch_args[@]}"} ${app_env[@]+"${app_env[@]}"} \
@@ -566,6 +602,6 @@ packed=()
 for f in runs summary.json build-base.log build-head.log settings-open.json settings-open.log; do
   [ -e "$out/$f" ] && packed+=("$f")
 done
-tar -czf "$out.tgz" -C "$out" "${packed[@]}" && mv "$out.tgz" "$out/report.tgz" \
+tar -czf "$out.tgz" -C "$out" ${packed[@]+"${packed[@]}"} && mv "$out.tgz" "$out/report.tgz" \
   || echo "IDLE-AB report.tgz not written (tar of ${packed[*]} failed)" >&2
 exit $status

@@ -31,6 +31,11 @@ if [ "${CHAT_SIZE_DHAT:-}" = 1 ]; then
   features=(--features dhat-heap)
   export ACPMUX_GOD_DHAT=1 CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
 fi
+# The allocator behind a number: CHAT_SIZE_ALLOC=mimalloc builds a gnu daemon with mimalloc (the shipped
+# musl packages' allocator) in place of glibc's, so a gap glibc keeps and mimalloc returns shows as such.
+if [ "${CHAT_SIZE_ALLOC:-}" = mimalloc ]; then
+  features+=(--features mimalloc-gnu)
+fi
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out_dir="${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}}"
 mkdir -p "$out_dir"

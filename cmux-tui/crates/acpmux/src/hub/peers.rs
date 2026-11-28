@@ -640,6 +640,9 @@ impl Hub {
                     let mut s = p.summary();
                     if p.leased {
                         s.set("leased", Value::Bool(true));
+                        if let Some(id) = self.listed_cloud_registry_id(p) {
+                            s.set("cloudRegistryId", json!(id));
+                        }
                     }
                     // Which of the person's pickers lists it (`agent_vm::group_of`).
                     let group = super::agent_vm::group_of(&super::agent_vm::GroupFacts {

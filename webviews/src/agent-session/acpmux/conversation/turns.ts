@@ -16,6 +16,7 @@ import {
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
+  sentByPerson,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
@@ -2727,7 +2728,12 @@ function shapeTurn(
     const outside = (rows: readonly AcpmuxRow[]) =>
       rows.flatMap((row) =>
         out(row)
-          ? [row]
+          ? // A start line beside the closed fold, whose done lines that fold hides, says they finished
+            // once every one did: "started working" stood under "Worked for 9s" after the subagent had
+            // ended (Leo, 2026-11-25: "dot on left weird").
+            !open && !unlabeled && row.kind === SUBAGENT_STARTED && row.startedAllEnded
+            ? [{ ...row, startedEndedLine: true as const, version: row.version * 2 + 1 }]
+            : [row]
           : dialogue
             ? [row]
             : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`),
@@ -4043,6 +4049,18 @@ function codexLiveTurn(
     if (compactPrompt(user)) {
       line.liveState = "compacting";
       line.doingAt = sentTime(user, clockOffset) + clockOffset;
+    } else {
+      // Nothing yet after the prompt (a fresh send, or a steer that landed in the running turn): the
+      // line still gets the silence clock, from the prompt, so past SILENT_MS with nothing heard it
+      // names its wait ("Waiting on the model's first reply 2m"), never a bare "Thinking" that stays
+      // for good. Without it a turn whose daemon went quiet right after a steer read "Thinking" for
+      // 20 minutes (Leo, 2026-11-27: "mango has been "thinking" for an inordinate amount of time. i
+      // think they're bugged and we need to fix this bug").
+      Object.assign(line, liveClock([user], start, clockOffset), {
+        turnTotal: true,
+        heardKey: `0:${user.id}:${user.version}`,
+        liveWait: liveWait(drawn, user),
+      });
     }
     return [...rows, line];
   }
@@ -4149,11 +4167,6 @@ function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
 /// plan"): its turn compacts first. ``isCacheCompaction``'s timer sends the same text.
 export const compactPrompt = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && /^\/compact(?:\s|$)/.test((row.text ?? "").trimStart());
-
-/// The person's own prompt (typed here or on another of their devices), not another agent's
-/// message, a task's result or harness bookkeeping.
-const sentByPerson = (row: AcpmuxRow) =>
-  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
 
 /// The person's own prompt that holds its turn's "Working for" from the send (`sentHeader`, `livesUnderHeader`,
 /// `holdsHeader`). Not a /compact: its turn compacts first and its header goes under a steer sent while it
