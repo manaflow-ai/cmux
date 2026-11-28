@@ -706,6 +706,20 @@ const OPEN_PAGE_BYTES = 128 * 1024;
 /// page still asks OPEN_PAGE_BYTES: it must bring every record the pane missed.
 export const FIRST_PAGE_BYTES = 16 * 1024;
 export const FIRST_PAGE_RECORDS = 64;
+/// Whether an open's page may have stopped at the first page's bounds rather than where the old open
+/// page (OPEN_PAGE_BYTES) would: it holds FIRST_PAGE_RECORDS, or a quarter of FIRST_PAGE_BYTES (the
+/// daemon stops before the record that would cross the cap, so a cut page holds most of it unless the
+/// next record is large). A smaller page is the page the old open read too: nothing to backfill, and
+/// the reader's scroll up reads on as before.
+export function firstPageCut(page: readonly { msg?: unknown }[]): boolean {
+  if (page.length >= FIRST_PAGE_RECORDS) return true;
+  let bytes = 0;
+  for (const event of page) {
+    bytes += JSON.stringify(event).length;
+    if (bytes >= FIRST_PAGE_BYTES / 4) return true;
+  }
+  return false;
+}
 /// How long after the first page painted its backfill waits for an idle main thread, at most.
 const BACKFILL_IDLE_MS = 600;
 const OLDER_PAGE_BYTES = 1024 * 1024;
@@ -7425,7 +7439,7 @@ export class AcpmuxDirectClient {
     }
     this.emit("attached");
     // A reconnect's laid forward page adds to rows already held: no first page to backfill under.
-    if (!forward?.laid) this.backfillOpen(sessionId, generation);
+    if (!forward?.laid && firstPageCut(page)) this.backfillOpen(sessionId, generation);
     return page;
   }
 
