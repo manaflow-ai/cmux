@@ -115,15 +115,21 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
     /// task pool or a lost transition (kit jobs 140846163318, 140932566951).
     private func eventually(_ state: @autoclosure () -> String, _ condition: () -> Bool, within: Duration = .seconds(20),
                             sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        // Bounded in awake time, not wall time: kit job 141048535609 (cmux#64624) spent all 20 s of a
+        // wall-clock bound inside one 5 ms sleep (a whole-process stall: 1 poll in 20.98 s) and
+        // failed on its first look after it. A stall now costs one `AwakeDeadline` charge.
         let start = ContinuousClock.now
-        let deadline = start + within
+        var deadline = AwakeDeadline(within)
         var polls = 0
-        while !condition(), ContinuousClock.now < deadline {
+        var longestGap: Duration = .zero
+        while !condition(), deadline.hasTimeLeft() {
+            let before = ContinuousClock.now
             try await Task.sleep(for: .milliseconds(5))
+            longestGap = max(longestGap, before.duration(to: .now))
             polls += 1
         }
         let waited = start.duration(to: .now)
-        try #require(condition(), "Timed out waiting for test setup or transition after \(waited), \(polls) polls: \(state())",
+        try #require(condition(), "Timed out waiting for test setup or transition after \(waited), \(polls) polls (longest gap \(longestGap)): \(state())",
                      sourceLocation: sourceLocation)
     }
 
@@ -187,8 +193,8 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
     /// Waits until `condition` holds or `within` passes, whichever is first;
     /// it asserts nothing.
     private func settle(within: Duration, _ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now + within
-        while !condition(), ContinuousClock.now < deadline {
+        var deadline = AwakeDeadline(within)
+        while !condition(), deadline.hasTimeLeft() {
             try? await Task.sleep(for: .milliseconds(5))
         }
     }

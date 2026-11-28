@@ -16,16 +16,27 @@ enum TerminalTestWait {
     /// The least any wait on a real state predicate polls for, in seconds.
     static let loadFloor: Double = 10
 
-    /// Polls `condition` until it holds or `max(seconds, loadFloor)` passes.
+    /// The most one poll charges against the bound. The bound is awake time,
+    /// as CmuxMobileLiveTests' `AwakeDeadline`: when the whole process stalls
+    /// (kit job 141048535609 slept 21 s through one 5 ms sleep), the stall
+    /// costs one charge instead of the budget, and the condition gets its
+    /// look after it.
+    static let maxCharge: Duration = .milliseconds(100)
+
+    /// Polls `condition` until it holds or `max(seconds, loadFloor)` of awake
+    /// time passes.
     static func until(
         _ seconds: Double = loadFloor,
         isolation: isolated (any Actor)? = #isolation,
         _ condition: () -> Bool
     ) async throws {
-        let bound = max(seconds, loadFloor)
-        let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(bound * 1000)))
-        while !condition(), ContinuousClock.now < deadline {
+        var left = Duration.milliseconds(Int(max(seconds, loadFloor) * 1000))
+        var last = ContinuousClock.now
+        while !condition(), left > .zero {
             try await Task.sleep(for: .milliseconds(10)) // test: polls a real state predicate until a deadline
+            let now = ContinuousClock.now
+            left -= min(now - last, maxCharge)
+            last = now
         }
     }
 }

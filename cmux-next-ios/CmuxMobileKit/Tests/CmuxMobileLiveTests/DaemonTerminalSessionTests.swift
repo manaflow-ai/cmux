@@ -1736,11 +1736,14 @@ final class MutableChannel: LinkChannel, @unchecked Sendable {
     static let lag: Duration = .seconds(30)
     static let byItself = 15_000
 
-    /// Polls every 10 ms until `condition` holds or `limit` passes; whether it held.
+    /// Polls every 10 ms until `condition` holds or `limit` of awake time passes; whether it held.
+    /// Awake time (`AwakeDeadline`): a whole-process stall costs one charge, not the budget (kit job
+    /// 141048535609: all four `poll(Self.setup)` waits failed after one look in 21 s). The recovery
+    /// bounds still tell 30 s of lag from reattaching by itself: an idle wait charges in full.
     private func poll(_ limit: Duration, _ condition: @MainActor () -> Bool) async throws -> Bool {
-        let deadline = ContinuousClock.now + limit
+        var deadline = AwakeDeadline(limit)
         while !condition() {
-            if ContinuousClock.now >= deadline { return false }
+            if !deadline.hasTimeLeft() { return false }
             try await Task.sleep(for: .milliseconds(10))
         }
         return true
