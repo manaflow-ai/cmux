@@ -1258,14 +1258,17 @@ fn a_log_sync_that_fails_in_the_shutdowns_last_checkpoint_keeps_the_rewrite() {
         store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
     }
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
-    // `Hub::seal`: the seal, then a checkpoint; the shutdown's last log sync fails. It is armed
-    // before the seal: wherever the last checkpoint runs (after the seal, or inside it), its log
-    // sync on this thread fails.
+    // `Hub::seal`: the seal, then a checkpoint. A log sync there would fail (armed before the
+    // seal: wherever the last checkpoint runs, after the seal or inside it, its log sync on this
+    // thread fails), but the shutdown's last checkpoint syncs no chat log now: it leaves the
+    // lines to the next open's replay of the journal and writes no LSN past them, so no failed
+    // sync can drop pages the restart would then trust.
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
     store.seal();
-    let failed = store.flush();
-    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
-    assert!(failed.is_err(), "the last checkpoint went on past a failed log sync");
+    let flushed = store.flush();
+    let armed = FAIL_NEXT_LOG_SYNC.with(|fail| fail.replace(false));
+    assert!(armed, "the shutdown's last checkpoint synced a chat log");
+    flushed.unwrap_or_else(|e| panic!("the flush after the seal failed: {e:#}"));
     // The daemon exits and starts again in the same boot; the restart's first checkpoint runs.
     drop(store);
     let store = open(home.path(), &journal);
