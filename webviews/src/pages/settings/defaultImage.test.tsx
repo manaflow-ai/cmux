@@ -2,13 +2,14 @@
 // environments (the Cloud Environments card's list), the current value selected. Picking an
 // environment writes its id; Auto resets the key. New Cloud chats start from it (chatCloudEnvironment.ts).
 import { afterAll, expect, test } from "bun:test";
+import { act } from "react";
 import { installDom } from "./testDom";
 import type { SchemaRow } from "./schema";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderCard, changeValue, ops } = await import("./testing");
-const { DefaultImageEditor, defaultImageOptions, defaultImageStatus, DEFAULT_IMAGE_KEY } =
+const { renderCard, changeValue, ops, settle } = await import("./testing");
+const { DefaultImageEditor, defaultImageOptions, defaultImageStatus, defaultImageRetry, DEFAULT_IMAGE_KEY } =
   await import("./editors/DefaultImageEditor");
 
 const row = { key: DEFAULT_IMAGE_KEY, kind: "text", default: "auto" } as unknown as SchemaRow;
@@ -68,4 +69,37 @@ test("the picked environment's build status shows; Auto shows none", () => {
   expect(defaultImageStatus(API, rows)).toBe("settingsPage.cloudEnvironments.status.ready");
   expect(defaultImageStatus("auto", rows)).toBeUndefined();
   expect(defaultImageStatus("env_00000000000000000009", rows)).toBeUndefined();
+});
+
+// hq start-matrix-gui probe run 46109146613: Settings opened right after sign-in listed only Auto for good, while
+// the account had its environment. A read that is not available yet is read again, and so on window focus.
+test("a first read that is not available yet is read again, and the menu then lists the environments", async () => {
+  const delays = defaultImageRetry.delaysMs;
+  defaultImageRetry.delaysMs = [0, 0];
+  try {
+    let listed: unknown;
+    const page = await renderCard(<DefaultImageEditor row={row} value="auto" disabled={false} labelId="image" />, {
+      setup: (provider) => {
+        listed = provider.environments;
+        provider.environments = { ...provider.environments, available: false, environments: [] };
+      },
+    });
+    const refreshes = () => page.provider.environmentRuns.filter((run) => run.action === "refresh").length;
+    for (let index = 0; index < 4; index += 1) await settle();
+    // Two retries, then it stops: never a poll.
+    expect(refreshes()).toBe(3);
+    expect(options(page.container)).toEqual([["auto", "Auto"]]);
+    page.provider.environments = listed as typeof page.provider.environments;
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    for (let index = 0; index < 4; index += 1) await settle();
+    expect(refreshes()).toBe(4);
+    expect(options(page.container)).toEqual([
+      ["auto", "Auto"],
+      [WEB, "web"],
+      [API, "api"],
+    ]);
+    page.unmount();
+  } finally {
+    defaultImageRetry.delaysMs = delays;
+  }
 });
