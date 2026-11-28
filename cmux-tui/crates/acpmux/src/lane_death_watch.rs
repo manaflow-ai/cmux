@@ -224,9 +224,27 @@ pub fn route_of(
 
 /// The deaths told so far: row key to the death's `since_ms`; and each row's deaths within
 /// [`WINDOW_MS`], for restart intensity.
+///
+/// One death lasts while its row reads dead for the same reason: the `since` of the pass that
+/// first read it stands, whatever later passes read. A dead row's time can move without a new
+/// death (a `disconnected` row's `updatedAt`), and each move was a new prompt id: two lanes on
+/// hetzner-2 were told to their starter every minute for 5 h 30 min on 2026-11-28 (649 notices,
+/// cosmic-gray), and each move counted as one more death for restart intensity.
+///
+/// A machine that does not answer is down for this daemon from when this daemon started
+/// ([`Watch::born_at`]), not from the `lastSeen` its peer cache kept from the daemon before it.
+/// A restart loads every peer's rows `unreachable` with that `lastSeen`, and a daemon that was
+/// wedged for hours left them hours old: the first pass, a minute after the start and before the
+/// links were back, read every one past the grace. On cosmic-gray 145 of 370 "its machine does
+/// not answer" notices from 2026-11-27 19:09Z to 2026-11-28 23:07Z came within 10 min of one of
+/// its 12 daemon starts (23:07Z: 19 in one pass, on machines that answered `reach`).
 #[derive(Debug, Default)]
 pub struct Watch {
     told: HashMap<String, u64>,
+    /// The death each row is in: its reason and the `since` first read for it.
+    open: HashMap<String, (&'static str, u64)>,
+    /// When this daemon started (ms since the epoch; 0: not set, `lastSeen` counts as read).
+    born_ms: u64,
     /// Each row's deaths within the window: the death's `since_ms` (counted once) and when it
     /// counts from (`since_ms`, or when first read for a row that does not say).
     deaths: HashMap<String, Vec<(u64, u64)>>,
@@ -242,6 +260,31 @@ impl Watch {
     /// A watch whose `max_deaths`th death in the window hands over (0: counts only).
     pub fn new(max_deaths: u32) -> Self {
         Self { max_deaths, ..Self::default() }
+    }
+
+    /// The watch of a daemon that started at `born_ms`: a machine reads down past the grace only
+    /// once it has not answered for the grace since then (type docs).
+    pub fn born_at(mut self, born_ms: u64) -> Self {
+        self.born_ms = born_ms;
+        self
+    }
+
+    /// `row`'s death at `now_ms`, if it reads dead to this daemon: a machine down for less than
+    /// the grace of this daemon's own life is not yet; a death goes on with its first `since`.
+    fn dead_now(&self, key: &str, row: &Value, now_ms: u64, grace_ms: u64) -> Option<Dead> {
+        let mut dead = dead_why(row, now_ms, grace_ms)?;
+        if dead.host_down
+            && self.born_ms > 0
+            && now_ms.saturating_sub(dead.since_ms.max(self.born_ms)) < grace_ms
+        {
+            return None;
+        }
+        if let Some((why, since)) = self.open.get(key)
+            && *why == dead.why
+        {
+            dead.since_ms = *since;
+        }
+        Some(dead)
     }
 
     /// Counts the death `dead` of `key` once and answers its deaths within the window.
@@ -273,9 +316,11 @@ impl Watch {
         // ([`Watch::outage_began`]) and the rows read alive again when the links return.
         let mut held = std::collections::HashSet::new();
         let mut down = std::collections::HashSet::new();
-        for (_, host, row) in &rows {
+        for (key, host, row) in &rows {
             held.insert(*host);
-            if dead_why(row, now_ms, grace_ms).is_some_and(|d| d.host_down) && !idle_closed(host) {
+            if self.dead_now(key, row, now_ms, grace_ms).is_some_and(|d| d.host_down)
+                && !idle_closed(host)
+            {
                 down.insert(*host);
             }
         }
@@ -284,9 +329,11 @@ impl Watch {
         self.outage_edge = if self.in_outage { None } else { outage };
         self.in_outage = outage.is_some();
         let mut seen = HashMap::new();
+        let mut open = HashMap::new();
         let mut out = Vec::new();
         for (key, host, row) in rows {
-            let Some(dead) = dead_why(row, now_ms, grace_ms) else { continue };
+            let Some(dead) = self.dead_now(key, row, now_ms, grace_ms) else { continue };
+            open.insert(key.to_owned(), (dead.why, dead.since_ms));
             if dead.host_down && (outage.is_some() || idle_closed(host)) {
                 continue;
             }
@@ -311,6 +358,8 @@ impl Watch {
         // What is still dead keeps its mark; a notice not yet sent is marked by `told`. A row
         // that lived again ends its death; its death times stay until they leave the window.
         self.told.retain(|k, _| seen.contains_key(k));
+        // A row that read alive, or is gone, ends its death; one still dead keeps its `since`.
+        self.open = open;
         self.deaths.retain(|_, v| {
             v.retain(|(_, at)| now_ms.saturating_sub(*at) < WINDOW_MS);
             !v.is_empty()
@@ -514,6 +563,85 @@ mod tests {
         assert!(pass(&mut w, &rows, &up).is_empty());
         assert_eq!(pass(&mut w, &rows[..1], &up).len(), 1);
         assert_eq!(w.outage_began(), None);
+    }
+
+    /// cosmic-gray 2026-11-28 23:06Z: a daemon that started after one wedged for 14 h loaded
+    /// every peer's rows `unreachable` with a `lastSeen` hours old, and its first pass, before
+    /// the links were back, told 19 lanes on answering machines dead. A machine is down for a
+    /// daemon from when it started; one still down a grace later is told.
+    #[test]
+    fn a_restart_does_not_read_its_cached_rows_as_dead_machines() {
+        let away = json!({"name": "lane-a", "status": "unreachable", "lastSeen": NOW - 14 * 60 * MIN,
+                          "tags": {"spawnedBy": "coord"}});
+        let failed = json!({"name": "lane-b", "status": "failed", "updatedAt": NOW - 60 * MIN,
+                            "tags": {"spawnedBy": "coord"}});
+        let mut w = Watch::default().born_at(NOW - MIN);
+        let rows = |w: &mut Watch, at: u64| {
+            w.pass(
+                [("k", "vm-1", &away), ("k2", "vm-2", &failed)],
+                at,
+                GRACE_MS,
+                |_| true,
+                |_| false,
+            )
+        };
+        // A minute after the start: the agent that failed is told, the machine is not yet.
+        let n = rows(&mut w, NOW);
+        assert_eq!(n.iter().map(|n| n.key.as_str()).collect::<Vec<_>>(), ["k2"]);
+        w.told(&n[0]);
+        assert!(rows(&mut w, NOW + 8 * MIN).is_empty());
+        // Still down a grace after the start: a dead machine, with its real `lastSeen`.
+        let n = rows(&mut w, NOW + 9 * MIN);
+        assert_eq!(n.len(), 1);
+        assert_eq!(n[0].dead.since_ms, NOW - 14 * 60 * MIN);
+        assert!(n[0].dead.host_down);
+        // A watch with no start set reads `lastSeen` as before.
+        assert_eq!(
+            Watch::default().pass([("k", "vm-1", &away)], NOW, GRACE_MS, |_| true, |_| false).len(),
+            1
+        );
+    }
+
+    /// hetzner-2 2026-11-28 02:28Z to 07:57Z: two `disconnected` lanes whose `updatedAt` moved
+    /// were told to their starter every minute (649 notices). A row that stays dead is one death,
+    /// told once and counted once; it lives again and dies again for a second.
+    #[test]
+    fn a_dead_row_whose_time_moves_is_one_death() {
+        let dead = |at: u64| {
+            json!({"name": "lane-a", "status": "disconnected", "updatedAt": at,
+                   "tags": {"spawnedBy": "coord"}})
+        };
+        let alive = json!({"name": "lane-a", "status": "idle", "tags": {"spawnedBy": "coord"}});
+        let mut w = Watch::new(MAX_DEATHS);
+        let n = w.pass([("k", "vm-1", &dead(NOW))], NOW, GRACE_MS, |_| true, |_| false);
+        assert_eq!(n.len(), 1);
+        w.told(&n[0]);
+        for i in 1..10u64 {
+            let at = NOW + i * MIN;
+            let again = w.pass([("k", "vm-1", &dead(at))], at, GRACE_MS, |_| true, |_| false);
+            assert!(again.is_empty(), "pass {i}: {again:?}");
+        }
+        // Not yet told: the retry carries the first `since`, so its prompt id is the same.
+        let mut w2 = Watch::new(MAX_DEATHS);
+        let first = w2.pass([("k", "vm-1", &dead(NOW))], NOW, GRACE_MS, |_| true, |_| false);
+        let retry =
+            w2.pass([("k", "vm-1", &dead(NOW + MIN))], NOW + MIN, GRACE_MS, |_| true, |_| false);
+        assert_eq!(first[0].prompt_id(), retry[0].prompt_id());
+        assert_eq!(retry[0].deaths, 1, "one death, not one a move");
+        // Alive, then dead again: the second death is told.
+        assert!(
+            w.pass([("k", "vm-1", &alive)], NOW + 11 * MIN, GRACE_MS, |_| true, |_| false)
+                .is_empty()
+        );
+        let n = w.pass(
+            [("k", "vm-1", &dead(NOW + 12 * MIN))],
+            NOW + 12 * MIN,
+            GRACE_MS,
+            |_| true,
+            |_| false,
+        );
+        assert_eq!(n.len(), 1);
+        assert_eq!(n[0].deaths, 2);
     }
 
     #[test]

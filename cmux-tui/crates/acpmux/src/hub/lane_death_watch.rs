@@ -63,7 +63,9 @@ impl Hub {
         self.scope.spawn_until_cancelled("lane-death-watch", async move {
             let mut every = tokio::time::interval(TICK);
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            let mut watch = Watch::new(if intensity_on() { MAX_DEATHS } else { 0 });
+            // A machine is down for this daemon from its start, not from a cached `lastSeen`.
+            let mut watch = Watch::new(if intensity_on() { MAX_DEATHS } else { 0 })
+                .born_at(crate::store::now_ms());
             loop {
                 every.tick().await;
                 let Some(hub) = weak.upgrade() else { break };
