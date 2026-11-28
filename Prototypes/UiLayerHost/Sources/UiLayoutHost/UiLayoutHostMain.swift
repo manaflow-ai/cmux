@@ -14,7 +14,7 @@ import UiShellShootKit
 
     static func scenes() -> [UiShellScene] {
         #if DEBUG
-        [UiShellScene(name: "layout-columns", module: "CmuxNextLayout") { LayoutUiScene.show() }]
+        [UiShellScene(name: "layout-columns", module: "CmuxNextLayout", keeping: LayoutUiScene.show)]
         #else
         []
         #endif

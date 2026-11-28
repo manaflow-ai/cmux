@@ -14,7 +14,7 @@ import UiShellShootKit
 
     static func scenes() -> [UiShellScene] {
         #if DEBUG
-        [UiShellScene(name: "mac-screen-home", module: "CmuxNextMacScreen") { MacScreenUiScene.show() }]
+        [UiShellScene(name: "mac-screen-home", module: "CmuxNextMacScreen", keeping: MacScreenUiScene.show)]
         #else
         []
         #endif

@@ -14,7 +14,7 @@ import UiShellShootKit
 
     static func scenes() -> [UiShellScene] {
         #if DEBUG
-        [UiShellScene(name: "browser-chrome", module: "CmuxNextBrowser") { BrowserUiScene.show() }]
+        [UiShellScene(name: "browser-chrome", module: "CmuxNextBrowser", keeping: BrowserUiScene.show)]
         #else
         []
         #endif

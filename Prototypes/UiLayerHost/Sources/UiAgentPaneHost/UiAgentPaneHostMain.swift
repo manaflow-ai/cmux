@@ -14,7 +14,7 @@ import UiShellShootKit
 
     static func scenes() -> [UiShellScene] {
         #if DEBUG
-        [UiShellScene(name: "agentpane-native", module: "CmuxNextAgentPane") { AgentPaneUiScene.show() }]
+        [UiShellScene(name: "agentpane-native", module: "CmuxNextAgentPane", keeping: AgentPaneUiScene.show)]
         #else
         []
         #endif

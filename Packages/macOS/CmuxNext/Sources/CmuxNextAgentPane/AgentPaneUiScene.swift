@@ -36,23 +36,23 @@ public enum AgentPaneUiScene {
         ],
     ]
 
-    /// Kept for the shot: the windows draw these.
-    static var held: [AnyObject] = []
-
-    /// Opens the scene's windows (each a new window: the shooter draws every window a scene opens).
-    public static func show() {
+    /// Opens the scene's windows (each a new window: the shooter draws every window a scene opens) and returns what
+    /// the caller keeps alive for the shot.
+    public static func show() -> [AnyObject] {
+        var held: [AnyObject] = []
         let store = AgentPaneSessionInfoStore()
         let panel = AgentPaneSessionInfoPanel(store: store)
         store.update(AgentPaneSessionInfoModel.decode(info))
         let height = max(160, min(560, panel.fittingHeight(forWidth: 320)))
-        open(panel, title: "Session Info", size: NSSize(width: 320, height: height))
+        held.append(open(panel, title: "Session Info", size: NSSize(width: 320, height: height)))
         held.append(store)
 
         let card = AgentPaneActAsMeCardView(grant: AgentPaneActAsMe(store: .memory()))
-        open(card, title: "Act as me", size: card.frame.size)
+        held.append(open(card, title: "Act as me", size: card.frame.size))
+        return held
     }
 
-    private static func open(_ view: NSView, title: String, size: NSSize) {
+    private static func open(_ view: NSView, title: String, size: NSSize) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.title = "AgentPane: \(title)"
@@ -62,7 +62,7 @@ public enum AgentPaneUiScene {
         window.contentView = view
         window.orderFrontRegardless()
         view.layoutSubtreeIfNeeded()
-        held.append(window)
+        return window
     }
 }
 #endif

@@ -20,8 +20,10 @@ public enum MacScreenUiScene {
               access: MacScreenAccess(.ask)),
     ]
 
-    /// Opens the scene's windows (each a new window: the shooter draws every window a scene opens).
-    public static func show() {
+    /// Opens the scene's windows (each a new window: the shooter draws every window a scene opens) and returns what
+    /// the caller keeps alive for the shot.
+    public static func show() -> [AnyObject] {
+        var held: [AnyObject] = []
         for (title, sharing) in [("Viewing", viewing), ("Permissions missing", missing)] {
             let snapshot = MacScreenHomeSnapshot(devices: .list(devices), sharing: sharing,
                                                  keyboard: .init(enabled: false, needsAccessibility: false),
@@ -38,7 +40,9 @@ public enum MacScreenUiScene {
             home.resolveColors()
             home.build(snapshot)
             home.layoutPage()
+            held.append(window)
         }
+        return held
     }
 }
 #endif

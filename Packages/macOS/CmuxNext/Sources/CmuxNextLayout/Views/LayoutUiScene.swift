@@ -10,10 +10,7 @@ public enum LayoutUiScene {
     final class Tiles: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView {
             let tile = NSView()
-            tile.wantsLayer = true
-            tile.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
             let label = NSTextField(labelWithString: pane.rawValue)
-            label.font = .systemFont(ofSize: 13, weight: .medium)
             label.textColor = .secondaryLabelColor
             label.translatesAutoresizingMaskIntoConstraints = false
             tile.addSubview(label)
@@ -25,11 +22,9 @@ public enum LayoutUiScene {
         }
     }
 
-    /// Kept for the shot: the root view holds its provider weakly.
-    static var held: [AnyObject] = []
-
-    /// Opens the scene's window (the shooter draws every window a scene opens).
-    public static func show() {
+    /// Opens the scene's window (the shooter draws every window a scene opens) and returns what the caller keeps
+    /// alive for the shot (the root view holds its provider weakly).
+    public static func show() -> [AnyObject] {
         let tiles = Tiles()
         let middle: SplitNode = .split("middle", axis: .vertical, ratio: 0.6, a: .leaf("editor"), b: .leaf("terminal"))
         let layout = ScreenLayout.columns([
@@ -49,7 +44,7 @@ public enum LayoutUiScene {
         window.contentView = view
         window.orderFrontRegardless()
         view.layoutSubtreeIfNeeded()
-        held.append(contentsOf: [tiles, model, window])
+        return [tiles, model, window]
     }
 }
 #endif
