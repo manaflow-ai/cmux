@@ -351,8 +351,8 @@ pub(crate) async fn await_child_env(
         return Ok(true);
     }
     Err(format!(
-        "{} from the login shell is not available yet: the shell did not answer within {} s. \
-         Retry in a moment, or set it in the agent's profile",
+        "{} from the login shell is not available: the shell did not answer within {} s \
+         (a slow shell profile). Set it in the agent's profile",
         missing.join(", "),
         TIMEOUT.as_secs()
     ))
@@ -368,19 +368,28 @@ pub(crate) async fn build_ready<T, E>(
     explicit: impl Fn(&T) -> Vec<(String, Option<String>)>,
     refuse: impl Fn(String) -> E,
 ) -> Result<T, E> {
+    build_ready_async(plan, || std::future::ready(build()), explicit, refuse).await
+}
+
+pub(crate) async fn build_ready_async<T, E, F: std::future::Future<Output = Result<T, E>>>(
+    plan: &mut ChildEnv<'_>,
+    mut build: impl FnMut() -> F,
+    explicit: impl Fn(&T) -> Vec<(String, Option<String>)>,
+    refuse: impl Fn(String) -> E,
+) -> Result<T, E> {
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     // Twice at most: a build that failed on a missing reference has no plan
     // until the reference is here.
     for _ in 0..2 {
         let reads = READS.load(Ordering::SeqCst);
-        let built = build();
+        let built = build().await;
         plan.explicit = built.as_ref().ok().map(&explicit);
         let waited = await_child_env(plan, deadline).await.map_err(&refuse)?;
         if !waited && READS.load(Ordering::SeqCst) == reads {
             return built;
         }
     }
-    build()
+    build().await
 }
 
 /// `build_ready` from synchronous code (a sign-in check on a blocking

@@ -4,7 +4,7 @@ import { type MouseEvent, type PointerEvent } from "react";
 /// them, the Needs you inbox and Session Info toggle included.
 export const HEADER_GLYPH = 16;
 
-export { HEADER_ACTIONS } from "./headerActions";
+export { HEADER_ACTIONS, filesFolder } from "./headerActions";
 
 export type ChatMenuItem =
   | "separator"

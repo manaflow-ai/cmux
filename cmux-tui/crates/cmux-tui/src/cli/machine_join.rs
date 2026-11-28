@@ -169,6 +169,16 @@ impl Failure {
     fn usage(message: impl Into<String>) -> Self {
         Self { code: "usage.invalid", message: message.into(), exit: 2 }
     }
+
+    /// An "isn't available on this server" failure names the server it asked: the platform origin
+    /// comes from --platform or CMUX_PLATFORM_ORIGIN as well as the default, and a 404 from staging
+    /// (joined machines off there by design) read as production's.
+    fn naming_server(mut self, origin: &str) -> Self {
+        if self.code.ends_with(".unavailable") && self.message.contains(" on this server") {
+            self.message = self.message.replacen(" on this server", &format!(" on {origin}"), 1);
+        }
+        self
+    }
 }
 
 /// `Some(exit code)` when `args` is a verb this module runs.
@@ -193,14 +203,15 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(fail(Failure::usage(error.0))),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let (credential, team, app_origin) = match session::sign_in(&command, &env, args) {
+    let (credential, team, app_platform) = match session::sign_in(&command, &env, args) {
         Ok(signed_in) => signed_in,
         Err(Ok(code)) => return Some(code),
         Err(Err(failure)) => return Some(fail(failure)),
     };
-    // An explicit `--platform` wins; else the API the app's token came from; else the usual
-    // variables and production.
-    let flag = command.auth.platform.as_deref().or(app_origin.as_deref());
+    // An explicit `--platform` wins; else the platform of the API the app's token came from
+    // (`session::platform_of_api`, never that API itself: it 404s every machine route); else the
+    // usual variables and production.
+    let flag = command.auth.platform.as_deref().or(app_platform.as_deref());
     let origin = match platform_origin(flag, &env) {
         Ok(origin) => origin,
         Err(message) => return Some(fail(Failure::usage(message))),
@@ -766,7 +777,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 /// The platform's machine-join refusal codes. Errors print only these and the codes of the
 /// platform's Cloud refusal table ([`cmux_cloud_machine::refusals::PLATFORM`]: a cap, a rate
 /// limit, a machine's state), each from its own table.
-const KNOWN_CODES: [&str; 62] = [
+const KNOWN_CODES: &[&str] = &[
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -799,6 +810,12 @@ const KNOWN_CODES: [&str; 62] = [
     "vault.no_entry",
     "vault.invalid_hosts",
     "vault.model_key_proxy_only",
+    // The tailnet node the vault keeps (`cmux vm tailnet keep|adopt`, RFD 0169).
+    "vault.tailnet_node_missing",
+    "vault.tailnet_node_conflict",
+    "vault.tailnet_node_open_failed",
+    "vault.tailnet_holder_conflict",
+    "vault.invalid_holder",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
@@ -872,6 +889,19 @@ pub(super) struct Hooks<'a> {
 }
 
 pub(super) fn run(
+    command: &Command,
+    platform: &Platform,
+    output: OutputMode,
+    options: RunOptions,
+    out: &mut dyn Write,
+    hooks: &mut Hooks<'_>,
+    interrupt: impl Future<Output = ()>,
+) -> Result<i32, Failure> {
+    run_verb(command, platform, output, options, out, hooks, interrupt)
+        .map_err(|failure| failure.naming_server(&platform.origin))
+}
+
+fn run_verb(
     command: &Command,
     platform: &Platform,
     output: OutputMode,
@@ -1483,13 +1513,16 @@ pub(crate) fn rows_for_devices(
     credential.map(|credential| rows_signed_in(platform, credential))
 }
 
-/// The daemon's `machine.list` result with the joined machines added. Fails
-/// open: a platform that cannot be read leaves the list as it was, with a
-/// note on stderr.
-pub(super) fn merge(_global: &GlobalArgs, result: Value) -> Value {
-    let Some(rows) = rows_with(LIST_AUTH.get().unwrap_or(&Auth::default())) else {
-        return result;
-    };
+/// The team's joined machines for `machine list`, signed in with its platform
+/// flags (or the environment); `None` when no credential is given.
+pub(super) fn read_joined() -> Option<Result<Vec<Value>, String>> {
+    rows_with(LIST_AUTH.get().unwrap_or(&Auth::default()))
+}
+
+/// The daemon's `machine.list` result with `rows` (a [`read_joined`]) added.
+/// Fails open: a platform that could not be read leaves the list as it was,
+/// with a note on stderr.
+pub(super) fn apply_joined(result: Value, rows: Result<Vec<Value>, String>) -> Value {
     let (merged, note) = merge_rows(result, rows);
     // On stderr in every mode, quiet included: a list that left them out says so.
     if let Some(reason) = note {
@@ -1523,16 +1556,25 @@ pub(super) fn merge_rows(
 /// How long `machine list` waits for acpmux's own machines (`acp host ls`), a local read.
 const PEER_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// `result` with the machines acpmux reaches itself added (`acpmux machine add HOST`), each a
-/// valid `cmux chat --on NAME` (hq#11835: such a machine was in `acpmux machine ls` and took
-/// chats from acpmux, but `machine list` and `--on` did not know it). Fails open with a note
-/// on stderr, as the joined rows do; quiet mode says nothing.
-pub(super) fn merge_peers(global: &GlobalArgs, result: Value) -> Value {
-    // No acpmux running here: it reaches no machine, and a list never starts one.
+/// The machines acpmux reaches itself (`acpmux machine add HOST`), each a valid
+/// `cmux chat --on NAME` (hq#11835: such a machine was in `acpmux machine ls` and took
+/// chats from acpmux, but `machine list` and `--on` did not know it). `None` when no
+/// acpmux runs here: it reaches no machine, and a list never starts one.
+pub(super) fn read_peers() -> Option<Result<Vec<Value>, String>> {
     if !acpmux::config::socket_path().exists() {
-        return result;
+        return None;
     }
-    match super::chat_start::joined::peers_within(PEER_READ_TIMEOUT) {
+    Some(super::chat_start::joined::peers_within(PEER_READ_TIMEOUT))
+}
+
+/// `result` with `peers` (a [`read_peers`]) added. Fails open with a note on stderr,
+/// as the joined rows do; quiet mode says nothing.
+pub(super) fn apply_peers(
+    global: &GlobalArgs,
+    result: Value,
+    peers: Result<Vec<Value>, String>,
+) -> Value {
+    match peers {
         Ok(peers) => merge_peer_rows(result, &peers),
         Err(reason) => {
             if global.output != OutputMode::Quiet {

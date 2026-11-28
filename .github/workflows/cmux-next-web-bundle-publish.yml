@@ -78,6 +78,8 @@ on:
       # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
       - "examples/gallery/gallery.json"
       - "examples/looks/**"
+      # The setups the Make cmux Yours setups shelf imports (src/pages/onboarding/setupShelf.ts).
+      - "examples/setups/*/cmux-setup.json"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/cmux-next/web-ota-pointer.py"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
@@ -483,7 +485,11 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/actions/setup-cmux-tui-rust/
+            /.github/actions/runner-cargo-home/
             /cmux-tui/
+            # cmux-tui's bin crate links the cmux VM CLI by path, and cargo loads every member
+            # (tests/test_ci_sparse_cargo_path_deps.py).
+            /workers/cmux-vm/cli/
             /scripts/cmux-next/
             /.gitmodules
 
@@ -499,6 +505,34 @@ jobs:
           name: cmux-next-web-bundles
           path: ${{ runner.temp }}/web-bundles-publish
 
+      # The trees apps hold now, the live every-merge and nightly pointers' archives: cas-publish
+      # writes a `zstd --patch-from` patch for each changed file against its file in them (RFD 0166
+      # row W1: 3.37% of the archive moved at p50 instead of 24.9% by chunks alone). Best effort:
+      # with no base the objects are the same, only with no patches. A base is only a reference
+      # prefix: the app keeps a patched file only when it hashes to the manifest's.
+      - name: Download the trees apps hold
+        continue-on-error: true
+        env:
+          KEY: ${{ needs.build.outputs.key }}
+        run: |
+          set -euo pipefail
+          bases="$RUNNER_TEMP/web-bases"
+          mkdir -p "$bases"
+          for ch in every-merge nightly; do
+            curl -fsS --retry 3 --max-time 60 -o "$bases/$ch.json" "https://files.cmux.com/cmux-next-web/ota/$ch.json?cas=$GITHUB_RUN_ID" || continue
+            read -r key archive sha < <(python3 -c '
+          import base64, json, re, sys
+          p = json.loads(base64.b64decode(json.load(open(sys.argv[1]))["payload"]))
+          assert re.fullmatch("[0-9a-f]{64}", p["key"]) and re.fullmatch("[0-9a-f]{64}", p["sha256"])
+          assert re.fullmatch(r"web-bundles-[0-9a-f]{64}\.tar\.gz", p["archive"])
+          print(p["key"], p["archive"], p["sha256"])' "$bases/$ch.json") || continue
+            if [[ "$key" == "$KEY" || -d "$bases/$key" ]]; then continue; fi
+            curl -fsS --retry 3 --max-time 120 -o "$bases/$key.tar.gz" "https://files.cmux.com/cmux-next-web/$key/$archive" || continue
+            echo "$sha  $bases/$key.tar.gz" | sha256sum -c --status || continue
+            python3 scripts/cmux-next/web-bundle-archive.py unpack "$bases/$key.tar.gz" "$bases/$key" || continue
+            echo "patch base: $ch $key"
+          done
+
       # The tree the app unpacks from the archive, so the fetched tree is the archive's, file for file.
       - name: Cut the unpacked archive into cas/1 objects
         env:
@@ -509,13 +543,16 @@ jobs:
           archive="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["key"]==sys.argv[2]; print(m["archive"])' "$dir/manifest.json" "$KEY")"
           python3 scripts/cmux-next/web-bundle-archive.py unpack "$dir/$archive" "$RUNNER_TEMP/web-tree"
           out="$RUNNER_TEMP/web-cas"
-          cmux-tui/target/release/cas-publish "$RUNNER_TEMP/web-tree" "$out/objects" > "$out.json"
+          bases=()
+          for d in "$RUNNER_TEMP"/web-bases/*/; do [[ -d "$d" ]] && bases+=("$d"); done
+          cmux-tui/target/release/cas-publish "$RUNNER_TEMP/web-tree" "$out/objects" "${bases[@]}" > "$out.json"
           mv "$out.json" "$out/cas.json"
           cat "$out/cas.json"
           python3 - "$out/cas.json" <<'PY'
           import json, sys
           c = json.load(open(sys.argv[1]))
-          print(f"cas/1: tree {c['tree_bytes']:,} B, pack {c['pack_bytes']:,} B, manifest {c['manifest'][:12]}")
+          print(f"cas/1: tree {c['tree_bytes']:,} B, pack {c['pack_bytes']:,} B, manifest {c['manifest'][:12]}, "
+                f"{c.get('patches', 0)} patches {c.get('patch_bytes', 0):,} B")
           PY
 
       - name: Hand the cas/1 objects to the publish job
@@ -616,11 +653,32 @@ jobs:
           dir="$RUNNER_TEMP/web-cas"
           read -r manifest pack < <(python3 -c 'import json,re,sys; c=json.load(open(sys.argv[1])); ids=[c["manifest"],c["pack"]]; assert all(re.fullmatch("[0-9a-f]{64}", i) for i in ids); print(*ids)' "$dir/cas.json")
           up() { python3 scripts/ci/upload-r2-object.py --write-once --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-                   --cache-control "public, max-age=31536000, immutable" --file "$1" --key "$2" --content-type "$3"; }
+                   --cache-control "public, max-age=31536000, immutable" --file "$1" --key "$2" --content-type "$3" "${@:4}"; }
           up "$dir/objects/p/$pack.pack" "cmux-next-web/cas/p/$pack.pack" application/octet-stream
           up "$dir/objects/p/$pack.idx" "cmux-next-web/cas/p/$pack.idx" application/json
+          # Patches, then their list: the list names only patches that are there. A patch another
+          # run of this tree wrote first (another zstd's bytes) is kept: the list's length for it
+          # then misses and the app takes that file's chunks. The list is named by its tree, not
+          # its bytes: its patches depend on the bases this run held, so a later run of the same
+          # tree (another source key, or the pointers moved) writes other bytes. The first list
+          # stays (it names only patches its run wrote) and this run goes on: a refused hint never
+          # holds back the manifest and cas.json (2026-11-28, run 46096014005 lost both).
+          if [[ -f "$dir/objects/d/$manifest.json" ]]; then
+            for f in "$dir"/objects/d/*.zst; do
+              rc=0
+              up "$f" "cmux-next-web/cas/d/${f##*/}" application/zstd --conflict-exit-code 3 || rc=$?
+              [[ $rc == 0 || $rc == 3 ]] || exit "$rc"
+            done
+            rc=0
+            up "$dir/objects/d/$manifest.json" "cmux-next-web/cas/d/$manifest.json" application/json --conflict-exit-code 3 || rc=$?
+            [[ $rc == 0 || $rc == 3 ]] || exit "$rc"
+          fi
           up "$dir/objects/m/$manifest" "cmux-next-web/cas/m/$manifest" application/octet-stream
-          up "$dir/cas.json" "cmux-next-web/$KEY/cas.json" application/json
+          # Two runs of one key at once (a push and a dispatch) name the same manifest and pack;
+          # only their patch counts differ. The first cas.json stays.
+          rc=0
+          up "$dir/cas.json" "cmux-next-web/$KEY/cas.json" application/json --conflict-exit-code 3 || rc=$?
+          [[ $rc == 0 || $rc == 3 ]] || exit "$rc"
           echo "cas/1 for $KEY: manifest $manifest, pack $pack ($(stat -c %s "$dir/objects/p/$pack.pack") B)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Verify the publication with the fetch helper
@@ -642,6 +700,7 @@ jobs:
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
           KEY: ${{ needs.build.outputs.key }}
           CHANNEL: ${{ github.ref_name == 'nightly-next' && 'nightly' || 'every-merge' }}
+          CAS_RESULT: ${{ needs.cas.result }}
         run: |
           set -euo pipefail
           if [[ -z "$SIGNING_KEY" ]]; then
@@ -659,6 +718,10 @@ jobs:
           cas=()
           if curl -fsS --retry 3 --max-time 60 -o "$dir/cas.json" "https://files.cmux.com/cmux-next-web/$KEY/cas.json?pointer=$GITHUB_RUN_ID"; then
             cas=(--cas "$dir/cas.json")
+          elif [[ "$CAS_RESULT" == success ]]; then
+            # The objects were cut but cas.json is not there: the upload step (continue-on-error)
+            # failed, and this pointer goes out with no `cas`. Say so where the run is read.
+            echo "::warning::cas/1 objects were cut for $KEY but cmux-next-web/$KEY/cas.json is missing: the $CHANNEL pointer names no cas (read the 'Upload the cas/1 objects to R2' step)"
           fi
           # Any payload failure, including a missing outputs digest, fails production
           # publication. Exit 3 is only meaningful for the newer-pointer no-op below.
