@@ -14,3 +14,27 @@ test("a pick is held with its model, a later one replaces it, and an empty harne
   holdCloudAgentPick({ harness: "" });
   expect(cloudAgentPick()).toEqual({ harness: "pi" });
 });
+
+// cmux#59716: a page another tab adopts drops the Cloud pick an earlier tab made there, so a Codex chat
+// never starts on the Claude a reused page still held. A pick handed to this tab by its own handshake
+// stays through the first adoption (the host can replay one right after that handshake).
+test("an adoption drops an earlier tab's pick, and keeps a handed one once", async () => {
+  const { dropCloudAgentPickForAdoption } = await import("../src/agent-session/acpmux/cloudAgentPick");
+  holdCloudAgentPick({ harness: "claude", model: "claude-opus-5-5", effort: "high" });
+  dropCloudAgentPickForAdoption();
+  expect(cloudAgentPick()).toBeUndefined();
+  holdCloudAgentPick({ harness: "codex", model: "gpt-6", handed: true });
+  dropCloudAgentPickForAdoption();
+  expect(cloudAgentPick()).toEqual({ harness: "codex", model: "gpt-6" });
+  dropCloudAgentPickForAdoption();
+  expect(cloudAgentPick()).toBeUndefined();
+});
+
+test("a pick the person makes replaces a handed one, which then no longer survives an adoption", async () => {
+  const { dropCloudAgentPickForAdoption } = await import("../src/agent-session/acpmux/cloudAgentPick");
+  holdCloudAgentPick({ harness: "codex", handed: true });
+  holdCloudAgentPick({ harness: "claude", model: "claude-opus-5-5" });
+  expect(cloudAgentPick()).toEqual({ harness: "claude", model: "claude-opus-5-5" });
+  dropCloudAgentPickForAdoption();
+  expect(cloudAgentPick()).toBeUndefined();
+});

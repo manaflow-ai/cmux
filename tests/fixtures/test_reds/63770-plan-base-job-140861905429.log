@@ -1,0 +1,290 @@
+﻿2026-11-28T04:20:54.5867371Z Current runner version: '2.338.2'
+2026-11-28T04:20:54.5876418Z Runner name: 'cmux-runner-pool-c1b-0287-2'
+2026-11-28T04:20:54.5877626Z Runner group name: 'cmux-fleet-linux'
+2026-11-28T04:20:54.5879280Z Machine name: 'cmux-runner-pool-c1b-0287'
+2026-11-28T04:20:54.5882904Z ##[group]GITHUB_TOKEN Permissions
+2026-11-28T04:20:54.5886185Z Actions: read
+2026-11-28T04:20:54.5886898Z Contents: read
+2026-11-28T04:20:54.5887637Z Metadata: read
+2026-11-28T04:20:54.5888628Z ##[endgroup]
+2026-11-28T04:20:54.5891226Z Secret source: Actions
+2026-11-28T04:20:54.5892559Z Cache mode: write
+2026-11-28T04:20:54.5893392Z Prepare workflow directory
+2026-11-28T04:20:54.6667272Z Prepare all required actions
+2026-11-28T04:20:54.6731981Z Getting action download info
+2026-11-28T04:20:54.8997863Z Download action repository 'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803' (SHA:d23441a48e516b6c34aea4fa41551a30e30af803)
+2026-11-28T04:20:55.3393484Z Uses: manaflow-ai/cmux/.github/workflows/rust-workspaces.yml@refs/heads/feat-cmux-next (eb0b35f6ffa14332db2fb405d68c048472df6065)
+2026-11-28T04:20:55.3400460Z ##[group] Inputs
+2026-11-28T04:20:55.3401084Z   sha: eb0b35f6ffa14332db2fb405d68c048472df6065
+2026-11-28T04:20:55.3401721Z   only: 
+2026-11-28T04:20:55.3402145Z   mode: batch
+2026-11-28T04:20:55.3402592Z   reason: tick
+2026-11-28T04:20:55.3403038Z   tries: 0
+2026-11-28T04:20:55.3403480Z ##[endgroup]
+2026-11-28T04:20:55.3404136Z Complete job name: rust-workspaces / plan (changed Cargo workspaces)
+2026-11-28T04:20:55.4084331Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-28T04:20:55.4233270Z ##[group]Run '/opt/cmux-job-start.sh'
+2026-11-28T04:20:55.4263626Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T04:20:55.4264983Z ##[endgroup]
+2026-11-28T04:20:56.0256517Z cmux-ws-clean: ws=/home/runner2/work/cmux/cmux decision=clean head=7a9efc465ea why=stamp
+2026-11-28T04:20:56.6464959Z cmux-ws-clean: ws=/home/runner2/work/cmuxterm-hq/cmuxterm-hq decision=clean head=a6d5a6eb
+2026-11-28T04:20:56.7928126Z cmux-ws-clean: at=2026-11-28T04:20:56Z phase=started version=d9e511f2bf99 user=runner2 clean=2 emptied=0 failed=0 lock_wait_s=0 pool_sh=0145bf7b6a96
+2026-11-28T04:20:56.9093055Z cmux-git-mirror: decision=kept
+2026-11-28T04:20:57.4251556Z cmux-pkg-health: at=2026-11-28T04:20:57Z state=ok why=- waited=0
+2026-11-28T04:20:57.4504895Z ##[group]Run [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+2026-11-28T04:20:57.4506057Z [36;1m[ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0[0m
+2026-11-28T04:20:57.4506701Z [36;1mcd "$GITHUB_WORKSPACE"[0m
+2026-11-28T04:20:57.4507158Z [36;1mwhy=""[0m
+2026-11-28T04:20:57.4507795Z [36;1mif [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then[0m
+2026-11-28T04:20:57.4508737Z [36;1m  why="sparse"[0m
+2026-11-28T04:20:57.4509254Z [36;1melif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then[0m
+2026-11-28T04:20:57.4509882Z [36;1m  why="skip-worktree entries"[0m
+2026-11-28T04:20:57.4510470Z [36;1melif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then[0m
+2026-11-28T04:20:57.4511002Z [36;1m  why="HEAD does not resolve"[0m
+2026-11-28T04:20:57.4511900Z [36;1melif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then[0m
+2026-11-28T04:20:57.4512817Z [36;1m  why="a ref names a missing object"[0m
+2026-11-28T04:20:57.4513214Z [36;1melse[0m
+2026-11-28T04:20:57.4513500Z [36;1m  exit 0[0m
+2026-11-28T04:20:57.4513790Z [36;1mfi[0m
+2026-11-28T04:20:57.4514341Z [36;1mecho "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"[0m
+2026-11-28T04:20:57.4515059Z [36;1mfind . -mindepth 1 -maxdepth 1 -exec rm -rf {} +[0m
+2026-11-28T04:20:57.4542977Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T04:20:57.4543475Z env:
+2026-11-28T04:20:57.4544091Z   CI_WARNINGS: deny
+2026-11-28T04:20:57.4547404Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-28T04:20:57.4550773Z ##[endgroup]
+2026-11-28T04:20:57.5217320Z ##[group]Run actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+2026-11-28T04:20:57.5217939Z with:
+2026-11-28T04:20:57.5218418Z   persist-credentials: false
+2026-11-28T04:20:57.5218853Z   ref: eb0b35f6ffa14332db2fb405d68c048472df6065
+2026-11-28T04:20:57.5219290Z   repository: manaflow-ai/cmux
+2026-11-28T04:20:57.5222834Z   token: ***
+2026-11-28T04:20:57.5223143Z   ssh-strict: true
+2026-11-28T04:20:57.5223449Z   ssh-user: git
+2026-11-28T04:20:57.5223738Z   clean: true
+2026-11-28T04:20:57.5224052Z   sparse-checkout-cone-mode: true
+2026-11-28T04:20:57.5224689Z   fetch-depth: 1
+2026-11-28T04:20:57.5225010Z   fetch-tags: false
+2026-11-28T04:20:57.5225324Z   show-progress: true
+2026-11-28T04:20:57.5225639Z   lfs: false
+2026-11-28T04:20:57.5225921Z   submodules: false
+2026-11-28T04:20:57.5226230Z   set-safe-directory: true
+2026-11-28T04:20:57.5226591Z   allow-unsafe-pr-checkout: false
+2026-11-28T04:20:57.5226967Z env:
+2026-11-28T04:20:57.5227250Z   CI_WARNINGS: deny
+2026-11-28T04:20:57.5230608Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-28T04:20:57.5233561Z ##[endgroup]
+2026-11-28T04:20:57.6426771Z Syncing repository: manaflow-ai/cmux
+2026-11-28T04:20:57.6428947Z ##[group]Getting Git version info
+2026-11-28T04:20:57.6429676Z Working directory is '/home/runner/work/cmux/cmux'
+2026-11-28T04:20:57.6430514Z [command]/usr/local/bin/git version
+2026-11-28T04:20:57.6540092Z git version 2.56.1
+2026-11-28T04:20:57.6569420Z ##[endgroup]
+2026-11-28T04:20:57.6586625Z Copying '/home/runner/.gitconfig' to '/home/runner/work/_temp/2d4a75be-78c5-4e27-8f49-9750b8a95ca1/.gitconfig'
+2026-11-28T04:20:57.6600927Z Temporarily overriding HOME='/home/runner/work/_temp/2d4a75be-78c5-4e27-8f49-9750b8a95ca1' before making global git config changes
+2026-11-28T04:20:57.6602519Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-28T04:20:57.6608652Z [command]/usr/local/bin/git config --global --add safe.directory /home/runner/work/cmux/cmux
+2026-11-28T04:20:57.6774342Z [command]/usr/local/bin/git config --local --get remote.origin.url
+2026-11-28T04:20:57.6908507Z https://github.com/manaflow-ai/cmux
+2026-11-28T04:20:57.6925711Z ##[group]Removing previously created refs, to avoid conflicts
+2026-11-28T04:20:57.6930460Z [command]/usr/local/bin/git rev-parse --symbolic-full-name --verify --quiet HEAD
+2026-11-28T04:20:57.7064792Z refs/heads/main
+2026-11-28T04:20:57.7076649Z [command]/usr/local/bin/git checkout --detach
+2026-11-28T04:20:57.7839390Z HEAD is now at 7a9efc465ea coderouter: the capped house Claude route on main (carries #52330; RFD 0129 1a) (#63917)
+2026-11-28T04:20:57.8039013Z [command]/usr/local/bin/git branch --delete --force main
+2026-11-28T04:20:57.8204503Z Deleted branch main (was 7a9efc465ea).
+2026-11-28T04:20:57.8210117Z ##[endgroup]
+2026-11-28T04:20:57.8220066Z [command]/usr/local/bin/git submodule status
+2026-11-28T04:20:57.8669578Z -ef4f1570d62117ebc51e3b0f07ad4f34032267b6 ghostty
+2026-11-28T04:20:57.8670673Z -a5f372ecfa5ee3903af6e1faba0eda096b4f5746 homebrew-cmux
+2026-11-28T04:20:57.8671557Z -58b73fde506ef6aa5fc371b8990e528ac83f0929 vendor/bonsplit
+2026-11-28T04:20:57.8685971Z ##[group]Cleaning the repository
+2026-11-28T04:20:57.8724596Z [command]/usr/local/bin/git clean -ffdx
+2026-11-28T04:20:57.9400962Z [command]/usr/local/bin/git reset --hard HEAD
+2026-11-28T04:20:58.0713575Z HEAD is now at 7a9efc465ea coderouter: the capped house Claude route on main (carries #52330; RFD 0129 1a) (#63917)
+2026-11-28T04:20:58.0729210Z ##[endgroup]
+2026-11-28T04:20:58.0732296Z ##[group]Disabling automatic garbage collection
+2026-11-28T04:20:58.0740037Z [command]/usr/local/bin/git config --local gc.auto 0
+2026-11-28T04:20:58.1018678Z ##[endgroup]
+2026-11-28T04:20:58.1022745Z ##[group]Setting up auth
+2026-11-28T04:20:58.1024010Z Removing SSH command configuration
+2026-11-28T04:20:58.1025409Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-28T04:20:58.1074053Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-28T04:20:58.1615915Z Removing HTTP extra header
+2026-11-28T04:20:58.1623874Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-28T04:20:58.1787180Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-28T04:20:58.2278979Z Removing includeIf entries pointing to credentials config files
+2026-11-28T04:20:58.2286949Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-28T04:20:58.2449926Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-28T04:20:58.2975544Z [command]/usr/local/bin/git config --file /home/runner/work/_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-28T04:20:58.3159634Z [command]/usr/local/bin/git config --local includeIf.gitdir:/home/runner/work/cmux/cmux/.git.path /home/runner/work/_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:20:58.3317223Z [command]/usr/local/bin/git config --local includeIf.gitdir:/home/runner/work/cmux/cmux/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:20:58.3480488Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:20:58.3644420Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:20:58.3803831Z ##[endgroup]
+2026-11-28T04:20:58.3804870Z ##[group]Fetching the repository
+2026-11-28T04:20:58.3816318Z [command]/usr/local/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin eb0b35f6ffa14332db2fb405d68c048472df6065
+2026-11-28T04:20:58.4155247Z cmux-git-mirror: served from the mirror, no network (1 ref(s) from /var/lib/cmux-git/cmux.git)
+2026-11-28T04:20:58.4170231Z [command]/usr/local/bin/git rev-parse --verify --quiet eb0b35f6ffa14332db2fb405d68c048472df6065^{object}
+2026-11-28T04:20:58.4313024Z eb0b35f6ffa14332db2fb405d68c048472df6065
+2026-11-28T04:20:58.4319123Z ##[endgroup]
+2026-11-28T04:20:58.4320646Z ##[group]Determining the checkout info
+2026-11-28T04:20:58.4322169Z ##[endgroup]
+2026-11-28T04:20:58.4331110Z [command]/usr/local/bin/git sparse-checkout disable
+2026-11-28T04:20:58.4839361Z [command]/usr/local/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-28T04:20:58.4992753Z ##[group]Checking out the ref
+2026-11-28T04:20:58.4999375Z [command]/usr/local/bin/git checkout --progress --force eb0b35f6ffa14332db2fb405d68c048472df6065
+2026-11-28T04:20:59.9444834Z Updating files:  21% (18711/87996)
+2026-11-28T04:21:00.0689452Z Updating files:  22% (19360/87996)
+2026-11-28T04:21:00.1788073Z Updating files:  23% (20240/87996)
+2026-11-28T04:21:00.2527347Z Updating files:  24% (21120/87996)
+2026-11-28T04:21:00.3450402Z Updating files:  25% (21999/87996)
+2026-11-28T04:21:00.4238490Z Updating files:  26% (22879/87996)
+2026-11-28T04:21:00.5079484Z Updating files:  27% (23759/87996)
+2026-11-28T04:21:00.6029348Z Updating files:  28% (24639/87996)
+2026-11-28T04:21:00.7321732Z Updating files:  29% (25519/87996)
+2026-11-28T04:21:00.7921884Z Updating files:  30% (26399/87996)
+2026-11-28T04:21:00.8361815Z Updating files:  31% (27279/87996)
+2026-11-28T04:21:00.8478948Z Updating files:  31% (27976/87996)
+2026-11-28T04:21:00.9059767Z Updating files:  32% (28159/87996)
+2026-11-28T04:21:00.9598559Z Updating files:  33% (29039/87996)
+2026-11-28T04:21:01.0122460Z Updating files:  34% (29919/87996)
+2026-11-28T04:21:01.1277269Z Updating files:  35% (30799/87996)
+2026-11-28T04:21:01.2440191Z Updating files:  36% (31679/87996)
+2026-11-28T04:21:01.3222511Z Updating files:  37% (32559/87996)
+2026-11-28T04:21:01.4011538Z Updating files:  38% (33439/87996)
+2026-11-28T04:21:01.4771640Z Updating files:  39% (34319/87996)
+2026-11-28T04:21:01.5832287Z Updating files:  40% (35199/87996)
+2026-11-28T04:21:01.6500696Z Updating files:  41% (36079/87996)
+2026-11-28T04:21:01.7842904Z Updating files:  42% (36959/87996)
+2026-11-28T04:21:01.8362332Z Updating files:  43% (37839/87996)
+2026-11-28T04:21:01.8912958Z Updating files:  43% (38173/87996)
+2026-11-28T04:21:02.0247349Z Updating files:  44% (38719/87996)
+2026-11-28T04:21:02.1609574Z Updating files:  45% (39599/87996)
+2026-11-28T04:21:02.2535919Z Updating files:  46% (40479/87996)
+2026-11-28T04:21:02.6207868Z Updating files:  47% (41359/87996)
+2026-11-28T04:21:02.8392970Z Updating files:  48% (42239/87996)
+2026-11-28T04:21:03.6825096Z Updating files:  48% (42431/87996)
+2026-11-28T04:21:03.8365929Z Updating files:  49% (43119/87996)
+2026-11-28T04:21:03.9860923Z Updating files:  49% (43405/87996)
+2026-11-28T04:21:04.0963309Z Updating files:  50% (43998/87996)
+2026-11-28T04:21:04.2048630Z Updating files:  51% (44878/87996)
+2026-11-28T04:21:04.3003295Z Updating files:  52% (45758/87996)
+2026-11-28T04:21:04.4060670Z Updating files:  53% (46638/87996)
+2026-11-28T04:21:04.5061985Z Updating files:  54% (47518/87996)
+2026-11-28T04:21:04.6118942Z Updating files:  55% (48398/87996)
+2026-11-28T04:21:04.6892108Z Updating files:  56% (49278/87996)
+2026-11-28T04:21:04.7761131Z Updating files:  57% (50158/87996)
+2026-11-28T04:21:04.8359649Z Updating files:  58% (51038/87996)
+2026-11-28T04:21:04.8616645Z Updating files:  58% (51619/87996)
+2026-11-28T04:21:04.9451120Z Updating files:  59% (51918/87996)
+2026-11-28T04:21:05.0430651Z Updating files:  60% (52798/87996)
+2026-11-28T04:21:05.1373710Z Updating files:  61% (53678/87996)
+2026-11-28T04:21:05.2337240Z Updating files:  62% (54558/87996)
+2026-11-28T04:21:05.3342945Z Updating files:  63% (55438/87996)
+2026-11-28T04:21:05.4352041Z Updating files:  64% (56318/87996)
+2026-11-28T04:21:05.5354198Z Updating files:  65% (57198/87996)
+2026-11-28T04:21:05.6429827Z Updating files:  66% (58078/87996)
+2026-11-28T04:21:05.7351598Z Updating files:  67% (58958/87996)
+2026-11-28T04:21:05.8329911Z Updating files:  68% (59838/87996)
+2026-11-28T04:21:05.8357720Z Updating files:  69% (60718/87996)
+2026-11-28T04:21:05.9080845Z Updating files:  69% (60768/87996)
+2026-11-28T04:21:06.0735727Z Updating files:  70% (61598/87996)
+2026-11-28T04:21:06.2784504Z Updating files:  71% (62478/87996)
+2026-11-28T04:21:06.4053105Z Updating files:  72% (63358/87996)
+2026-11-28T04:21:06.4989104Z Updating files:  73% (64238/87996)
+2026-11-28T04:21:06.5523892Z Updating files:  74% (65118/87996)
+2026-11-28T04:21:06.6510041Z Updating files:  75% (65997/87996)
+2026-11-28T04:21:06.7512756Z Updating files:  76% (66877/87996)
+2026-11-28T04:21:06.8359781Z Updating files:  77% (67757/87996)
+2026-11-28T04:21:06.8462950Z Updating files:  77% (68488/87996)
+2026-11-28T04:21:06.9327941Z Updating files:  78% (68637/87996)
+2026-11-28T04:21:07.0273535Z Updating files:  79% (69517/87996)
+2026-11-28T04:21:07.1227190Z Updating files:  80% (70397/87996)
+2026-11-28T04:21:07.2329143Z Updating files:  81% (71277/87996)
+2026-11-28T04:21:07.3843839Z Updating files:  82% (72157/87996)
+2026-11-28T04:21:07.5014218Z Updating files:  83% (73037/87996)
+2026-11-28T04:21:07.5665948Z Updating files:  84% (73917/87996)
+2026-11-28T04:21:07.6440392Z Updating files:  85% (74797/87996)
+2026-11-28T04:21:07.6950056Z Updating files:  86% (75677/87996)
+2026-11-28T04:21:07.7458617Z Updating files:  87% (76557/87996)
+2026-11-28T04:21:07.8046778Z Updating files:  88% (77437/87996)
+2026-11-28T04:21:07.8360864Z Updating files:  89% (78317/87996)
+2026-11-28T04:21:07.8812117Z Updating files:  89% (78687/87996)
+2026-11-28T04:21:07.9634838Z Updating files:  90% (79197/87996)
+2026-11-28T04:21:08.0467929Z Updating files:  91% (80077/87996)
+2026-11-28T04:21:08.1271640Z Updating files:  92% (80957/87996)
+2026-11-28T04:21:08.2481963Z Updating files:  93% (81837/87996)
+2026-11-28T04:21:08.3748616Z Updating files:  94% (82717/87996)
+2026-11-28T04:21:08.5239721Z Updating files:  95% (83597/87996)
+2026-11-28T04:21:08.5999889Z Updating files:  96% (84477/87996)
+2026-11-28T04:21:08.6952681Z Updating files:  97% (85357/87996)
+2026-11-28T04:21:08.7743380Z Updating files:  98% (86237/87996)
+2026-11-28T04:21:08.8362157Z Updating files:  99% (87117/87996)
+2026-11-28T04:21:08.8601490Z Updating files:  99% (87767/87996)
+2026-11-28T04:21:08.8602935Z Updating files: 100% (87996/87996)
+2026-11-28T04:21:08.8603488Z Updating files: 100% (87996/87996), done.
+2026-11-28T04:21:09.1475049Z Previous HEAD position was 7a9efc465ea coderouter: the capped house Claude route on main (carries #52330; RFD 0129 1a) (#63917)
+2026-11-28T04:21:09.1522741Z HEAD is now at eb0b35f6ffa measure: acpmux -Zthreads incremental rebuild harness (#63927)
+2026-11-28T04:21:09.1794330Z ##[endgroup]
+2026-11-28T04:21:09.1976156Z [command]/usr/local/bin/git log -1 --format=%H
+2026-11-28T04:21:09.2136228Z eb0b35f6ffa14332db2fb405d68c048472df6065
+2026-11-28T04:21:09.2151017Z ##[group]Removing auth
+2026-11-28T04:21:09.2151790Z Removing SSH command configuration
+2026-11-28T04:21:09.2157907Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-28T04:21:09.2334431Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-28T04:21:09.2974641Z Removing HTTP extra header
+2026-11-28T04:21:09.2980443Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-28T04:21:09.3131407Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-28T04:21:09.3704387Z Removing includeIf entries pointing to credentials config files
+2026-11-28T04:21:09.3710381Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-28T04:21:09.3854830Z includeif.gitdir:/home/runner/work/cmux/cmux/.git.path
+2026-11-28T04:21:09.3856197Z includeif.gitdir:/home/runner/work/cmux/cmux/.git/worktrees/*.path
+2026-11-28T04:21:09.3857060Z includeif.gitdir:/github/workspace/.git.path
+2026-11-28T04:21:09.3857802Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-28T04:21:09.3866590Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/home/runner/work/cmux/cmux/.git.path
+2026-11-28T04:21:09.4007959Z /home/runner/work/_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:21:09.4025449Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/home/runner/work/cmux/cmux/.git.path /home/runner/work/_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:21:09.4186440Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/home/runner/work/cmux/cmux/.git/worktrees/*.path
+2026-11-28T04:21:09.4328103Z /home/runner/work/_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:21:09.4341968Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/home/runner/work/cmux/cmux/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:21:09.4512284Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-28T04:21:09.4660795Z /github/runner_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:21:09.4678541Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:21:09.4851849Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-28T04:21:09.4997576Z /github/runner_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:21:09.5009579Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config
+2026-11-28T04:21:09.5176082Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-28T04:21:09.5801467Z Removing credentials config '/home/runner/work/_temp/git-credentials-c352f604-8515-4972-b361-7ee8ba7892e0.config'
+2026-11-28T04:21:09.5808582Z ##[endgroup]
+2026-11-28T04:21:09.6034245Z ##[group]Run python3 .github/scripts/rust-workspaces.py check
+2026-11-28T04:21:09.6034917Z [36;1mpython3 .github/scripts/rust-workspaces.py check[0m
+2026-11-28T04:21:09.6064599Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:21:09.6064943Z env:
+2026-11-28T04:21:09.6065222Z   CI_WARNINGS: deny
+2026-11-28T04:21:09.6069234Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-28T04:21:09.6073019Z ##[endgroup]
+2026-11-28T04:21:11.0027782Z ##[error]scripts/bench/phone-speed is a Cargo workspace with no entry in .github/rust-workspaces.toml: add one with run = true, covered_by = "<workflow>" or skip = "<why>"
+2026-11-28T04:21:11.0160993Z ##[error]Process completed with exit code 1.
+2026-11-28T04:21:11.0353364Z Post job cleanup.
+2026-11-28T04:21:11.1498458Z [command]/usr/local/bin/git version
+2026-11-28T04:21:11.1662931Z git version 2.56.1
+2026-11-28T04:21:11.1710132Z Copying '/home/runner/.gitconfig' to '/home/runner/work/_temp/118add5f-8e08-4902-b237-03f1ac49c694/.gitconfig'
+2026-11-28T04:21:11.1725161Z Temporarily overriding HOME='/home/runner/work/_temp/118add5f-8e08-4902-b237-03f1ac49c694' before making global git config changes
+2026-11-28T04:21:11.1726921Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-28T04:21:11.1731139Z [command]/usr/local/bin/git config --global --add safe.directory /home/runner/work/cmux/cmux
+2026-11-28T04:21:11.1886376Z Removing SSH command configuration
+2026-11-28T04:21:11.1894969Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-28T04:21:11.2049726Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-28T04:21:11.2605683Z Removing HTTP extra header
+2026-11-28T04:21:11.2615375Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-28T04:21:11.2792540Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-28T04:21:11.3445607Z Removing includeIf entries pointing to credentials config files
+2026-11-28T04:21:11.3459738Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-28T04:21:11.3626939Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-28T04:21:11.4477752Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-28T04:21:11.4518643Z ##[group]Run '/opt/cmux-job-clean.sh'
+2026-11-28T04:21:11.4545358Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T04:21:11.4545885Z ##[endgroup]
+2026-11-28T04:21:18.0736011Z Evaluate and set job outputs
+2026-11-28T04:21:18.0743120Z Cleaning up orphan processes

@@ -1509,6 +1509,15 @@ def asc_findings(path: Path) -> list[dict]:
             # listing test (asc's rules, ported in #58083) guards the next push.
             severity = "warning"
             message = f"{message} (listing locked while the version is {submitted_state}; fix it in the repository's listing for the next editable version)"
+        elif blocking and submitted_state and code == ASC_SUBSCRIPTION_READINESS and "READY_TO_SUBMIT" in message:
+            # A READY_TO_SUBMIT subscription is complete; what is left is to
+            # submit it, and a first subscription goes in only with an app
+            # version, which App Store Connect locks while one is in review.
+            # No edit clears it today, so readiness stayed red for all of
+            # 1.0.0's review (runs 46112655921 .. 46118358980). Once the version
+            # is editable again it blocks, and MISSING_METADATA always does.
+            severity = "warning"
+            message = f"{message} (submits with the next version; locked while the version is {submitted_state})"
         where = str(c.get("resource") or c.get("resourceId") or "")
         if where in RETIRED_SUBSCRIPTIONS and code.startswith("subscriptions."):
             # A retired subscription App Store Connect cannot delete is never
@@ -1532,6 +1541,7 @@ def asc_findings(path: Path) -> list[dict]:
 
 
 ASC_EDITABLE = "version.state.editable"
+ASC_SUBSCRIPTION_READINESS = "subscriptions.review_readiness.needs_attention"
 # asc checks that are advice, not App Review requirements, so they show as
 # warnings and never block. A subscription promotional image is needed only to
 # promote it on the App Store, for offer-code pages or win-back offers (asc's

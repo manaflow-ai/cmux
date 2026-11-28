@@ -9,7 +9,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
 import { CloudStartView } from "./CloudStartView";
-import { ClaudeConnectRow, useClaudeConnectFlow } from "./ClaudeConnectRow";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
+import { useClaudeConnectFlow } from "./useClaudeConnectFlow";
 import {
   ClaudeConnectContext,
   checkToken,

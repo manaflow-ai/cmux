@@ -61,13 +61,20 @@ package struct CloudStartSessionRequest: Equatable {
     }
 
     /// Both setup and placement use only the current list to resolve a name.
+    /// `failure`: why the list read failed (the service's last list error or why Cloud cannot run), or nil; a refusal
+    /// names it instead of guessing that a machine by the name may exist.
     @MainActor package func requireFreshNamedList(
-        isFresh: () -> Bool, refresh: @MainActor () async -> Void, check: () throws -> Void
+        isFresh: () -> Bool, refresh: @MainActor () async -> Void, check: () throws -> Void,
+        failure: () -> String? = { nil }
     ) async throws {
         if !isFresh() { await refresh() }
         try check()
         guard isFresh() else {
-            throw Refusal(message: CloudStartSessionStrings.listUnread(asked(machine: destinationName)))
+            let asked = asked(machine: destinationName)
+            if let reason = failure()?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
+                throw Refusal(message: CloudStartSessionStrings.listFailed(asked, reason: reason))
+            }
+            throw Refusal(message: CloudStartSessionStrings.listUnread(asked))
         }
     }
 

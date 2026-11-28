@@ -337,7 +337,9 @@ impl Runner for Fake {
         }
         self.clock += self.cost(args);
         self.ran.push(args.to_vec());
-        self.answers.pop_front().expect("an answer for every step")
+        self.answers
+            .pop_front()
+            .unwrap_or_else(|| panic!("no answer for {args:?}; ran {:?}", self.ran))
     }
     /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
     /// is used up and never seen.
@@ -551,7 +553,10 @@ fn a_fresh_chats_turn_is_pushed_over_the_link() {
         "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}})
     };
     fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 0, "at": 500, "dir": "in", "kind": "claude.system.init", "msg": {}},
         {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        {"seq": 2, "at": 1_020, "dir": "out", "kind": "session/prompt", "msg": {}},
+        {"seq": 2, "at": 1_400, "dir": "in", "kind": "claude.system.init", "msg": {}},
         update(2, 2_100, "po"), update(3, 2_200, "ng"),
     ], "last_seq": 3, "ended": "timeout"})));
     fake.pushes.push_back(Ok(json!({"records": [
@@ -563,7 +568,12 @@ fn a_fresh_chats_turn_is_pushed_over_the_link() {
     assert_eq!(answer["reply"], "pong");
     assert_eq!(answer["wait_route"], "link");
     assert_eq!(answer["turn"]["status"], "completed");
-    assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
+    // `prompt_at` is the prompt's own `at`, which the Cloud probe sets against the inference gateway's call line;
+    // `written_at` and `init_at` split the wait before that call (a `system/init` before the prompt is none of it).
+    assert_eq!(
+        answer["turn_ms"],
+        json!({"first_output": 1_100, "end": 2_000, "prompt_at": 1_000, "written_at": 1_020, "init_at": 1_400})
+    );
     // No exec after the send; the second wait starts after the first one's newest seq. The link send found no
     // link here, so the prompt went by exec first (called[0] and [1] are its try).
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
@@ -613,17 +623,59 @@ fn a_link_send_without_wait_is_done_with_no_exec() {
     assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
 }
 
-/// A link that took the prompt and never answered may have delivered it: no second send by exec.
+/// A link that took the prompt and never answered, and an exec read that settles nothing: it may have delivered it,
+/// so no second send by exec.
 #[test]
 fn an_unanswered_link_send_is_not_sent_again() {
-    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    let mut fake =
+        Fake::new(vec![signed_in(), started_with_surface(), exec_out("@@history\nnot json\n")]);
     fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
     fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("timeout".into())));
     let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "pong"])) else {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(error["code"], "chat.send_failed");
-    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+    assert_eq!(fake.ran.len(), 3, "the read, no exec send: {:?}", fake.ran);
+}
+
+/// The link took the prompt and never answered (production 11-28 16:43Z, a link in a resume handshake), and the chat
+/// this run started has a turn: the prompt went in, so the run goes on instead of failing.
+#[test]
+fn an_unanswered_link_send_whose_turn_is_there_was_sent() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[{\"seq\":1,\"status\":\"running\"}]}\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("Timeout".into())));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(answer["send_checked"], "Timeout");
+    assert_eq!(fake.ran.len(), 3, "one read, no second send: {:?}", fake.ran);
+    assert!(fake.ran[2].iter().any(|arg| arg.contains("--until running")), "{:?}", fake.ran[2]);
+}
+
+/// The link took the prompt and never answered, and the chat has no turn: the prompt never reached it, so it goes
+/// by exec once.
+#[test]
+fn an_unanswered_link_send_with_no_turn_goes_by_exec() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n"),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("Timeout".into())));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(answer["link_unsent"], "Timeout");
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
 }
 
 /// A turn that fails writes `turn_error` and no `turn_end` (acpmux `hub/turns.rs`): the pushed wait ends there with
@@ -834,6 +886,14 @@ fn the_answer_names_the_journeys_start_marks() {
         json!({"created": 7_000, "connect": 8_500, "session_start": 9_300, "session_ready": 9_900,
                "send": 10_000, "sent": 15_000, "total": 15_000})
     );
+    // One trace id for the start, and its spans from the same marks (no `running`: `vm_running` ends at the create).
+    let id = answer["trace_id"].as_str().unwrap();
+    assert_eq!(id.len(), 32);
+    assert_eq!(answer["trace"]["trace_id"], id);
+    assert_eq!(
+        answer["trace"]["phases_ms"],
+        json!({"select": 0, "vm_running": 7_000, "session_start": 2_300, "session_ready": 600, "sent": 5_100})
+    );
 }
 
 #[test]
@@ -843,6 +903,7 @@ fn a_failure_carries_the_steps_it_ran() {
         panic!()
     };
     assert_eq!(error["details"]["stages_ms"]["steps"][0]["step"], "cloud list-machines");
+    assert_eq!(error["details"]["trace_id"].as_str().map(str::len), Some(32));
 }
 
 /// A run that made its machine and then failed still names it, so its caller can delete what it
@@ -2951,30 +3012,34 @@ fn make_room_deletes_the_offered_machine_and_starts_again_once() {
 }
 
 /// The offered machine is already gone (deleted in the meantime, or the fault drill's id no machine has): the room is
-/// made all the same, so the start runs again.
+/// made all the same, so the start runs again. Both shapes: the Cloud app's own code, and the app action's `not_found`
+/// that `cloud kill-machine` answers for an id no machine has (app-chat-fault-production `machine_cap`, 2026-11-28
+/// 11:10Z: "could not free vm_drill… to make room: … No Cloud machine has the id vm_drill…").
 #[test]
 fn make_room_whose_offered_machine_is_already_gone_starts_again() {
-    let free = json!({"machine": "vm-gone", "name": "web", "reason": "failed_create"});
-    let gone = Ran {
-        code: 1,
-        stderr:
-            json!({"code": "cloud.machine.not_found", "message": "no such machine in this team"})
-                .to_string(),
-        ..Ran::default()
-    };
-    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
-    let mut fake = Fake::new(vec![
-        three_machines(),
-        held_refusal(free),
-        gone,
-        three_machines(),
-        started(),
-        sent,
-    ]);
-    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
-        panic!("{:?}", fake.ran)
-    };
-    assert_eq!(answer["session_id"], "sess-1");
+    let shapes = [
+        json!({"code": "cloud.machine.not_found", "message": "no such machine in this team"}),
+        json!({"code": "not_found", "message": "No Cloud machine has the id vm-gone.",
+               "data": {"action": "cloudKillMachine", "reason": "No Cloud machine has the id vm-gone."}}),
+    ];
+    for refused in shapes {
+        let free = json!({"machine": "vm-gone", "name": "web", "reason": "failed_create"});
+        let gone = Ran { code: 1, stderr: refused.to_string(), ..Ran::default() };
+        let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+        let mut fake = Fake::new(vec![
+            three_machines(),
+            held_refusal(free),
+            gone,
+            three_machines(),
+            started(),
+            sent,
+        ]);
+        let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
+        else {
+            panic!("{refused}: {:?}", fake.ran)
+        };
+        assert_eq!(answer["session_id"], "sess-1", "{refused}");
+    }
 }
 
 #[test]

@@ -22,7 +22,7 @@ fn cmux_next_frontend_browser_history_is_kept_out_of_the_tree() {
     assert_eq!(mux.frontend_browser_history(browser).unwrap().as_deref(), Some(history));
     // The history never reaches the tree.
     let decorations = mux.tree_decorations();
-    let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+    let tree = mux.with_state(|state| crate::tree_wire::workspaces_json(state, &decorations));
     assert!(!tree.to_string().contains("scroll_y"));
 
     // A PTY tab or an unknown surface has no frontend browser history.
