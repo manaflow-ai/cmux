@@ -690,6 +690,10 @@ impl PeerUpdate {
 }
 
 /// `host update`'s choices for every peer.
+/// `current`'s reason when [`UpdateOptions::same_build_installed`] left a
+/// silent daemon to its unit.
+pub(crate) const SAME_BUILD_SILENT: &str = "sameBuildSilent";
+
 pub(crate) struct UpdateOptions {
     /// Push `<dir>/acpmux-<target>` instead of this binary.
     pub binary_dir: Option<PathBuf>,
@@ -707,6 +711,13 @@ pub(crate) struct UpdateOptions {
     /// Restart a running daemon even inside the host's restart window
     /// (`--now`); without it the host refuses ([`restart_window_check`]).
     pub now: bool,
+    /// The host's installed binary already is the build to push (the
+    /// self-update's `Step::Current`). Unless `now`, a daemon that does not
+    /// answer `daemon status` is then left to its unit (`Restart=always` and
+    /// `WatchdogSec`, [`super::hosts`]): restarting it on the same binary
+    /// fixes nothing, and each restart cuts every carrier circuit on the host
+    /// (cmuxterm-hq#36581: lanes restarted on one sha every ~16 min).
+    pub same_build_installed: bool,
 }
 
 /// The session `host update` runs in: its `ACPMUX_SESSION_ID`, and the
@@ -885,6 +896,16 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         && let Some(why) = older_than_installed(remote, &binary)
     {
         return up.end(Outcome::Current, NEWER_INSTALLED, why);
+    }
+    // The self-update found this binary already installed and the daemon
+    // silent: the unit restarts a dead or silent daemon on its own, so a
+    // restart here only cuts the host's carrier circuits on the same build.
+    if opts.same_build_installed && !opts.now && probe.build.is_none() {
+        let why = format!(
+            "{}'s installed acpmux already is this build and its daemon did not answer: left to its unit, not restarted",
+            remote.host()
+        );
+        return up.end(Outcome::Current, SAME_BUILD_SILENT, why);
     }
     // From here on the peer changes.
     let running = probe.build.as_deref().and_then(build_commit);

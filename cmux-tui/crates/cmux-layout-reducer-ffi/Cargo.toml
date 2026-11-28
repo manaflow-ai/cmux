@@ -17,6 +17,7 @@ crate-type = ["staticlib", "rlib"]
 
 # The Apps tier's Publish button, popover and Apps section (src/apps_tier.rs: `apps_tier_*`).
 cmux-apps = { path = "../cmux-apps" }
+cmux-app-workspace-creation = { path = "../cmux-app-workspace-creation" }
 # Without its `url` feature: the app links no URL parser (cmux-bookmarks-core `validate_url`).
 cmux-bookmarks-core = { path = "../cmux-bookmarks-core" }
 cmux-browser-rules = { path = "../cmux-browser-rules" }

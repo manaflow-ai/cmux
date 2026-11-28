@@ -199,7 +199,12 @@ const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
 const LIVE_VM_RESOURCE_STATUSES = ["provisioning", "running", "paused"] as const;
 
 export type BeginCreateResult =
-  | { readonly inserted: true; readonly vm: CloudVmRow }
+  | {
+    readonly inserted: true;
+    readonly vm: CloudVmRow;
+    /** Live machines in the cap's scope before this row; fleetAdmission alerts at 80% of the limit. */
+    readonly activeBefore?: number;
+  }
   | { readonly inserted: false; readonly vm: CloudVmRow };
 
 export type BeginBaseCreateResult =
@@ -250,6 +255,29 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly billingTeamId: string | null;
     readonly scope: "user" | "team";
     readonly cidr: string;
+  }) => Effect.Effect<number, VmDatabaseError>;
+  /**
+   * The paused share of `countNetworkAddressHolders`: paused rows in the same
+   * scope whose IPv4 lies inside `cidr`, and the oldest such row's last write
+   * (a paused row's last write is about when it paused). A paused provider VM
+   * keeps its address and the provider has no way to detach it, so this is
+   * the reclaimable share the 80% address alert names (cmuxterm-hq#37377).
+   * Read only when admission alerts. Optional; absent reports nothing.
+   */
+  readonly countPausedNetworkAddressHolders?: (input: {
+    readonly provider: ProviderId;
+    readonly userId: string;
+    readonly billingTeamId: string | null;
+    readonly scope: "user" | "team";
+    readonly cidr: string;
+  }) => Effect.Effect<{ readonly paused: number; readonly oldestPausedWriteAt: number | null }, VmDatabaseError>;
+  /**
+   * Live machines (provisioning, running, paused) on one provider across every
+   * owner. Fleet admission (fleetAdmission.ts) reads it only when a fleet cap
+   * is configured. Optional so older test doubles compile; absent admits.
+   */
+  readonly countLiveProviderVms?: (input: {
+    readonly provider: ProviderId;
   }) => Effect.Effect<number, VmDatabaseError>;
   /**
    * Record a create's explicit wait (services/vms/createWait.ts) on its
@@ -1734,6 +1762,34 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return Number(row?.total ?? 0);
     }),
 
+  countPausedNetworkAddressHolders: (input) =>
+    dbEffect("countPausedNetworkAddressHolders", async () => {
+      const scope = input.scope === "team" && input.billingTeamId
+        ? eq(cloudVms.ownerTeamId, input.billingTeamId)
+        : eq(cloudVms.userId, input.userId);
+      const ipv4 = sql`(${cloudVms.providerMetadata} ->> 'networkIpv4')`;
+      const [row] = await cloudDb()
+        .select({ total: count(), oldest: sql<Date | string | null>`min(${cloudVms.updatedAt})` })
+        .from(cloudVms)
+        .where(and(
+          scope,
+          eq(cloudVms.provider, input.provider),
+          eq(cloudVms.status, "paused"),
+          sql`(${ipv4} ~ '^[0-9]{1,3}([.][0-9]{1,3}){3}$' and ${ipv4}::inet <<= ${input.cidr}::inet)`,
+        ));
+      const oldest = row?.oldest ? new Date(row.oldest).getTime() : null;
+      return { paused: Number(row?.total ?? 0), oldestPausedWriteAt: Number.isFinite(oldest) ? oldest : null };
+    }),
+
+  countLiveProviderVms: (input) =>
+    dbEffect("countLiveProviderVms", async () => {
+      const [row] = await cloudDb()
+        .select({ total: count() })
+        .from(cloudVms)
+        .where(and(eq(cloudVms.provider, input.provider), inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES)));
+      return Number(row?.total ?? 0);
+    }),
+
   recordCreateWait: (input) =>
     dbEffect("recordCreateWait", async () => {
       const db = cloudDb();
@@ -2495,7 +2551,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
             await insertRuntimeForVm(tx, vm);
-            return { inserted: true as const, vm };
+            return { inserted: true as const, vm, activeBefore: activeCount };
           });
         } catch (err) {
           if (idempotencyKey && pgErrorCode(err) === "23505") {
