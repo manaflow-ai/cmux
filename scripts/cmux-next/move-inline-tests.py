@@ -113,10 +113,12 @@ def target_name(path, mod):
 
 
 COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
+# `mod x;` declarations (with their attributes) hold no code the crash ratchet reads.
+MOD_DECLS = re.compile(r"^(?:#\[[^\n]*\]\s*)*(?:pub(?:\([^)\n]*\))?\s+)?mod \w+;[ \t]*$", re.M)
 
 
 def only_tests_after(text, end, spans):
-    """True when nothing but whitespace, comments and test blocks follows `end`: crash_ratchet.py scans a file only
+    """True when nothing but whitespace, comments, `mod x;` declarations and test blocks follows `end`: crash_ratchet.py scans a file only
     up to its first inline test module, so moving one with code after it would expose that code to the ratchet."""
     rest, cursor = [], end
     for s, e in spans:
@@ -124,7 +126,7 @@ def only_tests_after(text, end, spans):
             rest.append(text[cursor:s])
             cursor = e
     rest.append(text[cursor:])
-    return COMMENTS.sub("", "".join(rest)).strip() == ""
+    return MOD_DECLS.sub("", COMMENTS.sub("", "".join(rest))).strip() == ""
 
 
 def plan(path, min_bytes):
