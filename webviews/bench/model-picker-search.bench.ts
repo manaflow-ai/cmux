@@ -4,6 +4,8 @@
 // narrows from the last query's rows, so 10x the catalog is not 10x per key). Fails open: when the host is loaded
 // (bench/hostLoad.ts contention factor past 1.5) a miss warns and exits 0.
 // Run: cd webviews && bun bench/model-picker-search.bench.ts
+// The Model picker search area's `run` bench (docs/benches/relevance-map.toml): bench-baselines-nightly.yml records it, and a pull
+// request touching the area or this file compares 3 repeats with that baseline (bench-relevance-pr.yml).
 import { ModelSearchIndex } from "../src/agent-session/acpmux/modelSearch";
 import {
   effortWords,

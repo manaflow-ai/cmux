@@ -74,6 +74,25 @@ def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
     path.chmod(0o755)
 
 
+def write_cmux_binary(path: Path, version_output: str) -> None:
+    """The platform `cmux-tui` binary: its `--version` line, and `autocloud --help` as the real binary prints it.
+
+    The validator checks both (`_require_autocloud`, RFD 0139, #55901), so a fixture that only prints its version
+    fails every npm install contract test.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = autocloud ]; then\n'
+        "  printf '%s\\n' 'An agent chat on any machine, in the terminal (RFD 0139)' '' 'Commands:'"
+        " '  login  Sign in to cmux Cloud'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\\n' '{version_output}'\n"
+    )
+    path.chmod(0o755)
+
+
 def write_relay_launcher_fixture(path: Path) -> None:
     """Write a launcher fixture that resolves and forwards to its platform binary."""
 
@@ -225,7 +244,7 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
         )
         (package / NOTICE).write_text(notice_text("cmux-tui", package_rust_target(name)))
         # What the real binary prints for `--version`: the distribution release.
-        write_executable(
+        write_cmux_binary(
             package / "bin/cmux-tui",
             tui_version_output or f"cmux {VERSION} ({BUILD_COMMIT}; {name})",
         )

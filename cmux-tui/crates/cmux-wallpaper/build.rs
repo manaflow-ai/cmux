@@ -79,7 +79,12 @@ fn scene_file(manifest: &Path) -> Option<String> {
 }
 
 fn main() {
-    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // Read at run time, not with env!(): fleet Macs share one cargo target folder across checkouts, so a build
+    // script compiled for another (since deleted) tree would otherwise look for wallpapers/ there (cmux25, step
+    // 6f3eb2bc: "wallpapers/scene-engine/engine.wgsl: missing").
+    let here = std::env::var("CARGO_MANIFEST_DIR")
+        .unwrap_or_else(|_| fail("CARGO_MANIFEST_DIR is not set"));
+    let here = Path::new(&here);
     let root = here.join("wallpapers");
     println!("cargo:rerun-if-changed={}", root.display());
     for f in ["src/program.rs", "src/prelude.wgsl", "src/scene_prelude.wgsl", "src/epilogue.wgsl"] {
