@@ -31,6 +31,10 @@ use super::transfer_out::{
 use super::*;
 use cmux_json::JsonSet as _;
 
+/// What a start here would lack of the env a move asks about (RFD 0181 B7).
+#[path = "transfer_env_ask.rs"]
+mod env_ask;
+
 /// Held by a receive, a finish and a forget, so a forget either sees the move landed or drops its
 /// receive before the finish reads it, and no receive of it starts after.
 static RECEIVES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

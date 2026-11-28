@@ -47,7 +47,7 @@ impl Hub {
         };
         let (profile, defaults) = {
             let cfg = self.config.read().await;
-            match super::resolve::session_profile(&cfg, harness, &meta.cwd, false) {
+            match crate::hub::resolve::session_profile(&cfg, harness, &meta.cwd, false) {
                 Ok(profile) => (profile, cfg.defaults_for(harness)),
                 Err(_) => return Vec::new(),
             }

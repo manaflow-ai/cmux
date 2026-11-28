@@ -480,7 +480,6 @@ mod transcript_seq_tests;
 mod transfer;
 mod transfer_agent_files;
 mod transfer_authority;
-mod transfer_env_ask;
 mod transfer_guard;
 mod transfer_hub_precopy;
 mod transfer_in;
