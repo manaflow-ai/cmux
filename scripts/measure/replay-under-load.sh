@@ -9,6 +9,12 @@
 #
 #   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
 #     [--painter react|dom-floor|worker]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts)
+#     [--load-qos default|utility|background]
+#
+# --load-qos runs the load (and only the load: never the app, Chromium or the bench) in a lower scheduling class, to
+# ask whether the pane's frames are slow from the work itself or from sharing the CPUs with batch work at one priority.
+# background: SCHED_IDLE on Linux (chrt --idle 0), `taskpolicy -b` on macOS; utility: nice 10 on Linux,
+# `taskpolicy -c utility` on macOS. default (no flag) changes nothing. The reading records it as load_qos.
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
@@ -21,6 +27,7 @@ set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
 out="$root/artifacts/replay-under-load/reading.json"
 cores=""
+load_qos=default
 profile=0
 trace=""
 bench_args=()
@@ -28,16 +35,21 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
+    --load-qos) load_qos="$2"; shift 2 ;;
     --seconds|--rate|--log|--warm|--painter) bench_args+=("$1" "$2"); shift 2 ;;
     --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
     --profile) bench_args+=("$1"); profile=1; shift ;;
-    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM]" >&2; exit 2 ;;
+    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM] [--load-qos CLASS]" >&2; exit 2 ;;
   esac
 done
+case "$load_qos" in
+  default|utility|background) ;;
+  *) echo "replay-under-load.sh: --load-qos takes default, utility or background" >&2; exit 2 ;;
+esac
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then
   [[ "$cores" =~ ^[1-9][0-9]*$ ]] || { echo "replay-under-load.sh: --cores takes a positive count" >&2; exit 2; }
   export REPLAY_UNDER_LOAD_PINNED=1
-  exec taskset -c "0-$((cores - 1))" "$0" --out "$out" ${bench_args[@]+"${bench_args[@]}"}
+  exec taskset -c "0-$((cores - 1))" "$0" --out "$out" --load-qos "$load_qos" ${bench_args[@]+"${bench_args[@]}"}
 fi
 # One run at a time per machine: two runs on the same CPUs load each other (2x the stress workers, two Chromiums), so
 # each reads the other's load as its own (2026-11-27: two A/B copies overlapped on CPUs 0-7 and read load_per_core
@@ -77,13 +89,24 @@ cd "$root/webviews" || exit 1
 # so a kept node_modules (the timer's every run after the first) builds without them. Write them every run.
 bun scripts/pages/gen-strings.mjs >"$work/strings.log" 2>&1 || { tail -20 "$work/strings.log" >&2; exit 1; }
 
+# The class the load runs in (--load-qos); empty for default.
+load_wrap=()
+if [ "$load_qos" != default ]; then
+  if [ "$(uname -s)" = Darwin ]; then
+    if [ "$load_qos" = background ]; then load_wrap=(taskpolicy -b); else load_wrap=(taskpolicy -c utility); fi
+  elif [ "$load_qos" = background ]; then
+    load_wrap=(chrt --idle 0)
+  else
+    load_wrap=(nice -n 10)
+  fi
+fi
 # The load first, by PID (this script started it; cleanup stops only it), and enough of it to be running before the
 # replay's warm-up ends.
 if [ "$load_tool" = stress-ng ]; then
-  stress-ng --cpu "$stressors" --cpu-method matrixprod --timeout 900s --quiet >"$work/stress.log" 2>&1 &
+  ${load_wrap[@]+"${load_wrap[@]}"} stress-ng --cpu "$stressors" --cpu-method matrixprod --timeout 900s --quiet >"$work/stress.log" 2>&1 &
 else
   # One parent for every loop: cleanup's kill of this PID makes it stop its own jobs and nothing else.
-  bash -c 'trap "kill \$(jobs -p) 2>/dev/null; exit 0" TERM INT
+  ${load_wrap[@]+"${load_wrap[@]}"} bash -c 'trap "kill \$(jobs -p) 2>/dev/null; exit 0" TERM INT
     for _ in $(seq "$1"); do (while :; do :; done) & done
     sleep 900 & wait $!; kill $(jobs -p) 2>/dev/null' _ "$stressors" \
     >"$work/stress.log" 2>&1 &
@@ -132,9 +155,9 @@ else
   grep -v -F '[BABEL] Note:' "$work/bench.log" | tail -3
 fi
 python3 -I - "$work" "$out" "$n" "$stressors" "$load1" "$status" "$(git rev-parse HEAD)" "$(hostname -s)" \
-  "${REPLAY_UNDER_LOAD_PINNED:+pinned}" "$load_tool" <<'PY'
+  "${REPLAY_UNDER_LOAD_PINNED:+pinned}" "$load_tool" "$load_qos" <<'PY'
 import datetime, json, os, sys
-work, out, n, stressors, load1, status, commit, host, pinned, load_tool = sys.argv[1:11]
+work, out, n, stressors, load1, status, commit, host, pinned, load_tool, load_qos = sys.argv[1:12]
 n, stressors, load1 = int(n), int(stressors), float(load1)
 try:
     bench = json.load(open(os.path.join(work, "bench.json")))
@@ -156,12 +179,12 @@ except (OSError, ValueError):
 # On the whole machine the load average is the reading; on a --cores slice, the run's runnable threads over its CPUs.
 per_core = (sum(samples) / len(samples) / n) if (pinned and samples) else load1 / n
 doc = {**bench, "schema": "perf-vm-replay/v1", "bench_schema": bench.get("schema"), "host": host, "commit": commit,
-       "cores": n, "stressors": stressors, "load_tool": load_tool, "load_1m": load1, "load_per_core": round(per_core, 2),
+       "cores": n, "stressors": stressors, "load_tool": load_tool, "load_qos": load_qos, "load_1m": load1, "load_per_core": round(per_core, 2),
        "load_basis": "runnable threads on the run's CPUs" if pinned else "/proc/loadavg over nproc",
        "at": bench.get("at") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 if status != "0" and "error" not in doc:
     doc["error"] = "the bench exited nonzero"
 json.dump(doc, open(out, "w"), indent=1)
-print(json.dumps({k: doc.get(k) for k in ("frame_p95_ms", "renderer_main_busy_pct", "load_per_core", "cores", "error")}))
+print(json.dumps({k: doc.get(k) for k in ("frame_p95_ms", "renderer_main_busy_pct", "load_per_core", "load_qos", "cores", "error")}))
 PY
 exit "$status"
