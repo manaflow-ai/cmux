@@ -80,6 +80,7 @@ dependencies = [
  "cmux-session-pack",
  "cmux-share-approval",
  "cmux-signed-bundle",
+ "cmux-signed-envelope",
  "cmux-source-scan",
  "cmux-stack-auth",
  "cmux-supervise-core",

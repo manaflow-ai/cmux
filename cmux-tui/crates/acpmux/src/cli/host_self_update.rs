@@ -61,6 +61,12 @@ use rd::{RdOutcome, RdPaths};
 #[path = "host_self_update_tui.rs"]
 pub(super) mod tui;
 
+#[path = "host_self_update_ring.rs"]
+pub(crate) mod ring_tick;
+
+#[path = "host_self_update_bundle.rs"]
+pub(crate) mod bundle_tick;
+
 #[path = "host_update_watch.rs"]
 pub(super) mod watch;
 use tui::{TuiOutcome, TuiSource};
@@ -1149,6 +1155,47 @@ pub(crate) async fn self_update(
             eprintln!("acpmux: fast-patch refused: {why}");
         }
     };
+    // The signed config ring first: flags move even when the build does not (RFD 0224 hot
+    // patches). Fetching it never fails the update; only its signed hold flag holds it.
+    let ring_now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let ring_keys = cmux_signed_envelope::config_ring::trusted_keys();
+    let ring = ring_tick::tick(&paths.home, &R2_FETCH, &ring_keys, channel, ring_now).await;
+    if !json_out && let Some(line) = ring.line(channel) {
+        eprintln!("acpmux: {line}");
+    }
+    // The ring's kill switch holds the timer's run; a run asked for by hand still updates.
+    if !now && let Some(why) = ring_tick::hold(&paths.home, channel, ring_now) {
+        refuse(run, &why);
+        return skipped(channel, "held", &why, None, json_out);
+    }
+    // The channel's signed patch bundle for this build, kept only while the daemon answers
+    // (RFD 0224 phase 5); held by the same kill switch. It never fails the update; `--json`
+    // carries it as `patchBundle`.
+    let base = installed_build(&paths.installed);
+    let bundle_state = bundle_tick::state(&paths.home, paths.target);
+    let installed = paths.installed.clone();
+    let bundle = bundle_tick::tick(
+        &paths.home,
+        &R2_FETCH,
+        &ring_keys,
+        channel,
+        paths.target,
+        base.as_deref().and_then(build_commit),
+        ring_now,
+        &mut || {
+            bundle_tick::daemon_probe(
+                &installed,
+                &bundle_state,
+                cmux_signed_envelope::patch_bundle::HEALTH_BOUND,
+            )
+        },
+    )
+    .await;
+    if !json_out && let Some(line) = bundle.line() {
+        eprintln!("acpmux: {line}");
+    }
     let controller =
         Controller::configured().map(|url| Controller { url, fetch: &CONTROLLER_FETCH });
     let prepared = match prepare(&paths, &R2_FETCH, controller.as_ref(), channel).await {
@@ -1231,6 +1278,8 @@ pub(crate) async fn self_update(
             "updated": [up.to_json(&name, LocalRemote.host())],
             "cmuxRd": plan.rd.json(),
             "cmuxTui": tui.json(),
+            "configRing": ring.json(channel),
+            "patchBundle": bundle.json(),
         }));
     } else {
         if up.outcome.failed() {

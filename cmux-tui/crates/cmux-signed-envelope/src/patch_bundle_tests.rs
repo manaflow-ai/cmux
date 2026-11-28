@@ -192,6 +192,9 @@ fn refuses_other_targets_builds_expiry_and_hashes() {
     let ok = envelope(&pair, &payload("fix-1", vec![file("a.js", b"x")]));
     assert!(verify(&ok, &keys, "cmux-tui", BASE, NOW).unwrap_err().contains("is for"));
     assert!(verify(&ok, &keys, "acpmux", "0000", NOW).unwrap_err().contains("applies onto"));
+    // A build id's short commit is the same base; too short a prefix is none.
+    assert!(verify(&ok, &keys, "acpmux", &BASE[..9], NOW).is_ok());
+    assert!(verify(&ok, &keys, "acpmux", &BASE[..4], NOW).unwrap_err().contains("applies onto"));
     assert!(verify(&ok, &keys, "acpmux", BASE, NOW + 3600).unwrap_err().contains("expired"));
     let mut tampered = payload("fix-1", vec![file("a.js", b"x")]);
     tampered["files"][0]["sha256"] = json!(hex(&Sha256::digest(b"y")));

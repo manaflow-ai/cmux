@@ -132,7 +132,8 @@ pub fn verify(
     if payload.target != target {
         return Err(format!("the bundle is for {:?}, not {target:?}", payload.target));
     }
-    if payload.base != base {
+    // `base` is the host's build commit, which a build id may carry short (`41994452b`).
+    if base.len() < 7 || !payload.base.starts_with(base) {
         return Err(format!(
             "the bundle applies onto {:?}, and this is {base:?}: a full update is next",
             payload.base
