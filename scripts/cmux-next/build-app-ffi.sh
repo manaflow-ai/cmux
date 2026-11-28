@@ -72,6 +72,7 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-acpmux-remote-wire/include/cmux_acpmux_remote_wire.h:CCmuxAcpmuxRemoteWireFFI"
             "$crates/cmux-screenshots/include/cmux_screenshots.h:CCmuxScreenshotsFFI"
             "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
+            "$crates/cmux-native-transcript/include/cmux_native_transcript.h:CCmuxNativeTranscriptFFI"
             "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI"
             "$crates/cmux-update-prewarm-core/include/cmux_update_prewarm.h:CCmuxUpdatePrewarmFFI"
             "$crates/cmux-url-input/include/cmux_url_input.h:CCmuxURLInputFFI")
