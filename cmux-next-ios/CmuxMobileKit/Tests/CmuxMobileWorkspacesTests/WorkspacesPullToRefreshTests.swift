@@ -10,8 +10,14 @@ import UIKit
 /// the navigation bar behind a collapsible search drawer, where it fights the
 /// field: drawn behind it while pulled, then the field jumps 60 pt down and
 /// back up. The refresh must stay in the list.
+///
+/// Serialized: each test puts a key window on screen and waits on real display
+/// frames for its slot to open and close. Run side by side they share the main
+/// run loop and the key window, so one test's frames wait on another's; in the
+/// full kit run (4,000+ tests, about 38 min) the close missed its wait with the
+/// slot still open (cmux post-merge batch 46181076635).
 @MainActor
-@Suite struct WorkspacesPullToRefreshTests {
+@Suite(.serialized) struct WorkspacesPullToRefreshTests {
     /// A refresh that runs until the test lets it finish.
     @MainActor
     final class Gate {
@@ -65,9 +71,11 @@ import UIKit
         return Host(window: window, navigation: navigation, list: list, view: view)
     }
 
-    /// Yields to the main run loop (its display link draws the frames) until `done`, for at most 3 s.
+    /// Yields to the main run loop (its display link draws the frames) until `done`, for at most 10 s.
+    /// A passing wait returns within the spring's duration; the bound only matters when a simulator
+    /// shared with the rest of the kit run delivers frames slowly.
     private func frames(until done: () -> Bool) async {
-        let deadline = CACurrentMediaTime() + 3
+        let deadline = CACurrentMediaTime() + 10
         while !done(), CACurrentMediaTime() < deadline { await Task.yield() }
     }
 
@@ -101,7 +109,12 @@ import UIKit
         _ = host.view.accessibilityScroll(.up)
         gate.finish()
         await frames { host.view.contentInset.top == top }
-        #expect(host.view.contentInset.top == top)
+        #expect(host.view.contentInset.top == top,
+                """
+                the slot stayed open after the refresh ended: dragging \(host.view.isDragging), \
+                decelerating \(host.view.isDecelerating), offset \(host.view.contentOffset.y), \
+                adjusted top \(host.view.adjustedContentInset.top), window \(host.view.window != nil)
+                """)
         #expect(host.view.contentOffset.y == -host.view.adjustedContentInset.top)
         #expect(gate.started == 1)
         host.window.isHidden = true
