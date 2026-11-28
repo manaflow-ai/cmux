@@ -597,7 +597,15 @@ public final class SettingsModels {
         guard line.isPerson, let reply = await line.call(method.rawValue, request) else {
             throw PageError.unavailable("the local acpmux could not check model access")
         }
-        return try JSONValue.parse(JSONSerialization.data(withJSONObject: reply))
+        return try await Self.routeTestJSON(RouteTestReply(value: reply))
+    }
+
+    /// The route-test reply as acpmux sent it, handed to ``routeTestJSON(_:)`` and read only there.
+    nonisolated private struct RouteTestReply: @unchecked Sendable { let value: [String: Any] }
+
+    /// Serializes and parses the reply off the main actor.
+    @concurrent nonisolated private static func routeTestJSON(_ reply: RouteTestReply) async throws -> JSONValue {
+        try JSONValue.parse(JSONSerialization.data(withJSONObject: reply.value))
     }
 
     func requireDaemonEnvironment() async throws -> AcpmuxEnvironment { try await requireDaemon() }

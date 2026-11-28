@@ -217,7 +217,7 @@ impl HubCarrier {
         tracing::info!(
             daemon,
             ?path,
-            "hub carrier: a kept circuit from before did not open; trying again: {why}"
+            "hub carrier: a kept circuit from before did not open; it reopens on its backoff: {why}"
         );
         false
     }

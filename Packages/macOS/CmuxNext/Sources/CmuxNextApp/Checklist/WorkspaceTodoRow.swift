@@ -32,8 +32,7 @@ struct WorkspaceTodoRow: View {
                     .foregroundStyle(item.state == .done ? Color.secondary : Color.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    // bridge-ok: runs once per click (a gesture handler), not per frame or per row render
-                    .onTapGesture(count: 2) { actions.beginEdit(item.id) }
+                    .onTapGesture(count: 2) { actions.beginEdit(item.id) } // bridge-ok: once per click, not per frame
             }
             if !item.attachments.isEmpty {
                 Label { Text(verbatim: "\(item.attachments.count)") } icon: { Image(systemName: "photo") }
@@ -52,8 +51,7 @@ struct WorkspaceTodoRow: View {
             } else {
                 Button(WorkspaceChecklistStrings.complete) { actions.setState(item.id, .done) }
             }
-            // bridge-ok: runs once per click (a gesture handler), not per frame or per row render
-            Button(WorkspaceChecklistStrings.edit) { actions.beginEdit(item.id) }
+            Button(WorkspaceChecklistStrings.edit) { actions.beginEdit(item.id) } // bridge-ok: once per click, not per frame
             Button(WorkspaceChecklistStrings.attachImages) { actions.attachImages(item.id) }
             Divider()
             Button(WorkspaceChecklistStrings.remove, role: .destructive) { actions.remove(item.id) }

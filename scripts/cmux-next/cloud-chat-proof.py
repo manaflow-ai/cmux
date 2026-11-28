@@ -672,7 +672,7 @@ def validate_credentials_file(path_text: str) -> str:
 # Every app subsystem line, for a launch that never answered: the link categories alone say nothing about a
 # startup that died before sign-in (runs 46147479576, 46111167228: the DEV app's socket never came up, and
 # `open -W` returned 0, so the app had already exited).
-APP_LOG_PREDICATE = 'subsystem BEGINSWITH "com.cmuxterm.app"'
+APP_LOG_PREDICATE = 'subsystem BEGINSWITH "com.cmuxterm.app."'
 CRASH_DIRS = (Path.home() / "Library" / "Logs" / "DiagnosticReports", Path("/Library/Logs/DiagnosticReports"))
 
 

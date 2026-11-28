@@ -58,6 +58,10 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+CloudConnections.swift": {
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxVersionHandoff.swift": {
+  "JSON / property-list encode": 1,
+  "synchronous file write or file-system change": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPageTerminations.swift": {
   "JSON / property-list encode": 1,
   "JSON encode with sorted keys": 1
@@ -144,9 +148,6 @@
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+QuestionKeys.swift": {
-  "JSON / property-list decode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+RelayedAllow.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+Trust.swift": {
@@ -262,9 +263,6 @@
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Updates.swift": {
-  "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+VMAgentKey.swift": {
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift": {
@@ -545,6 +543,9 @@
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineWire.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudAutoSignals.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceFlows.swift": {

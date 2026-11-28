@@ -13507,126 +13507,126 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This connection is offline. Try again when you are connected."
+            "value": "This connection is offline."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "هذا الاتصال غير متصل. حاول مرة أخرى بعد الاتصال."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Veza nije na mreži. Pokušajte ponovo kada se povežete."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Forbindelsen er offline. Prøv igen, når du er online."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Die Verbindung ist offline. Versuche es erneut, sobald du online bist."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "La conexión está sin conexión. Vuelve a intentarlo cuando tengas acceso a la red."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "La connexion est hors ligne. Réessayez lorsque vous serez en ligne."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "La connessione è offline. Riprova quando sei online."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "接続はオフラインです。ネットワークにつないでからやり直してください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ការតភ្ជាប់នេះនៅក្រៅបណ្តាញ។ សូមព្យាយាមម្តងទៀតពេលមានអ៊ីនធឺណិត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "연결이 오프라인입니다. 온라인 상태에서 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Tilkoblingen er frakoblet. Prøv igjen når du er på nett."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Połączenie jest offline. Spróbuj ponownie po połączeniu z siecią."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "A conexão está offline. Tente novamente quando estiver online."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Подключение недоступно без сети. Повторите попытку, когда появится связь."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "การเชื่อมต่อนี้ออฟไลน์ ลองอีกครั้งเมื่อเชื่อมต่อเครือข่ายแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Bu bağlantı çevrimdışı. Bağlandığınızda tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Підключення поза мережею. Спробуйте ще раз, коли будете онлайн."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Kết nối này đang ngoại tuyến. Hãy thử lại khi đã kết nối mạng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "此连接处于离线状态。联网后请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "此連線處於離線狀態。連上網路後請再試一次。"
           }
         }

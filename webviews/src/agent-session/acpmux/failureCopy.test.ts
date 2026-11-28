@@ -59,7 +59,7 @@ test("the gateway's own deadline before calling the model is not a rate limit", 
     "API Error: 503 subrouter gateway had no response within 1m0s (before the upstream call); retry. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check your inference gateway (127.0.0.1:58741).";
   expect(failureKind(stalled, sr2)).toBe("gateway-stalled");
   expect(failureCopy(t, stalled, sr2)).toBe(
-    "Claude Code (sr2 internal)'s gateway timed out after 1m0s before reaching the model, not a rate limit: try again, or switch model.",
+    "Claude Code (sr2 internal)'s gateway timed out after 1m0s, before reaching the model: not a rate limit. Try again or switch model.",
   );
   expect(failureRecovery("gateway-stalled")).toBe("retry");
   const upstream =

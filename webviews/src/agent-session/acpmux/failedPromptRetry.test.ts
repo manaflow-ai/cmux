@@ -172,9 +172,7 @@ test("a Claude login switch that is waiting on work gives the send its own retry
   try {
     await pane.client.send("ship it").catch(() => undefined);
     const row = pane.rows().find((row) => row.kind === "user" && row.text === "ship it");
-    expect(row?.error).toBe(
-      "This chat is moving to this machine's Claude sign-in. Send again when its background work ends.",
-    );
+    expect(row?.error).toBe("Claude sign-in is switching here. Send again when it's done.");
   } finally {
     pane.client.close?.();
   }

@@ -56,6 +56,7 @@ pub fn is_account_limit(message: &str) -> bool {
 pub fn retry_after(message: &str) -> Option<Duration> {
     let lower = message.to_ascii_lowercase();
     [
+        // retry-prompt-ok: patterns this parser matches in upstream text, never shown to a person.
         "retry after ",
         "retry-after: ",
         "retry-after ",
