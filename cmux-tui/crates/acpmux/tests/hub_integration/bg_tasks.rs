@@ -906,12 +906,11 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     }
 }
 
-/// The task ends chat `id` took: as a turn's message, or held by the surge rate in its inbox.
+/// The task ends chat `id` took: as a turn's message, or held in its inbox, by the surge rate or,
+/// once the chat ran a turn, as its own exit-0 end (`bg_notify.rs` `OWN_END_HOLD_MS`, #59782).
 fn reached(hub: &Hub, id: &str) -> Vec<String> {
     let events = hub.events(id, 0, 10_000).unwrap();
-    let held = |e: &&acpmux::store::EventRecord| {
-        e.kind == "inbox" && e.msg["surgeHeld"].as_bool() == Some(true)
-    };
+    let held = |e: &&acpmux::store::EventRecord| e.kind == "inbox";
     events
         .iter()
         .filter(|e| e.kind == "user_message" || held(e))
