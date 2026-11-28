@@ -590,3 +590,37 @@ fn hub_call_view_says_what_an_answer_did() {
     assert_eq!(outcome(json!({"status": "approval_required"})), (None, None));
     assert_eq!(outcome(json!({"status": "running"})), (None, None));
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the bearer rides only in `Authorization`, the
+/// linked Stripe key only in the link body, and the team only in the query.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::hub`.
+#[tokio::test]
+async fn seeded_secrets_ride_only_where_the_hub_needs_them() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDhubCliBearer-5e21";
+    let team = "SEEDhubCliTeam-9a07";
+    let key = "rk_live_SEEDhubCliStripeKey-c4d3";
+    let common = Common {
+        platform: Some(cmux_cloud_environment::PRODUCTION_PLATFORM.to_owned()),
+        team: Some(team.to_owned()),
+        token: TokenSource::Command(format!("printf %s {token}")),
+    };
+    let link = Verb::Link { provider: "stripe".into(), sharing: None, policy: None };
+    let _ = run(&common, &link, Some(Zeroizing::new(key.to_owned()))).await;
+    let _ = run(&common, &Verb::Connections, None).await;
+    let sent = cmux_egress::capture::requests_to("cmux-platform-production.debussy.workers.dev");
+    assert!(
+        sent.iter().filter(|r| r.target.starts_with("/v1/hub/connections")).count() >= 2,
+        "{sent:?}"
+    );
+    let places = cmux_egress::capture::leaks(token);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(key);
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].contains("POST /v1/hub/connections") && places[0].ends_with(": body"));
+    let places = cmux_egress::capture::leaks(team);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": target")), "{places:?}");
+}
