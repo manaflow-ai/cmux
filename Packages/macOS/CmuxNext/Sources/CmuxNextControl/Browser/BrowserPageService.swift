@@ -260,7 +260,10 @@ public struct BrowserPageService: Sendable {
             found = tab
         }
         guard found.kind == "browser" else {
-            throw ControlError(code: "invalid_params", message: ControlStrings.format("control.error.pageTabNotAppBrowser", "Tab %@ is not a browser tab of this app", found.id))
+            // `data` names the tab and its kind; the CLI points a chat tab (`conversation`) at
+            // `cmux app chat page`, which reads its page read-only (AgentChatPageControl).
+            throw ControlError(code: "invalid_params", message: ControlStrings.format("control.error.pageTabNotAppBrowser", "Tab %@ is not a browser tab of this app", found.id),
+                               data: ["tab": .string(found.id), "kind": .string(found.kind)])
         }
         return Tab(id: found.id, url: found.url, browserProfileID: found.browserProfileID)
     }

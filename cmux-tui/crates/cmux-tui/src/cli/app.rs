@@ -36,6 +36,7 @@ mod agent_open;
 mod batch;
 mod call;
 mod chat_memory;
+mod chat_page;
 mod chat_perf;
 mod classic;
 mod events;
@@ -218,6 +219,8 @@ pub(super) enum AppCommand {
         params: Value,
         seconds: u64,
     },
+    /// `app chat page`: `agent.chat.page.*`, a chat page's elements, styles or masked picture (app/chat_page.rs).
+    ChatPage(chat_page::Request),
     /// `app chat memory`: `agent.chat.memory` pids, read here (app/chat_memory.rs).
     ChatMemory {
         empty: Value,
@@ -386,6 +389,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("web-cas")) => web_cas::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
+        }
+        ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "page") => {
+            chat_page::parse(rest)?
         }
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "memory") => {
             chat_memory::parse(rest)?
@@ -1139,6 +1145,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
+        AppCommand::ChatPage(request) => return Ran::Done(chat_page::run(global, stream, request)),
         AppCommand::ChatMemory { empty } => {
             return Ran::Done(chat_memory::run(global, stream, &empty));
         }
@@ -1297,6 +1304,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 skew::annotate(stream, method, &mut error);
             }
             settings::explain_refusal(method, &params, &mut error);
+            chat_page::explain_chat_tab(method, &mut error);
             if refused_before_running(&error) {
                 report.succeeded();
             } else {
