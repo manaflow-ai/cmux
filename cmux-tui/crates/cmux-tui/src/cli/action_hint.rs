@@ -56,6 +56,53 @@ pub(super) fn action_takes_argument(action: &str, argument: &str) -> bool {
     .is_some_and(|names| names.iter().any(|name| name == argument))
 }
 
+/// `cmux <noun> <verb> VALUE…` for an offered app action: the action's CLI name
+/// and its flags, each VALUE given as `--<argument> VALUE` for the action's
+/// required arguments in order (`apps install REF` is `apps install --app REF`).
+/// The app resolves CLI names exactly and takes arguments only by name, so a
+/// positional REF read as part of the name ("No CLI command 'apps install
+/// REF'"); `cmux setup install`'s extension step, `ext dev` and `ext share`
+/// all ran it that way (ask-b6bc62ad66). `None` when no leading run of
+/// `words` is an offered CLI name, or more values follow than it requires.
+pub(super) fn positional_action(words: &[String]) -> Option<(String, Vec<String>)> {
+    if offered_app_action(&words.join(" ")) {
+        return None;
+    }
+    (1..words.len()).rev().find_map(|n| {
+        let name = words[..n].join(" ");
+        if !offered_app_action(&name) {
+            return None;
+        }
+        let required = required_arguments(&name);
+        let values = &words[n..];
+        if values.len() > required.len() {
+            return None;
+        }
+        let flags = required
+            .iter()
+            .zip(values)
+            .flat_map(|(argument, value)| [format!("--{argument}"), value.clone()])
+            .collect();
+        Some((name, flags))
+    })
+}
+
+/// The required argument names of the offered action with CLI name `name`, in schema order.
+fn required_arguments(name: &str) -> Vec<String> {
+    let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
+    doc.get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|action| action.get("cli_name").and_then(Value::as_str) == Some(name))
+        .and_then(|action| action.get("args").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .filter(|arg| arg.get("required").and_then(Value::as_bool) == Some(true))
+        .filter_map(|arg| arg.get("name").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+}
+
 /// Whether the catalog has an app action that the CLI offers as `cmux <name>`.
 pub(super) fn offered_app_action(name: &str) -> bool {
     static OFFERED: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
@@ -116,4 +163,35 @@ pub(super) fn builtin_first_word(word: &str) -> bool {
             words
         })
         .contains(word)
+}
+
+#[cfg(test)]
+mod positional_tests {
+    use super::positional_action;
+
+    fn words(text: &str) -> Vec<String> {
+        text.split(' ').map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_positional_value_is_the_actions_required_argument() {
+        // `cmux setup install`'s extension step runs `cmux apps install REF`.
+        let (name, flags) =
+            positional_action(&words("apps install github.com/manaflow-ai/cmux-extension-sample"))
+                .expect("apps install REF");
+        assert_eq!(name, "apps install");
+        assert_eq!(flags, ["--app", "github.com/manaflow-ai/cmux-extension-sample"]);
+        assert_eq!(
+            positional_action(&words("apps remove acme/tool")),
+            Some(("apps remove".to_owned(), vec!["--app".to_owned(), "acme/tool".to_owned()]))
+        );
+    }
+
+    #[test]
+    fn exact_names_extra_values_and_unknown_words_are_left_alone() {
+        assert_eq!(positional_action(&words("apps install")), None);
+        assert_eq!(positional_action(&words("apps remove a b")), None);
+        assert_eq!(positional_action(&words("workspace frobnicate")), None);
+        assert_eq!(positional_action(&words("frobnicate install x")), None);
+    }
 }

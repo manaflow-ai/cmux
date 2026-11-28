@@ -84,6 +84,11 @@ export interface CreateVmSpec {
     /** A resumed creation's retained request digest (its probe's `request`): what its VM carries as `cmux_create`. */
     readonly request: string | null;
     readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
+    /**
+     * Fails as beginSend would refuse now (a send under this key still in flight or of unknown outcome, a cancelled or
+     * finished creation), writing nothing. Run before a provider create slot is taken, so such a retry holds none.
+     */
+    readonly checkSend: () => Effect.Effect<void, UpstreamError>;
     readonly beginSend: () => Effect.Effect<string, UpstreamError>;
     readonly rejected: (token: string) => Effect.Effect<void, UpstreamError>;
     readonly active: Effect.Effect<void, UpstreamError>;
