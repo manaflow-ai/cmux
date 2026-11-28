@@ -598,10 +598,10 @@ pub fn tool_dir(tools: &[&str]) -> PathBuf {
 /// scratch folder.
 #[cfg(unix)]
 fn host_tool(name: &str) -> PathBuf {
-    if name == "python3" {
-        if let Some(python) = std::env::var_os(PYTHON) {
-            return PathBuf::from(python);
-        }
+    if name == "python3"
+        && let Some(python) = std::env::var_os(PYTHON)
+    {
+        return PathBuf::from(python);
     }
     if let Some(tool) = std::env::var_os(tool_var(name)) {
         return PathBuf::from(tool);

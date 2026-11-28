@@ -130,7 +130,7 @@ fn chat_with_turns(total: u64) -> (tempfile::TempDir, PathBuf, LocalStore) {
 }
 
 fn turn_record(seq: u64) -> EventRecord {
-    if seq % 50 == 0 {
+    if seq.is_multiple_of(50) {
         EventRecord {
             seq,
             at: seq,

@@ -425,7 +425,7 @@ def cycle(cfg: dict, state: Path, builder: Builder, rels: list[str], saved_at: f
         result = swap(app, built, cfg.get("gpu", False))
         t.update(result.pop("seconds"))
         entry["respawn"] = result
-        live_frames.built("chromium")  # the pages reloaded on the new engine: the chat's frame shows it
+        live_frames.built("chromium", tree=cfg.get("tree"))  # the pages reloaded on the new engine: the chat's frame shows it
     t["save_to_reloaded"] = time.time() - saved_at
     entry["seconds"] = {k: round(v, 3) for k, v in t.items()}
     record(state, entry)
@@ -546,6 +546,7 @@ def start_locked(args, state: Path) -> dict:
     edits.mkdir(parents=True, exist_ok=True)
     cfg = {"build_host": args.build_host, "src": args.src, "out": args.out, "target": args.target,
            "binary_rel": args.binary_rel, "edits": str(edits), "app": str(app), "gpu": args.gpu,
+           "tree": str(tree),
            "session": hashlib.sha256(f"{tree}:{time.time()}".encode()).hexdigest()[:12]}
     (state / "config.json").write_text(json.dumps(cfg, indent=2) + "\n")
     (state / "stop").unlink(missing_ok=True)

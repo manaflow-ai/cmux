@@ -168,7 +168,7 @@ impl Hub {
         }
         tracing::warn!(session = %session.id, expired = expired.len(), why, "inbox messages expired past their deadline");
         for (from, items) in by_sender {
-            self.inbox_bounce(&from, &receiver, why, grace, &items);
+            self.inbox_bounce(&from, receiver, why, grace, &items);
         }
         expired.len()
     }

@@ -112,6 +112,8 @@ pub(crate) fn enabled() -> bool {
 
 /// Whether the feature is on for `doc` and the daemon's switch value `env`, uncached: the
 /// harness-magic stamp's reading (`hub/harness_magic.rs`), so the scorecard can split turns by it.
+// Its reader, the harness-magic stamp, is not wired yet; kept for it, not deleted.
+#[allow(dead_code)]
 pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
     if env_off(env) {
         return false;

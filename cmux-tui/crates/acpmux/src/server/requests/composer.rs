@@ -108,10 +108,10 @@ pub(super) async fn handle(
                 object.insert("held".to_owned(), json!(held));
             }
         }
-        if let Some(text) = text {
-            if let Some(object) = answer.as_object_mut() {
-                object.insert("draft".to_owned(), json!(hub.set_composer_draft(&s, text)?));
-            }
+        if let Some(text) = text
+            && let Some(object) = answer.as_object_mut()
+        {
+            object.insert("draft".to_owned(), json!(hub.set_composer_draft(&s, text)?));
         }
         return Ok(answer);
     }

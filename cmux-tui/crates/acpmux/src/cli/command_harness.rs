@@ -4,6 +4,8 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+// Parsed once per command line; boxing a variant would only reshape clap's derive.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 pub enum HarnessCmd {
     /// Install a coding agent's CLI through its vendor's own installer (claude: Claude Code's

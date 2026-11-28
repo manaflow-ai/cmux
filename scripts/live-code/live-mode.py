@@ -750,8 +750,9 @@ class Phases:
 
     APPLIED_WAIT_S = 10.0
 
-    def __init__(self, path, log=None):
+    def __init__(self, path, log=None, tree=None):
         self.path, self.log = path, log or (live_folder() / "live-code.log")
+        self.tree = tree  # the checkout, so every chat working in it gets the frame (live_frames)
         self.waiting = {}  # dylib name -> the save's row
         try:
             self.offset = self.log.stat().st_size
@@ -802,7 +803,7 @@ class Phases:
                     row["saved_to_applied_s"] = round(float(at) - row["saved_at"], 3)
                 self.write(row)
                 if live_frames:
-                    live_frames.built("swift")  # the app runs the patch: the chat's frame shows it
+                    live_frames.built("swift", tree=self.tree)  # the app runs the patch: the chat's frame shows it
         for name, (since, row) in list(self.waiting.items()):
             if time.monotonic() - since > self.APPLIED_WAIT_S:
                 del self.waiting[name]
@@ -1012,7 +1013,7 @@ def watch(args):
         subprocess.run([sys.executable, str(TREE / "scripts/live-code/patch.py"), "--log", str(entry / "build/xcodebuild.log"),
                         "--module", PATCHED_MODULE, "--live", str(live_folder()), "--warm"], capture_output=True)
     events = file_events(tree / SOURCES)
-    pending = Phases(root / "phases.jsonl")
+    pending = Phases(root / "phases.jsonl", tree=tree)
     heard, paths = time.time(), None  # the first pass scans everything: saves since the baseline
     while time.monotonic() - started < WATCH_MAX_S:
         if heard is None:

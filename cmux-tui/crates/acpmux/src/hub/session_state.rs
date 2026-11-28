@@ -70,6 +70,7 @@ impl Resolved {
     }
 
     /// One cell: `waiting: permission`, `errored: its agent stopped`, `working`.
+    #[allow(dead_code)] // a one-cell form kept for its listing callers; none reads it today
     pub fn short(&self) -> String {
         match self.state {
             State::Working | State::Done => self.state.as_str().to_owned(),

@@ -114,14 +114,14 @@ pub(crate) fn take_blocking(cwd: &Path, session_id: &str, turn_id: &str) -> Take
     let last = git(&top, None, &["rev-parse", "--verify", "-q", &format!("{latest}^{{commit}}")]);
     let last_tree =
         git(&top, None, &["rev-parse", "--verify", "-q", &format!("{latest}^{{tree}}")]);
-    if let (Some(commit), Some(last_tree)) = (last, last_tree) {
-        if last_tree == tree {
-            if git(&top, None, &["update-ref", &name, &commit]).is_none() {
-                return Taken::Skipped;
-            }
-            prune(&top, session_id);
-            return Taken::Same { commit };
+    if let (Some(commit), Some(last_tree)) = (last, last_tree)
+        && last_tree == tree
+    {
+        if git(&top, None, &["update-ref", &name, &commit]).is_none() {
+            return Taken::Skipped;
         }
+        prune(&top, session_id);
+        return Taken::Same { commit };
     }
     let head = git(&top, None, &["rev-parse", "--verify", "-q", "HEAD"]);
     let message = format!("cmux turn {turn_id}");

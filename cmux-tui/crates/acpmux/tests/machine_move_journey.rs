@@ -1546,7 +1546,7 @@ async fn e4_one_kill(seed: u64) -> E4Row {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let events = journal(&b2, &id);
-        let done = all.iter().all(|p| completed(&result_of(events.as_slice(), *p)))
+        let done = all.iter().all(|p| completed(&result_of(events.as_slice(), p)))
             && says_once(&events, "echo: third");
         if done || Instant::now() >= deadline {
             break;

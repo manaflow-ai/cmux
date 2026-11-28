@@ -256,7 +256,7 @@ impl Hub {
                 ))
             })
             .collect();
-        chats.sort_by(|a, b| b.0.cmp(&a.0));
+        chats.sort_by_key(|c| std::cmp::Reverse(c.0));
         json!({"undoDays": UNDO_DAYS, "chats": chats.into_iter().map(|(_, row)| row).collect::<Vec<_>>()})
     }
 
@@ -272,10 +272,11 @@ impl Hub {
             SessionStatus::Idle => !cold,
             _ => true,
         };
-        if used && deleted_at(&meta).is_some() {
-            if let Err(e) = self.history_restore(session) {
-                tracing::warn!(session = %session.id, "history delete: restore: {}", e.message);
-            }
+        if used
+            && deleted_at(&meta).is_some()
+            && let Err(e) = self.history_restore(session)
+        {
+            tracing::warn!(session = %session.id, "history delete: restore: {}", e.message);
         }
     }
 

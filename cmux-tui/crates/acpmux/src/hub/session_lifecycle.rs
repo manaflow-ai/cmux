@@ -365,10 +365,10 @@ impl Hub {
                 chats.push(serde_json::to_value(&taken).unwrap_or(Value::Null));
             }
         }
-        if offloaded > 0 {
-            if let Err(e) = self.store.register_cloud_root() {
-                tracing::warn!("lifecycle: cloud history root: {e:#}");
-            }
+        if offloaded > 0
+            && let Err(e) = self.store.register_cloud_root()
+        {
+            tracing::warn!("lifecycle: cloud history root: {e:#}");
         }
         if archived > 0 && !dry_run {
             tracing::info!(

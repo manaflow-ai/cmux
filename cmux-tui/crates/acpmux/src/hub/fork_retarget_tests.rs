@@ -291,7 +291,7 @@ fn last_model_set(calls: &std::path::Path, sid: &str) -> Option<String> {
             }
             _ => None,
         })
-        .last()
+        .next_back()
 }
 
 fn live(hub: &Hub) -> usize {

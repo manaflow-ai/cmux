@@ -202,7 +202,7 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         MUX_HERE,
         MUX_SYNC_PULL,
     ] {
-        assert!(read_only_allows(m), "{m}");
+        assert!(read_only_allows(m, &serde_json::Value::Null), "{m}");
     }
     for m in [
         SESSION_NEW,
@@ -230,7 +230,15 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         "_acpmux/peer_add",
         "_acpmux/a_method_added_later",
     ] {
-        assert!(!read_only_allows(m), "{m}");
+        assert!(!read_only_allows(m, &serde_json::Value::Null), "{m}");
+    }
+    for (params, allowed) in [
+        (serde_json::json!({"turnId": "turn", "index": 0}), true),
+        (serde_json::json!({"sinceSeq": 1, "look": false}), true),
+        (serde_json::json!({"look": true}), false),
+        (serde_json::json!({"built": "rust"}), false),
+    ] {
+        assert_eq!(read_only_allows(MUX_TURN_FRAMES, &params), allowed);
     }
     let scrubbed =
         read_only_scrub(MUX_ATTACH, serde_json::json!({"session": "x", "visible": true}));
