@@ -179,7 +179,22 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
         : undefined;
     if (acpmuxPerf.enabled && drawn && shape!.stamp !== stamp) acpmuxPerf.render("open:kept-stale-stamp");
     if (!drawn)
-      lost = `open:${!line ? "noline" : !basis ? "nobasis" : !shape ? "noshape" : !drewShaped(shape.shaped, open) ? `drewShaped/${shapedMiss(shape.shaped, open)}` : "turnOf"}`;
+      lost = `open:${
+        !line
+          ? "noline"
+          : !basis
+            ? "nobasis"
+            : !shape
+              ? "noshape"
+              : !drewShaped(shape.shaped, open)
+                ? `drewShaped/${shapedMiss(shape.shaped, open)}/via=${shape.via}/fin=${shape.final}/age=${stamp - shape.stamp}/assist=${[
+                    ...open.values(),
+                  ]
+                    .filter((r) => r.kind === "assistant")
+                    .map((r) => r.assistantPhase ?? "-")
+                    .join(":")}`
+                : "turnOf"
+      }`;
     return;
   }
   // The transcript draws the line `steadyRows` kept (turns.ts): an equal line drawn before stands

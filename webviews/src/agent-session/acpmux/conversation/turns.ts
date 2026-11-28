@@ -2330,7 +2330,7 @@ function shapeTurn(
         return line ? [...body, line] : body;
       };
       // The pane's bypass compares what it drew with this pass's shape (`notedLiveShape`).
-      return live ? notedLiveShape(user, turn, concluding) : concluding(turn);
+      return live ? notedLiveShape(user, turn, concluding, "concluding") : concluding(turn);
     }
   }
   // A turn still running shows its work as it happens, under its live status; one without a
@@ -3563,6 +3563,8 @@ export type LiveTurnShape = {
   readonly shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[];
   readonly shaped: readonly AcpmuxRow[];
   readonly stamp: number;
+  readonly via?: string; // DEBUG
+  readonly final?: number; // DEBUG
 };
 
 let liveShape: LiveTurnShape | undefined;
@@ -3570,7 +3572,7 @@ let liveStamp = 0;
 
 /// `liveTurn` for the running turn's own pass, noted as `liveTurnShapes.last()`.
 function shapedLiveTurn(user: AcpmuxRow, turn: AcpmuxRow[], args: LiveTurnArgs): AcpmuxRow[] {
-  return notedLiveShape(user, turn, (rows) => liveTurn(user, rows, ...args));
+  return notedLiveShape(user, turn, (rows) => liveTurn(user, rows, ...args), "live");
 }
 
 /// `shapeOf(turn)`, noted as the running turn's newest shape. Each pass that draws the running turn
@@ -3578,9 +3580,22 @@ function shapedLiveTurn(user: AcpmuxRow, turn: AcpmuxRow[], args: LiveTurnArgs):
 /// the shape the pane's bypass compared was the running one before it ("Working for" where the pane
 /// drew "Worked for"), and each call after the answer redrew the pane: 60 of 2167 records a replay
 /// window under load (replay-under-load RENDERS=1, `drewShaped/differs:worked`).
-function notedLiveShape(user: AcpmuxRow, turn: AcpmuxRow[], shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[]): AcpmuxRow[] {
+function notedLiveShape(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[],
+  via = "",
+): AcpmuxRow[] {
   const shaped = shapeOf(turn);
-  liveShape = { user, turn: turn.slice(), shapeOf, shaped, stamp: liveStamp };
+  liveShape = {
+    user,
+    turn: turn.slice(),
+    shapeOf,
+    shaped,
+    stamp: liveStamp,
+    via,
+    final: turn.filter(isFinalAnswer).length,
+  };
   return shaped;
 }
 
