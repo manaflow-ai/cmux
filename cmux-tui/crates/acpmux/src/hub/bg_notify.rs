@@ -77,7 +77,14 @@ impl Hub {
                 if let Some(hub) = hub.upgrade() {
                     // It ended: one wait fewer (`background_waits.rs`), before the end is sent.
                     hub.refresh_background_tasks_of(&session);
-                    hub.bg_ended(&dir, &session, &id);
+                    // Off the runtime's workers: a publish takes its chat's lock, writes the log,
+                    // and waits to try again when the log refused the end (`bg_registry.rs`).
+                    let ended = hub.clone();
+                    let (d, s, i) = (dir.clone(), session.clone(), id.clone());
+                    let _ = tokio::task::spawn_blocking(move || {
+                        ended.bg_ended_until_logged(&d, &s, &i)
+                    })
+                    .await;
                     hub.bg_notify(&dir, &session, &id).await;
                 }
             });

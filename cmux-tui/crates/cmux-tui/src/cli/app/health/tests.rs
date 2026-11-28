@@ -126,6 +126,20 @@ fn report_is_ok_only_when_every_check_passed() {
 }
 
 #[test]
+fn the_terminal_check_addresses_the_created_tabs_public_id() {
+    let id = "term_045eec74a0f97f07ba1c7b803e0e88d9";
+    let nested = json!({"path": {"tab": "tab_1", "terminal": id}});
+    assert_eq!(created_terminal(&nested).as_deref(), Some(id));
+    assert_eq!(created_terminal(&json!({"terminal": id})).as_deref(), Some(id));
+    let listed = json!({"result": [{"terminal": id}]});
+    assert_eq!(created_terminal(&listed).as_deref(), Some(id));
+    // A bare host id is not the public id: the check keeps its own then.
+    let bare = json!({"terminal": "045eec74a0f97f07ba1c7b803e0e88d9"});
+    assert_eq!(created_terminal(&bare), None);
+    assert_eq!(created_terminal(&json!({})), None);
+}
+
+#[test]
 fn terminal_ids_are_uuid_v4_hex() {
     let id = terminal_id();
     assert_eq!(id.len(), 32);
