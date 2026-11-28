@@ -252,13 +252,6 @@ public final class RemoteLocalhostProxy: Sendable {
         return ProxyCredential(username: username, password: secret)
     }
 
-    /// Drops `machine`'s route; its store gets `407` until registered again.
-    public func removeRoute(for machine: String) {
-        state.withLock { state in
-            if let username = state.usernames[machine] { state.routes[username] = nil }
-        }
-    }
-
     public func stop() {
         let listeners: [NWListener] = state.withLock { state in
             defer {

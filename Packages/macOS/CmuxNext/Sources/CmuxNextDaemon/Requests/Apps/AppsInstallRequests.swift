@@ -26,9 +26,6 @@ public struct AppsStoreRequest: DaemonRequest, VerbatimFieldsRequest {
     /// such as a widget layout edit) needs the verified cmux app connection.
     public var origin: AppsRunRequest.Origin?
 
-    /// `apps.panels.list`: the Session Info sections of installed, visible apps.
-    public static let panelsList = AppsStoreRequest(op: "apps.panels.list")
-
     public init(op: String, args: JSONValue = .object([:]), origin: AppsRunRequest.Origin? = nil) {
         self.op = op
         self.args = args

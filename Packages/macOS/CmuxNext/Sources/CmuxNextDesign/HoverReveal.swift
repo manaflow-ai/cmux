@@ -159,17 +159,6 @@ public final class HoverReveal {
         return true
     }
 
-    /// Keyboard focus inside `view` reveals this region too, while another
-    /// reveal (or nobody) owns `view`'s alpha: the top-left corner collapses
-    /// the window controls and comes back for focus on any title bar button,
-    /// while the title bar row's reveal fades those buttons.
-    public func watchFocus(in view: NSView) {
-        let key = ObjectIdentifier(view)
-        focusViews[key] = Weak(view)
-        Self.focusWatchers[key, default: []].removeAll { $0.value == nil || $0.value === self }
-        Self.focusWatchers[key, default: []].append(WeakReveal(self))
-    }
-
     /// The reveals whose keyboard focus covers `view` itself (it is an added or watched view):
     /// a focus change walks the responder's superviews through this (`HoverRevealFocusRouter`).
     fileprivate static func reveals(focusingOn view: NSView) -> [HoverReveal] {

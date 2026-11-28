@@ -65,8 +65,4 @@ public actor WindowStateStore {
     public func save(window: WindowRecord) async throws {
         try await update { $0.upsert(window) }
     }
-
-    public func removeWindow(id: String) async throws {
-        try await update { $0.removeWindow(id: id) }
-    }
 }

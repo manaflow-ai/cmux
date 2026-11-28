@@ -68,9 +68,6 @@ public struct LayoutCacheTheme: Codable, Hashable, Sendable {
 
     /// A 0-to-1 colour component as a byte.
     public static func byte(_ component: Double) -> UInt8 { UInt8(exactly: (min(1, max(0, component)) * 255).rounded()) ?? 0 }
-
-    /// The backdrop opacity, 0 to 1 (nil when the cache has no colour).
-    public var backdropOpacity: Double? { backgroundRgba.count == 4 ? Double(backgroundRgba[3]) / 255 : nil }
 }
 
 public struct LayoutCacheRowHeight: Codable, Hashable, Sendable {
@@ -323,11 +320,6 @@ public struct LayoutCacheLiveTree: Encodable, Sendable {
     }
 }
 
-/// `StripApplied` (reconcile_strip).
-public struct LayoutCacheStripApplied: Codable, Sendable {
-    public var tabs: [LayoutCacheTabSlot]
-}
-
 /// The C ABI's calls (include/cmux_layout_cache.h), JSON in and out, snake_case on the wire.
 public struct LayoutCacheFFI {
     public init() {}
@@ -379,11 +371,6 @@ public struct LayoutCacheFFI {
     public static func reconcile(_ cached: LayoutCachePaneNode, live: LayoutCacheLiveTree) -> LayoutCacheApplied? {
         guard let cachedJSON = json(cached), let liveJSON = json(live) else { return nil }
         return decode(LayoutCacheApplied.self, cmux_layout_cache_reconcile(cachedJSON, liveJSON))
-    }
-
-    public static func reconcileStrip(_ cached: [LayoutCacheTabSlot], live: [String], defaultWidth: Double) -> LayoutCacheStripApplied? {
-        guard let cachedJSON = json(cached), let liveJSON = json(live) else { return nil }
-        return decode(LayoutCacheStripApplied.self, cmux_layout_cache_reconcile_strip(cachedJSON, liveJSON, defaultWidth))
     }
 
     /// Wall clock ms, for `usable`'s picture age.

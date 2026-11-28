@@ -153,14 +153,6 @@ public nonisolated final class ProviderConnection: Sendable {
         }
     }
 
-    /// Queues bytes that already carry their length prefix.
-    @discardableResult
-    func sendEncoded(_ bytes: Data) -> Bool {
-        guard state.withLock({ $0.closed == nil }) else { return false }
-        writes.async { [self] in write(bytes) }
-        return true
-    }
-
     /// Closes the connection; the reader ends and `frames` finishes.
     public func close(reason: String = "closed by the app") {
         let unstarted = state.withLock { state -> Bool? in

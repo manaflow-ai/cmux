@@ -315,9 +315,6 @@ extension AcpmuxEnvironment {
         }
     }
 
-    /// Whether `line` is a `_acpmux/harnesses_changed` notification.
-    nonisolated static func isHarnessChange(_ line: Data) -> Bool { isNotification(line, harnessesChanged) }
-
     /// Whether `line` is a notification named `method`.
     nonisolated static func isNotification(_ line: Data, _ method: String) -> Bool {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }
