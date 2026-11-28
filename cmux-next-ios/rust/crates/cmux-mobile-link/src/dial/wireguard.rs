@@ -3762,9 +3762,13 @@ impl Dialer for WireGuardDialer {
                 // Host endpoints now; the STUN (and TURN) gather runs after
                 // `wg-resp`, on the tunnel's socket (gather_after_answer).
                 let endpoints = offered(host_endpoints(port, options), options);
+                options.timeline.mark("answer_host_endpoints");
                 (Gathered { endpoints, stun: Vec::new(), answered: 0 }, None)
             } else {
-                gather_for_answer(&socket, options).await
+                let gathered = gather_for_answer(&socket, options).await;
+                // `wg-resp` waited for this gather (STUN, maybe TURN).
+                options.timeline.mark("answer_gathered");
+                gathered
             };
             let wants_turn = !trickle && (no_plain_udp(options) || gathered.udp_looks_blocked());
             // A STUN answer came after all: the early allocation is dropped
