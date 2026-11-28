@@ -41,7 +41,7 @@ rebuild_ends="${CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-1}"
 # One budget for every tree wait in this step, not one per wait. The no-fallback wait and the wait
 # after a refused fallback tree used await-tree-client.sh's own bound (2700 s plus a 1200 s rebuild
 # grace) and ignored the two checks above, so they could still hold the signing Mac past an hour:
-# NIGHTLY 46157002388 sat in this step on ultra1 from 15:08:52Z to past 16:00Z. Each wait now gets
+# NIGHTLY 46157002388 sat in this step on a signing Mac from 15:08:52Z to past 16:00Z. Each wait now gets
 # what is left of CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS (default the bounded wait's 1500 s) and the
 # same unreadable and rebuild checks; past it a wait takes one look. With no tree to bundle the step
 # fails, the run leaves the signer and its retry finds the tree then.

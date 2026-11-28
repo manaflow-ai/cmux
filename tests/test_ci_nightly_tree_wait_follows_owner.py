@@ -92,7 +92,7 @@ def test_the_wait_reads_the_publishers_jobs_and_bounds_a_stall() -> None:
 def _bundle_await_tree(bundle: str) -> str:
     # Every tree wait in the signer step goes through await_tree(), which sets the step's limits: the
     # no-fallback wait and the wait after a refused fallback once used await-tree-client.sh's own
-    # 2700 s bound plus its rebuild grace (NIGHTLY 46157002388 held ultra1 past 50 min, 2026-11-28).
+    # 2700 s bound plus its rebuild grace (NIGHTLY 46157002388 held a signing Mac past 50 min, 2026-11-28).
     body = re.search(r"^await_tree\(\) \{\n(.*?)^\}", bundle, re.S | re.M)
     assert body, "the bundle step must define await_tree()"
     calls = [line for line in bundle.splitlines()
