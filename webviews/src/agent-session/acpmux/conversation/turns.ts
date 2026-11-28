@@ -3624,11 +3624,15 @@ function shapedLiveTurn(
 }
 
 /// The running turn's pass as the transcript draws it: its caller folds its runs of messages and of
-/// background ends (`foldMessageRuns`, `foldBackgroundRuns`) before it draws.
+/// background ends (`foldMessageRuns`, `foldBackgroundRuns`), then cuts a long run into its parts
+/// (`cutLongRuns`, as `shapedTurn` does) before it draws. Before, the noted shape held the whole run
+/// where the pane drew its first part (the run's id, a part's version and calls), and each call of a
+/// run past a part's size redrew the pane: about 70 records a replay window under load
+/// (replay-under-load RENDERS=1, `drewShaped/differs:activity`, v=-25:355, n=12:16).
 const drawnTurn =
   (expanded: Folds, live: boolean) =>
   (shaped: AcpmuxRow[]): AcpmuxRow[] =>
-    foldBackgroundRuns(foldMessageRuns(shaped, expanded, live), expanded);
+    cutLongRuns(foldBackgroundRuns(foldMessageRuns(shaped, expanded, live), expanded));
 
 /// `shapeOf(turn)`, noted as the running turn's newest shape. Each pass that draws the running turn
 /// notes its own: before, the concluding pass (a final answer before `turn_result`) noted none, so
