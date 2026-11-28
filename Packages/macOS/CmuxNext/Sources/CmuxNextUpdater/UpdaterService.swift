@@ -23,6 +23,8 @@ import Observation
 @MainActor
 @Observable
 public final class UpdaterService {
+    /// "Enjoying cmux? Star on GitHub", bottom-left, from the sixth launch until answered (GitHubStarPrompt).
+    @ObservationIgnored private let githubStar = GitHubStarPrompt()
     public let identity: UpdateBuildIdentity
     /// The blocking-work lanes the kept-versions listing runs on (the app's one, AppServices; tests and
     /// previews get lanes of their own).
@@ -506,7 +508,8 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
-        if presentUpdateUI != nil { startKillSwitchReader() }
+        // The app's own run only (it sets presentUpdateUI); tests and previews never ask.
+        if presentUpdateUI != nil { startKillSwitchReader(); githubStar.start() }
         observeFlowPhase()
         scheduleHealthCheckAfterUpdate()
         refreshAnnouncements()

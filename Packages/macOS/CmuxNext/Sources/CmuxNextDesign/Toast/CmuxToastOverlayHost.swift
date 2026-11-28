@@ -81,7 +81,11 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
             let anchor = anchor(height: sizes[index].height, in: bounds, floor: floor(sizes[index].width),
                                 below: sizes[(index + 1)...].map(\.height))
             let placement = index < placements.count ? placements[index] : .bottomCenter
-            return placement == .bottomTrailing ? trailing(anchor, width: sizes[index].width, in: bounds) : anchor
+            switch placement {
+            case .bottomTrailing: return trailing(anchor, width: sizes[index].width, in: bounds)
+            case .bottomLeading: return leading(anchor, width: sizes[index].width, in: bounds)
+            case .bottomCenter: return anchor
+            }
         }
     }
 
@@ -92,6 +96,11 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
     /// the toast's own width, ``trailingInset`` from the edge.
     static func trailing(_ anchor: NSRect, width: CGFloat, in bounds: NSRect) -> NSRect {
         NSRect(x: max(bounds.minX, bounds.maxX - trailingInset - width), y: anchor.minY, width: width, height: anchor.height)
+    }
+
+    /// `anchor` moved to the leading edge, ``trailingInset`` from it (the same inset as trailing).
+    static func leading(_ anchor: NSRect, width: CGFloat, in bounds: NSRect) -> NSRect {
+        NSRect(x: bounds.minX + trailingInset, y: anchor.minY, width: min(width, bounds.width), height: anchor.height)
     }
 
     private func anchors(of stack: Stack, in window: NSWindow) -> [NSRect] {
