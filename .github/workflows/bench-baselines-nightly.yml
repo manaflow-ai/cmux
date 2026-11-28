@@ -46,6 +46,8 @@ jobs:
     # The same label as pr-checks.yml's advisory job: a baseline is only comparable on its own machine class.
     runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
+    # next-cache-writer, whose deployment branches are feat-cmux-next only, in the exact form
+    # tests/test_ci_pull_request_caches_are_read_only.py accepts (the job already runs only there).
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
@@ -115,6 +117,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # The client's queue wait (20 min) and run limit (40 min: one build, the suite 3 times), and the upload.
     timeout-minutes: 70
+    # next-cache-writer, whose deployment branches are feat-cmux-next only, in the exact form
+    # tests/test_ci_pull_request_caches_are_read_only.py accepts (the job already runs only there).
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
@@ -148,7 +152,6 @@ jobs:
           submodules: false
           fetch-depth: 1
           sparse-checkout: |
-            /.gitmodules
             .github/actions/fleet-client
             scripts/bench
             docs/benches
