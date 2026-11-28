@@ -38,21 +38,23 @@ const BREAKDOWN = {
   maxTokens: 400_000,
 };
 
-test("used categories come largest first, then the buffer, the deferred ones and the free space", () => {
+// Claude's order (#53132): what is used, the buffer and the free space (which add up to the window),
+// then the deferred categories, which take no room yet.
+test("used categories come largest first, then the buffer, the free space and the deferred ones", () => {
   const rows = contextBreakdown(BREAKDOWN)!.rows;
   expect(rows.map((row) => row.name)).toEqual([
     "Messages",
     "Memory files",
     "System prompt",
     "Autocompact buffer",
-    "System tools (deferred)",
     "Free space",
+    "System tools (deferred)",
   ]);
   expect(rows.map((row) => row.tone)).toEqual([0, 1, 2, undefined, undefined, undefined]);
   expect(rows[0]!.share).toBeCloseTo(0.4245);
   // A deferred category takes no room until it loads: no share.
-  expect(rows[4]!.share).toBeUndefined();
-  expect(rows[5]!.share).toBeCloseTo(0.36675);
+  expect(rows[5]!.share).toBeUndefined();
+  expect(rows[4]!.share).toBeCloseTo(0.36675);
 });
 
 test("the folds name each MCP tool without its server prefix, each memory file by its name", () => {
@@ -247,12 +249,12 @@ test("Session Info's Compact stays live while a turn runs, and its click sends /
   );
   const context = container.querySelector('[data-section="context"]')!;
   expect(context.querySelector(".acpmux-session-info-context__compact")).toBeNull();
-  // Its line is a fold (Lucas, 2026-11-06): unfolded, the breakdown's rows from the first one down,
-  // with no total line and no bar (the head has the meter and tokens).
+  // Its line is a fold (Lucas, 2026-11-06): unfolded, the share used and tokens on a line above the
+  // bar, then the breakdown's rows; the head is the title alone (#53132).
   const trigger = context.querySelector<HTMLButtonElement>("button.ui-disclosure-trigger")!;
   if (trigger.getAttribute("aria-expanded") !== "true") await act(async () => trigger.click());
-  expect(context.querySelector(".acpmux-session-info-context__total")).toBeNull();
-  expect(context.querySelector(".acpmux-session-info-context__bar")).toBeNull();
+  expect(context.querySelector(".acpmux-session-info-context__total")).not.toBeNull();
+  expect(context.querySelector(".acpmux-session-info-context__bar")).not.toBeNull();
   expect(context.querySelectorAll(".acpmux-session-info-context .acpmux-session-info-row").length).toBeGreaterThan(0);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-session-info-usage__action")!;
   expect(button.textContent).toBe("Compact");
