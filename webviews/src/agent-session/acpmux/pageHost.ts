@@ -34,6 +34,7 @@ import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts"
 import { noteChatTheme, SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
 
 import { scopedPageClient } from "./paneView";
+import { bridgeFor } from "./pane/viewBridges";
 
 export { agentPageOp, callPageHost, pageHostClient, resetPageHostClientForTests } from "./pageHostClient";
 
@@ -47,9 +48,19 @@ export type HostEvent = { kind: string; value?: unknown };
 /// in a shared pane document each view subscribes with its `view` filter and these land in that
 /// view's store (paneViewStore.ts), so two chats never draw each other's header, row or cards. Every
 /// other kind is the app's (theme, settings, catalogs) and applies to the whole document. Not yet
-/// per view, so still the document's: transport, the bridge commands, uploads, Session Info and the
-/// Cloud preview ports (they go through window.cmuxAcpmuxBridge, which is one a document).
+/// per view, so still the document's: Session Info. Transport and uploads need none: their events
+/// name a connection or an upload, each one chat's.
+/// The chat's bridge commands go to its view's bridge (viewBridges.ts).
 export const VIEW_EVENT_KINDS: ReadonlySet<string> = new Set([
+  "command",
+  "cloudPreviewPort",
+  "cloudPreviewPortsKnown",
+  "stopTurn",
+  "sideQuestion",
+  "revealTurn",
+  "dictation",
+  "designSelection",
+  "cloudStartProgress",
   "headerState",
   "tabRow",
   "floatingState",
@@ -64,6 +75,8 @@ export const VIEW_EVENT_KINDS: ReadonlySet<string> = new Set([
 /// subscription brought it (null: the page's own); only VIEW_EVENT_KINDS read it.
 export function applyHostEvent(event: HostEvent, view: string | null = null): void {
   const bridge = window.cmuxAcpmuxBridge;
+  // The chat's own bridge: its view's in a shared document, the document's on a page of its own.
+  const chat = bridgeFor(view);
   const value = event.value as never;
   switch (event.kind) {
     case "imessage.changed":
@@ -166,22 +179,22 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
     case "floatingState":
       return setFloatingState(event.value, view);
     case "dictation":
-      return bridge?.dictation?.(value);
+      return chat?.dictation?.(value);
     case "dictationHandoff":
       return deliverHandoffFailure(event.value);
     case "designSelection":
-      return bridge?.designSelection?.(value);
+      return chat?.designSelection?.(value);
     case "cloudStartProgress":
       // How a Cloud start goes (cloudStartProgress.ts): the page checks every field.
-      return bridge?.cloudStartProgress?.(event.value);
+      return chat?.cloudStartProgress?.(event.value);
     case "revealTurn":
-      return bridge?.revealTurn?.(String(event.value));
+      return chat?.revealTurn?.(String(event.value));
     case "command":
-      return bridge?.command?.(String(event.value));
+      return chat?.command?.(String(event.value));
     case "stopTurn":
-      return bridge?.command?.("stopTurn", String(event.value));
+      return chat?.command?.("stopTurn", String(event.value));
     case "sideQuestion":
-      return bridge?.command?.("sideQuestion", String(event.value));
+      return chat?.command?.("sideQuestion", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;
@@ -194,7 +207,7 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
     case "models.catalog":
       return receiveModelCatalog(event.value);
     case "cloudPreviewPort":
-      return void addCloudPreviewPort(event.value);
+      return void addCloudPreviewPort(event.value, view);
     case "cloudPreviewPortsKnown": {
       const value = event.value;
       const ports =
@@ -203,7 +216,7 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
           : Array.isArray(value)
             ? value
             : [];
-      return seedCloudPreviewPorts(ports);
+      return seedCloudPreviewPorts(ports, view);
     }
   }
 }

@@ -15,6 +15,10 @@ public final class Tree implements WireValue {
     private final Field<Boolean> delta;
     private final Field<String> epoch;
     private final Field<String> generation;
+    /** The sidebar workspace groups. */
+    private final Field<List<WorkspaceGroup>> groups;
+    /** How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks. */
+    private final Field<UInt64> linesWrittenBeforeRead;
     private final Field<UInt64> next;
     private final Field<List<UInt64>> order;
     private final Field<UInt64> paneRevision;
@@ -33,6 +37,8 @@ public final class Tree implements WireValue {
         this.delta = builder.delta;
         this.epoch = builder.epoch;
         this.generation = builder.generation;
+        this.groups = builder.groups.map(value -> List.copyOf(value));
+        this.linesWrittenBeforeRead = builder.linesWrittenBeforeRead;
         this.next = builder.next;
         this.order = builder.order.map(value -> List.copyOf(value));
         this.paneRevision = builder.paneRevision;
@@ -54,6 +60,8 @@ public final class Tree implements WireValue {
     public Field<Boolean> delta() { return delta; }
     public Field<String> epoch() { return epoch; }
     public Field<String> generation() { return generation; }
+    public Field<List<WorkspaceGroup>> groups() { return groups; }
+    public Field<UInt64> linesWrittenBeforeRead() { return linesWrittenBeforeRead; }
     public Field<UInt64> next() { return next; }
     public Field<List<UInt64>> order() { return order; }
     public Field<UInt64> paneRevision() { return paneRevision; }
@@ -85,6 +93,14 @@ public final class Tree implements WireValue {
         Object rawGeneration = Wire.optional(object, "generation");
         if (!Wire.isMissing(rawGeneration)) {
             builder.generation(Wire.string(rawGeneration, "Tree.generation"));
+        }
+        Object rawGroups = Wire.optional(object, "groups");
+        if (!Wire.isMissing(rawGroups)) {
+            builder.groups(Wire.array(rawGroups, "Tree.groups", item -> WorkspaceGroup.fromWire(item)));
+        }
+        Object rawLinesWrittenBeforeRead = Wire.optional(object, "lines_written_before_read");
+        if (!Wire.isMissing(rawLinesWrittenBeforeRead)) {
+            builder.linesWrittenBeforeRead(Wire.uint64(rawLinesWrittenBeforeRead, "Tree.lines_written_before_read"));
         }
         Object rawNext = Wire.optional(object, "next");
         if (!Wire.isMissing(rawNext)) {
@@ -142,6 +158,8 @@ public final class Tree implements WireValue {
         Wire.put(object, "delta", delta);
         Wire.put(object, "epoch", epoch);
         Wire.put(object, "generation", generation);
+        Wire.put(object, "groups", groups);
+        Wire.put(object, "lines_written_before_read", linesWrittenBeforeRead);
         Wire.put(object, "next", next);
         Wire.put(object, "order", order);
         Wire.put(object, "pane_revision", paneRevision);
@@ -160,11 +178,11 @@ public final class Tree implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Tree that)) return false;
-        return Objects.equals(changed, that.changed) && Objects.equals(delta, that.delta) && Objects.equals(epoch, that.epoch) && Objects.equals(generation, that.generation) && Objects.equals(next, that.next) && Objects.equals(order, that.order) && Objects.equals(paneRevision, that.paneRevision) && Objects.equals(registryId, that.registryId) && Objects.equals(removed, that.removed) && Objects.equals(seq, that.seq) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(total, that.total) && Objects.equals(treeRevision, that.treeRevision) && Objects.equals(unchanged, that.unchanged) && Objects.equals(workspaceRevision, that.workspaceRevision) && Objects.equals(workspaces, that.workspaces);
+        return Objects.equals(changed, that.changed) && Objects.equals(delta, that.delta) && Objects.equals(epoch, that.epoch) && Objects.equals(generation, that.generation) && Objects.equals(groups, that.groups) && Objects.equals(linesWrittenBeforeRead, that.linesWrittenBeforeRead) && Objects.equals(next, that.next) && Objects.equals(order, that.order) && Objects.equals(paneRevision, that.paneRevision) && Objects.equals(registryId, that.registryId) && Objects.equals(removed, that.removed) && Objects.equals(seq, that.seq) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(total, that.total) && Objects.equals(treeRevision, that.treeRevision) && Objects.equals(unchanged, that.unchanged) && Objects.equals(workspaceRevision, that.workspaceRevision) && Objects.equals(workspaces, that.workspaces);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(changed, delta, epoch, generation, next, order, paneRevision, registryId, removed, seq, terminalRevision, total, treeRevision, unchanged, workspaceRevision, workspaces); }
+    public int hashCode() { return Objects.hash(changed, delta, epoch, generation, groups, linesWrittenBeforeRead, next, order, paneRevision, registryId, removed, seq, terminalRevision, total, treeRevision, unchanged, workspaceRevision, workspaces); }
 
     @Override
     public String toString() { return "Tree" + toWire(); }
@@ -174,6 +192,8 @@ public final class Tree implements WireValue {
         private Field<Boolean> delta = Field.omitted();
         private Field<String> epoch = Field.omitted();
         private Field<String> generation = Field.omitted();
+        private Field<List<WorkspaceGroup>> groups = Field.omitted();
+        private Field<UInt64> linesWrittenBeforeRead = Field.omitted();
         private Field<UInt64> next = Field.omitted();
         private Field<List<UInt64>> order = Field.omitted();
         private Field<UInt64> paneRevision = Field.omitted();
@@ -202,6 +222,14 @@ public final class Tree implements WireValue {
         }
         public Builder generation(String value) {
             this.generation = Field.of(value);
+            return this;
+        }
+        public Builder groups(List<WorkspaceGroup> value) {
+            this.groups = Field.of(value);
+            return this;
+        }
+        public Builder linesWrittenBeforeRead(UInt64 value) {
+            this.linesWrittenBeforeRead = Field.of(value);
             return this;
         }
         public Builder next(UInt64 value) {

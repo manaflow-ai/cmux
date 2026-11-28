@@ -70,6 +70,10 @@
       "kind": "publish",
       "why": "a bot that re-pins the app FFI after a release"
     },
+    "app-store-shelf-cargo-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the App Store shelf check's Cargo build cache seed from the base"
+    },
     "chief-evals.yml": {
       "kind": "check",
       "why": "Chief evals on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"
@@ -82,21 +86,29 @@
       "kind": "publish",
       "why": "a start matrix on live staging machines, run by its request file, not of the change"
     },
-    "cloud-machine-count-probe.yml": {
+    "cloud-probes.yml": {
       "kind": "publish",
-      "why": "a probe of live staging machines, not of the change"
+      "why": "request-file probes of live staging and development machines, not checks of the change"
     },
     "cloud-staging-test-sweep.yml": {
       "kind": "publish",
       "why": "deletes the staging test account's leftover machines, not a check of the change"
     },
-    "cloud-surge-proof.yml": {
-      "kind": "publish",
-      "why": "a proof run of Cloud Surge on live development machines, not of the change"
-    },
     "cloud-journey-teammate.yml": {
       "kind": "publish",
       "why": "push-only teammate cloud journey publication/probe; no pull-request verdict"
+    },
+    "cmux-machine-channel-cargo-seed.yml": {
+      "kind": "publish",
+      "why": "publishes a Cargo build cache seed from the base"
+    },
+    "cmux-next-hourly-full-tier.yml": {
+      "kind": "publish",
+      "why": "dispatches full-tier suites on merged commits and reports failures to their owners"
+    },
+    "pinned-files-mirror.yml": {
+      "kind": "publish",
+      "why": "publishes the pinned file blobs to the download mirror"
     },
     "platform-fleet-inventory.yml": {
       "kind": "publish",
@@ -221,6 +233,10 @@
     "git-mirror-bundle.yml": {
       "kind": "publish",
       "why": "publishes the git mirror bundle the fleet clones from"
+    },
+    "ios-link-ffi-cache-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the base's CmuxMobileLinkFFI.xcframework Actions cache entry that pull request runs read (Actions caches only flow from the base branch); no verdict on a change: the kit's bindings drift check runs on the pull request (cmux-next-ios-kit.yml kit-tests)"
     },
     "ios-internal-nightly-trigger.yml": {
       "kind": "publish",

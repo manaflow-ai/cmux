@@ -532,10 +532,9 @@ public struct RecentDirectories: @unchecked Sendable {
         defaults.stringArray(forKey: key(macID)) ?? []
     }
 
+    /// Puts `directory` first (Rust's `workspace_recents_noted`).
     public func note(_ directory: String, macID: String) {
-        var list = load(macID: macID).filter { $0 != directory }
-        list.insert(directory, at: 0)
-        defaults.set(Array(list.prefix(Self.limit)), forKey: key(macID))
+        defaults.set(WorkspaceCreationRules.noted(directory, in: load(macID: macID)), forKey: key(macID))
     }
 }
 
@@ -606,6 +605,15 @@ public final class WorkspaceCreator {
     @ObservationIgnored var taskOrigins: [String: TaskDraft] = [:]
     /// Why the Mac refused the task whose draft came back; New Task shows it until the next Start.
     public var taskRefusal: String?
+    /// The Cloud machines New Task can run on (``refreshCloudTaskTargets()``), beside the Macs.
+    public var cloudTaskTargets: [CloudTaskTarget] = []
+    /// Reads the Cloud machines the connected Macs list; nil when the read failed. Nil: no Cloud.
+    @ObservationIgnored public var loadCloudTaskTargets: (@MainActor () async -> [CloudTaskTarget]?)?
+    /// Where ``loadCloudTaskTargets`` reads from now (the live link and its focused Mac). Read in
+    /// a view body it is observed, so New Task reads the machines again when it changes.
+    @ObservationIgnored public var cloudTaskTargetsSource: (@MainActor () -> String?)?
+    /// Opens a started Cloud task: its machine and the first message.
+    @ObservationIgnored public var openCloudTask: (@MainActor (CloudTaskTarget, String) -> Void)?
     /// Placeholders of refused tasks and where their task went (the failure toast says so).
     @ObservationIgnored var refusedTasks: [String: RefusedTaskPlace] = [:]
     /// The saved New Task drafts (the drafts list).
@@ -662,14 +670,11 @@ public final class WorkspaceCreator {
     /// phone, then the Mac's workspaces by activity. Empty when the backend
     /// cannot choose a directory.
     public func recentDirectories(on macID: String) -> [String] {
-        guard options(on: macID).directories else { return [] }
+        let options = options(on: macID)
+        guard options.directories else { return [] }
         let used = recents.load(macID: macID)
         let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
-        var result: [String] = []
-        for directory in used + seen where !result.contains(directory) {
-            result.append(directory)
-        }
-        return Array(result.prefix(RecentDirectories.limit))
+        return WorkspaceCreationRules.recentDirectories(options, used: used, seen: seen)
     }
 
     /// What a plain tap on New Workspace makes on a Mac (Aziz, 2026-11-17: an agent chat,
@@ -678,41 +683,27 @@ public final class WorkspaceCreator {
     /// as New Agent Chat › that folder. A terminal at the default folder when the Mac can't
     /// start an agent from a phone now, or has no such folder (a chat never starts in the
     /// home folder, and the Mac refuses a folder it has no workspace in).
+    /// The rules are Rust's `workspace_tap_start`; this reads the folders it chooses from.
     public func tapStart(on macID: String) -> NewWorkspaceTap {
         let options = options(on: macID)
-        let terminal = NewWorkspaceTap(start: .terminal, directory: nil)
-        guard let harness = options.agents.contains("") ? "" : options.agents.first else { return terminal }
-        // The folders used from this phone first, then the Mac's by activity; only one open on the
-        // Mac now counts, so a closed recent folder never hides an open one.
+        guard options.directories, !options.agents.isEmpty else {
+            return NewWorkspaceTap(start: .terminal, directory: nil)
+        }
         let used = recents.load(macID: macID)
         let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
-        let open = Set(seen)
-        guard options.directories,
-              let folder = (used + seen).first(where: { open.contains($0) && Self.isProjectFolder($0) }) else {
-            return terminal
-        }
-        return NewWorkspaceTap(start: .agent(harness), directory: folder)
+        return WorkspaceCreationRules.tapStart(options, used: used, seen: seen)
     }
 
     /// Whether an agent chat may start in `path`: not the home folder or above it
     /// (`~`, `/`, `/Users/<name>`, `/var/root`), as the Mac's own guard says.
     nonisolated public static func isProjectFolder(_ path: String) -> Bool {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: "/").map(String.init)
-        if parts.isEmpty || parts == ["~"] { return false }
-        if trimmed.hasPrefix("/") {
-            if parts == ["var"] || parts == ["var", "root"] { return false }
-            if parts.first == "Users", parts.count <= 2, parts.last != "Shared" { return false }
-        }
-        return true
+        WorkspaceCreationRules.isProjectFolder(path)
     }
 
     /// The directory a plain tap uses: the last one used on that Mac, else
     /// its home. Nil when the Mac picks (the backend cannot choose).
     public func defaultDirectory(on macID: String) -> String? {
-        let options = options(on: macID)
-        guard options.directories, options.tapUsesLastDirectory else { return nil }
-        return recents.load(macID: macID).first ?? "~"
+        WorkspaceCreationRules.defaultDirectory(options(on: macID), used: recents.load(macID: macID))
     }
 
     /// Starts creating a workspace and returns its optimistic placeholder,
@@ -723,11 +714,7 @@ public final class WorkspaceCreator {
                        placement: NewWorkspacePlacement? = nil) -> Workspace? {
         guard let mac = macID.flatMap({ id in availableMacs.first { $0.id == id } }) ?? targetMac else { return nil }
         let options = options(on: mac.id)
-        switch start {
-        case .terminal: break
-        case .agent(let harness): guard options.agents.contains(harness) else { return nil }
-        case .browser: guard options.browser else { return nil }
-        }
+        guard WorkspaceCreationRules.offers(start, options) else { return nil }
         let dir = options.directories ? (directory ?? defaultDirectory(on: mac.id)) : nil
         let request = NewWorkspaceRequest(macID: mac.id, directory: dir, start: start, placement: placement)
         let placeholder = Self.placeholder(for: request, existing: store.workspaces.filter { $0.macID == mac.id }.map(\.title))
@@ -909,32 +896,21 @@ public final class WorkspaceCreator {
     public static func placeholder(for request: NewWorkspaceRequest, existing titles: [String], now: Date = Date()) -> Workspace {
         let id = "new-\(UUID().uuidString.prefix(8).lowercased())"
         let directory = request.directory ?? "~"
-        let base = Self.title(for: request.directory)
         let tabID = "\(id)-t1"
         let tab = switch request.start {
         case .terminal: WorkspaceTab(id: tabID, kind: .terminal, title: "zsh", subtitle: directory)
         case .agent(let harness):
-            WorkspaceTab(id: tabID, kind: .agent, title: harness.isEmpty ? "Agent Chat" : harness == "codex" ? "Codex" : harness == "claude" ? "Claude" : harness.capitalized,
+            WorkspaceTab(id: tabID, kind: .agent, title: WorkspaceCreationRules.agentTabTitle(harness),
                          subtitle: "New session", harness: harness)
         case .browser: WorkspaceTab(id: tabID, kind: .browser, title: "New Tab")
         }
-        return Workspace(id: id, macID: request.macID, title: uniqueTitle(base, existing: titles), directory: directory,
+        return Workspace(id: id, macID: request.macID, title: WorkspaceCreationRules.placeholderTitle(directory: request.directory, existing: titles), directory: directory,
                          tabs: [tab], lastActivityAt: now)
     }
 
-    static func title(for directory: String?) -> String {
-        guard let directory, directory != "~", directory != "/" else { return "New Workspace" }
-        let last = (directory as NSString).lastPathComponent
-        return last.isEmpty || last == "~" ? "New Workspace" : last
-    }
-
-    /// "cmux", then "cmux 2", "cmux 3", …
+    /// "cmux", then "cmux 2", "cmux 3", … (Rust's `workspace_unique_title`).
     public static func uniqueTitle(_ base: String, existing: [String]) -> String {
-        let taken = Set(existing)
-        guard taken.contains(base) else { return base }
-        var n = 2
-        while taken.contains("\(base) \(n)") { n += 1 }
-        return "\(base) \(n)"
+        WorkspaceCreationRules.uniqueTitle(base, existing: existing)
     }
 }
 
@@ -1360,24 +1336,6 @@ public enum NewTabPosition: String, Hashable, Sendable, CaseIterable {
     /// daemon reads the index as an insertion point in the current list, one past for a
     /// forward move.
     public func moveIndex(from: Int, anchor: Int, pinned: [Bool], groups: [String?] = []) -> Int? {
-        let count = pinned.count
-        guard count > 1, pinned.indices.contains(from), pinned.indices.contains(anchor), anchor != from else { return nil }
-        // The places without the new tab, where the final index is counted.
-        let others = pinned.indices.filter { $0 != from }
-        let pinnedCount = others.prefix { pinned[$0] }.count
-        let final: Int
-        switch self {
-        case .sameKind, .afterCurrent:
-            guard var at = others.firstIndex(of: anchor) else { return nil }
-            if groups.indices.contains(anchor), let group = groups[anchor] {
-                while at + 1 < others.count, groups.indices.contains(others[at + 1]), groups[others[at + 1]] == group { at += 1 }
-            }
-            final = max(at + 1, pinnedCount)
-        case .start: final = pinnedCount
-        case .end: final = count - 1
-        }
-        let clamped = min(max(final, 0), count - 1)
-        guard clamped != from else { return nil }
-        return clamped > from ? clamped + 1 : clamped
+        WorkspaceCreationRules.moveIndex(self, from: from, anchor: anchor, pinned: pinned, groups: groups)
     }
 }

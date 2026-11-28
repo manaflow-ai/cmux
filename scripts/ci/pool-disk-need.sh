@@ -48,7 +48,7 @@ t0=$SECONDS
 wait_s="${CMUX_DISK_START_WAIT:-180}"
 [[ "$wait_s" =~ ^[0-9]+$ ]] || wait_s=180
 CMUX_DISK_JOB_BYTES="$need" CMUX_DISK_FLOOR_BYTES="$need" CMUX_DISK_START_WAIT="$wait_s" \
-  CMUX_DISK_PATH="$disk" timeout -k 5 "$((wait_s + 30))" "$hook" started || true
+  CMUX_DISK_PATH="$disk" bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" --kill-after=5 "$((wait_s + 30))" "$hook" started || true
 after="$(avail)"
 [[ "$after" =~ ^[0-9]+$ ]] || after=0
 line="pool disk: $(gib "$free") -> $(gib "$after") GiB free in $((SECONDS - t0)) s, need ${need_gib} GiB"

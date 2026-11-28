@@ -421,6 +421,45 @@ fn export_writes_a_setup_repo_that_installs_on_another_machine() {
 }
 
 #[test]
+fn a_saved_profile_exports_as_a_setup_repo_with_only_that_profile() {
+    // The Share of a wrap-up card's Try it on for a profile (RFD 0150): the kept profile, not
+    // what else is live, and never a credential.
+    let home = Home::new();
+    home.write("cmux-next.json", "{ \"actions\": { \"hi\": { \"command\": \"echo hi\" } } }\n");
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+    let profile = json!({
+        "cmuxProfile": 1,
+        "name": "kept-night",
+        "settings": { "appearance.themeFile": "night" },
+        "files": {
+            "themes/night.json": "{ \"name\": \"night\", \"colors\": { \"background\": \"#000000\" } }\n",
+            "themes/leak.json": format!("{{ \"name\": \"leak\", \"token\": \"{token}\" }}\n"),
+        },
+    });
+    home.write("profiles/kept-night.json", &profile.to_string());
+    let customize = home.customize();
+    let out = home.dir.path().join("shared");
+    let header = ExportHeader {
+        id: "kept-night/kept-night".to_owned(),
+        name: "kept-night".to_owned(),
+        ..ExportHeader::default()
+    };
+    let exported = customize.export_profile_setup("kept-night", &out, &header).unwrap();
+    assert_eq!(exported.files, ["themes/night.json"]);
+    assert!(exported.actions.is_empty());
+    assert_eq!(exported.left_out.len(), 1, "{:?}", exported.left_out);
+    assert!(!out.join("themes/leak.json").exists());
+    assert!(customize.export_profile_setup("../x", &out, &header).is_err());
+
+    let there = Home::new();
+    let read = setup::read_dir(&out).unwrap();
+    there.customize().install_setup(&read, "setup kept-night", "cli", 20).unwrap();
+    assert_eq!(there.settings()["appearance"]["themeFile"], json!("night"));
+    assert!(there.read("themes/night.json").is_some());
+    assert_eq!(there.settings()["actions"].get("hi"), None);
+}
+
+#[test]
 fn a_setup_that_carries_a_credential_is_refused_whole() {
     let home = Home::new();
     let repo = sample_repo(home.dir.path());

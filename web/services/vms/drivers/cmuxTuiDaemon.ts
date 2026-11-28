@@ -476,6 +476,9 @@ export function cmuxTuiAcpmuxLinkCommand(binary = '"$CMUX_TUI_BIN"', global = fa
   ].join(" && ");
 }
 
+/** acpmux.service's own PATH (systemd expands %h); a baked image's drop-in puts its store ahead of it. */
+export const ACPMUX_UNIT_PATH = "%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin";
+
 /** Install and start acpmux's canonical per-user service on a baked Linux image. */
 export function cmuxTuiServiceInstallCommand(): string {
   const unit = `[Unit]
@@ -485,7 +488,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${ACPMUX_UNIT_PATH}
 ExecStart=%h/.local/bin/acpmux daemon run --take-over
 WorkingDirectory=%h
 Restart=always

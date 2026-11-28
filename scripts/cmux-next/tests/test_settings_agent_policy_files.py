@@ -14,6 +14,10 @@ import tempfile
 import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
+fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", os.path.join(ROOT, "tests", "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(git_fixture_env)
+
 SCRIPT = os.path.join(ROOT, "scripts/cmux-next/gen-settings-sources.py")
 POLICY = os.path.join(ROOT, "schemas/settings/source/agent-policy")
 
@@ -50,8 +54,8 @@ class AgentPolicyFiles(unittest.TestCase):
             self.assertEqual(len({(group["agent"], group.get("why"))}), 1)
 
     def test_two_branches_that_each_add_a_key_merge_without_a_conflict(self):
-        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
-               "GIT_COMMITTER_EMAIL": "t@example.com", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+        env = git_fixture_env.fixture_env({**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@example.com", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
         with tempfile.TemporaryDirectory() as repo:
             def git(*args):
                 return subprocess.run(["git", "-C", repo, *args], env=env, text=True, capture_output=True, check=True)
@@ -65,7 +69,7 @@ class AgentPolicyFiles(unittest.TestCase):
                 git("add", "-A")
                 git("commit", "-q", "-m", key)
 
-            git("init", "-q", "-b", "main")
+            git_fixture_env.init_repo(repo, "-b", "main", env=env)
             for name in sorted(os.listdir(POLICY))[:40]:
                 if name != "_refusals.json":
                     write(name[:-5], "settable")

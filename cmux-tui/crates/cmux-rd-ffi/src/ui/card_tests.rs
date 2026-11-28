@@ -69,7 +69,7 @@ fn refusals() {
     let c = content(&args_for(refused("notSignedIn")));
     assert!(c.sign_in);
     assert_eq!(c.title, key("macScreen.hub.signedOutTitle"));
-    assert!(!c.buttons[1].primary && c.buttons[1].scope.as_deref() == Some("full"));
+    assert_eq!(ids(&c), [None]);
     let c = content(&args_for(refused("notFound")));
     assert_eq!(c.buttons.len(), 1);
     let mut a = args_for(refused("hostOffline"));
@@ -135,4 +135,31 @@ fn quiet_card_has_no_info_circle() {
     assert_eq!(content(&a).line, Some(Line { text: token("$scopeTitle"), printed: false }));
     a.quiet = true;
     assert_eq!(content(&a).line, None);
+}
+
+#[test]
+fn no_retry_while_the_pane_retries_on_its_own() {
+    let on = |v: Value| ContentArgs {
+        card: card(v),
+        retries_on_its_own: true,
+        ..ContentArgs::default()
+    };
+    assert_eq!(ids(&content(&on(json!({"kind": "failed"})))), [None]);
+    assert_eq!(ids(&content(&on(json!({"kind": "ended"})))), [None]);
+    let end = json!({"kind": "hubEnded", "end": {"canReconnect": true}});
+    assert_eq!(ids(&content(&on(end.clone()))), [None]);
+    assert_eq!(ids(&content(&args_for(card(end)))), [None, Some("macScreen.card.reconnect")]);
+    // A revoke's Connect Again is the person's choice: it stays.
+    let revoked = json!({"kind": "hubRevoked", "end": {"canReconnect": true}});
+    assert_eq!(ids(&content(&on(revoked))), [None, Some("macScreen.hub.connectAgain")]);
+    let mut offline =
+        on(json!({"kind": "hubRefused", "refusal": "hostOffline", "requested": "full"}));
+    assert_eq!(ids(&content(&offline)), [None]);
+    offline.shows_start = true;
+    let c = content(&offline);
+    assert!(c.start);
+    assert_eq!(ids(&c), [None]);
+    let c = content(&on(json!({"kind": "hubRefused", "refusal": "notSignedIn"})));
+    assert!(c.sign_in);
+    assert_eq!(ids(&c), [None]);
 }

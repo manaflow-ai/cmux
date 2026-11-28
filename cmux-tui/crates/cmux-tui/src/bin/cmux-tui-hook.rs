@@ -55,7 +55,22 @@ fn main() -> ExitCode {
 /// Runs the helper with `arguments` (argv without the program name).
 /// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
 /// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
+    if let [mode] = arguments.as_slice()
+        && let Some(source) = mode.strip_prefix("--plugin-stream=")
+    {
+        return match plugin_stream::serve(source) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("cmux-tui-hook: {error:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
         return match detached_child_from_stdin() {
             Ok(()) => ExitCode::SUCCESS,
@@ -112,6 +127,12 @@ fn run_reading(
     exe_prefix: &[&str],
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
+    // Before anything that can wait: the agent has its answer inside the
+    // timeout it was installed with, whatever runs long below.
+    answer_deadline::arm(
+        cmux_tui_hooks::installed_hook_wait(&args.source, &args.native_event),
+        answers_with_an_object(&args.source, &args.native_event),
+    );
     let native = payload()?;
     let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
     let session = session.as_deref();
@@ -127,6 +148,16 @@ fn run_reading(
         return Ok(());
     }
     #[cfg(unix)]
+    let barrier =
+        args.native_event == "PreToolUse" && matches!(args.source.as_str(), "claude" | "codex");
+    #[cfg(unix)]
+    if barrier {
+        answer_deadline::hold_barrier(
+            &cmux_git::native_hook::denial("it did not finish inside the hook's timeout")
+                .to_string(),
+        );
+    }
+    #[cfg(unix)]
     if let Err(error) = cmux_git::native_hook::wait(
         &args.source,
         &args.native_event,
@@ -135,9 +166,12 @@ fn run_reading(
     ) {
         // Output a provider decision, not a journal failure that the shell
         // wrapper may discard. No ready lease survives this pre-tool hook.
-        println!("{}", cmux_git::native_hook::denial(&error.to_string()));
+        let denial = cmux_git::native_hook::denial(&error.to_string());
+        answer_deadline::answer(|| println!("{denial}"));
         return Ok(());
     }
+    #[cfg(unix)]
+    answer_deadline::barrier_cleared();
     if nested {
         inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
         return Ok(());
@@ -152,10 +186,20 @@ fn run_reading(
     {
         // Repository readiness is the only blocking part of this hook. Once
         // it passed, journal delivery is telemetry and must not deny a tool.
-        println!("{{}}");
+        answer_deadline::answer(|| println!("{{}}"));
         return Ok(());
     }
     result
+}
+
+/// Whether the agent reads one JSON object from this hook (its command
+/// prints `{}` itself only when the helper fails): the events that deliver
+/// messages, the session context, and the pre-tool gate. The rest print
+/// nothing; their command echoes the object.
+fn answers_with_an_object(source: &str, native_event: &str) -> bool {
+    inbox::Delivery::for_event(source, native_event).is_some()
+        || session_context::applies(source, native_event, |name| env::var_os(name))
+        || (native_event == "PreToolUse" && matches!(source, "claude" | "codex"))
 }
 
 fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
@@ -179,18 +223,18 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         }
     };
     let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
-    // Read before the journal event redacts it; it travels beside the event, never inside it.
-    let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
-    let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
-        &args.source,
-        &args.native_event,
-        terminal.as_deref(),
-        native,
-    )?;
-    cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
-    let event = serde_json::to_value(ingress)?;
-    let (request_id, encoded) = encode_request(event, live)?;
-    let handoff = handoff_wait(&args.source, &args.native_event);
+    // A Claude Code chat in this terminal takes an acpmux name (acpmux_register.rs); it runs
+    // beside the journal handoff and the inbox delivery below.
+    let session_id = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
+    let registering =
+        acpmux_register::start(&args.source, &args.native_event, session_id.as_deref());
+    let delivery = plugin_stream::one_shot_identity(&args.source);
+    let (request_id, encoded) =
+        encode_native(&args.source, &args.native_event, terminal.as_deref(), native, delivery)?;
+    // The handoff takes no more than the time left: past it the agent has
+    // its answer, and the child delivers the event anyway.
+    let handoff = handoff_wait(&args.source, &args.native_event)
+        .min(answer_deadline::within(HANDOFF_WAIT).saturating_duration_since(Instant::now()));
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
         Handoff::Sent => {}
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
@@ -211,6 +255,7 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
         None => {}
     }
+    registering.finish();
     Ok(())
 }
 
@@ -233,6 +278,10 @@ fn inherited_route_is_untrusted(
         && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
         && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
 }
+
+/// The hook's answer inside the agent's timeout for it.
+#[path = "cmux-tui-hook/answer_deadline.rs"]
+mod answer_deadline;
 
 /// One agent's queue of hook events on disk.
 #[path = "cmux-tui-hook/hook_spool.rs"]
@@ -264,6 +313,10 @@ use journal_append::{
 /// Agent messages handed over as the hook's output.
 #[path = "cmux-tui-hook/inbox.rs"]
 mod inbox;
+
+/// A Claude Code chat in a cmux terminal takes an acpmux name.
+#[path = "cmux-tui-hook/acpmux_register.rs"]
+mod acpmux_register;
 
 /// The Claude Code plugin's copy of the hooks, beside an installed copy.
 #[path = "cmux-tui-hook/plugin_copy.rs"]
@@ -496,6 +549,32 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
     Ok(json!({"encoding":"base64","data":BASE64.encode(bytes)}))
 }
 
+#[path = "cmux-tui-hook/plugin_stream.rs"]
+mod plugin_stream;
+
+fn encode_native(
+    source: &str,
+    native_event: &str,
+    terminal: Option<&str>,
+    native: Value,
+    delivery: Option<(u64, String)>,
+) -> anyhow::Result<(String, Vec<u8>)> {
+    let live = cmux_tui_core::agent_hook_live_fields(source, native_event, &native);
+    let mut ingress =
+        cmux_tui_core::agent_hook_journal_ingress(source, native_event, terminal, native)?;
+    if let Some((time, key)) = delivery {
+        cmux_tui_core::stamp_agent_hook_observed_at(&mut ingress, time);
+        encode_identified_request(
+            serde_json::to_value(ingress)?,
+            live,
+            (format!("request_{key}"), format!("mutation_{key}")),
+        )
+    } else {
+        cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
+        encode_request(serde_json::to_value(ingress)?, live)
+    }
+}
+
 /// `live` holds a turn-start hook's prompt for the hover card and a finished turn's last
 /// message for its banner (`agent_hook_live_fields`): the daemon keeps them in memory only
 /// (`session.journal.append` `live_prompt`, `live_reply`), never in the journal.
@@ -503,7 +582,14 @@ fn encode_request(
     event: Value,
     live: serde_json::Map<String, Value>,
 ) -> anyhow::Result<(String, Vec<u8>)> {
-    let (request_id, idempotency_key) = random_identifiers()?;
+    encode_identified_request(event, live, random_identifiers()?)
+}
+
+fn encode_identified_request(
+    event: Value,
+    live: serde_json::Map<String, Value>,
+    (request_id, idempotency_key): (String, String),
+) -> anyhow::Result<(String, Vec<u8>)> {
     let mut params = json!({"machine":"current","session":"current","event":event});
     if let Some(object) = params.as_object_mut() {
         object.extend(live);

@@ -256,6 +256,20 @@ fn new_id(prefix: &str) -> String {
     format!("{prefix}-{hex}")
 }
 
+/// Firecracker's metadata service on eth0 at 169.254.169.254, token
+/// sessions (V2) with the EC2 header names, which is what cmux-host's
+/// metadata read sends (`PUT latest/api/token`, then
+/// `GET latest/meta-data/instance-id`). Without it a guest has no
+/// instance id and cmux-host never starts its Cloud role, so it never binds.
+fn mmds_config() -> serde_json::Value {
+    json!({"version": "V2", "network_interfaces": ["eth0"], "imds_compat": true})
+}
+
+/// The metadata one machine sees: its own id as the instance id.
+fn mmds_data(id: &str) -> serde_json::Value {
+    json!({"latest": {"meta-data": {"instance-id": id}}})
+}
+
 async fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let tmp = path.with_extension("json.tmp");
     tokio::fs::write(&tmp, serde_json::to_vec_pretty(value).map_err(anyhow::Error::from)?).await?;
@@ -588,6 +602,8 @@ impl Host {
             fc::call(&api, "PUT", "/machine-config", Some(&json!({"vcpu_count": vcpus, "mem_size_mib": mem_mib}))).await?;
             fc::call(&api, "PUT", "/network-interfaces/eth0", Some(&json!({"iface_id": "eth0", "host_dev_name": "tap0"}))).await?;
             fc::call(&api, "PUT", "/vsock", Some(&json!({"guest_cid": 3, "uds_path": "v.sock"}))).await?;
+            fc::call(&api, "PUT", "/mmds/config", Some(&mmds_config())).await?;
+            fc::call(&api, "PUT", "/mmds", Some(&mmds_data(&id))).await?;
             fc::call(&api, "PUT", "/actions", Some(&json!({"action_type": "InstanceStart"}))).await?;
             vsock::wait_ready(&dir.join("v.sock"), self.cfg.boot_timeout).await
         }
@@ -771,6 +787,10 @@ impl Host {
                 })),
             )
             .await?;
+            // The snapshot keeps the MMDS config but not its data: each clone
+            // gets its own instance id before it runs, so cmux-host sees a new
+            // machine and makes fresh per-instance keys.
+            fc::call(&api, "PUT", "/mmds", Some(&mmds_data(&id))).await?;
             fc::call(&api, "PATCH", "/vm", Some(&json!({"state": "Resumed"}))).await?;
             Ok::<_, anyhow::Error>(ms(t))
         }
@@ -928,6 +948,19 @@ mod tests {
         assert!(!valid_name("a/b"));
         assert!(!valid_name(".hidden"));
         assert!(!valid_name(""));
+    }
+
+    #[test]
+    fn mmds_serves_the_machine_id_where_cmux_host_reads_it() {
+        let id = new_id("vm");
+        let data = mmds_data(&id);
+        assert_eq!(data["latest"]["meta-data"]["instance-id"], id.as_str());
+        let cfg = mmds_config();
+        assert_eq!(cfg["version"], "V2");
+        assert_eq!(cfg["network_interfaces"], json!(["eth0"]));
+        // cmux-host accepts only [A-Za-z0-9._-]{1,128} as an instance id.
+        assert!(id.len() <= 128);
+        assert!(id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')));
     }
 
     #[test]

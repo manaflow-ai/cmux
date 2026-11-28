@@ -76,7 +76,6 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
-    "app-store-shelf.yml": "cmux-tui/crates/cmux-app-host/** (its generated REFERENCE.md is put back in the block)",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
     "chat-open-perf-report.yml": "webviews/src/agent-session/**",
@@ -87,6 +86,8 @@ SCOPED: dict[str, str] = {
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",
     "cmux-next-crash-class.yml": "Packages/macOS/CmuxNext/Sources/**",
+    "cmux-next-degenerate-lab.yml": "scripts/cmux-next/degenerate-lab/** (its own README; the lab gates nothing, and an "
+                                    "edit to its workflow would run the lab on that pull request)",
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",
@@ -101,7 +102,6 @@ SCOPED: dict[str, str] = {
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
-    "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
     "web-complexity.yml": "web/**",
@@ -518,6 +518,37 @@ class Fallback(unittest.TestCase):
     def test_the_labels_are_ci_yml_s(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
         self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")
+
+    def test_merge_files_lists_the_head_side_of_the_merge_commit(self):
+        """The gate reads the merge commit's change from git (no REST budget); a stale merge ref reads as unknown."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def git(*args):
+                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                      check=True, capture_output=True, text=True).stdout.strip()
+
+            git("init", "-q", "-b", "base")
+            (root / "README.md").write_text("a\n")
+            git("add", "."); git("commit", "-qm", "base")
+            git("checkout", "-qb", "head")
+            (root / "app.py").write_text("x\n")
+            git("add", "."); git("commit", "-qm", "head")
+            head = git("rev-parse", "HEAD")
+            git("checkout", "-q", "base")
+            (root / "docs.md").write_text("only the base changed this\n")
+            git("add", "."); git("commit", "-qm", "base moved")
+            git("merge", "-q", "--no-ff", "--no-edit", "head")
+            self.assertEqual(docs.merge_files(head, root), ["app.py"])
+            self.assertFalse(docs.docs_only(docs.merge_files(head, root)))
+            self.assertIsNone(docs.merge_files("0" * 40, root), "a merge of another head proves nothing")
+            git("checkout", "-q", head)
+            self.assertIsNone(docs.merge_files(head, root), "no merge commit checked out: unknown")
+            # A code file in the list means GitHub saw code, so the plan is the one the API's list would give.
+            event = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"base": {"ref": "feat-cmux-next"}}}
+            self.assertEqual(self.plan(event, ["app.py"], runs=None), [])
 
 
 class ZeroJobSibling(unittest.TestCase):

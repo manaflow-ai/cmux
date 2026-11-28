@@ -22,8 +22,8 @@
 //!   (`taken_back`). The watch goes on asking, so a target that answers later still ends it.
 //!
 //! Its state is in the move's directory, so a daemon that restarts mid-move watches it again:
-//! `alive` (touched by begin and each read), `read` (each file read to its end), `to` and
-//! `to-ssh` and `to-host`, `undecided` (when its target first could not say), `offered`.
+//! `alive` (touched by begin and each read), `paged` (a page was read), `read` (each file read to
+//! its end), `to` and `to-ssh` and `to-host`, `undecided` (when its target first could not say), `offered`.
 
 use super::transfer_out::{bundle_files, names_a_move, transfer_epoch_marker, transfers_dir};
 use super::*;
@@ -130,6 +130,23 @@ pub(super) fn fully_read(dir: &Path) -> Option<bool> {
     let read: Vec<&str> = read.lines().collect();
     // An empty file needs no page: the target has it whole without one.
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
+}
+
+/// The file that says a client read a page of the move: its copy began, so a client is driving it.
+const PAGED: &str = "paged";
+
+/// A client read a page of the move in `dir` (`transfer_read`): stamps [`PAGED`] once.
+pub(super) fn note_paged(dir: &Path) {
+    let path = dir.join(PAGED);
+    if !path.exists() {
+        let _ = crate::home_fs::write(&path, "");
+    }
+}
+
+/// Whether any page of the move in `dir` was read: a client began its copy.
+pub(super) fn was_paged(dir: &Path) -> bool {
+    dir.join(PAGED).exists()
+        || std::fs::read_to_string(dir.join("read")).is_ok_and(|r| !r.trim().is_empty())
 }
 
 /// How long ago the move last heard from its driver. A missing or malformed stamp is
@@ -288,11 +305,12 @@ impl Hub {
     }
 
     /// Watches the move `transfer_id` of `session`, which this daemon found at start, until it
-    /// ends, unless another holds its watch. A move whose bundle was not
-    /// read to its end cannot have landed anywhere, and its client's connection did not survive
-    /// the restart, so it ends now (the chat runs here again) rather than after a lease the chat
-    /// spends frozen (RFD 0063, "Nothing lives only on the VM"). A client still reading it gets
-    /// `transfer.unknown` and starts the move anew. A move read to its end waits for its lease.
+    /// ends, unless another holds its watch. A move nobody read a page of cannot have landed
+    /// anywhere and has no client copying it, so it ends now (the chat runs here again) rather
+    /// than after a lease the chat spends frozen (RFD 0063, "Nothing lives only on the VM"). A
+    /// move a client was midway through copying is kept for its lease: a take-over
+    /// (`acpmux daemon run --take-over`) leaves that client reading, and its copy goes on from
+    /// the offset it reached against the new daemon. A move read to its end waits for its lease.
     pub(super) fn watch_transfer_after_restart(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -307,6 +325,7 @@ impl Hub {
             let dir = transfers_dir().join(&watch.transfer_id);
             if dir.is_dir()
                 && fully_read(&dir) == Some(false)
+                && !was_paged(&dir)
                 && hub.end_stalled_move(&session, &watch.transfer_id, &dir).await
             {
                 return;

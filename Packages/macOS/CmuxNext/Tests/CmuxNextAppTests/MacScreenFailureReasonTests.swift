@@ -72,10 +72,10 @@ struct MacScreenFailedCardTests {
         #expect(!host.contains("awake"))
         let bare = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Air Blue", cause: .host(""))
         #expect(bare.contains("Air Blue") && bare != generic)
-        // This Mac's own hub link down still says so first.
+        // This Mac's own hub socket being down never hides the host's reason.
         let offline = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Air Blue",
                                                       hubOnline: false, cause: .host("x"))
-        #expect(!offline.contains("x"))
+        #expect(offline == MacScreenPaneModel.hostFailedText("x", name: "Air Blue"))
         #expect(generic.contains("awake"))
     }
 

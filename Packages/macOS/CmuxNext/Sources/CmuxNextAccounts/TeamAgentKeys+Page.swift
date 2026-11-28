@@ -35,6 +35,7 @@ extension TeamAgentKeys {
             "detail": .string(Self.detailText),
             "note": note.map(JSONValue.string) ?? .null,
             "signIn": scopeIsSignedOut ? .string(SignInButton.defaultTitle) : .null,
+            "signInBackend": scopeIsSignedOut ? signInBackend.map(JSONValue.string) ?? .null : .null,
             "busy": .bool(busy),
             "canManage": .bool(canManage),
             "error": cardError.map(JSONValue.string) ?? .null,

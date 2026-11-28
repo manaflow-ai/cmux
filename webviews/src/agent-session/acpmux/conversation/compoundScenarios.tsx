@@ -10,6 +10,7 @@
 // as a socket's events land, and names the step its event starts in (EVENT_STEP).
 import { useState } from "react";
 import { VirtualTranscript } from "../App";
+import { declareMove } from "../../../layout/motionContract";
 import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "../composer/fieldGrowthEvent";
 import type { AcpmuxRow } from "../model";
 import { MOTION_MS, MOTION_SETTLE } from "../../../motion/scale.generated";
@@ -163,7 +164,12 @@ export type CompoundOptions = {
 /// one, and acpmux's echo brings the prompt's row and the live line 30 ms later (scriptedTurn `send`).
 /// A send: the card collapses, and the prompt's row lands 30 ms later, or in the send's own commit
 /// (`oneCommit`, what a loaded host draws: the prompt is there before the send's effect runs).
+/// The field's lines come and go on a person's keys (the draft typed, then Enter), which declare
+/// composer-growth (layout/motionAudit.ts); the scripted send stands in for those keys, so it declares it too.
+const keyed = () => declareMove({ event: "composer-growth", scope: "all", by: "scripted send's keys" }, { ms: 500 });
+
 async function send(lines: number, { show, step }: CompoundOptions, oneCommit = false) {
+  keyed();
   show({ card: CARD_EMPTY + (lines - 1) * LINE });
   await wait(300);
   const text = Array.from({ length: lines }, (_, index) => `Line ${index + 1} of the prompt.`).join("\n");
@@ -172,6 +178,7 @@ async function send(lines: number, { show, step }: CompoundOptions, oneCommit = 
     working: true,
   };
   step("send");
+  keyed();
   if (oneCommit) show({ sends: 1, card: CARD_EMPTY, ...prompt });
   else {
     show({ sends: 1, card: CARD_EMPTY });

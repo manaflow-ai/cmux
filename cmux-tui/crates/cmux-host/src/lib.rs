@@ -51,6 +51,7 @@ pub mod config;
 pub mod daemon_spec;
 #[cfg(unix)]
 pub mod github_cli;
+pub mod github_own_login;
 /// How to connect GitHub, on every platform (`github_cli` is unix-only; acpmux's errors use it
 /// everywhere).
 pub mod github_connect {

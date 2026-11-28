@@ -24,13 +24,14 @@
 # delta. With an empty OVERLAY it only touches STAMP (cold workspace build, as before).
 #
 # pack (after "Stage binary" and the uploads, before the dependency strip): OUT gets hard links of every
-# file under TARGET written after STAMP plus every file apply copied (a crate Cargo found fresh is not
+# file under TARGET written after STAMP (or, under incremental/, linked after it) plus every file apply copied (a crate Cargo found fresh is not
 # rewritten, and the next leg needs it too), the source mtimes of this checkout and the commit. OUT is
 # then saved to R2 under a per-commit key; its archive is the delta against the dependency entry, never
 # a delta of a delta.
 #
 # The CPU fingerprint is pinned to TRIPLE as machine-channel-warm-target.sh pins it: the build output is
-# for an explicit zig -Dtarget, so it is valid on every pool host. scripts/ci/tests/cargo-target-delta.test.sh.
+# for an explicit zig -Dtarget, so it is valid on every pool host; TRIPLE host keeps the real CPU.
+# scripts/ci/tests/cargo-target-delta.test.sh.
 set -euo pipefail
 
 usage() {
@@ -44,7 +45,7 @@ case "$command" in
   pack) target=$2 stamp=$3 out=$4 triple=$5 ;;
   *) usage ;;
 esac
-[[ "$triple" =~ ^[a-z0-9_]+-[a-z0-9_-]+$ ]] || { echo "invalid triple: $triple" >&2; exit 2; }
+[[ "$triple" == host || "$triple" =~ ^[a-z0-9_]+-[a-z0-9_-]+$ ]] || { echo "invalid triple: $triple" >&2; exit 2; }
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mtimes="$repo/scripts/blacksmith-testbox-source-mtimes.py"
@@ -52,9 +53,14 @@ manifest_name=.cmux-testbox-source-mtimes.tsv
 source_name=.cargo-target-delta-source
 list="$stamp.list"
 
-cpuinfo="${RUNNER_TEMP:-/tmp}/cargo-target-delta-cpu-$triple"
-printf 'model name\t: zig -Dtarget=%s\nflags\t: %s\n' "$triple" "$triple" > "$cpuinfo"
-export CMUX_TESTBOX_CPUINFO="$cpuinfo"
+# TRIPLE host (the cmux-next fast tier builds for the machine it runs on) keeps this machine's CPU: apply
+# then drops the native-CPU build output another CPU made (blacksmith-testbox-source-mtimes.py), as the
+# pool warm target does.
+if [[ "$triple" != host ]]; then
+  cpuinfo="${RUNNER_TEMP:-/tmp}/cargo-target-delta-cpu-$triple"
+  printf 'model name\t: zig -Dtarget=%s\nflags\t: %s\n' "$triple" "$triple" > "$cpuinfo"
+  export CMUX_TESTBOX_CPUINFO="$cpuinfo"
+fi
 
 # Hard links where TARGET and the other tree share a filesystem (both under the workspace), else copies.
 copy_tree() { # <from> <to>: every entry, mtimes kept
@@ -78,27 +84,88 @@ apply() {
   touch "$stamp"
 }
 
+# Keeps only the newest session directory (and its .lock) of each crate's incremental cache in FILES.
+# rustc loads the newest finalized session, s-<base36 time>-<random>-<svh>, and none older; the older
+# ones still sat in the target (the one apply copied, and one per build since), and the hard-link rule above
+# packed each whole. Machine channel run 46087046243 (2026-11-28, x86_64-unknown-linux-musl): of the
+# delta's 21333 MiB, 6585 MiB were such older sessions (acpmux alone kept two of 2773 MiB each), an
+# 8.17 GB archive that took 107 s to restore. A session still being written ends in -working and is
+# never the one the next build reads, so it is dropped too.
+drop_stale_sessions() { # <file list, one path per line, sorted>
+  awk '
+    # Only names in rustc'"'"'s shape (s-<time>-<random>-<svh|working>, s-<time>-<random>.lock) count;
+    # anything else passes through untouched.
+    function session_of(path,   rest, name) {
+      if (!match(path, /\/incremental\/[^\/]+\/s-[^\/]+/)) return ""
+      rest = substr(path, RSTART, RLENGTH)
+      name = rest; sub(/.*\//, "", name)
+      if (name !~ /^s-[0-9a-z]+-[0-9a-z]+(-[0-9a-z]+|\.lock)$/) return ""
+      return rest
+    }
+    {
+      line[NR] = $0
+      s = session_of($0)
+      if (s == "") next
+      crate = s; sub(/\/s-[^\/]*$/, "", crate)
+      prefix = substr($0, 1, index($0, s) - 1) crate
+      name = s; sub(/.*\/s-/, "s-", name)
+      if (name ~ /\.lock$/ || name ~ /-working$/) next
+      id = name; sub(/^s-/, "", id)
+      split(id, part, "-")
+      stamp = part[1]
+      key = prefix
+      if (!(key in newest) || length(stamp) > length(newest_stamp[key]) \
+          || (length(stamp) == length(newest_stamp[key]) && stamp > newest_stamp[key])) {
+        newest[key] = part[1] "-" part[2]
+        newest_stamp[key] = stamp
+      }
+    }
+    END {
+      for (i = 1; i <= NR; i++) {
+        p = line[i]
+        s = session_of(p)
+        if (s == "") { print p; continue }
+        crate = s; sub(/\/s-[^\/]*$/, "", crate)
+        key = substr(p, 1, index(p, s) - 1) crate
+        name = s; sub(/.*\/s-/, "", name); sub(/\.lock$/, "", name)
+        split(name, part, "-")
+        if ((key in newest) && part[1] "-" part[2] == newest[key] && name !~ /-working$/) print p
+      }
+    }
+  ' "$1" > "$1.kept"
+  mv -f "$1.kept" "$1"
+}
+
 pack() {
-  if [[ ! -d "$target" || ! -f "$stamp" ]]; then
-    echo "cargo delta: no $target or no stamp $stamp (apply did not run); nothing packed"
+  if [[ ! -f "$stamp" ]]; then
+    echo "cargo delta: no stamp $stamp (apply did not run); nothing packed"
+    return 0
+  fi
+  if [[ ! -d "$target" ]]; then
+    echo "cargo delta: no $target$([[ ! -L "$target" ]] || echo " (a link to the missing $(readlink "$target"))"); nothing packed"
     return 0
   fi
   rm -rf -- "$out"
   mkdir -p "$out"
   local files="$out.files"
   {
-    (cd "$target" && find . \( -type f -o -type l \) -newer "$stamp" -printf '%P\n')
+    # rustc's incremental cache hard-links every codegen unit it reuses into a new session directory
+    # (target/<triple>/release/incremental/<crate>/s-*), keeping the old mtime: -cnewer (the link
+    # changed its ctime) keeps them, or the next leg would find the session missing them and
+    # recompile those units. acpmux 2026-11-27: 16 of the session's 20 files were linked, 4 written.
+    (cd "$target" && find . \( -type f -o -type l \) \( -newer "$stamp" -o \( -path '*/incremental/*' -cnewer "$stamp" \) \) -printf '%P\n')
     [[ ! -f "$list" ]] || while IFS= read -r path; do
       [[ -n "$path" && ( -f "$target/$path" || -L "$target/$path" ) ]] && printf '%s\n' "$path"
     done < "$list"
   } | grep -v -x -e "$manifest_name" -e "$source_name" -e '.cmux-testbox-cpu' | sort -u > "$files" || true
+  drop_stale_sessions "$files"
   if [[ -s "$files" ]]; then
     (cd "$target" && tr '\n' '\0' < "$files" | xargs -0 -r cp -a --parents --link -t "$out" 2>/dev/null) \
       || (cd "$target" && tr '\n' '\0' < "$files" | xargs -0 -r cp -a --parents --remove-destination -t "$out")
   fi
   python3 -I "$mtimes" record "$repo" "$out/$manifest_name"
   git -C "$repo" rev-parse HEAD > "$out/$source_name" 2>/dev/null || true
-  echo "cargo delta: packed $(wc -l < "$files") files, $(du -sxh "$out" | cut -f1) (target $(du -sxh "$target" | cut -f1))"
+  echo "cargo delta: packed $(wc -l < "$files") files, $(du -sxh "$out" | cut -f1) (target $(du -sxh "$target/" | cut -f1))"
   rm -f -- "$files"
 }
 

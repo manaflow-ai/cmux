@@ -690,4 +690,15 @@ describe("the Antigravity CLI (agy) in the store", () => {
     expect(agyProfileScript()).toContain("\nexport AGY_CLI_DISABLE_AUTO_UPDATE=1\n");
     expect(agyUserEnvironment()).toContain("\nAGY_CLI_DISABLE_AUTO_UPDATE=1\n");
   });
+
+  test("acpmux.service finds the store CLIs without its login shell read (roll 45862819601)", async () => {
+    const { acpmuxStorePathDropIn, ACPMUX_STORE_PATH_DROPIN } = await import("../scripts/cmux-vm-image/bake");
+    const { ACPMUX_UNIT_PATH } = await import("../services/vms/drivers/cmuxTuiDaemon");
+    expect(ACPMUX_STORE_PATH_DROPIN).toBe("/etc/systemd/user/acpmux.service.d/10-cmux-store-path.conf");
+    const lines = acpmuxStorePathDropIn().split("\n");
+    expect(lines).toContain("[Service]");
+    const pathLine = lines.find((l) => l.startsWith("Environment=PATH="));
+    // The store first, as a login shell orders it, then every entry of the unit's own PATH.
+    expect(pathLine).toBe(`Environment=PATH=/opt/cmux/github/bin:/opt/cmux/current/bin:${ACPMUX_UNIT_PATH}`);
+  });
 });
