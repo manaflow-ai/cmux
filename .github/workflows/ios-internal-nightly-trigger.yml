@@ -154,9 +154,12 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
-          # Merging needs the history between feat-cmux-next and each PR; blobless keeps it small.
-          fetch-depth: 0
-          filter: blob:none
+
+      # Merging needs the history between feat-cmux-next and each PR: feat-cmux-next's, without blobs
+      # (the PR heads come with the script's own fetch). fetch-depth: 0 fetched every branch and tag,
+      # 218 s of a 4-minute job (job 140874728757).
+      - name: Fetch feat-cmux-next's history without blobs
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
 
       # The stack branch is created at the feat-cmux-next head, whose .github/workflows differ from main's, so
       # GitHub refuses the job token without the workflows permission, which GITHUB_TOKEN cannot hold (run
