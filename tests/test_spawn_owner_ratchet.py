@@ -283,6 +283,33 @@ class SpawnOwnerRatchet(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn(f"carries {old} -> {moved}", out)
 
+    def split_daemon(self, new_rows, kept_spawns=1):
+        """daemon.rs with three unowned spawns at base, split (an explicit seam) into daemon/detached_spawn.rs,
+        daemon.rs keeping KEPT_SPAWNS of them and its own row (#63597)."""
+        old = "cmux-tui/crates/acpmux/src/daemon.rs"
+        new = "cmux-tui/crates/acpmux/src/daemon/detached_spawn.rs"
+        self.git("init", "-q")
+        self.baseline({old: 3})
+        self.write(old, "fn f() {\n" + "    tokio::spawn(a());\n" * 3 + "}\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.write(old, "fn f() {\n" + "    tokio::spawn(a());\n" * kept_spawns + "}\n")
+        self.write(new, "fn g() {\n" + "    tokio::spawn(b());\n" * new_rows + "}\n")
+        self.baseline({old: kept_spawns, new: new_rows})
+        return old, new
+
+    def test_a_split_carries_what_its_old_row_no_longer_holds(self):
+        old, new = self.split_daemon(2)
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"carries 2 of {old}'s base row 3 -> {new}", out)
+
+    def test_a_split_that_adds_a_spawn_still_fails(self):
+        _, new = self.split_daemon(3)
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"raises {new} to 3 (base HEAD: 2)", out)
+
     def renamed_across_crates(self, spawns):
         """A file with two unowned spawns at base, `git mv`d to another crate with SPAWNS spawns and its row moved
         (baseline_renames.py: git's rename, no explicit seam)."""
