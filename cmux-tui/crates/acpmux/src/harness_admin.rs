@@ -47,6 +47,9 @@ pub enum AdminError {
     Invalid(String),
     /// Disk or registry trouble.
     Failed(String),
+    /// Bad parameters with a reason id a caller maps to its own sentence (cmux models,
+    /// [`byo_endpoint::CmuxModels::reason`]).
+    Refused(&'static str, String),
     EndpointCheck(String),
 }
 
@@ -57,6 +60,7 @@ impl AdminError {
             AdminError::NotRemovable(_) => Some("harness.not_removable"),
             AdminError::SecretInline(_) => Some("harness.secret_inline"),
             AdminError::NotFound(_) => Some("harness.not_found"),
+            AdminError::Refused(reason, _) => Some(*reason),
             AdminError::EndpointCheck(_) => Some("harness.endpoint_check"),
             AdminError::Invalid(_) => Some("harness.invalid"),
             AdminError::Failed(_) => None,
@@ -71,7 +75,8 @@ impl AdminError {
             | AdminError::NotFound(m)
             | AdminError::Invalid(m)
             | AdminError::Failed(m)
-            | AdminError::EndpointCheck(m) => m,
+            | AdminError::EndpointCheck(m)
+            | AdminError::Refused(_, m) => m,
         }
     }
 }
@@ -113,6 +118,9 @@ pub struct AddParams {
     pub models: Vec<String>,
     /// Endpoint examples: the Keychain item that holds the key.
     pub keychain_item: Option<String>,
+    /// cmux models: the `apiKeyHelper` command [`resolve_cmux_models`] sets (never from a
+    /// caller's params: an add names no command of its own here).
+    pub cmux_helper: Option<String>,
 }
 
 impl AddParams {
@@ -202,6 +210,7 @@ impl AddParams {
             base_url: text("baseUrl")?,
             models,
             keychain_item: text("keychainItem")?,
+            cmux_helper: None,
         })
     }
 }
@@ -1013,6 +1022,7 @@ fn add_endpoint(
         .as_deref()
         .is_some_and(|url| url.contains('?') && edited.is_some_and(|old| old.base_url == url));
     let base_url = checked_profile_base_url(p, preset, saved_query)?;
+    let cmux_helper = cmux_models_helper(kind, &base_url, p, key.value.is_some())?;
     let at_saved_url = edited
         .filter(|old| byo_endpoint::check_base_url(&old.base_url).is_ok_and(|url| url == base_url));
     if preset == Some("cloudflare")
@@ -1035,6 +1045,7 @@ fn add_endpoint(
     let item = match (given, &account) {
         (Some(item), _) => Some(item),
         (None, Some(account)) => Some(crate::cli::harness_secret::reference(&id, account)),
+        (None, None) if cmux_helper.is_some() => None,
         (None, None) => existing
             .as_ref()
             .filter(|_| p.replace)
@@ -1068,6 +1079,7 @@ fn add_endpoint(
         base_url: &base_url,
         models: &models,
         keychain_item: item.as_deref(),
+        cmux_helper: cmux_helper.as_deref(),
     });
     let text = match (previous.as_deref(), edited) {
         (Some(previous), Some(_)) => {
@@ -1122,6 +1134,75 @@ fn add_endpoint(
         id,
         path,
     })
+}
+
+/// Why a cmux models add (a base URL of cmux's model router) cannot be written as asked.
+fn cmux_models_refusal(kind: byo_endpoint::Kind, has_key: bool) -> Option<&'static str> {
+    if kind != byo_endpoint::Kind::Anthropic {
+        return Some("cmux models run as an anthropic-endpoint (the Anthropic Messages API)");
+    }
+    has_key.then_some("cmux models use your cmux sign-in: leave the key and keychainItem out")
+}
+
+/// The helper of a cmux models add, or None for any other endpoint. A cmux router URL without
+/// one ([`resolve_cmux_models`] did not run) is refused: no key would sign it.
+fn cmux_models_helper(
+    kind: byo_endpoint::Kind,
+    base_url: &str,
+    p: &AddParams,
+    has_key: bool,
+) -> Result<Option<String>, AdminError> {
+    if !byo_endpoint::is_cmux_models_url(base_url) {
+        return Ok(None);
+    }
+    if let Some(why) = cmux_models_refusal(kind, has_key || p.keychain_item.is_some()) {
+        return Err(AdminError::Invalid(why.into()));
+    }
+    p.cmux_helper.clone().map(Some).ok_or_else(|| {
+        AdminError::Invalid(
+            "cmux models are added through the cmux app's sign-in (Settings > Agents > Add > Endpoint > cmux models)"
+                .into(),
+        )
+    })
+}
+
+/// A cmux models add (an anthropic-endpoint at one of cmux's model router URLs,
+/// [`byo_endpoint::is_cmux_models_url`]): points it at the router of the platform the app's
+/// sign-in belongs to, and signs it with the person's cmux token through `cmux auth token`
+/// ([`byo_endpoint::cmux_models_helper`]). `cmux` is the CLI ([`crate::agent_tools::cmux_cli`]);
+/// `platform` asks the app which platform its token is for. Refused with the person-facing
+/// reason when the app cannot sign (not signed in, not reachable). Nothing for any other add.
+pub async fn resolve_cmux_models<F, Fut>(
+    p: &mut AddParams,
+    has_key: bool,
+    cmux: Option<PathBuf>,
+    platform: F,
+) -> Result<(), AdminError>
+where
+    F: FnOnce(PathBuf) -> Fut,
+    Fut: std::future::Future<Output = Result<String, String>>,
+{
+    let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) else {
+        return Ok(());
+    };
+    if !p.base_url.as_deref().is_some_and(byo_endpoint::is_cmux_models_url) {
+        return Ok(());
+    }
+    if let Some(why) = cmux_models_refusal(kind, has_key || p.keychain_item.is_some()) {
+        return Err(AdminError::Invalid(why.into()));
+    }
+    let cmux = cmux.ok_or_else(|| {
+        AdminError::Invalid(
+            "cmux models need the cmux CLI next to acpmux (the cmux app's), and none is there"
+                .into(),
+        )
+    })?;
+    let origin = platform(cmux.clone())
+        .await
+        .map_err(|why| AdminError::Refused(byo_endpoint::CmuxModels::SignedOut.reason(), why))?;
+    p.base_url = Some(byo_endpoint::cmux_models_base(&origin));
+    p.cmux_helper = Some(byo_endpoint::cmux_models_helper(&cmux.to_string_lossy()));
+    Ok(())
 }
 
 /// Fills in `*` of an endpoint add's models with what the endpoint lists
@@ -1211,7 +1292,13 @@ pub(crate) async fn prepare_endpoint_models(
     let fetched =
         byo_endpoint::fetch_models(list_kind, &base_url, key, byo_endpoint::FETCH_TIMEOUT)
             .await
-            .map_err(AdminError::EndpointCheck)?;
+            .map_err(|e| match byo_endpoint::CmuxModels::of_message(&e) {
+                // cmux models: the router's state, with a reason the app says in the person's language.
+                Some(state) if byo_endpoint::is_cmux_models_url(&base_url) => {
+                    AdminError::Refused(state.reason(), e)
+                }
+                _ => AdminError::EndpointCheck(e),
+            })?;
     if !expand {
         return Ok(());
     }

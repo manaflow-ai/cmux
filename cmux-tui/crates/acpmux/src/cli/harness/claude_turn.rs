@@ -148,7 +148,13 @@ pub(super) async fn run(
     let problem = byo_endpoint::classify(&detail);
     // Masked before the cut: a cut key would no longer match its mask.
     let detail = clip(&r.mask(&detail));
+    let cmux_models = profile
+        .env
+        .get("ANTHROPIC_BASE_URL")
+        .is_some_and(|url| byo_endpoint::is_cmux_models_url(url));
     let fix = match endpoint {
+        // cmux's model router: its refusal (a team not let in yet, 429, 503) in the person's words.
+        Some(_) if cmux_models => byo_endpoint::cmux_models_fix(problem, &detail),
         Some(kind) => byo_endpoint::fix(problem, kind, id),
         None if problem == byo_endpoint::Problem::Key => {
             format!("sign in again: `claude auth login`, or check the key the profile of {id} sets")

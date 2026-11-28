@@ -330,6 +330,41 @@ pub(crate) fn settings(condition: &str) -> Value {
     })
 }
 
+/// Adds the chat's stop condition to Claude Code's `args`. A later `--settings` replaces an
+/// earlier one whole (claude_cloud_auth.rs), so a profile's own inline `--settings` (cmux
+/// models' `apiKeyHelper`, byo_endpoint.rs) takes the hook into it instead of losing to it.
+pub(crate) fn add_claude_args(args: &mut Vec<String>, meta: &SessionMeta) {
+    let Some(condition) = meta.stop_condition.as_deref() else { return };
+    let inline = args
+        .iter()
+        .rposition(|a| a == "--settings")
+        .filter(|at| !args.iter().take(*at).any(|a| a == "--"))
+        .and_then(|at| {
+            let value = args.get(at.checked_add(1)?)?;
+            match serde_json::from_str::<Value>(value) {
+                Ok(Value::Object(own)) => Some((at.checked_add(1)?, own)),
+                _ => None,
+            }
+        });
+    match inline.and_then(|(at, own)| Some((args.get_mut(at)?, own))) {
+        Some((slot, mut own)) => {
+            if let Value::Object(ours) = settings(condition) {
+                for (key, value) in ours {
+                    // An object both hold (`env`) keeps the profile's keys too.
+                    match (own.get_mut(&key), value) {
+                        (Some(Value::Object(theirs)), Value::Object(add)) => theirs.extend(add),
+                        (_, value) => {
+                            own.insert(key, value);
+                        }
+                    }
+                }
+            }
+            *slot = Value::Object(own).to_string();
+        }
+        None => args.extend(claude_args(meta)),
+    }
+}
+
 /// Claude Code's words for the chat's stop condition: `--settings <json>`, or none.
 pub(crate) fn claude_args(meta: &SessionMeta) -> Vec<String> {
     meta.stop_condition

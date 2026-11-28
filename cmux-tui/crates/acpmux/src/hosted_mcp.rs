@@ -203,6 +203,8 @@ pub struct Minted {
     refresh_at: Instant,
     /// `<platform>/mcp`.
     pub mcp_url: String,
+    /// The platform origin the token goes to.
+    pub origin: String,
 }
 
 impl std::fmt::Debug for Minted {
@@ -268,7 +270,7 @@ pub fn parse_minted(stdout: &[u8], origin: Option<&str>, now: Instant) -> Result
         .filter(|s| s.is_finite() && *s >= 0.0)
         .map_or(Duration::from_secs(600), |s| Duration::from_secs_f64(s.min(86_400.0)));
     let refresh_at = now + lifetime.saturating_sub(REFRESH_EARLY);
-    Ok(Minted { token, refresh_at, mcp_url: format!("{origin}/mcp") })
+    Ok(Minted { token, refresh_at, mcp_url: format!("{origin}/mcp"), origin })
 }
 
 /// The signed-in person's token and the platform origin that issued it, minted by the app
@@ -289,6 +291,19 @@ fn error_code(stderr: &[u8]) -> Option<String> {
         .or_else(|| value.pointer("/error/code"))
         .and_then(Value::as_str)
         .map(str::to_owned)
+}
+
+/// The cmux platform origin of the app's signed-in person: the platform of the API that issued
+/// the token `cmux` (the CLI) mints now. The token itself is dropped (wiped) here. Err: the
+/// person-facing reason (not signed in, no app, a sign-in for no known platform).
+pub(crate) async fn signed_in_platform(cmux: &std::ffi::OsStr) -> Result<String, String> {
+    mint(cmux, None).await.map(|minted| minted.origin).map_err(|e| {
+        if e.contains("no hosted MCP") {
+            "This cmux sign-in is for a cmux Cloud with no model router.".to_owned()
+        } else {
+            e
+        }
+    })
 }
 
 /// Run `cmux --json auth token` and read its answer.

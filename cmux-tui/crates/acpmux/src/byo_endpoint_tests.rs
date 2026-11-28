@@ -34,6 +34,7 @@ fn byo_endpoint_builders_match_the_profile_environment() {
             base_url,
             models: &models,
             keychain_item: Some("builder/item"),
+            cmux_helper: None,
         };
         let text = profile_text(&endpoint);
         let profile: toml::Value = toml::from_str(&text).unwrap();
@@ -2068,6 +2069,131 @@ fn byo_endpoint_every_keychain_read_reads_only_its_own_item_by_exact_account() {
     let mut plain: std::collections::BTreeMap<String, String> =
         [("K".to_owned(), "${keychain:cmux-harness}".to_owned())].into();
     profiles::resolve_env_refs(&mut plain, &|_| None, &lookup).unwrap();
+}
+
+const PROD_MODELS: &str = "https://cmux-platform-production.debussy.workers.dev/v1/inference";
+const STAGING: &str = "https://cmux-platform-staging.debussy.workers.dev";
+
+#[test]
+fn byo_endpoint_cmux_models_urls_are_the_three_platforms_routers() {
+    for platform in [
+        "https://cmux-platform-production.debussy.workers.dev",
+        STAGING,
+        "https://cmux-platform-development.debussy.workers.dev",
+    ] {
+        let base = cmux_models_base(&format!("{platform}/"));
+        assert_eq!(base, format!("{platform}/v1/inference"));
+        assert!(is_cmux_models_url(&base) && is_cmux_models_url(&format!("{base}/")), "{base}");
+        // The router lists its models at `<base>/models`, not `<base>/v1/models`.
+        assert_eq!(models_url(Kind::Anthropic, &base), format!("{base}/models"));
+    }
+    for other in [
+        "https://cmux-platform-production.debussy.workers.dev",
+        "https://cmux-platform-production.debussy.workers.dev/v1",
+        "https://evil.example.com/v1/inference",
+        "http://cmux-platform-production.debussy.workers.dev/v1/inference",
+    ] {
+        assert!(!is_cmux_models_url(other), "{other}");
+    }
+    assert_eq!(
+        models_url(Kind::Anthropic, "https://llm.example.com"),
+        "https://llm.example.com/v1/models"
+    );
+}
+
+#[tokio::test]
+async fn byo_endpoint_cmux_models_add_signs_with_the_cmux_token_of_the_signed_in_platform() {
+    let root = scratch("cmux-models");
+    let src = sources(&root);
+    let cmux = PathBuf::from("/Applications/cmux DEV.app/Contents/Resources/bin/cmux");
+    let mut p = params("anthropic-endpoint", "cmux-models", PROD_MODELS, "kimi-k2", None);
+    // A DEV app's token is staging's: the add follows the issuer, not the URL the page sent.
+    let asked: Arc<std::sync::Mutex<Option<PathBuf>>> = Arc::new(std::sync::Mutex::new(None));
+    let seen = asked.clone();
+    admin::resolve_cmux_models(&mut p, false, Some(cmux.clone()), move |at: PathBuf| async move {
+        *seen.lock().unwrap() = Some(at);
+        Ok::<_, String>(STAGING.to_owned())
+    })
+    .await
+    .unwrap();
+    assert_eq!(asked.lock().unwrap().as_deref(), Some(cmux.as_path()));
+    assert_eq!(p.base_url.as_deref(), Some(format!("{STAGING}/v1/inference").as_str()));
+
+    let added = admin::add_endpoint_keyed(&p, &src, &admin::EndpointKey::NONE).unwrap();
+    let text = std::fs::read_to_string(&added.path).unwrap();
+    assert!(!text.contains("keychain") && !text.contains("AUTH_TOKEN"), "{text}");
+    let (profile, _) = load(&added.path, "cmux-models");
+    assert_eq!(profile.kind, HarnessKind::ClaudeStdio);
+    assert_eq!(profile.argv[..2], ["claude".to_owned(), "--settings".to_owned()]);
+    let settings: Value = serde_json::from_str(&profile.argv[2]).unwrap();
+    assert_eq!(
+        settings,
+        json!({"apiKeyHelper": "'/Applications/cmux DEV.app/Contents/Resources/bin/cmux' auth token"})
+    );
+    assert_eq!(profile.env[CMUX_HELPER_TTL_ENV], CMUX_HELPER_TTL_MS);
+    assert_eq!(profile.env["ANTHROPIC_BASE_URL"], format!("{STAGING}/v1/inference"));
+    assert_eq!(profile.env["ANTHROPIC_MODEL"], "kimi-k2");
+    assert!(!profile.env.contains_key("ANTHROPIC_AUTH_TOKEN"), "{:?}", profile.env);
+    assert_eq!(Kind::of_env(&profile.env), Some(Kind::Anthropic));
+
+    // Any other endpoint: untouched, the platform never asked.
+    let mut other = params("anthropic-endpoint", "gw", "https://llm.example.com", "m", None);
+    admin::resolve_cmux_models(&mut other, false, Some(cmux), |_| async {
+        Err::<String, String>("asked the platform for another endpoint".into())
+    })
+    .await
+    .unwrap();
+    assert_eq!(other.base_url.as_deref(), Some("https://llm.example.com"));
+    assert!(other.cmux_helper.is_none());
+}
+
+#[tokio::test]
+async fn byo_endpoint_cmux_models_refuse_a_key_a_missing_sign_in_and_another_route() {
+    let cmux = || Some(PathBuf::from("/usr/local/bin/cmux"));
+    let fine = |_: PathBuf| async { Ok::<_, String>(STAGING.to_owned()) };
+    let cmux_params = || params("anthropic-endpoint", "cmux-models", PROD_MODELS, "m", None);
+    // A key, or a Keychain item: the cmux sign-in signs, never a key.
+    let e = admin::resolve_cmux_models(&mut cmux_params(), true, cmux(), fine).await.unwrap_err();
+    assert!(e.message().contains("cmux sign-in"), "{e}");
+    let mut itemed = cmux_params();
+    itemed.keychain_item = Some("acme/key".into());
+    assert!(admin::resolve_cmux_models(&mut itemed, false, cmux(), fine).await.is_err());
+    // OpenAI's kind: the router is the Anthropic Messages API here.
+    let mut openai = params("openai-endpoint", "cmux-models", PROD_MODELS, "m", None);
+    assert!(admin::resolve_cmux_models(&mut openai, false, cmux(), fine).await.is_err());
+    // No CLI next to acpmux.
+    assert!(admin::resolve_cmux_models(&mut cmux_params(), false, None, fine).await.is_err());
+    // Not signed in: the reason the app maps to its own sentence, and the CLI's text kept.
+    let e = admin::resolve_cmux_models(&mut cmux_params(), false, cmux(), |_| async {
+        Err::<String, String>("Sign in to cmux first.".to_owned())
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(e.reason(), Some("harness.cmux_models_signed_out"));
+    assert_eq!(e.message(), "Sign in to cmux first.");
+    // An add of the router's URL that skipped the sign-in (an old app, a hand-made call) has no
+    // way to sign: refused, never written keyless.
+    let root = scratch("cmux-models-unsigned");
+    let e = admin::add_endpoint_keyed(&cmux_params(), &sources(&root), &admin::EndpointKey::NONE)
+        .unwrap_err();
+    assert!(e.message().contains("sign-in"), "{e}");
+}
+
+#[test]
+fn byo_endpoint_cmux_models_states_have_reasons_and_fixes_name_the_router() {
+    for state in [CmuxModels::Off, CmuxModels::Empty, CmuxModels::Busy, CmuxModels::Down] {
+        let said = format!("{} (HTTP 503)", state.message());
+        assert_eq!(CmuxModels::of_message(&said), Some(state));
+        assert!(state.reason().starts_with("harness.cmux_models_"));
+    }
+    assert_eq!(CmuxModels::of_message("the endpoint lists no models: type the model ids"), None);
+    let fix = |p: Problem, d: &str| cmux_models_fix(p, d);
+    let forbidden = "API Error: 403 {\"error\":{\"code\":\"auth.forbidden\",\"message\":\"this team cannot use the model router here yet\"}}";
+    assert!(fix(Problem::Key, forbidden).contains("not open to this team"));
+    assert!(fix(Problem::Other, "API Error: 429 rate_limited").contains("busy"));
+    assert!(fix(Problem::Other, "API Error: 503 Service Unavailable").contains("not answering"));
+    assert!(fix(Problem::Key, "API Error: 401").contains("sign in to cmux"));
+    assert!(fix(Problem::Model, "model not found").contains("fetch the cmux models again"));
 }
 
 #[test]

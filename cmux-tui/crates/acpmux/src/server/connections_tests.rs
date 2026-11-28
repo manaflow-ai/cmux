@@ -829,6 +829,7 @@ fn saved_endpoint_profiles_are_editable_and_local_only() {
             base_url,
             models: &["some-model".into()],
             keychain_item: Some(&account),
+            cmux_helper: None,
         });
         std::fs::write(folder.join(format!("{id}.toml")), profile).unwrap();
         let row = list(Some(&d.routes), &d.home, &Bindings::default(), &sources)
@@ -868,6 +869,7 @@ fn a_saved_endpoint_stays_editable_when_a_route_has_the_same_id() {
             base_url: "https://models.example/v1",
             models: &["some-model".into()],
             keychain_item: Some(&account),
+            cmux_helper: None,
         }),
     )
     .unwrap();

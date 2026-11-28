@@ -208,6 +208,15 @@ pub(super) async fn handle(
                 )
                 .map_err(rpc_error)?;
             }
+            // cmux models: the router of the app's sign-in, signed with the person's cmux token.
+            admin::resolve_cmux_models(
+                &mut p,
+                key.is_some(),
+                crate::agent_tools::cmux_cli(),
+                |cmux| async move { crate::hosted_mcp::signed_in_platform(cmux.as_os_str()).await },
+            )
+            .await
+            .map_err(rpc_error)?;
             // `*`: the endpoint's own model list, read with the key this add brings or the stored one.
             admin::prepare_endpoint_models(
                 &mut p,

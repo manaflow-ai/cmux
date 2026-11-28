@@ -587,6 +587,7 @@ async fn native_sign_in_rows_are_read_and_announced_but_not_returned_by_mutation
         base_url: "https://models.example.com/v1",
         models: &["model".into()],
         keychain_item: None,
+        cmux_helper: None,
     });
     std::fs::write(profiles.join("grok-native-login.toml"), profile).unwrap();
     let state = caller.call(method::MUX_CONNECTIONS, json!({})).await.unwrap();

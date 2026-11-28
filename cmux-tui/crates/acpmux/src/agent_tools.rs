@@ -569,6 +569,15 @@ pub const DESKTOP_LEASE_SERVER: &str = "cmux-desktop";
 const DESKTOP_LEASE_OWNER_ENV: &str = "DESKTOP_LEASE_OWNER";
 const DESKTOP_LEASE_SOCKET_ENV: &str = "DESKTOP_LEASE_SOCKET";
 
+/// The `cmux` CLI next to this executable (the app's bundle), as sessions get it: None when
+/// there is none there.
+pub fn cmux_cli() -> Option<PathBuf> {
+    let dir = std::env::var_os(BIN_DIR_ENV).filter(|v| !v.is_empty()).map(PathBuf::from).or_else(
+        || std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)),
+    )?;
+    Some(dir.join("cmux")).filter(|path| is_executable(path))
+}
+
 impl Inputs {
     pub fn current() -> Self {
         let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());

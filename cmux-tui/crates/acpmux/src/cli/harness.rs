@@ -334,6 +334,14 @@ async fn add_endpoint_cmd(
     };
     let mut p = p.clone();
     let sources = ProfileSources::current();
+    crate::harness_admin::resolve_cmux_models(
+        &mut p,
+        value.is_some(),
+        crate::agent_tools::cmux_cli(),
+        |cmux| async move { crate::hosted_mcp::signed_in_platform(cmux.as_os_str()).await },
+    )
+    .await
+    .map_err(|e| anyhow!("{e}"))?;
     crate::harness_admin::fetch_endpoint_models(
         &mut p,
         value.as_ref().map(|v| v.as_str()),

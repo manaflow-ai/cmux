@@ -977,6 +977,10 @@ pub fn valid_env_key(key: &str) -> bool {
 /// A key whose value is probably a credential.
 pub fn secret_looking(key: &str) -> bool {
     let k = key.to_ascii_uppercase();
+    // Named like a secret, holds none: Claude Code's `apiKeyHelper` refresh interval (ms).
+    if k == "CLAUDE_CODE_API_KEY_HELPER_TTL_MS" {
+        return false;
+    }
     ["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH", "COOKIE"]
         .iter()
         .any(|w| k.contains(w))

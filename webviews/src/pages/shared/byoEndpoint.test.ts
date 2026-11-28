@@ -2,6 +2,7 @@
 // Endpoint (plan api-and-open-models gaps 3 and 6).
 import { expect, test } from "bun:test";
 import {
+  CMUX_MODELS_URL,
   ENDPOINT_PRESETS,
   bringEndpoint,
   addedTarget,
@@ -39,14 +40,47 @@ test("presets name no product, and the local ones need no key", () => {
     "team-server",
     "hosted",
     "gateway",
+    "cmux-models",
   ]);
   expect(ENDPOINT_PRESETS.find((preset) => preset.id === "local-server")!.baseUrl).toContain(":11434/v1");
   expect(ENDPOINT_PRESETS.find((preset) => preset.id === "desktop-app")!.baseUrl).toContain(":1234/v1");
   expect(ENDPOINT_PRESETS.filter((preset) => preset.key === "none").map((preset) => preset.id)).toEqual([
     "local-server",
     "desktop-app",
+    "cmux-models",
   ]);
   expect(ENDPOINT_PRESETS.find((preset) => preset.id === "gateway")!.kind).toBe("anthropic-endpoint");
+});
+
+test("cmux models: the router's Anthropic Messages URL, no key (acpmux signs with the cmux sign-in)", () => {
+  const preset = ENDPOINT_PRESETS.find((entry) => entry.id === "cmux-models")!;
+  expect(preset).toMatchObject({ kind: "anthropic-endpoint", key: "none", idBase: "cmux-models" });
+  expect(preset.baseUrl).toBe(CMUX_MODELS_URL);
+  expect(CMUX_MODELS_URL).toMatch(/^https:\/\/cmux-platform-production\.[^/]+\/v1\/inference$/);
+  // Fetch Models needs no key for it, and the add sends none.
+  const cmux = draft({ kind: "anthropic-endpoint", baseUrl: preset.baseUrl, models: "" });
+  expect(canFetchModels(cmux, preset.key)).toBe(true);
+  expect(endpointBackend(cmux, { id: "cmux-models", own: false, typedKey: false }, ["*"]).apiKey).toBeUndefined();
+});
+
+test("cmux models refusals reach the person as their own sentences, never the generic one", () => {
+  const generic = userMessage({ code: "cmux.agents.failed", message: "x" });
+  const said = (reason: string) => userMessage({ code: `cmux.agents.${reason}`, message: "acpmux text" });
+  const reasons = [
+    "cmux_models_signed_out",
+    "cmux_models_off",
+    "cmux_models_empty",
+    "cmux_models_busy",
+    "cmux_models_down",
+  ];
+  const sentences = reasons.map(said);
+  for (const sentence of sentences) {
+    expect(sentence).not.toBe(generic);
+    expect(sentence).not.toBe("acpmux text");
+    expect(sentence).toContain("cmux");
+  }
+  expect(new Set(sentences).size).toBe(reasons.length);
+  expect(said("cmux_models_empty")).toBe("No cmux models are available yet.");
 });
 
 test("a typed model list splits on commas, spaces and lines, in order, without repeats", () => {
