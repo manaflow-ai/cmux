@@ -2937,8 +2937,33 @@ jobs:
         run: echo "build=${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")" >> "$GITHUB_OUTPUT"
 
       - *github-token-for-git
+      # The host's cmux mirror (hq lane-build-runners/cmux-git-mirror.sh: main, feat-cmux-next and nightly-next
+      # fetched every minute) holds the build ref: the workspace borrows its objects, full history, no network,
+      # and actions/checkout's github.com fetch (58 s in run 46142021653) is skipped. No ready mirror, a repair
+      # pending, a commit it lacks or any failure here: the workspace store is dropped and checkout runs as before.
+      - name: Check out the build ref from the host's git mirror
+        id: mirror
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          m=/var/lib/cmux-git/cmux.git
+          if [ ! -e "$m/cmux-ready" ] || [ -e /var/lib/cmux-git/repair ]; then echo "no ready cmux mirror on this host"; exit 0; fi
+          if ! git --git-dir="$m" cat-file -e "$SHA^{commit}" 2>/dev/null; then echo "the host mirror lacks $SHA"; exit 0; fi
+          ws="$GITHUB_WORKSPACE"
+          trap 'rm -rf -- "$ws/.git"' ERR
+          find "$ws" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          git init -q "$ws"
+          echo "$m/objects" > "$ws/.git/objects/info/alternates"
+          git -C "$ws" remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          git -C "$ws" -c advice.detachedHead=false checkout -q --detach "$SHA"
+          echo "served=true" >> "$GITHUB_OUTPUT"
+          echo "served $SHA from the host mirror (github.com git fetches this job: 0)"
       - name: Checkout build ref
         id: checkout
+        if: steps.mirror.outputs.served != 'true'
         # Why: docs/ci/nightly-workflow-notes/2026-11-26-resolve-nightly-cmux-tui-client-checkout-build-ref.md
         continue-on-error: true
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -3088,6 +3113,10 @@ jobs:
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           SUPERSEDE_SKIP: ${{ vars.NIGHTLY_NEXT_SUPERSEDE_SKIP }}
         run: bash scripts/ci/nightly-steps/resolve-leave-build-slot.sh
+      # A workspace that borrowed the mirror leaves no alternate behind: the next job on this runner checks out fresh.
+      - name: Drop the mirror-borrowing git store
+        if: always() && steps.mirror.outputs.served == 'true'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
 
   # Why: docs/ci/nightly-workflow-notes.md#note-39
   check-nightly-webviews:
