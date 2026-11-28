@@ -41,6 +41,12 @@ struct TryPullRequestPage: View {
     let store: AppStore
     @State private var model: TryPullRequestModel
     @State private var confirming: TryPullRequest?
+    @State private var autoRetry = AutoRetry()
+
+    private var loadFailed: Bool {
+        if case .failed = model.load { return true }
+        return false
+    }
 
     init(macID: String, store: AppStore, service: (any TryPullRequestService)?) {
         self.macID = macID
@@ -59,12 +65,17 @@ struct TryPullRequestPage: View {
                 }
             case .failed(let message):
                 Section {
+                    // Read again on its own (AutoRetry); one quiet line past the shared bound.
                     Text(verbatim: message).foregroundStyle(theme.colors.label2)
+                    AutoRetryQuietLine(autoRetry)
+                    // retry-prompt-ok: kept beside AutoRetry, which reads again on its own; the button reads now, ahead of the backoff.
                     Button("Try Again") { Task { await model.reload() } }
                 }
             case .unreachable:
                 Section {
+                    // The page reads again when the Mac connects (the `.task(id:)` below).
                     Text("Not connected to this Mac.").foregroundStyle(theme.colors.label2)
+                    // retry-prompt-ok: kept; the page also reads again on its own when the Mac connects.
                     Button("Try Again") { Task { await model.reload() } }
                 }
             case .loaded(let list):
@@ -87,6 +98,7 @@ struct TryPullRequestPage: View {
         .settingsPage("Pull Requests")
         .refreshable { await model.reload() }
         .task(id: store.macConnection[macID] == .connected) { await model.reload() }
+        .autoRetry(autoRetry, failing: loadFailed) { await model.reload() }
         .confirmationDialog(
             confirming.map { "Install #\($0.number) on this iPhone?" } ?? "",
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
