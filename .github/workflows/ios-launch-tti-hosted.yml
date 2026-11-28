@@ -45,7 +45,7 @@ jobs:
   measure:
     name: launch TTI (${{ matrix.leg }})
     if: ${{ github.event_name != 'pull_request' || (github.event.action == 'labeled' && github.event.label.name == 'launch-tti') || (github.event.action != 'labeled' && (contains(github.event.pull_request.labels.*.name, 'launch-tti') || contains(github.event.pull_request.title, '[measure') || contains(github.event.pull_request.title, 'launch tti') || contains(github.event.pull_request.title, 'hosted tti'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -69,11 +69,23 @@ jobs:
           sparse-checkout: scripts/ci/cmux-next-ios-sim.sh
           sparse-checkout-cone-mode: false
 
+      # The simctl arm's script from this workflow's own commit (a leg's ref may predate it).
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .measure
+          sparse-checkout: scripts/measure/ios-first-connect-simctl.sh
+          sparse-checkout-cone-mode: false
+
       - name: One harness for both legs
         run: |
           set -euo pipefail
           cp .harness/scripts/ci/cmux-next-ios-sim.sh scripts/ci/cmux-next-ios-sim.sh
           rm -rf .harness
+          mkdir -p "$RUNNER_TEMP/measure"
+          cp .measure/scripts/measure/ios-first-connect-simctl.sh "$RUNNER_TEMP/measure/"
+          rm -rf .measure
           echo "harness: scripts/ci/cmux-next-ios-sim.sh at 3281c18a (cmux#58989)"
 
       - name: Select Xcode
@@ -125,6 +137,25 @@ jobs:
           PY
           if [ -f artifacts/ios-sim/SUMMARY.md ]; then cat artifacts/ios-sim/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"; fi
 
+      # The same app, rig and mock Mac, launched with `simctl launch` instead of XCUITest: is the ~4.9 s
+      # list_ms the app's, or XCUITest's relaunch? (scripts/measure/ios-first-connect-simctl.sh)
+      - name: First connect without XCUITest (simctl launch)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          set -uo pipefail
+          bash "$RUNNER_TEMP/measure/ios-first-connect-simctl.sh" --runs 20 --out artifacts/ios-sim | tee artifacts/ios-sim/simctl.log
+          python3 - <<'PY' || true
+          import json, os, pathlib
+          p = pathlib.Path("artifacts/ios-sim/simctl-first-connect.json")
+          if p.exists():
+              d = json.loads(p.read_text())
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+                  f.write("### first connect, simctl launch (no XCUITest)\n\n| mark | n | p50 ms | p90 ms |\n|---|---|---|---|\n")
+                  for k, v in d["marks"].items():
+                      f.write(f"| {k} | {v['n']} | {v['p50_ms']} | {v['p90_ms']} |\n")
+          PY
+
       - name: Upload launch samples
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -136,5 +167,8 @@ jobs:
             artifacts/ios-sim/SUMMARY.md
             artifacts/ios-sim/ui-tests-failures.txt
             artifacts/ios-sim/launch-tti-error.txt
+            artifacts/ios-sim/simctl-first-connect.json
+            artifacts/ios-sim/simctl-launch-marks.ndjson
+            artifacts/ios-sim/simctl.log
           retention-days: 3
           if-no-files-found: warn

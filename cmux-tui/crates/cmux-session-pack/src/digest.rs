@@ -364,9 +364,9 @@ pub fn turns_window(pack: &Pack, from: usize, to: usize) -> Result<Vec<Turn>> {
     let to = to.min(starts.len());
     let from = from.min(to);
     let window = starts.get(from..to).unwrap_or(&[]);
-    // Long strings are left out, so no blob chunk is read: an acpmux prompt's first line is
-    // short. A transcript holds only the whole prompt, so one that is a long string is read
-    // again with its blobs, and only those lines' blob chunks are read.
+    // Long strings are left out, so no blob chunk is read. Rows whose prompt was
+    // stored as a blob are read again with their blobs, and only those lines' blob
+    // chunks are read.
     let all = pack.skim_lines(window)?;
     let mut rows = Vec::with_capacity(window.len());
     let mut again = Vec::new();
@@ -385,6 +385,11 @@ pub fn turns_window(pack: &Pack, from: usize, to: usize) -> Result<Vec<Turn>> {
                 .or_else(|| v.pointer("/msg/prompt"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            let has_prompt_field =
+                v.pointer("/msg/promptLine").is_some() || v.pointer("/msg/prompt").is_some();
+            if v.get("kind").is_some() && has_prompt_field && prompt.is_empty() {
+                again.push(i);
+            }
             (v.get("at").and_then(Value::as_u64).unwrap_or(0), prompt.to_owned())
         };
         rows.push(row);
@@ -392,8 +397,19 @@ pub fn turns_window(pack: &Pack, from: usize, to: usize) -> Result<Vec<Turn>> {
     let lines: Vec<u64> = again.iter().filter_map(|i| window.get(*i).copied()).collect();
     for (i, line) in again.iter().zip(pack.lines_at(&lines)?) {
         let v: Value = serde_json::from_slice(&line).unwrap_or(Value::Null);
-        if let (Some(row), Some(asked)) = (rows.get_mut(*i), claude::asked(&v)) {
-            row.1 = one_line(&asked);
+        if let Some(row) = rows.get_mut(*i) {
+            if v.get("kind").is_none() {
+                if let Some(asked) = claude::asked(&v) {
+                    row.1 = one_line(&asked);
+                }
+            } else {
+                row.1 = v
+                    .pointer("/msg/promptLine")
+                    .or_else(|| v.pointer("/msg/prompt"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+            }
         }
     }
     let mut out = Vec::with_capacity(rows.len());

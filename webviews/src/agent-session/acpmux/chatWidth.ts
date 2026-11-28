@@ -23,19 +23,14 @@ const listeners = new Set<() => void>();
 export type ChatSizing = { scale: number };
 type Snapshot = ChatSizing;
 
+/// `--cmux-ui-scale` from `<html>`'s inline style, never computed: only inline writes of it exist (the
+/// host's zoom scripts, PageChromiumDocumentScripts.swift and DesignSettings.swift, the gallery and the
+/// tests), and no rule declares it, so with none inline the computed value was empty too. A computed
+/// read restyles whatever is dirty first, and at a chat page's start that is every element of its
+/// drawn copy (chatSnapshot/paint.ts) too.
 const readUIScale = (): number => {
   if (typeof document === "undefined") return 1;
-  const root = document.documentElement;
-  const inline = root?.style?.getPropertyValue?.("--cmux-ui-scale") ?? "";
-  let computed = "";
-  if (!inline && typeof window !== "undefined" && typeof window.getComputedStyle === "function" && root) {
-    try {
-      computed = window.getComputedStyle(root).getPropertyValue("--cmux-ui-scale");
-    } catch {
-      // Test DOM shims may expose a document without a usable computed-style implementation.
-    }
-  }
-  const value = Number.parseFloat(inline || computed);
+  const value = Number.parseFloat(document.documentElement?.style?.getPropertyValue?.("--cmux-ui-scale") ?? "");
   return Number.isFinite(value) && value > 0 ? value : 1;
 };
 

@@ -17,7 +17,7 @@
 //! slow or lying peer costs at most its timeout, and the floor always finishes the fetch.
 
 use crate::Result;
-use crate::store::{Id, Store};
+use crate::store::{Id, MAX_STORED_CHUNK_BYTES, Store};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
@@ -29,7 +29,8 @@ pub const NOPE: u32 = u32::MAX;
 pub const MAX_WANT: u32 = 1 << 16;
 /// The largest chunk file a peer may send (a chunk holds at most 4 GiB raw; files here are a few
 /// MiB, so anything past this is a lie).
-pub const MAX_FILE: u32 = 256 << 20;
+pub const MAX_FILE: u32 = (256 << 20) + 6;
+const _: () = assert!(MAX_FILE as usize == MAX_STORED_CHUNK_BYTES);
 
 /// Serves `store`'s chunks to every peer that connects to `listener`, one scoped thread a
 /// connection (each joined before this returns), until the listener fails.
@@ -167,11 +168,7 @@ fn ask(
         if len == NOPE {
             continue;
         }
-        if len > MAX_FILE {
-            return Err(format!("a chunk file of {len} bytes").into());
-        }
-        let mut file = vec![0u8; len as usize];
-        input.read_exact(&mut file)?;
+        let file = crate::ship::read_bounded(&mut input, len, MAX_FILE as usize, "peer chunk")?;
         store.receive(id, &file)?;
         stats.peer_chunks += 1;
         stats.peer_bytes += u64::from(len);

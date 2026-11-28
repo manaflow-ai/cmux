@@ -31,6 +31,12 @@ _spec = importlib.util.spec_from_file_location("hot_verify", ENGINE)
 hv = importlib.util.module_from_spec(_spec)
 sys.modules["hot_verify"] = hv
 _spec.loader.exec_module(hv)
+# The real reader, kept before PlanTest.setUp replaces it so no test reads the live controller.
+REAL_POOL_METRICS = hv._linux_pool_metrics
+# No test submits a real fleet build: a look that reaches build_swift_app without its own _ci_client patch finds no
+# client (LookError). 2026-11-28: once FFI changes took the fleet app path, a refusal test ran the real cmux-ci and
+# queued a cmux build on the fleet.
+os.environ["CMUX_CI"] = "/nonexistent/cmux-ci-in-tests"
 
 # cmuxterm-hq build-fleet/hot-verify MARKER, copied: the line the PR comment and the NOW metric read.
 HQ_MARKER = r"<!-- cmux-hot-verify sha=([0-9a-f]{40}) app=(\S+) layers=([a-z,]+) source=(worktree|pr) -->"
@@ -93,6 +99,10 @@ class PlanTest(unittest.TestCase):
         self.saved = (h.tree_key, h.published)
         h.tree_key = lambda repo, sha: self.fx.git("rev-parse", f"{sha}:cmux-tui", cwd=Path(repo))
         h.published = lambda key: True
+        # No test reads the live controller: the app build's wait reads no pool metrics unless a test gives some.
+        metrics = unittest.mock.patch.object(hv, "_linux_pool_metrics", return_value=None)
+        metrics.start()
+        self.addCleanup(metrics.stop)
 
     def tearDown(self):
         h = hv.hot()
@@ -541,7 +551,9 @@ class PlanTest(unittest.TestCase):
                 parsed["needs_build"] = value.strip() == "true"
         self.assertEqual(parsed, {"layers": [], "needs_build": True})
 
-    def test_look_on_a_change_that_needs_a_build_exits_3_with_a_receipt(self):
+    def test_look_on_an_ffi_change_goes_to_the_fleet_app_build(self):
+        # The app links the FFI, so the change needs a build: the fleet app of the head carries it (built from
+        # source when the pin is stale). Here no client is reachable, so the look fails at that build, not exit 3.
         head = self.fx.change({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 3 }\n"})
         app = Path(self.tmp.name) / "cmux NIGHTLY.app"
         (app / "Contents").mkdir(parents=True)
@@ -551,12 +563,12 @@ class PlanTest(unittest.TestCase):
         out = Path(self.tmp.name) / "look"
         code, _ = self.cli("look", "--source", f"sha:{head}", "--app", str(app), "--repo", str(self.fx.repo),
                            "--out", str(out), "--no-video")
-        self.assertEqual(code, 3)
         receipt = json.loads((out / "receipt.json").read_text())
         self.assertEqual(receipt["schema"], 1)
-        self.assertIsNone(receipt["marker"])
         self.assertTrue(receipt["plan"]["needs_build"])
+        self.assertTrue(receipt["plan"]["fleet_app"])
         self.assertIn("plan", receipt["phases"])
+        self.assertNotEqual(code, 3)
 
     def fake_app(self, commit: str) -> Path:
         import plistlib
@@ -586,19 +598,36 @@ class PlanTest(unittest.TestCase):
             "needs_build": True,
             "build": {"Swift, resources or manifests": ["Resources/Info.plist"]},
         }))
-        self.assertFalse(hv.can_build_swift_app({
-            "needs_build": True,
-            "build": {"Swift": ["App.swift"], "Rust the app links (FFI)": ["pin.json"]},
-        }))
         self.assertTrue(hv.can_build_swift_app({
             "needs_build": True, "build": {"Swift, resources or manifests": ["App.swift"]},
         }))
-        self.assertFalse(hv.can_build_swift_app({
-            "needs_build": True, "build": {"Swift, resources or manifests": ["Packages/App/Package.swift"]},
-        }))
+
+    def test_a_fleet_app_covers_manifests_and_an_ffi_the_nightly_cannot_take(self):
+        def fleet(build):
+            return hv.can_build_swift_app({"needs_build": True, "build": build})
+
+        # 2026-11-28, cmux#62151's plan: Swift beside a Package.swift edit, its FFI not additive to the NIGHTLY's.
+        self.assertTrue(fleet({"Swift": ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Usage/AppResourceSource.swift"],
+                               "Swift, resources or manifests": ["Packages/macOS/CmuxNext/Package.swift"]}))
+        self.assertTrue(fleet({"Swift, resources or manifests": ["Packages/App/Package.resolved"]}))
+        self.assertTrue(fleet({"Swift": ["App.swift"], "Rust the app links (FFI)": ["pin.json"]}))
+        self.assertTrue(fleet({"Rust the app links (FFI): the app's release is not the change's": ["pin.json"]}))
+        self.assertTrue(fleet({"Rust the app links (FFI), in the commits the app lacks": ["lib.rs"]}))
+        self.assertTrue(fleet({"web ABI": ["the change's web needs ABI 5, the app has 4"]}))
+        # What changes what the app is, or has no NIGHTLY before, stays a build.
+        self.assertFalse(fleet({"Swift, resources or manifests": ["Resources/Info.plist"]}))
+        self.assertFalse(fleet({"Swift, resources or manifests": ["Resources/cmux.entitlements"]}))
+        self.assertFalse(fleet({"Swift": ["App.swift"], "unrelated history": ["x"]}))
+        self.assertFalse(fleet({"Swift": []}))
 
     def test_fleet_zip_fallback_preserves_app_archive_with_ditto(self):
-        scratch = Path(self.tmp.name) / "zip-fallback"
+        for code in (3, 1):
+            with self.subTest(bundle_exit=code):
+                self.zip_fallback(code)
+
+    def zip_fallback(self, code):
+        # Exit 1 too: a Linux-pool build's bundle fetch answered 404 (cmux#47278) while its zip was there.
+        scratch = Path(self.tmp.name) / f"zip-fallback-{code}"
         calls = []
 
         def run(argv, **kwargs):
@@ -606,8 +635,9 @@ class PlanTest(unittest.TestCase):
             if argv[1:3] == ["build", "cmux"]:
                 return subprocess.CompletedProcess(argv, 0, '{"id":"zip-job"}', "")
             if "--bundle" in argv:
+                Path(argv[3]).mkdir(parents=True, exist_ok=True)
                 (Path(argv[3]) / "partial").write_text("partial")
-                return subprocess.CompletedProcess(argv, 3, "", "no bundle")
+                return subprocess.CompletedProcess(argv, code, "", "no bundle")
             if argv[0] == "ditto":
                 bundle = Path(argv[-1])
                 self.assertFalse((bundle / "partial").exists())
@@ -660,6 +690,32 @@ class PlanTest(unittest.TestCase):
                     hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
                 self.assertIn(said, str(raised.exception))
 
+    def test_a_failed_fleet_app_build_says_its_error_not_the_waits_progress(self):
+        # 2026-11-28, cmux#63536: the build had failed on a link error, the look said "... still waiting".
+        scratch = Path(self.tmp.name) / "scratch"
+        progress = ("cmux-ci: job job-9 running on cmux-linux-pool-1 after 11m05s; still waiting "
+                    "(deadline 2026-11-28T08:17Z)\n")
+        failed = json.dumps({"id": "job-9", "state": "failed", "error": "exit status 1; rust_compile: tui-fetch: "
+                             "error: could not compile `cmux-tui`"})
+
+        def run(argv, **kwargs):
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"job-9"}', "")
+            if argv[1] == "wait":
+                return subprocess.CompletedProcess(argv, 1, "", progress)
+            if argv[1] == "status":
+                return subprocess.CompletedProcess(argv, 0, failed + "\n", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            with self.assertRaises(hv.LookError) as raised:
+                hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+        said = str(raised.exception)
+        self.assertIn("fleet app build job-9 failed: exit status 1; rust_compile", said)
+        self.assertIn("cmux-ci log job-9", said)
+        self.assertNotIn("still waiting", said)
+
     def test_swift_app_fallback_builds_a_clean_ref_with_cmux_ci(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 3 }\n"})
         scratch = Path(self.tmp.name) / "scratch"
@@ -686,7 +742,70 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(calls[0][0], [ci, "build", "cmux", "--builder", "linux", "--backend-mode", "local",
                                       "--tag", f"app-try-{head[:12]}", "--ref", head, "--workspace", f"app-try:{head}"])
         self.assertEqual(calls[0][1]["cwd"], self.fx.repo)
-        self.assertEqual(calls[1][0], [ci, "wait", "--timeout", str(hv.APPLY_SECONDS), "job-1"])
+        self.assertEqual(calls[1][0], [ci, "wait", "--timeout", str(hv.APP_BUILD_UNREAD), "job-1"])
+
+    def test_the_app_builds_wait_follows_the_pools_measured_p90_queue_and_run(self):
+        # 2026-11-27 from 12Z: the pool's cmux builds ran 2672 s at p90 after a 593 s p90 queue, past the old fixed
+        # 900 s wait (APPLY_SECONDS), so every Swift look stopped waiting mid-build.
+        today = {"done": 160, "queue_p90": 593.0, "run_p90": 2672.0}
+        self.assertEqual(hv.app_build_seconds(today), 4082)  # (593 + 2672) * 1.25, rounded up
+        self.assertGreater(hv.app_build_seconds(today), 593 + 3331)  # past that day's slowest build after a p90 queue
+        self.assertEqual(hv.app_build_seconds({"done": 9, "queue_p90": 10.0, "run_p90": 300.0}), hv.APP_BUILD_FLOOR)
+        self.assertEqual(hv.app_build_seconds({"done": 9, "queue_p90": 9000.0, "run_p90": 9000.0}), hv.APP_BUILD_CAP)
+        for unread in (None, {}, {"done": 0, "queue_p90": 0, "run_p90": 0}, {"done": 3, "queue_p90": "x"},
+                       {"done": 3, "queue_p90": float("nan"), "run_p90": 1.0}, {"done": 3, "run_p90": 2000.0}):
+            with self.subTest(metrics=unread):
+                self.assertEqual(hv.app_build_seconds(unread), hv.APP_BUILD_UNREAD)
+        self.assertEqual(hv.app_build_seconds({"done": 3, "queue_p90": float("inf"), "run_p90": 1.0}), hv.APP_BUILD_CAP)
+        self.assertGreaterEqual(hv.APP_BUILD_UNREAD, 593 + 2672)
+
+        scratch = Path(self.tmp.name) / "scratch"
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"job-p90"}\n', "")
+            if argv[1] == "wait":
+                return subprocess.CompletedProcess(argv, 0, "done\n", "")
+            app = Path(argv[3]) / "cmux DEV.app/Contents"
+            app.mkdir(parents=True)
+            (app / "Info.plist").write_bytes(b"plist")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv, "_linux_pool_metrics", return_value=today), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+        wait = next((argv, kwargs) for argv, kwargs in calls if argv[1] == "wait")
+        self.assertEqual(wait[0], ["/fake/cmux-ci", "wait", "--timeout", "4082", "job-p90"])
+        self.assertEqual(wait[1]["timeout"], 4082 + 30)
+
+    def test_the_pool_metrics_come_from_the_configured_controller(self):
+        seen = []
+
+        class Answer(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append((request.full_url, timeout))
+            return Answer(json.dumps({"metrics_24h": {"done": 4, "queue_p90": 1.0, "run_p90": 2.0}}).encode())
+
+        config = Path(self.tmp.name) / "client.json"
+        config.write_text(json.dumps({"controller": "http://controller.test:1/"}))
+        with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CONTROLLER": ""}), \
+                unittest.mock.patch.object(hv, "FLEET_CLIENT_CONFIG", config), \
+                unittest.mock.patch.object(hv.urllib.request, "urlopen", side_effect=urlopen):
+            got = REAL_POOL_METRICS()
+        self.assertEqual(got, {"done": 4, "queue_p90": 1.0, "run_p90": 2.0})
+        self.assertEqual(seen, [("http://controller.test:1/v1/linux-pool", 10)])
+        with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CONTROLLER": "http://env.test:2"}), \
+                unittest.mock.patch.object(hv.urllib.request, "urlopen", side_effect=OSError("down")):
+            self.assertIsNone(REAL_POOL_METRICS())
 
     def test_swift_app_fallback_uses_the_exact_dirty_working_tree(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 5 }\n"})
@@ -1805,6 +1924,56 @@ class LaunchBound(unittest.TestCase):
         self.assertGreaterEqual(len(launches), 2)
         for call in launches:
             self.assertIn("timeout=launch_seconds()", call)
+
+
+class LaunchFailureTest(unittest.TestCase):
+    """A copy whose control socket never answers says why: whether it still runs, and its own output's end
+    (cmuxterm-hq docs/handbook/failure-drops-its-reason.md: the look said only "nothing within 120 s")."""
+
+    def test_a_dead_copy_names_its_end_and_its_output_redacted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("".join(f"line {i}\n" for i in range(200))
+                           + "dyld: Library not loaded: @rpath/Foo.framework\n"
+                           + "auth token=abcdefgh12345678 bearer: ZZZZZZZZZZZZZZ\n")
+            dead = subprocess.Popen([sys.executable, "-c", "pass"])
+            dead.wait()
+            said = hv.launch_failure(dead.pid, [str(Path(tmp) / "app.stdout.log"), str(err)])
+        self.assertIn("app launch: running False", said)
+        self.assertIn("dyld: Library not loaded", said)
+        self.assertIn("app.stderr.log (last 80 lines)", said)
+        self.assertNotIn("line 100\n", said)
+        self.assertNotIn("abcdefgh12345678", said)
+        self.assertNotIn("ZZZZZZZZZZZZZZ", said)
+
+    def test_a_live_copy_with_no_output_says_so(self):
+        said = hv.launch_failure(os.getpid(), [])
+        self.assertEqual(said, "app launch: running True\nno output from the copy")
+
+    def test_the_socket_wait_raises_the_why_and_the_receipt_keeps_it(self):
+        side = unittest.mock.Mock()
+        side.logs.return_value = []
+        with unittest.mock.patch.object(hv, "LAUNCH_SECONDS", 0.01), \
+                unittest.mock.patch.object(hv, "control_socket", return_value=None):
+            with self.assertRaises(hv.LookError) as caught:
+                hv.copy_socket(side, os.getpid(), None)
+        text = str(caught.exception)
+        self.assertIn("the copy's control socket: nothing within", text)
+        self.assertIn("app launch: running True", text)
+        long = hv.LookError(text + "x" * 5000)
+        self.assertGreater(hv.error_chars(long), 500)
+        self.assertEqual(hv.error_chars(hv.LookError("other")), 500)
+
+    def test_both_launch_sites_use_the_socket_wait_that_says_why(self):
+        source = ENGINE.read_text()
+        self.assertEqual(source.count("copy_socket(side, pid, named)"), 2)
+        self.assertNotIn('until("the copy\'s control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))\n'
+                         '        until(', source)
+
+    def test_side_instance_keeps_the_copys_output(self):
+        script = (ENGINE.parent / "side-instance.sh").read_text()
+        self.assertIn('--stdout "$dir/app.stdout.log" --stderr "$dir/app.stderr.log"', script)
+        self.assertIn("\n  logs)\n", script)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
+// The New Tab (web) area's `run` bench (docs/benches/relevance-map.toml): bench-baselines-nightly.yml records it, and a pull
+// request touching the area or this file compares 3 repeats with that baseline (bench-relevance-pr.yml).
 // Opening the new chat's Projects picker (FolderPopover) with many projects, on Chromium: a
 // production build (React Compiler, minified) of bench/project-picker/, the popover alone with N
 // synthetic folders and a stand-in host that answers each badge's `project.icon`. Each round is a
