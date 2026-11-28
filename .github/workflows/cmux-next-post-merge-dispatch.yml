@@ -82,6 +82,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
           permission-contents: read
+          skip-token-revoke: true
       - name: Start one batch run when the tip is untested
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
