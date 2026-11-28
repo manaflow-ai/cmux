@@ -233,6 +233,31 @@ async fn a_moved_waits_old_row_gives_up_its_call() {
     assert_eq!(listed(&hub, &session).len(), 1, "a second move changes nothing");
 }
 
+/// A runner that died without a word (its lock let go, its record never ended) stops counting
+/// as running within `LIVE_FOR` of the last look that found its lock held, and stays lost.
+#[tokio::test]
+async fn a_died_runner_stops_counting_within_live_for_and_stays_lost() {
+    let (hub, session) = hub_with_chat("bg-live-for");
+    let lock = hub.bg_fake_running(&session, false).unwrap();
+    let dir = hub.bg_dir(&session);
+    let id = hub.bg_records(&dir).tasks[0].record.id.clone();
+    assert_eq!(hub.bg_running_count(&session), 1);
+    drop(lock);
+    // A test elsewhere may fork while the lock is open: wait until the kernel freed it.
+    assert!(super::super::bg_tasks::bg_wait_gone(&dir, &id).await);
+    tokio::time::sleep(super::super::bg_folder::LIVE_FOR).await;
+    assert_eq!(hub.bg_running_count(&session), 0, "a free lock read as held past LIVE_FOR");
+    assert_eq!(hub.bg_list(&session)["tasks"][0]["state"], "lost");
+    // Taken again by anyone, a lock once found free still says the runner is gone.
+    let again = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(bg_run::lock_path(&dir, &id))
+        .unwrap();
+    let _again = cmux_file_lock::FileLock::take(again, cmux_file_lock::Kind::Exclusive).unwrap();
+    assert_eq!(hub.bg_running_count(&session), 0);
+}
+
 /// A listing here before the move re-armed the wait marked the old row `lost` (this machine has no
 /// record of a task that ran on the other one): the move still ends it and takes its call.
 #[tokio::test]

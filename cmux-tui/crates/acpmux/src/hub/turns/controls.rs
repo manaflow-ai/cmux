@@ -279,6 +279,27 @@ impl Hub {
             )
             .await?;
         self.append(session, "mux", "config", json!({"configId": config_id, "value": value}));
+        // A harness that reports its model both ways (Codex: a `model` option and ACP `models`)
+        // runs the one this option set: the report says so too. Left behind, it stayed on the
+        // model the chat started on, and every fork and restart (`replay_config`, where the
+        // report wins) ran that one: a Codex chat on gpt-6-luna forked onto gpt-6.2-sol.
+        if config_id == "model"
+            && let Some(model) = value.as_str()
+        {
+            let changed =
+                match session.meta.lock().unwrap_or_else(|e| e.into_inner()).models.as_mut() {
+                    Some(Value::Object(models))
+                        if models.get("currentModelId").and_then(Value::as_str) != Some(model) =>
+                    {
+                        models.insert("currentModelId".into(), json!(model));
+                        true
+                    }
+                    _ => false,
+                };
+            if changed {
+                self.save_meta_answered(session)?;
+            }
+        }
         {
             let mut applied =
                 session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
