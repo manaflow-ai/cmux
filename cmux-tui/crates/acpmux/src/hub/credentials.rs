@@ -459,7 +459,7 @@ impl Hub {
             || session.has_pending_permissions()
             || self.holds_work_below(&session)
         {
-            return Err({eprintln!("PENDING-TAG 8 line 462"); withdrawal_pending()});
+            eprintln!("PENDING-TAG 8 turn={} ht={} comp={} asks={} areq={} perms={} below={}", session.turn().is_some(), session.harness_turn.load(Ordering::SeqCst), session.compacting.load(Ordering::SeqCst), session.asks_in_flight.load(Ordering::SeqCst), session.agent_requests.load(Ordering::SeqCst), session.has_pending_permissions(), self.holds_work_below(&session)); return Err(withdrawal_pending());
         }
         if child.is_some() {
             // Use only the link whose work was checked. A lost link cannot justify killing a host.
