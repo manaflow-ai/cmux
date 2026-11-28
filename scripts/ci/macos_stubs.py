@@ -361,7 +361,8 @@ def framework_declarations(crate: Path) -> dict[str, set[str]]:
             while depth and end < len(text):
                 depth += {"{": 1, "}": -1}.get(text[end], 0)
                 end += 1
-            names |= {f"_{name}" for name in EXTERN_ITEM.findall(text[block.end():end - 1])}
+            body = re.sub(r"//[^\n]*", "", text[block.end():end - 1])  # a comment is no declaration (#64246)
+            names |= {f"_{name}" for name in EXTERN_ITEM.findall(body)}
     return out
 
 
