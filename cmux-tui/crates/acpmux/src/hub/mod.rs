@@ -131,6 +131,8 @@ pub mod forum;
 mod forum_held_turn_tests;
 pub mod forum_hosted;
 mod forward_wait;
+/// RFD 0158 §5: a fresh-context reviewer of a task's diff before "done" (harness magic).
+mod fresh_review;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
