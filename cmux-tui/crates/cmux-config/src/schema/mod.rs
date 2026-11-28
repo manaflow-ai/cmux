@@ -40,6 +40,7 @@ pub use retired::{
 };
 pub use sidebar_rows::problems as sidebar_row_problems;
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
+pub use app_id::MANIFEST_SCHEMA as APP_MANIFEST_SCHEMA;
 
 use crate::value::canonical;
 

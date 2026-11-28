@@ -9,7 +9,9 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
-const MANIFEST_SCHEMA: &str = include_str!("../../../cmux-app-host/schema/v2/cmux-app.schema.json");
+/// The cmux-app manifest JSON Schema; `cmux_app_manifest::SCHEMA` is this same static, so the
+/// binary carries one copy.
+pub static MANIFEST_SCHEMA: &str = include_str!("../../../cmux-app-host/schema/v2/cmux-app.schema.json");
 
 fn app_id_regex() -> Option<&'static regex::Regex> {
     static REGEX: OnceLock<Option<regex::Regex>> = OnceLock::new();

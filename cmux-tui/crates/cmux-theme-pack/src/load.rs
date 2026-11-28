@@ -856,7 +856,7 @@ fn known_slots() -> &'static [(String, Vec<String>)] {
     static SLOTS: OnceLock<Vec<(String, Vec<String>)>> = OnceLock::new();
     SLOTS.get_or_init(|| {
         let spec: Value =
-            serde_json::from_str(include_str!("../../../../schemas/theme/slots.json"))
+            serde_json::from_str(cmux_config::theme_file::slots::SCHEMA)
                 .unwrap_or(json!({}));
         spec.get("slots")
             .and_then(Value::as_array)
