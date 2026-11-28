@@ -23,6 +23,17 @@ if [[ "$mode" != "restore" && "$mode" != "save" ]] || [[ -z "$dir" || -z "$key" 
 fi
 shift 3
 
+# The step that started this restore. A step killed by its timeout-minutes takes only its own shell; this
+# script, a child, kept unpacking and then swapped the cache into place while the job's next step was
+# already building in it (cargo "failed to write .../target/debug/.fingerprint/...", batch run
+# 46058976708: clippy and protocol IR jobs, restore timed out at 250 s, swap landed ~2 min into cargo).
+started_under="$PPID"
+step_alive() { # 0 while the shell that ran us is still our parent
+  local parent
+  parent="$(ps -o ppid= -p "$$" 2>/dev/null | tr -d ' ')" || return 1
+  [[ "$parent" == "$started_under" ]] && kill -0 "$started_under" 2>/dev/null
+}
+
 valid_name() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]; }
 if ! valid_name "$key"; then
   echo "r2-cache: key has characters outside [A-Za-z0-9._-]: $key" >&2
@@ -126,9 +137,18 @@ PY2
       for stale in "${dir%/}".r2-restoring.*; do [[ -d "$stale" ]] && rm -rf "$stale"; done
       staging="$(mktemp -d "${dir%/}.r2-restoring.XXXXXX")"
       if unpack "$extension" "$work/archive" "$staging"; then
-        rm -rf "$dir"
+        if ! step_alive; then
+          # Orphaned by a step timeout: the job has moved on and may be writing in $dir now.
+          rm -rf "$staging" "$work"
+          echo "r2-cache: step ended before $candidate.$extension unpacked; left $dir as it was" >&2
+          return 1
+        fi
+        # Rename the old directory aside before the new one goes in, so a delete that outlives this step
+        # only ever removes the set-aside copy, never the directory a later step builds in.
+        local aside="${dir%/}.r2-restoring.old.$$"
+        if [[ -e "$dir" ]]; then mv "$dir" "$aside"; fi
         mv "$staging" "$dir"
-        rm -rf "$work"
+        rm -rf "$aside" "$work"
         return 0
       fi
       # A truncated or corrupt archive must not leave half a cache behind.
