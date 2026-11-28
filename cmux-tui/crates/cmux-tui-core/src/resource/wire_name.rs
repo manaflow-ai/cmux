@@ -310,6 +310,7 @@ impl ResourceOperation {
             Self::CloudVmProvisionApi => "cloud.vm.provision_api",
             Self::CloudVmPublicationApiKeys => "cloud.vm.publication_api_keys",
             Self::CloudVmRevokePublicationApiKey => "cloud.vm.revoke_publication_api_key",
+            Self::CloudVmAgentKeyCreate => "cloud.vm.agent_key_create",
             Self::CloudRunsCreate => "cloud.runs.create",
             Self::CloudRunsStart => "cloud.runs.start",
             Self::CloudRunsWait => "cloud.runs.wait",
