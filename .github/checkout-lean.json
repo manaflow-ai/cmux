@@ -45,9 +45,6 @@
     "cmux-tui-testbox-warmup.yml": {
       "cmux-tui-rust": "builds cmux-tui; the source-mtimes helper walks only files that exist"
     },
-    "cmux-tui.yml": {
-      "go-pane": "reads cmux-tui/bindings and cmux-tui/crates/cmux-pane-protocol/spec only"
-    },
     "nightly.yml": {
       "build-sign-notarize-nightly": "signs the prepared app from the artifact; from the build ref it runs scripts/ and reads the entitlements, ghostty-next (its own submodule init) and the notices inputs, never cmux-next-ios/verify/",
       "publish-nightly": "runs .publish-tooling's scripts in the build checkout, which reads scripts/ (verify_remote_daemon_release.py, cmux-next/release-notes.py, release_thanks.py) and release-notes/, never cmux-next-ios/verify/"
@@ -66,15 +63,9 @@
     "cmux-next-car-guards.yml": {
       "linux": "runs tests/test_ci_fleet_rule_lints.py, whose allowlist names cmux-next-ios/verify/ scripts; with them absent its git grep skips them and it reports 20 stale entries"
     },
-    "cmux-next-ios-verify-auto.yml": {
-      "verify": "the head worktree it adds (git worktree add copies the sparse-checkout patterns) runs the flows' scripts, which live under cmux-next-ios/verify/; the sparse default would leave them out"
-    },
     "fixit-handoff.yml": {
       "find": "bisects the red across git history and runs its check on each candidate tree, so the check may read any path",
       "land": "reverts the culprit at the tip and pushes the revert; the push keeps the full tree it verified rather than a sparse index"
-    },
-    "ios-internal-nightly-trigger.yml": {
-      "yolo": "ios_internal_yolo.py merges each named PR onto feat-cmux-next and pushes the ios-yolo/ stack; the merge and push need the full tree"
     }
   },
   "own_patterns": {

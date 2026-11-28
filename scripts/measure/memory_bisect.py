@@ -190,7 +190,7 @@ def main(argv=None) -> int:
     p.add_argument("--direction", choices=("grew", "shrank"), default="grew",
                    help="shrank finds the commit that cut the cost (to credit a fix)")
     p.add_argument("--list", action="store_true", help="print the candidates and stop")
-    p.add_argument("--depth", type=int, default=32, help="first fetch depth below --bad in a shallow checkout")
+    p.add_argument("--depth", type=int, default=32, help="commits below --bad to get first, in a shallow checkout only")
     args = p.parse_args(argv)
     root = git(os.getcwd(), "rev-parse", "--show-toplevel")
     ensure_range(root, args.good, args.bad, args.depth)

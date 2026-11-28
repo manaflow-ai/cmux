@@ -43,7 +43,9 @@ command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install
 export PATH="$HOME/.cargo/bin:$PATH"
 head_sha="$(git -C "$root" rev-parse HEAD)"
 if [[ -z "$base" ]]; then
-  git -C "$root" fetch -q --no-tags --no-recurse-submodules --shallow-since="14 days ago" origin feat-cmux-next 2>/dev/null \
+  # --shallow-since only in an already-shallow checkout: it would turn a full clone shallow.
+  since=(); [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && since=(--shallow-since="14 days ago")
+  git -C "$root" fetch -q --no-tags --no-recurse-submodules ${since[@]+"${since[@]}"} origin feat-cmux-next 2>/dev/null \
     || git -C "$root" fetch -q --no-tags --no-recurse-submodules origin feat-cmux-next
   [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && git -C "$root" fetch -q --deepen=200 origin "$head_sha" 2>/dev/null
   base="$(git -C "$root" merge-base HEAD FETCH_HEAD)" || { echo "FOLD-ERROR no merge base with origin/feat-cmux-next"; exit 1; }

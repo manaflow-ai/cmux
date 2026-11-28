@@ -319,6 +319,22 @@
     "web-bundle-matrix.yml": {
       "kind": "check",
       "why": "catches breaks that only the merged base shows: two pull requests each green alone whose union breaks the web bundles"
+    },
+    "cmux-config-ring.yml": {
+      "kind": "publish",
+      "why": "signs and publishes the config rings from the base (RFD 0224)"
+    },
+    "cmux-rd-release.yml": {
+      "kind": "publish",
+      "why": "tags and publishes a cmux-rd release from the base"
+    },
+    "device-hub-logs.yml": {
+      "kind": "publish",
+      "why": "a push only registers this dispatch-only log reader; its job skips"
+    },
+    "rivals-nightly.yml": {
+      "kind": "publish",
+      "why": "benches shipped rival apps on a fleet Mac, a probe of live systems"
     }
   }
 }
