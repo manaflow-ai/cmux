@@ -860,6 +860,7 @@ CmuxNextAgentPane	enum	AcpmuxStrayDaemon	0	LOGIC	100	0	Packages/macOS/CmuxNext/S
 CmuxNextAgentPane	enum	AcpmuxVersionHandoff	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxVersionHandoff.swift	Post-update handoff policy to the bundled acpmux build
 CmuxNextAgentPane	enum	AgentChatCopyOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentChatCopyOperations.swift	Assembles clipboard text of focused chat (formatter of product data)
 CmuxNextAgentPane	enum	AgentChatCopyText	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentChatCopyText.swift	Assembles clipboard text of focused chat (formatter of product data)
+CmuxNextAgentPane	struct	AgentChatMemoryControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentChatMemoryControl.swift	agent.chat.memory control method: hands the CLI the app, daemon and per-chat WebContent pids from live views; footprint reads, grouping and ratios are Rust (cli/app/chat_memory.rs)
 CmuxNextAgentPane	enum	AgentChatPerfControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentChatPerfControl.swift	agent.chat.perf control method: runs a chat page's own capture (webviews chatPerfCapture.ts) on the page the App finds, without focusing it; the measurement is TypeScript and the CLI's parsing and rendering Rust
 CmuxNextAgentPane	enum	AgentForkDestination	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentForkDestination.swift	Fork placement destinations (rule enum)
 CmuxNextAgentPane	enum	AgentForkMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentForkMenu.swift	Fork menu choices
@@ -14665,9 +14666,9 @@ CmuxNextDaemon	struct	RemoteHostConfigRequest	0	MIRROR	0	100	Packages/macOS/Cmux
 CmuxNextDaemon	struct	ComputerUseConfigRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Session/RemoteHost.swift	daemon wire request DTO
 CmuxNextDaemon	struct	ComputerUseApprovalsRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Session/RemoteHost.swift	daemon wire request DTO
 CmuxNextDaemon	struct	RemoteHostAppRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Session/RemoteHostApp.swift	daemon wire request DTO
-CmuxNextDaemon	struct	ShellRunRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire request DTO with its encoder
-CmuxNextDaemon	struct	ShellReadRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire request DTO
-CmuxNextDaemon	struct	ShellStopRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire request DTO
+CmuxNextDaemon	extension	ShellRunRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire answer the app reads (the request is generated: bindings.json Shell)
+CmuxNextDaemon	extension	ShellReadRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire answer the app reads (the request is generated: bindings.json Shell)
+CmuxNextDaemon	extension	ShellStopRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire answer the app reads (the request is generated: bindings.json Shell)
 CmuxNextDaemon	class	LinkWait	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Tabs/FrontendBrowserTabKeyedCreate.swift	One wait of a keyed create for its connection's reconnect (``NewFrontendBrowserTabRequest/send(on:)``): it ends once, at the first of the re (3 funcs, 8 branches)
 CmuxNextDaemon	struct	TerminalLastCommandRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Tabs/TerminalLastCommand.swift	daemon wire request DTO with its encoder
 CmuxNextDaemon	struct	SetTerminalTailPinRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Tabs/TerminalTailPin.swift	daemon wire request DTO with its encoder
