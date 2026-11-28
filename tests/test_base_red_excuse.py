@@ -18696,6 +18696,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
+            # The vault proven on staging with no Mac (cmux#56893): a product end-to-end run, not a guard.
+            "vault-e2e.yml",
             # Builds each iPhone-touching head's cmux Dev device app ahead on the fleet (#51721); advisory.
             "cmux-next-ios-try-ahead.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
