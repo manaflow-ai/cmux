@@ -17,7 +17,9 @@ use crate::kitty::{
     MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
 };
 use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
-use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
+use crate::render::{
+    Cell, CellWidth, CursorShape, GridCellReader, read_grid_ref_cell, terminal_palette,
+};
 use crate::{Error, Result, check};
 
 pub(crate) mod byte_scan;
@@ -1580,6 +1582,25 @@ impl Terminal {
     /// empty page. This uses Ghostty's read-only history-coordinate grid refs;
     /// it never scrolls the shared viewport or updates a render state.
     pub fn styled_history_rows(&self, start: u32, count: u16) -> Result<Vec<Vec<Cell>>> {
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let mut reader = GridCellReader::new(&palette);
+        self.styled_history_rows_with(start, count, |grid_ref| reader.read(grid_ref))
+    }
+
+    /// [`Self::styled_history_rows`] as it was before page runs and the
+    /// batched reader: two history lookups a row, then the per-cell read,
+    /// field by field. The oracle (and the bench's "before") the fast path is
+    /// held to.
+    #[cfg(test)]
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "test-only oracle: the old loop kept verbatim; end > start and cols > 0 are checked before each subtraction"
+    )]
+    pub(crate) fn styled_history_rows_per_cell(
+        &self,
+        start: u32,
+        count: u16,
+    ) -> Result<Vec<Vec<Cell>>> {
         let total = self.history_rows();
         if count == 0 || start >= total {
             return Ok(Vec::new());
@@ -1593,13 +1614,6 @@ impl Terminal {
 
         for y in start..end {
             let mut row = Vec::with_capacity(cols as usize);
-            // A history lookup walks the page list from the top of the
-            // history, so the row is looked up once and each cell is the same
-            // row's ref at its column. The row's last column is looked up too:
-            // only when both ends resolve to the same page row is every
-            // column in between on it; a row whose page is narrower than the
-            // terminal (a reflow not done yet) takes the checked lookup for
-            // each cell, as before.
             let first = if cols == 0 { None } else { Some(self.history_grid_ref(0, y)?) };
             let whole_row = first.filter(|first| {
                 cols == 1
@@ -1617,6 +1631,97 @@ impl Terminal {
             rows.push(row);
         }
         Ok(rows)
+    }
+
+    fn styled_history_rows_with(
+        &self,
+        start: u32,
+        count: u16,
+        mut read: impl FnMut(&sys::GhosttyGridRef) -> Result<Cell>,
+    ) -> Result<Vec<Vec<Cell>>> {
+        let total = self.history_rows();
+        if count == 0 || start >= total {
+            return Ok(Vec::new());
+        }
+
+        let end = start.saturating_add(u32::from(count)).min(total);
+        let cols = self.cols();
+        let mut rows = Vec::with_capacity(end.saturating_sub(start) as usize);
+        if cols == 0 {
+            rows.resize_with(end.saturating_sub(start) as usize, Vec::new);
+            return Ok(rows);
+        }
+
+        for run in self.history_row_runs(start, end)? {
+            // Every row of a run is on one page, and a page's rows are all
+            // as wide as the page, so the run's first row tells whether each
+            // column is on its row. A page narrower than the terminal (a
+            // reflow not done yet) takes the checked lookup for each cell, as
+            // before.
+            let whole_rows = cols == 1
+                || self.history_grid_ref(cols.saturating_sub(1), run.start).is_ok_and(|last| {
+                    last.node == run.first.node
+                        && last.y == run.first.y
+                        && last.x == cols.saturating_sub(1)
+                });
+            for offset in 0..run.len {
+                let y = run.start.saturating_add(u32::from(offset));
+                let first =
+                    sys::GhosttyGridRef { y: run.first.y.saturating_add(offset), ..run.first };
+                let mut row = Vec::with_capacity(usize::from(cols));
+                for x in 0..cols {
+                    let grid_ref = if whole_rows {
+                        sys::GhosttyGridRef { x, ..first }
+                    } else {
+                        self.history_grid_ref(x, y)?
+                    };
+                    row.push(read(&grid_ref)?);
+                }
+                rows.push(row);
+            }
+        }
+        Ok(rows)
+    }
+
+    /// History rows `start..end` as runs of consecutive rows on one page.
+    ///
+    /// A history lookup walks the page list from the top of the history, so
+    /// a lookup per row made a page of a long history cost a walk per row.
+    /// The rows of one page node are consecutive, in order, so when rows
+    /// `lo` and `hi` resolve to the same node `hi - lo` rows apart, every
+    /// row between them is on that node too, at its offset. The range is
+    /// bisected until each piece passes that check: a page of rows costs
+    /// O(pages x log rows) lookups, not one per row.
+    fn history_row_runs(&self, start: u32, end: u32) -> Result<Vec<HistoryRowRun>> {
+        let mut runs = Vec::new();
+        let Some(last) = end.checked_sub(1).filter(|last| *last >= start) else {
+            return Ok(runs);
+        };
+        // Pieces still to place, newest first so `pop` takes the oldest:
+        // (lo, hi, ref of lo, ref of hi). A piece places rows lo..hi (hi
+        // excluded: it is the next piece's lo); the last row goes on after.
+        let last_ref = self.history_grid_ref(0, last)?;
+        let mut pending = Vec::new();
+        if last > start {
+            pending.push((start, last, self.history_grid_ref(0, start)?, last_ref));
+        }
+        while let Some((lo, hi, lo_ref, hi_ref)) = pending.pop() {
+            let span = hi.saturating_sub(lo);
+            let one_page = lo_ref.node == hi_ref.node
+                && hi_ref.y >= lo_ref.y
+                && u32::from(hi_ref.y.saturating_sub(lo_ref.y)) == span;
+            if one_page || span <= 1 {
+                // A one-page span is a difference of two u16 page rows.
+                push_history_run(&mut runs, lo, lo_ref, u16::try_from(span).unwrap_or(u16::MAX));
+            } else {
+                let mid = lo.saturating_add(span / 2);
+                let mid_ref = self.history_grid_ref(0, mid)?;
+                pending.push((mid, hi, mid_ref, hi_ref));
+                pending.push((lo, mid, lo_ref, mid_ref));
+            }
+        }
+        push_history_run(&mut runs, last, last_ref, 1);
+        Ok(runs)
     }
 
     /// The grid ref of history cell (`x`, `y`), `y` from the oldest
@@ -3290,6 +3395,36 @@ impl Drop for Terminal {
             sys::ghostty_terminal_free(self.raw);
         }
     }
+}
+
+/// Appends `len` rows from history row `start` (page ref `first`) to
+/// `runs`, extending the last run when they continue it on the same page.
+fn push_history_run(
+    runs: &mut Vec<HistoryRowRun>,
+    start: u32,
+    first: sys::GhosttyGridRef,
+    len: u16,
+) {
+    if len == 0 {
+        return;
+    }
+    if let Some(run) = runs.last_mut()
+        && run.first.node == first.node
+        && run.start.saturating_add(u32::from(run.len)) == start
+        && run.first.y.checked_add(run.len) == Some(first.y)
+    {
+        run.len = run.len.saturating_add(len);
+        return;
+    }
+    runs.push(HistoryRowRun { start, first, len });
+}
+
+/// Consecutive history rows on one page: row `start` is `first` (column
+/// 0), and row `start + i` is the same page's row `first.y + i`.
+struct HistoryRowRun {
+    start: u32,
+    first: sys::GhosttyGridRef,
+    len: u16,
 }
 
 #[cfg(test)]

@@ -30,6 +30,7 @@ mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
+mod harness_tuck;
 mod lan;
 mod last_place;
 mod link_progress;
@@ -43,6 +44,7 @@ mod pane_filter;
 mod read_store;
 mod relay_hold;
 mod row_layout;
+mod row_spill;
 mod screen;
 mod share_approval;
 mod tabs;
@@ -51,6 +53,7 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod terminal_sizing_view;
 mod vault;
 mod vnc;
 mod window_layout;
@@ -59,6 +62,7 @@ mod workspace_creation;
 mod workspace_groups;
 mod workspace_moves;
 mod workspace_row_actions;
+mod zstd_stream;
 
 pub use attachment_upload::{
     AttachmentUploads, ImagePlan, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage,
@@ -101,6 +105,7 @@ pub use pane_filter::{
     pane_filter_default, pane_filter_encode, pane_filter_shows,
 };
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
+pub use row_spill::{RowSpillPages, row_spill_folder_name, row_spill_purge_runs};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use task_composer::{
@@ -135,6 +140,7 @@ pub use workspace_row_actions::{
     WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
     workspace_row_placements,
 };
+pub use zstd_stream::ZstdStreamDecoder;
 
 uniffi::setup_scaffolding!();
 

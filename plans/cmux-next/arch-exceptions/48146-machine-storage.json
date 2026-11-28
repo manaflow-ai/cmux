@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-27",
+  "row": "app_lines",
+  "allow": 8,
+  "why": "#48146's Storage on This Mac action is App-only wiring: it resolves the local acpmux through QuitAgents.environment, supplies the AppActionContext window, and binds the CmuxNextServer popover. The storage card, strings, report and daemon calls remain in CmuxNextServer/CmuxNextAgentPane; no lower target can hold these AppServices and window closures. Independent review covers these unchanged eight composition lines only; it is not a whole-PR or CI verdict.",
+  "author": "finish-cmux-48146-fix lane",
+  "owner": "finish-cmux-48146-fix lane",
+  "receipt": "Review (/root/review_storage_wiring): SHIP at 062705bb91446c5c39d6614af97dc394020c266e",
+  "expiry": "2026-12-27"
+}

@@ -69,6 +69,8 @@ pub(crate) use hub::move_out;
 #[path = "session_move_link.rs"]
 mod link;
 
+#[path = "session_move_interrupts.rs"]
+mod interrupts;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 use link::SLOW_COPY;
@@ -416,6 +418,9 @@ struct Outcome {
     error: Option<String>,
     error_code: Option<&'static str>,
     preflight: preflight::Preflight,
+    /// What the move interrupts, as the chat's daemon answered (`session_move_interrupts.rs`);
+    /// None from a daemon older than the question.
+    interrupts: Option<Value>,
 }
 
 impl Outcome {
@@ -435,6 +440,7 @@ impl Outcome {
             error: None,
             error_code: None,
             preflight: preflight::Preflight::default(),
+            interrupts: None,
         }
     }
 }
@@ -582,7 +588,7 @@ pub(super) async fn run(mut args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
+                       "preflight": o.preflight, "interrupts": o.interrupts, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
         rows.splice(0..0, local_rows);
@@ -834,6 +840,17 @@ async fn move_steps(
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
     o.preflight.running = plan::running(&info);
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
+    // What the move would interrupt, said before anything begins (RFD 0063 item 6). A failed
+    // ask never stops the move: it is a statement, not a gate.
+    if info.get("peer").is_none_or(Value::is_null) {
+        o.interrupts = interrupts::ask(src, &id).await.unwrap_or_else(|e| {
+            tracing::debug!("move: what {id} interrupts was not read: {e:#}");
+            None
+        });
+        for line in interrupts::text(&o.name, o.interrupts.as_ref(), args.dry_run) {
+            eprintln!("{line}");
+        }
+    }
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!(
             "it runs on {}, not here: move it from there",
@@ -1043,7 +1060,11 @@ async fn move_steps(
             return Err(e);
         }
     };
-    let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
+    let (record, same_folder) = record;
+    let there = record
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(|cwd| super::transfer::There { cwd: cwd.to_owned(), same_folder });
     let finished = waiting(
         &name,
         "copying the chat to the target",
@@ -1096,7 +1117,7 @@ async fn move_steps(
 
 /// The frozen chat's folder made on the target: the checkout read again (it may have changed
 /// before the freeze), its branch pushed, the folder made there. Returns the move's record
-/// (`movedTo`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
+/// (`movedTo`) and whether the folder there is the chat's own (`plan::same_folder`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -1105,7 +1126,7 @@ async fn prepare(
     args: &MoveArgs,
     source: &Source,
     o: &mut Outcome,
-) -> Result<Value> {
+) -> Result<(Value, bool)> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -1121,6 +1142,8 @@ async fn prepare(
     let mut at = None;
     let mut bundle = None;
     let mut packed: Option<Vec<u8>> = None;
+    // The folder's files went (`packed` is moved into the unpack below).
+    let mut packed_files = false;
     // The commit the target's folder is made at, whether the folder has uncommitted work, and
     // its checkout's top folder on the source.
     let mut base: Option<(String, bool, PathBuf)> = None;
@@ -1149,6 +1172,7 @@ async fn prepare(
             match read {
                 files::Packed::Files(bytes) => {
                     record.set("filesCopied", json!(bytes.len()));
+                    packed_files = true;
                     packed = Some(bytes);
                 }
                 files::Packed::TooBig(n) => bail!(
@@ -1252,7 +1276,8 @@ async fn prepare(
     }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
-    Ok(record)
+    let same = plan::same_folder(&folder, args.cwd.is_some(), packed_files, args.carry_changes);
+    Ok((record, same))
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).

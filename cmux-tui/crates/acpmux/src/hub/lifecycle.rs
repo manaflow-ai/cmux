@@ -123,6 +123,7 @@ impl Hub {
             credential,
             create_key,
             placed_by,
+            priority,
         } = req;
         // A create sent again after a restart cut its reply: the session the first one made
         // answers it, on this daemon or the one before (`create_key.rs`).
@@ -475,6 +476,13 @@ impl Hub {
             meta.throwaway = throwaway;
             meta.create_key = create_key;
             meta.placed_by = placed_by;
+            // Before the session is published, so its first spawn already runs at the class its
+            // creator asked for (`NewRequest::priority`).
+            if let Some(value) = priority {
+                let tag = crate::store::Tag { value, expires_at: None };
+                // fleet-only-ok: every user's Cloud chat hits the gateway's class split.
+                meta.tags.insert(crate::subrouter_priority::TAG.to_owned(), tag);
+            }
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
@@ -1085,6 +1093,38 @@ impl Hub {
             self.save_meta(session);
         }
         *session.launch_env.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile.env.clone());
+        // A start after a move or a fork's first that lacks env its first start had (a key this
+        // machine has none of): logged by name, never value (`session_manifest.rs`).
+        let missing = session.read_meta(|m| {
+            crate::session_manifest::check_env(
+                m.manifest.as_ref(),
+                std::path::Path::new(&m.cwd),
+                &profile.env,
+            )
+        });
+        if !missing.is_empty() {
+            tracing::warn!(session = %session.id, ?missing, "manifest-env: start lacks env");
+        }
+        // A port its processes served that something else holds on this machine (a move's
+        // target, or a fork beside its parent's server): logged, never freed (`session_manifest.rs`).
+        // The process table is read only when there is a port to check: its first read may scan
+        // the log (`process_table`), and a start with the switch off or no port never pays it.
+        let recorded = crate::session_manifest::on()
+            && session.read_meta(|m| m.manifest.as_ref().is_some_and(|m| !m.ports.is_empty()));
+        if recorded {
+            let own: Vec<u16> =
+                self.running_for_move(session).into_iter().filter_map(|(.., port)| port).collect();
+            let taken = session.read_meta(|m| {
+                crate::session_manifest::check_ports(
+                    m.manifest.as_ref(),
+                    std::path::Path::new(&m.cwd),
+                    &own,
+                )
+            });
+            if !taken.is_empty() {
+                tracing::warn!(session = %session.id, ?taken, "manifest-ports: recorded port is taken");
+            }
+        }
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
@@ -1409,20 +1449,20 @@ mod taken_name_tests;
 /// agent's updates and markers never touch it. A start abandoned mid-load never ends it, so
 /// what that agent still had queued stays out of the preview as well, beside the next agent's
 /// own hold (`Session::replaying` keeps both).
-struct ReplayHold<'a> {
+pub(super) struct ReplayHold<'a> {
     session: &'a Session,
     agent: &'a crate::agent::ChildAgent,
 }
 
 impl<'a> ReplayHold<'a> {
-    fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
+    pub(super) fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
         session.replaying.lock().unwrap_or_else(|e| e.into_inner()).push(agent.generation);
         Self { session, agent }
     }
 
     /// Lifts the hold once the inbound loop reaches what the agent sent so far; at once when
     /// its queue is closed (nothing more can arrive).
-    async fn end(self) {
+    pub(super) async fn end(self) {
         if !self.agent.queue_replay_done().await {
             self.session.end_replay(self.agent.generation);
         }
