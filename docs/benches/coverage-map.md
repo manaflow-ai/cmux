@@ -121,6 +121,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `local-chat` | agent chat | one chat | no |
 | `localization-discovery` | localization tooling | excluded dependency trees (#63387) | no |
 | `mcp-fanout` | agents | N chats | no |
+| `phone-speed` | phone terminal projection | 100 and 10,000 lines | baseline + 10% |
 | `mobile-flows` | iOS | per flow | no |
 | `newtab` | tabs | idle and loaded | no |
 | `omnibar` | omnibar | n/a | no |
