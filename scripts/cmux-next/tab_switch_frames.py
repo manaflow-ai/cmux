@@ -363,6 +363,47 @@ def session_id(stdout):
     return found.group(0) if found else None
 
 
+def acpmux_socket_for(home, uid=None):
+    """The socket a daemon whose ACPMUX_HOME is `home` listens on (AcpmuxEnvironment.defaultSocketPath):
+    `<home>/acpmux.sock` under 96 bytes, else `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock`."""
+    preferred = os.path.join(home, "acpmux.sock")
+    if len(preferred.encode()) < 96:
+        return preferred
+    return f"/tmp/acpmux-{os.getuid() if uid is None else uid}/{fnv1a64(home):016x}.sock"
+
+
+def fnv1a64(text):
+    """cmux-agent-pane-policy `environment::fnv1a64` over the text's UTF-8 bytes."""
+    digest = 0xcbf29ce484222325
+    for byte in text.encode():
+        digest = ((digest ^ byte) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return digest
+
+
+def daemon_home_for(socket_path, user_home, uid=None):
+    """The acpmux home of the app's daemon that listens on `socket_path`, among the homes a build under `user_home` picks
+    (NIGHTLY `~/.acpmux`, any other build `~/.acpmux/builds/<key>`), each as given and resolved (/tmp is /private/tmp);
+    None when none matches."""
+    if not socket_path:
+        return None
+    roots = []
+    for base in (user_home, os.path.realpath(user_home)):
+        root = os.path.join(base, ".acpmux")
+        if root in roots:
+            continue
+        roots.append(root)
+    for root in roots:
+        candidates = [root]
+        try:
+            candidates += [os.path.join(root, "builds", name) for name in sorted(os.listdir(os.path.join(root, "builds")))]
+        except OSError:
+            pass
+        for home in candidates:
+            if acpmux_socket_for(home, uid) == socket_path:
+                return home
+    return None
+
+
 class Agents:
     """Chats on the app's own acpmux (the test agents registered as harnesses of the app)."""
 
@@ -378,7 +419,14 @@ class Agents:
                 if "timeout" not in json.dumps(added):
                     break
                 time.sleep(5)  # test script: the app is still starting; the add goes on, try again
-        self.env = dict(os.environ, ACPMUX_SOCKET=bm.FakeChats.acpmux_socket(bundle))
+        socket_path = bm.FakeChats.acpmux_socket(bundle)
+        self.env = dict(os.environ, ACPMUX_SOCKET=socket_path)
+        # ACPMUX_SOCKET counts only beside the ACPMUX_HOME it belongs to (acpmux config.rs autostart_refusal): with the
+        # step's own home inherited, `acpmux new` refused the app's socket ("acpmux starts a daemon only where its lock
+        # and socket share one home") and the chat rows were unmeasurable on cmux9s and cmux19, 2026-11-28.
+        home = daemon_home_for(socket_path, os.path.join(app.root, "h")) if getattr(app, "root", None) else None
+        if home:
+            self.env["ACPMUX_HOME"] = home
         self.streaming = []
         self.new_argvs = new_session_argvs(self.help_text())
 
