@@ -5,6 +5,7 @@
 import { Context, Data, Effect, FiberRef, Layer, Option, Runtime } from "effect";
 import postgres from "postgres";
 import { AfterResponse, type Defer } from "../after-response.ts";
+import { noteStep } from "../upstream/timing.ts";
 
 export type SqlParam = string | number | boolean | null;
 
@@ -17,8 +18,17 @@ export interface SqlClientService {
 export class SqlClient extends Context.Tag("cmux-vm/SqlClient")<SqlClient, SqlClientService>() {}
 
 /** The connection a request's queries share; opened by the first query, closed when the request ends. */
+/** When a request's connection was opened and when its startup handshake ended (null until it does). */
+interface ConnectionOpened {
+  readonly at: number;
+  ready: number | null;
+  noted: boolean;
+}
+
 interface RequestConnection {
   sql: Connection | null;
+  /** When `sql` was opened and when its startup handshake ended (null until it does), for the request's `connect` step. */
+  opened?: ConnectionOpened;
   /** Work queued by `afterResponse`, run in order on this connection once the request has answered. */
   readonly tail: Array<Effect.Effect<void>>;
   /** Keeps the request alive for that work; null when the caller cannot, and the work then runs inline. */
@@ -38,8 +48,22 @@ export interface Connection {
   readonly end: (options: { readonly timeout: number }) => PromiseLike<void>;
 }
 
-const connect = (connectionString: string): Connection =>
-  postgres(connectionString, { max: 1, fetch_types: false, prepare: false, connect_timeout: 5 });
+/**
+ * Opens a lazy connection; `ready` is called once, when its startup handshake ends: the server's first
+ * ParameterStatus, which comes after authentication and before the first query is sent (postgres.js `onparameter`;
+ * its key and value are not read, so nothing of the server's settings reaches a log).
+ */
+const connect = (connectionString: string, ready: () => void): Connection => {
+  let told = false;
+  return postgres(connectionString, {
+    max: 1, fetch_types: false, prepare: false, connect_timeout: 5,
+    onparameter: () => {
+      if (told) return;
+      told = true;
+      ready();
+    },
+  });
+};
 
 const disconnect = (sql: Connection) => Effect.tryPromise(() => sql.end({ timeout: 1 })).pipe(Effect.ignore);
 
@@ -118,6 +142,19 @@ export const connectionLost = (cause: unknown): boolean => {
 const readsOnly = (text: string): boolean => /^\s*select\b/i.test(text);
 
 /**
+ * Names the time the request's connection took to open, from its open to its startup handshake's end, as the
+ * request's `connect` step, once per connection (a reconnect's open adds to it). The ownership read on a VM call is
+ * usually the request's first query, so its `read` step holds this handshake too; with `connect` on the line a slow
+ * read says whether Hyperdrive's handshake or the query held it (staging 2026-11-28 22:49-23:03Z: the read was
+ * 0.7-2.3 s in 7 of 22 starts while the rate spend was ~0.05 s in 4 of them).
+ */
+const noteConnect = (opened: ConnectionOpened | undefined): Effect.Effect<void> => {
+  if (opened === undefined || opened.noted || opened.ready === null) return Effect.void;
+  opened.noted = true;
+  return noteStep("connect", opened.ready - opened.at);
+};
+
+/**
  * Postgres through a Hyperdrive binding. Inside `withRequestConnection` the
  * request's queries share one connection; outside it (tools, tests) each
  * query opens and closes its own.
@@ -131,7 +168,10 @@ const readsOnly = (text: string): boolean => /^\s*select\b/i.test(text);
  * failed" log followed by "cmux-vm dependency unavailable" with cause_class
  * connection_lost.
  */
-export const hyperdriveSqlLayer = (connectionString: string, open: (connectionString: string) => Connection = connect): Layer.Layer<SqlClient> =>
+export const hyperdriveSqlLayer = (
+  connectionString: string,
+  open: (connectionString: string, ready: () => void) => Connection = connect,
+): Layer.Layer<SqlClient> =>
   Layer.succeed(SqlClient, {
     query: (operation, text, params) => {
       const run = (sql: Connection) =>
@@ -140,10 +180,17 @@ export const hyperdriveSqlLayer = (connectionString: string, open: (connectionSt
           catch: (cause) => new StoreError({ operation, cause }),
         }).pipe(Effect.tapError((error) => logStoreFailure(error)));
       const once = Effect.flatMap(FiberRef.get(CurrentConnection), (slot) => {
-        if (slot === null) return Effect.acquireUseRelease(Effect.sync(() => open(connectionString)), run, disconnect);
-        if (slot.sql === null) slot.sql = open(connectionString);
+        if (slot === null) return Effect.acquireUseRelease(Effect.sync(() => open(connectionString, () => {})), run, disconnect);
+        if (slot.sql === null) {
+          const opened: ConnectionOpened = { at: Date.now(), ready: null, noted: false };
+          slot.opened = opened;
+          slot.sql = open(connectionString, () => {
+            opened.ready = Date.now();
+          });
+        }
         const sql = slot.sql;
         return run(sql).pipe(
+          Effect.ensuring(Effect.suspend(() => noteConnect(slot.opened))),
           Effect.tapError((error) => {
             if (!connectionLost(error.cause) || slot.sql !== sql) return Effect.void;
             slot.sql = null;
