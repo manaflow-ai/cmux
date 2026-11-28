@@ -155,18 +155,62 @@ fn method_heads(function: &str) -> Vec<String> {
     heads
 }
 
-/// `pub const NAME: &str = "value";` of `rpc.rs`'s `pub mod method`.
+/// String constants in `rpc.rs`'s `method` module, independent of their formatting.
 fn method_constants() -> BTreeMap<String, String> {
-    let module = block(RPC, "pub mod method {");
-    let mut constants = BTreeMap::new();
-    for line in module.lines() {
-        let Some(rest) = line.trim().strip_prefix("pub const ") else { continue };
-        let Some((name, value)) = rest.split_once(": &str = \"") else { continue };
-        let Some(value) = value.strip_suffix("\";") else { continue };
-        constants.insert(name.to_owned(), value.to_owned());
-    }
+    let constants = parse_method_constants(RPC);
     assert!(constants.len() > 100, "read only {} method constants", constants.len());
     constants
+}
+
+fn parse_method_constants(source: &str) -> BTreeMap<String, String> {
+    let file = syn::parse_file(source).expect("rpc.rs parses");
+    let items = file
+        .items
+        .into_iter()
+        .find_map(|item| match item {
+            syn::Item::Mod(module) if module.ident == "method" => module.content,
+            _ => None,
+        })
+        .expect("rpc.rs has an inline method module")
+        .1;
+    let mut constants = BTreeMap::new();
+    for item in items {
+        let syn::Item::Const(item) = item else { continue };
+        let name = item.ident.to_string();
+        let syn::Expr::Lit(value) = *item.expr else {
+            panic!("method::{name} is not a literal (teach arms_in_source.rs)");
+        };
+        let syn::Lit::Str(value) = value.lit else {
+            panic!("method::{name} is not a string (teach arms_in_source.rs)");
+        };
+        constants.insert(name, value.value());
+    }
+    constants
+}
+
+#[test]
+fn method_constants_follow_rust_syntax_not_line_breaks() {
+    let constants = parse_method_constants(
+        r##"
+        pub const OUTSIDE: &str = "not a method";
+        pub mod method {
+            // pub const COMMENT: &str = "not a method";
+            pub const ONE_LINE: &str = "one";
+            pub const WRAPPED: &str =
+                "wrapped";
+            pub const RAW:
+                &str = /* a comment inside the declaration */ r#"raw"#;
+        }
+        "##,
+    );
+    assert_eq!(
+        constants,
+        BTreeMap::from([
+            ("ONE_LINE".into(), "one".into()),
+            ("WRAPPED".into(), "wrapped".into()),
+            ("RAW".into(), "raw".into()),
+        ])
+    );
 }
 
 /// The values of the `method::NAME` constants that `text` names.

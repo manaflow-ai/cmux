@@ -461,6 +461,23 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_CONNECTIONS_CHATGPT_BEGIN, Run(json!({"id": "lso-no-connection"}))),
         (method::MUX_CONNECTIONS_CHATGPT_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
         (method::MUX_CONNECTIONS_CHATGPT_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN, Run(json!({"id": "lso-no-connection"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (
+            method::MUX_CONNECTIONS_SECRET_STORE,
+            Skip("writes to the real login Keychain, outside the scratch configuration"),
+        ),
+        (
+            method::MUX_CONNECTIONS_SECRET_DELETE,
+            Skip("deletes from the real login Keychain, outside the scratch configuration"),
+        ),
+        (
+            method::MUX_CONNECTIONS_SUBSCRIPTION_BEGIN,
+            Skip("starts a real provider device-login request"),
+        ),
+        (method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
         (
             method::MUX_CONNECTIONS_CHATGPT_IMPORT,
             Any(
