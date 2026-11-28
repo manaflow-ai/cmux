@@ -11,7 +11,7 @@ import { tokenDetail } from "../src/agent-session/acpmux/conversation/turnTokens
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { SPLIT, tokenLineMarkup, tokenLines } from "./support/turnTokenLines";
+import { SPLIT, TABULAR_NUMS, tokenLineMarkup, tokenLines } from "./support/turnTokenLines";
 import { describedText, factsCardText, renderInDom } from "./support/factsCard";
 
 const text = (html: string) =>
@@ -102,12 +102,12 @@ test("inline durations inherit their label colour while separate elapsed times r
   expect(at).toBeGreaterThan(-1);
   const rule = css.slice(at, css.indexOf("}", at));
   expect(rule).toContain("color: var(--cv-text-dim);");
-  expect(rule).toContain("font-variant-numeric: tabular-nums;");
+  expect(rule).toMatch(TABULAR_NUMS);
   const labelAt = css.indexOf("\n.cv-worked__label-time {");
   expect(labelAt).toBeGreaterThan(-1);
   const labelRule = css.slice(labelAt, css.indexOf("}", labelAt));
   expect(labelRule).toContain("color: inherit;");
-  expect(labelRule).toContain("font-variant-numeric: tabular-nums;");
+  expect(labelRule).toMatch(TABULAR_NUMS);
 });
 
 // A finished connected turn has one Worked-for line, including its intermediate replies and

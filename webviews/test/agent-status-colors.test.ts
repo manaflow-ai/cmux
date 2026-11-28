@@ -80,6 +80,10 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
           `<span class="cv-command__ok">✓</span>` +
           `<span class="cv-tool__failed">failed</span>` +
           `<span class="acpmux-pr-card__glyph" data-state="merged">merged</span>` +
+          // An edit's counts take the status ink a tenth toward the text, so they hold 4.5:1 on a
+          // card's fill (#50559, "added and removed counts mix a tenth toward the text").
+          `<span id="edit-add-ink" style="color:color-mix(in srgb, var(--agent-status-success) 90%, var(--agent-text))">+1</span>` +
+          `<span id="edit-del-ink" style="color:color-mix(in srgb, var(--agent-status-failure) 90%, var(--agent-text))">−1</span>` +
           `</body></html>`,
       );
       const actual = await page.evaluate(() => {
@@ -103,6 +107,7 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
           failure: color(".cv-tool__failed"),
           merged: color(".acpmux-pr-card__glyph"),
         };
+        const editInk = { add: color("#edit-add-ink"), remove: color("#edit-del-ink") };
         const surface = luminance(getComputedStyle(document.body).backgroundColor);
         const ratio = (value: string) => {
           const ink = luminance(value);
@@ -110,6 +115,7 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
         };
         return {
           colors,
+          editInk,
           ratios: Object.fromEntries(Object.entries(colors).map(([key, value]) => [key, ratio(value)])),
         };
       });
@@ -119,8 +125,8 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
       };
       expect(actual.colors.add).toBe(rgb(green));
       expect(actual.colors.remove).toBe(rgb(red));
-      expect(actual.colors.editAdd).toBe(actual.colors.success);
-      expect(actual.colors.editRemove).toBe(actual.colors.failure);
+      expect(actual.colors.editAdd).toBe(actual.editInk.add);
+      expect(actual.colors.editRemove).toBe(actual.editInk.remove);
       expect(actual.colors.merged).toBe(rgb(theme.merged));
       expect(actual.colors.merged).not.toBe(actual.colors.failure);
       for (const ratio of Object.values(actual.ratios)) expect(ratio).toBeGreaterThanOrEqual(4.5);
