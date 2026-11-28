@@ -47,7 +47,7 @@ mod auto_give;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
 pub(crate) mod auto_resume;
-// Chats settle on their own: a merged or closed pull request, or idle days.
+// Chats settle alone: a merged or closed PR, idle days
 pub(crate) mod auto_settle;
 mod away_recap;
 mod background_cause;
