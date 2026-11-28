@@ -1050,6 +1050,8 @@ impl Hub {
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
             throwaway: false,
+            // A fork never runs on its parent's Cloud credential (a side chat neither, `btw.rs`).
+            owner_credential: false,
             create_key: None,
             placed_by: None,
             agent_behind_seq: None,

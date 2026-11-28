@@ -530,8 +530,9 @@ public final class CloudAgentCredentials {
         tracked[key] = refresher.track(credential, push: push)
     }
 
-    /// The chat started on `credential`: its choice is spent, and a ChatGPT plan token is kept fresh
-    /// on that machine through `push` (``CloudAgentCredentialRefresher/track(_:push:)``).
+    /// The chat started on `credential`: its choice is spent, a ChatGPT plan token is kept fresh
+    /// on that machine through `push` (``CloudAgentCredentialRefresher/track(_:push:)``), and every
+    /// kind is sent again when this Mac's link to that machine comes back (``linkReturned(machine:)``).
     @discardableResult
     public func started(chat: String, machine: String, sessionID: String? = nil, on credential: CloudAgentCredential,
                         onReauth: @escaping @MainActor () -> Void = {},
@@ -540,6 +541,7 @@ public final class CloudAgentCredentials {
         let key = ChatKey(machine: machine, chat: chat)
         chosen[key] = nil
         stopRefresh(key)
+        live[machine, default: [:]][chat] = LiveChat(connection: credential.connectionID, push: push)
         guard let binding = credentialBinding(credential) else {
             keyDeliveries[key] = nil
             // A pre-instance Mac daemon still returns valid ChatGPT refresh tokens.
@@ -554,5 +556,41 @@ public final class CloudAgentCredentials {
         keyDeliveries[key] = delivery
         credentialConnectionsChanged()
         return trackRefresh(credential, chat: key, delivery: delivery)
+    }
+
+    /// Each live chat this app started on a credential, by machine and chat tab key: the
+    /// connection it runs on (an id, never a value) and the push to its machine session.
+    private struct LiveChat {
+        let connection: String
+        let push: CloudAgentCredentialRefresher.Push
+    }
+    private var live: [String: [String: LiveChat]] = [:]
+
+    /// The trigger: each handshake of `machine`'s daemon connection (`store`, its link back: a resume, a
+    /// reconnect, its daemon restarted) runs ``linkReturned(machine:)``.
+    public func watchLink(_ store: DaemonStore, machine: String) {
+        store.onConnected = { [weak self] in
+            // task-owner: one re-send per handshake; it ends after one read per connection and one push per chat.
+            Task { await self?.linkReturned(machine: machine) }
+        }
+    }
+
+    /// How many chats on `machine` get their credential again when its link comes back.
+    public func liveCount(machine: String) -> Int { live[machine]?.count ?? 0 }
+
+    /// This Mac's link to `machine` came back (a resume, a reconnect, its daemon restarted): the
+    /// machine's acpmux may have restarted and forgotten every credential, which lives only in its
+    /// memory (cmux#40159: no login is ever written onto a Cloud machine). Every live chat there
+    /// gets its credential again, any provider and kind, read now (one read per connection). A
+    /// chat its machine no longer has is dropped; a failed read or push waits for the next return.
+    public func linkReturned(machine: String) async {
+        guard let chats = live[machine], !chats.isEmpty else { return }
+        for (connection, group) in Dictionary(grouping: chats, by: { $0.value.connection }) {
+            guard let fresh = try? await credential(forConnection: connection) else { continue }
+            for (chat, entry) in group {
+                if await entry.push(fresh.env) == .gone { live[machine]?[chat] = nil }
+            }
+        }
+        if live[machine]?.isEmpty == true { live[machine] = nil }
     }
 }

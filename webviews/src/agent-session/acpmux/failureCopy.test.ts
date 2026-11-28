@@ -11,7 +11,7 @@ import {
   isAccountLimit,
   limitResetWords,
 } from "./failureCopy";
-import { currentLanguage, STRING_TABLES, type Translate, translatorFor } from "./i18n";
+import { type Translate, translatorFor, currentLanguage, STRING_TABLES } from "./i18n";
 import { resetTime } from "./usageLimits";
 
 // The connection drops acpmux retries by itself (hub/turn_errors.rs `says_connection_dropped`) read
@@ -423,6 +423,19 @@ test("a provider's expired API key is a key failure, not a sign-in", () => {
   }
   // Claude Code's own sign-in still reads as its login.
   expect(failureKind("Invalid API key · Please run /login")).toBe("subscription-login");
+});
+
+test("a resumed Cloud chat the owner's Mac has not signed in again names the Mac, never a login on the machine", () => {
+  // acpmux's refusal (hub/credentials.rs `needs_mac`): the machine resumed and forgot the chat's credential.
+  const refusal = "Claude needs the Mac to sign in: open cmux";
+  const cloud = { hostKind: "cloud" as const, harness: "claude", name: "Claude Code" };
+  expect(failureKind(refusal, cloud)).toBe("needs-mac");
+  expect(isAuthenticationFailure(refusal)).toBe(false);
+  expect(isTeamMachineSignIn(failureKind(refusal, cloud), { ...cloud, teamMachine: true })).toBe(false);
+  expect(failureRecovery("needs-mac")).toBe("retry");
+  const copy = failureCopy(translatorFor("en"), refusal, cloud);
+  expect(copy).toBe("Claude Code needs the Mac to sign in: open cmux");
+  expect(copy.toLowerCase()).not.toContain("not logged in");
 });
 
 // cmux#55066: a Cloud Claude chat whose account used up its weekly limit failed with Claude's bare

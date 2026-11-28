@@ -345,6 +345,13 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// Its agent runs on the owner's Cloud credential (`agent_credentials.rs`), which lives in
+    /// this daemon's memory only: a daemon that restarts (a machine paused and resumed) starts
+    /// its agent again only once the owner's Mac sends it again (`hub/credentials.rs`
+    /// `owner_credential_ready`), never on the machine's own route. A flag: no name or value of
+    /// the credential is kept.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owner_credential: bool,
     /// The key its creator sent with its `session/new` (`_meta.acpmux.createKey`,
     /// `hub/create_key.rs`): a create sent again with that key, after a daemon restart closed
     /// the connection before the reply, answers with this session instead of making another.

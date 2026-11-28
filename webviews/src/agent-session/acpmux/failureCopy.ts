@@ -11,6 +11,7 @@ export type FailureKind =
   | "no-team-account"
   | "needs-credits"
   | "team-cap"
+  | "needs-mac"
   | "no-credit"
   | "model-not-found"
   | "no-supergrok-access"
@@ -67,6 +68,10 @@ const NEEDS_CREDITS =
 /// period (backend inference/route.ts: 402 `team.cap_reached`, typed `insufficient_quota`; cmux#39915).
 /// Neither waiting nor the person's own credit helps: an admin raises the cap, or a model on the
 /// person's own account goes on. Before every quota and credit rule, which its type would match.
+/// A Cloud chat on the owner's credential, which only their Mac sends, on a machine that resumed and
+/// has not got it back yet: acpmux refuses the start with these words (`hub/credentials.rs`
+/// `NEEDS_MAC_TEXT`, errorKind `credentials.needs_mac`) rather than letting the harness say "Not logged in".
+const NEEDS_MAC = /needs the Mac to sign in: open cmux/i;
 const TEAM_CAP = /\bteam\.cap_reached\b|team reached its (?:spending|monthly usage) cap/i;
 /// The account behind the chat's own API key has no credit left: Anthropic's "credit balance is too
 /// low", OpenAI's `insufficient_quota` ("You exceeded your current quota") and
@@ -318,6 +323,8 @@ export function failureVia(message: string | undefined, route?: FailureRoute): s
 /// `code`: acpmux's typed reason for the failure (the turn's `errorCode`), when it gives one.
 export function failureKind(message: string | undefined, route?: FailureRoute, code?: string): FailureKind {
   if (TEAM_CAP.test(message ?? "") || TEAM_CAP.test(code ?? "")) return "team-cap";
+  // Before every sign-in kind: no sign-in on the machine helps, the owner's Mac sends it.
+  if (NEEDS_MAC.test(message ?? "")) return "needs-mac";
   if (cloudClaudeTokenRejected(message, route, code)) return "auth";
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
   // The router types its own limits `insufficient_quota` too: its code in the text makes it a limit.
@@ -465,6 +472,8 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.needsCredits", { harness });
     case "team-cap":
       return t("turn.failure.teamCap", { harness });
+    case "needs-mac":
+      return t("turn.failure.needsMac", { harness });
     case "no-credit":
       return t("turn.failure.noCredit", { harness });
     case "model-not-found":

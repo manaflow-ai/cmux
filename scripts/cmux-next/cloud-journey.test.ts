@@ -24,6 +24,7 @@ import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
+import { launchCredentialResendProgram } from "./cloud-journey";
 import { platformVerdict, waitRunning } from "./cloud-journey";
 import { preclaimPhasesText } from "./cloud-journey";
 import { OWN_LOGIN_CHECK, preclaimInstallCommand } from "./cloud-journey";
@@ -3713,6 +3714,25 @@ open(out, 'w').write(json.dumps(seen))
         cwd: home,
         _meta: { acpmux: { name: "journey-jr-1", harness: "claude", model: "claude-sonnet-5-5", credentials: { env: { CLAUDE_CODE_OAUTH_TOKEN: token } } } },
       });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  test("after a resume the app's re-send is agent/credentials.update for the chat, never on a command line", { timeout: 30_000 }, () => {
+    const home = mkdtempSync("/tmp/jl-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX);
+      const token = "sk-ant-oat01-journeystub-abc123";
+      const program = launchCredentialResendProgram("s-1", "CLAUDE_CODE_OAUTH_TOKEN", token);
+      expect(program.split("\n")[0]).not.toContain(token);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const script = `python3 -I fake.py ${sock} seen.json & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nwait`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      expect(r.stdout).toContain("@@resent");
+      const seen = JSON.parse(readFileSync(join(home, "seen.json"), "utf8"));
+      expect(seen.map((m: any) => m.method)).toEqual(["initialize", "agent/credentials.update"]);
+      expect(seen[1].params).toEqual({ sessionId: "s-1", env: { CLAUDE_CODE_OAUTH_TOKEN: token } });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

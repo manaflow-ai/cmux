@@ -85,6 +85,10 @@ pub mod kind {
     /// The owner's gateway answered, but the agent's sign-in on their Mac is missing or expired
     /// (`inference.gateway_login`).
     pub const GATEWAY_LOGIN: &str = "gateway.login";
+    /// A Cloud chat runs on the owner's credential, which only their Mac sends, and this machine
+    /// has none since it restarted (a pause and resume): the Mac is offline or cmux is closed
+    /// (`hub/credentials.rs`).
+    pub const NEEDS_MAC: &str = "credentials.needs_mac";
     /// The agent does not know the model it was asked to run (Claude Code's
     /// `unrecognized_model`, an API's `model_not_found`; `model_catalog::is_model_error`). acpmux
     /// retries such a turn once under the model's catalog id when it has one
