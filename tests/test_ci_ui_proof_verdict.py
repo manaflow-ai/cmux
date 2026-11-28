@@ -13,6 +13,7 @@ import contextlib
 import io
 import os
 import struct
+import re
 import sys
 import tempfile
 import unittest
@@ -398,6 +399,28 @@ class LookFailedTest(unittest.TestCase):
         self.assertLessEqual(len(u.look_failed("x " * 200, 1)[1]), 140)
         self.assertIn("no reason given", u.look_failed("", 1)[1])
 
+    def test_a_look_that_could_not_run_keeps_a_declared_none(self) -> None:
+        # cmux#39287 (2026-11-28): "Visual: none (...)" in the body, a stale look cancelled after 3 h, gate red.
+        state, desc = u.look_failed_unless_declared("x\nVisual: none (deletes dead modules)\n", self.CANCELLED, 39287)
+        self.assertEqual(state, "success")
+        self.assertTrue(desc.startswith("Declared no visual change: deletes dead modules"))
+        self.assertEqual(u.look_failed_unless_declared("no line", self.CANCELLED, 1)[0], "failure")
+        self.assertEqual(u.look_failed_unless_declared(None, self.CANCELLED, 1)[0], "failure")
+
+    def test_look_failed_reads_the_body_through_its_tokens(self) -> None:
+        calls = []
+
+        def api(path, token, *a, **k):
+            calls.append((path, token))
+            if token == "spent":
+                raise RuntimeError("403")
+            return {"body": "Visual: none (copy only)"}
+        with mock.patch.object(u, "api", side_effect=api):
+            self.assertEqual(u.pr_body("o/r", 7, ["spent", "ok"]), "Visual: none (copy only)")
+        self.assertEqual(calls[-1], ("repos/o/r/pulls/7", "ok"))
+        with mock.patch.object(u, "api", side_effect=RuntimeError("down")):
+            self.assertIsNone(u.pr_body("o/r", 7, ["a"]))
+
     def test_look_reason_from_step_outputs(self) -> None:
         self.assertEqual(u.look_reason({"TAR": "false", "REASON": self.CANCELLED}), self.CANCELLED)
         self.assertEqual(u.look_reason({"TAR": "false"}), "the fleet sent no result")
@@ -501,6 +524,36 @@ class LookFailedTest(unittest.TestCase):
         self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
         self.assertEqual([(s["pr"], "rerun" in s) for s in out], [(62379, True), (8, False)])
 
+    def test_sweep_regates_a_look_failure_answered_by_a_later_record(self) -> None:
+        # cmux#63752: the sweep's failure at 11:25Z, a passing record at 11:37Z, and no gate rerun after it.
+        now = u.dt.datetime(2026, 11, 28, 12, 0, tzinfo=u.dt.timezone.utc)
+        failed = u.look_failed("no look result within 6 h of the pending post", 63752)[1]
+        prs = [self.node(63752, "FAILURE", "2026-11-28T11:25:56Z", failed),  # record after: re-gate
+               self.node(7, "FAILURE", "2026-11-28T11:00:00Z", failed),      # record before: the gate read it
+               self.node(8, "FAILURE", "2026-11-28T11:00:00Z", "UI proof at this head failed: x"),  # not a look's
+               self.node(9, "FAILURE", "2026-11-28T11:00:00Z", failed)]      # no record: stands
+        records = {63752: "2026-11-28T11:37:05Z", 7: "2026-11-28T10:00:00Z", 8: "2026-11-28T11:30:00Z", 9: ""}
+        posts, reruns = [], []
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: records[pr],
+                          rerun=lambda sha, after="": reruns.append((sha, after)) or "reran")
+        self.assertEqual(reruns, [(f"{63752:040d}", "2026-11-28T11:37:05Z")])
+        self.assertEqual(posts, [])
+        self.assertEqual([s["pr"] for s in out], [63752])
+
+    def test_rerun_gate_rest_skips_a_gate_that_already_read_the_record(self) -> None:
+        def api(path, token, *a):
+            if "workflows/pr-router.yml/runs" in path:
+                return {"workflow_runs": [{"id": 1}]}
+            if path.endswith("/jobs?per_page=100"):
+                return {"jobs": [{"id": 5, "name": u.GATE_JOB, "status": "completed", "conclusion": "failure",
+                                  "completed_at": "2026-11-28T11:40:00Z"}]}
+            self.fail(f"no rerun expected: {path}")
+        with mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u.proof_record, "with_tokens", side_effect=lambda f, tokens: f(tokens[0])):
+            self.assertIn("already read", u.rerun_gate_rest("r/r", "s", ["t"], "2026-11-28T11:37:05Z"))
+
     def test_sweep_reads_the_newest_prs_first(self) -> None:
         self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", u.SWEEP_QUERY)
 
@@ -508,7 +561,7 @@ class LookFailedTest(unittest.TestCase):
         sha = "a" * 40
         good = {"html_url": "u1", "created_at": "2026-11-27T22:16:00Z", "body": "r"}
         with mock.patch.object(proof_record, "pr_comments", return_value=[good]), \
-                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b: (
+                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b, can_write=None: (
                     {"_comment": "u1"} if suite == "web-flows" and h == sha else None)):
             self.assertEqual(u.record_at("r/r", 1, sha, "t", []), "2026-11-27T22:16:00Z")
             self.assertEqual(u.record_at("r/r", 1, "b" * 40, "t", []), "")
@@ -558,6 +611,56 @@ class LookFailedTest(unittest.TestCase):
             self.assertIn("API rate limit exceeded", err.getvalue())  # the refusal's own words, not only "Forbidden"
             calls.clear()
             self.assertFalse(u.post_status("failure", "x", "o/r", "a" * 40, ["spent"]))
+
+    def test_post_record_falls_through_a_refused_token(self) -> None:
+        calls = []
+
+        def api(path, token, method="GET", body=None):
+            calls.append((path, token, method))
+            if token == "pool":
+                raise urllib.error.HTTPError("u", 403, "Forbidden", {},
+                                             io.BytesIO(b'{"message":"Resource not accessible by integration"}'))
+            return {}
+
+        with mock.patch.object(u, "api", api), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(u.post_record("o/r", 7, "rec", ["pool", "bot"]), (True, ""))
+            self.assertEqual(calls, [("repos/o/r/issues/7/comments", "pool", "POST"),
+                                     ("repos/o/r/issues/7/comments", "bot", "POST")])
+            ok, why = u.post_record("o/r", 7, "rec", ["pool"])
+            self.assertFalse(ok)
+            self.assertIn("Resource not accessible by integration", why)
+
+    def test_refused_record_post_is_a_failure_not_a_silent_pending(self) -> None:
+        posts = []
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "proof-record.md"
+            f.write_text("rec")
+            env = {"REPO": "o/r", "SHA": HEAD, "POST_TOKENS": "pool", "TOKENS": "gh"}
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(u, "post_record", return_value=(False, "HTTPError: addComment refused")), \
+                    mock.patch.object(u, "current_status", return_value=None), \
+                    mock.patch.object(u, "post_status", lambda *a: posts.append(a) or True), \
+                    contextlib.redirect_stdout(out):
+                rc = u.main(["post-record", "--file", str(f), "--pr", "7"])
+        self.assertEqual(rc, 1)
+        self.assertIn("::error", out.getvalue())
+        state, desc, repo, sha, tokens = posts[0][:5]
+        self.assertEqual((state, repo, sha, tokens), ("failure", "o/r", HEAD, ["gh"]))
+        self.assertTrue(desc.startswith(u.POST_REFUSED + ": HTTPError"))
+
+    def test_workflow_posts_the_record_on_trusted_apps_in_turn(self) -> None:
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text())
+        step = next(s for s in wf["jobs"]["publish"]["steps"] if s.get("name") == "Post the proof record")
+        # 2026-11-28, cmux#62400: the pool's token alone (pull_requests: read) was refused, and nothing said so.
+        posters = re.findall(r"\$\{\{.*?\}\}", step["env"]["POST_TOKENS"])
+        self.assertEqual(posters[0], "${{ steps.cmux-bot-token.outputs.token }}")
+        self.assertGreater(len(posters), 1)
+        self.assertNotIn("github.token", step["env"]["POST_TOKENS"])  # github-actions[bot]: the gate does not trust it
+        self.assertIn("ui_proof_verdict.py post-record", step["run"])
+        self.assertNotIn("gh pr comment", step["run"])
+        self.assertIn("pipefail", step["run"])
 
     def test_workflows_post_it(self) -> None:
         import yaml
