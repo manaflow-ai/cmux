@@ -17,26 +17,24 @@ public nonisolated enum SidebarGroupSort: String, Hashable, Sendable, CaseIterab
     /// them; inside each band Name goes A to Z (Finder's order: case-insensitive, numbers by value) and
     /// Recent puts the latest activity first, members with none after them. Ties keep the stored order.
     public func ordered(_ members: [SidebarWorkspace], pinned: (SidebarWorkspace) -> Bool = { _ in false }) -> [SidebarWorkspace] {
-        guard self != .manual, members.count > 1 else { return members }
-        func band(_ workspace: SidebarWorkspace) -> Int { pinned(workspace) ? 0 : workspace.isArchived ? 2 : 1 }
-        return members.enumerated().sorted { a, b in
-            let (bandA, bandB) = (band(a.element), band(b.element))
-            if bandA != bandB { return bandA < bandB }
-            switch self {
-            case .manual:
-                break
-            case .name:
-                let order = a.element.title.localizedStandardCompare(b.element.title)
-                if order != .orderedSame { return order == .orderedAscending }
-            case .recent:
-                switch (a.element.lastActivity, b.element.lastActivity) {
-                case let (x?, y?) where x != y: return x > y
-                case (.some, nil): return true
-                case (nil, .some): return false
-                default: break
-                }
+        // The bands and keys are the `sidebar_doc_listing` op's (`ordered`); the name collation (Finder's order) stays
+        // here: each member's place among the titles, equal titles sharing one.
+        var ranks = [Int](repeating: 0, count: members.count)
+        if self == .name {
+            let byTitle = members.indices.sorted { members[$0].title.localizedStandardCompare(members[$1].title) == .orderedAscending }
+            var rank = 0
+            for (at, index) in byTitle.enumerated() {
+                if at > 0, members[byTitle[at - 1]].title.localizedStandardCompare(members[index].title) != .orderedSame { rank += 1 }
+                ranks[index] = rank
             }
-            return a.offset < b.offset
-        }.map(\.element)
+        }
+        let request = RustSidebarDocListing.OrderedRequest(sort: rawValue, members: members.indices.map { index in
+            .init(pinned: pinned(members[index]), archived: members[index].isArchived, name_rank: ranks[index],
+                  last_activity: members[index].lastActivity?.timeIntervalSince1970)
+        })
+        // When the op does not answer (or answers out of range), the stored order.
+        guard let order = RustSidebarClient.call(RustSidebarDocListing.op, request, as: RustSidebarDocListing.OrderedReply.self)?.order,
+              order.count == members.count, order.allSatisfy(members.indices.contains) else { return members }
+        return order.map { members[$0] }
     }
 }
