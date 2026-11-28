@@ -257,16 +257,20 @@ import Testing
         #expect(GitHubConnect.installationURL("https://github.com/login/oauth/access_token") == nil)
     }
 
-    /// The three pages integration.connect answers open; nothing else does (the Mac's check).
+    /// The pages integration.connect answers open; nothing else does (the Mac's check), plus an
+    /// installation's settings page, where updated permissions are accepted.
     @Test func connectGitHubOpensTheThreeConnectPagesOnly() {
         for good in ["https://github.com/apps/cmux/installations/new?state=s",
+                     "https://github.com/settings/installations/42",
+                     "https://github.com/organizations/acme/settings/installations/42",
                      "https://github.com/apps/cmux/installations/new/permissions?target_id=4242&state=s",
                      "https://github.com/login/oauth/authorize?client_id=Iv1.abc&state=s"] {
             #expect(GitHubConnect.installationURL(good)?.absoluteString == good)
         }
         for bad in ["http://github.com/login/oauth/authorize", "https://github.com.evil.test/login/oauth/authorize",
                     "https://user@github.com/login/oauth/authorize", "https://github.com:8443/login/oauth/authorize",
-                    "https://github.com/apps/cmux/installations/new/permissions/more", "https://github.com/settings/installations/42"] {
+                    "https://github.com/apps/cmux/installations/new/permissions/more", "https://github.com/settings/installations/42/x",
+                    "https://github.com/organizations/acme/settings/installations/abc"] {
             #expect(GitHubConnect.installationURL(bad) == nil, "\(bad)")
         }
     }
@@ -284,6 +288,20 @@ import Testing
         #expect(Service.params("integration.connect")?["repo"] as? String == "acme/web")
         #expect(Service.params("integration.connect")?["return_to"] as? String == "cmux://session/ses-01")
         #expect(model.state == .connected(["octo"]))
+    }
+
+    /// An installation that has not accepted the App's updated permissions: the connect answers its
+    /// settings page (`accept_url`), and Sign in with GitHub opens it.
+    @Test func connectGitHubOpensTheAcceptPageForPendingPermissions() async {
+        Service.reset(["integration.list": (200, #"{"value":{"connections":[{"provider":"github","status":"active","account_login":"acme"}],"providers":[{"provider":"github","configured":true}]}}"#),
+                       "integration.connect": (200, #"{"value":{"accept_url":"https://github.com/organizations/acme/settings/installations/42","connection":{"id":"conn_1"}}}"#)])
+        let account = Self.account()
+        var opened: [URL] = []
+        let model = GitHubConnect(account: { account }, open: { opened.append($0) })
+        let outcome = await model.connect(repo: "acme/web")
+        #expect(outcome == .opened)
+        #expect(opened.map(\.absoluteString) == ["https://github.com/organizations/acme/settings/installations/42"])
+        #expect(model.failure == nil)
     }
 
     @Test func connectGitHubDoesNothingWhenConnected() async {

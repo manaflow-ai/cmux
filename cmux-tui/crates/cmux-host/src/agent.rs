@@ -90,8 +90,9 @@ pub fn clock_set_wake(before_ns: i128, after_ns: i128) -> Wake {
 /// pause, so the watch is the only thing that sees one, and with a 10 s tick
 /// a pause under about 30 s was never counted. wake-echo run 46000366770
 /// (2026-11-27): pauses of 5.6 s and 7.9 s went uncounted, the updater took
-/// no resume hold, and a build flip landing at the wake replaced the session
-/// host ("daemon restarted across the wake").
+/// no resume hold. The run showed the session host replaced at the wake
+/// ("daemon restarted across the wake"); that a build flip did it is
+/// inferred from the missing hold, not read from the updater's log.
 pub const PAUSE_TICK: Duration = Duration::from_secs(1);
 
 /// How far past [`PAUSE_TICK`] the boot clock must have moved during one

@@ -837,21 +837,26 @@ const vmCreateInProgressResponse = (error: VmCreateInProgressError, action: stri
  */
 export const vmCreateWaitingResponse = (error: VmCreateWaitingError): Response => {
   const forAddress = error.state === "waiting_for_address";
+  const forFleet = error.state === "waiting_for_fleet";
   const message = forAddress
     ? "Waiting for a free address in this account's private network."
-    : "Waiting for Cloud VM start capacity.";
+    : forFleet
+      ? "Waiting for a free machine slot in the Cloud VM fleet."
+      : "Waiting for Cloud VM start capacity.";
   return vmErrorResponse({
     error: "vm_create_waiting",
     status: 202,
     message,
     reason: forAddress
       ? "Every address in this account's private network is assigned to a machine or an enrolled Mac."
-      : "The provider has no room to start another machine right now.",
+      : forFleet
+        ? "The Cloud VM fleet is at its machine cap."
+        : "The provider has no room to start another machine right now.",
     action: "Retry the same request with the same idempotency key after retryAfterSeconds; the machine starts when room frees.",
     phase: "create",
     retryable: true,
     retryAfterSeconds: error.retryAfterSeconds,
-    displayTitle: forAddress ? "Waiting for an address" : "Waiting for capacity",
+    displayTitle: forAddress ? "Waiting for an address" : forFleet ? "Waiting for a fleet slot" : "Waiting for capacity",
     displayMessage: message,
     severity: "info",
     extra: { waitState: error.state, waitingSince: error.since, waitDeadline: error.deadline },
