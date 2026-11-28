@@ -136,11 +136,8 @@ fn append(prompt: &mut String, part: &str) -> bool {
         prompt.push_str(part);
         return true;
     }
-    let mut cut = room.saturating_sub(OMITTED.len());
-    while !part.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    prompt.push_str(&part[..cut]);
+    let cut = part.floor_char_boundary(room.saturating_sub(OMITTED.len()));
+    prompt.push_str(part.get(..cut).unwrap_or_default());
     prompt.push_str(OMITTED);
     false
 }
@@ -151,11 +148,8 @@ fn log_tail(log: &str, max: usize) -> String {
     if log.len() <= max {
         return log.to_owned();
     }
-    let mut start = log.len() - max.saturating_sub(CUT.len());
-    while !log.is_char_boundary(start) {
-        start += 1;
-    }
-    format!("{CUT}{}", &log[start..])
+    let start = log.ceil_char_boundary(log.len().saturating_sub(max.saturating_sub(CUT.len())));
+    format!("{CUT}{}", log.get(start..).unwrap_or_default())
 }
 
 async fn failed_logs(cwd: &Path, pr: &Value, repo: &str) -> Result<String, RpcError> {
