@@ -105,9 +105,10 @@ class MotionFramesReadsAreas(unittest.TestCase):
         self.assertIn("areas: ${{ steps.route.outputs.areas }}", text)
 
     def test_relevance_imports_only_stdlib(self):
-        # The route job's sparse checkout holds relevance.py and its package marker only.
+        # The route job's sparse checkout holds relevance.py and its package marker only, so its module-level
+        # imports must be stdlib (a function-local one, as run_benches' baselines, is never reached by load/match).
         src = (ROOT / "scripts/bench/benchlib/relevance.py").read_text()
-        local = re.findall(r"(?m)^\s*from \.|^\s*from benchlib|^\s*import benchlib", src)
+        local = re.findall(r"(?m)^(?:from \.|from benchlib|import benchlib)", src)
         self.assertEqual(local, [])
 
 
