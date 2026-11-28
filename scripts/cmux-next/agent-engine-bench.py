@@ -466,7 +466,7 @@ def run_mode(mode):
     result["shots"] = screen_shots(mode)
     result["cadence"] = cadence()
     result["typing"] = typing()
-    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
+    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_before_input", "to_edited", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
     print(mode, "cadence", json.dumps(result["cadence"]), flush=True)
     if opts.rate_arms:
         result["rate_arms"] = rate_arms(mode)
@@ -494,6 +494,7 @@ def run_mode(mode):
         "per_more_chat_mb": round((many - one) / max(1, opts.chats - 1), 1),
         "typing_to_frame": result["typing"].get("to_frame"), "typing_to_paint": result["typing"].get("to_paint"),
         "typing_to_listener": result["typing"].get("to_listener"), "typing_to_work": result["typing"].get("to_work"),
+        "typing_to_before_input": result["typing"].get("to_before_input"), "typing_to_edited": result["typing"].get("to_edited"),
         "session_composer_ms": result["session"].get("composer_ms"),
         "typing_keys": result["typing"].get("keys"), "focus": result["focus"],
         "frame_interval": (result.get("cadence") or {}).get("frames"),

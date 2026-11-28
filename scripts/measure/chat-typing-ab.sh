@@ -230,7 +230,7 @@ for arm in ("base", "head"):
             modes = json.load(open(os.path.join(d, "acp.json"))).get("modes") or {}
             for mode, r in modes.items():
                 summ = (r.get("summary", r) if isinstance(r, dict) else {}) or {}
-                for part in ("to_listener", "to_work"):
+                for part in ("to_listener", "to_before_input", "to_edited", "to_work"):
                     p50, p95 = stat(summ.get(f"typing_{part}"))
                     if p95 is not None:
                         rows[f"acp.{mode}.typing.{part}"] = {"p50": p50, "p95": p95}
