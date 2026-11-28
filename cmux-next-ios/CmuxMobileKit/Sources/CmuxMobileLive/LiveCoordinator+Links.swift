@@ -1268,9 +1268,10 @@ extension LiveCoordinator {
         // A closed (idle) link cannot reattach: its terminals say so until it opens again.
         // Not while the team is still starting (a cold launch before its first list):
         // nothing has dialed yet, so nothing has failed.
-        // Never while the Mac's shared presence says its link is up (``AppStore/macPresence(_:)``).
+        // The link's own phase is the source ``AppStore/macPresence(_:)`` is built from, so it is
+        // read here directly: a presence read can trail the phase and hold the tabs "online"
+        // through a drop, which leaves them unattached when the link returns.
         let offline = LinkOutageClock.terminalsOffline(phase, down: down, teamStarted: registeredTeamID != nil)
-            && !store.macPresence(session.macID).isUp
         session.terminalsOffline = offline
         session.terminals.removeAll { $0.session == nil }
         for terminal in session.terminals { terminal.session?.setMacOffline(offline) }
