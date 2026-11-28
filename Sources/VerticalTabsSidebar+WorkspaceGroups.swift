@@ -488,8 +488,8 @@ extension VerticalTabsSidebar {
                 )
             },
             onRename: { [weak tabManager, resolveLiveAnchor] in
-                // Group headers have no inline title editor; rename in the
-                // palette editor, which already owns group renames.
+                // The SwiftUI header has no inline title editor; rename in
+                // the palette editor, which already owns group renames.
                 guard let tabManager else { return }
                 let currentName = tabManager.workspaceGroups
                     .first(where: { $0.id == groupId })?.name ?? fallbackGroupName
@@ -503,6 +503,9 @@ extension VerticalTabsSidebar {
                     },
                     source: "groupContextMenu.rename"
                 )
+            },
+            onCommitRename: { [weak tabManager] name in
+                tabManager?.renameWorkspaceGroup(groupId: groupId, name: name)
             },
             onTogglePinned: { [weak tabManager] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)

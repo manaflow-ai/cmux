@@ -38,6 +38,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
+    private(set) var renameSession: SidebarRowInlineRenameSession?
 
     override var isFlipped: Bool { true }
 
@@ -118,11 +119,29 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     /// every reconfiguration, so clearing the stored one here would leave
     /// nothing to restore it and a reused cell's pulse would never start again.
     func suspendPresentation() {
+        for action in detachPresentation() {
+            action()
+        }
+    }
+
+    /// Ends any rename session before the cell loses its actions. With
+    /// `commitEdits`, a typed name comes back as a deferred write so it lands
+    /// after the table mutation that detached the cell.
+    func detachPresentation(commitEdits: Bool = false) -> [@MainActor () -> Void] {
+        var postUpdateActions: [@MainActor () -> Void] = []
+        if let session = renameSession {
+            let name = session.resolveForSuspension()
+            if commitEdits, let name, let commitRename = actions?.onCommitRename {
+                postUpdateActions.append { commitRename(name) }
+            }
+            removeInlineRenameSession()
+        }
         actions = nil
         contextMenuDidOpen = nil
         contextMenuDidClose = nil
         contextMenuVisible = false
         statusGlyphView.isPresentationActive = false
+        return postUpdateActions
     }
 
     func configurePresentation(model: SidebarGroupHeaderRowModel) {
@@ -150,6 +169,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
+        if previous?.groupId != model.groupId {
+            cancelInlineRename()
+        }
         guard requiresFullApply || previous != model || hoverChanged else { return }
         self.model = model
         applyModel(model)
@@ -209,7 +231,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         // In compact status mode unread folds into the glyph (blue), so the
         // count badge stays off even when no member state rolls up.
-        statusGlyphView.isHidden = model.statusGlyph == nil
+        // Hidden while renaming: the editor spans the badge's slot.
+        let isRenaming = renameSession != nil
+        statusGlyphView.isHidden = model.statusGlyph == nil || isRenaming
         if let glyph = model.statusGlyph {
             statusGlyphView.configure(
                 glyph,
@@ -222,6 +246,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
         let showsBadge = model.statusGlyph == nil && !model.compactsAgentStatus && model.anchorUnreadCount > 0
+            && !isRenaming
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(
@@ -489,6 +514,15 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             width: nameAvailable,
             height: ceil(nameSize.height)
         )
+        if let renameField = renameSession?.field {
+            let fieldHeight = ceil(renameField.intrinsicContentSize.height)
+            renameField.frame = NSRect(
+                x: x,
+                y: midY - fieldHeight / 2,
+                width: nameAvailable,
+                height: fieldHeight
+            )
+        }
         if !unreadBadgeView.isHidden {
             let badgeX = x + min(ceil(nameSize.width), nameAvailable) + 6
             unreadBadgeView.frame = NSRect(
@@ -524,6 +558,58 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             width: pillSize.width,
             height: pillSize.height
         )
+    }
+
+    // MARK: Inline rename
+
+    /// Swaps the name label for an inline editor seeded with the group name,
+    /// using the same rename engine as workspace rows (see
+    /// `SidebarWorkspaceRowTableCellView.beginInlineRename()`).
+    func beginInlineRename() {
+        guard let model, renameSession == nil else { return }
+        let session = SidebarRowInlineRenameSession(
+            baselineTitle: model.name,
+            // Group names are never auto-generated, so an unchanged name is
+            // simply no write.
+            baselineHadUserCustomTitle: false,
+            placeholder: String(localized: "workspaceGroup.rename.placeholder", defaultValue: "Group name"),
+            accessibilityLabel: String(localized: "workspaceGroup.rename.title", defaultValue: "Rename Group"),
+            onResolve: { [weak self] name in
+                if let name { self?.actions?.onCommitRename(name) }
+                self?.removeInlineRenameSession()
+            }
+        )
+        session.field.font = nameField.font
+        session.field.inlineRenameTextColor = nameField.textColor ?? .labelColor
+        renameSession = session
+        nameField.isHidden = true
+        unreadBadgeView.isHidden = true
+        statusGlyphView.isHidden = true
+        // Frame the field before it enters the window: entering the hierarchy
+        // takes focus and sizes the field editor from the current frame.
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        addSubview(session.field)
+        SidebarRowChecklistFieldBridge.clearFieldEditorBackground(session.field)
+    }
+
+    /// Ends any rename without a write (the cell now shows another group).
+    private func cancelInlineRename() {
+        guard let session = renameSession else { return }
+        _ = session.resolveForSuspension()
+        removeInlineRenameSession()
+    }
+
+    /// Tears down the session UI; resolution has already happened.
+    private func removeInlineRenameSession() {
+        guard let session = renameSession else { return }
+        renameSession = nil
+        session.field.removeFromSuperview()
+        nameField.isHidden = false
+        if let model {
+            applyModel(model)
+        }
+        needsLayout = true
     }
 
     // MARK: Interaction
@@ -634,7 +720,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.rename", defaultValue: "Rename Group..."),
-            action: actions.onRename
+            action: { [weak self, groupId = model.groupId] in
+                // A retained menu must not start editing a group the cell
+                // was reused for after the menu opened.
+                guard let self, self.model?.groupId == groupId, self.actions != nil else { return }
+                self.beginInlineRename()
+            }
         ))
         menu.addItem(menuItem(
             model.isPinned
