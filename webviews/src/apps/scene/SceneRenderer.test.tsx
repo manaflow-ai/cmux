@@ -1151,14 +1151,19 @@ test("a Pill with no tone, or one the host refused, is the kit's neutral", () =>
 // These exercise the SDK renderer's event wiring, not just the shared hover hook.
 async function hoverEvent(target: Element, type: string, relatedTarget: Element | null = null) {
   await act(async () => {
-    const event = new dom!.window.MouseEvent(type, {
-      bubbles: true,
-      relatedTarget,
-      clientX: 20,
-      clientY: 20,
-    });
-    Object.defineProperty(event, "pointerType", { value: "mouse" });
-    target.dispatchEvent(event);
+    const send = (element: Element, eventType: string, related: Element | null) => {
+      const event = new dom!.window.MouseEvent(eventType, {
+        bubbles: true,
+        relatedTarget: related,
+        clientX: 20,
+        clientY: 20,
+      });
+      Object.defineProperty(event, "pointerType", { value: "mouse" });
+      element.dispatchEvent(event);
+    };
+    // React derives enter from the preceding out when both targets are managed nodes.
+    if (relatedTarget && type.endsWith("over")) send(relatedTarget, type.replace("over", "out"), target);
+    send(target, type, relatedTarget);
   });
 }
 async function advanceHover(ms: number) {
