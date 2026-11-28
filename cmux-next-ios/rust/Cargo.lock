@@ -534,10 +534,12 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -608,6 +610,15 @@ dependencies = [
  "cmux-cloud-start-core",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-cloud-phone-acp"
+version = "0.1.0"
+dependencies = [
+ "cmux-deadline",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -763,6 +774,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-build-space",
  "cmux-bundle",
+ "cmux-cloud-phone-acp",
  "cmux-deadline",
  "cmux-egress",
  "cmux-fault",

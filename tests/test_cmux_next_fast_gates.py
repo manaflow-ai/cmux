@@ -328,24 +328,31 @@ class WorkflowShape(unittest.TestCase):
     def test_dispatch_refuses_a_fork_or_another_base_before_pr_code_runs(self):
         doc = workflow()
         resolve = job(doc, "resolve")
-        # resolve runs no code the change made: on dispatch it checks nothing out at all, and on a pull request it
-        # runs only the router (isolated, -I), and only when the change leaves the router and its map as the base has
-        # them (else every gate runs and nothing of the PR's is read).
+        # resolve runs no code the change made: on dispatch it checks out only the base's router and verifier, and on a
+        # pull request it runs only the router (isolated, -I), and only when the change leaves the router and its map
+        # as the base has them (else every gate runs and nothing of the PR's is read).
         for step in resolve["steps"]:
             if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
-                if "the base for the receipt verifier (lane dispatch)" in step.get("name", ""):
-                    # A lane dispatch checks out the base commit's verifier, never the pull request's code (#60742).
-                    self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", step["if"])
+                if "the base for the router and the receipt verifier (dispatch)" in step.get("name", ""):
+                    # A dispatch checks out the base commit's router and verifier, never the pull request's code
+                    # (#60742).
+                    self.assertIn("github.event_name == 'workflow_dispatch'", step["if"])
                     self.assertIn("steps.resolve.outputs.base", str(step.get("with", {}).get("ref", "")) + str(step.get("env", {})))
                     continue
                 self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
                                 step.get("name"))
             if step.get("id") == "route":
-                self.assertEqual(step["if"].replace(" ", ""), "${{github.event_name=='pull_request'}}")
+                self.assertEqual(step["if"].replace(" ", ""),
+                                 "${{github.event_name=='pull_request'||github.event_name=='workflow_dispatch'}}")
                 self.assertTrue(step["continue-on-error"])
                 body = step["run"]
+                # The pull request branch: the router's SELF blobs are compared before any python3 runs.
+                pr_branch = body.split("for file in", 1)[1]
                 for file in ("scripts/ci/fast_check_route.py", "scripts/ci/fast-check-inputs.json"):
-                    self.assertIn(file, body.split("python3")[0])
+                    self.assertIn(file, pr_branch.split("python3")[0])
+                # The dispatch branch runs only the checked-out base's router: HEAD must be the base.
+                self.assertIn('"$(git rev-parse HEAD 2>/dev/null || true)" == "$BASE"', body)
+                self.assertEqual(step["env"]["BASE"], "${{ steps.resolve.outputs.base }}")
                 self.assertIn('"$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")"', body)
                 self.assertIn("python3 -I scripts/ci/fast_check_route.py route --workflow "
                               ".github/workflows/cmux-next-fast-gates.yml", body)
@@ -612,7 +619,7 @@ class WorkflowShape(unittest.TestCase):
         steps = job(workflow(), "resolve")["steps"]
         resolve = step_named(steps, "Resolve the head and the base")
         body = resolve["run"]
-        self.assertIn(".head.ref] | @tsv", body)
+        self.assertIn('.head.ref, ([.labels[].name] | join(","))] | @tsv', body)
         self.assertIn("headRefName", body)
         self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
         # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
@@ -623,21 +630,71 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
         self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
         verify = step_named(steps, "Verify the local test receipt")
-        self.assertIn("(github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true')",
-                      verify["if"])
+        self.assertIn("(github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' "
+                      "&& steps.route.outputs.fast_gates != 'false')", verify["if"])
         self.assertIn('[[ -n "$PR_NUMBER" && "${DISCOVER:-1}" != 0 ]]', verify["run"])
         names = [s.get("name", "") for s in steps]
-        for name in ("Checkout the base for the receipt verifier (lane dispatch)",
-                     "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"):
+        for name in ("Checkout the base for the router and the receipt verifier (dispatch)",
+                     "Pool mirror: checkout the base for the router and the receipt verifier (dispatch)"):
             checkout = step_named(steps, name)
             self.assertLess(names.index("Resolve the head and the base"), names.index(name))
+            self.assertLess(names.index(name), names.index("Route the pull request (scripts/ci/fast_check_route.py)"))
             self.assertLess(names.index(name), names.index("Verify the local test receipt"))
-            self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", checkout["if"])
+            self.assertIn("github.event_name == 'workflow_dispatch'", checkout["if"])
             self.assertIs(checkout["continue-on-error"], True)
-        checkout = step_named(steps, "Checkout the base for the receipt verifier (lane dispatch)")
+        checkout = step_named(steps, "Checkout the base for the router and the receipt verifier (dispatch)")
         self.assertIs(checkout["with"]["persist-credentials"], False)
         self.assertEqual(checkout["with"]["ref"], "${{ steps.resolve.outputs.base }}")
-        self.assertIn("/scripts/ci/ci_receipt.py", checkout["with"]["sparse-checkout"])
+        for file in ("/scripts/ci/ci_receipt.py", "/scripts/ci/fast_check_route.py", "/scripts/ci/fast-check-inputs.json"):
+            self.assertIn(file, checkout["with"]["sparse-checkout"])
+
+    def test_a_dispatch_routes_the_pull_requests_files_on_the_base_router(self):
+        """2026-11-28 15:00-16:15Z: 35 dispatches ran the whole gates job (237 runner-minutes); 6 of the 29 pull requests
+        touched no gate input, and 8 runs re-gated one head only because a check path moved. A dispatch routes the
+        pull request's files (pulls/N/files) on the base's router, as the pull request event does on its diff."""
+        step = next(s for s in job(workflow(), "resolve")["steps"] if s.get("id") == "route")
+        with tempfile.TemporaryDirectory(prefix="fast-gates-route-") as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q")
+            for rel in ("scripts/ci/fast_check_route.py", "scripts/ci/fast-check-inputs.json",
+                        "scripts/ci/detect_linux_guard_changes.py", "scripts/ci/workflow_guard_groups.py",
+                        "scripts/ci/workload_entrypoints.py", ".github/runners.json"):
+                (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / rel, repo / rel)
+            base = commit(repo, {".github/workflows/cmux-next-fast-gates.yml": WORKFLOW.read_text()}, "base")
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "gh").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\ncat "$FILES"\n')
+            (bin_dir / "gh").chmod(0o755)
+
+            def route(files: list[tuple[str, str, str]], *, labels: str = "", head: str = base) -> str:
+                (root / "files.tsv").write_text("".join("\t".join(row) + "\n" for row in files))
+                output = root / "output"
+                output.write_text("")
+                env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "workflow_dispatch",
+                       "LABELS": labels, "PR": "28116", "BASE": head, "RUNNER_TEMP": str(root),
+                       "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output),
+                       "FILES": str(root / "files.tsv"), "CALLS": str(root / "calls")}
+                result = subprocess.run(["bash", "-c", step["run"]], cwd=repo, env=env, capture_output=True,
+                                        text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return output.read_text()
+
+            # Tests and docs only: no gate input, so the gates are skipped and post writes success at this base.
+            self.assertEqual(route([("modified", "tests/test_x.py", ""), ("added", "docs/x.md", "")]),
+                             "fast_gates=false\n")
+            self.assertIn("/pulls/28116/files", (root / "calls").read_text())
+            # A gate input, the full-ci label, a rename of the router (SELF) or a removed crate file runs every gate.
+            self.assertEqual(route([("modified", "webviews/src/a.ts", "")]), "fast_gates=true\n")
+            self.assertEqual(route([("modified", "tests/test_x.py", "")], labels="full-ci"), "fast_gates=true\n")
+            self.assertEqual(route([("renamed", "tests/new.py", "scripts/ci/fast_check_route.py")]),
+                             "fast_gates=true\n")
+            self.assertEqual(route([("removed", "cmux-tui/crates/x/src/lib.rs", "")]), "fast_gates=true\n")
+            # No file list, or a checkout that is not the base, writes nothing: the gates run.
+            self.assertEqual(route([]), "")
+            self.assertEqual(route([("modified", "tests/test_x.py", "")], head="f" * 40), "")
 
     def test_receipt_steps_run_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
