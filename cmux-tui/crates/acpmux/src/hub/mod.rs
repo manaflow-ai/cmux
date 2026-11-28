@@ -2626,6 +2626,7 @@ impl Hub {
             fork_from: StdMutex::new(fork_from),
             agent_fork: StdMutex::new(None),
             applied: Default::default(),
+            pending_start_effort: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
             purging: AtomicBool::new(false),
