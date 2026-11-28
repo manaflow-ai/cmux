@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { cardStrings } from "./strings";
 import { SetupCard } from "./SetupCard";
+import { StarterWorkspaces } from "../starter-workspaces/StarterWorkspaces";
+import { STARTER_DEMOS } from "../starter-workspaces/starters";
 import { SETUP_OPS } from "./ops";
 import type { SetupCardStore } from "./store";
 
@@ -43,6 +45,15 @@ export function SetupCardPage({ store }: { store: SetupCardStore }) {
           look="rows"
           onAction={(action) => store.send(SETUP_OPS.run, { action })}
           onHide={() => store.send(SETUP_OPS.hide, {})}
+        />
+      )}
+      {state && !state.forChief && (
+        <StarterWorkspaces
+          starters={STARTER_DEMOS}
+          onTry={(id) => store.send(SETUP_OPS.run, { action: { kind: "tryStarter", id } })}
+          onRemove={() => {}}
+          onPickRepo={() => {}}
+          onHide={() => {}}
         />
       )}
     </div>
