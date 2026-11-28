@@ -73,13 +73,11 @@ extension LayoutRootView {
     /// after the last change, never in a motion's frames. Hidden work only: the wait delays nothing the person sees.
     /// A call during a layout motion (a divider drag asks once per moved pane per frame) only replaces the waiting work:
     /// nothing can run before the layout is still, so the delay counts from the motion's landing (`runStillWork`), and
-    /// the motion's frames arm and cancel no timer. A window's live resize holds no timer: its end has no call that
-    /// reliably comes last (AppKit can still report the resize in `viewDidEndLiveResize`, and the last drag event's
-    /// layout can come after it), so a call during one arms the timer, as before, and `whenStill` holds the work.
+    /// the motion's frames arm and cancel no timer.
     public func whenSettled(_ key: String, after delay: Duration, on queue: FrameBatchQueue, _ work: @escaping @MainActor () -> Void) {
         let previous = settlingWork[key]
         let timer = previous?.timer ?? DemandTimer(owner: key)
-        guard !isInLayoutMotion else {
+        guard isStill else {
             if previous?.armed == true { timer.cancel() }
             settlingWork[key] = SettlingWork(timer: timer, delay: delay, queue: queue, work: work, armed: false)
             return
@@ -95,7 +93,7 @@ extension LayoutRootView {
         }
     }
 
-    /// The layout motion landed: the settles asked for during it start counting now.
+    /// The layout is still: the settles asked for during the motion start counting now.
     private func armWaitingSettles() {
         for (key, entry) in settlingWork where !entry.armed {
             settlingWork[key]?.armed = true
@@ -105,11 +103,11 @@ extension LayoutRootView {
 
     private var isStill: Bool { !isInLayoutMotion && window?.inLiveResize != true }
 
-    /// Queues the waiting ``whenStill(_:on:_:)`` work when the layout is still, and starts the settles a layout motion
-    /// held once it landed (every landing calls this).
+    /// Queues the waiting ``whenStill(_:on:_:)`` work when the layout is still, and starts the settles a motion held.
     func runStillWork() {
-        if !isInLayoutMotion { armWaitingSettles() }
-        guard isStill, !stillWork.isEmpty else { return }
+        guard isStill else { return }
+        armWaitingSettles()
+        guard !stillWork.isEmpty else { return }
         let ready = stillWork
         stillWork.removeAll()
         for (key, entry) in ready {
