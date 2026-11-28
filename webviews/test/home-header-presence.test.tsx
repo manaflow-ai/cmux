@@ -6,8 +6,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import table from "../src/pages/home-channels/generated/strings.json";
-import { createStrings } from "../src/pages/shared/i18n";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

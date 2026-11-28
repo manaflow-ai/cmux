@@ -18,6 +18,11 @@
 #     (each live chat holds an agent host and an agent, so 1,000 of them need tens of GB).
 #   infinite-items-linux.sh freed=1 ...: last, runs the same build with every tab parked after the open and each day
 #     (--park-idle, FREED lines): what an item costs once the app's freeing tier (workspaces.freeing, a day idle) took it.
+#   infinite-items-linux.sh freeing=N ...: last, runs the same build with the daemon's own freeing timer at an idle time
+#     of N seconds (--free-idle-seconds N, FREEING lines, rows infinite_items.freeing_idle.*): the simulated day lasts
+#     seconds, so the tabs its workspace switches start (select-workspace wakes a parked tab) are still live at the
+#     sample, while in the product the timer (workspaces.freeing, on, a day idle) parks them again a day later.
+#     Like freed=1, not with before=ref:/own-exe/hosts (those passes end the script first).
 #   infinite-items-linux.sh alloc_ab=1 [alloc_budget=3000] [alloc_caps=64,off] ...: acpmux several ways from this head
 #     (glibc's malloc, the gnu build's own: arms system and glibc; mimalloc, the musl packages' allocator: feature
 #     mimalloc-gnu; mimalloc2: its v2 line; dhat-heap) and one cmux-tui, run in turn REPEAT times (ALLOC arm=A rI
@@ -43,6 +48,7 @@ repeat=1
 live=0
 live_counts=""
 freed=0
+freeing=0
 cap_ab=""
 alloc_ab=0
 alloc_budget=3000
@@ -61,6 +67,7 @@ for arg in "$@"; do
     live=*) live="${arg#live=}" ;;
     live_counts=*) live_counts="${arg#live_counts=}" ;;
     freed=*) freed="${arg#freed=}" ;;
+    freeing=*) freeing="${arg#freeing=}" ;;
     cap_ab=*) cap_ab="${arg#cap_ab=}" ;;
     alloc_ab=*) alloc_ab="${arg#alloc_ab=}" ;;
     alloc_budget=*) alloc_budget="${arg#alloc_budget=}" ;;
@@ -81,21 +88,9 @@ if [[ "$before" == ref:* ]] && [ -n "$(git status --porcelain --untracked-files=
   git status --short --untracked-files=no -- cmux-tui >&2
   exit 2
 fi
-# cmux-tui's terminal engine builds from the ghostty-next submodule, which a fast-checks snapshot leaves empty.
-[ -f ghostty-next/build.zig ] || [ -n "${CMUX_GHOSTTY_SRC:-}" ] || git submodule update --init --depth 1 ghostty-next
-# A bare runner (the perf cron's Linux part): the pinned Rust and Zig and the native build tools.
-command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
-if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
-  # The pinned Zig is ghostty-next's (the classic submodule is not checked out). A runner without passwordless
-  # sudo gets it under RUNNER_TEMP, published only through GITHUB_ENV: read CMUX_ZIG back from a file of our own.
-  zig_env="$(mktemp)"
-  GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" GITHUB_PATH=/dev/null ./scripts/install-zig-ci.sh
-  zig_line="$(grep '^CMUX_ZIG=' "$zig_env" | tail -n 1 || true)"
-  rm -f "$zig_env"
-  [ -z "$zig_line" ] || export "$zig_line"
-fi
-command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
-export PATH="$HOME/.cargo/bin:$PATH"
+# The ghostty-next submodule, the pinned Rust and Zig, clang (linux-build-env.sh; memory_bisect.py runs it too).
+source scripts/measure/linux-build-env.sh
+measure_linux_build_env "$PWD"
 started_at=$SECONDS
 # alloc_ab=1 builds acpmux three times. The release profile (thin LTO, one codegen unit) took 25 min for one build
 # and 15 min for each rebuild (job e45696a9: 3400 s of builds, no round run), so every arm, the shipped allocator's
@@ -330,6 +325,11 @@ python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmu
 if [[ "$freed" == 1 ]]; then
   python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
     --counts "$counts" --days "$days" --park-idle ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREED /' || status=$?
+fi
+if [[ "$freeing" != 0 ]]; then
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "$counts" --days "$days" --free-idle-seconds "$freeing" --row-arm freeing_idle \
+    ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREEING /' || status=$?
 fi
 if [[ "$pages" == 1 ]]; then
   cd "$root/webviews"

@@ -250,12 +250,14 @@ impl Hub {
             handles.push(tokio::spawn(async move {
                 // Probes spawn agents: wait for the login environment.
                 hub.wait_startup().await;
+                // Nobody waits on it: one of `BACKGROUND_PROBE_SLOTS` (its 60 s bound starts then).
+                let _slot = background_probe_slot(&BACKGROUND_PROBES, wait).await;
                 // Resolved here, once, so neither this probe nor a later
                 // session spawn launches through npx.
                 hub.resolve_launcher(&profile.argv).await;
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(60),
-                    hub.probe_one(&name, &profile),
+                    hub.probe_one_at(&name, &profile, !wait),
                 )
                 .await
                 {
@@ -288,6 +290,17 @@ impl Hub {
         self: &Arc<Self>,
         name: &str,
         profile: &HarnessProfile,
+    ) -> anyhow::Result<usize> {
+        self.probe_one_at(name, profile, false).await
+    }
+
+    /// `quiet`: nobody waits on this probe, so its agent runs in the background class
+    /// (`CpuClass::Background`: Linux's agent nice, macOS's background class) from its spawn.
+    async fn probe_one_at(
+        self: &Arc<Self>,
+        name: &str,
+        profile: &HarnessProfile,
+        quiet: bool,
     ) -> anyhow::Result<usize> {
         // MDM's off as the probe starts: its one read, taken first (review 120). An off that holds
         // or begins while it runs ends it once its harness reported full access, an unset after it
@@ -328,6 +341,9 @@ impl Hub {
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
+        if quiet && let Some(pid) = child.pid {
+            crate::cpu_class::CpuClass::Background.enter(pid);
+        }
         // A probe dropped before its end below (the 60 s bound in `probe_models`, a stopping
         // daemon's runtime) would leave its agent running for good: the agent's exit watcher
         // holds it, so its child's `kill_on_drop` never fires. The group ends on that drop.
@@ -428,6 +444,26 @@ impl Drop for EndGroupOnDrop {
             }
         }
     }
+}
+
+/// How many model probes nobody waits on (daemon start's, a catalog reload's, a scheduled live
+/// list's) run at once. Each starts a harness CLI, and daemon start asked them all together: on
+/// a fresh 2-vCPU Cloud machine claude, codex, opencode, grok and agy started at once held a load
+/// of 15 to 70 for 30 to 100 s with no turn running (production AutoSize read-back 46150967636,
+/// 2026-11-28: 18 of 20 machines grew from it before any work). A person's refresh waits on its
+/// probes and takes no slot.
+pub(super) const BACKGROUND_PROBE_SLOTS: usize = 2;
+
+pub(super) static BACKGROUND_PROBES: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(BACKGROUND_PROBE_SLOTS);
+
+/// One of `gate`'s slots for a probe nobody waits on, held until it ends; None (no wait) for one
+/// a caller waits on.
+pub(super) async fn background_probe_slot(
+    gate: &'static tokio::sync::Semaphore,
+    wait: bool,
+) -> Option<tokio::sync::SemaphorePermit<'static>> {
+    if wait { None } else { gate.acquire().await.ok() }
 }
 
 #[cfg(test)]

@@ -81,10 +81,18 @@ pub fn clock_set_wake(before_ns: i128, after_ns: i128) -> Wake {
 }
 
 /// How long the pause watch sleeps (monotonic) between two looks at the
-/// boot clock. A pause longer than `PAUSE_TICK + PAUSE_GAP` (30 s) is always
-/// found, so every pause the relay retires a registration over (45 s of
-/// silence) is.
-pub const PAUSE_TICK: Duration = Duration::from_secs(10);
+/// boot clock. A pause longer than `PAUSE_TICK + PAUSE_GAP` (21 s) is always
+/// found as a resume, so every pause the relay retires a registration over
+/// (45 s of silence) is; one longer than `PAUSE_TICK + STOP_GAP` (3 s) is
+/// counted as a stop for the updater ([`stopped_for`]).
+///
+/// One second, not ten: Freestyle keeps the boot clock running through a
+/// pause, so the watch is the only thing that sees one, and with a 10 s tick
+/// a pause under about 30 s was never counted. wake-echo run 46000366770
+/// (2026-11-27): pauses of 5.6 s and 7.9 s went uncounted, the updater took
+/// no resume hold, and a build flip landing at the wake replaced the session
+/// host ("daemon restarted across the wake").
+pub const PAUSE_TICK: Duration = Duration::from_secs(1);
 
 /// How far past [`PAUSE_TICK`] the boot clock must have moved during one
 /// sleep for it to count as a pause. An NTP slew moves the boot clock by at
@@ -92,15 +100,41 @@ pub const PAUSE_TICK: Duration = Duration::from_secs(10);
 /// it is also far past any scheduling delay of an otherwise idle thread.
 pub const PAUSE_GAP: Duration = Duration::from_secs(20);
 
+/// How far past [`PAUSE_TICK`] one sleep must end for the updater to count a
+/// stop ([`stopped_for`]): a pause too short for the supervisor's resume
+/// ([`PAUSE_GAP`]), but long enough that a flip right after it can land at
+/// the wake. A long scheduling delay counts too; that only holds an update.
+pub const STOP_GAP: Duration = Duration::from_secs(2);
+
+/// How often, at most, the watch rewrites its record file when nothing was
+/// counted ([`PauseWatch::persist_to`]): a count is written at once, a plain
+/// look at most this often, so a 1 s tick is no 1 Hz write to disk. Another
+/// process's copy takes the watch as waking only past this and a pause
+/// ([`PauseSeen::waking`]).
+pub const RECORD_EVERY: Duration = Duration::from_secs(10);
+
 /// How long the machine was stopped, at least, during a pause-watch sleep
 /// that read the boot clock at `before_ns` and again at `after_ns`; `None`
 /// when the sleep ended within [`PAUSE_GAP`] of its tick.
 pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
+    late_past(before_ns, after_ns, PAUSE_GAP)
+}
+
+/// [`paused_for`] with [`STOP_GAP`]: the stops the updater counts.
+pub fn stopped_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
+    late_past(before_ns, after_ns, STOP_GAP)
+}
+
+fn late_past(before_ns: i128, after_ns: i128, gap: Duration) -> Option<Duration> {
     let late = after_ns - before_ns - i128::try_from(PAUSE_TICK.as_nanos()).ok()?;
-    if late <= i128::try_from(PAUSE_GAP.as_nanos()).ok()? {
+    if late <= i128::try_from(gap.as_nanos()).ok()? {
         return None;
     }
     Some(Duration::from_nanos(u64::try_from(late).unwrap_or(u64::MAX)))
+}
+
+fn nanos(d: Duration) -> i128 {
+    i128::try_from(d.as_nanos()).unwrap_or(i128::MAX)
 }
 
 /// What the pause watch has seen, for every thread of this process: the boot
@@ -127,6 +161,9 @@ pub struct PauseWatch {
     file: std::sync::OnceLock<std::path::PathBuf>,
     /// Where this watch reads its record from at every look ([`PauseWatch::load`]).
     source: std::sync::OnceLock<std::path::PathBuf>,
+    /// The count and look last written to `file` ([`RECORD_EVERY`]); a look
+    /// of `i64::MIN` for never.
+    written: std::sync::Mutex<(u64, i64)>,
 }
 
 /// The pause watch of this process (the Linux platform's thread feeds it).
@@ -142,6 +179,7 @@ impl PauseWatch {
             publish: std::sync::Mutex::new(()),
             file: std::sync::OnceLock::new(),
             source: std::sync::OnceLock::new(),
+            written: std::sync::Mutex::new((0, i64::MIN)),
         }
     }
 
@@ -197,7 +235,13 @@ impl PauseWatch {
             let last_look_ns = i128::from(self.last_look_ns.load(Ordering::SeqCst));
             let pause_from_ns = i128::from(self.pause_from_ns.load(Ordering::SeqCst));
             if self.version.load(Ordering::SeqCst) == version {
-                return PauseSeen { pauses, last_look_ns, pause_from_ns };
+                let waking_after_ns = if self.source.get().is_some() {
+                    // Another process's record: written at most every RECORD_EVERY.
+                    nanos(RECORD_EVERY + PAUSE_TICK + PAUSE_GAP)
+                } else {
+                    nanos(PAUSE_TICK + STOP_GAP)
+                };
+                return PauseSeen { pauses, last_look_ns, pause_from_ns, waking_after_ns };
             }
         }
     }
@@ -220,6 +264,7 @@ impl PauseWatch {
     /// update check`) read the same record ([`PauseWatch::load`]).
     pub fn persist_to(&self, path: std::path::PathBuf) {
         let _ = self.file.set(path);
+        *self.written.lock().unwrap_or_else(|e| e.into_inner()) = (0, i64::MIN);
         self.publish_with(|pauses, last_look, from| (pauses, last_look, from));
     }
 
@@ -245,6 +290,18 @@ impl PauseWatch {
     /// reading none.
     fn write(&self, pauses: u64, last_look_ns: i64, pause_from_ns: i64) {
         let Some(path) = self.file.get() else { return };
+        {
+            let mut written = self.written.lock().unwrap_or_else(|e| e.into_inner());
+            let every = i64::try_from(RECORD_EVERY.as_nanos()).unwrap_or(i64::MAX);
+            let fresh = written.1 != i64::MIN
+                && written.0 == pauses
+                && last_look_ns >= written.1
+                && last_look_ns - written.1 < every;
+            if fresh {
+                return;
+            }
+            *written = (pauses, last_look_ns);
+        }
         let body = serde_json::json!({
             "last_look_ns": last_look_ns,
             "pauses": pauses,
@@ -283,6 +340,10 @@ pub struct PauseSeen {
     /// none, or when it was found another way): a count is the wake from a
     /// given look only when this names that look.
     pub pause_from_ns: i128,
+    /// How long since the last look the watch is still waking ([`PauseSeen::waking`]):
+    /// a tick and [`STOP_GAP`] in the watch's own process, a record write
+    /// ([`RECORD_EVERY`]), a tick and [`PAUSE_GAP`] in a copy read from its file.
+    pub waking_after_ns: i128,
 }
 
 /// [`PauseSeen::pause_from_ns`] for no pause counted after a look: a clock
@@ -293,7 +354,7 @@ impl PauseSeen {
     /// Whether the watch, as seen, has not looked for longer than a pause
     /// takes to find at boot time `now_ns`: it is still waking from one.
     pub fn waking(&self, now_ns: i128) -> bool {
-        self.last_look_ns != 0 && paused_for(self.last_look_ns, now_ns).is_some()
+        self.last_look_ns != 0 && now_ns - self.last_look_ns > self.waking_after_ns
     }
 }
 

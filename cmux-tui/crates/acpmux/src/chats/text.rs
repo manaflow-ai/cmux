@@ -535,6 +535,8 @@ pub struct ChatText {
     legacy: Option<PathBuf>,
     /// The most text held: [`TOTAL_BYTES`] (tests hold less).
     total: usize,
+    /// The title ranker of the query windows, kept across keystrokes (`window.rs`).
+    titles: super::window::TitleRanker,
 }
 
 #[derive(Default)]
@@ -622,7 +624,13 @@ impl ChatText {
             path,
             legacy: None,
             total: TOTAL_BYTES,
+            titles: super::window::TitleRanker::default(),
         }
+    }
+
+    /// The title ranker a query window keeps across keystrokes.
+    pub(crate) fn titles(&self) -> &super::window::TitleRanker {
+        &self.titles
     }
 
     /// [`Self::new`], reading an older build's JSON copy at `legacy` when `path` holds none.

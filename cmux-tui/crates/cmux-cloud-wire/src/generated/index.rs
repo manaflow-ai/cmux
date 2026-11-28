@@ -192,6 +192,7 @@ pub mod op_names {
     pub const SLACK_POST_AS_BOT: &str = "slack.post_as_bot";
     pub const SSO_CONNECTION_ACTIVATE: &str = "sso.connection.activate";
     pub const SSO_CONNECTION_CREATE: &str = "sso.connection.create";
+    pub const SSO_CONNECTION_CREATE_SAML: &str = "sso.connection.create_saml";
     pub const SSO_CONNECTION_DISABLE: &str = "sso.connection.disable";
     pub const SSO_CONNECTION_LIST: &str = "sso.connection.list";
     pub const SSO_CONNECTION_SET_SECRET: &str = "sso.connection.set_secret";
@@ -449,6 +450,7 @@ pub mod op_names {
         SLACK_POST_AS_BOT,
         SSO_CONNECTION_ACTIVATE,
         SSO_CONNECTION_CREATE,
+        SSO_CONNECTION_CREATE_SAML,
         SSO_CONNECTION_DISABLE,
         SSO_CONNECTION_LIST,
         SSO_CONNECTION_SET_SECRET,
@@ -709,6 +711,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "slack.post_as_bot" => visitor.visit::<SlackPostAsBotOp>(),
         "sso.connection.activate" => visitor.visit::<SsoConnectionActivateOp>(),
         "sso.connection.create" => visitor.visit::<SsoConnectionCreateOp>(),
+        "sso.connection.create_saml" => visitor.visit::<SsoConnectionCreateSamlOp>(),
         "sso.connection.disable" => visitor.visit::<SsoConnectionDisableOp>(),
         "sso.connection.list" => visitor.visit::<SsoConnectionListOp>(),
         "sso.connection.set_secret" => visitor.visit::<SsoConnectionSetSecretOp>(),

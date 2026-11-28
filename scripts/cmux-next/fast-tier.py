@@ -373,7 +373,11 @@ def run_build(root, argv, cwd, what, log_lock):
             continue
         if drain_left is not None:
             drain_left -= 1
-        if SWIFT_COMPILER_ERROR.search(output_line) or drain_left == 0:
+        # Another task's failure head is not the compiler's words either: Swift Build heads every failed task in a
+        # batch before their output, and stopping at the second head hid the cause of seed runs 46130036758,
+        # 46128526801, 46122008939 and 46120818270 (two heads, then nothing).
+        task_head = SWIFT_TASK_FAILED.search(output_line)
+        if (SWIFT_COMPILER_ERROR.search(output_line) and not task_head) or drain_left == 0:
             compiler_error = True
             stop_tree(proc.pid)
             break

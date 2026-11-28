@@ -160,6 +160,16 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::super::queue::closing_error());
             }
+            // A chat being moved to another daemon (`transfer_out.rs`) takes no message: its
+            // record would be written after the bundle's log was read and stay behind on the
+            // tombstone. Refused, a relayed message stays leased and goes where the chat went
+            // once the move commits (`server/mesh_relay.rs` `forward_moved`); a local sender's
+            // outbox follows the refusal's `movedTo`. The super-highway ring lost the sends that
+            // reached a chat mid-move this way (2026-11-28). Auto mode's freeze moves nothing.
+            // Read here, then written below with no await between, as the close is.
+            if session.moving().is_some_and(|mark| mark != super::super::AUTO_AWAY) {
+                return Err(super::super::queue::moving_error(session));
+            }
             let now = now_ms();
             let verdict =
                 page_message.as_ref().and_then(|m| page_rule::judge(&inbox.folds, m, now));
@@ -241,6 +251,7 @@ impl Hub {
                             answer: Some(tx.clone()),
                             reader: reader.clone(),
                         });
+                        fold::fold_thread(&mut inbox, &thread);
                         trim(&mut inbox);
                         true
                     }
@@ -305,9 +316,24 @@ impl Hub {
         accepted.set("dueAt", json!(crate::prompt_class::due_at(class, now_ms(), within)));
         accept(accepted);
         self.inbox_review(session);
-        let answer = match rx.wait_for(Option::is_some).await {
-            Ok(answer) => answer.clone().unwrap_or_else(|| Err(RpcError::internal("no answer"))),
-            Err(_) => Err(super::super::queue::closing_error()),
+        // Delivered: the message is in the inbox (held or not). Only a caller that reads the
+        // reply waits on for the notice's answer, and only while it is connected; every other
+        // request ends here, so none outlives its delivery (`inbox.rs`, module docs). A resend
+        // already answered (`resent`) answers with that.
+        let answer = match reader {
+            None => rx.borrow().clone().unwrap_or_else(|| Ok(delivered(prompt_id, held))),
+            Some(mut reader) => tokio::select! {
+                biased;
+                answer = rx.wait_for(Option::is_some) => match answer {
+                    Ok(answer) => {
+                        answer.clone().unwrap_or_else(|| Err(RpcError::internal("no answer")))
+                    }
+                    Err(_) => Err(super::super::queue::closing_error()),
+                },
+                // Its connection ended or it cancelled (`server/prompt_cancel.rs`): nobody reads
+                // the answer, and the notice's reply goes where an unread one goes.
+                _ = reader.wait_for(|gone| *gone) => Ok(delivered(prompt_id, held)),
+            },
         };
         answer.map(|mut v| {
             merge_mux_meta(
@@ -704,4 +730,15 @@ impl Hub {
             Next::Wake => self.deliver_notice(session, false),
         }
     }
+}
+
+/// The answer of an inbox message delivered to a caller that does not wait for the notice that
+/// carries it: it is in the inbox (`heldInInbox` when nothing wakes the chat for it yet). Its
+/// later outcome is the inbox's and the log's (`inbox_answered`), never a request's.
+fn delivered(prompt_id: &str, held: bool) -> Value {
+    let mut mux = json!({"promptId": prompt_id, "inbox": true, "status": "delivered"});
+    if held {
+        mux.set(crate::cli::output::HELD_IN_INBOX, json!(true));
+    }
+    json!({"stopReason": Value::Null, "_meta": {"acpmux": mux}})
 }

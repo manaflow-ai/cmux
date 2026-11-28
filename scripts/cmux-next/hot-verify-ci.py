@@ -63,8 +63,10 @@ LOOK_LAYERS = {"web": "web", "rust": "rust", "daemon": "rust", "customize": "cus
 # The request carries it so the controller gives the look a build's bound; the engine plans again and builds itself.
 APP_LAYER = "app"
 # The build reasons a fleet app build covers (hot-verify.py can_build_swift_app; cmuxterm-hq ci-client.py
-# hot_verify_swift_look): a Swift change, its strings copy beside it.
+# hot_verify_swift_look): a Swift change, its strings copy beside it, data files bundled from Resources/.
 APP_BUILD_REASONS = {"Swift", "Swift, resources or manifests", "strings"}
+# hot-verify.py RESOURCE_NOT_DATA: Resources/ files that change what the app is, not what it shows.
+RESOURCE_NOT_DATA = (".plist", ".entitlements", ".sh", ".py", ".dylib", ".so", ".a")
 # pr-capture step_args (cmuxterm-hq build-fleet/pr-capture): zlib 9, base64url without padding, "z" chunks.
 CHUNK_PREFIX = "z"
 CHUNK_CHARS = 2000
@@ -136,8 +138,17 @@ def app_buildable(plan: dict) -> bool:
     swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
     copy = (lambda path: path.endswith((".xcstrings", ".strings")))
     return all(isinstance(paths, list) and paths and all(isinstance(path, str) and (copy(path) if reason == "strings"
-                                                                                    else swift(path)) for path in paths)
+                                                                                    else swift(path)
+                                                                                    or bundled_resource(path))
+                                                         for path in paths)
                for reason, paths in build.items())
+
+
+def bundled_resource(path: str) -> bool:
+    """hot-verify.py bundled_resource: a data file the complete app bundles from a Resources/ folder (cmux#47278)."""
+    parts = path.split("/")
+    return ("Resources" in parts[:-1] and "bin" not in parts[:-1] and not parts[-1].startswith(".")
+            and not parts[-1].endswith(RESOURCE_NOT_DATA))
 
 
 def app_built(receipt: dict) -> bool:

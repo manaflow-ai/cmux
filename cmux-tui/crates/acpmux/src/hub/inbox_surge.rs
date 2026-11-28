@@ -179,7 +179,11 @@ impl Hub {
         mark_read: bool,
     ) -> Result<Value, RpcError> {
         let mut reply = self.inbox_thread(session, thread, mark_read);
-        if !session.inbox().held_evicted.contains(thread) {
+        let (evicted, archived) = {
+            let inbox = session.inbox();
+            (inbox.held_evicted.contains(thread), inbox.archived_threads.contains(thread))
+        };
+        if !evicted && !archived {
             return Ok(reply);
         }
         let mut messages = match reply.get_mut("messages").map(Value::take) {
@@ -188,27 +192,14 @@ impl Hub {
         };
         let shown: std::collections::HashSet<String> =
             messages.iter().filter_map(|m| m["promptId"].as_str().map(str::to_owned)).collect();
-        self.scan_for_rebuild(session, &["inbox"], &mut |record| {
-            let msg = &record.msg;
-            let id = msg["promptId"].as_str().unwrap_or_default();
-            if msg["surgeHeld"].as_bool() == Some(true)
-                && msg["threadId"].as_str() == Some(thread)
-                && !shown.contains(id)
-            {
-                let from = msg["from"].as_str().unwrap_or_default();
-                let sender = &msg["sender"];
-                messages.push(json!({
-                    "promptId": id, "from": display_sender(sender, from),
-                    "fromName": shown_sender(sender, from), "fromSession": msg["fromSession"],
-                    "sender": sender, "class": msg["class"], "kind": msg["kind"],
-                    "at": record.at, "text": msg["text"], "read": false,
-                    "details": msg.pointer("/_meta/provenance/details").cloned(),
-                    "notice": Value::Null, "surgeHeld": true,
-                }));
+        // What left memory is in the chat's small archive file, not found by a scan of its
+        // journal (gigabytes for a coordinator, 26 s a read). A held thread an older daemon let
+        // go reads the journal once, and the archive keeps what it found.
+        for line in self.archived_inbox_thread(session, thread, evicted) {
+            if !line.get("promptId").and_then(Value::as_str).is_some_and(|id| shown.contains(id)) {
+                messages.push(line);
             }
-            true
-        })
-        .map_err(|e| RpcError::internal(format!("read held inbox: {e}")))?;
+        }
         // Newest first, as the thread reads in memory.
         messages.sort_by_key(|m| std::cmp::Reverse(m["at"].as_u64().unwrap_or(0)));
         reply["messages"] = Value::Array(messages);

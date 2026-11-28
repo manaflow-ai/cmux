@@ -9,13 +9,15 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Root } from "react-dom/client";
-import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { deeplinks } from "../src/agent-session/acpmux/composer/deeplinks";
-import { WEB_DEEPLINK_CLASS } from "../src/agent-session/acpmux/composer/deeplinkTokens";
-import { PromptTyped } from "../src/agent-session/acpmux/conversation/PromptText";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { deeplinks } = await importWithDom(() => import("../src/agent-session/acpmux/composer/deeplinks"));
+const { WEB_DEEPLINK_CLASS } = await importWithDom(() => import("../src/agent-session/acpmux/composer/deeplinkTokens"));
+const { PromptTyped } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/PromptText"));
 
 const WORKSPACE = "cmux-nightly://workspace/ws_cca525bafd4d2b969dad8fdb549b0c61";
 const AGENT = "cmux://agent/claude/9b2f4c1e-5d7a-4e3b-8c6f-1a2b3c4d5e6f";

@@ -13,11 +13,14 @@ methods), as a person sees it:
   2 settings  both keys read back on in the copy (settings.get)
   3 auto      a terminal on the demo folder (action.run newTab cwd), Cmd-N there (the New Tab page inherits the
               folder), the page's Runs On control set to Hybrid, a prompt typed and sent: seconds to the first reply
+  3b toggle   that chat's Place chip (Where this chat runs) set to Local, AutoCloud off, then Auto, on: each face
+              read back (Auto · This Mac / Local) and the seconds it took
   4 move      that chat moved with Only in Cloud: the Moved to Cloud line and its Undo, as they appear
   5 cloud     a second New Tab page set to Only in Cloud: seconds to the first reply, and the control's start states
               (Starting Here, Cloud Ready, Moving to Cloud, In Cloud) with the second each first showed
 A blocked label (Start Free Trial, Sign In to Use Cloud, ...) or a missing control is a product failure: the step
-says what was on screen (outline.txt, shots) and the run stops there.
+says what was on screen (outline.txt, shots) and the run stops there. An accessibility read that saw nothing, or a New
+Tab page whose composer is not in the tree, is the rig's (exit 3): a control can be judged missing only on a page read.
 """
 from __future__ import annotations
 
@@ -94,9 +97,36 @@ class ProductFailure(Exception):
     pass
 
 
+class RigFailure(Exception):
+    """The rig could not read the app (an empty accessibility tree, a CuaDriver error): exit 3, never a product verdict."""
+
+
+# CuaDriver stops a get_window_state walk after timeout_ms of wall clock, 1000 ms unless told, and answers a partial
+# tree (cmuxterm-hq docs/handbook/probe-reads-one-window.md); 8 s is the walk budget every other probe asks for.
+WALK_TIMEOUT_MS = 8000
+# A tree_markdown line: "- [12] AXButton "Runs On" ..." (the index only on rows CuaDriver indexes into `elements`).
+MARKDOWN_ROW = re.compile(r'^\s*- (?:\[\d+\] )?(AX\w+)((?: "[^"]*")*)')
+LAST_READ: dict = {}
+
+
+def markdown_nodes(markdown: str, window_id) -> list:
+    """The nodes of a tree_markdown answer CuaDriver walked but never indexed into `elements` (page roots, rows, static
+    text): role and text, never clickable (no token)."""
+    found = []
+    for line in markdown.splitlines():
+        match = MARKDOWN_ROW.match(line)
+        if match:
+            words = [w for w in re.findall(r'"([^"]*)"', match.group(2)) if w.strip()]
+            found.append({"role": match.group(1), "label": " ".join(dict.fromkeys(words)), "_window": window_id,
+                          "_markdown": True})
+    return found
+
+
 def nodes(pid: int) -> list:
-    """Every AX node of the copy's windows that names something (role plus any text), clickable or not, in tree order."""
+    """Every AX node of the copy's windows that names something (role plus any text), clickable or not, in tree order.
+    What the read got (windows, nodes, CuaDriver's errors, a cut walk) is kept in LAST_READ for the outline."""
     found: list = []
+    read: dict = {"windows": 0, "elements": 0, "markdown": 0, "errors": [], "truncated": []}
 
     def visit(node, window_id):
         if isinstance(node, dict):
@@ -109,12 +139,51 @@ def nodes(pid: int) -> list:
             for value in node:
                 visit(value, window_id)
 
-    for window in lkr.cua("list_windows", {"pid": pid}).get("windows") or []:
-        if isinstance(window, dict) and window.get("window_id") is not None:
-            state = lkr.cua("get_window_state", {"pid": pid, "window_id": window["window_id"],
-                                                 "include_screenshot": False, "max_depth": 120, "max_elements": 12000})
-            visit(state, window["window_id"])
+    listed = lkr.cua("list_windows", {"pid": pid})
+    if listed.get("error"):
+        read["errors"].append(f"list_windows: {str(listed['error'])[:200]}")
+    for window in listed.get("windows") or []:
+        if not (isinstance(window, dict) and window.get("window_id") is not None):
+            continue
+        read["windows"] += 1
+        state = lkr.cua("get_window_state", {"pid": pid, "window_id": window["window_id"], "include_screenshot": False,
+                                             "include_accessibility_tree": True, "timeout_ms": WALK_TIMEOUT_MS,
+                                             "max_depth": 120, "max_elements": 12000}, timeout=60)
+        if isinstance(state.get("structuredContent"), dict):
+            state = state["structuredContent"]
+        if state.get("error"):
+            read["errors"].append(f"window {window['window_id']}: {str(state['error'])[:200]}")
+            continue
+        if state.get("truncated") or state.get("elements_complete") is False:
+            read["truncated"].append(window["window_id"])
+        before = len(found)
+        visit(state.get("elements") or [], window["window_id"])
+        read["elements"] += len(found) - before
+        indexed = {(str(e.get("role")), text_of(e)) for e in found[before:]}
+        markdown = state.get("tree_markdown")
+        if isinstance(markdown, str):
+            extra = [n for n in markdown_nodes(markdown, window["window_id"])
+                     if (n["role"], n["label"]) not in indexed]
+            found.extend(extra)
+            read["markdown"] += len(extra)
+    read["nodes"] = len(found)
+    LAST_READ.clear()
+    LAST_READ.update(read)
     return found
+
+
+def read_note() -> str:
+    r = LAST_READ
+    return (f"{r.get('nodes', 0)} AX nodes in {r.get('windows', 0)} windows ({r.get('elements', 0)} indexed, "
+            f"{r.get('markdown', 0)} from tree_markdown)" + (f"; cut walks in {r['truncated']}" if r.get("truncated") else "")
+            + (f"; CuaDriver said: {' / '.join(r['errors'])[:400]}" if r.get("errors") else ""))
+
+
+def require_tree(seen: list, where: str) -> None:
+    """An empty tree is the rig's: the app's windows were not read (CEF pages build none without
+    CMUX_NEXT_ACCESSIBILITY=1, a locked screen, a CuaDriver error), so nothing on them can be judged missing."""
+    if not any(text_of(e) for e in seen):
+        raise RigFailure(f"{where}: the accessibility read saw nothing ({read_note()})")
 
 
 def texts(element: dict) -> list:
@@ -154,7 +223,8 @@ def dump(pid: int, folder: Path, name: str, seen: list | None = None) -> dict:
     rows = [f"{e.get('role')} | {text_of(e)}"[:160] for e in seen
             if text_of(e) and not str(e.get("role", "")).startswith("AXMenuBar")]
     (folder / f"outline-{name}.txt").write_text("\n".join(rows) + "\n")
-    return {"shots": lkr.shoot(pid, folder, name), "outline": f"outline-{name}.txt", "rows": len(rows)}
+    return {"shots": lkr.shoot(pid, folder, name), "outline": f"outline-{name}.txt", "rows": len(rows),
+            "read": dict(LAST_READ)}
 
 
 def blocked_label(seen: list) -> str | None:
@@ -249,12 +319,18 @@ def step_chat(sock: str, pid: int, folder: str, out: Path, name: str, runs_on: s
     step: dict = {"step": name, "runs_on": runs_on, **{k: v for k, v in page.items()}, **dump(pid, out / name, "01-new-tab", seen)}
     step["folder_shown"] = has_text(seen, Path(folder).name)
     step["agent_shown"] = has_text(seen, "Claude")
+    require_tree(seen, f"{name}: the New Tab page")
+    if not composer(seen):
+        raise RigFailure(f"{name}: no composer field in the tree, so the New Tab page's controls were not read "
+                         f"({read_note()})")
     blocked = blocked_label(seen)
     if blocked:
         raise ProductFailure(f"{name}: the New Tab page shows {blocked}")
     if not has_text(seen, "Runs On"):
-        raise ProductFailure(f"{name}: no Runs On control on the New Tab page (cloudToggle and autoCloud on; "
-                             "the control shows only with an active Cloud plan)")
+        # The control mounts only where AutoCloud is on: cloud.autoCloud and a Cloud plan the server reads as active
+        # (webviews/src/agent-session/acpmux/autoCloud.ts autoCloudOn, App.tsx newTabHybridShown).
+        raise ProductFailure(f"{name}: no Runs On control on the New Tab page with its composer read (cloudToggle and "
+                             f"autoCloud on, so AutoCloud read the account's Cloud plan as not active; {read_note()})")
     step["pick"] = pick_runs_on(pid, seen, runs_on)
     seen = nodes(pid)
     step.update(dump(pid, out / name, "02-picked", seen))
@@ -311,6 +387,58 @@ def step_move(pid: int, out: Path) -> dict:
     return step
 
 
+PLACE = "Where this chat runs"  # the running chat's Place chip (webviews place/PlaceControl.tsx, look "menu")
+
+
+def place_face(seen: list) -> str | None:
+    """The chip's face: Auto · This Mac / Auto · Cloud while AutoCloud is on, Local or Cloud while it is off."""
+    return has_text(seen, "Auto · ") or has_text(seen, "Local", exact=True) or has_text(seen, "Cloud", exact=True)
+
+
+def pick_place(pid: int, out: Path, name: str, label: str, on: bool) -> dict:
+    """Opens the Place chip, picks LABEL (Local turns AutoCloud off for this chat, Auto turns it back on) and waits
+    for the chip's face to say so: Auto · ... for on, no Auto · and Local for off."""
+    seen = nodes(pid)
+    chip = find(seen, lambda t: t == PLACE, "button") or find(seen, lambda t: t.startswith("Auto · "), "button") \
+        or find(seen, lambda t: t == PLACE)
+    if not chip:
+        dump(pid, out / "toggle", f"{name}-no-chip", seen)
+        raise ProductFailure(f"toggle {name}: no '{PLACE}' chip on the running chat (face {place_face(seen)})")
+    step: dict = {"face_before": place_face(seen), "chip": text_of(chip)[:80], "open": press(pid, chip)}
+    time.sleep(1)
+    seen = nodes(pid)
+    item = find(seen, lambda t: t == label, "menu") or find(seen, lambda t: t == label, "radio") \
+        or find(seen, lambda t: t == label or t.startswith(label + " "))
+    step.update(dump(pid, out / "toggle", f"{name}-menu", seen))
+    if not item:
+        lkr.cua("press_key", {"pid": pid, "key": "escape"})
+        raise ProductFailure(f"toggle {name}: no '{label}' row in the Place menu")
+    t0 = time.monotonic()
+    step["pick"] = press(pid, item)
+    done = (lambda s: has_text(s, "Auto · ")) if on else (lambda s: not has_text(s, "Auto · ") and has_text(s, "Local", exact=True))
+    after = lkr.wait_for(lambda: (lambda s: s if done(s) else None)(nodes(pid)), 60, step=0.5)
+    step["face_s"] = round(time.monotonic() - t0, 1) if after else None
+    seen = after or nodes(pid)
+    step["face_after"] = place_face(seen)
+    step["after"] = dump(pid, out / "toggle", f"{name}-after", seen)
+    blocked = blocked_label(seen)
+    if blocked:
+        raise ProductFailure(f"toggle {name}: the chat shows {blocked}")
+    return step
+
+
+def step_toggle(pid: int, out: Path) -> dict:
+    """Leo: "remember we need to be able to toggle a chat on and off of autocloud". The running auto chat's chip set to
+    Local (AutoCloud off), then back to Auto (on); each face read back."""
+    step: dict = {"step": "toggle"}
+    try:
+        step["off"] = pick_place(pid, out, "off", "Local", on=False)
+        step["on"] = pick_place(pid, out, "on", "Auto", on=True)
+    except ProductFailure as failure:
+        step["failure"] = str(failure)
+    return step
+
+
 def verdict(name: str, ok: bool, detail: str) -> None:
     print(f"CMR {'PASS' if ok else 'FAIL'} {name}: {detail}", flush=True)
 
@@ -331,7 +459,13 @@ def run(args) -> int:
             receipt["error"] = "no control socket"
             return 3
         time.sleep(4)  # the first window settles
-        receipt["steps"].append({"step": "launch", **dump(pid, out / "launch", "00-start")})
+        launch = {"step": "launch", **dump(pid, out / "launch", "00-start")}
+        receipt["steps"].append(launch)
+        print(f"CMR launch: {read_note()}", flush=True)
+        if not launch["rows"]:  # a window drawn a little late reads on the next try; still nothing is the rig's
+            time.sleep(6)
+            launch.update(dump(pid, out / "launch", "00-start"))
+            require_tree(nodes(pid), "launch")
 
         global UNSIGNED
         path_file = out / "token-store-path"
@@ -365,6 +499,15 @@ def run(args) -> int:
         if not ok:
             raise ProductFailure("auto chat: no reply in 300 s")
 
+        toggle = step_toggle(pid, out)
+        receipt["steps"].append(toggle)
+        for side in ("off", "on"):
+            got = toggle.get(side) or {}
+            verdict(f"autocloud {side}", got.get("face_s") is not None,
+                    f"face {got.get('face_before')} -> {got.get('face_after')} in {got.get('face_s')} s"
+                    + (f"; {toggle['failure']}" if toggle.get("failure") and not got.get("face_s") else ""))
+        toggle_ok = all((toggle.get(side) or {}).get("face_s") is not None for side in ("off", "on"))
+
         move = step_move(pid, out)
         receipt["steps"].append(move)
         ok = bool(move.get("moved_line"))
@@ -394,6 +537,8 @@ def run(args) -> int:
             status = 1
         if not (move.get("undo_shown") and move.get("undo_result")):
             status = 1
+        if not toggle_ok:
+            status = 1
     except ProductFailure as failure:
         if UNSIGNED and "Sign In to Use Cloud" in str(failure):
             print(f"CMR STOP rig: signed out, as expected without a session: {failure}", flush=True)
@@ -411,6 +556,14 @@ def run(args) -> int:
         except Exception as error:  # the failure stands; the shot is a bonus
             receipt["failure_dump_error"] = str(error)
         status = 1
+    except RigFailure as failure:
+        print(f"CMR FAIL rig: {failure}", flush=True)
+        receipt["rig_error"] = str(failure)
+        try:
+            receipt["steps"].append({"step": "rig-failure", **dump(pid, out / "failure", "00-rig")})
+        except Exception as error:
+            receipt["failure_dump_error"] = str(error)
+        status = 3
     except Exception as error:
         print(f"CMR FAIL rig: {type(error).__name__}: {error}", flush=True)
         receipt["rig_error"] = f"{type(error).__name__}: {error}"

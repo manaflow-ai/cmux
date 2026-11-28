@@ -16,6 +16,9 @@
 # background: SCHED_IDLE on Linux (chrt --idle 0), `taskpolicy -b` on macOS; utility: nice 10 on Linux,
 # `taskpolicy -c utility` on macOS. default (no flag) changes nothing. The reading records it as load_qos.
 #
+# macOS (a fleet Mac, never Leo's): no flock, nproc, /proc or taskset there, so the lock is a mkdir, the CPU count and
+# load average come from sysctl, load_per_core is load_1m over the cores, and --cores is refused (no CPU pinning).
+#
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
 # that runs nothing else (never Leo's Macs: no load or suites there).
@@ -33,10 +36,13 @@ trace=""
 bench_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --out) out="$2"; shift 2 ;;
+    # Paths are resolved here, from the caller's directory: the run cds into webviews/ below, where a relative
+    # --out landed in webviews/ instead (run 46146790475 wrote no artifacts/vfp95/run.json).
+    --out) out="$(realpath -m "$2")"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
     --load-qos) load_qos="$2"; shift 2 ;;
-    --seconds|--rate|--log|--warm|--painter) bench_args+=("$1" "$2"); shift 2 ;;
+    --log) bench_args+=("$1" "$(realpath -m "$2")"); shift 2 ;;
+    --seconds|--rate|--warm|--painter) bench_args+=("$1" "$2"); shift 2 ;;
     --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
     --profile) bench_args+=("$1"); profile=1; shift ;;
     *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM] [--load-qos CLASS]" >&2; exit 2 ;;
@@ -46,6 +52,11 @@ case "$load_qos" in
   default|utility|background) ;;
   *) echo "replay-under-load.sh: --load-qos takes default, utility or background" >&2; exit 2 ;;
 esac
+darwin=""
+[ "$(uname -s)" = Darwin ] && darwin=1
+if [ -n "$cores" ] && [ -n "$darwin" ]; then
+  echo "replay-under-load.sh: --cores pins CPUs with taskset, which macOS has no equivalent for: run without it" >&2; exit 2
+fi
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then
   [[ "$cores" =~ ^[1-9][0-9]*$ ]] || { echo "replay-under-load.sh: --cores takes a positive count" >&2; exit 2; }
   export REPLAY_UNDER_LOAD_PINNED=1
@@ -56,7 +67,19 @@ fi
 # 3.2 to 6.1 and p95 66.7 to 83.3 between arms of one change). Every run, the sensor timer's too, waits here for the
 # one before it. A caller already holding the lock on fd 9 (`( flock 9; replay-under-load.sh ... ) 9>LOCK`) has it.
 lock="${REPLAY_UNDER_LOAD_LOCK:-/tmp/replay-under-load.lock}"
-if [ "$(readlink "/proc/$$/fd/9" 2>/dev/null)" = "$lock" ] && flock -n 9; then
+lock_dir=""
+if ! command -v flock >/dev/null 2>&1; then
+  # No flock (macOS): a mkdir is atomic; a lock whose holder PID is gone is stale and taken over.
+  waited=0
+  until mkdir "$lock.d" 2>/dev/null; do
+    holder="$(cat "$lock.d/pid" 2>/dev/null)"
+    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then rm -rf "$lock.d"; continue; fi
+    [ "$waited" -ge "${REPLAY_UNDER_LOAD_LOCK_WAIT:-3600}" ] && { echo "replay-under-load.sh: another run held $lock.d past the wait" >&2; exit 1; }
+    sleep 5; waited=$((waited + 5))
+  done
+  echo $$ >"$lock.d/pid"
+  lock_dir="$lock.d"
+elif [ "$(readlink "/proc/$$/fd/9" 2>/dev/null)" = "$lock" ] && flock -n 9; then
   :
 else
   exec 9>>"$lock"
@@ -68,6 +91,7 @@ stress_pid=""
 cleanup() {
   [ -n "$stress_pid" ] && kill "$stress_pid" 2>/dev/null && wait "$stress_pid" 2>/dev/null
   rm -rf "$work"
+  [ -n "$lock_dir" ] && rm -rf "$lock_dir"
 }
 trap cleanup EXIT
 
@@ -79,7 +103,7 @@ fi
 # (ported from cmux#56545, whose lane went idle).
 load_tool=stress-ng
 command -v stress-ng >/dev/null 2>&1 || load_tool=busy-loops
-n="$(nproc)"
+if [ -n "$darwin" ]; then n="$(sysctl -n hw.ncpu)"; else n="$(nproc)"; fi
 stressors=$((4 * n))
 cd "$root/webviews" || exit 1
 # A node_modules that exists but lacks the bench's deps (a partial projection link, an interrupted install) is not installed.
@@ -117,7 +141,7 @@ sleep 10
 # over nproc. /proc/loadavg is the host's, which on a --cores run also counts what the rest of the VM runs.
 # A thread is ours when its CPU list is this run's, read from this shell: a caller may pin the run to any CPUs (the
 # VM sensor pins to the quietest ones, e.g. 3,5,9-14), and a fixed 0-(n-1) then matched nothing and read 0.0.
-allowed="$(sed -n 's/^Cpus_allowed_list:[[:space:]]*//p' /proc/$$/status)"
+allowed="$(sed -n 's/^Cpus_allowed_list:[[:space:]]*//p' /proc/$$/status 2>/dev/null)"
 (
   while :; do
     r=0
@@ -136,7 +160,11 @@ sampler=$!
 status=0
 bun bench/replay-under-load.bench.ts --out "$work/bench.json" ${bench_args[@]+"${bench_args[@]}"} >"$work/bench.log" 2>&1 || status=1
 kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null
-read -r load1 _ </proc/loadavg
+if [ -n "$darwin" ]; then
+  load1="$(sysctl -n vm.loadavg | tr -d '{}' | awk '{print $1}')"
+else
+  read -r load1 _ </proc/loadavg
+fi
 # --trace: the stress load stops first, then the attribution reads the trace here (streamed, so a big trace stays out
 # of memory), and the trace is kept gzipped beside it (TRACE.gz) for a fleet step's --artifact.
 if [ -n "$trace" ] && [ -s "$trace" ]; then
@@ -181,10 +209,15 @@ per_core = (sum(samples) / len(samples) / n) if (pinned and samples) else load1 
 doc = {**bench, "schema": "perf-vm-replay/v1", "bench_schema": bench.get("schema"), "host": host, "commit": commit,
        "cores": n, "stressors": stressors, "load_tool": load_tool, "load_qos": load_qos, "load_1m": load1, "load_per_core": round(per_core, 2),
        "load_basis": "runnable threads on the run's CPUs" if pinned else "/proc/loadavg over nproc",
+       # The whole host's load over all its CPUs: load_per_core counts only threads pinned to the run's CPU list, so
+       # a neighbor allowed on every CPU (an agent's build) shares the run's CPUs uncounted. A 16-core host at load 90
+       # read load_per_core 4.36 while the renderer waited for a CPU 18x its own CPU time (2026-11-28, cpu_wait_x).
+       "host_load_per_core": round(load1 / (os.cpu_count() or n), 2),
        "at": bench.get("at") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 if status != "0" and "error" not in doc:
     doc["error"] = "the bench exited nonzero"
 json.dump(doc, open(out, "w"), indent=1)
-print(json.dumps({k: doc.get(k) for k in ("frame_p95_ms", "renderer_main_busy_pct", "load_per_core", "load_qos", "cores", "error")}))
+print(json.dumps({k: doc.get(k) for k in ("frame_p95_ms", "renderer_main_busy_pct", "renderer_main_cpu_pct", "cpu_wait_x", "load_per_core",
+                                       "host_load_per_core", "load_qos", "cores", "error")}))
 PY
 exit "$status"

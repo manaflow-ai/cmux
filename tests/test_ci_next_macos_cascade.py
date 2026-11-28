@@ -2625,7 +2625,6 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "ios-internal-nightly.yml archive: runs-on[0]",
         "ios-internal-nightly.yml upload: runs-on[0]",
         "ios-review-gate.yml reviewer-path: runs-on[0]",
-        "ios-review-gate.yml asc-validate: runs-on[0]",
         "ios-streamed-validate.yml validate: runs-on[0]",
         "ios-testflight.yml upload: runs-on[0]",
         "machine-vault-e2e.yml e2e: runs-on[0]",

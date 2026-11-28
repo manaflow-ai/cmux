@@ -26,6 +26,7 @@ cmux-cloud-machine.workspace = true
 cmux-presence.workspace = true
 cmux-egress.workspace = true
 cmux-build-space.workspace = true
+cmux-browser-grants.workspace = true
 cmux-json.workspace = true
 # Names a crash sidecar's backtrace in a stripped release binary.
 cmux-panic-log.workspace = true
@@ -119,7 +120,6 @@ sha2.workspace = true
 cmux-signed-bundle.workspace = true
 # A store package's `STORE.sig`, checked against the store keys (`apps/store_trust.rs`).
 cmux-signed-envelope.workspace = true
-socket2.workspace = true
 quick-xml.workspace = true
 notify.workspace = true
 zeroize.workspace = true
