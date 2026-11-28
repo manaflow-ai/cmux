@@ -2953,6 +2953,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/sleep_handoff",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/place_set",
       "params": true,
       "result": true

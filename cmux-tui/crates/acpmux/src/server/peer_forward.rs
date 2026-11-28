@@ -137,6 +137,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // This machine's own load and swap, for its app's warning (`host_overload.rs`).
     "_acpmux/host_overload",
     "_acpmux/place",
+    "_acpmux/sleep_handoff",
     method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
     "_acpmux/models",

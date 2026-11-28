@@ -3204,6 +3204,11 @@ async fn dispatch_method(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // Moves this machine's chats away: this machine's own app only.
+        "_acpmux/sleep_handoff" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
+            "_acpmux/sleep_handoff answers on this machine's unix socket only",
+        )),
+        "_acpmux/sleep_handoff" => Ok(super::sleep_handoff::start()),
         // Moves a chat from the place menu (`place_set.rs`): this machine's own clients only.
         "_acpmux/place_set" | "_acpmux/place_undo" | "_acpmux/place_get"
             if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>

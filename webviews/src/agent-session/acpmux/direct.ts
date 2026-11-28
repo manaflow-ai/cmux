@@ -19,6 +19,7 @@ import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
 import { ChatDeltas, isDeltaGap, type DeltaGap } from "./chatDeltas";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
+import { sameSleepHandoffNote, sleepHandoffNote, type SleepHandoffNote } from "./sleepHandoffNote";
 import { autoSessionOf, type AutoSession } from "./autoSession/autoSession";
 import { leftoverShown, type LeftoverAction, type LeftoverShown } from "./autoSession/leftover";
 import { readCapacityWait } from "./capacityWait";
@@ -1833,6 +1834,8 @@ export class AcpmuxDirectClient {
   /// turn's (`dateTurnFromHost`).
   private turnPromptAtMs?: number;
   private autoResumedAttempt: number | undefined;
+  /// The last sleep handoff note sent, kept while a snapshot says the same (sleepHandoffNote.ts).
+  private sleepHandoffShown: SleepHandoffNote | undefined;
   /// The latest prompt was acpmux's cache compaction (conversation/cacheCompaction.ts): the
   /// compaction after it ran before the prompt cache expired, not because the person asked.
   private cacheCompactPrompt = false;
@@ -12288,6 +12291,9 @@ export class AcpmuxDirectClient {
     const summary = this.summary;
     const limits = subsessionLimits(summary?.subsessionLimits);
     const working = this.workingNow(summary);
+    const nextSleepHandoff = sleepHandoffNote(summary, working);
+    if (!sameSleepHandoffNote(this.sleepHandoffShown, nextSleepHandoff)) this.sleepHandoffShown = nextSleepHandoff;
+    const sleepHandoff = this.sleepHandoffShown;
     this.observeWorking(working);
     // A chat no longer working has no Stop pending, even when no turn event said the turn ended.
     if (!working && this.replayThrough === undefined) this.stoppingEnded();
@@ -12327,6 +12333,7 @@ export class AcpmuxDirectClient {
             capacityWait: readCapacityWait(summary?.capacityWait),
           }
         : {}),
+      ...(sleepHandoff ? { sleepHandoff } : {}),
       rows: publishedRows,
       ...(this.supersededRowIds.size > 0
         ? {

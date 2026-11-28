@@ -239,6 +239,15 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
+    /// Move every chat whose turn is running here to the machine Settings > Agents > Keep Chats
+    /// Running When This Mac Sleeps names, and continue each turn there; the app runs it when
+    /// the Mac is about to sleep. A chat whose uncommitted changes would not all go stays and says
+    /// why. Nothing moves while the setting is off.
+    SleepHandoff {
+        /// Say what would move and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
     /// moves after the turn); a move that leaves something behind lists it and needs `--yes`;
     /// each move writes one line in the chat. `--undo` moves back; `--status` reads the pin.

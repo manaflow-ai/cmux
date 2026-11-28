@@ -51,6 +51,8 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
+import { SleepHandoffNotice } from "../SleepHandoffNotice";
+import { findSession } from "../sessionIndex";
 import { MoveDock } from "../place/PlaceMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
@@ -219,6 +221,7 @@ export type PaneComposerDeps = {
   folderError: string | undefined;
   background: ReturnType<typeof useBackgroundNotice>;
   liveTurnPhase: TurnPhase;
+  selectSession: (sessionId: string) => void;
   shareNudge: ShareNudgeState;
   setShareOpen: React.Dispatch<React.SetStateAction<boolean>>;
   notices: PaneToasts;
@@ -492,6 +495,7 @@ export function drawPaneComposer({
   folderError,
   background,
   liveTurnPhase,
+  selectSession,
   shareNudge,
   setShareOpen,
   notices,
@@ -883,6 +887,16 @@ export function drawPaneComposer({
                   queued: snapshot.queue.length,
                   hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
                 })}
+              />
+            )}
+            {!showNewTab && (
+              <SleepHandoffNotice
+                note={snapshot.sleepHandoff}
+                canOpen={
+                  snapshot.sleepHandoff?.kind === "moved" &&
+                  findSession(snapshot.sessions, snapshot.sleepHandoff.routed) !== undefined
+                }
+                onOpen={selectSession}
               />
             )}
             {!showNewTab && (

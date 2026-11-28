@@ -668,6 +668,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/autocloud_enroll", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped("_acpmux/sleep_handoff", Request),
         untyped("_acpmux/place_set", Request),
         untyped("_acpmux/place_undo", Request),
         untyped("_acpmux/place_get", Request),

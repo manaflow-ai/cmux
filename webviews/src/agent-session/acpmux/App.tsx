@@ -10948,6 +10948,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     folderError,
     background,
     liveTurnPhase,
+    selectSession,
     shareNudge,
     setShareOpen,
     notices,

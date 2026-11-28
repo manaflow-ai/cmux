@@ -37,6 +37,7 @@ import {
 import type { MachineResources } from "./machineResources";
 import type { PeerGroup } from "./environments";
 import type { AutoResumeStatus } from "./autoResumeStatus";
+import type { SleepHandoffNote } from "./sleepHandoffNote";
 import type { AutoSession } from "./autoSession/autoSession";
 import type { CapacityWaitState } from "./capacityWait";
 import type { VideoInfo } from "./composer/videoAttachments";
@@ -1352,6 +1353,8 @@ export type AcpmuxSnapshot = {
   startupAdmission?: { sessionId?: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
+  /** What the chat says about a move when the Mac slept (sleepHandoffNote.ts). */
+  sleepHandoff?: SleepHandoffNote;
   /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
   capacityWait?: CapacityWaitState;
   protocolVersion: number;

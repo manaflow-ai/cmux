@@ -1205,6 +1205,8 @@ pub enum Command {
     #[command(hide = true)]
     Rebalance(RebalanceArgs),
     #[command(hide = true)]
+    SleepHandoff { dry_run: bool },
+    #[command(hide = true)]
     Transfer {
         session: String,
         #[arg(long)]
@@ -1765,6 +1767,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Transfer { session, to, cwd, name, interrupt, after_turn }
             }
             SessionCmd::Move(args) => Command::MoveSessions(args),
+            SessionCmd::SleepHandoff { dry_run } => Command::SleepHandoff { dry_run },
             SessionCmd::Rebalance(args) => Command::Rebalance(args),
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }

@@ -231,6 +231,7 @@ pub(crate) mod shutdown_drain;
 #[path = "shutdown_drain_tests.rs"]
 mod shutdown_drain_tests;
 mod sign_in_follow;
+mod sleep_handoff;
 #[cfg(test)]
 #[cfg(unix)]
 #[path = "socket_access_tests.rs"]
