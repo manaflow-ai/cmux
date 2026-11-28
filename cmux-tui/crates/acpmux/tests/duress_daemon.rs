@@ -2166,11 +2166,27 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     row["summary"] = json!(summary(&row));
     let _ = external.kill();
     let _ = external.wait();
+    keep_daemon_evidence(name, &scratch, &home);
     drop(scratch_dir);
     if let Some(h) = heap {
         row["heap"] = h;
     }
     LegOut { row, removal_errors }
+}
+
+/// `ACPMUX_DURESS_KEEP_DIR`: the leg's daemon log and its runtime stall captures
+/// (`$ACPMUX_HOME/stalls/`, `daemon/runtime_stall.rs`) copied to `<dir>/<leg>/` before the
+/// scratch folder goes, so a slow leg's long lock holds and stalled workers can be read after.
+fn keep_daemon_evidence(leg: &str, scratch: &Path, home: &Path) {
+    let Some(dir) = std::env::var_os("ACPMUX_DURESS_KEEP_DIR") else { return };
+    let to = PathBuf::from(dir).join(leg);
+    let _ = std::fs::create_dir_all(to.join("stalls"));
+    let _ = std::fs::copy(scratch.join("daemon.log"), to.join("daemon.log"));
+    if let Ok(entries) = std::fs::read_dir(home.join("stalls")) {
+        for e in entries.flatten() {
+            let _ = std::fs::copy(e.path(), to.join("stalls").join(e.file_name()));
+        }
+    }
 }
 
 /// The newest dhat profile in `ACPMUX_DURESS_DHAT_DIR` (a `dhat-heap` build), by site: the
