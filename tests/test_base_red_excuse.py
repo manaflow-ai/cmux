@@ -3022,6 +3022,37 @@ class StatusOnlyChecks(unittest.TestCase):
                                             "is success") for line in lines), lines)
         self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
 
+    def test_a_dispatch_run_named_for_the_head_tested_the_head_before_and_after(self):
+        """cmux#63955 at 3bf87e15 (2026-11-28): cmux-next-hot-verify.yml's result run is a workflow_dispatch on the
+        feat-cmux-next tip, so its head_sha is the tip, and its run name names the head it looked at. Before: tested
+        the tip ("which tested 62a30cd0, not" the head, on every base merge). After: the named head; another
+        event's name is never read for it."""
+        run = {"event": "workflow_dispatch", "head_sha": BASE_SHA,
+               "display_title": f"cmux-next hot verify PR 63955 {HEAD} result"}
+        self.assertEqual(excuse.tested_sha(run), HEAD)
+        self.assertEqual(excuse.tested_sha(dict(run, display_title=f"cmux-next hot verify PR 63955 {HEAD} merge")),
+                         HEAD)
+        self.assertEqual(excuse.tested_sha(dict(run, event="pull_request")), BASE_SHA)
+        self.assertEqual(excuse.tested_sha(dict(run, display_title="cmux-next fast gates")), BASE_SHA)
+        self.assertEqual(excuse.tested_sha(dict(run, display_title="cmux-next · " + "c" * 40)), "c" * 40)
+
+    def test_a_ui_proof_red_is_the_heads_own_never_compared_by_the_dispatch_head(self):
+        """A `cmux/ui-proof` failure is a look's verdict or no look ("UI look could not run: ... look queue was
+        full"): refused as the head's own, naming the look, before any run is read (cmux#63955)."""
+        self.status = {"context": excuse.UI_PROOF_STATUS, "state": "failure",
+                       "target_url": f"https://github.com/{REPO}/actions/runs/10",
+                       "description": "UI look could not run: step 4054f392 cancelled: the fleet's look queue was full"}
+        self.head_run = {"id": 10, "workflow_id": 7, "head_sha": BASE_SHA, "event": "workflow_dispatch",
+                         "display_title": f"cmux-next hot verify PR 63955 {HEAD} result"}
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[excuse.UI_PROOF_STATUS])
+        why = str(refused.exception)
+        self.assertIn("never a base red", why)
+        self.assertIn("look queue was full", why)
+        self.assertIn("hot-verify.py look", why)
+        self.assertNotIn("which tested", why)
+        self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
+
     def test_a_status_whose_run_has_no_such_job_is_refused_with_its_description(self):
         # same-tree-cmux-tui posts a failure when the tree is unavailable: no daemon tests ran.
         self.gh.jobs.pop(1)
@@ -8708,6 +8739,31 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
                                        marker429,
                                        "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
         self.assertIsNone(self.case(self.MARKER, "##[warning]an unrelated warning"))
+
+    def test_reset_past_the_wait_is_still_the_quota_verdict(self):
+        """cmux#64468 run 46145858015 and #64465 run 46145944548: risk-tier.yml's own warning for a reset past
+        RATE_LIMIT_WAIT_S ended the grade step, and the classifier refused the quota red as a real failure."""
+        past = ("##[warning]risk evidence: ungraded, the soonest budget reset (12:51:43Z) is past the 420s wait; "
+                "rerun after it")
+        comments = self.MARKER.replace("pulls/7/files?per_page=100", "issues/7/comments?per_page=100")
+        captured = (
+            "gh api 'repos/o/r/issues/7/comments?per_page=100&page=1' exited 1 (GitHub API quota: structured "
+            "refusal; endpoint repos/o/r/issues/7/comments?per_page=100&page=1, HTTP 403)",
+            comments, "## Risk tier: ungraded", "",
+            "GitHub's API budget refused `repos/o/r/issues/7/comments?per_page=100&page=1` with HTTP 403; the reset "
+            "boundary is in the machine-readable marker below.",
+            "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
+            "", "Policy: docs/ci/risk-tiers.md",
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            "##[warning]the glaeda-route App's read failed; grading on GITHUB_TOKEN",
+            self.MARKER, "## Risk tier: ungraded",
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            past, "##[error]Process completed with exit code 1.")
+        self.assertIn("HTTP 403", self.case(*captured) or "")
+        self.assertIn("HTTP 403", self.case(self.MARKER, past) or "")
+        for wrong in (past.replace("(12:51:43Z)", "(soon)"), past + " and a real failure"):
+            with self.subTest(wrong=wrong):
+                self.assertIsNone(self.case(self.MARKER, wrong))
 
     def test_any_malformed_marker_rejects_even_beside_a_valid_one(self):
         for payload in ('[]', 'null', '{bad}', '{"graded":false}',
@@ -19071,6 +19127,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # The scale fixture gate (#63279): a display Mac times main-thread blocks at 1,100 workspaces (advisory).
+            "cmux-next-scale-fixture.yml",
             # iPhone DEV built ahead (#51721): an advisory fleet build per PR head; never a required check.
             "cmux-next-ios-try-ahead.yml",
             # cmux ios verify per iOS PR head (ask-292c9fdd30): dispatches the protected-branch run that posts the
