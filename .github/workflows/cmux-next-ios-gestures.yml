@@ -10,10 +10,22 @@ name: cmux-next iOS gesture conflicts
 # (vars.CI_EVAL_STEP_GATEWAY), as cmux-next-ios-keyboard-motion.yml is: one fleet simulator step
 # (scripts/ci/cmux-next-ios-sim.sh test ui=GestureConflictUITests). With the variable unset, on a fork or
 # on a draft nothing runs; without the client on the runner it warns and passes.
+#
+# Detached (the default, CI_IOS_GESTURES_DETACH): the job submits the step and hands its verdict to the
+# controller, which posts the check run REPORT_CHECK on the head when the step ends (cmux-ci run --report-check
+# --detach, cmuxterm-hq build-fleet/cmd/controller/report_check.go: success, failure, or neutral for no verdict,
+# with the log tail and `cmux-ci log JOB`), so no GitHub runner waits on the simulator queue. A failed gesture
+# cell is still red on the pull request that adds it, on that check. The waiting job held a gateway runner for
+# 112 min per run: 31 runs and 3,468 runner-min in 6 h to 11:34Z on 11-28 (~13.9k/day, the second job in NOW's
+# ci_minutes), nearly all of it the runner waiting for a simulator. Same cut as cmux-next-ios-try-ahead.yml
+# (#63497), nightly-pr-build.yml and cmux-next-split-table.yml. Leo, 2026-11-27: "de facto, im asking for 99%
+# fewer minutes of ci time, period." CI_IOS_GESTURES_DETACH=0, a dispatch on a branch name (the check needs a
+# commit SHA) or a client and controller without --detach wait here as before.
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # labeled: the heavy-at-land rule on `gestures` runs it on the event that adds ready-to-land (or full-ci).
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**/*.swift"
@@ -32,20 +44,46 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-ios-gestures-${{ github.event.pull_request.number || github.sha }}
+  group: cmux-next-ios-gestures-${{ github.event.pull_request.number || github.sha }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gestures:
     name: Gesture conflicts on a fleet simulator
+    # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-26: "de facto, im
+    # asking for 99% fewer minutes of ci time, period."): on a pull request this runs only on the `labeled` event that
+    # adds ready-to-land or full-ci, at that head; land-judge pulses ready-to-land at the head it lands. On 11-28
+    # 07Z..11:30Z it spent about 12.5k runner-min/day on every push of every iOS pull request head. Dispatch, the
+    # nightly-next push and CI_HEAVY_AT_LAND=0: as before.
     if: >-
       ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request'
-      || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository)) }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+      || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository))
+      && (github.event_name != 'pull_request' || (github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled'))
+      && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone host pins)
     timeout-minutes: 240
     permissions:
       contents: read
+    env:
+      DETACH: ${{ vars.CI_IOS_GESTURES_DETACH || '1' }}
+      REPORT_CHECK: Gesture conflicts (fleet simulator verdict)
     steps:
+      # Only the composite action's folder: the step runs on a fleet Mac, not here.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/actions/fleet-client
+          sparse-checkout-cone-mode: false
+
+      # A gateway Mac's own ~/.local/bin/cmux-ci can predate --detach; the controller's client
+      # (sha256-checked against its manifest) can detach. Unreachable, this runner's own client waits as before.
+      - name: Fleet client from the controller
+        if: ${{ vars.CMUX_FLEET_CONTROLLER != '' }}
+        continue-on-error: true
+        uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
       - name: Run GestureConflictUITests
         env:
           REF: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
@@ -57,9 +95,21 @@ jobs:
             exit 0
           fi
           log="${RUNNER_TEMP:?}/gestures.log"
+          detach=()
+          usage="$("$client" run --help 2>/dev/null || true)"
+          if [[ "${DETACH:-1}" != 0 && "$usage" == *--detach* && "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            detach=(--repo "$GITHUB_REPOSITORY" --report-check "$REPORT_CHECK" --detach)
+          fi
+          status=0
           "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$REF" --timeout 5400 --sim-features none \
-            --arg test --arg ui=GestureConflictUITests 2>&1 | tee "$log"
-          status=${PIPESTATUS[0]}
+            --arg test --arg ui=GestureConflictUITests ${detach[@]+"${detach[@]}"} 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          if [[ ${#detach[@]} -gt 0 && "$status" == 0 ]] && grep -q ') detached; check run' "$log"; then
+            # Submitted: the controller posts "$REPORT_CHECK" on the head when the step ends; no runner waits.
+            step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)" || step=""
+            echo "::notice title=Gesture conflicts::the fleet posts \"$REPORT_CHECK\" on ${REF:0:12} when the suite ends"
+            echo "### Gesture conflicts at ${REF:0:12}: submitted (step ${step:-?}); the check \"$REPORT_CHECK\" carries the verdict" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           {
             echo "### Gesture conflicts at ${REF:0:12}"
             echo
