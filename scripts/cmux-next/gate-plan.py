@@ -221,8 +221,16 @@ def nx_worker(hq: Path, name: str) -> Path:
 
 
 def hq_tool(hq: Path, name: str, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, "-I", str(hq / "scripts" / name), *args],
-                          cwd=ROOT, capture_output=True, text=True)
+    """Run an hq tool as installed hq main: hq's scripts/lib/hq_installed.py fetches main and runs the tool from
+    its release, never the checkout's files (a shared primary checkout can be months behind; 2026-11-28 its
+    receipts.py called a keyer function cmux had removed). CMUX_HQ_RUN_CHECKOUT_CODE=1 runs the checkout's
+    file, as hq's own entrypoints do; a directory that is not a checkout is a release already."""
+    installer = hq / "scripts" / "lib" / "hq_installed.py"
+    if (hq / ".git").exists() and installer.is_file() and os.environ.get("CMUX_HQ_RUN_CHECKOUT_CODE") != "1":
+        argv = [sys.executable, "-I", "-B", str(installer), "exec", f"scripts/{name}", str(hq), *args]
+    else:
+        argv = [sys.executable, "-I", str(hq / "scripts" / name), *args]
+    return subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
 
 
 def main(argv: list[str]) -> int:
@@ -239,12 +247,7 @@ def main(argv: list[str]) -> int:
     if not changed:
         raise SystemExit(f"gate-plan: HEAD has no change against {args.base}")
 
-    hq = hq_root()
-    for tool in ("scripts/cmux-next-affected.py", "scripts/cmux-next-receipts.py"):
-        stale = subprocess.run(["git", "-C", str(hq), "diff", "--quiet", "HEAD", "origin/main", "--", tool]).returncode
-        if stale == 1:
-            print(f"gate-plan: {hq}/{tool} differs from hq origin/main (stale checkout?); set HQ_ROOT to a current hq"
-                  " checkout if it fails", file=sys.stderr)
+    hq = hq_root()  # its tools run as installed hq main (hq_tool), so a stale checkout is fine
     steps: list[str] = []      # parallel members, each run as "& <step>"
     after: list[str] = []      # plain lines, run alone after the group
     notes: list[str] = [f"# gate plan for {head} ({len(changed)} files against {args.base} {base[:12]})"]
