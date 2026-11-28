@@ -105,7 +105,7 @@ output_areas() {
       # tip holds what the old one wrote.
       web/data/next-docs/settings-reference.generated.json) echo settings; echo shortcuts ;;
       web/data/next-docs/*.generated.json) echo actions; echo shortcuts ;;
-      cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
+      cmux-tui/crates/cmux-app-host/generated/* | cmux-tui/crates/cmux-app-host/schema/merged/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
       # The undeclared-job record (base-autofix.sh 6).
       scripts/ci/job-inputs-always.json) echo jobinputs ;;
@@ -136,7 +136,7 @@ export_of() {
 # The exports a file is generated from (base-autofix.sh). The snapshot is derived again instead.
 built_from() {
   case "$1" in
-    web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \
+    web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* | cmux-tui/crates/cmux-app-host/schema/merged/* \
       | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo actions ;;
     */generated/strings.json | web/data/next-docs/settings-reference.generated.json) echo settings ;;
     web/data/next-docs/*.generated.json) echo actions ;;
