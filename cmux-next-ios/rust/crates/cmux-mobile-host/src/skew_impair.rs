@@ -59,7 +59,8 @@ impl Impair {
                 let p = (self.loss_pct / 100.0).min(0.99);
                 let to_bad = p / (self.burst as f64 * (1.0 - p));
                 let unit = (roll % 1_000_000) as f64 / 1_000_000.0;
-                let next = if bad.load(Ordering::Relaxed) { unit >= 1.0 / self.burst as f64 } else { unit < to_bad };
+                let next =
+                    if bad.load(Ordering::Relaxed) { unit >= 1.0 / self.burst as f64 } else { unit < to_bad };
                 bad.store(next, Ordering::Relaxed);
                 next
             } else {
@@ -115,7 +116,8 @@ fn elapsed() -> Duration {
 fn impair_from(from: &SocketAddr) -> Option<Duration> {
     let impair = impair();
     let n = DATAGRAMS.fetch_add(1, Ordering::Relaxed);
-    let fate = if now_ms() < BLACKOUT_UNTIL_MS.load(Ordering::Relaxed) || impair.hopped_away(from, elapsed()) {
+    let fate = if now_ms() < BLACKOUT_UNTIL_MS.load(Ordering::Relaxed) || impair.hopped_away(from, elapsed())
+    {
         None
     } else {
         impair.fate(n, &BAD)
@@ -162,7 +164,11 @@ mod tests {
         let bad = AtomicBool::new(false);
         let dropped = (0..10_000).filter(|n| impair.fate(*n, &bad).is_none()).count();
         assert!((800..1200).contains(&dropped), "{dropped}");
-        assert!((0..100).filter_map(|n| impair.fate(n, &bad)).all(|d| (40..=60).contains(&(d.as_millis() as u64))));
+        assert!(
+            (0..100)
+                .filter_map(|n| impair.fate(n, &bad))
+                .all(|d| (40..=60).contains(&(d.as_millis() as u64)))
+        );
     }
 
     #[test]
@@ -180,7 +186,8 @@ mod tests {
     #[test]
     fn the_hop_alternates_between_loopback_and_the_rest() {
         let impair = Impair::parse("flip_s=25");
-        let (lo, lan): (SocketAddr, SocketAddr) = ("127.0.0.1:1".parse().unwrap(), "10.0.0.2:1".parse().unwrap());
+        let (lo, lan): (SocketAddr, SocketAddr) =
+            ("127.0.0.1:1".parse().unwrap(), "10.0.0.2:1".parse().unwrap());
         let at = Duration::from_secs;
         assert!(!impair.hopped_away(&lo, at(10)) && !impair.hopped_away(&lan, at(10)));
         assert!(impair.hopped_away(&lo, at(30)) && !impair.hopped_away(&lan, at(30)));

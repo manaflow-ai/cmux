@@ -113,7 +113,8 @@ impl Chan {
                 return Ok(());
             }
             if Instant::now() > deadline {
-                let tail: String = seen.chars().rev().take(200).collect::<Vec<_>>().into_iter().rev().collect();
+                let tail: String =
+                    seen.chars().rev().take(200).collect::<Vec<_>>().into_iter().rev().collect();
                 bail!("no {marker:?} in output; tail {tail:?}");
             }
             events.push(self.line(deadline).await?);
@@ -143,20 +144,36 @@ struct Dialer {
 }
 
 impl Dialer {
-    async fn dial(&self) -> Result<(cmux_mobile_link::Link, tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>)> {
+    async fn dial(
+        &self,
+    ) -> Result<(cmux_mobile_link::Link, tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>)> {
         self.dial_mac(&self.mac).await
     }
 
-    async fn dial_mac(&self, mac: &str) -> Result<(cmux_mobile_link::Link, tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>)> {
-        let conn = cmux_mobile_link::dial::connect(&self.signaling, mac, self.transport, &self.options, LinkConfig::default())
-            .await
-            .context("dial")?;
+    async fn dial_mac(
+        &self,
+        mac: &str,
+    ) -> Result<(cmux_mobile_link::Link, tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>)> {
+        let conn = cmux_mobile_link::dial::connect(
+            &self.signaling,
+            mac,
+            self.transport,
+            &self.options,
+            LinkConfig::default(),
+        )
+        .await
+        .context("dial")?;
         Ok((conn.link.clone(), conn.path.clone()))
     }
 }
 
 async fn attach(link: &cmux_mobile_link::Link, surface: u64, next: u64) -> Result<Chan> {
-    let mut chan = Chan { ch: link.open("daemon", json!({})).await.context("open daemon")?, buf: vec![], events: vec![], next };
+    let mut chan = Chan {
+        ch: link.open("daemon", json!({})).await.context("open daemon")?,
+        buf: vec![],
+        events: vec![],
+        next,
+    };
     let id = chan.send_req("attach-surface", json!({"surface": surface})).await?;
     let reply = chan.wait(&id, 20).await?;
     if reply.get("ok") == Some(&json!(false)) {
@@ -220,13 +237,16 @@ async fn main() -> Result<()> {
         others.iter().map(|_| std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0))).collect();
     for (other, count) in others.iter().zip(&other_dials) {
         // A Mac the phone has paired but cannot reach: dialed as the app keeps trying it.
-        let (dialer, other, count) = (std::sync::Arc::clone(&dialer), other.clone(), std::sync::Arc::clone(count));
+        let (dialer, other, count) =
+            (std::sync::Arc::clone(&dialer), other.clone(), std::sync::Arc::clone(count));
         tokio::spawn(async move {
             let mut backoff = Duration::from_secs(1);
             let mut seed = other.bytes().fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
             loop {
                 count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if let Ok(Ok((link, _))) = tokio::time::timeout(Duration::from_secs(20), dialer.dial_mac(&other)).await {
+                if let Ok(Ok((link, _))) =
+                    tokio::time::timeout(Duration::from_secs(20), dialer.dial_mac(&other)).await
+                {
                     link.close("unexpected");
                 }
                 seed ^= seed << 13;
@@ -245,7 +265,10 @@ async fn main() -> Result<()> {
         Err(error) => fail(format!("link: {error:#}")),
     };
     let first_path = format!("{:?}", *path.borrow()).to_lowercase();
-    println!("{}", json!({"step": "link", "ms": started.elapsed().as_millis() as u64, "carrier": carrier, "device": device, "path": first_path}));
+    println!(
+        "{}",
+        json!({"step": "link", "ms": started.elapsed().as_millis() as u64, "carrier": carrier, "device": device, "path": first_path})
+    );
     let switches = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     {
         let (switches, mut path) = (std::sync::Arc::clone(&switches), path.clone());
@@ -256,8 +279,12 @@ async fn main() -> Result<()> {
             }
         });
     }
-    let mut control =
-        Chan { ch: link.open("daemon", json!({})).await.context("open daemon")?, buf: vec![], events: vec![], next: 0 };
+    let mut control = Chan {
+        ch: link.open("daemon", json!({})).await.context("open daemon")?,
+        buf: vec![],
+        events: vec![],
+        next: 0,
+    };
     // The app's setup batch, in order (WorkspaceSync.prepare).
     let batch = [
         (
@@ -286,7 +313,11 @@ async fn main() -> Result<()> {
                 };
                 step(&cmd, &short);
                 // The app shows a workspace list without agents or personal items.
-                if reply.get("ok") == Some(&json!(false)) && fatal.is_none() && cmd != "list-personal" && cmd != "list-agents" {
+                if reply.get("ok") == Some(&json!(false))
+                    && fatal.is_none()
+                    && cmd != "list-personal"
+                    && cmd != "list-agents"
+                {
                     fatal = Some(format!("{cmd}: {reply}"));
                 }
             }
@@ -302,7 +333,9 @@ async fn main() -> Result<()> {
     let id = control.send_req("new-workspace", json!({"name": "plink", "cols": 80, "rows": 24})).await?;
     let reply = control.wait(&id, 20).await?;
     step("new-workspace", &reply);
-    let Some(surface) = reply["data"]["surface"].as_u64() else { fail(format!("new-workspace: no surface: {reply}")) };
+    let Some(surface) = reply["data"]["surface"].as_u64() else {
+        fail(format!("new-workspace: no surface: {reply}"))
+    };
     let mut term = match attach(&link, surface, 100).await {
         Ok(chan) => chan,
         Err(error) => fail(format!("attach-surface: {error:#}")),
@@ -356,10 +389,13 @@ async fn main() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(500).saturating_sub(tick.elapsed())).await;
         }
         let switched: Vec<String> = switches.lock().unwrap()[before..].to_vec();
-        let envn = |key: &str, default: u64| std::env::var(key).ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(default);
+        let envn = |key: &str, default: u64| {
+            std::env::var(key).ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(default)
+        };
         rtts.sort_unstable();
         let rtt_max = rtts.last().copied().unwrap_or(0);
-        let dials: Vec<u64> = other_dials.iter().map(|c| c.load(std::sync::atomic::Ordering::Relaxed)).collect();
+        let dials: Vec<u64> =
+            other_dials.iter().map(|c| c.load(std::sync::atomic::Ordering::Relaxed)).collect();
         // Backoff from 1 s to 30 s: at most ~6 dials in the first minute, then 2 a minute.
         let dial_bound = 8 + 3 * hold / 60;
         let (datagrams, dropped) = skew_impair::counts();
@@ -416,7 +452,10 @@ async fn main() -> Result<()> {
                 "redial"
             }
         };
-        println!("{}", json!({"step": "stall", "ok": true, "stall_ms": stall, "how": how, "ms": started.elapsed().as_millis() as u64}));
+        println!(
+            "{}",
+            json!({"step": "stall", "ok": true, "stall_ms": stall, "how": how, "ms": started.elapsed().as_millis() as u64})
+        );
     }
     println!("{}", json!({"result": "PASS"}));
     link.close("done");

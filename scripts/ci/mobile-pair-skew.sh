@@ -22,9 +22,19 @@
 #   carried  the Mac upgraded N-1 -> N (and downgraded N -> N-1) on one state dir under
 #            an already paired phone, which dials again with the same device id
 #   far      phone FAR x Mac N and phone N x Mac FAR (FAR: a week-old commit)
+#   hop      phone {N-1,N} x Mac {N-1,N} on WireGuard (and N x N over TURN only) under
+#            plink-bisect's impaired profile: 300+-250 ms, 3% loss in bursts of ~4, the
+#            tunnel's address hopping every 25 s (loopback <-> the Mac's other address)
+#   three    phone N with three paired Macs, one reachable (N) and two never reachable,
+#            held SKEW_THREE_HOLD_S (300): the reachable link keeps 0 misses, ping rtt
+#            under 3 s, and the two others' dial counts stay under the backoff bound;
+#            once plain and once on the hop profile
+#   dualhome cmux-mobile-link's a_reply_from_another_mac_address_keeps_the_link (the Mac
+#            dual-homed: a reply from another of its addresses), for SKEW_HOLD_S, when
+#            N's tree has it
 #
 #   scripts/ci/mobile-pair-skew.sh N1_TREE [N_TREE [FAR_TREE]]
-# Env: SKEW_LOG_DIR (keep each cell's logs), SKEW_HOLD_S (60), SKEW_JOBS (cells at once,
+# Env: SKEW_LOG_DIR (keep each cell's logs), SKEW_HOLD_S (60), SKEW_THREE_HOLD_S (300), SKEW_JOBS (cells at once,
 # 6), SKEW_ONLY (a regex on cell names), SKEW_SUMMARY (append the table here, say
 # $GITHUB_STEP_SUMMARY), CARGO_TARGET_DIR. Exit 1 if any cell fails.
 set -euo pipefail
@@ -66,9 +76,16 @@ build() {
     fi
   fi
   local status=0
+  # Trees with one cmux-tui source (committed cmux-tui and ghostty-next) share one daemon build.
+  local tui_key tui_cache
+  tui_key=$(git -C "$tree" rev-parse HEAD:cmux-tui HEAD:ghostty-next 2>/dev/null | tr -d '\n' | sha1sum | cut -c1-16)
+  tui_cache=$target/tui-by-source/$tui_key
   {
-    (cd "$tree/cmux-tui" && CMUX_GHOSTTY_SRC="" CARGO_TARGET_DIR=$target/tui cargo build --release --locked -p cmux-tui --bin cmux-tui) &&
-      cp "$target/tui/release/cmux-tui" "$out/" &&
+    if [[ -x $tui_cache/cmux-tui ]] && git -C "$tree" diff --quiet HEAD -- cmux-tui; then cp "$tui_cache/cmux-tui" "$out/"
+    else
+      (cd "$tree/cmux-tui" && CMUX_GHOSTTY_SRC="" CARGO_TARGET_DIR=$target/tui cargo build --release --locked -p cmux-tui --bin cmux-tui) &&
+        cp "$target/tui/release/cmux-tui" "$out/" && mkdir -p "$tui_cache" && cp "$target/tui/release/cmux-tui" "$tui_cache/"
+    fi &&
       (cd "$tree/cmux-next-ios/rust" && CARGO_TARGET_DIR=$target/mobile cargo build --release --locked -p cmux-mobile-host \
         --bin cmux-mobile-host --bin cmux-mobile-applike) &&
       cp "$target/mobile/release/cmux-mobile-host" "$target/mobile/release/cmux-mobile-applike" "$out/"
@@ -113,9 +130,10 @@ host_up() {
 }
 host_down() { kill "$host_pid" 2>/dev/null || true; wait "$host_pid" 2>/dev/null || true; }
 
-# cell NAME PHONE MACS CARRIER IMPAIR STALL_MS HOLD_S: MACS is one build, or A>B (carried).
+# cell NAME PHONE MACS CARRIER IMPAIR STALL_MS HOLD_S [OTHER_MACS]: MACS is one build, or
+# A>B (carried); OTHER_MACS (mac2,mac3) are paired with the phone but never come up.
 cell() {
-  local name=$1 phone=$2 macs=$3 carrier=$4 impair=$5 stall=$6 hold_s=$7
+  local name=$1 phone=$2 macs=$3 carrier=$4 impair=$5 stall=$6 hold_s=$7 others=${8:-}
   cell=$work/cells/$name
   mkdir -p "$cell/home" "$cell/tmp" "$cell/state"
   local port backend_pid result at="" first=${macs%%>*} second=""
@@ -126,7 +144,7 @@ cell() {
   for _ in $(seq 50); do curl -s -o /dev/null "$url/v1/ice" && break; sleep 0.2; done
   dial() { # the phone; $1 log suffix
     local st=0
-    env CMUX_APPLIKE_DEVICE=phone-$name ${impair:+CMUX_SKEW_IMPAIR=$impair} CMUX_SKEW_STALL_MS=${3:-0} CMUX_SKEW_HOLD_S=${2:-0} \
+    env CMUX_APPLIKE_DEVICE=phone-$name ${impair:+CMUX_SKEW_IMPAIR=$impair} ${others:+CMUX_SKEW_OTHER_MACS=$others} CMUX_SKEW_STALL_MS=${3:-0} CMUX_SKEW_HOLD_S=${2:-0} \
       timeout $((120 + ${2:-0})) "$work/bin/$phone/cmux-mobile-applike" "$url" "$cell/token" t1 mac1 "$carrier" \
       >"$cell/applike-$1.out" 2>"$cell/applike-$1.err" || st=$?
     grep -q '"result":"PASS"' "$cell/applike-$1.out" && return 0
@@ -160,7 +178,11 @@ else: print("exit %s: %s" % (sys.argv[2], open(sys.argv[3]).read()[-300:].replac
 for l in sys.stdin:
     try: v=json.loads(l)
     except Exception: continue
-    if v.get("step")=="hold": print("%ss %d echoes worst %sms switches %s" % (v["held_ms"]//1000, v["echoes"], v["worst_echo_ms"], "/".join(v["path_switches"]) or 0)); break' || true)
+    if v.get("step")=="hold":
+        s = "%ss %d echoes, %d missed, worst %sms, rtt max %sms, switches %s" % (v["held_ms"]//1000, v["echoes"], len(v["misses"]), v["worst_echo_ms"], v.get("rtt_max_ms"), "/".join(v["path_switches"]) or 0)
+        if v.get("other_macs"): s += ", other dials %s (bound %s)" % ("/".join(map(str, v["other_dials"])), v["other_dial_bound"])
+        if v.get("wg_in_dropped"): s += ", wg in %s dropped %s" % (v["wg_in"], v["wg_in_dropped"])
+        print(s); break' || true)
   python3 -I -c 'import json,sys; print(json.dumps(dict(zip(["cell","phone","mac","carrier","impair","result","hold","at"], sys.argv[1:]))))' \
     "$name" "$phone" "$macs" "$carrier" "${impair:-none}" "$result" "$holdinfo" "$at" >"$cell/result.json"
   if [[ -n ${SKEW_LOG_DIR:-} ]]; then mkdir -p "$SKEW_LOG_DIR/$name"; cp "$cell"/*.log "$cell"/*.out "$cell"/*.err "$cell/result.json" "$SKEW_LOG_DIR/$name/" 2>/dev/null || true; fi
@@ -168,6 +190,8 @@ for l in sys.stdin:
 }
 
 lossy=delay_ms=40,jitter_ms=20,loss_pct=2,seed=7
+hop=delay_ms=300,jitter_ms=250,loss_pct=3,burst=4,flip_s=25,seed=11
+three_hold=${SKEW_THREE_HOLD_S:-300}
 plan=()
 for p in N-1 N; do for m in N-1 N; do
   plan+=("fresh-$p-$m-webrtc $p $m webrtc - 0 $hold")
@@ -177,6 +201,12 @@ for p in N-1 N; do for m in N-1 N; do
   plan+=("lossy-$p-$m-wg $p $m wireguard $lossy 0 $hold")
   plan+=("lossy-$p-$m-turn $p $m wireguard+relay-only $lossy 0 $hold")
 done; done
+for p in N-1 N; do for m in N-1 N; do
+  plan+=("hop-$p-$m-wg $p $m wireguard $hop 0 $hold")
+done; done
+plan+=("hop-N-N-turn N N wireguard+relay-only $hop 0 $hold")
+plan+=("three-N-N-wg N N wireguard - 0 $three_hold mac2,mac3")
+plan+=("three-N-N-hop N N wireguard $hop 0 $three_hold mac2,mac3")
 for p in N-1 N; do
   plan+=("carried-$p-upgrade $p N-1>N wireguard - 0 0")
   plan+=("carried-$p-downgrade $p N>N-1 wireguard - 0 0")
@@ -190,14 +220,32 @@ fi
 
 running=0
 for row in "${plan[@]}"; do
-  read -r name phone mac carrier impair stall hold_s <<<"$row"
+  read -r name phone mac carrier impair stall hold_s others <<<"$row"
   [[ $name =~ $only ]] || continue
   [[ $impair == - ]] && impair=""
-  ( cell "$name" "$phone" "$mac" "$carrier" "$impair" "$stall" "$hold_s" ) &
+  ( cell "$name" "$phone" "$mac" "$carrier" "$impair" "$stall" "$hold_s" "$others" ) &
   running=$((running + 1))
   if [[ $running -ge $jobs ]]; then wait -n || true; running=$((running - 1)); fi
 done
 wait || true
+
+# The dual-homed Mac: plink-dualhome's test, at N.
+dual=a_reply_from_another_mac_address_keeps_the_link
+if [[ dualhome =~ $only ]]; then
+  mkdir -p "$work/cells/dualhome"
+  if grep -q "fn $dual" "$n/cmux-next-ios/rust/crates/cmux-mobile-link/src/lan.rs" 2>/dev/null; then
+    dres=FAIL
+    (cd "$n/cmux-next-ios/rust" && CMUX_LAN_DUALHOME_SECONDS=$hold CARGO_TARGET_DIR=$target/mobile \
+      cargo test --release --locked -p cmux-mobile-link --lib "$dual" -- --exact --nocapture) >"$work/cells/dualhome/test.log" 2>&1 && dres=PASS
+    dat=$([[ $dres == PASS ]] || grep -E "panicked|assert" "$work/cells/dualhome/test.log" | head -2 | tr '\n' ' ')
+  else
+    dres=ABSENT dat="N has no $dual yet (plink-dualhome's test)"
+  fi
+  python3 -I -c 'import json,sys; print(json.dumps(dict(zip(["cell","phone","mac","carrier","impair","result","hold","at"], sys.argv[1:]))))' \
+    dualhome N N "lan (reply from 127.0.0.1 to a dial of 127.0.0.2)" none "$dres" "${hold}s" "$dat" >"$work/cells/dualhome/result.json"
+  if [[ -n ${SKEW_LOG_DIR:-} ]]; then mkdir -p "$SKEW_LOG_DIR/dualhome"; cp "$work/cells/dualhome/"* "$SKEW_LOG_DIR/dualhome/"; fi
+  echo "$dres dualhome${dat:+: $dat}"
+fi
 
 table=$(cat "$work"/cells/*/result.json | python3 -I -c '
 import json, sys
