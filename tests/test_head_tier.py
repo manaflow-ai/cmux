@@ -406,6 +406,60 @@ class LandTierTests(unittest.TestCase):
         self.assertFalse(head_tier.land_affected(head_tier.tier("pull_request", land_event(), land_switch="1",
                                                                 land_full_switch="0")))
 
+    def test_land_ask_rule_a_later_push_of_a_landing_pr_runs_the_cheap_tier_until_land_pulses(self) -> None:
+        # 11-28 02Z..05Z: heads of ready-to-land PRs that a later head replaced ran the landing tier (ios fast
+        # verdict, landing gates) about 2.6k runner-min in 3 h. Only the head land pulses runs it now.
+        push = land_event(labels=("ready-to-land",))
+        own = {"base_merge_only": False, "by_github": False}
+        decided = head_tier.tier("pull_request", push, facts=own, land_switch="1", land_full_switch="0",
+                                 land_ask_switch="1")
+        self.assertEqual(decided[0], "cheap")
+        self.assertFalse(head_tier.land_affected(decided))
+        self.assertIn("CI_LAND_TIER_AT_ASK=0", decided[1])
+        old = os.environ.get("CI_LAND_TIER")
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            self.assertEqual(pr_router.land_status(push, decided), "pending")
+        finally:
+            if old is None:
+                os.environ.pop("CI_LAND_TIER", None)
+            else:
+                os.environ["CI_LAND_TIER"] = old
+        start, _ = pr_router.route(push, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertEqual(start, ["cheap.yml"])
+        # An agent's own git merge of the base is a later push too.
+        agent_merge = {"base_merge_only": True, "by_github": False}
+        self.assertFalse(head_tier.land_affected(head_tier.tier(
+            "pull_request", push, facts=agent_merge, land_switch="1", land_full_switch="0", land_ask_switch="1")))
+        # Land's own update-branch (a base merge GitHub made), the pulse itself, unread facts and the switch off
+        # keep the affected landing tier.
+        github_merge = {"base_merge_only": True, "by_github": True}
+        pulse = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+        for ev, facts, switch in ((push, github_merge, "1"), (pulse, own, "1"), (push, None, "1"), (push, own, "0")):
+            with self.subTest(action=ev["action"], facts=facts, switch=switch):
+                self.assertTrue(head_tier.land_affected(head_tier.tier(
+                    "pull_request", ev, facts=facts, land_switch="1", land_full_switch="0", land_ask_switch=switch)))
+        # full-ci's own labeled event and CI_LAND_FULL_PER_PR=1 keep the full tier.
+        self.assertEqual(head_tier.tier("pull_request", push, facts=own, land_switch="1", land_full_switch="1",
+                                        land_ask_switch="1")[0], "full")
+
+    def test_land_ask_rule_reads_its_switch_from_the_environment(self) -> None:
+        push = land_event(labels=("ready-to-land",))
+        old = os.environ.get("CI_LAND_TIER_AT_ASK")
+        try:
+            os.environ.pop("CI_LAND_TIER_AT_ASK", None)
+            self.assertTrue(head_tier.land_ask_rule_applies(push))
+            os.environ["CI_LAND_TIER_AT_ASK"] = "0"
+            self.assertFalse(head_tier.land_ask_rule_applies(push))
+        finally:
+            if old is None:
+                os.environ.pop("CI_LAND_TIER_AT_ASK", None)
+            else:
+                os.environ["CI_LAND_TIER_AT_ASK"] = old
+        self.assertFalse(head_tier.land_ask_rule_applies(land_event(labels=("ready-to-land",), action="labeled",
+                                                                   added="ready-to-land"), "1"))
+        self.assertFalse(head_tier.land_ask_rule_applies(land_event(), "1"))
+
     def test_decide_reads_ci_land_full_per_pr_unset_as_the_affected_tier(self) -> None:
         keys = ("CI_LAND_TIER", "CI_LAND_FULL_PER_PR")
         old = {key: os.environ.get(key) for key in keys}
@@ -1857,7 +1911,7 @@ class PostMergeTierTests(unittest.TestCase):
                                                    "CI_RED_BASE_MERGE_RERUN": "0"}):
             self.assertNotEqual(head_tier.decide("pull_request", ev)[0], "none")
 
-    def test_both_workflows_pass_the_switch_default_off(self) -> None:
+    def test_both_workflows_pass_the_switch_default_on(self) -> None:
         for workflow in ("cmux-tui-spec.yml", "rust-workspaces.yml"):
             text = (ROOT / ".github" / "workflows" / workflow).read_text()
-            self.assertIn("CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '0' }}", text, workflow)
+            self.assertIn("CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '1' }}", text, workflow)
