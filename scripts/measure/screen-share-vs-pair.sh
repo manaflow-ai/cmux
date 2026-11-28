@@ -43,10 +43,17 @@
 #             holds that grant once it is allowed at each Mac's console; the run checks it before any leg
 #             (`localnet` in run.jsonl) and stops naming the Mac that lacks it. Two Macs on one LAN reach each
 #             other directly inside WireGuard; the leg's --link is `wired-tailnet` then.
+# queue-depth=N  (3..8) CMUX_RD_SCK_QUEUE_DEPTH=N on the host's serve: the ScreenCaptureKit surface pool depth
+#             (cmux-rd-host mac/capture.rs; default none set: its own depth). The label gains `-qN`.
+# max-refresh=1  CMUX_RD_MAC_MAX_REFRESH=1 on the host's serve: the captured display switches to its fastest
+#             refresh at the current size for the serve process (a 60 Hz-only display stays at 60). The label
+#             gains `-maxhz`. Pair it with max-fps=120 so the viewer asks for the rate.
+# max-fps=N   the viewer's asked frame rate (--max-fps; default 60). The label gains `-fpsN` when not 60.
+#             Each row records host_env; host=nightly runs the NIGHTLY's helper, which may not read either.
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan
+mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan queue_depth="" max_refresh=0 max_fps=60
 for arg in "$@"; do
   case "$arg" in
     mode=probe|mode=run) mode="${arg#mode=}" ;;
@@ -64,11 +71,16 @@ for arg in "$@"; do
     peer-token=*) peer_token="${arg#peer-token=}" ;;
     hold-s=*) hold_s="${arg#hold-s=}" ;;
     host-ip=lan|host-ip=tailnet) host_ip_kind="${arg#host-ip=}" ;;
+    queue-depth=*) queue_depth="${arg#queue-depth=}" ;;
+    max-refresh=0|max-refresh=1) max_refresh="${arg#max-refresh=}" ;;
+    max-fps=*) max_fps="${arg#max-fps=}" ;;
     *) echo "screen-share-vs-pair.sh: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
 [[ -z "$peer_token" || "$peer_token" =~ ^[0-9a-f]{64}$ ]] || { echo "peer-token= is 64 hex" >&2; exit 2; }
 [[ "$hold_s" =~ ^[0-9]{1,5}$ ]] || { echo "hold-s= is seconds" >&2; exit 2; }
+[[ -z "$queue_depth" || "$queue_depth" =~ ^[3-8]$ ]] || { echo "queue-depth= is 3 to 8" >&2; exit 2; }
+[[ "$max_fps" =~ ^[0-9]{2,3}$ ]] || { echo "max-fps= is a frame rate" >&2; exit 2; }
 [[ "$role" == host || -n "$peer_token" ]] || { echo "role=viewer needs peer-token=" >&2; exit 2; }
 [[ "$role" == viewer ]] && mode=run partner=peer
 [[ -n "$mode" ]] || { echo "screen-share-vs-pair.sh: mode=probe or mode=run" >&2; exit 2; }
@@ -254,6 +266,10 @@ fi
 link=wired loss_args=() profile_args=() suffix=
 [[ "$host_ip_kind" == tailnet ]] && link=wired-tailnet
 [[ -n "$profile" ]] && { profile_args=(--encode-profile "$profile"); suffix="-$profile"; }
+env_args=()
+[[ -n "$queue_depth" ]] && { env_args+=(--host-env "CMUX_RD_SCK_QUEUE_DEPTH=$queue_depth"); suffix+="-q$queue_depth"; }
+[[ "$max_refresh" == 1 ]] && { env_args+=(--host-env CMUX_RD_MAC_MAX_REFRESH=1); suffix+="-maxhz"; }
+[[ "$max_fps" != 60 ]] && suffix+="-fps$max_fps"
 if [[ "$loss" != 0 ]]; then
   link="loss${loss}" loss_args=(--host-test-loss "$loss")
 fi
@@ -265,7 +281,7 @@ for kind in ${inputs//,/ }; do
   python3 -I "$vs" run \
     --host "$self" --viewer "$target" --host-ip "$dial_ip" --local-mac "$self" "${via_args[@]}" \
     --tools "$work/tools" ${host_args[@]+"${host_args[@]}"} --stacks cmux --source "$source" --link "$link" \
-    ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} --cmux-input "$kind" --samples "$samples" \
+    ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} ${env_args[@]+"${env_args[@]}"} --max-fps "$max_fps" --cmux-input "$kind" --samples "$samples" \
     --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind$suffix" --rev "$(git rev-parse HEAD)" \
     ${root_args[@]+"${root_args[@]}"} \
     --out "$work/run-$kind.jsonl" 2>&1 | tee -a "$work/run.log"
