@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "backgroundTasks.noOutputYet" : {
-      "comment" : "Agent pane: a background command's card while it has printed nothing yet",
+    "settingsPage.tailnet.tryAgain" : {
+      "comment" : "Tailnet card button: start the tailnet node again after a failure.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No output yet"
+            "value" : "Try Again"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا توجد مخرجات بعد"
+            "value" : "إعادة المحاولة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Još nema izlaza"
+            "value" : "Pokušaj ponovo"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Intet output endnu"
+            "value" : "Prøv igen"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Noch keine Ausgabe"
+            "value" : "Erneut versuchen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aún no hay salida"
+            "value" : "Reintentar"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pas encore de sortie"
+            "value" : "Réessayer"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ancora nessun output"
+            "value" : "Riprova"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "まだ出力はありません"
+            "value" : "再試行"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនទាន់មានលទ្ធផលនៅឡើយ"
+            "value" : "ព្យាយាមម្ដងទៀត"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "아직 출력 없음"
+            "value" : "다시 시도"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ingen utdata ennå"
+            "value" : "Prøv igjen"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Brak danych wyjściowych"
+            "value" : "Spróbuj ponownie"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ainda sem saída"
+            "value" : "Tentar novamente"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Вывода пока нет"
+            "value" : "Повторить"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ยังไม่มีเอาต์พุต"
+            "value" : "ลองอีกครั้ง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Henüz çıktı yok"
+            "value" : "Tekrar Dene"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Виводу ще немає"
+            "value" : "Спробувати ще раз"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chưa có đầu ra"
+            "value" : "Thử lại"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "暂无输出"
+            "value" : "重试"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "尚無輸出"
+            "value" : "重試"
           }
         }
       }

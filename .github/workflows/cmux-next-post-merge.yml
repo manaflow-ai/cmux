@@ -518,6 +518,8 @@ jobs:
           GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           MODE: ${{ inputs.mode || 'batch' }}
           BRANCH: ${{ github.ref_name }}
+          # 0: a stuck red whose post-merge revert is open is bisected again anyway (post_merge_batch.py revert_hold_on).
+          POST_MERGE_REVERT_HOLD: ${{ vars.POST_MERGE_REVERT_HOLD }}
           SUITE: ${{ inputs.suite }}
           JOB: ${{ inputs.job }}
           ONLY: ${{ inputs.only }}
