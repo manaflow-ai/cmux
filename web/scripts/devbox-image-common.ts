@@ -185,6 +185,20 @@ export async function startAnsweringVm<V, R>(
     }
   }
 }
+/**
+ * A bake step's budget (detached exec, so no API cap). A step that downloads
+ * (apt, npm, curl, wget) waits on a mirror, not the guest: rebake 46141534980
+ * spent 304 s in `agents` (npm install, usually ~45 s) and died 4 s past the
+ * flat 300 s with every agent installed. Download steps get 900 s; local
+ * steps keep 300 s, so a real hang still fails fast.
+ */
+export const DEVBOX_BAKE_STEP_BUDGET_MS = 300_000;
+export const DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS = 900_000;
+const DOWNLOADING_COMMAND = /\b(?:apt-get\s+(?:update|install)|apt\s+install|npm\s+(?:install|i|ci)\b|curl|wget|pip3?\s+install|uv\s+(?:tool\s+)?(?:install|pip\s+install)|git\s+clone)\b/;
+export function devboxBakeStepBudgetMs(command: string): number {
+  return DOWNLOADING_COMMAND.test(command) ? DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS : DEVBOX_BAKE_STEP_BUDGET_MS;
+}
+
 export const repoRoot = path.resolve(webRoot, "..");
 
 /** The daemon state reservation is inside the existing guest disk, not a VM resize. */
