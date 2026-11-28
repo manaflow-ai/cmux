@@ -71,7 +71,9 @@ jobs:
       contents: read
       actions: read
     outputs:
-      shas: ${{ steps.resolve.outputs.shas }}
+      sha1: ${{ steps.resolve.outputs.sha1 }}
+      sha2: ${{ steps.resolve.outputs.sha2 }}
+      sha3: ${{ steps.resolve.outputs.sha3 }}
       list: ${{ steps.resolve.outputs.list }}
       apis: ${{ steps.resolve.outputs.apis }}
     steps:
@@ -86,7 +88,7 @@ jobs:
         run: |
           python3 -I scripts/ci/mobile_old_phones.py resolve --repo "$GITHUB_REPOSITORY" --count 3 > phones.txt
           cat phones.txt
-          echo "shas=$(awk '{print $1}' phones.txt | paste -sd, -)" >> "$GITHUB_OUTPUT"
+          for i in 1 2 3; do echo "sha$i=$(awk -v n="$i" 'NR==n {print $1}' phones.txt)" >> "$GITHUB_OUTPUT"; done
           echo "list=$(awk '{print $1 ":" $3}' phones.txt | paste -sd' ' -)" >> "$GITHUB_OUTPUT"
           case "$API" in
             staging|prod) echo "apis=[\"$API\"]" >> "$GITHUB_OUTPUT" ;;
@@ -150,22 +152,22 @@ jobs:
       - name: Phone build 1
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ split(needs.phones.outputs.shas, ',')[0] }}
-          path: .old-phones/trees/${{ split(needs.phones.outputs.shas, ',')[0] }}
+          ref: ${{ needs.phones.outputs.sha1 }}
+          path: .old-phones/trees/${{ needs.phones.outputs.sha1 }}
           persist-credentials: false
       - name: Phone build 2
-        if: ${{ split(needs.phones.outputs.shas, ',')[1] != '' }}
+        if: ${{ needs.phones.outputs.sha2 != '' }}
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ split(needs.phones.outputs.shas, ',')[1] }}
-          path: .old-phones/trees/${{ split(needs.phones.outputs.shas, ',')[1] }}
+          ref: ${{ needs.phones.outputs.sha2 }}
+          path: .old-phones/trees/${{ needs.phones.outputs.sha2 }}
           persist-credentials: false
       - name: Phone build 3
-        if: ${{ split(needs.phones.outputs.shas, ',')[2] != '' }}
+        if: ${{ needs.phones.outputs.sha3 != '' }}
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ split(needs.phones.outputs.shas, ',')[2] }}
-          path: .old-phones/trees/${{ split(needs.phones.outputs.shas, ',')[2] }}
+          ref: ${{ needs.phones.outputs.sha3 }}
+          path: .old-phones/trees/${{ needs.phones.outputs.sha3 }}
           persist-credentials: false
 
       - name: Dial through the deployed ${{ matrix.api }} API
