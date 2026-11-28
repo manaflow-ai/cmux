@@ -227,6 +227,11 @@ alloc_env() {
     glibc-notrim) echo "CMUX_MALLOC_QUIET_TRIM=0" ;;
     glibc-thr) echo "GLIBC_TUNABLES=$thr" ;;
     glibc-a4thr) echo "MALLOC_ARENA_MAX=4 GLIBC_TUNABLES=$thr" ;;
+    # The daemon's tokio workers (one per core by default): tokio reads TOKIO_WORKER_THREADS when the
+    # runtime sets no count, as the daemon's does (acpmux cli/entry.rs runtime_with).
+    glibc-w2) echo "TOKIO_WORKER_THREADS=2" ;;
+    glibc-w4) echo "TOKIO_WORKER_THREADS=4" ;;
+    glibc-w8) echo "TOKIO_WORKER_THREADS=8" ;;
     *) echo "infinite-items-linux.sh: unknown glibc arm $1" >&2; exit 2 ;;
   esac
 }

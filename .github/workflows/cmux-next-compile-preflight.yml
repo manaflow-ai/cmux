@@ -103,10 +103,26 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      # The job-level web input skips changes whose paths cannot reach a bundle before allocating a runner.
+      # The caller is independent of the general tier/carry route: unknown diffs and possible web inputs still
+      # reach this live-base check. never-web-check verifies that the ignored paths exclude every bundle input.
+
+      # pr-router.yml passes source_ref: github.sha, the merge commit the checkout above already holds, so the
+      # answer the touched step below reads from web-source is this tree's. Asking it here skips a second checkout of
+      # the same commit on a head that reaches no web bundle: 11-18 s of a 32-61 s no-op run (jobs 140780388922,
+      # 140779890347, 140779782571, 2026-11-27 22Z), the bulk of this job's 1030.7 runner-min in 19-22Z.
+      - name: Does this change reach a web bundle (checkout is the source)
+        id: touched-early
+        if: github.event_name == 'pull_request' && inputs.source_ref != '' && inputs.source_ref == github.sha && !inputs.force_web
+        run: |
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then
+            python3 -I scripts/ci/compile_preflight.py web-touched . HEAD^1 HEAD >> "$GITHUB_OUTPUT"
+          fi
+
       # Keep the current transport/manifest code at the workspace root when building an older base.
       # The source tree owns the bundler and source-key inputs; it need not contain this newer CI helper.
       - name: Checkout the requested bundle source
-        if: inputs.source_ref != ''
+        if: inputs.source_ref != '' && steps.touched-early.outputs.web != 'false'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 6
         with:
@@ -114,12 +130,6 @@ jobs:
           path: web-source
           fetch-depth: 2
           persist-credentials: false
-
-      # Before the caller's path admission, this job ran on every head: 14-15 s of a 40 s no-op run
-      # (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k runner-min/day.
-      # The router now keeps this job for web-bundle inputs and unknown diffs; the callee still has no job-level
-      # if: for an admitted input, so the build verdict remains required (Leo: "de facto, im asking for 99% fewer
-      # minutes of ci time, period.").
 
       # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
       # cmux#51044 passed this job at 06:36Z and landed at 07:03Z, then broke feat-cmux-next: the merge commit above was
@@ -138,8 +148,11 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           FORCE_WEB: ${{ inputs.force_web }}
+          EARLY: ${{ steps.touched-early.outputs.web }}
         run: |
-          if [ "$FORCE_WEB" != true ] && [ "$EVENT_NAME" = pull_request ] && git -C "$WEB_SOURCE_ROOT" rev-parse -q --verify HEAD^2 >/dev/null; then
+          if [ -n "$EARLY" ]; then
+            echo "web=$EARLY" >> "$GITHUB_OUTPUT"
+          elif [ "$FORCE_WEB" != true ] && [ "$EVENT_NAME" = pull_request ] && git -C "$WEB_SOURCE_ROOT" rev-parse -q --verify HEAD^2 >/dev/null; then
             python3 -I scripts/ci/compile_preflight.py web-touched "$WEB_SOURCE_ROOT" HEAD^1 HEAD >> "$GITHUB_OUTPUT"
           else
             # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
@@ -174,14 +187,47 @@ jobs:
       # A live-base validation tree can differ from the fixed tree consumed by browser/size tests.
       # Equal keys share one build. Different keys require separate builds; never relabel their artifacts.
       - name: Compare the live-base web sources with the consumer tree
-        id: live-web
+        id: live-web-key
         if: steps.touched.outputs.web == 'true' && inputs.source_ref != '' && inputs.validate_live_base
         env:
           CONSUMER_KEY: ${{ steps.web-bundle-key.outputs.key }}
         run: |
           key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)
           echo "key=$key" >> "$GITHUB_OUTPUT"
-          if [ "$key" != "$CONSUMER_KEY" ]; then echo build=true >> "$GITHUB_OUTPUT"; fi
+          if [ "$key" != "$CONSUMER_KEY" ]; then echo differs=true >> "$GITHUB_OUTPUT"; fi
+
+      # The live-base sources' build is a validation: an entry under their key means exactly these sources already
+      # built green (a save follows only a passing build), in this pull request's earlier run or as a consumer tree.
+      # The live-base validation rebuilt them anyway: 46 of 305 web bundle build jobs ran it for 94.9 runner-min in
+      # 11-27 22:00Z..11-28 00:08Z, 19 of them (38 min) on a head this pull request had already built. Lookup only:
+      # nothing is downloaded, and the consumer tree's bytes in web-bundles-out stay untouched. The path string is
+      # the consumer lookup's, which the GitHub cache's version hashes (Leo: "de facto, im asking for 99% fewer
+      # minutes of ci time, period.").
+      - name: Look up the live-base web sources' earlier build
+        id: live-web-cache
+        if: steps.live-web-key.outputs.differs == 'true'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.live-web-key.outputs.key }}
+          enableCrossOsArchive: true
+          lookup-only: true
+
+      - name: Does the live-base tree still need a build
+        id: live-web
+        if: steps.live-web-key.outputs.differs == 'true'
+        env:
+          KEY: ${{ steps.live-web-key.outputs.key }}
+          HIT: ${{ steps.live-web-cache.outputs.cache-hit }}
+        run: |
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          if [ "$HIT" = true ]; then
+            echo "the live-base web sources ($KEY) already built green: validation reused" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo build=true >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Look up the web bundles in R2
         id: web-bundle-r2
@@ -301,16 +347,31 @@ jobs:
       # The build passed: keep it under its source key (the key and layout cmux-next.yml's web-bundles job saves), so
       # this pull request's next head with the same web sources passes on the lookup above. A pull request's save is
       # scoped to its own ref; R2 stays written by the feat-cmux-next push alone.
+      # When the live-base sources differed and built, this one save keeps those instead: the next run's consumer
+      # merge and its live base are both cut from a newer tip, so they meet this run's live-base sources, not its
+      # older consumer merge, and the live-base lookup above then skips the validation build. One save per run, as
+      # before (tests/ci_per_ref_cache_saves_baseline.txt is not grown). The live bytes sit in the lookup's path
+      # string (the GitHub cache's version hashes it) for the save alone and move back right after it.
+      - name: Put the live-base web bundles where the cache save reads
+        if: steps.live-web.outputs.build == 'true'
+        run: |
+          mv "$RUNNER_TEMP/web-bundles-out" "$RUNNER_TEMP/consumer-web-bundles-out"
+          mv "$RUNNER_TEMP/live-web-bundles-out" "$RUNNER_TEMP/web-bundles-out"
       - name: Cache the web bundles under this source key
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') || steps.live-web.outputs.build == 'true')
         timeout-minutes: 3
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           # The same path string as the lookup: the GitHub cache's version hashes it.
           path: ${{ runner.temp }}/web-bundles-out
-          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          key: cmux-next-web-bundles-v1-${{ steps.live-web.outputs.build == 'true' && steps.live-web.outputs.key || steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
+      - name: Put the consumer tree's web bundles back
+        if: steps.live-web.outputs.build == 'true'
+        run: |
+          mv "$RUNNER_TEMP/web-bundles-out" "$RUNNER_TEMP/live-web-bundles-out"
+          mv "$RUNNER_TEMP/consumer-web-bundles-out" "$RUNNER_TEMP/web-bundles-out"
 
       - name: Bind the artifact to its source key and output bytes
         if: steps.touched.outputs.web == 'true'
