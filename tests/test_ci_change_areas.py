@@ -438,6 +438,9 @@ def test_unrelated_app_changes_skip_the_two_macos_hang_diagnostics_jobs() -> Non
 def test_hang_diagnostics_paths_cover_every_file_its_jobs_read() -> None:
     workflow = HANG_WORKFLOW.read_text(encoding="utf-8")
     jobs = workflow.partition("\njobs:\n")[2]
+    # Comment lines name files the jobs do not read (a job's comment may
+    # point at the ci/steps.toml step that runs it on pull requests).
+    jobs = "\n".join(line for line in jobs.splitlines() if not line.lstrip().startswith("#"))
     # Keeps the filter honest as the jobs change: every repository file the job
     # steps name must be routed, and every routed pattern must match something.
     references = {
@@ -468,13 +471,12 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
     release = workflow_job_block("release-build", MACOS_WORKFLOW)
     status = workflow_job_block("macos-status", MACOS_WORKFLOW)
 
+    # Own-branch Linux jobs take the one cmux-linux label (#48644).
     assert (
         "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
-        " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
-        " && 'blacksmith-4vcpu-ubuntu-2404'"
-        " || fromJSON(vars.RUNNER_POOLS).linux }}"
+        " && 'ubuntu-24.04' || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
@@ -663,9 +665,13 @@ def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
     for want in (
         "schemas/settings/settings-schema.json",
         "web/data/model-catalog/snapshot.json",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
     ):
         assert want in outside, want
+    # Catalogs are one file per key under NAME.xcstrings.d since #56351.
+    assert any(
+        path.startswith("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/")
+        for path in outside
+    )
     assert any(path.startswith("release-notes/next/highlights/") for path in outside)
     unrouted = [
         path for path in outside
@@ -679,9 +685,11 @@ def test_swift_and_unread_catalog_edits_do_not_run_the_web_checks() -> None:
     # reads, so Swift work and its own strings stay off the web lane.
     key = _web_bundle_key()
     read = set(key.gen_strings_catalogs(str(ROOT)) or ())
-    assert "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings" in read
+    # Catalogs are one file per key under NAME.xcstrings.d since #56351.
+    assert "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d" in read
     unread = [
-        path for path in key.git_files(str(ROOT), [key.CATALOG_GLOB]) if path not in read
+        path for path in key.git_files(str(ROOT), [key.CATALOG_GLOB])
+        if path not in read and not any(path.startswith(catalog + "/") for catalog in read)
     ]
     assert unread, "every CmuxNext catalog is read by a web page; pick another unread path"
     for path in (
@@ -859,10 +867,10 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
-    # Secretless Linux jobs read the runner pool (#30878), not a fixed size.
+    # Own-branch Linux jobs take the one cmux-linux label (#48644).
     cells = workflow_jobs.runs_on_cells(admission)
     assert cells is not None, "remote-daemon-admission: runs-on matrix does not resolve"
-    assert "fromJSON(vars.RUNNER_POOLS).linux" in "\n".join(cells)
+    assert "cmux-linux" in "\n".join(cells)
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -965,11 +973,24 @@ def test_ios_only_skips_main_macos_ci() -> None:
 
 
 def test_ios_packages_keep_macos_dependency_coverage() -> None:
+    # #50754 dropped the last Packages/iOS edge from the desktop graph, so an
+    # iOS package edit no longer compiles the macOS app. A package the
+    # desktop closure does reach still runs macOS (patched closure below).
     assert_areas(
         ["Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/MobileTerminalLaneConnection.swift"],
-        macos=True,
+        macos=False,
         web=False,
     )
+    original = module.load_macos_ios_package_closure
+    module.load_macos_ios_package_closure = lambda: frozenset({"Packages/iOS/CmuxMobileRPC"})
+    try:
+        assert_areas(
+            ["Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/MobileTerminalLaneConnection.swift"],
+            macos=True,
+            web=False,
+        )
+    finally:
+        module.load_macos_ios_package_closure = original
 
 
 def test_pbx_list_ids_accepts_bare_and_commented_references() -> None:
@@ -1002,15 +1023,9 @@ def test_pbx_list_ids_rejects_present_malformed_optional_lists() -> None:
 
 
 def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
-    assert module.macos_ios_package_closure(ROOT) == frozenset(
-        {
-            "Packages/iOS/CmuxMobileRPC",
-            "Packages/iOS/CmuxMobileSSH",
-            "Packages/iOS/CmuxMobileShellModel",
-            "Packages/iOS/CmuxMobileSupport",
-            "Packages/iOS/CmuxMobileTunnel",
-        }
-    )
+    # #50754 removed CmuxNext's test-only CmuxMobileRPC/CmuxMobileSSH path
+    # dependencies; no macOS or Shared package names Packages/iOS since.
+    assert module.macos_ios_package_closure(ROOT) == frozenset()
 
 
 def test_ios_package_tests_skip_macos_compile_but_keep_package_lane() -> None:
@@ -1034,13 +1049,21 @@ def test_ios_package_routing_follows_desktop_dependency_closure() -> None:
         "CmuxMobileSupport",
         "CmuxMobileTunnel",
     )
-    for package in mac_relevant:
-        path = f"Packages/iOS/{package}/Sources/{package}/Probe.swift"
-        actual = module.classify_files([path])
-        assert actual.macos is True, (path, actual)
-        assert actual.release_build is True, (path, actual)
+    original = module.load_macos_ios_package_closure
+    module.load_macos_ios_package_closure = lambda: frozenset(
+        f"Packages/iOS/{package}" for package in mac_relevant
+    )
+    try:
+        for package in mac_relevant:
+            path = f"Packages/iOS/{package}/Sources/{package}/Probe.swift"
+            actual = module.classify_files([path])
+            assert actual.macos is True, (path, actual)
+            assert actual.release_build is True, (path, actual)
+    finally:
+        module.load_macos_ios_package_closure = original
 
-    for package in ("CmuxMobileAnalytics", "CmuxMobileShellUI", "CmuxMobileDiagnostics"):
+    # The real desktop graph reaches no iOS package (#50754).
+    for package in mac_relevant + ("CmuxMobileAnalytics", "CmuxMobileShellUI", "CmuxMobileDiagnostics"):
         path = f"Packages/iOS/{package}/Sources/{package}/Probe.swift"
         actual = module.classify_files([path])
         assert actual.macos is False, (path, actual)
