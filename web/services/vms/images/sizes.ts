@@ -74,3 +74,11 @@ export function vcpusByMemoryMb(memoryOptionsMb: readonly number[]): Record<stri
     return size ? [[String(memoryMb), size.cpu]] : [];
   }));
 }
+
+/** Disk per offered memory size, keyed by the JSON object's memory string. */
+export function diskByMemoryMb(memoryOptionsMb: readonly number[]): Record<string, number> {
+  return Object.fromEntries(memoryOptionsMb.flatMap((memoryMb) => {
+    const size = pickVmImageSizeForMemory(memoryMb);
+    return size ? [[String(memoryMb), size.storageMb]] : [];
+  }));
+}

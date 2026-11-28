@@ -247,6 +247,7 @@ struct CloudWorkspaceCreationRevealTests {
         weak var closed: TabManager?
         do {
             let app = AppDelegate()
+            AppDelegate.shared = app
             app.cloudWorkspaceCoordinator = coordinator
             app.cloudWorkspaceOperationController = operations
             let manager = TabManager(createInitialWorkspace: false, cloudWorkspaceSelection: coordinator.makeSelectionState())

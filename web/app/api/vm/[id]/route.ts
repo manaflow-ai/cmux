@@ -14,7 +14,7 @@ import { setSpanAttributes } from "../../../../services/telemetry";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { destroyVm, getVm, renameVm } from "../../../../services/vms/workflows";
 import { vmCapabilitiesFor } from "../../../../services/vms/drivers";
-import { vmImageKindFor } from "../../../../services/vms/images/resolver";
+import { vmImageKindFor, vmRuntimeMetadataFor } from "../../../../services/vms/images/resolver";
 import { PublicationNotFoundError } from "../../../../services/vm-publications/repository";
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
@@ -59,6 +59,7 @@ export async function GET(
         image: vm.image,
         imageVersion: vm.imageVersion,
         kind: vmImageKindFor(vm.provider, vm.image),
+        ...vmRuntimeMetadataFor(vm.provider, vm.image),
         capabilities: vmCapabilitiesFor(vm.provider),
         status: vm.status,
         createdAt: vm.createdAt,
