@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { Button } from "../../../ui/Button";
+import { useConnectionQuiet } from "../../../ui/lasting";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
@@ -412,8 +413,15 @@ export function ModelRow({
   checking?: boolean;
   children?: ReactNode;
 }) {
+  // The spinner shows at once; its "Connecting" words wait the shared bound (CONNECTION_QUIET_MS), as every
+  // connection state does: most connects land under it.
+  const connectingSaid = useConnectionQuiet(!!loading && !checking);
   const iconLabel = loading
-    ? t(checking ? "settingsWindow.models.status.checking" : "settingsWindow.models.status.connecting")
+    ? checking
+      ? t("settingsWindow.models.status.checking")
+      : connectingSaid
+        ? t("settingsWindow.models.status.connecting")
+        : undefined
     : warning;
   return (
     <div className="row-main">

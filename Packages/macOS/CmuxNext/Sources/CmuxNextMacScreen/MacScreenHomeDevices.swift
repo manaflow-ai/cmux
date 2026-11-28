@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
+import CmuxNextWakeups
 import Foundation
+import Observation
 
 /// What the home page reads of the device hub: the hub (while signed in),
 /// this Mac as a host, and whether the build has a hub at all.
@@ -139,12 +141,14 @@ struct MacScreenHomeSnapshot: Equatable {
                 // hub was unreachable (run 45954248647: socket connect timeouts, no This Mac section).
                 let registered = hub.thisDevice != nil || hub.status == .ready
                 let hubHost = source.hubHost
+                // Read every build, so a join that ends (registered) ends the hold's stretch too.
+                let joinLasted = home.hubJoinQuiet.lasted(!registered && Self.joining(hub.status))
                 sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy || !registered,
                                   screenRecordingGranted: home.host.screenRecordingGranted,
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: registered ? nil : Self.hubNote(hub.status, joinLasted: joinLasted))
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -168,12 +172,42 @@ struct MacScreenHomeSnapshot: Equatable {
         }
     }
 
-    /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
-    static func hubNote(_ status: DeviceHub.Status) -> String {
+    /// What This Mac says while this device is not on the hub yet: why it could not register, at once; connecting,
+    /// only once the join has lasted the shared bound (`joinLasted`, ``HubJoinQuiet``), and nothing before it.
+    static func hubNote(_ status: DeviceHub.Status, joinLasted: Bool) -> String? {
         if case let .failed(reason) = status {
             return L.t("macScreen.home.thisMacHubFailed", "This Mac could not reach the device hub: \(reason). cmux keeps trying.")
         }
+        guard joinLasted else { return nil }
         return L.t("macScreen.home.thisMacJoining", "Connecting this Mac to the device hub…")
+    }
+
+    /// This Mac is on its way onto the hub (not failed): a state that ends on its own.
+    static func joining(_ status: DeviceHub.Status) -> Bool {
+        if case .failed = status { return false }
+        return true
+    }
+
+    /// Holds This Mac's "Connecting this Mac to the device hub…" back until the join has lasted the shared bound
+    /// (``QuietHold/connectionDelay``, `schemas/notice-timing` `connectionQuietMs`): most joins land under it, so
+    /// the switch waits without a word (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f***
+    /// up and load faster"). A failed join says why at once. One ``QuietHold`` per page.
+    @MainActor @Observable
+    final class HubJoinQuiet {
+        /// Bumped when the hold ends: the page's snapshot reads it and draws the note.
+        private var revealed = 0
+        @ObservationIgnored private let hold: QuietHold
+
+        init(clock: any Clock<Duration> = ContinuousClock()) {
+            hold = QuietHold(owner: "mac-screen-home-join", delay: QuietHold.connectionDelay, clock: clock)
+        }
+
+        /// Whether `joining` has lasted the bound now (false once it ends).
+        func lasted(_ joining: Bool) -> Bool {
+            _ = revealed
+            hold.update(joining) { [weak self] in self?.revealed &+= 1 }
+            return joining && !hold.held
+        }
     }
 
     /// One hub device as the page shows it.
