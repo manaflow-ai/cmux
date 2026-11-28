@@ -92,6 +92,8 @@ const render = async (
 try {
   test("an inline image is the sent thumbnail: the whole image in its own shape", async () => {
     clearImageEntries();
+    // Strip is the default view since #55723; the inline view draws the image in the text.
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
     await render(
       prompt("inline-image", "look at this", [
         { kind: "text", text: "look " },

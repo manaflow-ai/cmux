@@ -98,10 +98,10 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
     const card = document.querySelector(".acpmux-session-hover-card")!;
     const style = getComputedStyle(card);
     // What the glass tokens resolve to on the card itself (its own overrides included): the tint,
-    // and the glass rim with the hover card elevation.
+    // and the glass rim with the hover card elevation, then the floating glass's contrast edge (#59610).
     const probe = document.createElement("div");
     probe.style.background = "var(--glass-tint)";
-    probe.style.boxShadow = "var(--glass-rim-shadow), var(--elevation-2)";
+    probe.style.boxShadow = "var(--glass-rim-shadow), var(--elevation-2), var(--glass-contrast-edge)";
     card.append(probe);
     const tint = getComputedStyle(probe).backgroundColor;
     const glassShadow = getComputedStyle(probe).boxShadow;

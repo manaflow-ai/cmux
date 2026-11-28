@@ -38,21 +38,23 @@ const BREAKDOWN = {
   maxTokens: 400_000,
 };
 
-test("used categories come largest first, then the buffer, the deferred ones and the free space", () => {
+// Claude Code desktop's order (#53132; Lucas, 2026-11-23: "make it more identical to claude"): the
+// free space closes the window's share, the deferred ones follow it.
+test("used categories come largest first, then the buffer, the free space and the deferred ones", () => {
   const rows = contextBreakdown(BREAKDOWN)!.rows;
   expect(rows.map((row) => row.name)).toEqual([
     "Messages",
     "Memory files",
     "System prompt",
     "Autocompact buffer",
-    "System tools (deferred)",
     "Free space",
+    "System tools (deferred)",
   ]);
   expect(rows.map((row) => row.tone)).toEqual([0, 1, 2, undefined, undefined, undefined]);
   expect(rows[0]!.share).toBeCloseTo(0.4245);
   // A deferred category takes no room until it loads: no share.
-  expect(rows[4]!.share).toBeUndefined();
-  expect(rows[5]!.share).toBeCloseTo(0.36675);
+  expect(rows[5]!.share).toBeUndefined();
+  expect(rows[4]!.share).toBeCloseTo(0.36675);
 });
 
 test("the folds name each MCP tool without its server prefix, each memory file by its name", () => {
