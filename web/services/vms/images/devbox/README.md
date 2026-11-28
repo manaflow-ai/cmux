@@ -109,7 +109,9 @@ manifest test, never for `promote`; the promotion that bakes those sources delet
 
 ### Rebake workflow
 
-`.github/workflows/cloud-devbox-image-rebake.yml` runs when a commit that touches an image input
+Retired on `feat-cmux-next` (ARCHITECTURE-2026-11 M21): NEXT boots only cmux-vm images
+(`images/cmux-vm/`, `VM_BOOT_IMAGES`), so nothing there rebakes the devbox. It last ran from
+`.github/workflows/cloud-devbox-image-rebake.yml` (git history, `258090d975ae`), which ran when a commit that touches an image input
 (`REBAKE_INPUTS` in `web/scripts/devbox-rebake.ts`: every file in the bake's import closure and
 every file it ships; the test keeps the workflow's paths equal to it) lands on `feat-cmux-next`,
 and on manual dispatch from `feat-cmux-next` (`force`, `keep`; any other ref does nothing). It bakes when the inputs differ from the ones the last
