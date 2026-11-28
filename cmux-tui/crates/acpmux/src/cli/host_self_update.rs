@@ -1171,7 +1171,8 @@ pub(crate) async fn self_update(
         return skipped(channel, "held", &why, None, json_out);
     }
     // The channel's signed patch bundle for this build, kept only while the daemon answers
-    // (RFD 0224 phase 5); held by the same kill switch. It never fails the update.
+    // (RFD 0224 phase 5); held by the same kill switch. It never fails the update; `--json`
+    // carries it as `patchBundle`.
     let base = installed_build(&paths.installed);
     let bundle_state = bundle_tick::state(&paths.home, paths.target);
     let installed = paths.installed.clone();
@@ -1278,6 +1279,7 @@ pub(crate) async fn self_update(
             "cmuxRd": plan.rd.json(),
             "cmuxTui": tui.json(),
             "configRing": ring.json(channel),
+            "patchBundle": bundle.json(),
         }));
     } else {
         if up.outcome.failed() {
