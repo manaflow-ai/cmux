@@ -411,10 +411,13 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
   proto.getBoundingClientRect = function (this: HTMLElement) {
     const rect = (top: number, height: number) =>
       ({ x: 0, y: top, top, left: 0, right: 288, bottom: top + height, width: 288, height, toJSON() {} }) as DOMRect;
-    if (this === body) return rect(0, BODY);
+    // The body by its class, not its ref: the list's first layout pass measures its rows before React sets the
+    // ref of the body around it.
+    if (this.classList.contains("acpmux-summary-card__body")) return rect(0, BODY);
     const list = this.parentElement;
     // A row sits under the rows and boxes before it (a box as tall as its height, none while hidden).
-    if (body && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list") && body.contains(list)) {
+    const scroller = list?.closest<HTMLElement>(".acpmux-summary-card__body");
+    if (scroller && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list")) {
       const tall = (node: Element) => {
         const style = (node as HTMLElement).style;
         if (!node.hasAttribute("data-rows-rest")) return ROW;
@@ -422,7 +425,7 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
       };
       let top = 0;
       for (let at = this.previousElementSibling; at; at = at.previousElementSibling) top += tall(at);
-      return rect(top - body.scrollTop, tall(this));
+      return rect(top - scroller.scrollTop, tall(this));
     }
     return laidOut.call(this);
   };
