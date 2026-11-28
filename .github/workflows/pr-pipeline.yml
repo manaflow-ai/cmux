@@ -97,11 +97,11 @@ jobs:
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    # Budget from ci/steps.toml: setup 10 min + tools 3 min + 64 shared steps
-    # in 32 waves at 15 min + 552 min of alone steps (including the roaming cold
-    # build's 20 min) = 1045 min. test_the_job_timeout_covers_setup_and_every_wave
+    # Budget from ci/steps.toml: setup 10 min + tools 3 min + 65 shared steps
+    # in 33 waves at 15 min + 552 min of alone steps (including the roaming cold
+    # build's 20 min) = 1060 min. test_the_job_timeout_covers_setup_and_every_wave
     # checks that the job covers every step instead of cutting off a slow runner.
-    timeout-minutes: 1045
+    timeout-minutes: 1060
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
