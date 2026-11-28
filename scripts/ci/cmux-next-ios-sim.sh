@@ -2550,7 +2550,18 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
   cp "$work/mac-build.log" "$out/mac-build.log"
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
-  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  if [[ $status -ne 0 || ! -d "$mac_app" ]]; then
+    # xcodebuild's failing step is often thousands of lines above its "BUILD FAILED" tail (run
+    # 46162159864: the tail named only plug-in steps), and the log stays on the runner, so print
+    # every compiler/tool error line first, then the tail.
+    echo "== Mac app build errors (reload.sh exit $status):"
+    grep -n -E '(^|[[:space:]:])(fatal )?error:|^error\[|Command .* failed with a nonzero exit code' "$work/mac-build.log" \
+      | grep -v 'tagged cmux NEXT Mac app build failed' | head -80 || true
+    echo "== last 60 lines:"
+    tail -60 "$work/mac-build.log"
+    echo "error: tagged cmux NEXT Mac app build failed" >&2
+    exit 1
+  fi
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
