@@ -34,6 +34,7 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 use crate::{Mux, ResourceTarget};
 
+pub(super) mod github;
 mod send;
 #[cfg(test)]
 #[path = "diff_comments/send_tests.rs"]
@@ -429,6 +430,23 @@ impl Store {
             }
             file.review = Some(review);
             self.write(root, &file)
+        })
+    }
+
+    /// Keeps a pull request's GitHub review comments as `root`'s threads
+    /// (`github::import`), once each however often it runs.
+    pub(super) fn import_github(
+        &self,
+        root: &str,
+        comments: &[Value],
+    ) -> io::Result<github::Imported> {
+        self.exclusive(root, || {
+            let mut file = self.read(root)?;
+            let imported = github::import(&mut file, comments, &rfc3339(now_ms()));
+            if imported != github::Imported::default() {
+                self.write(root, &file)?;
+            }
+            Ok(imported)
         })
     }
 

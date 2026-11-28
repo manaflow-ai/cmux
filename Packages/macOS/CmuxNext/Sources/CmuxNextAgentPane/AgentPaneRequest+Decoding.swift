@@ -432,6 +432,9 @@ extension AgentPaneRequest {
                 var pick = AgentPaneRememberedPick(agent: agent, model: model, folder: folder)
                 // A pick for a Cloud machine: Cloud's own last pick, apart from this Mac's.
                 pick.forCloud = params?["place"] as? String == "cloud"
+                if pick.forCloud {
+                    pick.effort = (params?["effort"] as? String).flatMap { !$0.isEmpty && $0.count <= 128 ? $0 : nil }
+                }
                 self = .rememberNewTab(pick)
             } else if let started = params?["started"] as? String, started.hasPrefix("/"), started.count <= 4096 {
                 // The project of a chat the person picked and started (a page choice like the agent pick).
