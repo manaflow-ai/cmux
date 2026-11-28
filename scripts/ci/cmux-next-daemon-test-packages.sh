@@ -54,6 +54,27 @@ declared_test() {
   (( gathers == 1 )) && printf '%s\n' "$gather"
   return 0
 }
+# `--lib` for a member with a lib target, `--bins` for one with a bin target: cargo refuses `--lib` on a bin-only
+# package ("no library targets found in package `cmux-tui`"), and #60340 moved cmux-tui's lib into cmux-tui-lib, so
+# every pull request touching cmux-tui failed the cmux-next-tui step (job 141118493284, cmux#65372).
+# A bin-only member whose sources another member builds as its [lib] (cmux-tui-lib's `path = "../cmux-tui/src/..."`)
+# has its unit tests in that member: name it too, with `--lib`.
+src_targets() {
+  local dir="$1" other owner
+  if [[ -f "$dir/src/lib.rs" ]] || grep -q '^\[lib\]' "$dir/Cargo.toml"; then
+    targets+=("--lib")
+  else
+    for other in "${dir%/*}"/*/Cargo.toml; do
+      [[ "$other" == "$dir/Cargo.toml" ]] && continue
+      awk '/^\[lib\]/ { inside = 1; next } /^\[/ { inside = 0 } inside && /^path *=/' "$other" \
+        | grep -qF "\"../${dir##*/}/src/" || continue
+      owner="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$other" | head -n 1)"
+      [[ -n "$owner" ]] && { packages+=("-p" "$owner"); targets+=("--lib"); }
+    done
+  fi
+  if [[ -f "$dir/src/main.rs" || -d "$dir/src/bin" ]] || grep -q '^\[\[bin\]\]' "$dir/Cargo.toml"; then targets+=("--bins"); fi
+  return 0
+}
 packages=()
 targets=()
 placed=1
@@ -80,7 +101,7 @@ while IFS= read -r file; do
   # A member that names its own test targets: place the file through its [[test]] entries.
   if grep -qE '^autotests *= *false' "$dir/Cargo.toml"; then
     case "$rel" in
-      src/*) targets+=("--lib" "--bins"); continue ;;
+      src/*) src_targets "$dir"; continue ;;
       tests/*) ;;
       *) placed=0; continue ;;
     esac
@@ -89,7 +110,7 @@ while IFS= read -r file; do
     continue
   fi
   case "$rel" in
-    src/*) targets+=("--lib" "--bins") ;;
+    src/*) src_targets "$dir" ;;
     tests/*)
       test_name="${rel#tests/}"; test_name="${test_name%%/*}"; test_name="${test_name%.rs}"
       if [[ -f "$dir/tests/$test_name.rs" || -f "$dir/tests/$test_name/main.rs" ]]; then
