@@ -696,10 +696,10 @@ impl Health {
     pub fn tick(&mut self, now: u64) -> Vec<Action> {
         // The host's timer came late: the host itself (its main thread, the Mac) ran nothing for that
         // long, so no beat could reach the model either. That time is the observer's, not the pages'.
-        if let Some(late) = self.next_tick_ms().map(|due| now.saturating_sub(due)) {
-            if late >= policy::OBSERVER_LATE_MS {
-                self.forgive(late, now);
-            }
+        if let Some(late) = self.next_tick_ms().map(|due| now.saturating_sub(due))
+            && late >= policy::OBSERVER_LATE_MS
+        {
+            self.forgive(late, now);
         }
         let mut due = Vec::new();
         while let Some(&Reverse((deadline, generation, slot))) = self.heap.peek() {
