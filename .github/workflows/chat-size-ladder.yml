@@ -141,9 +141,19 @@ jobs:
           CARGO_TARGET_DIR: ${{ github.workspace }}/cmux-tui/target
           FAST_CHECKS_OUT: ${{ runner.temp }}/chat-size/head
           SIZES: ${{ inputs.sizes || '1M,1G' }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
+          # Cargo names a path crate by its place in the workspace, so the base's crates and the head's share one
+          # fingerprint in this target folder, and the base built them after the head was checked out: by mtime, a
+          # crate the change edited looks fresh and the head would link the base's copy (#60915: acpmux could not
+          # find a function its PR added to cmux-tui-hooks). Make the change's files newer than the base's build.
+          if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git diff --name-only -z --diff-filter=d "$BASE_SHA" HEAD -- cmux-tui | xargs -0 -r touch
+          else
+            git ls-files -z cmux-tui | xargs -0 -r touch
+          fi
           mkdir -p "$FAST_CHECKS_OUT"
           bash scripts/measure/chat-size-sweep.sh "$SIZES" > "$FAST_CHECKS_OUT/run.out" 2>&1 || {
             code=$?; tail -n 80 "$FAST_CHECKS_OUT/run.out"; exit "$code"; }
