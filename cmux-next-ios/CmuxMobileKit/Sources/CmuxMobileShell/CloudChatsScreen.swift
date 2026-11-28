@@ -401,7 +401,8 @@ private struct CloudMachineChatsScreen: View {
                         // Back from GitHub, the start runs again.
                         GitHubSignInCard(need: need) {
                             gitHubNeed = nil
-                            startChat()
+                            // New Task's chat keeps its first prompt through the sign-in.
+                            if firstPrompt != nil, !startedFirst { startFirst() } else { startChat() }
                         }
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
@@ -578,7 +579,13 @@ private struct CloudMachineChatsScreen: View {
                 onFirstStarted()
                 sendFirst()
                 selectedSession = session
+                gitHubNeed = nil
             } catch {
+                // Same Sign in with GitHub card as a plain New Chat start.
+                if let need = (error as? CloudChatStartError)?.github {
+                    gitHubNeed = need
+                    return
+                }
                 startError = (error as? CloudChatStartError)?.message ?? "Try again."
                 startFailed = true
             }
