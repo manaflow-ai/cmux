@@ -1718,7 +1718,7 @@ def test_cmux_next_daemon_tests_take_linux_and_the_mac_shadow_never_the_promote_
     assert len(daemon_cells) == 1, daemon_cells
     assert daemon_cells[0].startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), daemon_cells
     assert daemon_cells[0].endswith("|| 'cmux-linux' }}"), daemon_cells
-    assert set(re.findall(r"'([a-z0-9-]+)'", daemon_cells[0])) - {"manaflow-ai"} == {
+    assert set(re.findall(r"'([a-z0-9.-]+)'", daemon_cells[0])) - {"manaflow-ai"} == {
         "ubuntu-24.04", "cmux-gcp-nightly-x64", "cmux-linux"}, daemon_cells
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
