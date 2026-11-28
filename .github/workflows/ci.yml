@@ -878,8 +878,8 @@ jobs:
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID || vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ vars.CMUX_BOT_APP_ID != '' && secrets.CMUX_BOT_APP_KEY || secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -893,8 +893,8 @@ jobs:
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID || vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ vars.CMUX_BOT_APP_ID != '' && secrets.CMUX_BOT_APP_KEY || secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
       # The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
@@ -1209,8 +1209,8 @@ jobs:
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID || vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ vars.CMUX_BOT_APP_ID != '' && secrets.CMUX_BOT_APP_KEY || secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
           permission-pull-requests: read
 
