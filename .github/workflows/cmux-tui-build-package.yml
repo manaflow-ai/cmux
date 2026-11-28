@@ -214,7 +214,11 @@ jobs:
           # memory.max 14 GiB (hq#36694, 2026-11-28 11:58Z) the acpmux lib's rustc alone was SIGKILLed by the
           # kernel on both musl legs, every attempt, so no cmux-tui tree published (cmux-tui-artifacts runs
           # 46161165035 and 46161772976). Attempt 2 already moved them there (linux_retry_runner).
-          LINUX_FAT_RUNNER: ${{ github.repository_owner == 'manaflow-ai' && inputs.nightly_runner && inputs.lto != 'thin' && 'cmux-gcp-nightly-jit-x64' || '' }}
+          # The Cloud machine channel cargo seed's thin legs (lto thin, feat-cmux-next pushes) go there too: on a slot
+          # the acpmux lib's rustc alone still lost to the 14 GiB cap at CARGO_BUILD_JOBS=1, nothing else running
+          # (cmux-machine-channel-cargo-seed run 46176740958, aarch64 job 141077770866, OOM rerun 19:03-19:19Z),
+          # so neither the giant lock (#65281) nor a lone rerun fits it in a slot.
+          LINUX_FAT_RUNNER: ${{ github.repository_owner == 'manaflow-ai' && (inputs.nightly_runner && inputs.lto != 'thin' || inputs.lto == 'thin' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || '' }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_arm64) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
           LTO: ${{ inputs.lto }}
