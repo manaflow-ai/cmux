@@ -29,6 +29,8 @@ REGISTERED_ELSEWHERE = {
     "ios-review-gate.yml": "push trigger on feat-cmux-next",
     # Registered 2026-10-22 by an earlier run on feat-cmux-next.
     "cmux-next-perf-budgets.yml": "registered by a feat-cmux-next run on 2026-10-22",
+    # feat-cmux-next's push trigger (images/cmux-vm/**) runs it there; cloud-vm-image-roll-catch-up.yml dispatches it.
+    "cloud-vm-image-roll.yml": "push trigger on feat-cmux-next",
 }
 
 # The ways a workflow names the workflow it starts: github-script's
