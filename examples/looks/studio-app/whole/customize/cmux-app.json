@@ -22,7 +22,8 @@
       "title": "Project picker",
       "symbol": "folder",
       "options": {
-        "defaultRegion": "top"
+        "defaultRegion": "top",
+        "showsTitle": false
       }
     },
     "cmux.session.info.section/1": {

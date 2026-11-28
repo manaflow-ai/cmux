@@ -115,6 +115,9 @@ pub(super) fn sections(package: &Package) -> Vec<Section> {
             // The scene provider resolves the current localized manifest title.
             // A person can still rename the document section after placement.
             section.max_rows = options.get("maxRows").and_then(Value::as_i64);
+            // `showsTitle: false`: the section draws no header (its own view names it).
+            section.shows_title =
+                options.get("showsTitle").and_then(Value::as_bool).unwrap_or(true);
             section
         })
         .collect()

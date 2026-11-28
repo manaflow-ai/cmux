@@ -120,3 +120,11 @@ fn a_repeated_section_id_gives_one_section() {
     assert_eq!(ids.len(), 7);
     assert!(sections.iter().all(|s| s.region == Region::Bottom), "the first entry wins");
 }
+
+#[test]
+fn shows_title_option_reaches_the_placed_section() {
+    let mut headerless = package();
+    headerless.manifest["implements"]["cmux.section/1"]["options"]["showsTitle"] = json!(false);
+    assert!(!sections(&headerless)[0].shows_title);
+    assert!(sections(&package())[0].shows_title, "a section draws its header unless it opts out");
+}

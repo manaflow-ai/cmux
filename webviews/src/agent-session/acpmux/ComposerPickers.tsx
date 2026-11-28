@@ -1497,7 +1497,13 @@ export function ComposerPickers({
               : undefined
           }
           usage={usageNote}
-          quick={reasoningMenu && (held || switching) ? { ...quick, effort: undefined } : quick}
+          // Studio's look already draws the effort as its own chip (studioEffort below), so a profile's
+          // separate reasoning menu would draw a second one beside it ("Medium Medium").
+          quick={
+            reasoningMenu && (held || switching || (reasoningMenu === "separate" && studioEffort))
+              ? { ...quick, effort: undefined }
+              : quick
+          }
           reasoningMenu={reasoningMenu}
           {...(held
             ? heldDetail
