@@ -20,7 +20,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-spec.yml"
-SKIP = ("(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
+SKIP = ("(github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/'))"
         " || vars.SIMS_ON_PULL_REQUESTS == 'on')")
 JOBS = ("acpmux-sim", "carrier-sim")
 
@@ -70,7 +70,8 @@ class SimsPostMerge(unittest.TestCase):
 
     def test_a_push_never_reads_the_skip(self):
         self.assertTrue(SKIP.startswith("(github.event_name != 'pull_request' ||"))
-        self.assertTrue(re.search(r"!startsWith\(github\.event\.pull_request\.base\.ref, 'feat-cmux-next'\)", SKIP))
+        self.assertTrue(re.search(r"!\(startsWith\(github\.event\.pull_request\.base\.ref, 'feat-cmux-next'\)"
+                                  r" \|\| startsWith\(github\.event\.pull_request\.base\.ref, 'lane/'\)\)", SKIP))
 
 
 if __name__ == "__main__":
