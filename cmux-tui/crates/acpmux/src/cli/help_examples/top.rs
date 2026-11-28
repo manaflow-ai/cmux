@@ -26,6 +26,23 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "audit-export",
+        &[
+            (
+                "Ship the whole audit log to a bucket",
+                "acpmux audit-export | aws s3 cp - s3://org-audit/acpmux.jsonl",
+            ),
+            (
+                "Check the hash chain, then export what came after the last run",
+                "acpmux audit-export --verify --cursor 4120",
+            ),
+            (
+                "One session's entries since a time (Unix ms)",
+                "acpmux audit-export --session api-review --since 1795800000000",
+            ),
+        ],
+    ),
+    (
         "unarchive",
         &[
             ("Bring a chat back to the lists", "acpmux unarchive api-review"),

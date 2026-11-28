@@ -7,6 +7,7 @@
 pub mod app_bridge;
 pub mod app_open;
 pub(crate) mod archive;
+pub(crate) mod audit_export;
 pub mod beads;
 pub mod bg;
 pub(crate) use crate::bounded_child;

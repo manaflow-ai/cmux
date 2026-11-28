@@ -23,6 +23,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::TagCmd { .. }
             | Command::UnsettleCmd { .. }
             | Command::Archive { .. }
+            | Command::AuditExport(..)
             | Command::Unarchive { .. }
             | Command::RulesCmd { .. }
             | Command::Compare { .. }
@@ -184,6 +185,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Archive { sessions } => {
             crate::cli::archive::run(connect(true).await?, sessions, true, json_out).await
+        }
+        Command::AuditExport(args) => {
+            crate::cli::audit_export::run(connect(true).await?, args).await
         }
         Command::Unarchive { sessions } => {
             crate::cli::archive::run(connect(true).await?, sessions, false, json_out).await

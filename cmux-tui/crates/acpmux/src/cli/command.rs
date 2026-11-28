@@ -659,6 +659,9 @@ pub enum Command {
         sessions: Vec<String>,
     },
     /// Bring archived chats back to the lists. One that is not archived is left as it is.
+    /// Export the audit log (approvals, reviews) as JSON lines on stdout, oldest first, for an
+    /// org's bucket or SIEM (RFD 0211); resume with the `next-cursor` it prints on stderr.
+    AuditExport(crate::cli::audit_export::ExportArgs),
     Unarchive {
         /// Session names or ids (`host/name` for a peer's).
         #[arg(required = true)]
