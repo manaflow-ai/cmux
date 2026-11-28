@@ -37,6 +37,9 @@ Wire rules (the same JSON the hand-written types sent):
   optional schema fields flat (`TYPE.encode(to:)`, as `SpawnOptions` does): the top-level `spreads` names
   each such type's wire fields and its default, and the request sends the ones its schema has through the
   property, placed by `"PROPERTY"` in `order`;
+- `ungated: REASON` on a request whose schema gates it on a capability emits no `requiredCapability`: the app
+  sends it without asking the daemon's capabilities (as the hand-written type did), and the reason is a doc
+  line; a request the schema does not gate is refused;
 - `init: {params, set}` on a request gives its init parameters that are not properties (`params`, each a
   `type`, optional `default` and `label`, placed by its name in `order`, else last) and sets fields from
   Swift expressions on them (`set`, wire name to expression; such a field is no init parameter): a
@@ -104,7 +107,7 @@ _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
-    "workspace_ref", "one_of", "omit", "spread", "init",
+    "workspace_ref", "one_of", "omit", "spread", "init", "ungated",
 })
 # A request init's parameters that are not properties, and the fields it sets from Swift expressions on them.
 _INIT_KEYS = frozenset({"params", "set"})
@@ -799,15 +802,24 @@ class _Renderer:
         if len({key for item in keyed for key in item.coding_keys()}) != sum(len(item.coding_keys()) for item in keyed):
             raise BindingError(f"{command}: two fields encode under the same key")
         response = self.response_binding(command, schema["result"], binding)
+        ungated = binding.get("ungated")
+        if ungated is not None and (not isinstance(ungated, str) or not ungated.strip()):
+            raise BindingError(f"{command}: ungated gives the reason the app sends it without asking")
+        if ungated is not None and not schema.get("capability"):
+            raise BindingError(f"{command}: ungated, but the schema gates it on no capability")
+        capability = None if ungated is not None else schema.get("capability")
 
         name = binding["name"]
-        out = _doc(binding.get("doc") or [f"`{command}`."], "")
+        doc = list(binding.get("doc") or [f"`{command}`."])
+        if ungated is not None:
+            doc += ["", f"The schema gates it on `{schema['capability']}`; the app sends it without asking:", ungated.strip()]
+        out = _doc(doc, "")
         out.append(f"public struct {name}: {protocol} {{")
         if response not in (GENERATE, HAND_WRITTEN):
             out.append(f"    public typealias Response = {response}")
         out.append(f"    public static let command = {json.dumps(command)}")
-        if schema.get("capability"):
-            out.append(f"    public static let requiredCapability: String? = {json.dumps(schema['capability'])}")
+        if capability:
+            out.append(f"    public static let requiredCapability: String? = {json.dumps(capability)}")
         for enum in nested:
             out += ["", *enum.lines("    ")]
         if properties:
