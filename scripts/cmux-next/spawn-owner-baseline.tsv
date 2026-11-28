@@ -128,7 +128,6 @@ cmux-tui/crates/acpmux/src/hub/turn_cap.rs	2
 cmux-tui/crates/acpmux/src/hub/turn_retry.rs	1
 cmux-tui/crates/acpmux/src/hub/turns.rs	1
 cmux-tui/crates/acpmux/src/hub/usage_view.rs	1
-cmux-tui/crates/acpmux/src/hub/vm_host.rs	0
 cmux-tui/crates/acpmux/src/hub/watch.rs	1
 cmux-tui/crates/acpmux/src/hub/watch_tick.rs	1
 cmux-tui/crates/acpmux/src/hub/watches.rs	1
