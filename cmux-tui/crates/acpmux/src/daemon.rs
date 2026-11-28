@@ -51,6 +51,9 @@ mod cloud_handoff;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_activity;
+// A restart request that execs in place with `acpmux.v2` `start` (Unix only).
+#[cfg(unix)]
+pub(crate) mod handoff;
 #[cfg(all(test, unix))]
 pub(crate) use cloud_activity::probe as cloud_activity_probe;
 // Connect to the daemon, or start one and connect (the client side).
@@ -84,7 +87,7 @@ pub(crate) use detached_spawn::STARTER_SESSION_MARKS;
 #[cfg(unix)]
 pub(crate) use detached_spawn::log_start_choice;
 #[cfg(unix)]
-use detached_spawn::{daemon_command, hand_key};
+use detached_spawn::{open_daemon_log, spawn_detached};
 mod notify;
 pub(crate) use crate::daemon_parts::first_run_listen;
 pub use crate::daemon_parts::{daemon_prefix, set_daemon_prefix};
@@ -110,6 +113,7 @@ pub use person_key::start_keyed;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod provision;
+mod runtime_stall;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
@@ -163,6 +167,20 @@ pub struct DaemonOptions {
     /// `--take-over`: this daemon is the home's supervised owner (the systemd unit); it takes
     /// the home over from another daemon that serves the same socket ([`take_over_holder`]).
     pub take_over: bool,
+    /// `--handoff-*`: this start is a restart's exec in place (`daemon/handoff.rs`, Unix). None
+    /// on a normal start.
+    pub handoff: Option<HandoffOptions>,
+}
+
+/// What a restart's exec in place handed the new image (`daemon/handoff.rs`): the descriptors of
+/// the daemon lock, the unix socket listener and the WebSocket listener, each one the image
+/// checks before it uses it, and how many restarts this process came through.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HandoffOptions {
+    pub lock_fd: Option<i32>,
+    pub unix_fd: Option<i32>,
+    pub ws_fd: Option<i32>,
+    pub count: u32,
 }
 
 pub use crate::config::panic_log_path;
@@ -256,6 +274,7 @@ pub(crate) fn shutdown_budget(ends_agents: bool) -> Duration {
 /// may use the end of that lifetime while retaining this daemon's exclusive home lock.
 pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<()> {
     stop_watchdog::reset();
+    tracing::debug!(target: HANDOFF_TIMING, "handoff timing: run");
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
     // Memory stall as PSI from reclaim counters, warm by the time `machine load` asks (RFD 0182 B1).
@@ -278,6 +297,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     #[cfg(windows)]
     windows::keep_from_children(opts.ready_fd);
+    // A restart's exec in place (`daemon/handoff.rs`): its descriptors close-on-exec before
+    // anything is spawned, and the previous image's children reaped as they exit.
+    #[cfg(unix)]
+    let mut handed =
+        handoff::Handed::take(opts.handoff.as_ref(), &[opts.ready_fd, opts.person_key_fd]);
+    #[cfg(unix)]
+    let inherited = if opts.handoff.is_some() { handoff::inherited() } else { Vec::new() };
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
     // A Cloud machine's daemon, which the provisioning exec may give the key later: not dumpable for
@@ -328,6 +354,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         Ok(config)
     };
     let config = load_config()?;
+    // The v2 surfaces are read at start only: a restart request execs in place only with
+    // `start` as this start read it.
+    #[cfg(unix)]
+    handoff::start(
+        config.acpmux_v2.enabled().contains("start"),
+        opts.handoff.map_or(0, |handoff| handoff.count),
+    );
     if config.harnesses.is_empty() && !login_env {
         tracing::warn!(
             "no harnesses configured; add {{\"harnesses\":{{\"codex\":{{\"argv\":[\"codex-acp\"]}}}}}} to {}",
@@ -344,8 +377,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // (`daemon/owner_exit.rs`); never in a release build. Armed before the lock wait, which has no
     // limit while the holder lives, so a test that dies during it ends this daemon too.
     let mut test_owner = std::pin::pin!(owner_exit::test_owner_exit());
+    // A restart's exec in place keeps the lock: the handed one, once it is this home's and held.
+    // No take-over runs then (this process is the daemon that held it).
     #[cfg(unix)]
-    handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
+    let adopted_lock = handed.lock(&lock);
+    #[cfg(not(unix))]
+    let adopted_lock: Option<DaemonLock> = None;
+    #[cfg(unix)]
+    if adopted_lock.is_none() {
+        handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
+    }
     // None: another daemon answers for this home and its ready line went out; nothing to do.
     let lock_wait = async {
         match acquire_daemon_lock(&lock, opts.take_over, opts.ready_fd.is_none()).await {
@@ -404,15 +445,18 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             }
         }
     };
-    let _lock_file = tokio::select! {
-        lock = lock_wait => match lock? {
-            Some(lock) => lock,
-            None => return Ok(()),
+    let _lock_file = match adopted_lock {
+        Some(lock) => lock,
+        None => tokio::select! {
+            lock = lock_wait => match lock? {
+                Some(lock) => lock,
+                None => return Ok(()),
+            },
+            pid = &mut test_owner => {
+                tracing::warn!("stopping before it held its lock: its test process {pid} exited");
+                return Ok(());
+            }
         },
-        pid = &mut test_owner => {
-            tracing::warn!("stopping before it held its lock: its test process {pid} exited");
-            return Ok(());
-        }
     };
     // config.json again, now that this daemon holds the home: the lock wait has no limit (launchd's
     // start waits for the app's daemon for as long as the app runs), and the copy read before it
@@ -501,26 +545,28 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
-    // A take-over serves the listeners the daemon it took over from handed it
-    // (`daemon/listener_handover.rs`): the same sockets, whose queues never closed.
+    // A restart's exec in place keeps the listener, whose backlog held the dials meanwhile: no
+    // stale-socket removal, no bind. A take-over serves the listeners the daemon it took over
+    // from handed it (`daemon/listener_handover.rs`): the same sockets, whose queues never closed.
     #[cfg(unix)]
-    let mut handed = listener_handover::take_received();
+    let mut taken_over = listener_handover::take_received();
     // A restart through the service manager: the listeners a keeper held across it
     // (`daemon/listener_keeper.rs`), and the egress proxy serves its own at once.
     #[cfg(unix)]
     {
-        if handed.ws.is_none() && handed.egress.is_none() {
+        if taken_over.ws.is_none() && taken_over.egress.is_none() {
             let held = listener_keeper::take_held(&home());
-            handed.ws = held.ws;
-            handed.egress = held.egress;
+            taken_over.ws = held.ws;
+            taken_over.egress = held.egress;
         }
-        if let Some(egress) = handed.egress.take() {
+        if let Some(egress) = taken_over.egress.take() {
             crate::vault::egress::serve_handed(egress);
         }
     }
     #[cfg(unix)]
-    let unix_listener = match handed.unix {
-        Some(l)
+    let unix_listener = match (handed.unix(&socket_path()), taken_over.unix) {
+        (Some(listener), _) => listener,
+        (None, Some(l))
             if listener_handover::serves_path(&l, &socket_path())
                 && socket_path().exists()
                 && l.set_nonblocking(true).is_ok() =>
@@ -541,6 +587,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     };
     #[cfg(not(unix))]
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    #[cfg(unix)]
+    handoff::keep_unix(std::os::fd::AsRawFd::as_raw_fd(&unix_listener));
     // The v2 handle is created only after the listener is ready. Its empty
     // published index is filled by the list tee in the follow-up lane; startup
     // never waits on this handle or on a chat book.
@@ -585,6 +633,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let _ = mode;
         std::future::pending::<()>().await;
     }
+    // A runtime that stops running tasks logs it and writes its stacks (`daemon/runtime_stall.rs`).
+    runtime_stall::start();
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());
@@ -675,6 +725,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
 
     let store = crate::store::open(&config.store, &home())?;
+    gauges.mark("store open");
+    tracing::debug!(target: HANDOFF_TIMING, "handoff timing: store open");
     #[cfg(unix)]
     hung_holder::step("store");
     crate::mcp_gateway::start(&home()).await; // before any session starts
@@ -685,10 +737,19 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     #[cfg(unix)]
     hung_holder::step("mcp pool");
     let mut moved_listener = false;
-    // The handed web listener, when it is bound where this start would bind (and the address
-    // still passes the listener rule above); otherwise closed before the bind below.
+    // A restart's exec in place keeps the WebSocket listener too, when it is at the address this
+    // start would bind; one that is not is closed and the address bound as usual.
     #[cfg(unix)]
-    let handed_ws = handed.ws.and_then(|l| {
+    let exec_ws = match &ws {
+        Some((listen, _)) => handed.ws(listen).await,
+        None => None,
+    };
+    #[cfg(unix)]
+    drop(handed);
+    // A take-over's handed web listener, when it is bound where this start would bind (and the
+    // address still passes the listener rule above); otherwise closed before the bind below.
+    #[cfg(unix)]
+    let taken_ws = taken_over.ws.and_then(|l| {
         let (listen, _) = ws.as_ref()?;
         let want: std::net::SocketAddr = listen.parse().ok()?;
         let bound = l.local_addr().ok()?;
@@ -697,13 +758,23 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         }
         tokio::net::TcpListener::from_std(l).ok()
     });
+    #[cfg(unix)]
+    let handed_ws = match (exec_ws, taken_ws) {
+        (Some(kept), _) => Some(kept),
+        (None, Some(l)) => {
+            if let Some((listen, _)) = &ws {
+                tracing::info!(
+                    "web + websocket serving {listen} handed over by the previous daemon"
+                );
+            }
+            Some(l)
+        }
+        (None, None) => None,
+    };
     #[cfg(not(unix))]
     let handed_ws: Option<tokio::net::TcpListener> = None;
     let ws_listener = match (&ws, handed_ws) {
-        (Some((listen, token)), Some(l)) => {
-            tracing::info!("web + websocket serving {listen} handed over by the previous daemon");
-            Some((l, token.clone()))
-        }
+        (Some((_, token)), Some(kept)) => Some((kept, token.clone())),
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
         // address). A taken configured port (an unrelated program, or a squatter) moves the daemon
         // to a free loopback port, which it reports and saves; the app reads the port from status
@@ -737,6 +808,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         },
         (None, _) => None,
     };
+    #[cfg(unix)]
+    if let Some((listener, _)) = &ws_listener {
+        handoff::keep_ws(std::os::fd::AsRawFd::as_raw_fd(listener));
+    }
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
     let bound_addr = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
     // The cmux link carries paired peers' `acpmux` streams only to the listener this record
@@ -904,6 +979,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         hub.watches.open(&home().join("watches.json"));
     }
     hub.start_watches();
+    // A fleet hold that lifts thaws its chats (`hub/session_hold.rs`).
+    hub.start_fleet_thaw();
     // What the join in config.json starts (`server/machine_enroll.rs`): the team hub's relay
     // (`server/mesh_relay.rs`), kept on the hub so a sign-in enroll can start one live, and the
     // hub carrier on the same hub and credential (`hub_carrier.rs`), through which this machine
@@ -1101,7 +1178,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // The connections the previous daemon had accepted and handed over (`server/conn_handover.rs`):
     // served as the ones accepted above.
     #[cfg(unix)]
-    if let Some(side) = handed.conns {
+    if let Some(side) = taken_over.conns {
         let (hub, v2) = (hub.clone(), v2.clone());
         listener_handover::receive_connections(side, move |stream| {
             crate::server::serve_accepted(hub.clone(), stream, v2.clone());
@@ -1155,6 +1232,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
     gauges.mark("requests ready");
+    tracing::debug!(target: HANDOFF_TIMING, "handoff timing: requests ready");
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
         "acpmux ready pid={} socket={} listen={}",
@@ -1439,12 +1517,18 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             }
         }
     });
+    // After a restart's exec in place: the previous image's hosts are reaped as they exit.
+    #[cfg(unix)]
+    let _handoff_reap = handoff::reap_inherited(inherited, &hub.scope);
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::server::tailnet_service::Service::spawn(hub.clone());
     // The store asks for a restart when it cannot go on safely (`Store::stop_reason`): a frozen
     // event journal checkpoint, whose logs only the next start's replay writes again.
     let mut store_stop = std::pin::pin!(store_asks_to_stop(hub.clone()));
+    // Whether a client's request began the stop: only that one can be a restart's exec in place.
+    #[cfg(unix)]
+    let by_request = std::sync::atomic::AtomicBool::new(false);
     let shutdown = async {
         // Every stop names its cause in the log (`app_orphan` and `unused` name their own).
         #[cfg(unix)]
@@ -1471,7 +1555,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                     tracing::warn!("stopping: SIGINT");
                     supervision::stopping(cmux_supervise_core::StopCause::Intentional("SIGINT".into()));
                 },
-                _ = hub.shutdown.notified() => tracing::warn!("stopping: a client asked it to"),
+                _ = hub.shutdown.notified() => {
+                    tracing::warn!("stopping: a client asked it to");
+                    by_request.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 // A restart handoff: the next start repairs what the store could not.
                 () = &mut store_stop => {},
                 // No build of its app is left to adopt its agents, so they end with it. An app
@@ -1561,12 +1648,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             }
         }
     };
+    // A restart that execs in place ends the accept loop when its stop begins (below).
     let unix_accept = unix.abort_handle();
     tokio::select! {
         r = unix => { r??; }
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    tracing::debug!(target: HANDOFF_TIMING, "handoff timing: stop");
     // Handed its listeners to the daemon that takes over (`daemon/listener_handover.rs`): it
     // stops accepting now, so every connect from here on waits in the queue the new daemon
     // serves; the connections it has are answered (`shutdown_drain`) and closed as a restart
@@ -1584,9 +1673,19 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         // (`daemon/listener_keeper.rs`); new egress connects wait in its queue from now on.
         crate::vault::egress::stop_accepting();
     }
-    #[cfg(not(unix))]
-    let _ = unix_accept;
     let shutdown_started = tokio::time::Instant::now();
+    // Whether this stop execs in place is decided now, for the whole stop (`daemon/handoff.rs`).
+    // Then it stops accepting at once: new dials wait in the backlog of the listener it keeps for
+    // the next image, connections already accepted are served on (the restart request's answer
+    // among them), and the socket file, the pid file, the owner record and the lock stay.
+    #[cfg(unix)]
+    let handing_off = handoff::confirm(by_request.load(std::sync::atomic::Ordering::SeqCst));
+    #[cfg(not(unix))]
+    let handing_off = false;
+    if handing_off {
+        unix_accept.abort();
+        tracing::info!("restart: an exec in place; the listeners stay open for the next image");
+    }
     // First: the cmux link stops sending peers here before admission closes or the listener is
     // freed, so no process that binds the freed port can be taken for this daemon.
     drop(listener_record);
@@ -1674,7 +1773,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // replacement between this check and the unlink cannot be ruled out: unlink takes a path.)
     // Off Unix there is no identity to read: the socket goes, as it always did.
     let bound_socket = bound_socket.into_inner().unwrap_or_else(PoisonError::into_inner);
-    if bound_socket.as_ref().map_or(!cfg!(unix), |s| s.lost().is_none()) && !socket_handed() {
+    let socket_ours = bound_socket.as_ref().map_or(!cfg!(unix), |s| s.lost().is_none());
+    // An exec in place keeps the socket file for the next image; an exec that fails removes it.
+    #[cfg(unix)]
+    if handing_off {
+        handoff::keep_socket_ours(socket_ours);
+    }
+    if socket_ours && !handing_off && !socket_handed() {
         // The home watch runs on through the shutdown: this removal is not a loss.
         home_watch::release_socket();
         let _ = crate::home_fs::remove_file(socket_path());
@@ -1687,6 +1792,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             // A signal can arrive while metadata loads. Snapshot every stored session before
             // detaching or ending hosts. A timeout conservatively keeps their router below.
             let _ = metadata.await;
+            tracing::debug!(target: HANDOFF_TIMING, "handoff timing: stop has the index");
             if restarting {
                 hub.shutdown_for_handoff(true).await
             } else {
@@ -1738,6 +1844,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             let _ = cleanup_finished.await;
             // A timeout must not unlock the home while a blocking store fence still writes.
             // This task keeps both the lock and hub until persistence ends or the CLI exits.
+            // An exec in place keeps it locked for the next image (`daemon/handoff.rs`).
+            #[cfg(unix)]
+            if handing_off {
+                handoff::keep_lock(_lock_file);
+            } else {
+                drop(_lock_file);
+            }
+            #[cfg(not(unix))]
             drop(_lock_file);
         })
     };
@@ -1759,10 +1873,30 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     recheck_home();
     if !crate::config::home_lost() {
-        supervision::finish(&home(), exit_status());
-        let _ = crate::home_fs::remove_file(home().join("daemon.pid"));
+        // The same pid serves on after an exec in place: its pid file and owner record stay (the
+        // next image's `supervision::start` reads that record as its own and claims a new epoch).
+        if !handing_off {
+            supervision::finish(&home(), exit_status());
+            let _ = crate::home_fs::remove_file(home().join("daemon.pid"));
+        }
         for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
             let _ = crate::home_fs::remove_file(file);
+        }
+    }
+    // A stop signal that came while a restart's stop ran was not read: the stop's select had
+    // ended. Looked at once here, with the stop's work done: the restart exits instead of the
+    // exec in place (`daemon/handoff.rs`), as whoever sent it expects.
+    #[cfg(unix)]
+    if handing_off {
+        let (term, int) = &mut stop_signals;
+        let came = tokio::select! {
+            biased;
+            _ = next_signal(term.as_mut()) => true,
+            _ = next_signal(int.as_mut()) => true,
+            () = std::future::ready(()) => false,
+        };
+        if came {
+            handoff::signalled();
         }
     }
     // The carrier's registration last, as when the start held it to the end.
@@ -1803,12 +1937,76 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     Ok(())
 }
 
+/// `_acpmux/shutdown {restart: true}` with `reason`, before anything changes: whether it execs in
+/// place (`daemon/handoff.rs`). None keeps v1's exit (no `start`, a take-over's handover, off
+/// Unix); `Some(Err)` is a failed check of the installed build, and the daemon serves on.
+pub(crate) async fn prepare_handoff(reason: &str) -> Option<Result<(), String>> {
+    #[cfg(unix)]
+    {
+        handoff::prepare(reason).await
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = reason;
+        None
+    }
+}
+
+/// The restart request whose check passed begins the stop now: whether the stop is its exec in
+/// place (`daemon/handoff.rs`). Always false off Unix.
+pub(crate) fn commit_handoff() -> bool {
+    #[cfg(unix)]
+    {
+        handoff::commit()
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+/// Whether the stop under way execs in place and so keeps its listeners listening for the next
+/// image (`daemon/handoff.rs`). Always false off Unix.
+pub(crate) fn keeps_listeners() -> bool {
+    #[cfg(unix)]
+    {
+        handoff::handing_off()
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+/// The log target of a restart's marks (`handoff timing: <mark>`, at debug): the request read, its
+/// gates, the check, the stop, the exec and the next image's start. `tests/daemon_handoff.rs`
+/// turns it on and times each mark as its line arrives.
+pub(crate) const HANDOFF_TIMING: &str = "handoff_timing";
+
+/// How many restarts this process came through as an exec in place (`_acpmux/status`
+/// `handoffs`): 0 on a normal start, and always off Unix.
+pub(crate) fn handoffs() -> u32 {
+    #[cfg(unix)]
+    {
+        handoff::count()
+    }
+    #[cfg(not(unix))]
+    {
+        0
+    }
+}
+
 // Covers every fallible startup step after bind, including token/config validation. Normal
 // shutdown removes the socket explicitly; a replaced socket is never this guard's to remove.
 struct BoundSocketCleanup(Option<home_watch::Owned>);
 
 impl Drop for BoundSocketCleanup {
     fn drop(&mut self) {
+        // A stop that execs in place keeps the socket for the next image (`daemon/handoff.rs`).
+        #[cfg(unix)]
+        if handoff::handing_off() {
+            return;
+        }
         remove_bound_socket(self.0.as_ref());
     }
 }
@@ -1906,113 +2104,9 @@ pub async fn wait_for_exit() -> bool {
     wait_for_lock_release_with_budget(home().join("daemon.lock"), Some(EXIT_BUDGET)).await
 }
 
-/// Open the daemon log for append, owner-only like the config file: the log
-/// can carry agent output and request details. A log left by an older build
-/// with wider bits is narrowed to 0600.
-#[cfg(unix)]
-fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
-    crate::config::private_state_append(path)
-}
-
 #[cfg(all(test, unix))]
 #[path = "daemon/state_file_tests.rs"]
 mod state_file_tests;
-
-/// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
-/// return the read end of its readiness pipe. With `key`, the daemon also
-/// gets `--person-key-fd M`, one end of a socket pair: the key is written
-/// only after the daemon wrote [`KEY_READY`] on it.
-#[cfg(unix)]
-fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::File, u32)> {
-    let choice = start_exe::current(&home())?;
-    let this = &choice.this;
-    crate::config::private_state_dir(&home())?;
-    let mut log = open_daemon_log(&home().join("daemon.log"))?;
-    log_start_choice(&mut log, &choice);
-    let log_err = log.try_clone()?;
-    // Close-on-exec from the start (`pipe2(O_CLOEXEC)` where the OS has it):
-    // a child another thread forks meanwhile never inherits either end, and
-    // pre_exec reopens the write end for the daemon only.
-    let (reader, writer) = std::io::pipe().context("pipe for acpmux daemon readiness")?;
-    let reader = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
-    let write_fd = std::os::fd::AsRawFd::as_raw_fd(&writer);
-    // The key's socket pair: `ours` stays here, `theirs` goes to the daemon.
-    let pair = match &key {
-        Some(_) => {
-            let (ours, theirs) =
-                std::os::unix::net::UnixStream::pair().context("socket pair for the person key")?;
-            Some((ours, theirs))
-        }
-        None => None,
-    };
-    let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = daemon_command(this);
-    crate::config::scrub_nested_claude_env(&mut cmd);
-    // The daemon serves every session: its starter's turn values are not its own.
-    for k in crate::config::inherited_caller_scoped_keys() {
-        cmd.env_remove(k);
-    }
-    // Nor its starter's session marks: a daemon a chat's shell started carried that chat's id and
-    // host nonce, and so did everything it started for other sessions, which made them read as
-    // that chat's (`acpmux process owner`, `cli/process_owner.rs`).
-    for k in STARTER_SESSION_MARKS {
-        cmd.env_remove(k);
-    }
-    // The daemon must use this client's state directory and socket, including a host
-    // override that its own environment would not reproduce, absolute: it changes into
-    // its home before it binds (`login_placement::daemon_env`).
-    let cwd = std::env::current_dir().context("this command's folder")?;
-    let socket = std::env::var_os("ACPMUX_SOCKET");
-    cmd.env_remove("ACPMUX_SOCKET");
-    // A daemon a command starts has no owner app: only the app's launcher names one
-    // (`daemon/owner_exit.rs`), so a CLI run from an agent or a harness never ties the new daemon
-    // to the app that started an older one.
-    cmd.env_remove(owner_exit::OWNER_APP_PID_ENV);
-    for (key, value) in login_placement::daemon_env(&home(), socket.as_deref(), &cwd) {
-        cmd.env(key, value);
-    }
-    cmd.arg(write_fd.to_string())
-        .args(key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten())
-        .stdin(std::process::Stdio::null())
-        .stdout(log)
-        .stderr(log_err);
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(move || {
-                // New session so the daemon outlives the terminal; keep the
-                // readiness descriptor open across exec.
-                libc::setsid();
-                libc::fcntl(write_fd, libc::F_SETFD, 0);
-                if let Some(fd) = key_fd {
-                    libc::fcntl(fd, libc::F_SETFD, 0);
-                }
-                Ok(())
-            });
-        }
-    }
-    let mut child = tokio::process::Command::from(cmd).spawn().context("spawn acpmux daemon")?;
-    let child_pid = child.id().unwrap_or_default();
-    // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
-    // running (stdio/TUI); dropping std::process::Child left a zombie per retry.
-    // This async wait never holds runtime teardown open or kills the winner.
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-    // Close this process's copy so end of file means the daemon closed it.
-    drop(writer);
-    if let (Some(key), Some((ours, theirs))) = (key, pair) {
-        drop(theirs);
-        // The daemon may be alive but busy before it can read its person key.
-        // Keep that handoff off the caller's path and let EOF signal a dead
-        // child instead of imposing a wall-clock cutoff.
-        let _ = std::thread::Builder::new()
-            .name("acpmux-person-key".into())
-            .spawn(move || hand_key(ours, &key));
-    }
-    Ok((reader, child_pid))
-}
 
 /// Use the same home classification for initial launch and CLI restart.
 pub(crate) fn uses_shared_home() -> bool {

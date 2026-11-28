@@ -1,0 +1,52 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/studio-app-whole",
+  "name": "Thread workspace",
+  "description": "Project rows beside a centered chat.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": [
+    "screenshots/source.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "studio-app-workspace",
+    "appearance.metrics.sidebarWidth": 256,
+    "sidebar.side": "left",
+    "sidebar.style": "standard",
+    "sidebar.density": "expanded",
+    "sidebar.groupBy": "none",
+    "sidebar.showChats": true,
+    "sidebar.showProjects": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showTimestamps": true,
+    "sidebar.controlsOnHover": true,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.workspaceRow.agent.directory": true,
+    "sidebar.workspaceRow.agent.branch": true,
+    "sidebar.workspaceRow.agent.pullRequest": true,
+    "sidebar.workspaceRow.agent.agentStatus": true,
+    "sidebar.workspaceRow.agent.secondLineOrder": [
+      "directory",
+      "branch",
+      "agentStatus"
+    ],
+    "agentPane.display.width": 736,
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.625,
+    "agentPane.display.code.scale": 0.925,
+    "agentPane.display.transcriptView": "normal",
+    // The app draws a reply's text as it arrives, with no fade (its markdown renderer has no reveal).
+    "agentPane.display.streaming": "instant",
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+    "agentPane.editedFiles.scope": "turn",
+    "sidebar.settleFinished": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "agentPane.showDictation": true,
+    "agentPane.attachmentView": "strip"
+  }
+}

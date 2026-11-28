@@ -1,0 +1,16 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/studio-app-composer",
+  "name": "Thread composer",
+  "description": "Attachments and microphone beside the draft.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": [
+    "screenshots/source.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "agentPane.showDictation": true,
+    "agentPane.attachmentView": "strip"
+  }
+}

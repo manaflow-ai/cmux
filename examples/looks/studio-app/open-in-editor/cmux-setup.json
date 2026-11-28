@@ -1,0 +1,14 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/studio-app-open-in-editor",
+  "name": "Open in editor",
+  "description": "Open the tab's folder in your editor.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": [
+    "screenshots/chooser.png",
+    "screenshots/editors.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {}
+}

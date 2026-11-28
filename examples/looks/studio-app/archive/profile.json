@@ -1,0 +1,9 @@
+{
+  "cmuxProfile": 1,
+  "name": "studio-app-archive",
+  "description": "Fold finished chats and archive them.",
+  "settings": {
+    "sidebar.settleFinished": true
+  },
+  "files": {}
+}
