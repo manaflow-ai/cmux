@@ -44,8 +44,6 @@ const SESSION_END_TIMEOUT_SECS: u64 = 3;
 const IDLE_RESET: Duration = Duration::from_secs(300);
 const MAX_PENDING: usize = 64;
 const MAX_RECORDS: usize = 256;
-/// The largest payload it reads; a bigger one (a huge PostToolUse output) is not recorded.
-const MAX_PAYLOAD: u64 = 4 << 20;
 
 /// The hook events and the word each passes the hook.
 const EVENTS: &[(&str, &str)] = &[
@@ -142,10 +140,8 @@ pub(crate) fn decide(event: &str, input: &Value, table: &mut Table) -> Option<St
 pub fn main(event: Option<&str>, dir: Option<&Path>) -> anyhow::Result<()> {
     let (Some(event), Some(dir)) = (event, dir) else { return Ok(()) };
     let mut text = String::new();
-    let _ = std::io::Read::read_to_string(
-        &mut std::io::Read::take(std::io::stdin(), MAX_PAYLOAD),
-        &mut text,
-    );
+    // All of it: a huge PostToolUse output is recorded like any other.
+    let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text);
     let Ok(input) = serde_json::from_str::<Value>(&text) else { return Ok(()) };
     let Some(path) = table_path(dir, &input) else { return Ok(()) };
     if event == "end" {

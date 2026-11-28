@@ -179,7 +179,7 @@ struct AgentPaneQuestionReturnGestureTests {
         // onReply, but still needs the host's error and a fresh attempt rather than silence.
         let tooLong: [String: Any] = ["jsonrpc": "2.0", "id": "question-key-too-long", "method": method, "params": [
             "sessionId": "s", "permissionId": "p1", "optionId": "yes",
-            "answers": ["q1": String(repeating: "x", count: AcpmuxPaneMethods.maximumAnswerBytes + 1)],
+            "answers": ["q1": String(repeating: "x", count: AcpmuxPaneMethods.answerBounds.valueBytes + 1)],
         ]]
         transport.submitQuestionKeyReply(connection: connection, requestID: "question-key-too-long", target: target,
                                          frame: try #require(AcpmuxRequestIds.encode(tooLong)))
