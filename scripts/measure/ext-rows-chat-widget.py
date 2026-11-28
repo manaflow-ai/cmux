@@ -134,7 +134,9 @@ def _start_transcript(ctx) -> dict:
     sock = _acpmux_socket(ctx)
     if not sock:
         return {"ok": False, "harness": added, "error": "the side copy's acpmux socket was not found"}
-    env = os.environ | {"ACPMUX_SOCKET": sock, "HOME": str(ctx.work / "chat-widget-home")}
+    # The socket with its daemon's own ACPMUX_HOME: alone, the CLI would pair it with chat-widget-home's and refuse.
+    bench = _load("chat_widget_bench_memory", ROOT / "scripts/cmux-next/bench_memory.py")
+    env = bench.acpmux_cli_env(sock, os.environ | {"HOME": str(ctx.work / "chat-widget-home")})
     made = subprocess.run([str(cli), "new", "--json", "-d", "--machine", "local",
                            "--cwd", str(ctx.work), "-m", HARNESS_ID, "chat widget proof"],
                           capture_output=True, text=True, timeout=180, env=env)

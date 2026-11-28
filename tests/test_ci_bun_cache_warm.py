@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 BUN_CACHE = "~/.bun/install/cache"
 GUARD = "steps.bun-warm.outputs.warm != 'true'"
-POOL_LABELS = ("cmux-linux", "CI_REACT_SHARD_RUNNER")
+POOL_LABELS = ("cmux-linux",)
 
 
 def _restore_only(uses: str) -> bool:

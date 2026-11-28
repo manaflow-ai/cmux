@@ -43,6 +43,8 @@ The gates, each the same invocation as its push-time job:
                   (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
   huge files      scripts/ci/check_huge_files.py check --base BASE --head MERGE: no Swift or Rust source file in NOW's
                   code_shape scope newly over 100,000 bytes, and none already over it grows (`list` is the burn-down)
+  palette coverage  scripts/ci/palette_coverage_gate.py --base BASE: scripts/cmux-next/palette-coverage.py on the merge;
+                  fails only on a CLI, menu or right-click action without a palette entry that BASE does not miss
   settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE --base-rev BASE: a settings schema text key
                   missing from the catalog fails only when BASE does not already miss it (a base red is a note)
 
@@ -519,6 +521,14 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         # with BASE from git objects: a key the base already misses is a note, not this PR's failure.
         ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo),
                                    "--base-rev", base]),
+        # Every pull request, text only: a scripts/measure/*.sh under `set -u` expands no array that starts empty
+        # bare (macOS bash 3.2 aborts on it). tooling-tests' tt-measure-tests runs this too, but feat-cmux-next
+        # pull requests skip tooling-tests, so #64030 and #64588 landed it and the post-merge batch went red.
+        ("measure bash 3.2 arrays", [py, "-I", "scripts/measure/tests/empty-array-bash32.test.py"]),
+        # Every pull request, JSON only: no CLI, menu-bar or right-click action without a palette entry, compared
+        # with BASE from git objects (NOW's code_shape.palette_coverage read 4 for hours on 2026-11-28 because
+        # nothing ran palette-coverage.py before a merge).
+        ("palette coverage", [py, "-I", "scripts/ci/palette_coverage_gate.py", "--base", base, "--repo", str(repo)]),
     ]
     if tier == "pr":
         if deferred is not None:
@@ -569,6 +579,19 @@ def timed_gate_argv(argv: list[str]) -> list[str]:
     return [str(timer), "-p", *argv] if timer.is_file() else argv
 
 
+# The gate holding the job's critical path (its bundle matrix's agent-pane build) keeps full CPU priority; the
+# other gates run niced so they fill the cores it leaves idle instead of halving its share (105 s alone, ~200 s
+# shared, 2026-11-28). CMUX_FAST_GATES_NICE=0 turns it off.
+CRITICAL_GATES = ("webviews checks",)
+
+
+def niced_gate_argv(name: str, argv: list[str]) -> list[str]:
+    level = os.environ.get("CMUX_FAST_GATES_NICE", "10")
+    if name in CRITICAL_GATES or level in ("", "0") or not shutil.which("nice"):
+        return argv
+    return ["nice", "-n", level, *argv]
+
+
 def child_cpu_seconds(output: str) -> float | None:
     """Return user+system CPU seconds from the private ``time -p`` log."""
     values = []
@@ -600,7 +623,7 @@ def run_gate_batch(lanes: list[list[tuple[str, list[str]]]], repo: Path, deadlin
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "gate"
         path = log_dir / f"{slug}.log"
         handle = path.open("w+", encoding="utf-8")
-        process = subprocess.Popen(timed_gate_argv(argv), cwd=repo, start_new_session=True, stdout=handle,
+        process = subprocess.Popen(timed_gate_argv(niced_gate_argv(name, argv)), cwd=repo, start_new_session=True, stdout=handle,
                                    stderr=subprocess.STDOUT, text=True)
         active[name] = (process, handle, time.monotonic(), path, lane)
 

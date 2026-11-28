@@ -27,12 +27,17 @@ on:
         description: Commit to walk (40 hex); its scheme-debug app must exist
         required: true
         type: string
+  # A push of this file to feat-cmux-next registers the workflow with GitHub, so a dispatch of it does not
+  # answer 404 (tests/test_ci_workflows_registered.py); that run starts no job (walk-fleet takes a dispatch or a pull request).
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/first-run-setup-check.yml]
 
 permissions:
   contents: read
 
 concurrency:
-  group: first-run-setup-check-${{ github.event.pull_request.number || github.run_id }}
+  group: first-run-setup-check-${{ github.event.pull_request.number || github.run_id }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -41,7 +46,7 @@ jobs:
     name: first run setup walk submit (advisory)
     if: ${{ github.repository_owner == 'manaflow-ai' && (vars.CI_FIRST_RUN_SETUP_CHECK || '1') != '0' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
     # The fork branch is never taken (the job's if needs manaflow-ai); it gives a fork run a hosted path (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone gateway)
     # The scheme-debug read waits up to 10 min for the head's app; the submit then ends in about a minute.
     timeout-minutes: 20
     env:
