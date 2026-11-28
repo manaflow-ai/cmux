@@ -1,16 +1,19 @@
 package import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextWakeups
 import os
 package import UserNotifications
 
 /// macOS notification banners through `UNUserNotificationCenter`, so the
 /// user's notification settings and Focus modes apply (macOS filters the
 /// banner and its default sound). A banner click opens the notifying tab
-/// through `onOpen`; a reply banner's typed text goes to `onReply`. The center is touched only when the first banner posts
-/// (which asks for authorization) or `notifications.status` / `notifications.request` reads or asks for it
+/// through `onOpen`; a reply banner's typed text goes to `onReply`. `prepare()` configures the center at launch
+/// (delegate and categories, no authorization request) so a click that launched or relaunched the app reaches
+/// `didReceive`; authorization is asked only when the first banner posts or `notifications.status` / `notifications.request` reads or asks for it
 /// (`permission()`, for `cmux setup notifications`), so hosts without a bundle identifier (tests) never
 /// create it. An automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
 /// GUI proofs on shared hosts) never creates it either: no authorization
@@ -52,8 +55,20 @@ package final class DesktopNotifier: NSObject {
     /// never a passkey ceremony, a page's click handler or another banner's own route.
     package var onOpenTab: ((_ id: String, _ surface: UInt64?) -> Void)?
 
-    /// Banner clicked: the notification id and its tab's surface handle.
-    package var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
+    /// Banner clicked: the notification id and its tab's surface handle. A click that arrives before
+    /// this is set (a click that cold-launched the app) is parked and runs once it is set, in order.
+    package var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)? {
+        didSet {
+            // The app sets this in `NotificationCenterService.start`, inside launch: configure the center then.
+            prepare()
+            guard let onOpen, !parkedOpens.isEmpty else { return }
+            let parked = parkedOpens
+            parkedOpens.removeAll()
+            for click in parked { onOpen(click.id, click.surface) }
+        }
+    }
+    /// Clicks that arrived while `onOpen` was nil (bounded like `posted`).
+    package private(set) var parkedOpens: [(id: String, surface: UInt64?)] = []
     /// A reply banner's text sent: the notification id, its tab's surface handle and the text.
     package var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
     /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab's surface handle.
@@ -133,27 +148,51 @@ package final class DesktopNotifier: NSObject {
                              approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        if let subtitle { content.subtitle = subtitle }
-        content.body = body
-        let attachmentFile: URL? = attachment.flatMap { Self.writeAttachment($0, id: id) }.flatMap { file in
-            guard let item = try? UNNotificationAttachment(identifier: "status", url: file) else {
-                try? FileManager.default.removeItem(at: file)
-                return nil
-            }
-            content.attachments = [item]
-            return file
-        }
-        content.sound = defaultSound ? .default : nil
-        content.interruptionLevel = .active
-        if let workspace { content.threadIdentifier = workspace }
-        content.categoryIdentifier = category
-        var info: [String: Any] = ["notification": id]
-        if let surface { info["surface"] = NSNumber(value: surface) }
-        content.userInfo = info
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let logger = logger
+        let banner = Banner(id: id, title: title, subtitle: subtitle, body: body, surface: surface, workspace: workspace,
+                            defaultSound: defaultSound, category: category)
+        guard let attachment else {
+            Self.add(banner.request(attachment: nil), to: center, attachmentFile: nil, logger: logger)
+            return
+        }
+        // The attachment file is written and handed to the center off the main thread (a stalled disk would
+        // stall main); the banner is added after, with or without the badge.
+        Task.detached(priority: .userInitiated) {
+            let file = Self.attachmentItem(attachment, id: id)
+            Self.add(banner.request(attachment: file?.item), to: UNUserNotificationCenter.current(), attachmentFile: file?.url, logger: logger)
+        }
+    }
+
+    /// What a banner shows, as plain values a detached task can build its request from.
+    private nonisolated struct Banner: Sendable {
+        var id: String
+        var title: String
+        var subtitle: String?
+        var body: String
+        var surface: UInt64?
+        var workspace: String?
+        var defaultSound: Bool
+        var category: String
+
+        func request(attachment: UNNotificationAttachment?) -> UNNotificationRequest {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            if let subtitle { content.subtitle = subtitle }
+            content.body = body
+            if let attachment { content.attachments = [attachment] }
+            content.sound = defaultSound ? .default : nil
+            content.interruptionLevel = .active
+            if let workspace { content.threadIdentifier = workspace }
+            content.categoryIdentifier = category
+            var info: [String: Any] = ["notification": id]
+            if let surface { info["surface"] = NSNumber(value: surface) }
+            content.userInfo = info
+            return UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        }
+    }
+
+    private nonisolated static func add(_ request: UNNotificationRequest, to center: UNUserNotificationCenter,
+                                        attachmentFile: URL?, logger: Logger) {
         center.add(request) { error in
             guard let error else { return }
             logger.error("banner failed: \(String(describing: error), privacy: .public)")
@@ -161,8 +200,18 @@ package final class DesktopNotifier: NSObject {
         }
     }
 
+    /// The badge file and its attachment, or nil (the file deleted) when either step fails.
+    private nonisolated static func attachmentItem(_ data: Data, id: String) -> (url: URL, item: UNNotificationAttachment)? {
+        guard let file = writeAttachment(data, id: id) else { return nil }
+        guard let item = try? UNNotificationAttachment(identifier: "status", url: file) else {
+            try? FileManager.default.removeItem(at: file)
+            return nil
+        }
+        return (file, item)
+    }
+
     /// A file for one banner's attachment in the temporary directory.
-    private static func writeAttachment(_ data: Data, id: String) -> URL? {
+    private nonisolated static func writeAttachment(_ data: Data, id: String) -> URL? {
         let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-status-notifications", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = folder.appending(path: "\(id)-\(UUID().uuidString).png")
@@ -205,7 +254,59 @@ package final class DesktopNotifier: NSObject {
 
     /// The banner click path, also used by `debug.notifications` (click).
     package func open(id: String, surface: UInt64?) {
-        onOpen?(id, surface)
+        guard let onOpen else {
+            parkedOpens.append((id, surface))
+            if parkedOpens.count > Self.postedLimit { parkedOpens.removeFirst(parkedOpens.count - Self.postedLimit) }
+            return
+        }
+        onOpen(id, surface)
+    }
+
+    /// Configures the system center at launch (delegate and categories; no authorization request), so a
+    /// banner an earlier launch posted still routes its click here. The automation-launch and
+    /// non-main-bundle guards hold: tests and e2e launches never create the center.
+    package func prepare() {
+        _ = configuredCenter()
+    }
+
+    /// Runs `found` with what `find` returns, now or once it returns non-nil (re-read on each change of what it
+    /// observes: a banner click's tab that the daemon has not loaded yet), up to `limit`; else runs `missed`.
+    /// A later call replaces a waiting one.
+    package func whenFound<T>(limit: Duration, find: @escaping @MainActor @Sendable () -> T?,
+                              missed: @escaping @MainActor @Sendable () -> Void, found: @escaping @MainActor @Sendable (T) -> Void) {
+        pendingFind?.cancel(); pendingFind = nil; findDeadline.cancel()
+        if let target = find() { return found(target) }
+        let wait = Task { [weak self] in
+            for await present in ObservationStream({ find() != nil }) where present {
+                guard !Task.isCancelled, let target = find() else { continue }
+                self?.pendingFind = nil
+                self?.findDeadline.cancel()
+                return found(target)
+            }
+        }
+        pendingFind = wait
+        findDeadline.schedule(after: limit) { @MainActor [weak self] in
+            guard let self, self.pendingFind == wait else { return }
+            wait.cancel(); self.pendingFind = nil
+            missed()
+        }
+    }
+    private var pendingFind: Task<Void, Never>?
+    private let findDeadline = DemandTimer(owner: "notifications.open-when-found")
+
+    /// A banner `id` in Notification Center that this launch did not post (it survived a relaunch):
+    /// whether it is there and its tab's surface (`userInfo["surface"]`). Nil center: not found.
+    package func deliveredSurface(_ id: String) async -> (found: Bool, surface: UInt64?) {
+        guard let center = configuredCenter() else { return (false, nil) }
+        return await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { delivered in
+                guard let match = delivered.last(where: { $0.request.identifier == id }) else {
+                    continuation.resume(returning: (false, nil)); return
+                }
+                let surface = (match.request.content.userInfo["surface"] as? NSNumber)?.uint64Value
+                continuation.resume(returning: (true, surface))
+            }
+        }
     }
 
     /// A script's open of a tab banner (`notifications.open`): shows its tab, nothing else.
@@ -348,13 +449,25 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)
         let always = AgentApprovalBanners.isAlways(response.actionIdentifier)
-        Task { @MainActor [weak self] in
+        let handle: @MainActor () -> Void = { [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
             if let replied { self?.reply(id: id, surface: surface, text: replied) }
             if let approved { self?.approve(id: id, surface: surface, allow: approved) }
             if always { self?.approve(id: id, surface: surface, allow: true, always: true) }
             if markRead { self?.markRead(id: id, surface: surface) }
         }
+        // macOS 14+ activation is cooperative: the click's grant to come forward lasts only while this callback runs,
+        // so the raise runs here, before completionHandler, not in a later Task (activation research, 2026-11-25).
+        BannerClickMain.run(handle)
         completionHandler()
+    }
+}
+
+/// Runs a banner click's handling on the main thread now when the delegate is called there (AppKit delivers
+/// didReceive on main), so the raise happens while the click's activation grant lasts; a later Task otherwise.
+nonisolated enum BannerClickMain {
+    static func run(_ body: @escaping @MainActor () -> Void) {
+        guard Thread.isMainThread else { Task { @MainActor in body() }; return }
+        MainActor.assumeIsolated { body() } // main-proof: checked Thread.isMainThread just above
     }
 }

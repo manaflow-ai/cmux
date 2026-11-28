@@ -23,25 +23,10 @@ name: iOS reliability matrix
 #   matrix on feat-cmux-next.
 # A feat-cmux-next pull request runs the matrix as steps of ci/steps.toml (CI v2 step 11): the protocol cells as
 # the linux job's `ios-matrix-protocol`, the phone cells as the ios job's `ios-phone-cells`, each with its suite's
-# report. This workflow keeps the push to feat-cmux-next, the nightly and the dispatch.
+# report. A merge runs the same steps in the post-merge batch (cmux-next-post-merge.yml: suite pr-pipeline-linux
+# for the protocol cells, suite pr-pipeline-ios for the phone cells), whose judge bisects a red to its commit. This
+# workflow keeps the nightly (the full matrix, TickHarness cells included) and the dispatch.
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "cmux-next-ios/rust/**"
-      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**"
-      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**"
-      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**"
-      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**"
-      - "cmux-next-ios/reliability-matrix/**"
-      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**"
-      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalProjection*"
-      - "cmux-tui/crates/cmux-terminal-projection/**"
-      - "cmux-tui/crates/cmux-wg/**"
-      - "cmux-tui/crates/cmux-transport/**"
-      - "cmux-tui/vendor/smoltcp/**"
-      - "scripts/ci/ios_reliability_matrix.py"
-      - ".github/workflows/ios-reliability-matrix.yml"
   schedule:
     # Nightly, full matrix (08:17Z).
     - cron: "17 8 * * *"
@@ -70,9 +55,9 @@ jobs:
   # simulator), then fall back to Blacksmith on retries. The markers let the
   # pool charge this run's simulator while it holds one.
   runner:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -93,6 +78,7 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/deadline_http.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token
@@ -183,8 +169,8 @@ jobs:
   # skips them: they measured 6.5-11 runner-minutes a run on changes that cannot reach them.
   # Every other event (push, nightly, dispatch) runs everything.
   scope:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
     outputs:
       protocol: ${{ steps.scope.outputs.protocol }}
@@ -193,7 +179,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-          sparse-checkout: .github
+          sparse-checkout: |
+            .github
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Does the protocol suite see this change
         id: scope
@@ -205,7 +193,8 @@ jobs:
           # A pull request's checkout is the merge commit: HEAD^1 is the base, so the diff is the change.
           if [ "$EVENT" = pull_request ] && files="$(git diff --name-only HEAD^1 HEAD 2>/dev/null)" && [ -n "$files" ]; then
             # Anything the workflow's path filter admits that is not the phone's Swift (CmuxMobileKit/) can reach the Rust workspace.
-            if ! printf '%s\n' "$files" | grep -qvE '^cmux-next-ios/CmuxMobileKit/'; then
+            # A herestring, not printf | grep -q: under pipefail grep's early exit fails printf on a long list.
+            if ! grep -qvE '^cmux-next-ios/CmuxMobileKit/' <<<"$files"; then
               protocol=false
             fi
           fi
@@ -214,9 +203,9 @@ jobs:
 
   protocol:
     needs: [scope]
-    if: ${{ !cancelled() && needs.scope.outputs.protocol != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ !cancelled() && needs.scope.outputs.protocol != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     name: protocol cells (Linux)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -279,11 +268,11 @@ jobs:
           retention-days: 3
 
   ios:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     needs: [runner]
     name: phone cells (iOS simulator)
     # An owned simulator mini from the runner job, Blacksmith macOS 26 on a re-run or a fork.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     # 60 for the cells, plus room for the nightly's TickHarness run.
     timeout-minutes: 75
     env:
@@ -437,8 +426,8 @@ jobs:
   report:
     name: matrix report
     needs: [protocol, ios]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled()) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled()) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -447,6 +436,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/ios_reliability_matrix.py
             cmux-next-ios/reliability-matrix
+            .gitmodules
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:

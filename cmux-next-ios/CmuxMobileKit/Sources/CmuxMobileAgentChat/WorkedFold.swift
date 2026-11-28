@@ -46,7 +46,7 @@ struct WorkedFold: Equatable, Sendable {
     /// and the cards a finished turn leaves for the person stay out.
     static func folds(_ kind: ChatRow.Kind) -> Bool {
         switch kind {
-        case .block, .thought, .tool, .toolGroup, .edit, .plan, .permission, .question, .subagents, .whoElse: true
+        case .block, .thought, .tool, .toolGroup, .edit, .permission, .question, .subagents, .whoElse: true
         default: false
         }
     }

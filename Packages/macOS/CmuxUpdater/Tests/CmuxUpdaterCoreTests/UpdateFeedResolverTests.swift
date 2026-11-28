@@ -17,6 +17,16 @@ import CmuxUpdaterCore
         #expect(resolution.usedFallback)
     }
 
+    @Test func malformedInfoFeedURLUsesFallback() {
+        let resolver = UpdateFeedResolver(fallbackFeedURL: "https://example.com/appcast.xml")
+        for value in ["not a URL", "file:///tmp/appcast.xml", "https:///missing-host.xml"] {
+            let resolution = resolver.resolve(infoFeedURL: value)
+            #expect(resolution.url == "https://example.com/appcast.xml")
+            #expect(resolution.usedFallback)
+            #expect(resolution.channel == .stable)
+        }
+    }
+
     @Test func stableInfoFeedURLIsUsedVerbatim() {
         let resolver = UpdateFeedResolver()
         let resolution = resolver.resolve(infoFeedURL: "https://example.com/stable/appcast.xml")

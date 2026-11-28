@@ -22,6 +22,7 @@ struct FakeDaemon {
     calls: RefCell<Vec<(String, Value)>>,
     connections: RefCell<Vec<Value>>,
     refuse_add: bool,
+    replacement_instance: Option<&'static str>,
     waits: RefCell<VecDeque<Option<Value>>>,
 }
 
@@ -44,6 +45,22 @@ impl Daemon for FakeDaemon {
                     json!({"id": id, "kind": kind, "serves_cloud": cloud, "signed_in": true}),
                 );
                 Ok(state(&self.connections.borrow()))
+            }
+            method::MUX_CONNECTIONS_REMOVE => {
+                let mut connections = self.connections.borrow_mut();
+                let index = connections
+                    .iter()
+                    .position(|c| c["id"] == params["id"])
+                    .ok_or("no such connection")?;
+                if let Some(instance) = self.replacement_instance {
+                    connections[index]["credential_instance"] = json!(instance);
+                }
+                let instance = params["instance"].as_str().ok_or("instance is required")?;
+                if connections[index]["credential_instance"].as_str() != Some(instance) {
+                    return Err("the connection changed while it was open".into());
+                }
+                connections.remove(index);
+                Ok(state(&connections))
             }
             method::MUX_CONNECTIONS_CHATGPT_BEGIN => {
                 Ok(json!({"attempt": "a1", "url": "https://auth.openai.com/oauth/authorize?x=1"}))
@@ -95,10 +112,13 @@ fn io<'a>(daemon: &'a FakeDaemon, keychain: &'a FakeKeychain) -> Io<'a> {
 #[test]
 fn parses_every_verb() {
     assert_eq!(parse("connections", &[]).unwrap(), Command::Connections);
-    assert_eq!(parse("connect", &strings(&["claude"])).unwrap(), Command::Claude { label: None });
+    assert_eq!(
+        parse("connect", &strings(&["claude"])).unwrap(),
+        Command::Claude { label: None, token_stdin: false }
+    );
     assert_eq!(
         parse("connect", &strings(&["claude", "--label", " Work "])).unwrap(),
-        Command::Claude { label: Some("Work".into()) }
+        Command::Claude { label: Some("Work".into()), token_stdin: false }
     );
     assert_eq!(
         parse("connect", &strings(&["api-key", "--provider=openai"])).unwrap(),
@@ -154,7 +174,7 @@ fn run_if_requested_ignores_other_cloud_verbs() {
 fn claude_stores_the_token_and_adds_only_its_reference() {
     let daemon = FakeDaemon::default();
     let keychain = FakeKeychain::default();
-    let command = Command::Claude { label: Some("Work".into()) };
+    let command = Command::Claude { label: Some("Work".into()), token_stdin: false };
     let value = run(&command, &io(&daemon, &keychain), &mut |_| {}).unwrap();
     let stored = keychain.stored.borrow();
     let (account, label, secret) = &stored[0];
@@ -180,12 +200,16 @@ fn claude_stores_the_token_and_adds_only_its_reference() {
 
 #[test]
 fn a_refused_add_removes_the_keychain_item() {
-    let daemon = FakeDaemon { refuse_add: true, ..FakeDaemon::default() };
-    let keychain = FakeKeychain::default();
-    let error =
-        run(&Command::Claude { label: None }, &io(&daemon, &keychain), &mut |_| {}).unwrap_err();
-    assert!(error.contains("Keychain item was removed"), "{error}");
-    assert_eq!(*keychain.deleted.borrow(), vec![keychain.stored.borrow()[0].0.clone()]);
+    for command in [
+        Command::Claude { label: None, token_stdin: false },
+        Command::ApiKey { provider: "anthropic".into(), label: None },
+    ] {
+        let daemon = FakeDaemon { refuse_add: true, ..FakeDaemon::default() };
+        let keychain = FakeKeychain::default();
+        let error = run(&command, &io(&daemon, &keychain), &mut |_| {}).unwrap_err();
+        assert!(error.contains("Keychain item was removed"), "{error}");
+        assert_eq!(*keychain.deleted.borrow(), vec![keychain.stored.borrow()[0].0.clone()]);
+    }
 }
 
 #[test]
@@ -199,7 +223,10 @@ fn claude_refuses_what_is_not_a_setup_token() {
             claude_token: &|| Ok(Zeroizing::new(bad.to_owned())),
             api_key: &|_| unreachable!(),
         };
-        assert!(run(&Command::Claude { label: None }, &io, &mut |_| {}).is_err(), "{bad}");
+        assert!(
+            run(&Command::Claude { label: None, token_stdin: false }, &io, &mut |_| {}).is_err(),
+            "{bad}"
+        );
     }
     assert!(keychain.stored.borrow().is_empty());
     assert!(daemon.calls.borrow().is_empty());
@@ -219,7 +246,7 @@ fn api_key_stores_under_the_provider_and_calls_key_add() {
     let (_, params) = calls.iter().find(|(m, _)| m == method::MUX_CONNECTIONS_KEY_ADD).unwrap();
     assert_eq!(
         params,
-        &json!({"provider": "anthropic", "secret": format!("keychain:cmux-model-key/{account}")})
+        &json!({"provider": "anthropic", "secret": format!("keychain:cmux-model-key/{account}"), "servesCloud": true})
     );
     assert_eq!(value["connection"]["id"], json!("anthropic-key"));
 }
@@ -484,4 +511,140 @@ fn the_help_connect_lines_parse() {
             }
         }
     }
+}
+
+#[test]
+fn claude_token_stdin_parses_and_reads_the_token_without_setup_token() {
+    assert_eq!(
+        parse("connect", &strings(&["claude", "--token-stdin", "--label", "CI"])).unwrap(),
+        Command::Claude { label: Some("CI".into()), token_stdin: true }
+    );
+    let daemon = FakeDaemon::default();
+    let keychain = FakeKeychain::default();
+    // Wrapped as `claude setup-token` prints it, with a trailing newline: the whitespace goes.
+    let wrapped = format!("{}\n  {}\n", &TOKEN[..40], &TOKEN[40..]);
+    let io = Io {
+        daemon: &daemon,
+        keychain: &keychain,
+        claude_token: &|| unreachable!("--token-stdin never runs claude setup-token"),
+        api_key: &|_| Ok(Zeroizing::new(wrapped.clone())),
+    };
+    let command = Command::Claude { label: None, token_stdin: true };
+    let value = run(&command, &io, &mut |_| {}).unwrap();
+    assert_eq!(keychain.stored.borrow()[0].2, TOKEN);
+    assert_eq!(value["connection"]["id"], json!("claude-token"));
+    assert!(!value.to_string().contains("sk-ant-oat01"));
+}
+
+#[test]
+fn claude_token_stdin_refuses_what_is_not_a_setup_token() {
+    let daemon = FakeDaemon::default();
+    let keychain = FakeKeychain::default();
+    let io = Io {
+        daemon: &daemon,
+        keychain: &keychain,
+        claude_token: &|| unreachable!(),
+        api_key: &|_| Ok(Zeroizing::new("sk-ant-api03-abc".to_owned())),
+    };
+    assert!(run(&Command::Claude { label: None, token_stdin: true }, &io, &mut |_| {}).is_err());
+    assert!(keychain.stored.borrow().is_empty());
+    assert!(daemon.calls.borrow().is_empty());
+}
+
+#[test]
+fn remove_takes_the_connection_and_only_a_connect_keychain_item() {
+    assert_eq!(
+        parse(
+            "connections",
+            &strings(&[
+                "--remove",
+                "claude-token-2",
+                "--keychain-account",
+                "claude-token-0a1b2c3d"
+            ])
+        )
+        .unwrap(),
+        Command::Remove {
+            id: "claude-token-2".into(),
+            keychain_account: Some("claude-token-0a1b2c3d".into())
+        }
+    );
+    assert_eq!(
+        parse("connections", &strings(&["--remove=openai-key"])).unwrap(),
+        Command::Remove { id: "openai-key".into(), keychain_account: None }
+    );
+    for bad in [
+        &["--remove"][..],
+        &["--keychain-account", "claude-token-0a1b2c3d"],
+        &["--remove", "x", "--keychain-account", "login"],
+        &["--remove", "x", "--keychain-account", "claude-token-0A1B2C3D"],
+        &["--remove", "x", "--keychain-account", "claude-token-0a1b2c3d9"],
+        &["--bogus", "x"],
+    ] {
+        assert!(parse("connections", &strings(bad)).is_err(), "{bad:?}");
+    }
+    let daemon = FakeDaemon::default();
+    daemon.connections.borrow_mut().push(json!({
+        "id": "claude-token", "kind": "claude-token", "credential_instance": "original"
+    }));
+    let keychain = FakeKeychain::default();
+    let command = Command::Remove {
+        id: "claude-token".into(),
+        keychain_account: Some("claude-token-0a1b2c3d".into()),
+    };
+    let value = run(&command, &io(&daemon, &keychain), &mut |_| {}).unwrap();
+    assert_eq!(
+        *daemon.calls.borrow(),
+        vec![
+            (method::MUX_CONNECTIONS.to_owned(), json!({})),
+            (
+                method::MUX_CONNECTIONS_REMOVE.to_owned(),
+                json!({"id": "claude-token", "instance": "original"})
+            ),
+        ]
+    );
+    assert_eq!(*keychain.deleted.borrow(), vec!["claude-token-0a1b2c3d".to_owned()]);
+    assert_eq!(value["removed"], json!("claude-token"));
+    assert_eq!(value["connections"], json!([]));
+    assert!(super::human(&command, &value).contains("Removed claude-token and its Keychain item"));
+}
+
+#[test]
+fn remove_does_not_retry_or_delete_the_keychain_item_after_instance_mismatch() {
+    let daemon = FakeDaemon { replacement_instance: Some("replacement"), ..FakeDaemon::default() };
+    daemon.connections.borrow_mut().push(json!({
+        "id": "claude-token", "credential_instance": "original"
+    }));
+    let keychain = FakeKeychain::default();
+    let command = parse(
+        "connections",
+        &strings(&["--remove", "claude-token", "--keychain-account", "claude-token-0a1b2c3d"]),
+    )
+    .unwrap();
+
+    let error = run(&command, &io(&daemon, &keychain), &mut |_| {}).unwrap_err();
+    assert_eq!(error, "the connection changed while it was open");
+    assert_eq!(daemon.methods(), [method::MUX_CONNECTIONS, method::MUX_CONNECTIONS_REMOVE]);
+    assert_eq!(daemon.connections.borrow()[0]["credential_instance"], "replacement");
+    assert!(keychain.deleted.borrow().is_empty());
+}
+
+#[test]
+fn remove_requires_an_instance_for_the_requested_connection() {
+    let daemon = FakeDaemon::default();
+    daemon.connections.borrow_mut().extend([
+        json!({"id": "claude-token"}),
+        json!({"id": "another-connection", "credential_instance": "other"}),
+    ]);
+    let keychain = FakeKeychain::default();
+    let command = parse(
+        "connections",
+        &strings(&["--remove", "claude-token", "--keychain-account", "claude-token-0a1b2c3d"]),
+    )
+    .unwrap();
+
+    assert!(run(&command, &io(&daemon, &keychain), &mut |_| {}).is_err());
+    assert_eq!(daemon.methods(), [method::MUX_CONNECTIONS]);
+    assert_eq!(daemon.connections.borrow().len(), 2);
+    assert!(keychain.deleted.borrow().is_empty());
 }

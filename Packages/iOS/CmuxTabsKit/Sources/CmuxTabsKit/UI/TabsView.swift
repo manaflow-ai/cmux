@@ -15,6 +15,10 @@ public struct TabsView<Source: TabsDataSource>: View {
     let isShowingOverview: Binding<Bool>?
 
     @State private var chrome = ChromeState()
+    /// The keyboard height the accessory last rode, kept while the host holds it
+    /// (`tabsKitHoldsKeyboard`: a navigation transition moves the whole page as one).
+    @State private var heldKeyboard: CGFloat = 0
+    @Environment(\.tabsKitHoldsKeyboard) private var holdsKeyboard
 
     /// `isShowingOverview`: optional two-way binding to the tab grid. Set it
     /// to open or close the grid with the same zoom as the tabs button; the
@@ -32,11 +36,16 @@ public struct TabsView<Source: TabsDataSource>: View {
             GeometryReader { outer in
                 GeometryReader { full in
                     let inset = withKeyboard.safeAreaInsets.bottom
-                    let keyboard = inset > outer.safeAreaInsets.bottom + 1 ? inset : 0
+                    let live = inset > outer.safeAreaInsets.bottom + 1 ? inset : 0
+                    // Held by the host through a navigation transition: the page (and its
+                    // composer) slides as drawn, whatever the keyboard reports meanwhile.
+                    let keyboard = holdsKeyboard ? heldKeyboard : live
                     TabsScreen(source: source, isShowingOverview: isShowingOverview, size: full.size, safeTop: outer.safeAreaInsets.top,
                                safeBottom: outer.safeAreaInsets.bottom,
                                keyboard: chrome.editing ? keyboard : 0, chrome: chrome)
                         .environment(\.tabsAccessoryKeyboardHeight, keyboard)
+                        .onChange(of: live, initial: true) { _, now in if !holdsKeyboard { heldKeyboard = now } }
+                        .onChange(of: holdsKeyboard) { _, holds in if !holds { heldKeyboard = live } }
                 }
                 .ignoresSafeArea()
             }
@@ -82,7 +91,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// re-evaluate this screen and every card; only the views that read it
     /// (the zoom while it runs, the live page following its card) update.
     @State private var gridScroll = GridScrollTracker()
-    private var gridContentOrigin: CGPoint? { gridScroll.contentOrigin }
+    private var gridContentOrigin: CGPoint? { gridScroll.screenOrigin }
     private var overviewScroll: CGFloat { gridScroll.offset }
     /// The active tab shown on the settled grid by its static card
     /// (`TabsDataSource.showStaticCard(for:)`).
@@ -349,8 +358,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // show between the status bar and the bar, nor under its glass (Leo,
             // 2026-11-24: "fix the screens splitting between scrolling and whatnot").
             if zoomState.phase != .overview, theme.metrics.barEdge == .top {
-                TopBarBand(height: topBandHeight,
-                           color: activeTab?.statusBarStyle == .lightContent ? Color.black : theme.colors.pageBackground)
+                TopBarBand(height: topBandHeight, pageSize: size,
+                           ground: activeTab.flatMap { source.topBarGround(for: $0) }
+                               ?? AnyView(activeTab?.statusBarStyle == .lightContent ? Color.black : theme.colors.pageBackground))
                     .opacity(1 - overviewShown)
             }
 
@@ -651,7 +661,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         if let id = newTabZoomID, id == zoomTabId {
             guard newTabZoom.fromLoneSlot else { return newTabZoom.rect(in: fullRect) }
             let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1, columns: overviewColumns)
-            return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
+            return lone.zoomScaled(lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll), shown: overviewShown, variant: zoomState.motion)
         }
         let index: Int
         if zoomTabId == TabsScreenSpace.newTabMarker {
@@ -659,7 +669,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.firstIndex { $0.id == id } } ?? (activeIndex ?? 0)
         }
-        return overviewLayout.holding(index).zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
+        return overviewLayout.zoomScaled(overviewLayout.holding(index).zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll),
+                                         shown: overviewShown, variant: zoomState.motion)
     }
 
     // MARK: Address editing
@@ -726,7 +737,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             var t = Transaction()
             t.disablesAnimations = true
             withTransaction(t) { overviewPosition = ScrollPosition(y: offset) }
-            // Until the scroll view reports it, the fallback endpoint uses it too.
+            // The zoom aims at the new slot from its first frame.
             gridScroll.offset = offset
         }
     }
@@ -1082,11 +1093,16 @@ private struct GridShape: Equatable {
 /// never read by accessibility; it rides the bar's own collapse and expand animation.
 private struct TopBarBand: View {
     var height: CGFloat
-    var color: Color
+    /// The page's size: the ground is laid out over the whole page and cut to the band, so a
+    /// picture in it lines up with the same picture under the page.
+    var pageSize: CGSize
+    var ground: AnyView
 
     var body: some View {
-        color
-            .frame(height: max(0, height))
+        ground
+            .frame(width: pageSize.width, height: pageSize.height)
+            .frame(height: max(0, height), alignment: .top)
+            .clipped()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .allowsHitTesting(false)
             .accessibilityHidden(true)

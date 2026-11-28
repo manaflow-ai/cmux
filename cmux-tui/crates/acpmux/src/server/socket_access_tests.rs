@@ -6,7 +6,7 @@
 //! ```
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-use super::{bind_unix, peer_uid_allowed, tighten_socket_dir};
+use super::{bind_daemon_unix, bind_unix, peer_uid_allowed, tighten_socket_dir};
 
 fn mode(path: &std::path::Path) -> u32 {
     std::fs::symlink_metadata(path)
@@ -84,4 +84,25 @@ async fn the_bind_leaves_the_umask_and_no_staging_folder() {
         .collect();
     assert_eq!(left, vec![std::ffi::OsString::from("acpmux.sock")], "{left:?}");
     tokio::net::UnixStream::connect(&socket).await.unwrap_or_else(|e| panic!("connect: {e}"));
+}
+
+/// A take-over start whose socket answers from a listener this process holds (the copy the old
+/// daemon handed it), or from the daemon it took over from, replaces the socket. It used to bail
+/// "another acpmux daemon owns" and the daemon died at every update. A listener of any other live
+/// process is still refused (`tests/daemon_single_owner.rs`).
+#[tokio::test]
+async fn the_daemon_replaces_a_socket_that_answers_from_its_own_copy() {
+    let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let socket = tmp.path().join("acpmux.sock");
+    let copy = bind_unix(&socket).await.unwrap_or_else(|e| panic!("bind: {e:#}"));
+    let refused = bind_unix(&socket).await.err().map(|e| format!("{e:#}")).unwrap_or_default();
+    assert!(refused.contains("another acpmux daemon owns"), "{refused}");
+    let other = bind_daemon_unix(&socket, |_| false).await.err().map(|e| format!("{e:#}"));
+    assert!(other.unwrap_or_default().contains("another acpmux daemon owns"));
+    let ours = |pid| pid == std::process::id();
+    let listener = bind_daemon_unix(&socket, ours).await.unwrap_or_else(|e| panic!("bind: {e:#}"));
+    drop(copy);
+    let _client = tokio::net::UnixStream::connect(&socket).await.unwrap_or_else(|e| panic!("{e}"));
+    let accepted = tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept()).await;
+    assert!(matches!(accepted, Ok(Ok(_))), "the new listener serves the socket");
 }

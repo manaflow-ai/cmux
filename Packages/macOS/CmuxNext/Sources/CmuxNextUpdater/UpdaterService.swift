@@ -166,6 +166,11 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// Reads the feed's notes index (``releaseNotes`` in the app; replaced by tests).
+    @ObservationIgnored var indexLoader: (@Sendable () async -> [ReleaseNotesIndexEntry])?
+    /// "What's in this build": the PRs after this build through the staged one (``loadStagedPullRequests()``).
+    public internal(set) var stagedPullRequests: BuildPullRequests?
+    @ObservationIgnored var stagedPullRequestsTask: (build: String, task: Task<Void, Never>)?
     /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
     @ObservationIgnored var prewarmRun: StagedPrewarmRun?
     /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
@@ -181,6 +186,9 @@ public final class UpdaterService {
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
     public internal(set) var currentBuildNotes: ReleaseNotes?
     @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
+    /// This build's PRs for About cmux's credits, read once per launch (``showAboutPanel()``).
+    @ObservationIgnored var aboutPullRequests: BuildPullRequests?
+    @ObservationIgnored var aboutPullRequestsTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
@@ -236,6 +244,10 @@ public final class UpdaterService {
     /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
     /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
     @ObservationIgnored var installAfterSwap = false
+    /// The person's update clicks (Update on the found step, Restart to Update) since the flow was
+    /// last idle; the relaunch records them (``UpdateInstallCheck/clicks``) and the next launch
+    /// flags more than one (``UpdateInstallCheck/extraClicksLine(_:)``).
+    @ObservationIgnored var updateClicks = 0
     /// Why the newest build downloads in place of a stale or pulled one, or nil (``followNewestFetch(_:previous:)``).
     var newestFetch: NewestFetch?
     /// Pulled staged builds already dropped once (``followPulled()``).
@@ -411,15 +423,19 @@ public final class UpdaterService {
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
         relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
+        // Unpaused: the pause's `SUEnableAutomaticChecks = false` comes off once, before Sparkle reads it.
+        if !pausesAutomaticUpdates, identity.track != .development { AutomaticUpdatePause.resumeAutomaticChecks(in: defaults) }
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
             // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
             let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
                                               isDisabledByPolicy: { policy.disablesUpdates })
-            // No Sparkle window: the found and staged steps are the sidebar's cards.
-            // Set on this updater only; no defaults change, so the legacy app
-            // sharing the domain keeps its own behavior.
+            // No Sparkle window: the found and staged steps are the sidebar's cards. NEXT release
+            // bundles set `SUAllowsAutomaticUpdates=false`, so Sparkle's silent driver cannot
+            // bypass the app-owned download policy. The shared `SUAutomaticallyUpdate` value
+            // remains available to a classic cmux bundle using the same defaults domain.
+            controller.disablesSparkleSilentStagingPreference = false
             controller.installsUpdatesInBackground = true
             // The daemon keeps every terminal, agent and running turn, so all app relaunches are
             // immediate. `UpdateDriver` uses this same flag for automatic installs.
@@ -725,7 +741,7 @@ public final class UpdaterService {
             automaticChecks: reason == nil && bool(UpdateSettings.automaticChecksKey, fallback: true),
             // cmux NEXT's own `updates.downloadAutomatically` as applied (network and managed policy
             // included), not Sparkle's `SUAutomaticallyUpdate`: cmux NEXT stages through its own driver
-            // and turns that key off at every launch, and the legacy NIGHTLY app shares it.
+            // and leaves that shared key untouched so the classic NIGHTLY app keeps its migration.
             automaticDownloads: reason == nil && downloadsFoundUpdates,
             phase: UpdatePhase(state),
             detectedVersion: controller?.model.detectedUpdateVersion,

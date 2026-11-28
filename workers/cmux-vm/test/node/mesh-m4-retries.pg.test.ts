@@ -7,6 +7,7 @@
  * answers 503 and Stack retries.
  */
 import { PGlite } from "@electric-sql/pglite";
+import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -43,7 +44,7 @@ const t0 = Date.UTC(2026, 9, 7, 12, 0);
 const at = (ms: number) => new Date(t0 + ms);
 
 beforeEach(async () => {
-  pg = new PGlite();
+  pg = await freshPg();
   for (const migration of [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries]) await pg.exec(migration);
   layer = layerOver(pg);
 });

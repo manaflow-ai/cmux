@@ -109,11 +109,18 @@ pub(super) fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool
 /// the viewer does not reconnect automatically.
 pub(super) fn kick_client(mux: &Arc<Mux>, client: u64, by: TerminalDetachActor) -> bool {
     let placements = mux.terminal_placements_of_client(client);
+    // A client can be kicked before it has attached a terminal stream. The
+    // per-stream detached marker below cannot reach that client, so send the
+    // connection-wide marker first as well.
+    let mut notice = json!({"event": "client-disconnected-by"});
+    if !by.is_empty() {
+        notice.insert("by", json!(&by));
+    }
     let kicked = disconnect_client_with_notice(
         mux,
         client,
         true,
-        None,
+        Some(&notice),
         &DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) },
     );
     // Disconnected on purpose: the grids of its terminals follow the
@@ -153,6 +160,8 @@ fn disconnect_client_with_notice(
     mux.forget_cloud_token_client(client);
     mux.release_cloud_conversation_client(client);
     mux.feed_connection_closed(client);
+    #[cfg(unix)]
+    mux.cloud_services().machine_state.stop(client);
     mux.forget_tab_creations(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can

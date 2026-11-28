@@ -59,6 +59,12 @@ export type AcpmuxSessionEntry = {
   pinned?: boolean;
   /** Tagged `archived` through `_acpmux/tag` (the chat menu's Archive): off every list, found only by search. */
   archived?: boolean;
+  /** Why acpmux settled the chat (its `settled` tag, hub/auto_settle.rs): a settled chat is an
+   *  archived one with a reason, so it is `archived` too; a plain Archive has none. */
+  settled?: SettleReason;
+  /** The chat's own auto-settle override (its `autoSettle` tag): `never` keeps acpmux from
+   *  settling it; absent follows the settings. */
+  autoSettle?: "never";
   /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
   side?: boolean;
   pullRequest?: SessionPullRequest;
@@ -202,6 +208,13 @@ export const hostKind = (value: unknown) => (value === "local" || value === "clo
 export const PINNED_TAG = "pinned";
 /** The tag the chat menu's Archive sets. */
 export const ARCHIVED_TAG = "archived";
+/** Why a chat settled (acpmux hub/auto_settle.rs `SETTLED_TAG`): its pull requests merged or
+ *  closed, it sat idle, or `acpmux session settle` did it by hand. */
+export const SETTLED_TAG = "settled";
+export const SETTLE_REASONS = ["merged", "closed", "idle", "manual"] as const;
+export type SettleReason = (typeof SETTLE_REASONS)[number];
+/** A chat's own auto-settle override (acpmux `OVERRIDE_TAG`); only `never` means anything. */
+export const AUTO_SETTLE_TAG = "autoSettle";
 /** The tag New side chat sets on its fork (the value is the chat's session). */
 export const SIDE_TAG = "side";
 /** acpmux's tag on the fork a side question (`/btw`) is asked in, while it lives. */
@@ -292,14 +305,10 @@ const INDICATORS: readonly string[] = ["input", "working", "failed", "lost", "do
 export type SessionLane = "working" | "input" | "failed" | "lost" | "idle";
 const LANES: readonly string[] = ["working", "input", "failed", "lost", "idle"];
 
-/** A running turn's line as acpmux's `doing_line` (hub/activity.rs) writes it: its plan step and
- *  latest tool, either alone; else what the turn was asked (`lane.step`). */
+/** A running turn's line: its latest tool, else what the turn was asked (`lane.step`). */
 function doingLine(session: Record<string, any>): string | undefined {
   if (session.lane?.state !== "working") return undefined;
-  const step = text(session.turn?.planStep);
-  const tool = text(session.turn?.activity);
-  if (step && tool && step !== tool) return `${step} · ${tool}`;
-  return step ?? tool ?? text(session.lane?.step);
+  return text(session.turn?.activity) ?? text(session.lane?.step);
 }
 
 /** What a session waits on the person for: only the person answers any of them, in the app. acpmux
@@ -375,6 +384,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     worktree: text(session.worktree),
     pinned: session.pinned === true || tagged(session.tags, PINNED_TAG),
     archived: session.archived === true || tagged(session.tags, ARCHIVED_TAG),
+    ...settleTags(session.tags),
     // A side question's throwaway copy (`aside`, acpmux hub/aside.rs) is never listed either.
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
@@ -422,6 +432,20 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     laneError: text(session.lane?.error),
     usageStats: usageStatsOf(session.usageStats),
     ...(auto && { autoSession: auto }),
+  };
+}
+
+/** The `settled` reason and the `autoSettle` override from acpmux's tags. A reason counts only on an
+ *  archived chat: un-settling (`_acpmux/archive` false) drops the archive and the reason together,
+ *  so a reason without the archive is a stale copy. An unknown reason (a newer acpmux's) reads as
+ *  `manual`, so the chat still shows as settled. */
+export function settleTags(tags: unknown): { settled?: SettleReason; autoSettle?: "never" } {
+  const reason = tagValue(tags, SETTLED_TAG);
+  const known = (SETTLE_REASONS as readonly string[]).includes(reason ?? "");
+  const settled = reason === undefined || !tagged(tags, ARCHIVED_TAG) ? undefined : known ? reason : "manual";
+  return {
+    ...(settled !== undefined && { settled: settled as SettleReason }),
+    ...(tagValue(tags, AUTO_SETTLE_TAG) === "never" && { autoSettle: "never" as const }),
   };
 }
 

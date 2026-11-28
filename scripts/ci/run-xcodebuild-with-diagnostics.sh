@@ -52,6 +52,15 @@ stalled_status=124
 stall_dir="${CMUX_XCODEBUILD_STALL_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/xcodebuild-stall}"
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 
+# The package graph xcodebuild resolves first clones from github.com with
+# Xcode's own git, through the self-hosted mini's loopback egress proxy. A dead
+# or half-dead proxy fails that resolve (cmux runs 45830236598, 45836332236,
+# 2026-11-26), so the proxy is probed before the build and a resolve that
+# failed on it runs the build once more, direct (github-egress-direct.sh).
+# shellcheck source=scripts/ci/github-egress-direct.sh
+source "$script_dir/github-egress-direct.sh"
+github_egress_probe
+
 set +e
 collect_process_tree() {
   local pid="$1"
@@ -237,6 +246,72 @@ done
 kill "$tee_pid" 2>/dev/null || true
 wait "$tee_pid" 2>/dev/null || true
 trap - INT TERM
+
+# The first attempt already wrote its -resultBundlePath, and xcodebuild
+# refuses an existing bundle ("Existing file at -resultBundlePath", status
+# 64), so a rerun would fail on that instead of building. The bundle belongs
+# to this build; clear it so the rerun can write it again.
+clear_result_bundle() {
+  local prev_arg="" arg
+  for arg in "$@"; do
+    if [[ "$prev_arg" == "-resultBundlePath" && -n "$arg" ]]; then
+      rm -rf "$arg"
+    fi
+    prev_arg="$arg"
+  done
+}
+
+if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]] \
+  && grep -qE 'Could not resolve package dependencies|Failed to resolve dependencies' "$output_log" 2>/dev/null \
+  && github_egress_retry_direct "$output_log"; then
+  echo "xcodebuild: the package resolve failed on the github.com proxy (status=$status); running it once more, direct"
+  rm -rf "$output_dir"
+  clear_result_bundle "$@"
+  exec "$script_dir/$(basename "$0")" -- "$@"
+fi
+
+# Xcode's build service can crash mid-build and xcodebuild then ends with
+# "error: unexpected service error: The Xcode build system has crashed. Build
+# again to continue." (status 65). Xcode 27.2's build service did that in two
+# of three nightly-next Release builds on 2026-11-27 (runs 46029967132,
+# 46033303025), each part way through compiling code that builds clean. The
+# message says to build again, so the build runs once more with the same
+# arguments and DerivedData (a new xcodebuild starts a new build service).
+# Only that exact message counts, and only once:
+# CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED marks the rerun, which reports its own
+# failure as usual.
+#
+# The rerun builds without the compilation cache when the build had it on.
+# From 22:12Z on 2026-11-27 every nightly-next build on ultra1-glaeda crashed
+# the build service ("bad_optional_access was thrown in -fno-exceptions mode",
+# then a dependency file rename failed) on both attempts, clean DerivedData
+# included (runs 46074261734, 46076637784, 46079235693), with no settings or
+# build change in the 47 commits since the last good build. A clean
+# DerivedData still keeps the host's CAS (nightly_build_state.prepare_host
+# links it across clean builds), so the cache is the one input every crashed
+# attempt shared; a same-arguments rerun read it again and crashed again.
+build_service_crash_message='The Xcode build system has crashed. Build again to continue.'
+if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]] \
+  && [[ "${CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED:-0}" != 1 ]] \
+  && grep -qF "$build_service_crash_message" "$output_log" 2>/dev/null; then
+  rerun=()
+  cache_dropped=0
+  for arg in "$@"; do
+    if [[ "$arg" == COMPILATION_CACHE_ENABLE_CACHING=YES ]]; then
+      arg=COMPILATION_CACHE_ENABLE_CACHING=NO
+      cache_dropped=1
+    fi
+    rerun+=("$arg")
+  done
+  if (( cache_dropped )); then
+    echo "::warning::xcodebuild: the Xcode build service crashed (status=$status: \"$build_service_crash_message\"); building once more, without the compilation cache"
+  else
+    echo "::warning::xcodebuild: the Xcode build service crashed (status=$status: \"$build_service_crash_message\"); building once more, same arguments"
+  fi
+  rm -rf "$output_dir"
+  clear_result_bundle "$@"
+  CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED=1 exec "$script_dir/$(basename "$0")" -- "${rerun[@]}"
+fi
 set -e
 
 # A compiler crash (swift-frontend or clang signal) prints a "Stack dump:" block
