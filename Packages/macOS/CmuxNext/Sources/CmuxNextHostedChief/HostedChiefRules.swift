@@ -26,6 +26,10 @@ nonisolated enum ChiefRules {
         try HomeEngineRules.call(area + op, input)
     }
 
+    /// The ops live in cmux-home-rules' `cloud` area; `cmux_home_call` takes `AREA.NAME` and answers a bare
+    /// name `unknownOp`, which stopped every debug build at launch on `chiefs_tab`.
+    static let area = "cloud."
+
     // MARK: Chiefs
 
     struct Chiefs: Encodable {
