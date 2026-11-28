@@ -23,7 +23,8 @@ pub fn p95(samples: &[u128]) -> u128 {
     assert!(!samples.is_empty(), "p95 of no samples: the gate measured nothing");
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
-    sorted[((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
+    // Never past the end: the rank is at most len, minus one.
+    sorted.get(((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1)).copied().unwrap_or_default()
 }
 
 /// The lowest round p95. Panics on no rounds or an empty round, as [`p95`] does.
@@ -57,7 +58,7 @@ pub fn all_p95(rounds: &[Vec<u128>]) -> u128 {
 fn median(values: &[u128]) -> u128 {
     let mut sorted = values.to_vec();
     sorted.sort_unstable();
-    sorted[(sorted.len() - 1) / 2]
+    sorted.get(sorted.len().saturating_sub(1) / 2).copied().unwrap_or_default()
 }
 
 /// One line for each round on one side whose p95 is more than `factor` from the side's

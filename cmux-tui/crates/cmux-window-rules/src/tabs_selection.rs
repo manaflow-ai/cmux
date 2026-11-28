@@ -84,8 +84,8 @@ impl MultiSelection {
                     // The active tab left: the nearest selected tab after it
                     // becomes active, else the one before.
                     let index = position(order, id).unwrap_or(order.len());
-                    let after = &order[(index + 1).min(order.len())..];
-                    let before = &order[..index.min(order.len())];
+                    let after = order.get(index.saturating_add(1)..).unwrap_or_default();
+                    let before = order.get(..index).unwrap_or(order);
                     after
                         .iter()
                         .find(|tab| rest.contains(*tab))
@@ -107,7 +107,8 @@ impl MultiSelection {
                     _ => active.unwrap_or(id).to_owned(),
                 };
                 let (a, b) = (position(order, &start)?, position(order, id)?);
-                let range: BTreeSet<String> = order[a.min(b)..=a.max(b)].iter().cloned().collect();
+                let range: BTreeSet<String> =
+                    order.get(a.min(b)..=a.max(b)).unwrap_or_default().iter().cloned().collect();
                 self.set(if click == Click::Range { range } else { &current | &range });
                 self.anchor = Some(start);
                 Some(id.to_owned())
@@ -179,12 +180,16 @@ pub fn moving(
     let pinned_at = clamp(index, rest_pinned.len());
     let unpinned_at = clamp(index.saturating_sub(rest_pinned.len() as i64), rest_unpinned.len());
     let mut result = Vec::with_capacity(order.len());
-    result.extend_from_slice(&rest_pinned[..pinned_at]);
+    // `clamp` keeps both cuts inside their halves, so neither split falls back.
+    let (pinned_head, pinned_tail) = rest_pinned.split_at_checked(pinned_at).unwrap_or((&rest_pinned, &[]));
+    let (unpinned_head, unpinned_tail) =
+        rest_unpinned.split_at_checked(unpinned_at).unwrap_or((&rest_unpinned, &[]));
+    result.extend_from_slice(pinned_head);
     result.extend(moved_pinned);
-    result.extend_from_slice(&rest_pinned[pinned_at..]);
-    result.extend_from_slice(&rest_unpinned[..unpinned_at]);
+    result.extend_from_slice(pinned_tail);
+    result.extend_from_slice(unpinned_head);
     result.extend(moved_unpinned);
-    result.extend_from_slice(&rest_unpinned[unpinned_at..]);
+    result.extend_from_slice(unpinned_tail);
     result
 }
 
@@ -206,12 +211,13 @@ pub fn next_step(current: &[String], target: &[String]) -> Option<Step> {
         current.iter().map(String::as_str).filter(|tab| in_target.contains(tab)).collect();
     let goal: Vec<&str> =
         target.iter().map(String::as_str).filter(|tab| in_current.contains(tab)).collect();
-    let index = (0..now.len().min(goal.len())).find(|&index| now[index] != goal[index])?;
+    let index = now.iter().zip(&goal).position(|(have, want)| have != want)?;
     // Its index in `current`, which can hold tabs `target` does not.
-    let id = goal[index];
+    let id = *goal.get(index)?;
     let at = index
         .checked_sub(1)
-        .and_then(|before| position(current, now[before]))
+        .and_then(|before| now.get(before))
+        .and_then(|&before| position(current, before))
         .map_or(0, |before| before + 1);
     let from = position(current, id).unwrap_or(0);
     Some(Step { id: id.to_owned(), index: if from < at { at - 1 } else { at } })

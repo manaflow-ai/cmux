@@ -110,7 +110,7 @@ impl FinalScanTestGate {
             return;
         }
         let _ = self.reached.send(());
-        let _ = self.resume.lock().unwrap().recv();
+        let _ = self.resume.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv();
     }
 }
 

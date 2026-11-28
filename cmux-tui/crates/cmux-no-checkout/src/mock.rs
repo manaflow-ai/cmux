@@ -211,12 +211,12 @@ fn route(
     match (method, path) {
         ("GET", "") => ok(&json!({"default_branch": "main"})),
         ("GET", p) if p.starts_with("/branches/") => {
-            let Some(commit) = state.refs.get(&p["/branches/".len()..]) else { return missing() };
+            let Some(commit) = state.refs.get(p.strip_prefix("/branches/").unwrap_or_default()) else { return missing() };
             let tree = &state.commits[commit].0;
             ok(&json!({"commit": {"sha": commit, "commit": {"tree": {"sha": tree}}}}))
         }
         ("GET", p) if p.starts_with("/git/trees/") => {
-            let Some(tree) = state.trees.get(&p["/git/trees/".len()..]) else { return missing() };
+            let Some(tree) = state.trees.get(p.strip_prefix("/git/trees/").unwrap_or_default()) else { return missing() };
             let entries: Vec<Value> = tree
                 .iter()
                 .map(|(path, (blob, mode))| {
@@ -227,7 +227,7 @@ fn route(
             ok(&json!({"tree": entries, "truncated": false}))
         }
         ("GET", p) if p.starts_with("/git/blobs/") => {
-            match state.blobs.get(&p["/git/blobs/".len()..]) {
+            match state.blobs.get(p.strip_prefix("/git/blobs/").unwrap_or_default()) {
                 Some(bytes) => (200, bytes.clone(), "application/octet-stream"),
                 None => missing(),
             }
@@ -292,7 +292,7 @@ fn route(
             ok(&json!({"ref": name}))
         }
         ("PATCH", p) if p.starts_with("/git/refs/heads/") => {
-            let branch = &p["/git/refs/heads/".len()..];
+            let branch = p.strip_prefix("/git/refs/heads/").unwrap_or_default();
             let sha = body["sha"].as_str().unwrap_or_default().to_owned();
             // Fast-forward only: the new commit's parent is the branch's head.
             let head = state.refs.get(branch).cloned();
@@ -307,7 +307,7 @@ fn route(
             ok(&json!({}))
         }
         ("DELETE", p) if p.starts_with("/git/refs/heads/") => {
-            match state.refs.remove(&p["/git/refs/heads/".len()..]) {
+            match state.refs.remove(p.strip_prefix("/git/refs/heads/").unwrap_or_default()) {
                 Some(_) => (204, Vec::new(), "application/json"),
                 None => missing(),
             }
@@ -322,7 +322,7 @@ fn route(
             ok(&pull)
         }
         ("PATCH", p) if p.starts_with("/pulls/") => {
-            let number: usize = p["/pulls/".len()..].parse().unwrap_or(0);
+            let number: usize = p.strip_prefix("/pulls/").unwrap_or_default().parse().unwrap_or(0);
             match state.pulls.get_mut(number.wrapping_sub(1)) {
                 Some(pull) => {
                     pull["state"] = body["state"].clone();
