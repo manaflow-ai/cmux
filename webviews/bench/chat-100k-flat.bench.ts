@@ -49,6 +49,12 @@
 // it; `resize cpu ms` is the renderer main thread's time over that second (the layout and the drawn rows' measures).
 // The fixture's turns are plain prose (no code blocks), so the pane's highlighter, which runs on the main thread on an
 // http: page and in a worker on cmux-page:, does no work here.
+// LAYER=store|transport (below) splits a ratio by component: each chat's page loses the pane (store: the shipped
+// client and its snapshots, no React) or the client too (transport: the socket and JSON, a 1000-record ring), and the
+// same launches and readings run on it, so pane - store is the renderer's share and store - transport the store's.
+// The other flat goal's bench (scripts/cmux-next/bench_infinite_tabs.py, 500 tabs vs empty, 1.2x) is one launch of the
+// Mac app read empty then full, in Python; it shares this one's question (a scaled launch over an empty one) but no
+// code it could import, so the two keep their own harnesses.
 //   bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]
 // Linux only (it reads /proc).
 import fs from "node:fs";
@@ -117,7 +123,17 @@ const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 180);
 // A heap drop that counts as a collection: more than 2 % of the heap and more than 2 MB (a small heap's jitter).
 const heapDropped = (before: number, after: number) => before - after > Math.max(0.02 * before, 2);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
-const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
+// LAYER=store|transport: each chat's page is the pane with a part cut away (flat-layers/entry.ts), so a ratio splits by
+// component: transport (the wire and JSON only), store (the shipped client, no React), pane (default: everything).
+// pane minus store is the renderer's own share, store minus transport the store's. Rows carry a .layer_<name> prefix.
+const LAYER = process.env.LAYER ?? "pane";
+if (!["pane", "store", "transport"].includes(LAYER)) {
+  console.error("chat-100k-flat: LAYER is pane, store or transport");
+  process.exit(2);
+}
+const ROW =
+  (CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat") +
+  (LAYER === "pane" ? "" : `.layer_${LAYER}`);
 if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASES)) {
   console.error("chat-100k-flat: CASES is all, main, grown-many, running, long or long-many");
   process.exit(2);
@@ -273,6 +289,14 @@ try {
     build: { outDir: out, emptyOutDir: true, sourcemap: PAINT, ...(HEAP_RETAINERS ? { minify: false } : {}) },
     logLevel: "error",
   });
+  if (LAYER !== "pane")
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      root: path.join(webviews, "bench/flat-layers"),
+      base: "/layers/",
+      build: { outDir: path.join(out, "layers"), emptyOutDir: false, sourcemap: PAINT },
+      logLevel: "error",
+    });
   // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
   const sources = PAINT ? sourceMapper(out) : undefined;
   const statics = Bun.serve({
@@ -280,7 +304,7 @@ try {
     hostname: "127.0.0.1",
     async fetch(request) {
       const pathname = new URL(request.url).pathname;
-      const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
+      const file = Bun.file(path.join(out, pathname.endsWith("/") ? `${pathname}index.html` : pathname));
       if (!(await file.exists())) return new Response("not found", { status: 404 });
       return new Response(file, {
         headers: pathname.endsWith(".css") ? { "cache-control": "max-age=3600" } : {},
@@ -503,7 +527,7 @@ try {
     try {
       const origin = `http://127.0.0.1:${statics.port}`;
       const urlFor = (index: number) =>
-        `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
+        `${origin}/${LAYER === "pane" ? "" : `layers/?layer=${LAYER}`}#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
       const firstText = `Answer ${chat.turns}:`;
       const pages: { page: Page; cdp: CDPSession }[] = [];
       for (let index = 0; index < count; index++) {
