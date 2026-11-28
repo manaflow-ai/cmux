@@ -117,8 +117,9 @@ pane's) are AppKit's `NSMenu`, which these do not reach.
 ## Overlays
 
 `Popover`, `Tooltip`, `Dialog`, and `Sheet` all portal into the `UiProvider` container, return focus
-to their trigger, close on Escape, and use Ghostty theme tokens. Tooltips wait 500 ms on the first
-hover and move immediately to a neighbor. Menus and popovers (Menu, Popover, Select, Combobox,
+to their trigger, close on Escape, and use Ghostty theme tokens. Tooltips wait 250 ms on the first
+hover (`HOVER_INTENT.tooltipDelay` in `ui/hoverIntent.ts`, the native `HoverIntentTiming.standard`'s
+number) and move immediately to a neighbor. Menus and popovers (Menu, Popover, Select, Combobox,
 ContextMenu, and every `.ui-popup`) open in one frame with no fade, scale or slide, and fade only as
 they close (Leo 2026-10-24: "When you open it up, no animation. When you close it, animation for
 closing... No fade in ever for any of these."). `test/popover-instant-open.test.ts` holds this.
@@ -128,6 +129,10 @@ closing... No fade in ever for any of these."). `test/popover-instant-open.test.
 One z-index scale for every page and the agent pane, defined in `pages/shared/desktop.css` (loaded
 first everywhere). Use the token, never a number: `z-index: var(--layer-dropdown)` in CSS,
 `z-(--layer-dropdown)` in Tailwind.
+
+Host glass (the App's own glass under a surface that marks `data-host-glass`, `ui/glass/hostGlass.ts`)
+is drawn only in the agent pane. Every other page (Settings, Feed, onboarding, changelog) has no App
+glass under it, so the same surface there draws the page's floating material instead.
 
 | token              | value      | for                                                                                                          |
 | ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------ |
