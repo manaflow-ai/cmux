@@ -45,6 +45,6 @@ pub(super) fn text(name: &str, answer: Option<&Value>, dry_run: bool) -> Vec<Str
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))] // the test daemon listens on a unix socket (tokio::net::UnixListener)
 #[path = "session_move_interrupts_tests.rs"]
 mod tests;
