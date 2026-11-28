@@ -54,6 +54,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/fleet_compile_result.py
           sparse-checkout-cone-mode: false
       - name: Read the head's app from the build fleet
