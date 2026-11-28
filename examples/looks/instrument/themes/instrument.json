@@ -3,7 +3,7 @@
 // No accent hue: no accent colour is set, so the accent is the ink and selection is the neutral fill; the palette's hues are for status. Corners: panes 12 = control 8 + inset 4.
 {
   "name": "Instrument",
-  "description": "Instrument v0.1 (look 0.2.0), dark: a dense, quiet frame computed from three numbers; no accent colour, colour means status.",
+  "description": "Dark: dense and quiet; color only shows status.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

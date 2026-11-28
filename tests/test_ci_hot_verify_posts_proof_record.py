@@ -65,6 +65,30 @@ class PostsProofRecord(unittest.TestCase):
             self.assertEqual(record["head_sha"], head)
             self.assertIn("push_to_proof_s", record["timing"])
 
+    def test_a_failing_look_still_posts_its_record_under_bash_e(self):
+        """cmux#55190, 2026-11-27: the look ran and failed (the fleet NIGHTLY's web ABI 7, the head's overlay 9), the
+        record command exited 1, the step's `bash -e` ended it before the post, and cmux/ui-proof said "no look at
+        this head" for 5 h. The step's own script runs here as Actions runs it, with gh stubbed."""
+        head = "c" * 40
+        with tempfile.TemporaryDirectory() as d:
+            out, bin_ = pathlib.Path(d) / "out", pathlib.Path(d) / "bin"
+            png(out / "before/light.png", (10, 10, 10))
+            (out / "receipt.json").write_text(json.dumps({
+                "plan": {"head": head, "layers": ["web"]}, "app": {"commit": "b" * 40},
+                "errors": ["LookError: web-overlay.sh install: needs web ABI 9, the app has web ABI 7"]}))
+            bin_.mkdir()
+            calls = pathlib.Path(d) / "gh-calls"
+            (bin_ / "gh").write_text(f'#!/bin/sh\necho "$@" >> {calls}\n')
+            (bin_ / "gh").chmod(0o755)
+            env = {"PATH": f"{bin_}:/usr/bin:/bin", "PR": "55190", "HEAD_SHA": head, "OUT": str(out),
+                   "EVENT_AT": "1795806738", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "POST_TOKEN": "x",
+                   "GITHUB_STEP_SUMMARY": str(pathlib.Path(d) / "summary"), "PYTHONPATH": ""}
+            done = subprocess.run(["bash", "-e", "-c", self.steps["Post the proof record"]["run"]], cwd=ROOT, env=env,
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(proof_record.parse((out / "proof-record.md").read_text())["verdict"], "fail")
+            self.assertIn("pr comment 55190", calls.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
