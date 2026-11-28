@@ -15,9 +15,9 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     /// imessage compose button)").
     static let composeInset: CGFloat = 8
     /// The gap between Chats and compose, and between the traffic lights (with the titlebar
-    /// accessory after them) and Chats: macOS 26's gap between two separate glass toolbar items
-    /// (8 pt in both its regular and compact toolbars).
-    static let buttonGap: CGFloat = 8
+    /// accessory after them) and Chats: the top row's own gap between its buttons
+    /// (`TopRowSpacing.groupGap`), now that both are flat top-row buttons (2026-11-28).
+    static var buttonGap: CGFloat { TopRowSpacing.groupGap }
     /// The buttons' centre's distance from the top with no traffic lights (full screen): the
     /// middle of the list header's row (`HomeSidebarHeaderLayout.band`).
     static let composeCenterY: CGFloat = HomeSidebarHeaderLayout.band / 2
