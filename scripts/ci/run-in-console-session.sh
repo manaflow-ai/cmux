@@ -228,30 +228,27 @@ prepare_app_host_home_for_console_user() {
 # the first preparation check with "isolation directory is unavailable".
 console_hop_sudo_refusal=""
 probe_console_hop_sudo() {
-  local console_user="$1" console_uid="$2" probe_file form
+  local console_user="$1" console_uid="$2" form
   sudo -n true 2>/dev/null || { console_hop_sudo_refusal="sudo -n true"; return 1; }
-  probe_file="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-console-hop-probe.XXXXXX")" || {
-    console_hop_sudo_refusal="mktemp"
-    return 1
-  }
-  for form in \
-    "test -e /" \
-    "stat -f %Su /" \
-    "/bin/bash -c :" \
-    "env true" \
-    "chown $(id -un) $probe_file" \
-    "chmod u+rw $probe_file" \
-    "-u $console_user true" \
+  local -a forms=(
+    "test -e /"
+    "stat -f %Su /"
+    "/bin/bash -c :"
+    "env true"
+    "-u $console_user true"
     "launchctl asuser $console_uid true"
+  )
+  # chown/chmod are not run here: running them before cleanup authenticates
+  # its scope is a privileged mutation, and `/bin/bash -c :` passing already
+  # means sudoers grants a root shell.
+  for form in "${forms[@]}"
   do
     # shellcheck disable=SC2086 # each form is a fixed list of words
     if ! sudo -n $form >/dev/null 2>&1; then
       console_hop_sudo_refusal="sudo -n $form"
-      rm -f "$probe_file"
       return 1
     fi
   done
-  rm -f "$probe_file"
 }
 
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
