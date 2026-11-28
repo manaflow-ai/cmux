@@ -12,8 +12,10 @@ Packages/macOS/CmuxNext/Package.swift (`.defaultIsolation(MainActor.self)`)
 that is not inside a `nonisolated` or `@concurrent` declaration, an `actor`,
 or a `Task.detached` closure, plus every `@MainActor` declaration in the other
 targets. The scope tracking is lexical (brace depth), so it is a heuristic: a
-reviewed exception carries `// main-actor-ok: <reason>` on the line or in the
-comment block directly above it.
+reviewed exception carries `// main-actor-ok(NSView): <what it does>` on the line
+or in the comment block directly above it, naming the AppKit (NS...) or Core
+Animation (CA...) type it touches. An exception without one counts as a hit of
+its own rule (UNTYPED_RULE), so the old untyped ones ratchet down to none.
 
 The check is a ratchet: scripts/cmux-next/main-actor-work-baseline.json holds
 the per-file, per-rule hit counts of origin/feat-cmux-next. A count above the
@@ -103,7 +105,30 @@ MAIN_TASK = re.compile(r"\bTask\s*(\(priority:[^)]*\))?\s*\{\s*(\[[^\]]*\]\s*)?@
 PER_LINE_WINDOW = 1
 PER_LINE_RULE = "a main-actor Task per line or event (batch with MainActorLineBatch)"
 
-ALLOW = re.compile(r"//\s*main-actor-ok:\s*\S")
+ALLOW = re.compile(r"//\s*main-actor-ok(\([^)]*\))?:\s*\S")
+# Lawrence, 2026-11-27 (#cmux-agent, after the cmux#59531 sidebar hang): "Make `main-actor-ok` a hard failure for
+# anything that isn't AppKit or Core Animation. The comment should have to name the UI type it touches, not how
+# small the data is ... enforce this now". So an exception reads `// main-actor-ok(NSView): <what it does>`: the
+# parentheses name the AppKit (NS...) or Core Animation (CA...) type the line touches. A bare
+# `// main-actor-ok: <reason>` or a non-UI type still silences the hit under it, but counts as a hit of
+# UNTYPED_RULE itself, ratcheted per file like every other rule: no new one passes, the old ones only go down.
+ALLOW_TYPE = re.compile(r"//\s*main-actor-ok\(\s*((?:NS|CA)[A-Z]\w*)\s*\):\s*\S")
+# NS-prefixed Foundation types are data, not UI: naming one is the "the data is small" reason in other words.
+FOUNDATION_NS = frozenset((
+    "NSArray", "NSAttributedString", "NSCache", "NSCondition", "NSData", "NSDate", "NSDecimalNumber", "NSDictionary",
+    "NSError", "NSFileCoordinator", "NSFileManager", "NSIndexSet", "NSLock", "NSMutableArray",
+    "NSMutableAttributedString", "NSMutableData", "NSMutableDictionary", "NSMutableSet", "NSMutableString",
+    "NSNotification", "NSNotificationCenter", "NSNumber", "NSObject", "NSPredicate", "NSRange", "NSRecursiveLock",
+    "NSRegularExpression", "NSSet", "NSSortDescriptor", "NSString", "NSTimer", "NSURL", "NSURLComponents",
+    "NSURLSession", "NSUUID", "NSUserDefaults", "NSValue",
+))
+UNTYPED_RULE = "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)"
+
+
+def ui_type_named(line: str) -> bool:
+    """Whether LINE's `main-actor-ok` names an AppKit or Core Animation type in its parentheses."""
+    named = ALLOW_TYPE.search(line)
+    return named is not None and named.group(1) not in FOUNDATION_NS
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 # `BackgroundWork.run/post(_:mayBlock:)` runs its closure on a lane thread (CmuxNextWakeups/BackgroundWork.swift).
 OFF_MAIN = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|@concurrent\b|(^|\s)(distributed\s+)?actor\s+\w+|\bTask\.detached\b"
@@ -370,6 +395,9 @@ def scan_file(path: str, default_main: bool) -> list[tuple[int, str, str]]:
         window = lines[max(0, index - PER_LINE_WINDOW):index + 1]
         if any(PER_LINE_CALLBACK.search(strip(line)) for line in window):
             hits.append((index + 1, PER_LINE_RULE, raw.strip()))
+    for index, raw in enumerate(lines):
+        if ALLOW.search(raw) and not ui_type_named(raw):
+            hits.append((index + 1, UNTYPED_RULE, raw.strip()))
     loop_until = -1
     for index, raw in enumerate(lines):
         if COMMENT_ONLY.match(raw) or not main_lines[index] or allowed(lines, index):
@@ -447,8 +475,9 @@ def main() -> int:
                 lowered += 1
     if failures:
         print(f"check-main-actor-work: {failures} violation(s): new main-actor hot spots. Move the work off the main actor "
-              "(nonisolated type, @concurrent function, actor, or the Rust daemon), or add a reviewed "
-              "`// main-actor-ok: <reason>` when its input is provably small.")
+              "(nonisolated type, @concurrent function, actor, or the Rust daemon). Only work on an AppKit or Core "
+              "Animation object stays, marked `// main-actor-ok(NSView): <what it does>` with the type it touches; "
+              "\"the input is small\" is no reason.")
         return 1
     if lowered:
         print(f"check-main-actor-work: ok; {lowered} count(s) fell below the baseline: run "
