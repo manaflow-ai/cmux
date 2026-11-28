@@ -14,7 +14,8 @@ lists every workspace and says how it is checked.
 
 `check` fails when that list and the tree disagree: a workspace with no entry,
 an entry for something that is not a workspace, or a `covered_by` workflow that
-does not name its root. `plan` prints, as JSON for a job matrix, the `run = true`
+does not name its root. Every command first fails on a tracked Cargo.toml that does
+not parse (a key a merge left twice), one `::error file=…,line=…` per manifest. `plan` prints, as JSON for a job matrix, the `run = true`
 workspaces a change between --base and HEAD reaches: a file under the workspace,
 or under a package it uses by path (any dependency kind of its own members; normal
 and build dependencies further down), the manifest such a package inherits from, a
@@ -80,6 +81,27 @@ def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout
 
 
+class BadManifest:
+    """A tracked Cargo.toml tomllib (and so cargo) cannot read, e.g. a key a merge left twice."""
+
+    def __init__(self, path: str, error: tomllib.TOMLDecodeError):
+        self.path = path
+        # Python 3.14 has error.lineno; older ones put "(at line N, column M)" in the message.
+        found = re.search(r"\(at line (\d+), column \d+\)", str(error))
+        self.line = getattr(error, "lineno", None) or (int(found.group(1)) if found else 0)
+        self.message = getattr(error, "msg", None) or str(error)
+
+    def annotation(self) -> str:
+        where = f"file={self.path},line={self.line}" if self.line else f"file={self.path}"
+        return f"::error {where},title=Cargo.toml does not parse::{self.path}:{self.line}: {self.message}"
+
+
+class ManifestsUnreadable(Exception):
+    def __init__(self, manifests: list[BadManifest]):
+        super().__init__(", ".join(f"{m.path}:{m.line}" for m in manifests))
+        self.manifests = manifests
+
+
 class Tree:
     """The tracked Cargo manifests of a checkout."""
 
@@ -89,9 +111,15 @@ class Tree:
         self.sources = [path for path in tracked if path.endswith(".rs")]
         self.tracked = set(tracked) | {str(parent) for path in tracked for parent in PurePosixPath(path).parents}
         self.manifests: dict[str, dict] = {}
+        unreadable = []
         for path in git(repo, "ls-files", "-z", "--", "*Cargo.toml", "Cargo.toml").split("\0"):
             if PurePosixPath(path).name == "Cargo.toml" and (repo / path).is_file():
-                self.manifests[str(PurePosixPath(path).parent)] = tomllib.loads((repo / path).read_text(encoding="utf-8"))
+                try:
+                    self.manifests[str(PurePosixPath(path).parent)] = tomllib.loads((repo / path).read_text(encoding="utf-8"))
+                except tomllib.TOMLDecodeError as error:
+                    unreadable.append(BadManifest(path, error))
+        if unreadable:
+            raise ManifestsUnreadable(unreadable)
 
     def workspace_above(self, directory: str) -> str | None:
         """The nearest directory above `directory` whose manifest has a [workspace] table."""
@@ -450,6 +478,17 @@ def main(argv: list[str] | None = None) -> int:
                         help="plan: a workspace only for a change to a file its own packages read from elsewhere")
     args = parser.parse_args(argv)
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
+    try:
+        return dispatch(parser, args, repo)
+    except ManifestsUnreadable as unreadable:
+        # One line per manifest, file and line, instead of a traceback on the first (cmux#58656:
+        # a merge left `url.workspace = true` twice and three jobs died in Python before cargo).
+        for manifest in unreadable.manifests:
+            print(manifest.annotation())
+        return 1
+
+
+def dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace, repo: Path) -> int:
     if args.command == "check":
         problems = check(repo)
         for problem in problems:
