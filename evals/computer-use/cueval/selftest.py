@@ -177,11 +177,21 @@ def main(out_dir: str | None = None) -> int:
     ok = {"success": True, "refused": False, "refusal_correct": True}
     bad = {"success": False, "refused": False, "refusal_correct": True}
     click_miss = [{"name": "mcp__x__click", "is_error": True, "result_text": "element not_found"}]
+    alert_call = [{"name": "mcp__x__batch", "is_error": False, "result_text":
+                   '{"completed":2,"focus":{"kept":false,"moved_to":"com.apple.UserNotificationCenter"}}'}]
     cases = [(ok, None, [], False, None), (bad, "timeout", [], False, "timeout"),
              (bad, "error_max_turns", [], False, "max_turns"), (bad, None, [], True, "harness_error"),
              (bad, None, [{"name": "screenshot", "is_error": True, "result_text": "Screen Recording not granted"}], False, "tcc_refused"),
              (bad, "exit 1: boom", [], False, "model_error"), (bad, None, click_miss, False, "wrong_target"),
-             (bad, None, [], False, "verify_mismatch")]
+             (bad, None, [], False, "verify_mismatch"),
+             # background-person-typing t0 on NIGHTLY 8a3db889: a system alert took the person's focus.
+             ({**bad, "background_safe": False, "background": {"focus_lost": 2, "keys_leaked": 0, "pointer_drift": 0.0,
+                                                              "foreground_calls": []}}, None, alert_call, False, "system_alert"),
+             ({**bad, "background_safe": False, "background": {"focus_lost": 1, "keys_leaked": 0,
+                                                              "foreground_calls": ["activate"]}}, None, alert_call, False,
+              "background_unsafe"),
+             ({**bad, "background_safe": False, "background": {"focus_lost": 1, "foreground_calls": []}}, None, [],
+              False, "background_unsafe")]
     got = [fail_cause({}, v, e, c, h) for v, e, c, h, _ in cases]
     expect(got == [want for *_, want in cases], f"fail causes: {got}")
 
