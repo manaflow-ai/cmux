@@ -1561,7 +1561,7 @@
    `--acpmux-composer-block-inset` (10 px) off its top and bottom (Leo 2026-11-01: "there's not
    enough of a space at the bottom"), so a one-line box is 10 + 28 + 10 = 48 px and every control
    stands on the box's middle; the prompt's text drops by
-   --acpmux-text-drop so its ink (not its line box) centers there too. The text starts one `--acpmux-composer-lead-gap` (8 px) after +. The prompt's top and
+   --acpmux-text-drop so its ink (not its line box) centers there too. The text starts one `--acpmux-composer-lead-gap` (4 px) after +. The prompt's top and
    bottom padding are derived, (48 - line height) / 2, never literals (design/grid.md 5.1).
    test/composer-plus-geometry.test.ts measures it.
    ComposerBox marks this look on the box and Composer on its form (`data-composer-grid`), rather

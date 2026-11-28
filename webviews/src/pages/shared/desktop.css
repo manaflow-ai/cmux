@@ -938,7 +938,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-composer-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Control inset from the edge. */
   --grid-composer-control: calc(28px * var(--cmux-interface-scale, 1)); /* Leading and trailing control box. */
   --grid-composer-lead-center: calc(22px * var(--cmux-interface-scale, 1)); /* Leading glyph center from the left edge. */
-  --grid-composer-text: calc(44px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
+  --grid-composer-text: calc(40px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
   --grid-composer-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
   --grid-strip-inset: calc(8px * var(--cmux-interface-scale, 1)); /* Control inset from the edge. */
   --grid-strip-control: calc(28px * var(--cmux-interface-scale, 1)); /* Leading and trailing control box. */
