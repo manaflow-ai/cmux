@@ -234,7 +234,7 @@ async function withObserver(run: (settle: () => Promise<void>, reads: () => numb
     await run(
       async () => {
         await act(async () => {
-          for (const observer of [...live]) if (observer.targets.size) observer.back();
+          for (const observer of live) if (observer.targets.size) observer.back();
         });
       },
       () => count,
