@@ -66,6 +66,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-place-cost",
  "cmux-pool-pod",
  "cmux-presence",
  "cmux-process",
@@ -2754,6 +2755,13 @@ dependencies = [
 
 [[package]]
 name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-place-cost"
 version = "0.1.0"
 dependencies = [
  "serde_json",

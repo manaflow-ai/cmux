@@ -248,6 +248,8 @@ cmux-tui-util = { workspace = true, features = ["tokio"] }
 cmux-pool-pod.workspace = true
 # Bounded waits (`hub/forward_wait.rs`): every waiting state declares its bound and recovery.
 cmux-bounded = { workspace = true, features = ["tokio"] }
+# One placement cost in dollars (`placement_cost.rs`, RFD 0182 B7).
+cmux-place-cost.workspace = true
 cmux-scope.workspace = true
 # Compressed frames for large messages on a WebSocket (src/frame_compress.rs).
 flate2.workspace = true

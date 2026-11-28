@@ -1,0 +1,16 @@
+[package]
+name = "cmux-place-cost"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "One placement cost (rent, cold start, prompt-cache refill, RTT) in dollars and seconds, for every placer (RFD 0182 B7)"
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+serde_json.workspace = true
