@@ -12,7 +12,13 @@ const now = Date.UTC(2026, 10, 28, 16, 0);
 const entries: VaultEntry[] = [
   { name: "NODE_ENV", revision: 2, updatedAt: now - 3 * day, delivery: "env", allowedHosts: [] },
   { name: "LOG_LEVEL", revision: 1, updatedAt: now - day, delivery: "env", allowedHosts: [] },
-  { name: "GITHUB_TOKEN", revision: 4, updatedAt: now - 2 * day, delivery: "proxy", allowedHosts: ["api.github.com", "*.githubusercontent.com"] },
+  {
+    name: "GITHUB_TOKEN",
+    revision: 4,
+    updatedAt: now - 2 * day,
+    delivery: "proxy",
+    allowedHosts: ["api.github.com", "*.githubusercontent.com"],
+  },
   { name: "STRIPE_SECRET_KEY", revision: 1, updatedAt: now - 600_000, delivery: "proxy", allowedHosts: [] },
 ];
 const grants: VaultGrant[] = [
@@ -24,8 +30,19 @@ async function load() {
   const { installCatalog, t } = await import("../strings");
   installCatalog((await import("../generated/strings.json")).default);
   const { VaultLists } = await import("./EnvironmentVaultCard");
+  const { useEffect } = await import("react");
   return function EnvironmentVault({ entries = [], grants = [], keyShaped }: Props) {
+    // The app mounts Settings in the refined look (mount.tsx); the gallery shows that, not the base sheet.
+    useEffect(() => {
+      const previous = document.documentElement.dataset.settingsLook;
+      document.documentElement.dataset.settingsLook = "refined";
+      return () => {
+        if (previous === undefined) delete document.documentElement.dataset.settingsLook;
+        else document.documentElement.dataset.settingsLook = previous;
+      };
+    }, []);
     return (
+      <div className="settings" style={{ display: "block" }}>
       <section className="settings-page" style={{ padding: 16 }}>
         <section className="group" data-card="environmentVault">
           <div className="rows models-rows">
@@ -41,6 +58,7 @@ async function load() {
           </div>
         </section>
       </section>
+      </div>
     );
   };
 }

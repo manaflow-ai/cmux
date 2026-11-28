@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Settings > Environment (RFD 0222 (c)1, hq#37585): the person's vault through the local daemon's
 /// `vault-env` op. This only adds the platform origin and install bearer (``VaultEnvRequest``) and
@@ -24,17 +24,17 @@ public final class SettingsVault {
         self.send = send
     }
 
-    /// `cmux.settings.vault.state`: `{available, unsupported, entries, grants, error?, code?}`.
+    /// `cmux.settings.vault.state`: `{available, unsupported, entries, grants, error?, code?, grantsCode?}`.
     /// Unavailable (Cloud off or signed out) and unsupported (a daemon without `vault-env-v1`) answer
     /// no lists, so the card explains instead.
     public func state() async -> Data {
         guard available() else { return Self.encode(["available": .bool(false), "unsupported": .bool(false), "entries": .array([]), "grants": .array([])]) }
         do {
             let entries = try await send("list", .object([:]))["entries"] ?? .array([])
-            // Grants are a second read: a failed one still shows the entries.
+            // Grants are a second read: a failed one still shows the entries, with its own `grantsCode`.
             var answer: [String: JSONValue] = ["available": .bool(true), "unsupported": .bool(false), "entries": entries, "grants": .array([])]
             do { answer["grants"] = try await send("grants", .object([:]))["grants"] ?? .array([]) }
-            catch { answer.merge(Self.failure(error)) { $1 } }
+            catch { answer["grantsCode"] = Self.failure(error)["code"] }
             return Self.encode(answer)
         } catch DaemonError.missingCapabilities {
             return Self.encode(["available": .bool(true), "unsupported": .bool(true), "entries": .array([]), "grants": .array([])])

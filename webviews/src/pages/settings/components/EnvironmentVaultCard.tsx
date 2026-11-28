@@ -88,7 +88,7 @@ export function EnvironmentVaultCard() {
   if (state?.unsupported) return null;
   const loading = state === null;
   const available = state?.available === true;
-  const readFailed = available && state.error !== undefined && state.entries.length === 0;
+  const readFailed = available && state.error !== undefined;
   const refreshLabel = t("settingsPage.vault.refresh");
   return (
     <section className="group" data-card="environmentVault" aria-busy={busy || loading}>
@@ -129,6 +129,7 @@ export function EnvironmentVaultCard() {
           <VaultLists
             entries={state.entries}
             grants={state.grants}
+            grantsFailed={state.grantsCode !== undefined}
             busy={busy}
             failure={failure}
             clearFailure={() => setFailure(null)}
@@ -145,6 +146,7 @@ export function EnvironmentVaultCard() {
 export function VaultLists({
   entries,
   grants,
+  grantsFailed = false,
   busy,
   failure,
   clearFailure,
@@ -153,6 +155,7 @@ export function VaultLists({
 }: {
   entries: VaultEntry[];
   grants: VaultGrant[];
+  grantsFailed?: boolean;
   busy: boolean;
   failure: Failure;
   clearFailure: () => void;
@@ -169,6 +172,7 @@ export function VaultLists({
     clearFailure();
     setEditing(null);
     setCarried(null);
+    setLastDraft(null);
     setAdding(delivery);
   };
   const save = async (draft: { name: string; value: string; delivery: VaultDelivery; hosts: string[] }) => {
@@ -201,6 +205,7 @@ export function VaultLists({
             disabled={busy}
             onClick={() => {
               const moved = lastDraft?.name === failure.keyShaped ? lastDraft : { name: failure.keyShaped!, value: "" };
+              setLastDraft(null);
               clearFailure();
               setEditing(null);
               setCarried(moved);
@@ -271,6 +276,8 @@ export function VaultLists({
                   onClick={() => {
                     clearFailure();
                     setAdding(null);
+                    setCarried(null);
+                    setLastDraft(null);
                     setEditing(entry.name);
                   }}
                 >
@@ -315,6 +322,7 @@ export function VaultLists({
               onCancel={() => {
                 setAdding(null);
                 setCarried(null);
+                setLastDraft(null);
                 clearFailure();
               }}
             />
@@ -335,7 +343,15 @@ export function VaultLists({
             <span className="row-help">{t("settingsPage.vault.grantsHelp")}</span>
           </div>
         </div>
-        {grants.length === 0 && (
+        {grantsFailed && (
+          <div className="row" data-vault-failure="grants">
+            <span className="row-error" role="alert">
+              <Icon name="warning" />
+              {t("settingsPage.vault.loadFailed")}
+            </span>
+          </div>
+        )}
+        {grants.length === 0 && !grantsFailed && (
           <div className="row" data-vault-empty="grants">
             <span className="row-help">{t("settingsPage.vault.noGrants")}</span>
           </div>

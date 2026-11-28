@@ -49,7 +49,12 @@ test("Add Secret sends set with proxy delivery and the typed hosts, then the val
   await settle();
   expect(page.provider.vaultRuns.at(-1)).toEqual({
     action: "set",
-    params: { name: "OPENAI_API_KEY", value: "sk-test", delivery: "proxy", allowedHosts: ["api.openai.com", "*.openai.com"] },
+    params: {
+      name: "OPENAI_API_KEY",
+      value: "sk-test",
+      delivery: "proxy",
+      allowedHosts: ["api.openai.com", "*.openai.com"],
+    },
   });
   expect(form()).toBeNull();
   const row = card(page.container)!.querySelector('[data-vault-list="proxy"] [data-vault-entry="OPENAI_API_KEY"]')!;
@@ -119,4 +124,15 @@ test("a daemon without vault-env-v1 draws no card; signed out explains", async (
   });
   expect(card(signedOut.container)!.querySelector("[data-vault-unavailable]")!.textContent).toContain("Sign in");
   signedOut.unmount();
+});
+
+test("a failed grants read keeps the lists and says so in place of No machine has access", async () => {
+  const page = await open((provider) => {
+    provider.vault = { ...provider.vault, grants: [], grantsCode: "http_503" };
+  });
+  const element = card(page.container)!;
+  expect(element.querySelector('[data-vault-entry="NODE_ENV"]')).not.toBeNull();
+  expect(element.querySelector('[data-vault-failure="grants"]')!.textContent).toContain("Couldn't load");
+  expect(element.querySelector('[data-vault-empty="grants"]')).toBeNull();
+  page.unmount();
 });
