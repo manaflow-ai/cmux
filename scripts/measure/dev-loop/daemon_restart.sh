@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Goal dev-loop-ceiling, loop daemon_restart: a one-line Rust edit in cmux-tui-core going live in a
+# Goal dev-loop-ceiling, loop daemon_restart: a one-line Rust edit to the daemon's `identify` going live in a
 # running terminal daemon with its terminals kept, through `cmux live start --rust`'s own loop
 # (scripts/cmux-next/rust-live.py, building here), split into stages (fs_event, compile, link, swap,
 # first_answer, unattributed), with each stage's floor measured beside it on the same host.
@@ -17,15 +17,18 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 here="$root/scripts/measure/dev-loop/daemon_restart"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
-edited="$root/cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
+edited="$root/cmux-tui/crates/cmux-tui/src/bin/cmux-tui/identify.rs"
 bin_root="$root/cmux-tui/crates/cmux-tui/src/bin/cmux-tui.rs"
+core_edited="$root/cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"  # the core_edit_s round
 scratch="$(mktemp -d /tmp/dlc-dr-sh.XXXXXX)"
 cp -p "$edited" "$scratch/edited.rs"
 cp -p "$bin_root" "$scratch/bin.rs"
+cp -p "$core_edited" "$scratch/core.rs"
 restore() {
   # measure.py puts both back itself; this is for a run that died before its own cleanup.
   cmp -s "$scratch/edited.rs" "$edited" || cp "$scratch/edited.rs" "$edited"
   cmp -s "$scratch/bin.rs" "$bin_root" || cp "$scratch/bin.rs" "$bin_root"
+  cmp -s "$scratch/core.rs" "$core_edited" || cp "$scratch/core.rs" "$core_edited"
   rm -rf "$scratch"
 }
 trap restore EXIT

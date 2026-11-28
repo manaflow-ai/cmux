@@ -1888,13 +1888,6 @@ const MESSAGE_GAP = 0;
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
 const cardHeight = (_state: string) => 32;
 
-/// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
-/// about 60 characters, and the toggle once it is cut.
-function replyHeight(reply: string): number {
-  const lines = reply.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 60)), 0);
-  return Math.min(lines, 3) * 16 + (lines > 3 ? 20 : 0);
-}
-
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
 /// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
@@ -4995,6 +4988,7 @@ import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { ROW_METRIC } from "./rowMetric";
+import { replyHeight } from "./replyHeight";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import type { SurgeHold } from "./conversation/surgeHold";
 
