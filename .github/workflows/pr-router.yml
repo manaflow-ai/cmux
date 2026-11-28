@@ -545,6 +545,14 @@ jobs:
       contents: read
       checks: read
 
+  first-run-setup-check:
+    name: first run setup check
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'first-run-setup-check.yml') }}
+    uses: ./.github/workflows/first-run-setup-check.yml
+    permissions:
+      contents: read
+
   classic-api-guard:
     name: classic API guard
     needs: route
