@@ -58,7 +58,12 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base) || (github.event.action == 'edited' && !github.event.changes.base && (github.event.sender.login == 'cubic-dev-ai[bot]' || github.event.sender.login == 'blacksmith-sh[bot]'))) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted pull-request-write token
+    # The PR control one-job JIT label, not the secret one: this is a PR verdict hop (one-job ephemeral, so App keys
+    # stay safe), and cmuxterm-hq runner_pool.py serves PR_CONTROL_JIT_LABEL at CONTROL_PRIORITY
+    # with a verdict quota share (VERDICT_QUOTA_LABELS names risk evidence). On cmux-gcp-secret-jit-x64 it queued
+    # behind ci-failure-attribution's bulk: 2026-11-27 12:46Z, 133 queued there (42 Attribute, 32 risk evidence),
+    # p90 wait 539 s, while the PR control label had nothing queued; #61609's 26 s job waited 11.6 min.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 10  # the grade, plus the grade step's RATE_LIMIT_WAIT_S (420 s) wait for a refused budget; at most cron_concurrency's TRIVIAL_TIMEOUT_MINUTES
     permissions:
       contents: read
@@ -135,11 +140,11 @@ jobs:
             scripts/ci/api_call_log
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
-      # pull request merged recently (a stale base). A fresh repository with full blobs, not the
-      # sparse checkout above: actions/checkout makes that a blobless partial clone, and blame in
-      # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
-      # 270 MB, then blame takes seconds. Capped at 120 s so the job (8 min) always finishes: a
-      # slow fetch skips the check with a warning instead of turning the check red.
+      # pull request merged recently (a stale base). Fetch commits and trees into a fresh repository
+      # (16 MB in 5 s in #49014). Before blame, risk_tier.py's prefetch_blobs fetches the needed
+      # file versions in one batch. For 40 lines of cmux-next.yml, lazy fetching took 52 s, while
+      # the batch took 1.5 s followed by 0.6 s for blame (#48946). If the base fetch exceeds its
+      # 120 s timeout, the workflow warns and skips the recent-revert check.
       # The pull request's head goes in the same repository, as data that is never checked out, so
       # the classifier takes the merge base from git instead of a `compare` call on every run. When it
       # can't (a slow fetch, or a merge base past the window), the classifier calls `compare` as before.

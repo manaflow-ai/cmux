@@ -242,7 +242,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
 
         surface_id = "surface-path-test"
         home = root / "home"
-        home.mkdir()
+        home.mkdir(mode=0o700)
         shim_root = home / ".cmuxterm" / "cmux-cli-shims" / surface_id
         bundled_bin = SHELL_INTEGRATION_DIR.parent / "bin"
         expected_paths = {

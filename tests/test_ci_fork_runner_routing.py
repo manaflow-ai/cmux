@@ -1770,7 +1770,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # signing material. A job reading one runs where no variable value reaches a reused machine.
         jobs = secret_jobs()
         names = {(workflow, job) for workflow, job, _, _ in jobs}
-        for key in (("presence.yml", "deploy"), ("r2-cache-prune.yml", "prune"), ("ci-queue-janitor.yml", "sweep"),
+        for key in (("presence.yml", "deploy"), ("storage-maintenance.yml", "r2-cache"), ("ci-queue-janitor.yml", "sweep"),
                     ("build-ghosttykit.yml", "build-ghosttykit"), ("docs-channels.yml", "nightly")):
             self.assertIn(key, names)  # not vacuous
         for key in SECRET_RUNNER_EXCEPTIONS:

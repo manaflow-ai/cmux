@@ -191,12 +191,34 @@ class Prune(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
+    def test_storage_dispatch_routes_preserve_each_task_frequency(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/storage-maintenance.yml").read_text())
+        routes = {
+            "actions-artifacts": ("37 * * * *", "actions-artifacts"),
+            "r2-cache": ("23 5 * * *", "r2-cache"),
+            "r2-binaries": ("53 7 * * *", "r2-binaries"),
+            "r2-census-binaries": ("41 6 * * 1", "r2-census"),
+            "r2-census-cef": ("41 6 * * 1", "r2-census"),
+            "r2-census-ci-cache": ("41 6 * * 1", "r2-census"),
+            "pr-media": ("41 6 * * 1", "pr-media"),
+        }
+        self.assertEqual(set(workflow["jobs"]), set(routes))
+        for job_id, (cron, task) in routes.items():
+            guard = "github.ref == 'refs/heads/main'"
+            if job_id == "pr-media":
+                guard = "github.repository_owner == 'manaflow-ai' && " + guard
+            expected = ("${{ (" + guard + ") && ((github.event_name == 'schedule' && "
+                        "github.event.schedule == '" + cron + "') || "
+                        "(github.event_name == 'workflow_dispatch' && inputs.task == '" + task + "')) }}")
+            with self.subTest(job=job_id):
+                self.assertEqual(workflow["jobs"][job_id]["if"], expected)
+
     def test_only_main_prunes_and_only_on_an_explicit_opt_in(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/actions-artifact-prune.yml").read_text())
+        workflow = yaml.safe_load((ROOT / ".github/workflows/storage-maintenance.yml").read_text())
         triggers = workflow.get("on", workflow.get(True))
         self.assertEqual(set(triggers), {"schedule", "workflow_dispatch"})
         self.assertEqual(workflow["permissions"], {})
-        job = workflow["jobs"]["prune"]
+        job = workflow["jobs"]["actions-artifacts"]
         self.assertIn("github.ref == 'refs/heads/main'", job["if"])
         self.assertEqual(job["permissions"], {"contents": "read", "actions": "write"})
         run = next(step for step in job["steps"] if "actions_artifact_prune.py" in str(step.get("run", "")))

@@ -70,11 +70,15 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="cmux-shim-root-") as td:
         root = Path(td)
-        managed_root = root / "app installed" / "cmux-cli-shims" / SURFACE_ID
+        app_root = root / "app installed"
+        managed_parent = app_root / "cmux-cli-shims"
+        managed_root = managed_parent / SURFACE_ID
         changed_tmpdir = root / "profile tmp"
         wrapper = root / "cmux-claude-wrapper"
-        managed_root.mkdir(parents=True)
-        changed_tmpdir.mkdir()
+        app_root.mkdir(mode=0o700)
+        managed_parent.mkdir(mode=0o700)
+        managed_root.mkdir(mode=0o700)
+        changed_tmpdir.mkdir(mode=0o700)
         make_executable(wrapper)
 
         env = {

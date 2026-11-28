@@ -306,6 +306,7 @@ jobs:
           TICK_COMMIT_SECONDS: "330"
           TICK_WALK_BUDGET_SECONDS: "900"
           TICK_SCAN_SECONDS: "180"
+          TICK_WALK_MAX_COMMITS: "400"
         run: |
           set -euo pipefail
           # The tip's cmux-tui tree is often still publishing, so walk back
@@ -367,8 +368,24 @@ jobs:
             promoted="$(awk '$2 == "refs/heads/nightly-next" {print $1}' <<<"$refs")"
             published="$(awk '$2 == "refs/tags/nightly-next^{}" {print $1}' <<<"$refs")"
             [[ -n "$published" ]] || published="$(awk '$2 == "refs/tags/nightly-next" {print $1}' <<<"$refs")"
+            # 5. The walk reaches nightly-next however far behind it is. On 2026-11-28 the feed sat at
+            #    ececce733689 from 23:33Z while 184 commits landed: the 150-deep checkout no longer
+            #    held nightly-next and the walk stopped at 120, so the newest green commit (4ef8b54a0e28,
+            #    just above nightly-next, every newer compile red) was never asked and each tick
+            #    refused all 120 ("0 to ask, 120 passed over"). Deepen until nightly-next is here,
+            #    then walk every commit above it, up to TICK_WALK_MAX_COMMITS.
+            for _ in 1 2 3; do
+              [[ -n "$promoted" ]] && ! git cat-file -e "$promoted^{commit}" 2>/dev/null || break
+              timeout -k 5 120 git fetch -q --no-tags --deepen=150 origin "$(git rev-parse HEAD)" 2>/dev/null || break
+            done
             git cat-file -e "${promoted:-0}^{commit}" 2>/dev/null && dedupe=1 || promoted=""
           fi
+          walk_n=120
+          if [[ -n "$promoted" ]] && behind="$(git rev-list --first-parent --count "$promoted..HEAD" 2>/dev/null)"; then
+            (( behind + 1 <= walk_n )) || walk_n=$(( behind + 1 ))
+          fi
+          (( walk_n <= ${TICK_WALK_MAX_COMMITS:-400} )) || walk_n=${TICK_WALK_MAX_COMMITS:-400}
+          echo "walking $walk_n first-parent commits (nightly-next: ${promoted:0:12})"
           # 4. The precheck first, for the whole walk (scripts/ci/nightly_next_precheck_scan.py): each
           #    commit's script searched for its cmux-tui tree, and for an older one when its own was
           #    missing (older-tree-for-tip.sh, a CDN walk of about 80 commits), before it read the
@@ -384,7 +401,7 @@ jobs:
           : > "$plan"
           scan_started=$SECONDS
           if ! timeout -k 5 "${TICK_SCAN_SECONDS:-180}" python3 .tick-tooling/scripts/ci/nightly_next_precheck_scan.py \
-              --repo "$GITHUB_REPOSITORY" --commits 120 --promoted "$promoted" --published "$published" > "$plan.tmp"; then
+              --repo "$GITHUB_REPOSITORY" --commits "$walk_n" --promoted "$promoted" --published "$published" > "$plan.tmp"; then
             echo "::warning title=nightly-next tick::the precheck scan failed; every commit is asked"
             : > "$plan.tmp"
           fi
@@ -392,7 +409,7 @@ jobs:
           echo "precheck scan: $(grep -c ' ask ' "$plan" || true) to ask, $(grep -c ' skip ' "$plan" || true) passed over, in $((SECONDS - scan_started))s"
           asked_keys=" "
           walk_started=$SECONDS
-          for sha in $(git rev-list --first-parent -n 120 HEAD); do
+          for sha in $(git rev-list --first-parent -n "$walk_n" HEAD); do
             if (( SECONDS - walk_started >= ${TICK_WALK_BUDGET_SECONDS:-900} )); then
               echo "::notice title=nightly-next tick::walk budget of ${TICK_WALK_BUDGET_SECONDS:-900}s spent before ${sha:0:12}; the next tick walks again"
               break
