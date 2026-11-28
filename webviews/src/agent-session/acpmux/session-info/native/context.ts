@@ -90,6 +90,15 @@ export function contextSection(
     ? breakdown.rows.find((row) => row.kind === "free")
     : undefined;
   if (breakdown) {
+    // The open section's "N% used" line sits over the segmented bar, as the web card draws it (#53132): the
+    // used categories in their hues, then the buffer; free space is the track.
+    const segments = breakdown.rows
+      .filter((row) => (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0)
+      .map((row) => ({
+        share: row.share ?? 0,
+        color: row.kind === "buffer" ? "buffer" : `context${row.tone ?? 0}`,
+      }));
+    if (segments.length > 0) rows[0] = { ...rows[0]!, segments };
     breakdown.rows.forEach((row, index) => {
       const drawn = (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0;
       rows.push({

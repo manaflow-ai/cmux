@@ -66,7 +66,11 @@ let window: JSDOM["window"];
 
 beforeAll(() => {
   window = new JSDOM("<!doctype html><div id=root></div>").window;
+  // The window's own frames too: a Combobox draws only the rows in view, and its virtualizer schedules on
+  // its target window (#46242).
   Object.assign(window, {
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
     ResizeObserver: class {
       observe() {}
       unobserve() {}

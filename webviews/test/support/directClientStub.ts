@@ -31,6 +31,8 @@ function idleFields(): Record<string, unknown> {
     },
     queue: [],
     queueWithdrawn: [],
+    // The lost-request check's strikes, which a reset and rejectPending clear (#54538).
+    requestStrikes: new Map(),
     waitingSteers: [],
     listener: () => undefined,
     // Where the chat's rows come from, which every publish and reset reads: v1, no chat on the store.
