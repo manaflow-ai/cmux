@@ -613,17 +613,59 @@ fn a_link_send_without_wait_is_done_with_no_exec() {
     assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
 }
 
-/// A link that took the prompt and never answered may have delivered it: no second send by exec.
+/// A link that took the prompt and never answered, and an exec read that settles nothing: it may have delivered it,
+/// so no second send by exec.
 #[test]
 fn an_unanswered_link_send_is_not_sent_again() {
-    let mut fake = Fake::new(vec![signed_in(), started_with_surface()]);
+    let mut fake =
+        Fake::new(vec![signed_in(), started_with_surface(), exec_out("@@history\nnot json\n")]);
     fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
     fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("timeout".into())));
     let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "pong"])) else {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(error["code"], "chat.send_failed");
-    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+    assert_eq!(fake.ran.len(), 3, "the read, no exec send: {:?}", fake.ran);
+}
+
+/// The link took the prompt and never answered (production 11-28 16:43Z, a link in a resume handshake), and the chat
+/// this run started has a turn: the prompt went in, so the run goes on instead of failing.
+#[test]
+fn an_unanswered_link_send_whose_turn_is_there_was_sent() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[{\"seq\":1,\"status\":\"running\"}]}\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("Timeout".into())));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(answer["send_checked"], "Timeout");
+    assert_eq!(fake.ran.len(), 3, "one read, no second send: {:?}", fake.ran);
+    assert!(fake.ran[2].iter().any(|arg| arg.contains("--until running")), "{:?}", fake.ran[2]);
+}
+
+/// The link took the prompt and never answered, and the chat has no turn: the prompt never reached it, so it goes
+/// by exec once.
+#[test]
+fn an_unanswered_link_send_with_no_turn_goes_by_exec() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n"),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.link_sends.push_back(Err(link_wait::SendFailure::Unsure("Timeout".into())));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(answer["link_unsent"], "Timeout");
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
 }
 
 /// A turn that fails writes `turn_error` and no `turn_end` (acpmux `hub/turns.rs`): the pushed wait ends there with

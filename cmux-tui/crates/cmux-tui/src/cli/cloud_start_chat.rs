@@ -2229,13 +2229,43 @@ fn send_prompt(
                     deadline,
                 );
             }
+            // The link took the frame and answered nothing (production, 11-28 16:43Z: the app's link to the machine
+            // was in a resume handshake, `relay_resume_deadline`). This run started the chat, so any turn in it is
+            // this prompt: one exec read settles whether it went in, instead of failing a prompt that may be running.
             Err(link_wait::SendFailure::Unsure(reason)) => {
-                return failed(
-                    "chat.send_failed",
-                    format!("the prompt may not have reached the chat: {reason}"),
-                    json!({"answer": answer}),
-                    1,
-                );
+                match link_send_landed(runner, machine_id, session, deadline) {
+                    Some(true) => {
+                        answer.set("sent", json!(true));
+                        answer.set("send_route", json!("link"));
+                        answer.set("send_checked", json!(reason));
+                        if !request.wait {
+                            return Outcome::Done(answer);
+                        }
+                        // The link did not answer: the turn is read through exec.
+                        return wait_turn(
+                            runner,
+                            request,
+                            machine_id,
+                            session,
+                            (0, None, None),
+                            answer,
+                            deadline,
+                        );
+                    }
+                    // No turn: the frame never reached the chat, so it goes the exec way below, once.
+                    Some(false) => {
+                        answer.set("link_unsent", json!(reason));
+                        progress.sending = false;
+                    }
+                    None => {
+                        return failed(
+                            "chat.send_failed",
+                            format!("the prompt may not have reached the chat: {reason}"),
+                            json!({"answer": answer}),
+                            1,
+                        );
+                    }
+                }
             }
             Err(link_wait::SendFailure::NotSent(_)) => progress.sending = false,
         }
@@ -2490,6 +2520,33 @@ fn send_over_link(
 
 /// The longest the link send waits for its answers.
 const LINK_SEND_WAIT: Duration = Duration::from_secs(10);
+
+/// Whether a prompt the link took without an answer ([`link_wait::SendFailure::Unsure`]) went into `session`, a chat
+/// this run started (no turn before the prompt): `Some(true)` when its history has a turn, `Some(false)` when it has
+/// none after the chat's next turn had [`LANDED_WAIT`] to start, None when the read answered nothing readable.
+fn link_send_landed(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    deadline: Deadline,
+) -> Option<bool> {
+    let wait = deadline.bound(runner, LANDED_WAIT).as_secs();
+    if wait == 0 {
+        return None;
+    }
+    let sid = shell_quote(session);
+    let script = format!(
+        "{GUEST_PRELUDE}\"$c\" acp wait {sid} --timeout {wait} --until running >/dev/null 2>&1; \
+         echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1"
+    );
+    let read = sections(&exec(runner, machine_id, &script).ok()?);
+    let history: Value = serde_json::from_str(read.get("history")?.trim()).ok()?;
+    let turns = at(&history, "turns").as_array()?;
+    Some(!turns.is_empty())
+}
+
+/// How long [`link_send_landed`] lets the chat's turn start before it reads the history.
+const LANDED_WAIT: Duration = Duration::from_secs(5);
 
 /// 4. The turn after `baseline` in `session`: its end and its reply.
 fn wait_turn(
