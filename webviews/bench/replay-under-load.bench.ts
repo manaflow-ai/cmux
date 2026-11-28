@@ -60,6 +60,10 @@ const PROFILE = argv.includes("--profile");
 /// profile beside it, as {trace, profile} JSON, for scripts/measure/replay-attribution.py to attribute every main-thread
 /// task over 8 ms to its owner. Tracing costs the page time of its own, so a traced run's busy % reads high.
 const TRACE = flag("--trace");
+/// --trace-frames (with --trace): also the frame pipeline's categories (the compositor's BeginFrames and draws, raster,
+/// the GPU process, the scheduler's thread CPU time), for scripts/measure/replay-frame-trace.py to say what filled each
+/// slow frame on every thread, not only the main thread's long tasks. Measuring only: the trace grows several times.
+const TRACE_FRAMES = argv.includes("--trace-frames");
 const PAINTER = flag("--painter") ?? "react";
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
@@ -73,7 +77,7 @@ if (
   !["react", "dom-floor", "worker"].includes(PAINTER)
 ) {
   console.error(
-    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker]",
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE [--trace-frames]] [--painter react|dom-floor|worker]",
   );
   process.exit(2);
 }
@@ -352,6 +356,17 @@ async function run(): Promise<Reading> {
           "v8.execute",
           "blink.user_timing",
           "disabled-by-default-v8.gc",
+          ...(TRACE_FRAMES
+            ? [
+                "disabled-by-default-devtools.timeline.frame",
+                "cc",
+                "viz",
+                "gpu",
+                "benchmark",
+                "blink",
+                "renderer.scheduler",
+              ]
+            : []),
         ],
       });
     const pageStart = await page.evaluate(() => performance.now());
