@@ -122,6 +122,7 @@ extension KeyboardShortcutSettings.Action {
              // resolves in the main area.
              .focusHistoryLastWorkspace,
              .renameWorkspace, .editWorkspaceDescription,
+             .togglePinnedWorkspace,
              .markWorkspaceDone, .cycleWorkspaceStatus,
              .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces,
