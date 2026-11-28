@@ -3,6 +3,7 @@
 // pair belongs to the turn's ending summary, reads stay bounded, and the card draws the shared
 // before/after split with both fixture pictures.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -165,7 +166,8 @@ afterEach(() => {
   setCardOpen("edit", false);
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of [...saved, ...domConstructors]) {
     if (had) scope[key] = value;
     else delete scope[key];

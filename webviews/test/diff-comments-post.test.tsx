@@ -3,6 +3,7 @@
 // Only the drafts posted and unchanged since leave; a refused post keeps them all and says so; a
 // retry after a lost reply reuses the post's opid, so the pull request never gets the review twice.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 
@@ -22,7 +23,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

@@ -2,6 +2,7 @@
 // the copy): a kept tail cannot draw that line, and taking over with it shifted the bottom row
 // twice in each restart while a turn ran (bench/settled-page.bench.ts restart.stream).
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { copyShowsRunningTurn } from "./live";
 import { SNAPSHOT_HOST_TAG, SNAPSHOT_SHOWN_GLOBAL } from "./shared";
@@ -9,7 +10,8 @@ import { SNAPSHOT_HOST_TAG, SNAPSHOT_SHOWN_GLOBAL } from "./shared";
 const globals = globalThis as unknown as Record<string, unknown>;
 const had = { window: "window" in globals, document: "document" in globals };
 const saved = { window: globals.window, document: globals.document };
-afterEach(() => {
+afterEach(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const) {
     if (had[key]) globals[key] = saved[key];
     else delete globals[key];

@@ -2,6 +2,7 @@
 // nothing and clears nothing: the attachment's contents are not in the draft yet, and clearing the
 // prompt would cancel it, so a stash then would come back without it after a reload.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -30,6 +31,7 @@ function installDom(): HTMLElement {
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
+  await settleReact();
   root = undefined;
   dom?.window.close();
   dom = undefined;

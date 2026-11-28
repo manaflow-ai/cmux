@@ -253,21 +253,31 @@ test("the composer stays focusable and typable while a Cloud chat starts", async
   await typeWhileStarting(TYPED);
 }, 60_000);
 
-test("a second Send while the start is out starts no second chat and keeps the text", async () => {
-  const pane = await startInCloud();
-  await typeWhileStarting(TYPED);
-  // Return again, still on Cloud: no second start.
-  await pressSend();
-  expect(pane.starts.length).toBe(1);
-  expect(composerText()).toBe(TYPED);
-  // The Where menu is reachable now: picking This Mac and pressing Return starts no chat here either,
-  // which the host would close with this tab when the Cloud chat opens.
-  await until(() => debug().runMode("persistent").runMode === "persistent", "This Mac is picked");
-  await pressSend();
-  for (let step = 0; step < 20; step += 1) await tick();
-  expect(pane.starts.length).toBe(1);
-  expect(bubbles().some((text) => text.includes(TYPED))).toBe(false);
-  expect(composerText()).toBe(TYPED);
+// With Cloud start's kill switch (`cloud-start-just-go` = `hold`): Return during the start waits for it.
+// The default (`go`, #55978, Leo 2026-11-25: "playable vs fully installed/downloaded. do we want loading
+// indicators? or just go.") queues the message for the started chat instead
+// (composer-cloud-start-queue.test.tsx).
+test("held, a second Send while the start is out starts no second chat and keeps the text", async () => {
+  const experiments = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...experiments, "cloud-start-just-go": "hold" };
+  try {
+    const pane = await startInCloud();
+    await typeWhileStarting(TYPED);
+    // Return again, still on Cloud: no second start.
+    await pressSend();
+    expect(pane.starts.length).toBe(1);
+    expect(composerText()).toBe(TYPED);
+    // The Where menu is reachable now: picking This Mac and pressing Return starts no chat here either,
+    // which the host would close with this tab when the Cloud chat opens.
+    await until(() => debug().runMode("persistent").runMode === "persistent", "This Mac is picked");
+    await pressSend();
+    for (let step = 0; step < 20; step += 1) await tick();
+    expect(pane.starts.length).toBe(1);
+    expect(bubbles().some((text) => text.includes(TYPED))).toBe(false);
+    expect(composerText()).toBe(TYPED);
+  } finally {
+    globalThis.cmuxExperiments = experiments;
+  }
 }, 60_000);
 
 test("the sending page hands the host what is typed during the start at once, and never the prompt", async () => {

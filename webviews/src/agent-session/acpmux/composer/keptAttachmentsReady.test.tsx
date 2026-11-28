@@ -2,6 +2,7 @@
 // read still out never sets them over a restored draft's. A chat shown again reads them again, and
 // is not ready until that read answers.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -27,6 +28,7 @@ function installDom(): HTMLElement {
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
+  await settleReact();
   root = undefined;
   dom?.window.close();
   dom = undefined;

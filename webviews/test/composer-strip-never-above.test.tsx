@@ -6,7 +6,7 @@
 // not show yet was the strip's, and for a frame the paste stood above the text, growing the composer
 // upward, before it jumped into its place. The box now knows the chip is the text's from the moment
 // it is placed, whatever the host's value says.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, useState } from "react";
 import type { Root } from "react-dom/client";
@@ -18,6 +18,7 @@ import { teardownDom } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
 const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
+const { setComposerSettings } = await importWithDom(() => import("../src/agent-session/acpmux/composerSettings"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -75,7 +76,12 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
+// The inline view, the one this is about: since #55723 the strip is the default view (Leo,
+// 2026-11-25: one place for an attachment), where the strip above the text is that place.
+beforeEach(() => setComposerSettings({ attachmentView: "inline" }));
+
 afterEach(() => {
+  setComposerSettings({ attachmentView: "strip" });
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
