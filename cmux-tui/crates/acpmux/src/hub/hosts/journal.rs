@@ -79,6 +79,10 @@ impl Hub {
         if let Some(checkpoint) = self.fold_checkpoint(session, incarnation, settled) {
             let _ = self.save_adoption_checkpoint(session, checkpoint);
         }
+        // A long log's fold freed what it read; its pages go back once, not kept for reuse.
+        if settled > crate::hub::processes::FOLD_WINDOW {
+            crate::heap_return::return_freed();
+        }
     }
 
     /// [`Self::save_checkpoint_now`] for a live host at a turn's end, off the executor, so the
