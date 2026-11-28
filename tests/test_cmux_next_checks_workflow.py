@@ -1262,15 +1262,15 @@ class PathRoutingStructure(unittest.TestCase):
             needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
             with self.subTest(job=job_id):
                 self.assertIn("push-head-preflight", needs)
-                self.assertIn("needs.push-head-preflight.outputs.current != 'false'", job["if"])
+                self.assertIn("(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')", job["if"])
         # Superseded pushes skip before queueing; a started compile has its own
         # run group so a newer push cannot evict it.
         self.assertNotIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
                          jobs["release-compile"]["if"])
-        self.assertIn("needs.push-head-preflight.outputs.current != 'false'", jobs["release-compile"]["if"])
+        self.assertIn("(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')", jobs["release-compile"]["if"])
 
     def test_push_head_preflight_takes_no_runner_on_a_pull_request(self):
-        """Its step only asks about a feat-cmux-next push; a pull request skips it and dependents read != 'false'."""
+        """Its step only asks about a feat-cmux-next push; a pull request skips it and dependents take a pull request as current."""
         jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
         condition = jobs["push-head-preflight"]["if"]
         self.assertIn("github.event_name != 'pull_request'", condition)

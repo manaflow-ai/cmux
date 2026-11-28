@@ -521,7 +521,7 @@ class StatusMapping(unittest.TestCase):
 class Placement(unittest.TestCase):
     def test_the_fallback_is_named_where_one_runs(self):
         fallback = next(step for step in job()["steps"] if "run" in step)["env"]["FALLBACK"]
-        for needle in ("needs.push-head-preflight.outputs.current != 'false'", "github.event_name == 'push'",
+        for needle in ("(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')", "github.event_name == 'push'",
                        "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'"):
             self.assertIn(needle, fallback)
@@ -533,7 +533,7 @@ class Placement(unittest.TestCase):
         # and for a full-ci or mac_release same-repository pull request.
         release = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["release-compile"]["if"]
         for needle in ("github.event_name != 'pull_request'", "contains(needs.path_route.outputs.labels, ',full-ci,')",
-                       "needs.path_route.outputs.mac_release == 'true'", "needs.push-head-preflight.outputs.current != 'false'"):
+                       "needs.path_route.outputs.mac_release == 'true'", "(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')"):
             self.assertIn(needle, release)
 
     def test_same_repository_prs_and_base_pushes_only_with_no_checkout(self):
