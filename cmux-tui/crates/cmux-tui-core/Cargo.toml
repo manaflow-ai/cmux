@@ -179,6 +179,12 @@ cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # module, never in a shipped build): the list callers' recorded runs and v2.pr07c gates.
 acpmux = { path = "../acpmux", default-features = false, features = ["test-support"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# The git HEAD watch's change-only inotify watch (mux/presentation/git_heads/change_watch.rs):
+# `notify` asks for every open, and a git dir is opened by every git command. Already in the
+# tree through `notify` and acpmux.
+inotify = { version = "0.11", default-features = false }
+
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),
 # shared with the SDK's clients; the SDK's client code is not built.
