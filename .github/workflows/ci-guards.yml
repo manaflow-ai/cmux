@@ -2040,6 +2040,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
 
+      - name: Validate Nightly Computer Use transport diagnostics
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_accounts_nightly_transport.py
+
       - name: Validate upload-artifact retention and large artifacts on R2
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_upload_artifact_retention.py

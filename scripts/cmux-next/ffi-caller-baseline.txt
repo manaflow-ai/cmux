@@ -43,7 +43,9 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_rea
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_hidden_plan
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_mode_parse
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_on_quit
+cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_offers_quit_completely
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_registers_login_item
+cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_registers_preread_agent
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_starts_chromium_warmup
 cmux-tui/crates/cmux-app-ffi/include/cmux_files_lister.h	cmux_files_lister_abi_version
 cmux-tui/crates/cmux-app-ffi/include/cmux_interactivity.h	cmux_interactivity_abi_version

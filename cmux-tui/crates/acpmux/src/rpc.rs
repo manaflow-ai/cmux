@@ -1133,6 +1133,9 @@ pub mod method {
     /// `{repo, pr, timeoutSecs?, until?}` until it is settled or changed.
     pub const MUX_GITHUB_PR_STATE: &str = "_acpmux/github/pr_state";
     pub const MUX_GITHUB_PR_WAIT: &str = "_acpmux/github/pr_wait";
+    /// The same poller's cached GET of any repository path (`pr_poller::Poller::get`):
+    /// `{path, freshSecs?}` -> `{data, poller}`.
+    pub const MUX_GITHUB_READ: &str = "_acpmux/github/read";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
