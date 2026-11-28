@@ -14,6 +14,11 @@ pub use checkpoint::Saved;
 mod claude;
 mod codex;
 mod fold;
+// The daemon's display-group rule; the translator writes it onto rows next (step 9).
+#[allow(dead_code)]
+mod groups;
+#[cfg(test)]
+mod groups_tests;
 mod input;
 mod kinds;
 #[cfg(test)]
