@@ -201,6 +201,10 @@ jobs:
           # ready-to-land added again to a head whose land tier and every check already passed there runs nothing
           # and keeps cmux/land-tier success (head_tier.py's same-head land carry rule); 0 turns that off.
           CI_SAME_HEAD_LAND_CARRY: ${{ vars.CI_SAME_HEAD_LAND_CARRY || '1' }}
+          # A new event at a head the router already ran (ready-to-land added again, reopened, marked ready) keeps off
+          # each callee whose jobs passed in an earlier router run at this exact sha, its workflow file unchanged since
+          # (pr_router.py's same-head rerun rule); full-ci on the PR runs every callee, 0 turns it off.
+          CI_SAME_HEAD_RERUN_ONLY_RED: ${{ vars.CI_SAME_HEAD_RERUN_ONLY_RED || '1' }}
           # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
           # 0 turns the UI proof gate off (scripts/ci/ui_proof_verdict.py); cmux/ui-proof then posts success.

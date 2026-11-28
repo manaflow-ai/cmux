@@ -1594,6 +1594,86 @@ class RouterRerunPlanTests(unittest.TestCase):
         self.assertIsNone(pr_router.router_jobs_at(runs, "manaflow-ai/cmux", ""))
 
 
+class SameHeadRerunTests(unittest.TestCase):
+    """pr_router.py's same-head rerun rule: a new event at a head the router already ran keeps off the callees whose
+    jobs passed there (same sha, same workflow file), before any runner starts; full-ci or the switch runs all."""
+
+    job = staticmethod(RouterRerunPlanTests.job)
+
+    @staticmethod
+    def router_run(id_: int) -> dict:
+        return {"id": id_, "path": ".github/workflows/pr-router.yml", "status": "completed",
+                "conclusion": "failure", "created_at": "2026-11-28T01:00:00Z"}
+
+    def carry(self, event: dict, jobs_by_run: dict, moved=lambda *a: False, decided=("full", "ready-to-land"),
+              runs=None, env=None) -> set:
+        callees = pr_router.load_manifest()
+        runs = [self.router_run(i) for i in jobs_by_run] + [_run(99, "ci.yml", "success")] if runs is None else runs
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "1000", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                                                   "GH_TOKEN": "t", **(env or {})}):
+            return pr_router.same_head_carry(event, decided, callees, runs_reader=lambda *a: runs,
+                                             jobs_reader=lambda run, *a: jobs_by_run.get(run["id"]), moved=moved)
+
+    def test_a_ready_to_land_re_add_keeps_off_what_passed_at_this_head_and_reruns_the_red(self) -> None:
+        ev = {**_pr_event(("ready-to-land",), "labeled"), "label": {"name": "ready-to-land"}}
+        jobs = [self.job("compile preflight / web bundle build"),
+                self.job("Swift packages on Linux / test", "failure"),
+                self.job("cmux-next size budget / check", "success", 20),  # short: reruns
+                self.job("classic API guard / guard", "cancelled"),
+                self.job("pr pipeline / linux")]  # tier-routed steps: never carried by this rule
+        self.assertEqual(self.carry(ev, {500: jobs}), {"cmux-next-compile-preflight.yml"})
+        start, why = pr_router.route(ev, pr_router.load_manifest(), None, decided=("full", "ready-to-land"),
+                                     same_head={"cmux-next-compile-preflight.yml"})
+        self.assertNotIn("cmux-next-compile-preflight.yml", start)
+        self.assertTrue(why["cmux-next-compile-preflight.yml"].startswith(pr_router.SAME_HEAD_RERUN_REASON))
+
+    def test_the_newest_run_that_ran_a_callee_decides_and_a_skip_looks_further_back(self) -> None:
+        ev = _pr_event((), "reopened")
+        newer = [self.job("compile preflight / web bundle build", "skipped", 0)]
+        older = [self.job("compile preflight / web bundle build")]
+        self.assertEqual(self.carry(ev, {600: newer, 500: older}), {"cmux-next-compile-preflight.yml"})
+        red = [self.job("compile preflight / web bundle build", "failure")]
+        self.assertEqual(self.carry(ev, {600: red, 500: older}), set())
+        # An unread newer run may hold a red: nothing older counts.
+        self.assertEqual(self.carry(ev, {600: None, 500: older}), set())
+
+    def test_the_current_run_and_other_workflows_are_never_the_earlier_run(self) -> None:
+        ev = _pr_event((), "reopened")
+        green = [self.job("compile preflight / web bundle build")]
+        self.assertEqual(self.carry(ev, {1000: green}), set())
+        self.assertEqual(self.carry(ev, {}, runs=[_run(5, "ci.yml", "success")]), set())
+        self.assertEqual(self.carry(ev, {}, runs=[]), set())
+
+    def test_a_moved_workflow_file_or_unread_history_runs_it(self) -> None:
+        ev = _pr_event((), "ready_for_review")
+        green = {500: [self.job("compile preflight / web bundle build")]}
+        self.assertEqual(self.carry(ev, green, moved=lambda r, b, path, *a: path.endswith("/pr-router.yml")), set())
+        self.assertEqual(self.carry(ev, green, moved=lambda r, b, path, *a: path.endswith("-preflight.yml")), set())
+        self.assertEqual(self.carry(ev, green, moved=lambda *a: None), set())
+        callees = pr_router.load_manifest()
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "1"}):
+            self.assertEqual(pr_router.same_head_carry(ev, ("full", ""), callees, runs_reader=lambda *a: None), set())
+        self.assertIsNone(pr_router.workflow_moved("manaflow-ai/cmux", "feat-cmux-next", "x.yml", "", "t"))
+        self.assertIsNone(pr_router.workflow_moved("manaflow-ai/cmux", "feat-cmux-next", "x.yml", "2026", ""))
+
+    def test_full_ci_the_switch_a_fork_and_a_none_tier_opt_out(self) -> None:
+        green = {500: [self.job("compile preflight / web bundle build")]}
+        self.assertEqual(self.carry({**_pr_event(("full-ci",), "labeled"), "label": {"name": "full-ci"}}, green),
+                         set())
+        self.assertEqual(self.carry({**_pr_event((), "labeled"), "label": {"name": "full-ci"}}, green), set())
+        self.assertEqual(self.carry(_pr_event((), "reopened"), green,
+                                    env={pr_router.SAME_HEAD_RERUN_VAR: "0"}), set())
+        self.assertEqual(self.carry(_pr_event((), "reopened"), green, decided=("none", "carried")), set())
+        fork = _pr_event((), "reopened")
+        fork["pull_request"]["head"]["repo"] = {"full_name": "someone/cmux"}
+        self.assertEqual(self.carry(fork, green), set())
+        self.assertEqual(self.carry(_pr_event((), "reopened"), green), {"cmux-next-compile-preflight.yml"})
+
+    def test_the_route_job_passes_the_switch(self) -> None:
+        self.assertIn(f"{pr_router.SAME_HEAD_RERUN_VAR}: ${{{{ vars.{pr_router.SAME_HEAD_RERUN_VAR} || '1' }}}}",
+                      pr_router.ENTRY.read_text())
+
+
 class RustWorkspacesTierTests(unittest.TestCase):
     """rust-workspaces.yml's plan job plans no workspace on a head head_tier gives `none` (goal
     ci-runner-min-per-day-500k): its own run only, never a caller's, and `cheap` still plans (the land carry head
