@@ -19,7 +19,8 @@
       "title": "Project picker",
       "symbol": "folder",
       "options": {
-        "defaultRegion": "top"
+        "defaultRegion": "top",
+        "showsTitle": false
       }
     }
   },

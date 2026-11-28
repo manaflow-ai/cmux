@@ -29,6 +29,10 @@
         "minimum": 1,
         "maximum": 50,
         "description": "Rows shown before the section scrolls."
+      },
+      "showsTitle": {
+        "type": "boolean",
+        "description": "Whether the section draws its title as a header (default true). A section whose own view names it sets false."
       }
     }
   },
