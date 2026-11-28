@@ -1048,6 +1048,7 @@ pub enum Command {
         reason: Option<String>,
         status: bool,
         hold_for: Option<String>,
+        thaw_order: Option<Vec<String>>,
     },
     #[command(hide = true)]
     ResumeQueue {
@@ -1715,18 +1716,26 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
-                Command::SessionHold {
-                    session,
-                    held: true,
-                    fleet,
-                    allow,
-                    set_allow,
-                    reason,
-                    status,
-                    hold_for,
-                }
-            }
+            SessionCmd::Hold {
+                session,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            } => Command::SessionHold {
+                session,
+                held: true,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            },
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
@@ -1736,6 +1745,7 @@ pub fn flatten(c: Command) -> Command {
                 reason: None,
                 status: false,
                 hold_for: None,
+                thaw_order: None,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
