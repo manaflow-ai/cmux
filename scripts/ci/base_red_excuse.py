@@ -72,6 +72,7 @@ import functools
 import hashlib
 import importlib.util
 import io
+import itertools
 import json
 import math
 import os
@@ -1484,10 +1485,22 @@ def never_carries(run: dict, name: str) -> bool:
     return name in SUITE_JOBS and jobs is not None and name not in jobs
 
 
+# A workflow_dispatch run runs on the branch it was dispatched on (feat-cmux-next's tip), so its head_sha is that tip
+# whatever head it looks at; a dispatch whose run name names its target says which: cmux-next-hot-verify.yml's
+# "cmux-next hot verify PR N <head>[ merge][ result]". cmux#63955 at 3bf87e15 (2026-11-28): its cmux/ui-proof linked
+# result run 46156338209, named for 3bf87e15, head_sha the tip 62a30cd0; refused "which tested 62a30cd0, not" the
+# head on every base merge, a loop no base merge breaks. The same misread was fixed for fast gates alone twice
+# (cmux#38640, cmux#62419). Detector: tests/test_base_red_excuse.py DispatchTestedShaTest.
+DISPATCH_TARGET = re.compile(r"\bPR \d+ ([0-9a-f]{40})(?: merge)?(?: result)?$")
+
+
 def tested_sha(run: dict) -> str:
-    """The commit a cmux-next.yml run tested: the sha its name ends in (a same-tree run tests it after the
-    branch moved on), else its head_sha."""
-    match = re.search(r" · ([0-9a-f]{40})$", run.get("display_title") or "")
+    """The commit a run tested: the sha a cmux-next.yml run's name ends in (a same-tree run tests it after the
+    branch moved on), the head a dispatch run's name targets (DISPATCH_TARGET), else its head_sha."""
+    title = run.get("display_title") or ""
+    match = re.search(r" · ([0-9a-f]{40})$", title)
+    if match is None and run.get("event") == "workflow_dispatch":
+        match = DISPATCH_TARGET.search(title)
     return match.group(1) if match else str(run.get("head_sha") or "")
 
 
@@ -4489,6 +4502,10 @@ SAME_TREE_SUFFIX = " (same-tree)"
 # dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
 # the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
 FAST_GATES_STATUS = "cmux-next/fast-gates"
+# cmux's UI proof gate (scripts/ci/ui_proof_verdict.py): a look's verdict, or no look ("UI look could not run: ...
+# the fleet's look queue was full"), never a CI job's red the base can share. A red one is refused as the head's own,
+# naming the act that clears it, before any run lookup (the run behind it is a dispatch: DISPATCH_TARGET).
+UI_PROOF_STATUS = "cmux/ui-proof"
 # The cmux-next-fast-gates.yml jobs behind that status: `fast gates` runs the checks on the merge with the base and
 # compares every red with the base itself (fast_gate_webviews_checks.py: a red the base has too passes), and `post`
 # posts FAST_GATES_STATUS. When `post` could not post (a rate limit), no status exists, so the status rule above never
@@ -4687,6 +4704,12 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
         raise Refused(f"'{name}': {state} at base {tested[1][:12] if tested else '(none named)'}"
                       f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
                       "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
+    if name == UI_PROOF_STATUS and state in ("failure", "error"):
+        description = str(status.get("description") or "no description")
+        raise Refused(f"'{name}': {state} at {sha[:12]} ({description[:200]}) is a look's verdict or no look, never a "
+                      "base red: a look at this head clears it (scripts/cmux-next/hot-verify.py look --pr N --record; "
+                      "a look at an older head carries across base merges alone), or a `Visual: none (WHY)` body line "
+                      "for a change with no visible output")
     if (name == LINUX_CROSS_STATUS and state in ("failure", "error")
             and LINUX_CROSS_COVERED.match(status.get("description") or "")):
         return linux_cross_covered(repo, sha, name, state, status, github)
@@ -6459,6 +6482,8 @@ _FAIL_FAST = ("head fail-fast (head-fail-fast.yml, #54837): cancels the head's o
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
+        "app-store-shelf-pr": "installs every App Store shelf listing at the head (app-store-shelf-check.sh): "
+                              "a product check whose red reads the packages, judged as any job's",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
@@ -10520,6 +10545,56 @@ def job_base_condition(doc: object, name: str) -> str | None:
     return match.group(1) if match else None
 
 
+# A push-only base (2026-11-28, cmux#61489 at b5a5a3ad): "cmux-next degenerate lab" runs on pull requests and on
+# pushes to nightly-next, never on feat-cmux-next, so its red 'daemon-x0.02-idle' (run 46089276861) was refused as "no
+# feat-cmux-next run of its workflow has a verdict for it to compare with" while nightly-next's own push runs failed the
+# same workflow (6 of its last 9, the newest 46095639686 at 01:57Z). A workflow's base is wherever it runs on pushes:
+# when BASE has no verdict, the literal branches of its `on.push.branches` (PUSH_BRANCHES_READ of them) are read in
+# order, and the first with a verdict is the base for that job. Its verdicts are compared as BASE's would be: a red one
+# may excuse the head's red, a green one refuses it as the head's own, naming the branch.
+PUSH_BRANCHES_READ = 3
+
+
+def push_branches(repo: str, base: str, run: dict, github) -> list[str]:
+    """The literal branches (no glob, no `!`) of the `on.push.branches` of RUN's workflow as BASE has it, BASE left out,
+    in order, at most PUSH_BRANCHES_READ; [] for a run whose workflow BASE lacks or is unread. Never the PR head's copy:
+    a pull request does not choose the branch its red is compared with."""
+    path = str(run.get("path") or "").split("@", 1)[0] if isinstance(run, dict) else ""
+    if not path.startswith(".github/workflows/") or not hasattr(github, "blob"):
+        return []
+    doc = workflow_doc(repo, base, path, github)
+    triggers = doc.get(True, doc.get("on")) if isinstance(doc, dict) else None
+    spec = triggers.get("push") if isinstance(triggers, dict) else None
+    patterns = spec.get("branches") if isinstance(spec, dict) else None
+    patterns = [patterns] if isinstance(patterns, str) else patterns
+    if not isinstance(patterns, list):
+        return []
+    return [branch for branch in patterns
+            if isinstance(branch, str) and re.fullmatch(r"[\w./-]+", branch) and branch != base
+            ][:PUSH_BRANCHES_READ]
+
+
+def push_branch_verdicts(repo: str, base: str, name: str, workflow, run: dict, github, base_jobs: dict,
+                         job_reads: dict, suites, run_reads: dict):
+    """(branch, its Evidence, its base_verdicts for NAME, branches searched) for the first push branch of RUN's
+    workflow (push_branches) with a verdict for job NAME; (None, None, None, searched) when none has one. A branch
+    heading an open PR (a stacked parent) is passed over: its runs are no push-branch verdict."""
+    searched = []
+    for branch in push_branches(repo, base, run, github):
+        searched.append(branch)
+        other = evidence_source(repo, branch, github, run_reads)
+        try:
+            if other.parent is not None:
+                continue
+        except Refused:
+            continue
+        found = base_verdicts(repo, workflow, name, github, other, base_jobs, job_reads, suites)
+        first = next(found, None)
+        if first is not None:
+            return branch, other, itertools.chain([first], found), searched
+    return None, None, None, searched
+
+
 def workflow_doc(repo: str, ref: str, path: str, github) -> object:
     """Workflow PATH at REF, parsed (source_text, read once per judgement); None when it is unread, absent there or
     not YAML, or no YAML parser imports. A rate-limited read is raised (RateLimitedRead is no Refused)."""
@@ -10666,7 +10741,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     # The shared generated-files check is judged after its host (generated_stale_host).
     jobs = sorted(jobs, key=lambda found: found.get("name") == GENERATED_VERDICT_JOB)
     pr_only: set[tuple] = set()  # (run id, job name) excused by pr_only_step_verdict
+    # A job whose workflow never runs on BASE is judged against one of its push branches (push_branch_verdicts):
+    # BASE and EVIDENCE are that branch's for that job alone, and every job starts from the PR's own.
+    pr_base, pr_evidence = base, evidence
     for job in jobs:
+        base, evidence = pr_base, pr_evidence
         name = job.get("name", "")
         if (budget := job_budget()) is not None:
             budget["name"] = name  # whose judgement a JobBudgetCut cuts (one_judgement)
@@ -10776,6 +10855,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
                 base_run, base_job, verdicts = pushed_run, pushed_job, pushed
                 base_workflow, base_name = caller, caller_name
+        searched: list[str] = []  # the push branches read when BASE has no verdict (push_branch_verdicts)
+        if base_run is None and evidence.parent is None:
+            branch, other, found, searched = push_branch_verdicts(
+                repo, base, name, workflow, workflow_info, github, base_jobs, job_reads, suites, run_reads)
+            if branch is not None:
+                (base_run, base_job), verdicts = next(found), found
+                audit.append(f"base for '{name}': {workflow_label(workflow_info, workflow)} never runs on {base} "
+                             f"(no {base} run has a verdict for it) but runs on pushes to {branch}; its {branch} "
+                             "runs are the base verdicts below")
+                base, evidence = branch, other
         # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
         # its comparison below, which may excuse it as the base's.
         quota = ((github_quota_only(view) if view is not UNPLACED else unplaced_quota_only(got.unplaced))
@@ -10808,6 +10897,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                              if vrepo != repo else "")
                           + f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
                           f"and its tip suite runs)" + (f": {dispatch}" if dispatch else "")
+                          + (f"; nor on its push branches ({', '.join(searched)})" if searched else "")
                           + f"; not a setup red other PRs share: {why_not}"
                           + f"; not the workflow's red on other PRs: {why_not_peers}")
         if name == GUARD_GROUP_JOB:
