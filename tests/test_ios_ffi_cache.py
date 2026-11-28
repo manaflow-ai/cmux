@@ -805,6 +805,22 @@ class ClaimTest(FFIRepoCase):
         self.assertNotIn(key, self.controller.claims)
         self.assertIn(("DELETE", key, "job-a"), self.controller.claim_calls)
 
+    def test_a_step_that_cannot_write_its_job_dir_still_records_and_releases_its_claim(self):
+        # 2026-11-28 probe: on lent workers the step runs as another user and $CI_JOB_DIR is the worker's
+        # ("claim of 4e0686530131 not recorded ([Errno 13] Permission denied: .../.ios-ffi-claim')"), so a holder
+        # whose build stored nothing never released its claim. component-outputs/ is the step's own (export writes it).
+        (self.job / "component-outputs" / "ios-ffi").mkdir(parents=True)
+        self.job.chmod(0o555)
+        self.addCleanup(self.job.chmod, 0o755)
+        key = self.key()
+        p = self.restore(self.checkout, key, self.env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertNotIn("not recorded", p.stdout)
+        self.build("worker-a")
+        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn changed() {}\n")  # nothing is stored
+        self.probe_and_store()
+        self.assertIn(("DELETE", key, "job-a"), self.controller.claim_calls)
+
     def test_remote_off_never_claims(self):
         key = self.key()
         env = dict(self.env, CMUX_CI_COMPONENT_REMOTE="0")

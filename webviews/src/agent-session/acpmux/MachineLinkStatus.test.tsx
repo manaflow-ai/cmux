@@ -63,31 +63,22 @@ test("automatic connecting and reconnecting keep the plain dot even beyond the d
   }
 });
 
-test("an offline link stays quiet before the bound and offers Reconnect once it persists", async () => {
+test("an offline link stays quiet before the bound, is said once it persists, and is redialed with no Reconnect button", async () => {
   const container = installDom();
   root = createRoot(container);
   const link: PeerLink = { machine: "remote", link: "offline" };
-  let reconnected = 0;
   const render = (quietMs: number) =>
     act(async () => {
-      root!.render(
-        <MachineLinkStatus
-          link={link}
-          quietMs={quietMs}
-          onReconnect={() => {
-            reconnected++;
-          }}
-        />,
-      );
+      root!.render(<MachineLinkStatus link={link} quietMs={quietMs} onReconnect={() => {}} />);
     });
   await render(10_000);
   expect(container.querySelector("[data-said]")).toBeNull();
   expect(container.querySelector("button")).toBeNull();
   await render(0);
   expect(container.querySelector("[data-said]")).not.toBeNull();
-  expect(container.querySelector("button")?.textContent).toBe("Reconnect");
-  await act(async () => container.querySelector("button")!.click());
-  expect(reconnected).toBe(1);
+  // Redialing is acpmux's on its own (useLinkRedial, autoRetry.ts), never a button (Leo, 2026-11-22:
+  // "vacuous decisions like that should be just done").
+  expect(container.querySelector("button")).toBeNull();
 });
 
 test("sign-in and update failures need a person, so they are said at once with their instruction", async () => {

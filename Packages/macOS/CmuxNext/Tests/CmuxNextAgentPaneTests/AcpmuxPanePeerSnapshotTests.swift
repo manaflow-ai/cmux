@@ -12,10 +12,9 @@ import Testing
     }
 
     @Test func peerSnapshotKeepsOnlyDisplayFields() throws {
-        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peers"])
         let value: [String: Any] = ["peers": [["name": "studio-mac", "state": "offline", "lastSeen": 5,
                                               "error": "removed", "url": "ssh://private", "token": "secret"]]]
-        let filtered = try #require(AcpmuxPaneMethods.filtered(value, to: shape) as? [String: Any])
+        let filtered = try #require(AgentPaneStatusReplyShapeTests.filtered("_acpmux/peers", ["result": value], pageID: "1")["result"] as? [String: Any])
         let peer = try #require((filtered["peers"] as? [[String: Any]])?.first)
         #expect(Set(peer.keys) == ["name", "state", "lastSeen", "error"])
         #expect(peer["error"] as? String == "removed")
@@ -37,7 +36,6 @@ import Testing
     }
 
     @Test func moveTargetsKeepLabelsAndDropEndpointsAndMetadata() throws {
-        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/move_targets"])
         let value: [String: Any] = [
             "targets": [[
                 "id": "ssh:studio", "label": "Studio", "kind": "ssh", "status": "ready",
@@ -46,7 +44,7 @@ import Testing
             "pick": "ssh:studio",
             "debug": "hidden",
         ]
-        let filtered = try #require(AcpmuxPaneMethods.filtered(value, to: shape) as? [String: Any])
+        let filtered = try #require(AgentPaneStatusReplyShapeTests.filtered("_acpmux/move_targets", ["result": value], pageID: "1")["result"] as? [String: Any])
         let target = try #require((filtered["targets"] as? [[String: Any]])?.first)
         let fields = Set(["id", "label", "kind", "status", "reason", "room"])
         #expect(Set(target.keys) == fields)
@@ -58,13 +56,12 @@ import Testing
 
     /// The device kinds reach the page (each machine's glyph), and nothing else rides along.
     @Test func statusKeepsDeviceKindsOnly() throws {
-        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/status"])
         let value: [String: Any] = [
             "device": "mac-mini", "home": "/Users/private", "pid": 7,
             "peers": [["name": "studio", "url": "ssh://private",
                        "health": ["device": "linux-server", "host": "private-host"]]],
         ]
-        let filtered = try #require(AcpmuxPaneMethods.filtered(value, to: shape) as? [String: Any])
+        let filtered = try #require(AgentPaneStatusReplyShapeTests.filtered("_acpmux/status", ["result": value], pageID: "1")["result"] as? [String: Any])
         #expect(filtered["device"] as? String == "mac-mini")
         #expect(filtered["home"] == nil && filtered["pid"] == nil)
         let peer = try #require((filtered["peers"] as? [[String: Any]])?.first)

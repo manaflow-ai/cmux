@@ -207,6 +207,26 @@ async fn a_new_chat_starts_on_the_catalog_default_then_on_the_persons_pick_after
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Leo 2026-11-27: "it should purely just be new tab". A pick in a chat is the next new chat's
+/// start, but never New Tab's: `start.newTab` names the model below that saved pick.
+#[tokio::test]
+async fn a_pick_in_a_chat_is_not_new_tabs_start_model() {
+    let (dir, calls) = home("newtab-own");
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    let codex = app.new_chat("codex").await;
+    take_calls(&calls);
+    let start = |h: &Value| h["harnesses"]["codex"]["start"].clone();
+    // Nothing picked: no New Tab start of its own.
+    assert_eq!(start(&app.call("_acpmux/harnesses", json!({})).await)["newTab"], Value::Null);
+
+    app.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6-astra"})).await;
+    let start = start(&app.call("_acpmux/harnesses", json!({})).await);
+    assert_eq!((&start["model"], &start["modelSource"]), (&json!("gpt-6-astra"), &json!("saved")));
+    assert_eq!(start["newTab"], json!({"model": "gpt-6.2-sol", "modelSource": "catalog"}));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Leo 2026-10-18: a New Tab prewarmed before a pick drew the old start effort (Medium) and the chat
 /// then started on the pick (Low). A saved pick changes `_acpmux/harnesses` `start`, so watchers
 /// are told to read it again; a pick that saves nothing new tells nobody.

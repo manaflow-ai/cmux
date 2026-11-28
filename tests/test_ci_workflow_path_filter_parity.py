@@ -28,6 +28,13 @@ EXEMPTIONS: dict[str, str] = {
     "name the cloud-VM API files inside it",
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
     "requests name the paths a no-build look can apply (web and Rust layers)",
+    # #63833: same shape as cmux-next-hot-verify.yml; the pull request run only dispatches the verify run.
+    "cmux-next-ios-verify-auto.yml": "push names only its own file, to register the workflow for dispatch "
+    "(tests/test_ci_workflows_registered.py); pull requests name the iOS flows' compile and flow paths",
+    # #55915 dropped this as stale, but the pull request trigger still has no paths (it never had any).
+    "cmux-tui-spec.yml": "pull requests start every run and the `changes` job decides from the diff "
+    "(cmux-tui-spec-changed.py); the push list is the same decision made by GitHub. The pull request trigger lists "
+    "only `types`, because feat-cmux-next requires `clippy (changed cmux-tui packages)` and a required check must report",
     # #55455: the push runs only the `seed` job, which fills the R2 dependency cache from its key's inputs; the
     # journey itself runs on pull requests, on the CLI paths it dials through.
     "cloud-journey-pr.yml": "push seeds the R2 cargo cache from its key's inputs (Cargo.lock, rust-toolchain.toml, "
@@ -53,6 +60,21 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     # A nightly repair must earn this commit's Release compile before promotion
     # carries it to nightly-next, so feat-cmux-next and main pushes also start
     # cmux-next.yml for the nightly release inputs (#21144).
+    # Web merges move the published bytes the replay measures, so
+    # base pushes rerun it; a pull request does not need the report (it reports, never gates).
+    "cas-replay.yml": (
+        "paths",
+        frozenset({"webviews/**"}),
+        "the replay's rows move with each web publish on the base; pull requests "
+        "run it only for the replay's own inputs",
+    ),
+    # relay_deploy_plan.py: journey-staging gates the deploy, so a journey fix on the base retries it (#59812).
+    "cloudflare-relay.yml": (
+        "paths",
+        frozenset({"scripts/cmux-next/cloud-journey*"}),
+        "journey-staging gates the relay deploy; a push that fixes the journey retries the deploy "
+        "(#59812), which a pull request has nothing to deploy for",
+    ),
     "cmux-next.yml": (
         "paths",
         frozenset({
