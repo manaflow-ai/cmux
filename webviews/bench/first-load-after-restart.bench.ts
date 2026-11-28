@@ -1799,14 +1799,23 @@ try {
     let next = 0;
     let delivery = Promise.resolve();
     const push = (event: { connection: number; frames?: string[]; closed?: { code: number; reason: string } }) => {
+      const queuedAt = Date.now();
       delivery = delivery
         .then(() =>
           page.evaluate((pushed) => {
+            const at = performance.timeOrigin + performance.now();
             (
               window as unknown as { cmuxAcpmuxTransport?: { receive(event: unknown): void } }
             ).cmuxAcpmuxTransport?.receive(pushed);
+            return [at, performance.timeOrigin + performance.now(), performance.timeOrigin] as const;
           }, event),
         )
+        .then((r) => {
+          if (process.env.DIAG_PUSH === "1" && r)
+            console.log(
+              `DIAGPUSH queued ${(queuedAt - r[2]).toFixed(0)} ran ${(r[0] - r[2]).toFixed(0)} took ${(r[1] - r[0]).toFixed(1)} back ${(Date.now() - r[2]).toFixed(0)} ${String(event.frames?.[0] ?? "").slice(0, 70)}`,
+            );
+        })
         .catch(() => undefined);
     };
     page.on("close", () => {
