@@ -314,6 +314,8 @@ impl Hub {
                         if slot.as_ref().is_some_and(|c| c.pid != pid) {
                             continue;
                         }
+                        #[cfg(unix)]
+                        crate::agent::copilot_auth::remove_legacy_session(&session.id);
                         *slot = None;
                     }
                     self.cancel_pending_permissions(&session);

@@ -59,6 +59,12 @@ MARKER_PREFIX = "<!-- cmux-hot-verify "
 MARKER = re.compile(r"<!-- cmux-hot-verify sha=([0-9a-f]{40}) app=(\S+) layers=([a-z,]+) source=(worktree|pr) -->")
 # The layers a look puts onto a running copy with no build (hot-verify.py plan). "daemon" is the same Rust layer.
 LOOK_LAYERS = {"web": "web", "rust": "rust", "daemon": "rust", "customize": "customize"}
+# "app": the look builds the head's complete app on the fleet first (hot-verify.py can_build_swift_app, cmux#62832).
+# The request carries it so the controller gives the look a build's bound; the engine plans again and builds itself.
+APP_LAYER = "app"
+# The build reasons a fleet app build covers (hot-verify.py can_build_swift_app; cmuxterm-hq ci-client.py
+# hot_verify_swift_look): a Swift change, its strings copy beside it.
+APP_BUILD_REASONS = {"Swift", "Swift, resources or manifests", "strings"}
 # pr-capture step_args (cmuxterm-hq build-fleet/pr-capture): zlib 9, base64url without padding, "z" chunks.
 CHUNK_PREFIX = "z"
 CHUNK_CHARS = 2000
@@ -102,6 +108,13 @@ def verdict(text: str) -> dict:
     layers = sorted({LOOK_LAYERS.get(str(layer), str(layer)) for layer in raw}) if isinstance(raw, list) else []
     needs_build = plan.get("needs_build") is True
     other = [layer for layer in layers if layer not in LOOK_LAYERS.values()]
+    app = needs_build and app_buildable(plan)
+    if app and not other:
+        # A Swift change (with web or Rust beside it): the look builds the head's app on the fleet. Before this every
+        # Swift PR planned needs_build, got no request, and cmux/ui-proof held it pending (cmux#61533, 2026-11-27).
+        layers = sorted({*layers, APP_LAYER})
+        return {"eligible": True, "layers": layers, "needs_build": True,
+                "reason": f"looks with a fleet app build of the head: {', '.join(layers)}"}
     if needs_build:
         reason = "this change needs a build; the build path (pr-capture, the gallery, the dev build) covers it"
     elif not layers:
@@ -112,6 +125,25 @@ def verdict(text: str) -> dict:
         reason = f"looks without a build: {', '.join(layers)}"
     return {"eligible": not needs_build and bool(layers) and not other, "layers": layers,
             "needs_build": needs_build, "reason": reason}
+
+
+def app_buildable(plan: dict) -> bool:
+    """Whether a fleet app build of the head covers every build reason in PLAN (the engine's --json plan): the same
+    test as hot-verify.py can_build_swift_app. The text plan cuts each reason's paths at 5, so it never qualifies."""
+    build = plan.get("build")
+    if not (isinstance(build, dict) and build and set(build) <= APP_BUILD_REASONS):
+        return False
+    swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
+    copy = (lambda path: path.endswith((".xcstrings", ".strings")))
+    return all(isinstance(paths, list) and paths and all(isinstance(path, str) and (copy(path) if reason == "strings"
+                                                                                    else swift(path)) for path in paths)
+               for reason, paths in build.items())
+
+
+def app_built(receipt: dict) -> bool:
+    """Whether the look built the head's app itself (hot-verify.py marks it with layer app in its marker)."""
+    found = MARKER.fullmatch(str(receipt.get("marker") or ""))
+    return bool(found) and APP_LAYER in found.group(3).split(",")
 
 
 def output_lines(found: dict) -> str:
@@ -246,8 +278,16 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     the worker's own reader flagged."""
     receipt = read_json(out / "receipt.json")
     step = read_json(out / "step.json")
-    if step.get("needs_build") or receipt.get("plan", {}).get("needs_build"):
+    # A look that built the head's app (marker layer app) planned needs_build and is still a look to publish.
+    if step.get("needs_build") or (receipt.get("plan", {}).get("needs_build") and not app_built(receipt)):
         return {"needs_build": True, "staged": [], "withheld": []}
+    # The worker's plan found nothing to look at (hq hot_verify_run.py `nothing`: e.g. "the app already contains
+    # SHA", a merge look whose NIGHTLY already ships the merge): a result, not a missing receipt. It failed `post the
+    # look` as "the receipt has no hot-verify marker" (runs 46054808380, 46008620288, 46007530167, 2026-11-27).
+    if step.get("nothing") and not receipt.get("marker"):
+        notes = (read_json(out / "plan.json").get("notes") or [])
+        reason = "; ".join(str(note) for note in notes if isinstance(note, str))[:300] or "nothing to look at"
+        return {"needs_build": False, "nothing": True, "reason": reason, "staged": [], "withheld": []}
     if not receipt.get("marker") and step.get("error"):
         raise NoReceipt(worker_stop(step))
     check_marker(receipt, head)

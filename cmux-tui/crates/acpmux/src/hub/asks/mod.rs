@@ -521,6 +521,7 @@ impl PrNote {
 
 pub struct AskLedger {
     enabled: bool,
+    persistent: bool,
     pub(crate) state: Mutex<State>,
     writer: Mutex<Option<std::sync::mpsc::Sender<store::Work>>>,
     thread: Mutex<Option<store::WriterThread>>,
@@ -561,14 +562,22 @@ impl AskLedger {
 
     fn open_enabled(dir: Option<PathBuf>, host: String, enabled: bool) -> Self {
         let mut state = State::default();
+        let mut persistent = false;
         let spawned = dir.and_then(|dir| {
             let path = dir.join(store::FILE);
             // Off creates no store or writer. Previously captured asks remain private and
             // hidden, but still participate in chat deletion while the experiment is off.
-            if !enabled && !path.exists() {
+            if !enabled && !path.try_exists().unwrap_or(true) {
                 return None;
             }
-            store::fold(&path, &mut state);
+            persistent = true;
+            if let Err(e) = store::fold(&path, &mut state) {
+                tracing::warn!(
+                    "asks: recovery failed for {}; persistence disabled: {e}",
+                    path.display()
+                );
+                return None;
+            }
             store::spawn_writer(dir, path)
         });
         let (writer, thread) = match spawned {
@@ -577,6 +586,7 @@ impl AskLedger {
         };
         Self {
             enabled,
+            persistent,
             state: Mutex::new(state),
             writer: Mutex::new(writer),
             thread: Mutex::new(thread),
@@ -591,13 +601,8 @@ impl AskLedger {
     /// Hands `line` to the writer, under the state lock so lines keep their order.
     fn emit(&self, state: &mut State, line: Line) {
         state.seq = state.seq.wrapping_add(1);
-        let rewrite = matches!(line, Line::Purge { .. });
         if let Some(tx) = self.writer.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
             let _ = tx.send(store::Work::Line(Box::new(line)));
-            if rewrite {
-                // The purged chat's asks leave the file now: one rewrite of what is left.
-                let _ = tx.send(store::Work::Rewrite(snapshot(state)));
-            }
         }
     }
 
@@ -664,19 +669,35 @@ impl AskLedger {
         }
     }
 
-    /// Chat `session` was purged: its asks leave the index now and the file at the writer's
-    /// next step. Its pull requests stay (they are another chat's work as much).
-    pub fn purge(&self, session: &str) {
-        if !self.enabled && self.writer.lock().unwrap_or_else(PoisonError::into_inner).is_none() {
-            return;
-        }
-        let mut s = self.lock();
-        s.purged.insert(session.to_owned());
-        let known = s.by_session.contains_key(session);
-        s.remove_session(session);
-        if known {
-            self.emit(&mut s, Line::Purge { sid: session.to_owned() });
-        }
+    /// Fence capture immediately; disk-backed deletion succeeds only after a durable rewrite
+    /// or tombstone. A failed/timed-out request retains its fence because disk work may finish
+    /// later. The chat itself is not deleted, and the caller can retry the purge.
+    pub async fn purge(&self, session: &str) -> Result<(), String> {
+        self.purge_within(session, std::time::Duration::from_secs(5)).await
+    }
+
+    async fn purge_within(&self, session: &str, within: std::time::Duration) -> Result<(), String> {
+        let done = {
+            let mut s = self.lock();
+            let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+            if self.persistent && writer.is_none() {
+                return Err("Ask ledger unavailable; chat was not deleted".into());
+            }
+            s.purged.insert(session.to_owned());
+            s.remove_session(session);
+            s.seq = s.seq.wrapping_add(1);
+            let Some(tx) = writer.as_ref() else { return Ok(()) };
+            let (done, receive) = tokio::sync::oneshot::channel();
+            // Queue under the state lock: the snapshot includes all earlier captures and
+            // excludes every later capture of this fenced chat.
+            tx.send(store::Work::Purge { sid: session.to_owned(), lines: snapshot(&s), done })
+                .map_err(|_| "Ask ledger writer stopped; chat was not deleted".to_owned())?;
+            receive
+        };
+        tokio::time::timeout(within, done)
+            .await
+            .map_err(|_| "Ask ledger purge timed out; chat was not deleted".to_owned())?
+            .map_err(|_| "Ask ledger writer stopped; chat was not deleted".to_owned())?
     }
 
     /// A chat was created under `session` again this run: its asks count again.
