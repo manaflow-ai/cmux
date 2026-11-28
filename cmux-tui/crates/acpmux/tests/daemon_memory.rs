@@ -23,6 +23,11 @@ const BENCH_VARS: &[&str] = &[
     "ACPMUX_SCALE_TURNS",
     "ACPMUX_SCALE_CATALOGS",
     "ACPMUX_SCALE_DHAT_DIR",
+    "ACPMUX_STEADY_CHATS",
+    "ACPMUX_STEADY_WARMUP",
+    "ACPMUX_STEADY_ROUNDS",
+    "ACPMUX_STEADY_GROWTH_MB",
+    "ACPMUX_STEADY_CLIENTS",
 ];
 
 use serde_json::{Value, json};
@@ -997,5 +1002,77 @@ fn peer_snapshot_cache_saturation_stays_within_its_recorded_cost() {
     assert!(
         over.is_empty(),
         "peer snapshots cost more than {peak_mb} MB peak or {cpu_budget_ms} ms CPU: {over:?}"
+    );
+}
+
+/// A daemon that answers the same calls for hours holds the same memory. The fleet's clients
+/// list the sessions, page them, tag one and read another's detail all day (2026-11-28: two
+/// daemons passed 3 GB in under an hour). Rounds of that mix run against one daemon; RSS after
+/// the first `ACPMUX_STEADY_WARMUP` rounds must not climb by more than `ACPMUX_STEADY_GROWTH_MB`
+/// over the next `ACPMUX_STEADY_ROUNDS`.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_steady_call_mix_holds_flat_memory() {
+    let chats = env_or("ACPMUX_STEADY_CHATS", 300);
+    let warmup = env_or("ACPMUX_STEADY_WARMUP", 60);
+    let rounds = env_or("ACPMUX_STEADY_ROUNDS", 300);
+    let growth_mb = env_or("ACPMUX_STEADY_GROWTH_MB", 64);
+    let dir = scratch("steady");
+    let home = dir.join("home");
+    private_dir(&home);
+    private_dir(&home.join("sessions"));
+    let id = |i: u64| format!("01a15905-0000-7000-8000-{i:012}");
+    for i in 0..chats {
+        let status = if i % 3 == 0 { "idle" } else { "closed" };
+        write_session(&home, &id(i), status, true);
+        let mut meta = chief_meta(&id(i), status, 1_791_000_000_000);
+        meta["lastPrompt"] = json!("retained prompt ".repeat(64));
+        private_file(&home.join("sessions").join(id(i)).join("session.json"), &meta.to_string());
+    }
+    let daemon = Daemon::start(&dir, &home);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    let mut at_warm = 0;
+    // Other clients ask at the same time, as the fleet's `acpmux ls`, status and peers reads do.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let others: Vec<_> = (0..env_or("ACPMUX_STEADY_CLIENTS", 8))
+        .map(|n| {
+            let (socket, stop) = (daemon.socket.clone(), stop.clone());
+            std::thread::spawn(move || {
+                let mut rpc = Rpc::connect(&socket);
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    rpc.call("_acpmux/sessions", json!({}));
+                    rpc.call("_acpmux/status", json!({}));
+                    rpc.call("_acpmux/peers", json!({}));
+                    if n % 2 == 0 {
+                        // A new connection each time, as every CLI call makes one.
+                        rpc = Rpc::connect(&socket);
+                    }
+                }
+            })
+        })
+        .collect();
+    for round in 0..warmup + rounds {
+        let i = round % chats;
+        rpc.call("_acpmux/tag", json!({"sessionId": id(i), "set": {"bench": round.to_string()}}));
+        let list = rpc.call("_acpmux/sessions", json!({}));
+        assert!(!list["sessions"].as_array().unwrap().is_empty());
+        rpc.call("_acpmux/info", json!({"sessionId": id((i * 7) % chats)}));
+        if round % 25 == 0 {
+            println!("acpmux-steady round {round}: rss_mb {}", daemon.rss_bytes() >> 20);
+        }
+        if round + 1 == warmup {
+            at_warm = daemon.rss_bytes();
+        }
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for other in others {
+        other.join().unwrap();
+    }
+    let end = daemon.rss_bytes();
+    println!("acpmux-steady: warm_mb {} end_mb {}", at_warm >> 20, end >> 20);
+    assert!(
+        end <= at_warm + (growth_mb << 20),
+        "RSS climbed {} MB over {rounds} rounds of a steady mix",
+        (end.saturating_sub(at_warm)) >> 20
     );
 }
