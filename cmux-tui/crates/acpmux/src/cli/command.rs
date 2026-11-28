@@ -247,6 +247,11 @@ pub enum Command {
     /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
     #[command(name = "pr-wait")]
     PrWait(crate::cli::pr_wait::PrWaitArgs),
+    /// One GitHub read of a repos/OWNER/REPO/... path through this machine's one poller: a kept
+    /// answer while it is fresh, a conditional read (a 304 costs no quota) when not, the kept
+    /// answer marked stale when the budget is spent. Prints the body (`cli/gh_read.rs`).
+    #[command(name = "gh-read")]
+    GhRead(crate::cli::gh_read::GhReadArgs),
     /// Run another person's agent's accepted forum `run` ask: one command at a repo's pushed ref,
     /// here when light, through the scheduler (cmux-ci) when heavy; prints the result as JSON,
     /// `{exit, tail, artifacts}`. A refused ask exits 7 with its reason (`run_ask.rs`).
@@ -1043,6 +1048,7 @@ pub enum Command {
         reason: Option<String>,
         status: bool,
         hold_for: Option<String>,
+        thaw_order: Option<Vec<String>>,
     },
     #[command(hide = true)]
     ResumeQueue {
@@ -1710,18 +1716,26 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
-                Command::SessionHold {
-                    session,
-                    held: true,
-                    fleet,
-                    allow,
-                    set_allow,
-                    reason,
-                    status,
-                    hold_for,
-                }
-            }
+            SessionCmd::Hold {
+                session,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            } => Command::SessionHold {
+                session,
+                held: true,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            },
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
@@ -1731,6 +1745,7 @@ pub fn flatten(c: Command) -> Command {
                 reason: None,
                 status: false,
                 hold_for: None,
+                thaw_order: None,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
