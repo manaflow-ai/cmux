@@ -213,6 +213,14 @@ run ahead of it, a jobless run at an open pull request's head is cancelled (forc
 it in flight) and re-run whole as cmux-bot by the next sweep at the same head, through LOST_RERUNS_KEY, unless a
 newer run took that head; a pull request run at a superseded head is only cancelled. An attempt at
 LOST_FAILOVER_MAX_ATTEMPT, or a re-run GitHub refuses JOBLESS_RERUN_TRIES times, gives up with an ::error::.
+
+Stale-ref routing is one more pass (g, scripts/ci/stale_route_runs.py; stale_route_pass()): a queued job on a pool
+over the threshold that asks for a label the run's branch copy of its workflow (main's, or a BRANCH_WORKFLOWS
+branch's) no longer names, in a run created before the commit that took the label out. A run follows the workflow
+file at its own ref, and a re-run reuses it, so a routing fix leaves every older run and re-run on the old label.
+At an open pull request's head the pull request is base-merged (update-branch, as cmux-bot), never cancelled; a
+merged or closed pull request's run, or a superseded head's, is shed. Each sweep names them per label and routing
+commit (an ::warning:: and the snapshot's `stale_routes`). hq docs/handbook/queued-job-keeps-its-old-route.md.
 """
 
 from __future__ import annotations
@@ -255,6 +263,7 @@ import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
+import stale_route_runs  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
@@ -2912,6 +2921,7 @@ def branches_to_resolve(
 PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
+        author { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         files(first: 100) { pageInfo { hasNextPage } nodes { path } }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
@@ -2932,6 +2942,7 @@ OPEN_PRS_UNREAD = "openPullRequestsUnread"
 OPEN_PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
+        author { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
 """
 
@@ -5320,6 +5331,47 @@ def render_listing(listing: Mapping[str, Any]) -> str:
     return text
 
 
+def stale_route_pass(github: "GitHub", repo: str, runs: Sequence[Mapping[str, Any]],
+                     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+                     prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]], *,
+                     queued_by_pool: Mapping[str, int], threshold: int, copies: Mapping[str, Path],
+                     already_cancelled: Iterable[int], dry_run: bool, can_merge: bool,
+                     ) -> tuple[list["stale_route_runs.StaleRoute"], dict[int, str], int]:
+    """Category g (stale_route_runs.py): runs on a saturated pool that ask for a label their branch's workflow copy
+    was routed off. Reads only files on disk until a suspect exists; then a commit listing and a few commit reads per
+    (file, label) to name the routing change. Returns the decisions, what was done per run, and failed writes."""
+    saturated = [pool for pool, count in queued_by_pool.items() if count > threshold]
+    if not saturated:
+        return [], {}, 0
+
+    def pool_of(job: Mapping[str, Any]) -> tuple[str, ...]:
+        return counted_pools(runner_pool(job)) if is_macos_job(job) else ()
+
+    suspects = stale_route_runs.find_suspects(runs, jobs_by_run, saturated, copies, pool_of=pool_of,
+                                              protected=protected_reason)
+    if not suspects:
+        return [], {}, 0
+
+    def lookup(branch: str, path: str, label: str) -> "stale_route_runs.Change | None":
+        try:
+            return stale_route_runs.routing_change(lambda url: github.request("GET", url), repo, branch, path, label)
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            print(f"queue-janitor: routing change of {label} in {path} on {branch}: {error}", file=sys.stderr)
+            return None
+
+    decisions = stale_route_runs.plan(suspects, prs_by_branch, lookup=lookup, resolve=resolve_pull_request,
+                                      already_cancelled=already_cancelled)
+    if dry_run:
+        return decisions, {}, 0
+    results, failures = stale_route_runs.act(
+        decisions, can_merge=can_merge, cancel=github.cancel,
+        update_branch=lambda number, sha: github.request(
+            "PUT", f"/repos/{repo}/pulls/{number}/update-branch", {"expected_head_sha": sha}))
+    return decisions, results, failures
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """One sweep (sweep()). A sweep that met a rate limit ends green with a ::warning:: (an infra skip).
 
@@ -5831,6 +5883,32 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     superseded_decisions = [*superseded_decisions, *dev_decisions]
     failures += dev_failures
 
+    # Category g: a run asking for a saturated label its branch's workflow copy no longer names (stale_route_pass()).
+    copies = {"main": args.workflows_dir}
+    for spec in args.branch_workflows:
+        copy_branch, _, copy_dir = (part.strip() for part in spec.partition("="))
+        if copy_branch and copy_dir and copy_branch != "main":
+            copies[copy_branch] = Path(copy_dir)
+    cancelled_ids = {candidate.run["id"] for candidate in plan.to_cancel()} | {
+        d.orphan.run["id"] for d in [*orphan_decisions, *holder_decisions, *jobless_decisions] if d.action == "cancel"}
+    try:
+        stale_decisions, stale_results, stale_failures = stale_route_pass(
+            github, args.repo, runs, jobs_by_run, prs_by_branch, queued_by_pool=plan.queued_by_pool,
+            threshold=threshold, copies=copies, already_cancelled=cancelled_ids, dry_run=args.dry_run,
+            can_merge=cmux_bot())
+    except RuntimeError as error:  # a rate limit: the next sweep looks again
+        print(f"queue-janitor: stale-ref routing: {error}", file=sys.stderr)
+        if isinstance(error, RateLimited):
+            github.rate_limited = github.rate_limited or str(error)
+        stale_decisions, stale_results, stale_failures = [], {}, 1
+    failures += stale_failures
+    stale_summary, stale_warnings = stale_route_runs.render(stale_decisions, stale_results, dry_run=args.dry_run)
+    for line in stale_warnings:
+        print(line)
+    if snapshot is not None and args.pool_load:
+        snapshot[stale_route_runs.STALE_ROUTES_KEY] = stale_route_runs.snapshot_entry(stale_decisions)
+        args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_open_head_reruns(open_head_decisions, open_head_results, freed=open_head_freed)
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
@@ -5846,6 +5924,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         print(alert)
     summary += render_jobless_summary(jobless_decisions, jobless_notes, dry_run=args.dry_run, results=jobless_results)
     summary += render_superseded_summary(superseded_decisions)
+    summary += stale_summary
     summary += f"\n_{render_listing(listing)}._\n"
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings " \
                f"({branch_skipped} more runs not listed: linux-only on their branch), {len(branches)} PR branches, " \
