@@ -129,4 +129,4 @@ jobs:
           name: scale-fixture-${{ github.run_id }}
           path: ${{ runner.temp }}/scale-fixture/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
