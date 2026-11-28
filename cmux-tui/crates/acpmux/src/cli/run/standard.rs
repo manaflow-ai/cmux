@@ -609,19 +609,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         }
                         host = next;
                         key = key_on(&host);
-                        match &host {
-                            Some(h) => p["_meta"]["acpmux"]["peer"] = json!(h),
-                            None => {
-                                if let Some(m) = p["_meta"]["acpmux"].as_object_mut() {
+                        // `p` was built above as `{"_meta": {"acpmux": {..}}}`: both are objects.
+                        if let Some(m) =
+                            p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+                        {
+                            match &host {
+                                Some(h) => {
+                                    m.insert("peer".to_owned(), json!(h));
+                                }
+                                None => {
                                     m.remove("peer");
                                 }
                             }
                         }
                         if launch.worktree.is_none() {
-                            match new_session_cwd(host.as_deref(), args.cwd.clone())? {
-                                Some(cwd) => p["cwd"] = json!(cwd),
-                                None => {
-                                    if let Some(o) = p.as_object_mut() {
+                            let cwd = new_session_cwd(host.as_deref(), args.cwd.clone())?;
+                            if let Some(o) = p.as_object_mut() {
+                                match cwd {
+                                    Some(cwd) => {
+                                        o.insert("cwd".to_owned(), json!(cwd));
+                                    }
+                                    None => {
                                         o.remove("cwd");
                                     }
                                 }
