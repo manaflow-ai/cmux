@@ -12,6 +12,13 @@
 # with `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the
 # job still passes. tests/test_ci_step_table.py holds both rules.
 #
+# `tier = "push"` marks a step the pull request's own run leaves to the push tier (cmux-next-base-linux.yml runs every
+# routed linux step on the feat-cmux-next tip after each landing; a red there is fixed forward). The pull request runs
+# `ci/run run --tier pr`, which skips them, and the router starts no runner for a change that routes only such steps.
+# The `full-ci` label, or vars.CI_PR_PIPELINE_TIER=full, runs them on the pull request again. Every step that needs a
+# tool (a bun, node, rust, zig, go or zlib download and build) and every web-browser step is `push`; the rest are
+# scripts that finish in seconds.
+#
 # `linux` steps run on the pull request's merge commit, in pr-pipeline.yml's one job, which pr-router.yml
 # starts only when a step's inputs changed. `advisory` steps run from the base branch's checkout, never
 # the pull request's code, and read the event from the environment the calling workflow step sets (BODY,
@@ -217,6 +224,14 @@ inputs = [
 ]
 run = "python3 tests/test_indexnow_notification.py"
 
+[step.update-replay-diagnostics]
+job = "linux"
+timeout = 60
+title = "Signed update replay diagnostics"
+about = "staging failures retain bounded status and check-response evidence without changing the replay verdict"
+inputs = ["scripts/cmux-next/update-e2e.py", "tests/test_update_e2e_diagnostics.py"]
+run = "python3 tests/test_update_e2e_diagnostics.py"
+
 # A local reusable workflow that asks for more than its caller grants fails the caller at startup: no job runs.
 # The guard lived only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips unless labeled
 # full-ci, so #55503 (base-coalesce.yml asks `actions: read`) landed at 19:08Z on 2026-11-25 with two callers
@@ -383,6 +398,7 @@ inputs = [
   "scripts/ci/ui_proof_verdict.py",
   "scripts/cmux-next/hot-verify.py",
   "scripts/ci/ios_verify.py",
+  "scripts/ci/ios_gate_screen_diff.py",
   "scripts/ci/ios-verify.sh",
   "ci/proof-record/**",
   "cmux-next-ios/FlowSuite/**",
@@ -534,6 +550,7 @@ run = "python3 scripts/ci/sync_labels.py --dry-run"
 # Every scripts/cmux-next/test-*-cpp.sh runs (tests/test_ci_step_table.py holds it).
 [step.shim-cpp]
 job = "linux"
+tier = "push"
 needs = ["zlib"]
 timeout = 300
 title = "CEF shim C++ tests"
@@ -672,6 +689,7 @@ exit "$rc"
 # `inputs` is each one's former pull_request path filter.
 [step.app-platform]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "App platform (runtime, SDK, samples, first-party forks)"
 about = "the app host's runtime bundle and generated cmux global are current, the app-test harness, runtime and sample apps pass their bun tests, and every first-party app runs its own tests as a fork with only the public SDK"
@@ -694,6 +712,7 @@ run = "bash scripts/cmux-next/check-app-platform.sh"
 
 [step.mux]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "mux bun test"
 about = "the mux brain host's bun test suite (mux/), on its frozen lockfile"
@@ -707,6 +726,7 @@ bun test
 
 [step.automation-bench]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Automation bench scoreboard"
 about = "the unit tests of the automation bench scoreboard (tests/automation-bench)"
@@ -735,6 +755,7 @@ run = "python3 -I scripts/cmux-next/tests/test_flicker_check.py"
 
 [step.cloud-vm-image-lock]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Cloud VM image lock"
 about = "images/cmux-vm/inputs.lock.json, the sshd policy checker, the bake and promote workflows' step scripts (with a stubbed bun) and the promote workflow's permissions, key handling and delete refusal; web's locked dependencies installed first"
@@ -804,6 +825,7 @@ python3 tests/test_ci_parallel_artifact_transport.py
 
 [step.ci-artifact-worker]
 job = "linux"
+tier = "push"
 timeout = 360
 # broker.test.mjs times its deadlines in wall-clock milliseconds: beside the other linux steps "concurrent cold misses
 # time out together" failed on #53426 three runs out of three (534 ms, 2330 ms); coderouter is alone for the same test.
@@ -827,6 +849,7 @@ WRANGLER_SEND_METRICS=false npm run check
 # not a step: a failed step prints its `git diff --stat`.
 [step.cmux-vm-sdk]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "cmux VM SDK"
 about = "the @cmux/vm SDK's generated schema (src/schema.d.ts) matches workers/cmux-vm/openapi.json, and the SDK typechecks"
@@ -858,6 +881,7 @@ exit "$status"
 
 [step.web-complexity]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Web complexity candidate"
 about = "web's Oxlint configuration parses and its complexity baseline holds against the base tip (the contributor-side diagnostic; web-complexity-trusted.yml is the required check)"
@@ -930,12 +954,13 @@ exit "$status"
 # Registries: cmux-tui/persisted-formats/formats.toml (the acpmux store, hosts, caches) and persisted-formats/formats.toml
 # (Swift app state, webviews versions and storage keys); settings keys: schemas/settings/published-keys.txt and
 # retired-keys.json. The cmux_next_persisted_* Rust tests load the fixtures through the real readers and check every
-# published settings key is a row or retired (the cmux_next_ daemon tests step). Seconds.
+# published settings key is a row or retired (the cmux_next_ daemon tests step); this step runs the same settings
+# row/ledger check on the pull request before a publisher can serve it. Seconds.
 [step.persisted-formats]
 job = "linux"
 timeout = 300
 title = "Persisted formats ship their migration"
-about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; published settings keys and retired-keys entries are never removed"
+about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; every live settings row is published, and every published key is live or retired; published settings keys and retired-keys entries are never removed"
 inputs = [
   "cmux-tui/**",
   "persisted-formats/**",
@@ -956,6 +981,98 @@ python3 -I tests/test_ci_persisted_formats.py || status=1
 exit "$status"
 '''
 
+# The cmux-next.yml `checks` job's guards that turned the feat-cmux-next tip red after their changes merged green
+# (base tier run 46080642938, 2026-11-27: state roots, the FFI caller ratchet, the base-red classifier's workflow
+# classification, the dev landing workflow contract and the pin-mode bundle script tests). That job skips a pull
+# request into feat-cmux-next, so each red was seen only on the tip. These run on the pull request whose diff
+# touches their inputs. scripts/ci/new_red_only.sh fails only a red the change adds: one the base already has warns.
+# Each was timed on a loaded 8 vCPU lane host (load 12-25), so an idle runner takes less: state roots 56 s, the FFI
+# ratchet 52 s, the classifier's class 21 s, the landing contract 2.5 s, the three bundle tests 5 s together.
+[step.next-state-roots]
+job = "linux"
+timeout = 300
+title = "No literal state roots (cmux NEXT)"
+about = "check-state-roots.sh: no new literal state root and no new Classic path or id in cmux NEXT code (the cmux-next.yml checks step of the same name), red only when this change adds it"
+inputs = [
+  "Packages/macOS/**",
+  "cmux-tui/crates/**",
+  "webviews/**",
+  "scripts/cmux-next/**",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "No literal state roots" -- bash scripts/cmux-next/check-state-roots.sh .
+'''
+
+[step.next-ffi-caller-ratchet]
+job = "linux"
+timeout = 300
+title = "Every exported FFI function has a Swift caller"
+about = "ffi_caller_ratchet.py: no new cmux-tui C header export without a Swift caller, and the baseline only shrinks, red only when this change adds it"
+inputs = [
+  "cmux-tui/crates/*/include/**",
+  "Packages/**/*.swift",
+  "Packages/macOS/CmuxNext/app-ffi-pin.json",
+  "scripts/cmux-next/ffi-caller-baseline.txt",
+  "scripts/cmux-next/ffi_caller_ratchet.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "FFI caller ratchet" -- python3 -I scripts/cmux-next/ffi_caller_ratchet.py
+'''
+
+[step.next-base-red-classifier]
+job = "linux"
+timeout = 300
+title = "Every workflow is classified for the base-red classifier"
+about = "test_base_red_excuse.py's GuardJobsFollowTheWorkflows: every pull request workflow is a guard or named not one, red only when this change adds it"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/base_red_excuse.py",
+  "scripts/ci/base_red_guard_jobs.json",
+  "tests/test_base_red_excuse.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "Base-red classifier" -- python3 -m unittest tests.test_base_red_excuse.GuardJobsFollowTheWorkflows
+'''
+
+[step.next-dev-landing-workflow]
+job = "linux"
+timeout = 120
+title = "cmux NEXT dev landing workflow contract"
+about = "test_cmux_next_dev_landing_workflow.py: the dev daily and landing jobs keep their runner placement and cache order, red only when this change adds it"
+inputs = [
+  ".github/workflows/cmux-next*.yml",
+  "tests/test_cmux_next_dev_landing_workflow.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "Dev landing workflow" -- python3 tests/test_cmux_next_dev_landing_workflow.py
+'''
+
+[step.next-bundle-pin-tests]
+job = "linux"
+timeout = 180
+title = "cmux-tui bundle pin-mode script tests"
+about = "the bundle-cmux-tui pin-mode, launch pre-read and screen-detection script tests (their fixtures copy every helper the bundle script calls), red only when this change adds it"
+inputs = [
+  "scripts/cmux-next/bundle-*.sh",
+  "scripts/cmux-next/link-folded-hosts.sh",
+  "scripts/cmux-next/write-cmux-tui-build-stamp.sh",
+  "scripts/cmux-next/tests/bundle-cmux-tui-*.test.sh",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+status=0
+for t in scripts/cmux-next/tests/bundle-cmux-tui-launch-preread.test.sh \
+  scripts/cmux-next/tests/bundle-cmux-tui-pin-no-fallback.test.sh \
+  scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh; do
+  scripts/ci/new_red_only.sh "$(basename "$t")" -- bash "$t" || status=1
+done
+exit "$status"
+'''
+
 # ci-web.yml's web-typecheck job, which a feat-cmux-next pull request reached through ci.yml's `web` call when
 # web_subareas.py routed its `typecheck` subarea: a TS/JS/JSON file under web/, web/bun.lock, or ci-web.yml and
 # web_subareas.py themselves. The job keeps pushes, dispatch, the post-merge batch and pull requests into other
@@ -970,8 +1087,12 @@ exit "$status"
 # second parent), as the job's FIXIT_COMPILE_HEAD_SHA did. The job's always-uploaded ci_oops ledger artifact
 # (ci-oops-web-typecheck-RUN-ATTEMPT) is not kept: nothing reads it; retry.py still prints its verdict in the log.
 # 32 s cold on 2 CPUs through ci/run (an empty bun cache), 85 s when fixit-compile fixes an error and compiles again.
+# land_gate: it also runs on a landing head of the affected tier (cmux#61511 landed type errors there unchecked and
+# feat-cmux-next stayed red until #62788; ci_steps.py's `land_gate`).
 [step.web-typecheck]
 job = "linux"
+tier = "push"
+land_gate = true
 timeout = 300
 title = "Web typecheck"
 about = "web's locked dependencies install, the managed relay catalog's generated copies match config/iroh, and web typechecks (tsgo)"
@@ -1026,6 +1147,7 @@ exit "$status"
 # check remain blocking. The old job's warm 4-vCPU p90 was about 63 s, under this step's 300-second limit.
 [step.diff-sidecar-check]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Diff sidecar checks"
 about = "the diff sidecar's Rust tests and generated protocol types pass, with fmt and clippy reported as warnings on feat-cmux-next"
@@ -1080,6 +1202,7 @@ exit "$status"
 # One shard alone, 121 s on 8 CPUs.
 [step.web-tests-1]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web tests (1/4)"
@@ -1110,6 +1233,7 @@ exit "$status"
 
 [step.web-tests-2]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web tests (2/4)"
@@ -1140,6 +1264,7 @@ exit "$status"
 
 [step.web-tests-3]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web tests (3/4)"
@@ -1170,6 +1295,7 @@ exit "$status"
 
 [step.web-tests-4]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web tests (4/4)"
@@ -1198,6 +1324,33 @@ status=0
 exit "$status"
 '''
 
+# The web tests a pull request can break from outside web/ (or from a web/ path its shards leave to the batch):
+# since #57511 a feat-cmux-next pull request routes web-tests-1..4 only on a named input, so an images/, .github/ or
+# catalog change that a web test imports or reads went red only in the post-merge batch (#53974, #57649). This step
+# routes on every pull request (pr_scope = false, inputs ["**"]) and asks scripts/ci/web_tests_affected.py for the
+# test files whose import closure or literal read paths hold a changed path; none (the usual case) exits in a few
+# seconds with no install. A path that reaches more than 80 tests (a message catalog, the preload) is left to the shards
+# and the batch, as is a whole set over 80. Unset $CI_PATHS_FILE (the batch, an unknown diff) exits 0: the shards
+# run every test there. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+[step.web-tests-affected]
+job = "linux"
+timeout = 300
+pr_scope = false
+needs = ["bun"]
+title = "Web tests the change reaches"
+about = "the web bun test files whose imports or read paths hold a changed file (scripts/ci/web_tests_affected.py), on a pull request"
+inputs = ["**"]
+run = '''
+[ -n "${CI_PATHS_FILE:-}" ] || { echo "No change list: the web-tests shards run every web test."; exit 0; }
+picked="$(python3 -I scripts/ci/web_tests_affected.py "$CI_PATHS_FILE")" || picked=""
+[ -n "$picked" ] || { echo "No web test reaches a changed path."; exit 0; }
+mapfile -t files <<<"$picked"
+echo "Web tests the change reaches (${#files[@]}):"; printf '  %s\n' "${files[@]}"
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+./scripts/run-tests.sh "${files[@]}"
+'''
+
 # ci-web.yml's web-production-build job: `bun run vercel-build` with the job's build-only env (no secrets: placeholder
 # keys and an unreachable database URL). `inputs` cover web_subareas.py's production_build subarea (a superset: its
 # web/e2e, web/tests and test-runner exclusions are left to the step's first line, `has production_build`). It runs
@@ -1205,6 +1358,7 @@ exit "$status"
 # web-typecheck step it could change what tsgo reads mid-run. 145 s on 8 CPUs, alone, warm bun cache.
 [step.web-production-build]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web production build"
@@ -1565,6 +1719,7 @@ run = "python3 tests/test_repair_nightly_appcast_content_types.py"
 # platforms built three times with an empty Go build cache); the runner keeps that cache.
 [step.remote-daemon-packaging]
 job = "linux"
+tier = "push"
 timeout = 360
 title = "cmux-next remote daemon packaging"
 about = "cmuxd-remote's licenses are allowed, its third-party notices and release verification pass their tests, and stable, nightly and rc daemon artifacts build with the go.mod Go and pass verification"
@@ -1651,18 +1806,20 @@ python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md
 job = "linux"
 timeout = 180
 title = "Bench relevance map"
-about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open"
+about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open; per-area baselines: only own areas fetched, 3-of-3 >15% rule, fail open"
 inputs = [
   "docs/benches/*",
   "docs/benches/templates/*",
   "scripts/bench/cmux-bench",
   "scripts/bench/benchlib/relevance.py",
+  "scripts/bench/benchlib/baselines.py",
   "tests/test_bench_relevance_map.py",
+  "tests/test_bench_baselines.py",
   "cmux-tui/crates/*/Cargo.toml",
   "cmux-next-ios/rust/crates/*/Cargo.toml",
   "Packages/*/*/Package.swift",
 ]
-run = "python3 -I tests/test_bench_relevance_map.py"
+run = "python3 -I tests/test_bench_relevance_map.py && python3 -I tests/test_bench_baselines.py"
 
 # What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
 # for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
@@ -1691,12 +1848,19 @@ if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
 fi
 # --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
 # area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
+# --baselines (Leo, 2026-11-27: "A PR fetches only the baselines for its own areas"): each bench runs 3 times
+# against its areas' nightly baseline on this runner class (bench-baselines-nightly.yml, R2); it is red only when
+# all 3 repeats are more than 15% over. A missing baseline or an unreachable store warns and passes.
+extra=""
+if grep -q -- "--baselines" scripts/bench/cmux-bench 2>/dev/null; then
+  extra="--repeats 3 --baselines"
+fi
 set +e
-python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 < "$paths"
+python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 $extra < "$paths"
 code=$?
 set -e
 if [ "$code" -eq 1 ]; then
-  echo "::error::A bench for these paths is over its budget_s (docs/benches/relevance-map.toml); see the Bench runs above."
+  echo "::error::A bench for these paths is over its budget_s, or 3 of 3 repeats are >15% over its area's nightly baseline (docs/benches/relevance-map.toml); see the Bench runs above."
   exit 1
 elif [ "$code" -ne 0 ]; then
   echo "::notice::for-paths --run exited $code; fail open"
@@ -1993,6 +2157,7 @@ python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section re
 # web_subareas.py itself (`has`, over $CI_PATHS_FILE), so a path the globs over-route skips in a second.
 [step.web-instant-navigation]
 job = "web-browser"
+tier = "push"
 timeout = 600
 title = "Instant navigation"
 about = "web's instant-navigation Playwright suite against system Chrome (web/e2e/instant, test:instant)"
@@ -2033,6 +2198,7 @@ CMUX_INSTANT_SKIP_TYPECHECK=1 bun run test:instant
 # full-ci, a whole-shard pick, the audit sample and CI_REACT_APPS_FLEET=0 keep the matrix, and this step exits 0.
 [step.react-apps-check]
 job = "web-browser"
+tier = "push"
 timeout = 1800
 # Its verdict follows the head's base and labels too: pr_receipt.py's key pins the paths the merge changes against
 # the base, and a full-ci run never takes a receipt.
@@ -2086,6 +2252,7 @@ bash scripts/ci/react-apps-check-fleet.sh
 
 [step.agent-pane-real-acpmux]
 job = "web-browser"
+tier = "push"
 timeout = 1800
 # After the other web-browser steps: its engine installs take apt's lock, and its daemon build every core.
 alone = true
@@ -2390,6 +2557,7 @@ exit "$status"
 # nightly_gate_steps), about 2 min. Leo, 2026-11-25: "if checks fail, fix the checks or ignore and just merge".
 [step.webviews-typecheck]
 job = "linux"
+tier = "push"
 timeout = 360
 title = "Webviews typecheck (whole tree)"
 about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
@@ -2420,6 +2588,8 @@ exit "$rc"
 # runs past 40 minutes on a CI runner, Cargo.toml's [profile.gate] note).
 [step.acpmux-icount]
 job = "linux"
+# Push tier: a cold build plus Callgrind runs is no per-push fast check.
+tier = "push"
 # A cold gate-profile build of acpmux, then three Callgrind runs of a few seconds each.
 alone = true
 timeout = 2400
@@ -2456,6 +2626,7 @@ cargo bench --profile gate -p acpmux --bench icount --locked -- check
 # machine-protocol 26 s, hooks 28 s, server-core 12 s, cmux-sdk 49 s; nothing on a pull request that touches none.
 [step.cmux-next-daemon-crates]
 job = "linux"
+tier = "push"
 timeout = 360
 title = "cmux_next_ daemon tests of the small members"
 about = "the cmux_next_ tests of cmux-tui-machine-protocol, cmux-tui-hooks, cmux-server-core, cmux-sdk and cmux-auto-session (the gate's small members) pass on the pull request"
@@ -2558,6 +2729,7 @@ exit "$status"
 # and the targets the gate's. Nothing on a pull request that touches none of them.
 [step.cmux-next-acpmux]
 job = "linux"
+tier = "push"
 alone = true
 timeout = 2700
 title = "cmux_next_ daemon tests of acpmux"
@@ -2630,6 +2802,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/cpu_class/*",
   "cmux-tui/crates/acpmux/src/daemon/*",
   "cmux-tui/crates/acpmux/src/daemon/router_owner/*",
+  "cmux-tui/crates/acpmux/src/death_route/*",
   "cmux-tui/crates/acpmux/src/deps/*",
   "cmux-tui/crates/acpmux/src/gauges/*",
   "cmux-tui/crates/acpmux/src/hand/*",
@@ -2731,6 +2904,7 @@ scripts/ci/cmux-next-member-tests.sh crates/acpmux
 
 [step.cmux-next-tui-core]
 job = "linux"
+tier = "push"
 alone = true
 timeout = 2700
 title = "cmux_next_ daemon tests of cmux-tui-core"
@@ -2885,6 +3059,7 @@ scripts/ci/cmux-next-member-tests.sh crates/cmux-tui-core
 
 [step.cmux-next-tui]
 job = "linux"
+tier = "push"
 alone = true
 timeout = 2700
 title = "cmux_next_ daemon tests of cmux-tui"
@@ -2910,6 +3085,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui/src/app/window_docks/*",
   "cmux-tui/crates/cmux-tui/src/app/window_frame/*",
   "cmux-tui/crates/cmux-tui/src/bin/*",
+  "cmux-tui/crates/cmux-tui/src/bin/cmux-tui/*",
   "cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/*",
   "cmux-tui/crates/cmux-tui/src/build_adopt/*",
   "cmux-tui/crates/cmux-tui/src/carrier/*",
@@ -3103,6 +3279,7 @@ scripts/ci/cmux-next-member-tests.sh crates/cmux-tui
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
 [step.cmux-next-daemon-tests]
 job = "linux"
+tier = "push"
 # 22 to 27 minutes of test compile cold (a few warm from the push's saved target), then the tests: the job's own
 # 65-minute bound for this step.
 alone = true
@@ -3193,6 +3370,7 @@ exit "$status"
 # about 150 s cold on a 32-vCPU host (2m29s compile, the test 0.05 s), nothing on a pull request that touches none.
 [step.settings-published-keys]
 job = "linux"
+tier = "push"
 timeout = 360
 title = "Settings keys are published or retired"
 about = "every live settings row is in schemas/settings/published-keys.txt, and every published key is a row or has a retired-keys.json entry (cmux-config's published_keys test, one of the cmux_next_ daemon tests)"
@@ -3269,6 +3447,9 @@ inputs = [
   "scripts/cmux-next/check-cef-objc-contract.py",
   "scripts/cmux-next/chromium-objc-contract.json",
   "scripts/cmux-next/cef-manifest.json",
+  "scripts/cmux-next/check-bridge-on-main.py",
+  "scripts/cmux-next/bridge-on-main-baseline.json",
+  "tests/test_check_bridge_on_main.py",
   ".github/workflows/cmux-next-crash-class.yml",
 ]
 run = '''
@@ -3279,6 +3460,7 @@ scripts/ci/crash-class-gate.sh "${scope[@]}" || status=1
 python3 -I tests/test_check_concurrency_generic_deinit.py || status=1
 python3 -I tests/test_check_concurrency_pipe_reads.py || status=1
 python3 -I tests/test_check_concurrency_caller_isolated.py || status=1
+python3 -I tests/test_check_bridge_on_main.py || status=1
 python3 -I scripts/cmux-next/check-objc-selectors.py || status=1
 python3 -I scripts/cmux-next/check-cef-objc-contract.py || status=1
 exit "$status"
@@ -3287,6 +3469,7 @@ exit "$status"
 # The job's 2026-11 runs took about 2 min (its bound was 30). Its tests need no database.
 [step.cmux-vm-cloud]
 job = "linux"
+tier = "push"
 timeout = 360
 title = "cmux VM cloud API"
 about = "the backend API typechecks, the protocol catalog and generated clients match, the Team VM and server pairing tests pass, and backend sources stay under the size limit"
@@ -3326,6 +3509,7 @@ exit "$status"
 # the workflow's push and dispatch runs; here the musl release build only has to succeed.
 [step.cmux-cloud-cli]
 job = "linux"
+tier = "push"
 timeout = 900
 alone = true
 title = "cmux cloud CLI"
@@ -3359,6 +3543,7 @@ exit "$status"
 # cmux-tui test compile). The build env the job set: the ghostty-next gitlink's sources, Zig from PATH.
 [step.app-store-shelf]
 job = "linux"
+tier = "push"
 timeout = 2700
 alone = true
 title = "App Store shelf"
@@ -3396,6 +3581,7 @@ bash scripts/ci/app-store-shelf-check.sh
 # job's filter.
 [step.rust-notices]
 job = "linux"
+tier = "push"
 # cmux-next-guards.yml's rust-notices-tree bound (25 min) less its checkout; cargo metadata over every workspace.
 alone = true
 timeout = 1200
@@ -3428,6 +3614,7 @@ CMUX_NOTICES_ALLOW_CARGO=1 CMUX_NOTICES_CACHE="$RUNNER_TEMP/cmux-notices" \
 # 2026-11-19): CI_WARNINGS is soft on a pull request, deny in the post-merge batch.
 [step.cmux-vm-clients-rust]
 job = "linux"
+tier = "push"
 timeout = 1800
 alone = true
 title = "cmux VM Rust clients"
@@ -3483,6 +3670,7 @@ exit "$status"
 # did not run, as the workflow's report job did for both logs.
 [step.ios-matrix-protocol]
 job = "linux"
+tier = "push"
 # Every test of the cmux-next-ios/rust workspace on all cores, and a scroll gate that times itself under load.
 alone = true
 timeout = 2700
@@ -3756,8 +3944,10 @@ inputs = [
   "cmux-tui/crates/cmux-egress/**",
   "cmux-tui/crates/cmux-felt/**",
   "cmux-tui/crates/cmux-follow-cam/**",
+  "cmux-tui/crates/cmux-local-url/**",
   "cmux-tui/crates/cmux-mobile-core/**",
   "cmux-tui/crates/cmux-mobile-last-place/**",
+  "cmux-tui/crates/cmux-proxy/**",
   "cmux-tui/crates/cmux-process/**",
   "cmux-tui/crates/cmux-rd-core/**",
   "cmux-tui/crates/cmux-rd-ffi/**",
@@ -4143,6 +4333,7 @@ esac
 # `needs: test` runs the job first). Its inputs are the workflow's own paths.
 [step.fleet-artifact-cdn-test]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Fleet artifact edge tests"
 about = "the fleet artifact edge Worker (workers/fleet-artifacts) passes its edge authentication and read-only deployment check tests (node --test)"

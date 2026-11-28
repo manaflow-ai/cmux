@@ -5,7 +5,7 @@
 // raised blocks. Everything in the chat is monospaced, the chrome in Roboto.
 {
   "name": "Tachyon",
-  "description": "A modern terminal, dark: two-tone graphite, teal selected blocks, monospaced output as cards.",
+  "description": "Dark: graphite, command output as cards, a teal accent.",
 
   // A neutral base the ghostty block below repaints whole: the page, ink, cursor, selection and all
   // sixteen ANSI colors. The window, sidebar and pages follow it.
