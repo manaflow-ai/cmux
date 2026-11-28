@@ -1250,9 +1250,15 @@ jobs:
       - name: Changed notice inputs
         id: inputs
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           set -euo pipefail
+          # A pull request compares with the base its merge commit was made on (the first parent);
+          # the event's base.sha can be older, and then base commits read as this change.
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
@@ -1278,9 +1284,9 @@ jobs:
   # (scripts/ci/app-store-shelf-check.sh) at the pull request's own head, draft or ready
   # (tests/test_head_tier.py KEEP_ON_EVERY_HEAD). A change that reaches no shelf input ends after a checkout and a diff.
   app-store-shelf-pr:
-    needs: coalesce
+    needs: [coalesce, workflow-start-lint]
     name: cmux-next App Store shelf (every listing installs and shows something)
-    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.app_store_shelf != 'false' || vars.APP_STORE_SHELF_EVERY_HEAD == '1') && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     permissions:
@@ -1316,18 +1322,21 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          fetch-depth: 2
 
+      # The pull request's own files: its merge commit against that commit's first parent, the base it was merged
+      # onto. pull_request.base.sha lags that parent once the base moves, and a diff from it also lists every commit
+      # merged into the base in between: run 46051655127 (cmux#62280, no shelf input) diffed fb1aef0c against a
+      # merge onto 6efe6629 and built the shelf for 26 min. 186 of 1,013 runs on 11-27 16-20Z ran the full job,
+      # 2,615 of the job's 2,965 min. No first parent (an unreadable checkout) runs the shelf.
       - name: Changed shelf inputs
         id: inputs
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+          if ! base="$(git rev-parse --verify -q 'HEAD^1^{commit}')"; then
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          changed="$(git diff --name-only "$base" HEAD)"
           pattern='^\.github/workflows/app-store-shelf\.yml$|^first-party-apps/|^samples/apps/|^scripts/cmux-next/sync-app-runtime\.sh$|^scripts/cmux-next/store-package-sign\.py$|^scripts/ci/app-store-shelf-check\.sh$|^cmux-tui/crates/cmux-tui-core/src/apps/|^cmux-tui/crates/cmux-app-host/|^cmux-tui/crates/cmux-app-manifest/|^cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge|^cmux-tui/crates/cmux-tui/tests/cli/apps_store\.rs$'
           if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
 
@@ -1352,6 +1361,40 @@ jobs:
       - name: Set up pinned cmux-tui Rust
         if: steps.inputs.outputs.run == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The compiled dependencies come from R2 (public reads, no credentials), seeded on feat-cmux-next by
+      # app-store-shelf-cargo-seed.yml under the same key. A miss or a slow restore builds cold, as before.
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ steps.inputs.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') }}
+        continue-on-error: true
+        run: bash scripts/ci/app-store-shelf-cargo-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
 
       - name: Every Discover listing installs and shows something
         if: steps.inputs.outputs.run == 'true'
@@ -1532,6 +1575,7 @@ jobs:
     if: ${{ github.event.action != 'ready_for_review' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     outputs:
       ios_placeholder: ${{ steps.touched.outputs.ios_placeholder }}
+      app_store_shelf: ${{ steps.touched.outputs.app_store_shelf }}
       spec_checks: ${{ steps.touched.outputs.spec_checks }}
     # A fork pull request runs on a hosted runner. The local workflow lint is
     # a control-plane check, so own-branch runs use the 2-vCPU pool rather than
@@ -1588,6 +1632,18 @@ jobs:
         run: |
           # ios-placeholder-bounds' inputs (scripts/ci/job-inputs-always.json): a pull request whose diff misses them
           # skips that job; a push, or a diff git cannot read, runs it.
+          # app-store-shelf-pr's inputs (the pattern its own "Changed shelf inputs" step reads): a pull request whose
+          # diff misses them skips that job with no runner (it spent a runner start and a checkout, about 2 min a
+          # head, to learn the same). A push, or a diff git cannot read, runs it.
+          shelf='^\.github/workflows/app-store-shelf\.yml$|^first-party-apps/|^samples/apps/|^scripts/cmux-next/sync-app-runtime\.sh$|^scripts/cmux-next/store-package-sign\.py$|^scripts/ci/app-store-shelf-check\.sh$|^cmux-tui/crates/cmux-tui-core/src/apps/|^cmux-tui/crates/cmux-app-host/|^cmux-tui/crates/cmux-app-manifest/|^cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge|^cmux-tui/crates/cmux-tui/tests/cli/apps_store\.rs$'
+          if [[ "$EVENT_NAME" != pull_request ]] || ! changed=$(git diff --name-only HEAD^1 HEAD); then
+            echo "app_store_shelf=true" >> "$GITHUB_OUTPUT"
+          elif grep -qE "$shelf" <<<"$changed"; then
+            echo "app_store_shelf=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no App Store shelf input changed: app-store-shelf-pr skips"
+            echo "app_store_shelf=false" >> "$GITHUB_OUTPUT"
+          fi
           if [[ "$EVENT_NAME" != pull_request ]] || ! changed=$(git diff --name-only HEAD^1 HEAD); then
             echo "ios_placeholder=true" >> "$GITHUB_OUTPUT"
           elif grep -qE '^(cmux-next-ios/|scripts/ci/ios_placeholder_bounds\.py$|tests/test_ios_placeholder_bounds\.py$|\.github/workflows/cmux-next-guards\.yml$)' <<<"$changed"; then

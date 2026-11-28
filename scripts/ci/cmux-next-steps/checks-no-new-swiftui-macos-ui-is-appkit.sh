@@ -6,8 +6,10 @@
 base=()
 [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
 if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+  depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
-    || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true
+    || git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} origin "$BEFORE" || true
   git cat-file -e "$BEFORE^{commit}" 2>/dev/null && base=(--base "$BEFORE")
 fi
 python3 -I scripts/cmux-next/check-no-swiftui.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
