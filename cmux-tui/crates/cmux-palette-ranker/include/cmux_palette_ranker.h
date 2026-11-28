@@ -48,4 +48,29 @@ int32_t cmux_palette_ranker_rank(
     const uint8_t **response,
     size_t *response_len);
 
+/* Search All Windows' corpus (src/global_search.rs). One handle per window
+ * open; calls on one handle are serialized by the caller. A query that extends
+ * the previous one tests only the lines that one still reached. */
+typedef struct CmuxGlobalSearch CmuxGlobalSearch;
+
+/* A corpus of tabs titled by a JSON array of strings, no text read yet; null on bad JSON. */
+CmuxGlobalSearch *cmux_global_search_new(const uint8_t *titles, size_t titles_len);
+void cmux_global_search_free(CmuxGlobalSearch *search);
+/* Tab `document`'s texts: a JSON array of line arrays, the transcript first. */
+int32_t cmux_global_search_apply(
+    CmuxGlobalSearch *search,
+    size_t document,
+    const uint8_t *texts,
+    size_t texts_len);
+/* The tabs matching `query`, at most `limit`, as JSON {"hits": [{"document",
+ * "text", "line", "count", "titleMatched"}], "limited", "linesScanned"}. The
+ * bytes stay valid until the next call on `search`; on an error, a message. */
+int32_t cmux_global_search_hits(
+    CmuxGlobalSearch *search,
+    const uint8_t *query,
+    size_t query_len,
+    size_t limit,
+    const uint8_t **response,
+    size_t *response_len);
+
 #endif
