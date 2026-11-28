@@ -11,7 +11,7 @@ public import CoreGraphics
 ///    its parent's place, ratios kept), and the target splits along the
 ///    zone's axis at 0.5 with the new pane on the zone's side;
 /// 2. (`evenSizing`) the close sizing `LayoutModel.apply` sends when that
-///    tree arrives without the emptied pane (`CloseSizing`, unless
+///    tree arrives without the emptied pane (`PaneCloseReply.splitChanges`, unless
 ///    `equalizesClose` is false: a zoomed screen sends none);
 /// 3. (`evenSizing`) the split's own even sizing, computed on the tree
 ///    without the emptied pane, as a keyboard split's is (`EvenSplitRatios`).
@@ -67,7 +67,7 @@ public nonisolated struct DropPreviewLayout: Sendable {
             moved = .columns(result)
         }
         let closeChanges = evenSizing && equalizesClose
-            ? removing.map { CloseSizing(old: layout, new: moved).splitChanges(closing: $0) } ?? [] : []
+            ? removing.map { PaneCloseReply.splitChanges(old: layout, new: moved, closing: $0) } ?? [] : []
         // One change per split, the split's own sizing last (it wins), clamped as the model clamps.
         var changes: [SplitRatioChange] = []
         for change in closeChanges + splitChanges where change.split != Self.newSplit {

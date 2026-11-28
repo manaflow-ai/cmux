@@ -1,5 +1,6 @@
 public import CmuxNextActions
 import CmuxNextCompat
+public import CmuxNextRemoteView
 public import CmuxNextSettings
 public import CmuxScreenKit
 import Foundation
@@ -50,11 +51,15 @@ extension MacScreenPages {
         let (defaults, laterDefaults) = ObservationStream.current({ settings.snapshot.remoteDesktop })
         defaultPreferences = Self.preferences(defaults)
         maxFpsCap = defaults.maxFps
+        sharpLinuxText = defaults.sharpLinuxText
+        clipboardSetting = Self.clipboard(defaults.clipboard)
         // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
         Task { [weak self] in
             for await defaults in laterDefaults {
                 self?.defaultPreferences = Self.preferences(defaults)
                 self?.maxFpsCap = defaults.maxFps
+                self?.sharpLinuxText = defaults.sharpLinuxText
+                self?.clipboardSetting = Self.clipboard(defaults.clipboard)
             }
         }
         // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds nothing
@@ -71,6 +76,11 @@ extension MacScreenPages {
             }
         }
         #endif
+    }
+
+    /// `remoteDesktop.clipboard` as the session's clipboard policy reads it.
+    public nonisolated static func clipboard(_ setting: RemoteDesktopClipboard) -> RemoteDesktopSettings.Clipboard {
+        RemoteDesktopSettings.Clipboard(rawValue: setting.rawValue) ?? .ownDevicesOnly
     }
 
     /// The offer's `a=cmux-rd-encode-profile:` value for a Screen Sharing Profile: `ultra` for

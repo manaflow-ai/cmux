@@ -264,6 +264,55 @@ struct AgentPaneGitHubRequestTests {
     func aGitHubFolderNamesOneRepository(folder: String, repository: String?) {
         #expect(AgentPaneGitHubFolder.repository(folder) == repository)
     }
+    /// Add organization: `github.connect {add_account: true}` with no repository; a repository wins over the flag.
+    @Test func decodesAddOrganization() {
+        #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["add_account": true]]) == .gitHub(.addAccount))
+        #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["add_account": true, "repo": NSNull()]]) == .gitHub(.addAccount))
+        #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["add_account": false]]) == .gitHub(.connect(repo: nil)))
+        #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["add_account": true, "repo": "acme/api"]]) == .gitHub(.connect(repo: "acme/api")))
+        #expect(AgentPaneGitHubRequest.addAccount.method == "github.connect")
+    }
+
+    /// Add organization uses its own opener when the app has one, else plain Connect GitHub; both need the click.
+    @Test func addOrganizationOpensTheInstallPage() async {
+        var gitHub = Self.gitHub(connect: .failed("plain"))
+        let fallback = await AgentPaneGitHubRequest.addAccount.reply(gitHub) { true }
+        #expect((fallback["error"] as? [String: Any])?["userMessage"] as? String == "plain")
+        gitHub.addAccount = { .opened }
+        let opened = await AgentPaneGitHubRequest.addAccount.reply(gitHub) { true }
+        #expect((opened["value"] as? [String: Any])?["opened"] as? Bool == true)
+        let noClick = await AgentPaneGitHubRequest.addAccount.reply(gitHub) { false }
+        #expect((noClick["error"] as? [String: Any])?["code"] as? String == AgentPaneTransportError.gestureRequired.rawValue)
+    }
+
+    /// The picker shows where the app's own connect stands, so no page of ours needs a click.
+    @Test func statusSaysWhereTheConnectStands() {
+        let cases: [(CloudGitHubChanges.Phase, String, String?)] = [
+            (.idle, "idle", nil), (.onGitHub, "on_github", nil), (.finishing, "finishing", nil),
+            (.connected(account: "acme"), "connected", "acme"), (.connected(account: nil), "connected", nil),
+            (.requested(owner: "acme"), "requested", "acme"),
+        ]
+        for (phase, step, account) in cases {
+            let value = AgentPaneGitHubRequest.statusReply(.ready(reposScope: "all"), progress: phase)["value"] as? [String: Any]
+            #expect(value?["progress"] as? String == step)
+            #expect(value?["account"] as? String == account)
+            if account == nil { #expect(value?["account"] is NSNull) }
+        }
+    }
+
+    /// An org member's install request is its own card, not "link expired".
+    @Test func statusSaysTheOrgAdminWasAsked() {
+        let named = AgentPaneGitHubRequest.statusReply(.requested(owner: "acme"))["value"] as? [String: Any]
+        #expect(named?["state"] as? String == "not_connected")
+        #expect(named?["problem"] as? String == "requested")
+        #expect(named?["pending_approval"] as? Bool == true)
+        #expect((AgentPaneGitHubRequest.statusReply(.notConnected)["value"] as? [String: Any])?["pending_approval"] as? Bool == false)
+        #expect(named?["message"] as? String == AgentPaneModel.gitHubRequestedMessage(owner: "acme"))
+        #expect(AgentPaneModel.gitHubRequestedMessage(owner: "acme").contains("acme"))
+        let unnamed = AgentPaneGitHubRequest.statusReply(.requested(owner: nil))["value"] as? [String: Any]
+        #expect(unnamed?["message"] as? String == AgentPaneModel.gitHubRequestedMessage(owner: nil))
+    }
+
     @Test func cloneRequiresTheURLAndIdempotencyKey() {
         let url = "https://git.example.test/acme/api"
         #expect(AgentPaneRequest(body: ["method": "repo.clone", "params": ["url": url, "idempotency_key": "k1"]])

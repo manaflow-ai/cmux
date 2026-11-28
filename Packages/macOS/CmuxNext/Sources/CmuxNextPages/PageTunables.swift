@@ -45,5 +45,5 @@ public nonisolated struct PageTunables {
         "apps.store.surface", section, "App Store page", help: "Opens the App Store as the native store instead of the React page. New App Store tabs use it.",
         default: .web, code: "PageTunables.appStore")
 
-    public static var all: [TunableDescriptor] { [cloudMachinesLayout.descriptor, appStore.descriptor] }
+    public static var all: [TunableDescriptor] { [cloudMachinesLayout.descriptor, appStore.descriptor, TabSwitchMorph.tunable.descriptor] }
 }

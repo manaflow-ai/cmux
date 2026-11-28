@@ -80,19 +80,19 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let agentSession: String?
     /// acpmux's short name (`shortName`, the name without its family prefix: "cloud-demo").
     public let shortName: String?
-    /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
-    /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
-    public let usageWarnings: [String]
+    /// The git branch of the session's folder (acpmux `gitBranch`), when acpmux knows it.
+    public let branch: String?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
                 spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
                 updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil, preview: String? = nil,
-                usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
+                sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, branch: String? = nil) {
         self.id = id
+        self.branch = branch
         self.agentSession = agentSession
         self.shortName = shortName
         self.name = name
@@ -120,7 +120,6 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.markKey = markKey
         self.preview = preview
-        self.usageWarnings = usageWarnings
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -157,13 +156,13 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
                                  createdAt: date(summary["createdMs"] ?? summary["createdAt"]),
                                  preview: nonEmpty(summary["preview"]),
-                                 usageWarnings: (summary["usageWarnings"] as? [[String: Any]] ?? []).compactMap { nonEmpty($0["text"]) },
                                  sidebarRequiresOpen: (lane["requiresOpen"] as? Bool) ?? false,
                                  turnPrompt: turn?["prompt"] as? String,
                                  turnActivity: nonEmpty(turn?["activity"]),
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
-                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]))
+                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
+                                 branch: nonEmpty(summary["gitBranch"]))
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.
