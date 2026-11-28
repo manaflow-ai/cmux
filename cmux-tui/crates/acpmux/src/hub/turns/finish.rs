@@ -395,6 +395,9 @@ impl Hub {
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
                         self.continue_goal(session, spent);
+                        // A task's diff, read once by a reviewer with none of this context
+                        // (`fresh_review.rs`, off by default).
+                        self.fresh_review_turn_end(session, turn_id);
                     }
                     // A Codex chat's open goal left idle is nudged, then told (`goal_watch.rs`).
                     self.goal_turn_ended(session, prompt_id, status == "completed");
@@ -676,23 +679,31 @@ impl Hub {
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(in crate::hub) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
         let last = last_turn_of(turn_result, now_ms());
+        // Its next gap starts (`residency.rs`).
+        self.rhythm_turn_ended(session);
         self.lane_report_record_result(&session.id, turn_result);
-        if turn_result.get("trigger") != Some(&Value::Bool(true)) {
-            let mut meta = session.meta.lock().unwrap();
-            if last.get("errorCode").and_then(Value::as_str) == Some("claude_cloud_token_rejected")
-                && meta.claude_token_recovery.is_none()
-            {
-                meta.claude_token_recovery =
-                    Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
-            }
+        // A trigger turn leaves the person's last turn alone, except a failed one: a turn that
+        // ran to its end since is newer than that failure, so the chat no longer reads as failed.
+        let trigger = turn_result.get("trigger") == Some(&Value::Bool(true));
+        let mut meta = session.meta.lock().unwrap();
+        let failed = meta.last_turn.as_ref().is_some_and(|t| t["status"] == "failed");
+        if !trigger
+            && last["errorCode"] == "claude_cloud_token_rejected"
+            && meta.claude_token_recovery.is_none()
+        {
+            meta.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
+        }
+        if !trigger || (failed && last["status"] == "completed") {
             meta.last_turn = Some(last);
-        } else if turn_result.get("status").and_then(Value::as_str) == Some("completed") {
-            // A trigger turn that completed proves the chat works (`background_turn.rs`).
+        } else if last["status"] == "completed" {
+            // A trigger turn that completed proves the chat works (`background_turn.rs`): any
+            // other unfinished last turn (`lost`) is marked recovered, its details kept.
             super::super::background_turn::recover_last_turn(
-                &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn,
+                &mut meta.last_turn,
                 last.get("endedAt").and_then(Value::as_u64).unwrap_or_else(now_ms),
             );
         }
+        drop(meta);
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
         // Opt-in team usage sharing (`usage_share.rs`): nothing while it is off.

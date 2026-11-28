@@ -41,8 +41,9 @@ async function pin(files: Record<string, string>, commit: string) {
       env: { ...process.env, CMUX_TUI_FILES: `http://127.0.0.1:${port}` },
       timeout: 25_000,
     });
-    const programs = parseInputsLock(readFileSync(lock, "utf8")).programs.filter((p) => p.name.startsWith("cmux-tui"));
-    return { status, stderr, programs };
+    const lockText = readFileSync(lock, "utf8");
+    const programs = parseInputsLock(lockText).programs.filter((p) => p.name.startsWith("cmux-tui"));
+    return { status, stderr, programs, lockText };
   } finally {
     server.closeAllConnections();
     server.close();
@@ -83,7 +84,7 @@ describe("pin-cmux-tui.ts --commit with no commit manifest", () => {
       expect(p.version).toBe(commit);
       expect(p.url).toBe(`${FILES}/${commit}/machine/${p.name}-${TARGET}`);
       expect(p.sha256).toBe("a".repeat(64));
-      expect(p.source).toMatch(/cloud-machine\.json \(signed/);
+      expect(p.source).toBe(`${FILES}/${commit}/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)`);
     }
   }, 30_000);
 
@@ -94,9 +95,19 @@ describe("pin-cmux-tui.ts --commit with no commit manifest", () => {
       expect(p.url).toBe(`${FILES}/${commit}/machine/${p.name}-${TARGET}`);
       expect(p.sha256).toBe(sha(bytes[p.name as keyof typeof bytes]));
       expect(p.size).toBe(Buffer.byteLength(bytes[p.name as keyof typeof bytes]));
-      expect(p.source).toMatch(/sha256 of the bytes/);
+      expect(p.source).toBe(`${FILES}/${commit}/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)`);
     }
   }, 30_000);
+
+  // Rolls 46085354594 and 46091967248 (2026-11-28): the bake pinned while the channel named the commit, promote
+  // re-pinned after it moved on, the source lines differed, and approve refused the image as "the tip moved".
+  test("writes the same lock bytes whether or not the channel still names the commit", async () => {
+    const named = await pin({ ...machine, ...channel(commit) }, commit);
+    const moved = await pin({ ...machine, ...channel("b".repeat(40)) }, commit);
+    expect(named.status).toBe(0);
+    expect(moved.status).toBe(0);
+    expect(moved.lockText).toBe(named.lockText);
+  }, 60_000);
 
   test("a commit with neither a manifest nor a machine build answers non-zero and leaves the lock", async () => {
     const got = await pin(channel(commit), "c".repeat(40));

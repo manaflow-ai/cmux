@@ -1,0 +1,21 @@
+{
+  "cmuxProfile": 1,
+  "name": "studio-app-display",
+  "description": "A centered 736-point conversation with 14-point text, compact code and quiet user bubbles.",
+  "settings": {
+    "agentPane.display.width": 736,
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.625,
+    "agentPane.display.code.scale": 0.925,
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+    "agentPane.editedFiles.scope": "turn"
+  },
+  "files": {
+    "agent-pane/theme.css": "/* Size and line height come from the profile, so the transcript's measured rows agree with its text. */\n.cv-user__bubble {\n  background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-page-bg));\n  border-radius: 16px;\n}\n"
+  }
+}
