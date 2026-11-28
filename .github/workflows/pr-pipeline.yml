@@ -18,6 +18,12 @@ on:
         required: false
         type: boolean
         default: false
+      # pr-router.yml's answer that no changed path reaches an iOS target (pr_router.py ios_fast_skip): the ios fast
+      # verdict runner skips, where its plan would answer run=false. Unset (another caller): it plans as before.
+      ios_fast_skip:
+        type: boolean
+        required: false
+        default: false
       web_browser_only:
         description: Do not plan the iOS fast verdict in the web-only invocation.
         required: false
@@ -791,7 +797,7 @@ jobs:
   ios-fast-runner:
     name: ios fast verdict runner
     # Why: docs/ci/cmux-next-workflow-notes/2026-11-27-ios-fast-unset-switch.md
-    if: ${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
+    if: ${{ !cancelled() && !inputs.web_browser_only && !inputs.ios_fast_skip && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     env:
