@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 22,
+ "todo_max": 7,
  "sites": {
   "acpmux::cmux_rd::fetch": {
    "none": "one header-less GET of the pinned public cmux-rd release archive on github.com (and the object store it redirects to): no auth, cookie or person data"
@@ -117,13 +117,13 @@
    "test": "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire.rs::the_seeded_secret_never_leaves_the_machine"
   },
   "cmux_tui::cli::cloud_client_session": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session/seeded_tests.rs::the_credential_rides_only_in_authorization"
   },
   "cmux_tui::cli::cloud_hands::socket": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_hands/socket_seeded_tests.rs::the_bearer_rides_only_in_the_upgrades_authorization"
   },
   "cmux_tui::cli::cloud_journey": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_journey_seeded_tests.rs::the_bearer_rides_only_in_authorization"
   },
   "cmux_tui::cli::cloud_start_chat::direct": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct_seeded_tests.rs::seeded_secrets_ride_only_where_the_cmux_api_needs_them"
@@ -138,7 +138,7 @@
    "todo": true
   },
   "cmux_tui::cli::hub": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/hub_seeded_tests.rs::the_token_rides_only_in_authorization_and_the_key_only_in_the_link_body"
   },
   "cmux_tui::cli::inference_gateway": {
    "todo": true
