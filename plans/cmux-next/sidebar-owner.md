@@ -2920,6 +2920,15 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+
+## The footer Search button is back, and opens the Command Palette (2026-11-23, #53441)
+
+- `116d5b23325` (squash-merged as `8e50faa7248`) turns `sidebar.showSearchButton` on by default again and makes the footer's magnifying glass run
+  `commandPalette`. Its tooltip reads "Search" with the palette's live key (⇧⌘P; it follows a rebind). Lawrence,
+  2026-11-23: "bring it back"; "we need some mechanism to educate user about cmd shift p". The commit reached the
+  bot's branch without a trailer, so it is logged here. Look checked on a fleet capture mini
+  (cap-116d5b23-steps-6162fe3a71-display-01 in pr-media/53441). The footer keeps #60562's removal of the Spaces toggle.
+  Sidebar-Look: Lawrence, 2026-11-23: "bring it back"
 - 2026-11-24 (lane/agent-chat-terminal-mark, ask-97938b6c84): Sidebar-Look: Leo, 2026-11-24: "terminal agent chats. can they be demarcated a bit differently/should they? than gui agent chats. both of them rn are just claude icon. but one is terminal one is gui." A workspace hover card's tab row draws a terminal's agent (a hook's report in a terminal or remote terminal tab) on a soft rounded square of the row's tint (`AgentBrandCatalog.templateImage(terminal:)`, the shared `terminalTile*` rule), and an agent chat's mark bare, as the tab strip (`TabIcon.terminalAgentMark`) and the iPhone's avatars (`AgentAvatarHost.terminal`) do. No row layout changes. Gallery: `AATerminalAgentMarkGalleryTests` (tab strip, light and dark).
 - 2026-11-25 (#55277, lane/terminal-agent-mark-default-off, ask-97938b6c84): 86b4688efbd puts the hover card row's terminal tile (entry above) behind `experiments.terminalAgentMark`, off by default: off, the row draws every agent's bare mark as it did before. Same Leo words as above. Gallery: `AATerminalAgentMarkGalleryTests` (strip off and on, light and dark).
 - 2026-11-24 (lane/sidebar-cloud-page-icon-size, ask-f32d868839): Sidebar-Look: Leo, 2026-11-24: "dont have such a

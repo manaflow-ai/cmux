@@ -77,6 +77,9 @@ const chiefOf = (provenance: Record<string, unknown>): string | undefined =>
 export type IncomingMessage = {
   /// The sender's name, or its address when it gives none.
   name: string;
+  /// A line Claude Code wrote into the turn itself, as acpmux marked it (`lineOrigin`): the turn's
+  /// work, folded with it.
+  lineOrigin?: LineOrigin;
   /// A person's own words (a guest's held or declined prompt), never an agent's: nothing reads it
   /// as a lane notice or rewrites it (laneReport.ts `laneNotice`), so every row shows it as sent.
   fromPerson?: true;
@@ -172,9 +175,22 @@ export function senderProgram(provenance: Record<string, unknown> | undefined): 
 /// only of a prompt in that form.
 export type IncomingContext = { isThisChat?: (name: string) => boolean; isChat?: (name: string) => boolean };
 
+/// Who wrote a user line into a Claude Code turn, by the line's own `origin.kind` (acpmux
+/// adopt_replay.rs `LineOrigin`, on the record as `_meta.lineOrigin`): a task notification (a
+/// subagent or background task ended) or another session's message. Either is the turn's work, as
+/// a tool call is, never the person's prompt (Leo, 2026-11-24: "we can indeed treat them as tool
+/// calls, even though they're bursted at the end/start of turns").
+export type LineOrigin = "task-notification" | "peer";
+
+/// The origin acpmux marked a replayed or watched Claude Code line with, when it is the harness's.
+export function lineOriginOf(msg: { _meta?: { lineOrigin?: unknown } } | undefined): LineOrigin | undefined {
+  const origin = msg?._meta?.lineOrigin;
+  return origin === "task-notification" || origin === "peer" ? origin : undefined;
+}
+
 export type IncomingPrompt =
   | { kind: "message"; message: IncomingMessage }
-  | { kind: "notice"; text: string }
+  | { kind: "notice"; text: string; lineOrigin?: LineOrigin }
   /// acpmux's inbox notice: its threads, each drawn as another agent's received line.
   | { kind: "inbox"; notice: InboxNotice }
   /// Bookkeeping only: no row.
@@ -491,7 +507,7 @@ function promptOf(
   text: string,
   msg:
     | {
-        _meta?: { provenance?: unknown; origin?: unknown };
+        _meta?: { provenance?: unknown; origin?: unknown; lineOrigin?: unknown };
         client?: unknown;
         fromHarness?: unknown;
         fromModel?: unknown;
@@ -520,6 +536,10 @@ function promptOf(
     ...(fromEffort && { effort: fromEffort }),
     ...(fromDisplayName && { displayName: fromDisplayName }),
   };
+  // A line Claude Code wrote into a turn itself (acpmux marks it from the line's `origin.kind`):
+  // the mark says what it is, never its text.
+  const lineOrigin = lineOriginOf(msg);
+  if (lineOrigin) return harnessLine(text, lineOrigin);
   // acpmux's notice of the chat's inbox: its threads, never its text for the agent; one that names
   // no thread is bookkeeping.
   if (provenance?.kind === "inbox_notice") {
@@ -790,6 +810,8 @@ function promptOf(
       kind: "message",
       message: { name: automated.notice.sender, notice: automated.notice, text: automated.body, raw: text },
     };
+  // A line with no origin (Claude Code before it wrote one, or an acpmux before it carried it as
+  // `lineOrigin`) is known by its envelope only: the one place text decides.
   const notification = NOTIFICATION.exec(rest);
   if (notification && !withoutBookkeeping(rest.slice(notification[0].length))) {
     const summary = tag(notification[0], "summary") || tag(notification[0], "status");
@@ -804,6 +826,41 @@ function promptOf(
   const addressed = addressedFirst(rest, context);
   if (addressed) return { kind: "message", message: { ...addressed, raw: text } };
   return rest === text.trim() ? undefined : { kind: "prompt", text: rest };
+}
+
+/// A line Claude Code wrote into a turn, by the origin acpmux marked it with: a task notification
+/// reads as its summary (or status), a peer's message as a card from the session that sent it.
+/// What its text holds never makes it the person's prompt.
+function harnessLine(text: string, lineOrigin: LineOrigin): IncomingPrompt {
+  const rest = withoutBookkeeping(text);
+  if (lineOrigin === "task-notification") {
+    const summary = tag(rest, "summary") || tag(rest, "status") || firstLine(rest);
+    return summary ? { kind: "notice", text: summary, lineOrigin } : { kind: "hidden" };
+  }
+  const delivered = withoutBookkeeping(rest.replace(PREFACE, ""));
+  const envelope = CROSS_SESSION.exec(delivered) ?? AGENT_MESSAGE.exec(delivered);
+  if (envelope) {
+    const attributes = envelope[1]!;
+    const name = attribute(attributes, "from-name") || attribute(attributes, "name") || attribute(attributes, "from");
+    const body = decodeXml(envelope[2]!).trim();
+    const agent = agentSigned(body, [name]);
+    return { kind: "message", message: { ...(agent ?? { name, text: body }), lineOrigin, raw: text } };
+  }
+  const sent = sentFirst(delivered);
+  if (sent) return { kind: "message", message: { ...sent, lineOrigin, raw: text } };
+  return delivered
+    ? { kind: "message", message: { name: "", text: delivered, lineOrigin, raw: text } }
+    : { kind: "hidden" };
+}
+
+/// The first non-blank line of `text`, trimmed.
+function firstLine(text: string): string {
+  return (
+    text
+      .split("\n")
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
 }
 
 /// The sender's words in a message as cmux renders it for the agent (agent_message_prompt.rs

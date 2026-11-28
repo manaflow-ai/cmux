@@ -147,6 +147,9 @@ nonisolated enum Strings {
     static var screenShareDontAllow: String {
         String(localized: "browser.permission.screenShare.dontAllow", defaultValue: "Don't Allow", bundle: .localizedModule)
     }
+    static func permissionClipboard(_ origin: String) -> String {
+        String(localized: "browser.permission.clipboard", defaultValue: "\(origin) wants to see text and images on your clipboard.", bundle: .localizedModule)
+    }
     static func permissionLocation(_ origin: String) -> String {
         String(localized: "browser.permission.location", defaultValue: "\(origin) wants to know your location.", bundle: .localizedModule)
     }

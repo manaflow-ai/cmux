@@ -34,15 +34,12 @@ struct CmuxAppLinksTests {
         #expect(DeepLink.settingsAction(for: URL(string: "\(scheme)://settings/background")!, linkScheme: scheme)?.id == "appearance.changeBackground")
         #expect(DeepLink.settingsAction(for: URL(string: "cmux://settings/other")!, linkScheme: scheme) == nil)
         #expect(DeepLink.settingsAction(for: URL(string: "https://settings/background")!, linkScheme: scheme) == nil)
-        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
-        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models/add")!, linkScheme: scheme)?.hasPrefix("#/settings/models?focus=models.add&open=") == true)
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/models/add")!, linkScheme: scheme)?.hasPrefix("#/settings/models?focus=models.add&open=") == true)
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models")!, linkScheme: scheme) == "#/settings/models")
         #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/integrations?connected=linear&id=mcs_1")!, linkScheme: scheme) == "#/settings/integrations")
         #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/connections")!, linkScheme: scheme) == "#/settings/integrations")
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud")!, linkScheme: scheme) == "#/settings/cloud")
-        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/claude")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.claude")
-        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/chatgpt")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.chatgpt")
-        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/cloud/api-key")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.apiKey")
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/background")!, linkScheme: scheme) == nil)
         // ask-6bed134465: every setting and connection has a link that lands exactly on it.
         for path in ["connections/github", "github", "accounts/github"] {
@@ -66,6 +63,93 @@ struct CmuxAppLinksTests {
             #expect(action.arguments == ["setting": .string("app.startAgentGlobalHotKey"), "on": .bool(true)])
         }
         #expect(DeepLink.settingsAction(for: URL(string: "https://settings/start-agent-from-any-app")!, linkScheme: scheme) == nil)
+    }
+
+    @Test func legacyCloudSetupLinksOpenCloudModels() throws {
+        for (path, provider) in [("claude", "claude"), ("chatgpt", "chatgpt")] {
+            let link = try #require(URL(string: "cmux://settings/cloud/\(path)"))
+            let route = try #require(DeepLink.settingsRoute(for: link, linkScheme: scheme))
+            let url = try #require(URLComponents(string: String(route.dropFirst())))
+            #expect(url.path == "/settings/cloud")
+            #expect(url.queryItems?.first { $0.name == "provider" }?.value == provider)
+            #expect(url.queryItems?.first { $0.name == "open" }?.value.flatMap(UUID.init(uuidString:)) != nil)
+        }
+        let apiKey = try #require(URL(string: "\(scheme)://settings/cloud/api-key"))
+        #expect(DeepLink.settingsRoute(for: apiKey, linkScheme: scheme)?.hasPrefix("#/settings/cloud?focus=cloudModels.add") == true)
+    }
+
+    @Test(arguments: ["/models", "/cloud", "/cloud/api-key", "/cloud/models", "/cloud/models/add"])
+    func aProviderInASettingsLinkGoesDirectlyToCloudModels(path: String) throws {
+        let link = try #require(URL(string: "cmux://settings\(path)?provider=openrouter"))
+        let route = try #require(DeepLink.settingsRoute(for: link, linkScheme: scheme))
+        let url = try #require(URLComponents(string: String(route.dropFirst())))
+        #expect(url.path == "/settings/cloud")
+        #expect(url.queryItems?.first { $0.name == "provider" }?.value == "openrouter")
+        #expect(url.queryItems?.first { $0.name == "open" }?.value.flatMap(UUID.init(uuidString:)) != nil)
+    }
+
+    @Test func cloudSetupLinkPreservesTheHeldSendsScope() throws {
+        let link = try #require(URL(string: "cmux://settings/cloud/claude?machine=vm-a&environment=env-b&recoverySession=chat-c&fromSend=1"))
+        let route = try #require(DeepLink.settingsRoute(for: link, linkScheme: scheme))
+        let components = try #require(URLComponents(string: String(route.dropFirst())))
+        for (name, value) in [("provider", "claude"), ("machine", "vm-a"), ("environment", "env-b"),
+                              ("recoverySession", "chat-c"), ("fromSend", "1")] {
+            #expect(components.queryItems?.first { $0.name == name }?.value == value)
+        }
+    }
+
+    @Test func modelAddLinksOpenAProviderInModelsAndCloudLinksReopen() throws {
+        let add = try #require(URL(string: "cmux://settings/models/add?provider=chatgpt"))
+        #expect(DeepLink.settingsRoute(for: add, linkScheme: scheme)?.hasPrefix("#/settings/models?focus=models.add.chatgpt&open=") == true)
+        let cloud = try #require(URL(string: "cmux://settings/cloud/models"))
+        let first = try #require(DeepLink.settingsRoute(for: cloud, linkScheme: scheme))
+        let second = try #require(DeepLink.settingsRoute(for: cloud, linkScheme: scheme))
+        #expect(first.hasPrefix("#/settings/cloud?focus=card.cloudModels&open="))
+        #expect(first != second)
+    }
+
+    @Test func legacyCloudSetupFocusKeysStillResolveForCLIRequests() throws {
+        for (focus, provider) in [("cloud.claude", "claude"), ("cloud.chatgpt", "chatgpt")] {
+            let route = try #require(DeepLink.modelSettingsRoute(focus: focus))
+            let url = try #require(URLComponents(string: String(route.dropFirst())))
+            #expect(url.path == "/settings/cloud")
+            #expect(url.queryItems?.first { $0.name == "provider" }?.value == provider)
+        }
+        #expect(DeepLink.modelSettingsRoute(focus: "cloud.apiKey")?.hasPrefix("#/settings/cloud?focus=cloudModels.add") == true)
+        #expect(DeepLink.modelSettingsRoute(focus: "card.cloudModels")?.hasPrefix("#/settings/cloud?focus=card.cloudModels&open=") == true)
+        #expect(DeepLink.modelSettingsRoute(focus: "cloud.newWorkspacesInCloud") == nil)
+    }
+
+    @Test func pickerLinksOpenCloudModelConnectionsWithTheSelectedFamily() throws {
+        for family in ["claude", "codex", "gemini", "grok-build"] {
+            let route = DeepLink.cloudModelConnectionsRoute(family: family)
+            #expect(route.hasPrefix("#"))
+            let components = try #require(URLComponents(string: String(route.dropFirst())))
+            #expect(components.path == "/settings/cloud")
+            #expect(components.queryItems?.first { $0.name == "open" }?.value.flatMap(UUID.init(uuidString:)) != nil)
+            #expect(components.queryItems?.first { $0.name == "provider" }?.value == family)
+            #expect(components.queryItems?.first { $0.name == "focus" }?.value == "card.cloudModels")
+            #expect(route != DeepLink.cloudModelConnectionsRoute(family: family))
+        }
+    }
+
+    @Test(arguments: ["claude-login", "codex-login"])
+    func modelLinksFocusDetectedRowsInModels(focus: String) throws {
+        let link = try #require(URL(string: "cmux://settings/models?focus=\(focus)"))
+        let route = try #require(DeepLink.settingsRoute(for: link, linkScheme: scheme))
+        let components = try #require(URLComponents(string: String(route.dropFirst())))
+        #expect(components.path == "/settings/models")
+        #expect(components.queryItems?.first { $0.name == "focus" }?.value == focus)
+    }
+
+    @Test func aHeldCloudSendOpensTheFamilyFormWithAFreshVisit() throws {
+        let route = DeepLink.cloudModelConnectionsRoute(family: "claude", fromSend: true)
+        let url = try #require(URLComponents(string: String(route.dropFirst())))
+        #expect(url.path == "/settings/cloud")
+        #expect(url.queryItems?.first { $0.name == "provider" }?.value == "claude")
+        #expect(url.queryItems?.first { $0.name == "open" }?.value.flatMap(UUID.init(uuidString:)) != nil)
+        #expect(url.queryItems?.first { $0.name == "fromSend" }?.value == "1")
+        #expect(!DeepLink.cloudModelConnectionsRoute(family: "claude").contains("fromSend"))
     }
 
     @Test func paneTabAndSessionLinksOpenToo() {

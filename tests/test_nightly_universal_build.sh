@@ -761,13 +761,19 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
-  job == "report" && /\$\{process\.env\.CHANNEL_RELEASE_TAG\}-failure/ { saw_report_label=1 }
+  # The label is built in the reporter script the job requires (scripts/ci/nightly-steps/report-nightly-failure.cjs), checked below.
+  job == "report" && /report-nightly-failure\.cjs/ { saw_report_label=1 }
   # The result of publish-nightly, carried by published-build (another run on nightly-next).
   job == "close" && /needs\.published-build\.outputs\.publish_result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: a failing main nightly must open a nightly-failure issue and a successful publish must close it"
+  exit 1
+fi
+
+if ! grep -Fq 'const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;' "$ROOT_DIR/scripts/ci/nightly-steps/report-nightly-failure.cjs"; then
+  echo "FAIL: the nightly failure reporter must label its issue with the channel release tag"
   exit 1
 fi
 
