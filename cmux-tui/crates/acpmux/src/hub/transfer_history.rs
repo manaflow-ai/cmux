@@ -113,6 +113,8 @@ struct Prepacked {
 /// fields exactly an `EventRecord`'s, in its order, no space): the bytes `serde_json` writes
 /// for the record, its message as `serde_json` wrote it (keys sorted: no `preserve_order`).
 #[derive(serde::Deserialize, serde::Serialize)]
+// skew: strict a local log line, not a peer's: one with a field this build does not know is
+// parsed whole, never refused.
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LoggedLine<'a> {
     seq: u64,
