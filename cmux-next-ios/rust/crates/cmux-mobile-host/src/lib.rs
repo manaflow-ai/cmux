@@ -12,6 +12,7 @@
 
 pub mod acpmux_policy;
 pub mod activity;
+pub mod api;
 pub mod appearance;
 pub mod auth;
 pub mod browser;
