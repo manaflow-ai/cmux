@@ -85,7 +85,7 @@ extension SidebarDocStore {
     /// confirmed records hold the Chief.
     var drawnRecords: SidebarDocRecords {
         guard pendingChief.isEmpty == false || records.items[SidebarLayoutDocument.chiefItemID.rawValue] == nil,
-              let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return records }
+              let rows = rows(SidebarViewRequest(live: projectionCache?.live ?? Array(lastLive))) else { return records }
         return records.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add))
     }
 

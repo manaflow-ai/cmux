@@ -150,7 +150,13 @@ fn sidebar_mirror_scale_bench() {
         let load_us = start.elapsed().as_secs_f64() * 1e6;
         assert_eq!(loaded["ok"], true, "{loaded}");
         report("load", &shape, json!({ "us": load_us }), json!({ "doc_bytes": doc_bytes.len() }));
-        let request = request(workspaces);
+        // The first ask sends the live list (and holds nothing); every tick
+        // after it asks as the app does: the same live list, not sent again.
+        let first = request(workspaces);
+        let mut fresh: Value = serde_json::from_slice(&first).expect("request");
+        fresh["fresh"] = json!(true);
+        drop(mirror.project_json(&serde_json::to_vec(&fresh).expect("request")));
+        let request = br#"{"live_same":true,"collapsed":[]}"#.to_vec();
         let runs = if workspaces > 1000 { 40 } else { 200 };
         let (mut batch, mut project, mut tick) = (Vec::new(), Vec::new(), Vec::new());
         let mut answer_bytes = 0;
@@ -161,7 +167,8 @@ fn sidebar_mirror_scale_bench() {
             let batched = started.elapsed();
             assert_eq!(answer["ok"], true, "{answer}");
             let projected = Instant::now();
-            let answer = serde_json::to_vec(&mirror.project(&request)).expect("answer");
+            // What the FFI entry hands over (`cmux_sidebar_mirror_project`).
+            let answer = mirror.project_json(&request);
             project.push(projected.elapsed().as_secs_f64() * 1e6);
             batch.push(batched.as_secs_f64() * 1e6);
             tick.push(started.elapsed().as_secs_f64() * 1e6);

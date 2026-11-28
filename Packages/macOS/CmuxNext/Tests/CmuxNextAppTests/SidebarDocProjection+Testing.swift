@@ -20,10 +20,15 @@ extension SidebarDocProjection {
             return Data(bytes: text, count: strlen(text))
         }
         _ = call(cmux_sidebar_mirror_load, document)
-        let reply = call(cmux_sidebar_mirror_project, request)
-        let wire = (try? JSONDecoder().decode(SidebarDocWire.Projection.self, from: reply))
-            ?? SidebarDocWire.Projection(sections: [], machines: [:], items: [], machineSections: [:], machineOrder: [], unplaced: [],
-                                         bandGroups: [], hostGroups: [], archived: [], groupSorts: [:], pinnedInGroup: [])
+        // A first ask holds nothing (`fresh`): the answer's splices build the whole projection, as the app's first one does.
+        var asked = (try? JSONSerialization.jsonObject(with: request)) as? [String: Any] ?? [:]
+        asked["fresh"] = true
+        let reply = call(cmux_sidebar_mirror_project, (try? JSONSerialization.data(withJSONObject: asked)) ?? request)
+        var kept = SidebarDocWire.KeptProjection()
+        let applied = (try? JSONDecoder().decode(SidebarDocWire.SpliceAnswer.self, from: reply)).map { kept.apply($0) } ?? false
+        let wire = applied ? kept.projection
+            : SidebarDocWire.Projection(sections: [], machines: [:], items: [], machineSections: [:], machineOrder: [], unplaced: [],
+                                        bandGroups: [], hostGroups: [], archived: [], groupSorts: [:], pinnedInGroup: [])
         self.init(wire: wire, revision: revision)
     }
 }

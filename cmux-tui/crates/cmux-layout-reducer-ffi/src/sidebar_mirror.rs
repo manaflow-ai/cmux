@@ -21,7 +21,11 @@
 //!   ids the mirror minted for added items: send those to the daemon) or
 //!   `{"refusal":"<code>"}`.
 //! - `view`: the flat rows (an array) of a view request on the shown
-//!   document.
+//!   document. The mirror keeps the window's view (`sidebar_doc::view_cache`)
+//!   and rebuilds only the blocks the rows written since the last view
+//!   touched (a batch, an intent, the unwind and replay of pending intents),
+//!   so a change at 5,000 workspaces builds a few rows, not 5,000. A new
+//!   filter, collapsed set, window or section rebuilds it all.
 //! - `drag_begin`: `{items:[id]}` (or a bare array): the acceptance table
 //!   `{row_key: {before, into, after, refusal?}}` over the rows of the last
 //!   view.
@@ -36,8 +40,10 @@ use crate::typed::{CAcceptanceTable, CReply, CRows, Out};
 use cmux_layout_reducer::sidebar_doc::{
     Doc, Item, Op, Section, accept,
     plan::{self, PlanRequest},
-    project, reduce,
-    view::{self, Row, ViewRequest},
+    reduce,
+    view::{Row, ViewRequest},
+    view_cache::ViewCache,
+    view_splice::Sent,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -63,7 +69,12 @@ pub struct Mirror {
     /// A per-mirror random prefix of local ids, so ids minted after a
     /// relaunch never collide with ones the daemon stored earlier.
     local_prefix: String,
-    rows: Vec<Row>,
+    /// The window's view, patched per change (`sidebar_doc::view_cache`).
+    cache: ViewCache,
+    /// What the app holds of the last `project_json` answer.
+    sent: Sent,
+    /// Its rows, flattened when a call needs them all (`view`, `drag_begin`).
+    rows: Option<Vec<Row>>,
     /// The buffers of the last typed replies (`*_typed`).
     out: Out,
 }
@@ -134,6 +145,9 @@ impl Mirror {
             Err(e) => return error(e),
         };
         self.shown = doc.clone();
+        self.shown.record_touched(true);
+        self.cache.invalidate();
+        self.rows = None;
         self.confirmed = doc;
         self.loaded = true;
         let dropped = self.replay();
@@ -308,24 +322,53 @@ impl Mirror {
         }
     }
 
-    /// Reads a view request and keeps its rows for `drag_begin`.
-    fn view_rows(&mut self, input: &[u8]) -> Result<(), Value> {
+    /// Reads a view request and brings the kept view up to the shown
+    /// document: only the blocks the changes since the last view touched
+    /// are rebuilt. Its rows are the next `drag_begin`'s.
+    fn view_rows(&mut self, input: &[u8]) -> Result<bool, Value> {
         let request: ViewRequest = serde_json::from_slice(input).map_err(error)?;
-        self.rows = view::view(&self.shown, &request);
-        Ok(())
+        let fresh = request.fresh;
+        if !self.loaded {
+            // Before `load` the shown document records nothing.
+            self.cache.invalidate();
+        }
+        let touched = self.shown.take_touched();
+        self.cache.refresh(&self.shown, request, touched);
+        self.rows = None;
+        Ok(fresh)
+    }
+
+    /// The last view's rows, flattened once per view.
+    fn rows(&mut self) -> &[Row] {
+        self.rows.get_or_insert_with(|| self.cache.rows())
     }
 
     pub fn view(&mut self, input: &[u8]) -> Value {
         match self.view_rows(input) {
-            Ok(()) => json!(self.rows),
+            Ok(_) => json!(self.rows()),
             Err(e) => e,
         }
     }
 
+    /// The full projection of a view request (`sidebar_doc::project`), as
+    /// JSON (tests and tools; the app reads `project_json`'s splices).
     pub fn project(&mut self, input: &[u8]) -> Value {
         match self.view_rows(input) {
-            Ok(()) => json!(project::project(&self.shown, &self.rows)),
+            Ok(_) => {
+                serde_json::from_str(&self.cache.projection_json(&self.shown)).unwrap_or_else(error)
+            }
             Err(e) => e,
+        }
+    }
+
+    /// `project`'s answer as the FFI hands it over (`cmux_sidebar_mirror_project`):
+    /// splices of the projection the caller holds from the last answer
+    /// (`sidebar_doc::view_splice`), all of it for a `fresh` request. The
+    /// request may say `live_same` instead of sending the live list again.
+    pub fn project_json(&mut self, input: &[u8]) -> String {
+        match self.view_rows(input) {
+            Ok(fresh) => self.cache.answer(&self.shown, &mut self.sent, fresh),
+            Err(e) => e.to_string(),
         }
     }
 
@@ -340,7 +383,7 @@ impl Mirror {
         }
     }
 
-    fn acceptance(&self, input: &[u8]) -> Result<BTreeMap<String, accept::Acceptance>, Value> {
+    fn acceptance(&mut self, input: &[u8]) -> Result<BTreeMap<String, accept::Acceptance>, Value> {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Items {
@@ -349,7 +392,8 @@ impl Mirror {
         }
         let (Items::List(items) | Items::Object { items }) =
             serde_json::from_slice::<Items>(input).map_err(error)?;
-        Ok(accept::drag_begin(&self.shown, &self.rows, &items))
+        let rows = self.rows.get_or_insert_with(|| self.cache.rows());
+        Ok(accept::drag_begin(&self.shown, rows, &items))
     }
 
     pub fn drag_begin(&mut self, input: &[u8]) -> Value {
@@ -363,7 +407,8 @@ impl Mirror {
 
     pub fn view_typed(&mut self, input: &[u8]) -> *const CRows {
         let ok = self.view_rows(input).is_ok();
-        self.out.rows(ok.then_some(self.rows.as_slice()))
+        let rows = ok.then(|| self.rows.get_or_insert_with(|| self.cache.rows()).as_slice());
+        self.out.rows(rows)
     }
 
     pub fn drag_begin_typed(&mut self, input: &[u8]) -> *const CAcceptanceTable {

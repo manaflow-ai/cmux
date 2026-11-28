@@ -25,6 +25,10 @@ public final class SidebarMirror {
     // crash-allow: the handle is never shared; only the owning mirror (main actor) and its deinit touch it.
     private nonisolated struct Handle: @unchecked Sendable { let pointer: OpaquePointer? }
     private let owned: Handle
+    /// The projection as the mirror's last `project` answers left it (nil: ask for all of it).
+    private var kept: SidebarDocWire.KeptProjection?
+    /// The live list the mirror holds (the last one a request sent).
+    private var sentLive: [SidebarDocWorkspaceRef]?
     /// Never null (`cmux_sidebar_mirror_new` is `Box::into_raw`); every `cmux_sidebar_mirror_*` call answers null for
     /// a null handle anyway, which each call here reads as no reply.
     private var handle: OpaquePointer? { owned.pointer }
@@ -183,18 +187,41 @@ public final class SidebarMirror {
     /// The flat rows the sidebar draws, in order (typed FFI rows: no JSON decode).
     public func rows(_ request: SidebarViewRequest) -> [SidebarDocRow]? {
         SidebarPerfCounters.timedMirror {
-            guard let body = try? JSONEncoder().encode(request) else { return nil }
+            guard let body = wire(request) else { return nil }
             return view(raw: body)
         }
     }
 
     /// The sections the rows of `request` draw, regrouped by the reducer (`sidebar_doc::project`) from the document as
-    /// shown, pending intents included. One JSON call, only on a structural rebuild; its rows are the next drag's.
+    /// shown, pending intents included. One call, only on a structural rebuild; its rows are the next drag's. The
+    /// mirror answers splices of what it last sent (`sidebar_doc::view_splice`), applied to `kept`: a rename at 5,000
+    /// workspaces crosses a few kilobytes, not the whole projection.
     func projection(_ request: SidebarViewRequest) -> SidebarDocWire.Projection? {
         SidebarPerfCounters.timedMirror {
-            guard let body = try? JSONEncoder().encode(request) else { return nil }
-            return json("project", cmux_sidebar_mirror_project, body, as: SidebarDocWire.Projection.self)
+            for _ in 0 ..< 2 {
+                guard let body = wire(request, fresh: kept == nil) else { return nil }
+                if let answer = json("project", cmux_sidebar_mirror_project, body, as: SidebarDocWire.SpliceAnswer.self) {
+                    var next = kept ?? SidebarDocWire.KeptProjection()
+                    if next.apply(answer) {
+                        kept = next
+                        return next.projection
+                    }
+                }
+                // Not applied: hold nothing and ask once more for all of it, live list included.
+                (kept, sentLive) = (nil, nil)
+            }
+            return nil
         }
+    }
+
+    /// `request` as the mirror reads it: no live list when it is the one last sent (the mirror holds it).
+    private func wire(_ request: SidebarViewRequest, fresh: Bool = false) -> Data? {
+        let same = !fresh && sentLive == request.live
+        let body = try? JSONEncoder().encode(WireRequest(live: same ? nil : request.live, filter: request.filter,
+                                                         collapsed: request.collapsed, liveSame: same ? true : nil,
+                                                         fresh: fresh ? true : nil))
+        if body != nil { sentLive = request.live }
+        return body
     }
 
     /// The ops the reducer plans for `request` (`sidebar_doc::plan`: `{plan: "subgroup" | "host_group", ...}`) on the
@@ -240,6 +267,17 @@ public final class SidebarMirror {
         var ok: Bool?, stale: Bool?, refetch: Bool?
         var revision: String?
         var dropped: [String]?
+    }
+
+    /// A view request on the wire: `live_same` instead of the live list when the mirror holds it; `fresh` when the
+    /// app holds nothing of the last `project` answer.
+    private struct WireRequest: Encodable {
+        var live: [SidebarDocWorkspaceRef]?
+        var filter: String?
+        var collapsed: [String]
+        var liveSame: Bool?
+        var fresh: Bool?
+        enum CodingKeys: String, CodingKey { case live, filter, collapsed, fresh; case liveSame = "live_same" }
     }
 
     private struct Rejected: Encodable {
