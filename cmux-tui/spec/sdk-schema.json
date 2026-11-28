@@ -11565,6 +11565,17 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "tab-group-icon-v1",
+     "description": "tab-group-icon-v1: the saved group's icon string; absent for none."
     }
    },
    "additional_properties": true

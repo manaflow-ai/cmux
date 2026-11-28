@@ -597,6 +597,18 @@ class ReadTypeTests(unittest.TestCase):
         self.assertIn('case zoomedPane = "zoomed_pane"', source)
         self.assertNotIn("var zoomedPane", source)
 
+    def test_decode_is_the_whole_read(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"default": "false", "decode": "readZoomed(container)"}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn("        zoomed = readZoomed(container)\n", source)
+        self.assertIn("zoomed: Bool = false", source)
+
+    def test_decode_needs_a_default_and_no_other_read_option(self) -> None:
+        for field in ({"decode": "x"}, {"decode": "x", "default": "false", "lenient": True}, {"decode": "", "default": "false"}):
+            with self.assertRaises(emit.BindingError):
+                rendered(bindings=read_bindings({"ZoomState": {"type": "ZoomPaneResult", "fields": {"zoomed": field}}}))
+
     def test_optional_makes_a_required_field_optional(self) -> None:
         files = rendered(bindings=read_bindings({"ZoomState": {
             "type": "ZoomPaneResult", "fields": {"zoomed": {"optional": True}}}}))

@@ -5751,6 +5751,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "url", true, "\"value\"")
 	})
+	t.Run("SavedTabGroupRecord.Icon", func(t *testing.T) {
+		var missing SavedTabGroupRecord
+		if err := json.Unmarshal([]byte("{\"color\":\"value\",\"id\":\"value\",\"members\":[],\"name\":\"value\",\"room\":\"value\",\"updated_at_ms\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Icon != nil {
+			t.Fatal("Icon did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "icon", false, "")
+		var nullValue SavedTabGroupRecord
+		if err := json.Unmarshal([]byte("{\"color\":\"value\",\"id\":\"value\",\"members\":[],\"name\":\"value\",\"room\":\"value\",\"updated_at_ms\":1,\"icon\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field icon accepted null")
+		}
+		var presentValue SavedTabGroupRecord
+		if err := json.Unmarshal([]byte("{\"color\":\"value\",\"id\":\"value\",\"members\":[],\"name\":\"value\",\"room\":\"value\",\"updated_at_ms\":1,\"icon\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Icon == nil {
+			t.Fatal("Icon lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "icon", true, "\"value\"")
+	})
 	t.Run("Screen.Color", func(t *testing.T) {
 		var missing Screen
 		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null}"), &missing); err != nil {
@@ -70000,10 +70022,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1971
+	generatedFieldShapeCount               = 1972
 	generatedOptionalNullableFieldCount    = 1365
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 428
+	generatedOptionalNonnullableFieldCount = 429
 	generatedRequiredFieldCount            = 1662
 	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139
