@@ -18,9 +18,10 @@ fn uploaded(session: &str, name: &str, bytes: &[u8]) -> (String, PathBuf) {
     (upload, file)
 }
 
+/// A bundle folder of its own, not under `transfers/` (its sweep tests count that folder).
 fn bundle_dir() -> PathBuf {
     let dir =
-        crate::config::home().join("transfers").join(format!("test-{}", uuid::Uuid::now_v7()));
+        crate::config::home().join("test-upload-bundles").join(uuid::Uuid::now_v7().to_string());
     crate::home_fs::create_dirs(&dir).unwrap();
     dir
 }
