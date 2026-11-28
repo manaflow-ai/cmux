@@ -10825,6 +10825,8 @@ export class AcpmuxDirectClient {
         // turn's end paused (that end came for this prompt) is held the same way: the rest of its
         // message goes on in its row above the prompt (Leo, 2026-11-22 08:25Z: "ok, well. this
         // happened again. you need to help decide what goes on in this case and perfect it.").
+        // A steer that came while the agent's reply streamed: that reply is held open over it.
+        const overReply = msg.steer === true && this.streamingAssistant !== undefined;
         if (msg.steer === true || this.streamingAssistantMessageId || this.pausedReply) this.holdAssistantSegment();
         else this.endAssistantSegment();
         // A call id names a call within its prompt: an adapter that numbers calls per process
@@ -10964,6 +10966,7 @@ export class AcpmuxDirectClient {
           ...(steer ? { steer } : {}),
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
+          ...(steer === "waiting" && overReply ? { steerOverReply: true as const } : {}),
           ...(promptId ? { promptId } : {}),
           ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
           // Each image keeps the bytes and size the pane's own row drew it with, so the echo lands
@@ -11934,13 +11937,15 @@ export class AcpmuxDirectClient {
     this.waitingSteers = this.waitingSteers.filter((waiting) => !read.includes(waiting));
     for (const waiting of read) {
       const row = this.rows.get(waiting.rowId);
-      if (row?.steer === "waiting")
-        this.rows.set(row.id, {
-          ...row,
-          version: row.version + 1,
-          steer: "landed",
-          ...(readHere && { steerRead: true as const }),
-        });
+      if (row?.steer !== "waiting") continue;
+      // Read where acpmux said: the words over it were written before the read, so they stay there.
+      const { steerOverReply, ...rest } = row;
+      this.rows.set(row.id, {
+        ...rest,
+        version: row.version + 1,
+        steer: "landed",
+        ...(steerOverReply && !readHere ? { steerOverReply } : {}),
+      });
     }
   }
 
