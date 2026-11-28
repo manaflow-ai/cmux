@@ -40,7 +40,15 @@ import Foundation
 ///   `FeedStore`, while the rig scrolls. `CMUX_MOBILE_LIST_FLOOD_ROWS=M`: M workspaces at the start (the
 ///   rest idle); `CMUX_MOBILE_LIST_FLOOD_BURST=B`: B title changes at once every 5 s. Logs one
 ///   `flood-second` line a second (list applies, store writes, write-to-apply p95) and a `flood-summary`.
-/// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
+/// - `subagent`, `subagents`, `inspector` (`ListStressChatScreens`): a subagent's transcript of
+///   `LIST_COUNT` items (`LIST_STREAM=1`: running, a token every 20 ms and a tool call every 500 ms,
+///   with 5 sibling subagents changing state once a second), the Subagents list of `LIST_COUNT`
+///   subagents nested 3 deep (`LIST_LIVE_HZ`: 10 of them change state and action that often), or
+///   the Event Inspector with `LIST_COUNT` records (`LIST_STREAM=1`: 2000 more in one second once the
+///   scroll starts; `LIST_LIVE_HZ`: records a second; `LIST_FILTER=TEXT`: the filter is typed a
+///   character every 100 ms, then cleared, over and over; `LIST_COUNT=-1`: a chat with no journal).
+/// - `CMUX_MOBILE_LIST_GIANT=1` (subagent: one answer taller than the screen; inspector: seq 10 over
+///   the 256 KB record cap; chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
 /// - `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat is a file of acpmux records instead of the mock agent, one heavy
 ///   coordinator from coord-sim (`coord-sim surface --target ios`); `CMUX_MOBILE_LIST_EVENTS_HISTORY=N` says how many
@@ -88,6 +96,8 @@ public struct ListStressSettings: Equatable, Sendable {
     public var macCardsDrop: Bool
     /// `CMUX_MOBILE_LIST_GIANT=1`: giant pasted-log prompts (`MockStressContent.giantPrompt`).
     public var giant: Bool
+    /// `CMUX_MOBILE_LIST_TALL_ANSWER=1` (chat): the newest answer is the 240-line log.
+    public var tallAnswer: Bool
     /// `CMUX_MOBILE_LIST_REFRESH_SECONDS=S`: a mock pull to refresh lasting S seconds.
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
@@ -102,6 +112,20 @@ public struct ListStressSettings: Equatable, Sendable {
     public var floodAddSeconds: Double
     /// `CMUX_MOBILE_LIST_FLOOD_BURST=B`: B title changes at once every 5 s.
     public var floodBurst: Int
+    /// `CMUX_MOBILE_LIST_FILTER=TEXT` (inspector): the filter typed while the list scrolls.
+    public var filter: String?
+    /// `CMUX_MOBILE_LIST_EDGE` (UI tests' edge cases): `removed` (subagent: its chat's records go
+    /// while the transcript is open), `offline` (subagent: the Mac goes offline mid-run),
+    /// `drop` (inspector: 60 more records arrive, dropping the oldest under the reader), `burst`
+    /// (subagent: 1000 items in one main-actor turn; inspector: 2000 records over about 50
+    /// frames), `offline` (inspector: no more records).
+    /// `late` (subagent, with `LIST_STREAM=1`): the stream starts after `edgeAfter`.
+    /// `text` (subagent, with `LIST_STREAM=1`): tokens into one answer only, no other items.
+    /// `follow` (subagent): opens on the end, then streams at `LIST_LIVE_HZ` (default 50) after
+    /// `edgeAfter`, measuring how far the end gets from the screen (`FollowProbe`).
+    public var edge: String?
+    /// `CMUX_MOBILE_LIST_EDGE_AFTER=SECONDS` (default 4): when the edge case happens.
+    public var edgeAfter: Double
     /// `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat replays a file of acpmux records (coord-sim).
     public var events: String?
     /// `CMUX_MOBILE_LIST_EVENTS_HISTORY=N`: its first N records are the chat before it opens.
@@ -132,6 +156,7 @@ public struct ListStressSettings: Equatable, Sendable {
         macCards = environment["CMUX_MOBILE_LIST_MAC_CARDS"] == "1"
         macCardsDrop = environment["CMUX_MOBILE_LIST_MAC_CARDS_DROP"] == "1"
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
+        tallAnswer = environment["CMUX_MOBILE_LIST_TALL_ANSWER"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
         flood = environment["CMUX_MOBILE_LIST_FLOOD"].flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
@@ -139,6 +164,9 @@ public struct ListStressSettings: Equatable, Sendable {
         floodRows = environment["CMUX_MOBILE_LIST_FLOOD_ROWS"].flatMap(Int.init)
         floodAddSeconds = environment["CMUX_MOBILE_LIST_FLOOD_ADD_SECONDS"].flatMap(Double.init) ?? 2
         floodBurst = environment["CMUX_MOBILE_LIST_FLOOD_BURST"].flatMap(Int.init) ?? 0
+        filter = environment["CMUX_MOBILE_LIST_FILTER"]
+        edge = environment["CMUX_MOBILE_LIST_EDGE"]
+        edgeAfter = environment["CMUX_MOBILE_LIST_EDGE_AFTER"].flatMap(Double.init) ?? 4
         events = environment["CMUX_MOBILE_LIST_EVENTS"].flatMap { $0.isEmpty ? nil : $0 }
         eventsHistory = environment["CMUX_MOBILE_LIST_EVENTS_HISTORY"].flatMap(Int.init) ?? 0
     }
