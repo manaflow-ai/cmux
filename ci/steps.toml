@@ -2827,27 +2827,55 @@ exit "$status"
 # feat-cmux-next that way (a duplicate import, a missing module) after the nightly's webview checks went red on them.
 # Naming the nightly's check keeps the whole route and starts it on the landing head (pr_router.py
 # nightly_gate_steps), about 2 min. Leo, 2026-11-25: "if checks fail, fix the checks or ignore and just merge".
+# The type check only. The pre-push hook's tests were in this step until 2026-11-28 and took 331 of its 360 s
+# (job 140998159643): every webviews pull request's landing head ran them, and on 3 of 6 sampled red linux jobs
+# (140998159643, 141001401978, 140974215631) the type check then ran past 360 s, a red with no type error. They are
+# web-lint-prepush-tests below now. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
 [step.webviews-typecheck]
 job = "linux"
 tier = "push"
 timeout = 360
 title = "Webviews typecheck (whole tree)"
-about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
+about = "webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
 needs = ["bun", "node"]
 nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
 inputs = [
   "webviews/**",
-  "scripts/web_lint_prepush.py",
-  "tests/test_web_lint_prepush.py",
   ".github/workflows/cmux-next-web-lint.yml",
 ]
 run = '''
-rc=0
-python3 tests/test_web_lint_prepush.py || rc=1
 cd webviews
 BUN_CONFIG_HTTP_IDLE_TIMEOUT=30 BUN_CONFIG_HTTP_RETRY_COUNT=5 flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile || exit 1
-bun run typecheck || rc=1
-exit "$rc"
+bun run typecheck
+'''
+
+# The pre-push web lint hook's tests (tests/test_web_lint_prepush.py), split out of webviews-typecheck. They run the
+# hook on throwaway repositories with stand-in packages; of the real tree they read only the files named below
+# (copy_sources, webviews/package.json's check scripts and the check pieces' INPUTS), so a webviews source change no
+# longer runs them. One-directory globs, so --pr-scope keeps them; the post-merge batch runs every linux step, and
+# cmux-next-guards.yml's tt-web-lint-prepush runs them too.
+[step.web-lint-prepush-tests]
+job = "linux"
+tier = "push"
+timeout = 600
+title = "The pre-push web lint hook's tests"
+about = "the pre-push web lint hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) passes its tests"
+inputs = [
+  "scripts/web_lint_prepush.py",
+  "scripts/web-lint.sh",
+  "scripts/install-git-hooks.sh",
+  "scripts/git-hooks/*",
+  "scripts/cmux-next/*",
+  "scripts/ci/fast_gate_webviews_checks.py",
+  "webviews/package.json",
+  "webviews/scripts/*",
+  "tests/test_web_lint_prepush.py",
+  "tests/git_fixture_env.py",
+  "tests/real_git.py",
+  ".github/workflows/cmux-next-web-lint.yml",
+]
+run = '''
+python3 tests/test_web_lint_prepush.py
 '''
 
 # The webviews check:* ratchets (scripts/ci/fast_gate_webviews_checks.py: surface-bypass, catalog-unused,
