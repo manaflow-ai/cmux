@@ -7363,9 +7363,19 @@ jobs:
       - *x1
       - *x2
       - *one-zig-kept
-      - *one-zig-cache
+      # The hedge restores the caches nightly-next-one saves and saves none (tests/ci_per_ref_cache_saves_baseline.txt only shrinks).
+      - name: Restore Zig packages
+        if: inputs.nightly_next_unsigned_run == '' && steps.zig-kept.outputs.kept != 'true' && !env.LEFT_SLOT
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with: *zig-cache
       - *one-helper-key
-      - *one-helper-cache
+      - name: Restore the Ghostty CLI helper
+        id: helper-cache
+        if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Caches/cmux/ghostty-cli-helper
+          key: ${{ steps.helper-cache-key.outputs.key }}
       - *one-helper-build
       - *x4
       - *x5
@@ -7434,7 +7444,7 @@ jobs:
           name: nightly-next-hedge-rows
           path: ${{ runner.temp }}/nightly-next-hedge-rows.jsonl
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3
 
   nightly-next-deltas:
     needs: [decide, pick-nightly-next-signer, nightly-next-one]
