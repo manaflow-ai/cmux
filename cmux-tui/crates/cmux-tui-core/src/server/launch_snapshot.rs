@@ -605,7 +605,8 @@ fn same_snapshot_on_disk(path: &Path, body: &[u8]) -> bool {
             Ok(chunk) => chunk,
         };
         let take = chunk.len().min(body.len() - offset);
-        if chunk[..take] != body[offset..offset + take] {
+        let want = body.get(offset..).and_then(|rest| rest.get(..take));
+        if want.is_none() || chunk.get(..take) != want {
             return false;
         }
         offset += take;
@@ -716,14 +717,16 @@ fn drop_largest_projections(
             break;
         }
         bytes = bytes.saturating_sub(size + 1);
-        keep[index] = false;
+        if let Some(slot) = keep.get_mut(index) {
+            *slot = false;
+        }
         removed.push(index);
     }
     removed.sort_unstable_by(|a, b| b.cmp(a));
     removed
         .into_iter()
-        .map(|index| {
-            let projection = &projections[index];
+        .filter_map(|index| projections.get(index))
+        .map(|projection| {
             format!("{}/{}/{}", projection.frontend, projection.scope, projection.subject_key)
         })
         .collect()
