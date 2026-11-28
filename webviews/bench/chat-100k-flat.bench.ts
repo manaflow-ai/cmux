@@ -1265,6 +1265,48 @@ try {
       const heapMb = usedSize / 1048576;
       const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
       console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (process.env.CPU_PROFILE_S) {
+        // CPU_PROFILE_S=N: N s of the renderer's JS, by self time, from the first (hidden) page and the shown page.
+        for (const at of [0, pages.length - 1]) {
+          const { cdp } = pages[at]!;
+          await cdp.send("Profiler.enable");
+          await cdp.send("Profiler.setSamplingInterval", { interval: 500 });
+          await cdp.send("Profiler.start");
+          await new Promise((resolve) => setTimeout(resolve, Number(process.env.CPU_PROFILE_S) * 1000));
+          const { profile } = (await cdp.send("Profiler.stop")) as {
+            profile: {
+              nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; parent?: number; children?: number[] }[];
+              samples: number[];
+              timeDeltas: number[];
+            };
+          };
+          const self = new Map<number, number>();
+          profile.samples.forEach((id, i) => self.set(id, (self.get(id) ?? 0) + (profile.timeDeltas[i] ?? 0)));
+          const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+          const parentOf = new Map<number, number>();
+          for (const n of profile.nodes) for (const c of n.children ?? []) parentOf.set(c, n.id);
+          const name = (id: number) => {
+            const f = byId.get(id)!.callFrame;
+            return `${f.functionName || "(anon)"} ${f.url.split("/").pop()}:${f.lineNumber + 1}`;
+          };
+          const bySelf = new Map<string, number>();
+          const byStack = new Map<string, number>();
+          for (const [id, us] of self) {
+            bySelf.set(name(id), (bySelf.get(name(id)) ?? 0) + us);
+            const stack: string[] = [];
+            for (let at = id as number | undefined; at !== undefined && stack.length < 8; at = parentOf.get(at)) stack.push(name(at));
+            const key = stack.join(" < ");
+            byStack.set(key, (byStack.get(key) ?? 0) + us);
+          }
+          const total = [...self.values()].reduce((a, b) => a + b, 0);
+          console.log(`CPUPROF page ${at}: ${(total / 1000).toFixed(0)} ms sampled`);
+          for (const [k, us] of [...bySelf].sort((a, b) => b[1] - a[1]).slice(0, 25))
+            console.log(`CPUPROF self ${(us / 1000).toFixed(1)} ms ${k}`);
+          for (const [k, us] of [...byStack].sort((a, b) => b[1] - a[1]).slice(0, 12))
+            console.log(`CPUPROF stack ${(us / 1000).toFixed(1)} ms ${k}`);
+          await cdp.send("Profiler.disable");
+        }
+      }
       if (process.env.BENCH_LOG_ASKS) {
         for (const [i, { page }] of pages.entries()) {
           const n = await page

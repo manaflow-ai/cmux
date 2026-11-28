@@ -62,6 +62,8 @@ class Daemon {
   readonly sessionA: string;
   readonly sessionB: string;
   readonly pages = new Map<string, Step[]>();
+  /** More chats the watch lists after A and B. */
+  readonly others: string[] = [];
   hold?: string;
   private held?: { socket: Socket; message: Message };
   private holding?: () => void;
@@ -112,7 +114,9 @@ class Daemon {
     if (message.method === "initialize")
       result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     else if (message.method === "_acpmux/watch")
-      result = { sessions: [this.summary(this.sessionA), this.summary(this.sessionB)] };
+      result = {
+        sessions: [this.sessionA, this.sessionB, ...this.others].map((sessionId) => this.summary(sessionId)),
+      };
     else if (message.method === "_acpmux/attach") {
       const records = (this.pages.get(sessionId) ?? []).map(([dir, kind, msg], at) => ({
         sessionId,
@@ -250,6 +254,40 @@ test("a chat that ran on after it was folded ahead draws what it says now", asyn
     expect(words).toContain("Changelog entry added.");
     expect(words).toContain("Tagged v1.2.");
   } finally {
+    client.close();
+  }
+});
+
+test("with more chats to warm than it keeps, the idle warm pass ends", async () => {
+  // READ_AHEAD_RECENT reads past WARMED_ROWS_KEPT: the chat `warmedRows` let go read as never warmed and
+  // was folded again, one per idle slot, for as long as the page showed (chat_100k_flat grown x20).
+  const daemon = new Daemon("warm-ends");
+  const A = daemon.sessionA;
+  daemon.others.push(...Array.from({ length: 6 }, (_, at) => `warm-ends-${at}`));
+  const tailed = [daemon.sessionB, ...daemon.others];
+  daemon.pages.set(A, [prompt("Look at the retry path"), reply(A, "Retry added."), DONE]);
+  for (const sessionId of tailed) {
+    daemon.pages.set(sessionId, [prompt("Docs"), reply(sessionId, `Docs for ${sessionId}.`), DONE]);
+    const earlier = await connect(daemon, sessionId);
+    await earlier.client.select(A);
+    earlier.client.close();
+  }
+  const { client } = await connect(daemon, A);
+  const folds: string[] = [];
+  const stop = client.onWarmed((warmed) => folds.push(warmed.sessionId));
+  try {
+    const deadline = Date.now() + 3000;
+    let settledAt = Date.now();
+    let seen = 0;
+    while (Date.now() < deadline && Date.now() - settledAt < 600) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (folds.length !== seen) [seen, settledAt] = [folds.length, Date.now()];
+    }
+    expect(folds.length).toBeGreaterThan(0);
+    // Each chat folds ahead at most once: none is folded again after it was let go.
+    expect(new Set(folds).size).toBe(folds.length);
+  } finally {
+    stop();
     client.close();
   }
 });
