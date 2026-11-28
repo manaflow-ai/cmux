@@ -13,6 +13,7 @@ import { parseComputedColor } from "../../backdrop";
 import { experimentArm } from "../../experiments/experiment";
 import { installScrollers } from "../../scrollers";
 import { chromiumGlassUnderlay } from "../../ui/glass/chromiumUnderlay.experiment";
+import { floatingMaterial } from "../../ui/glass/floatingMaterial.experiment";
 import { installBackdropFallback } from "../../ui/glass/glassState";
 import { installPageGlassBlur } from "../../ui/glass/pageGlassBlur";
 import { installSpinnerClock } from "../../ui/spinnerClock";
@@ -36,6 +37,7 @@ export const SEE_THROUGH_ATTRIBUTE = "data-cmux-see-through";
 /** On `<html>`: the arm of chromium-glass-underlay, how much theme surface a floating glass lays
  * under its tint in a see-through Chromium page (glass.css). With none yet, the default arm's. */
 export const GLASS_UNDERLAY_ATTRIBUTE = "data-glass-underlay";
+export const FLOATING_MATERIAL_ATTRIBUTE = "data-floating-material";
 
 /** The host call a drawn title bar's double-click makes (the window's title bar action). */
 export const TITLE_BAR_DOUBLE_CLICK = "cmux.app.window.title_bar_double_click";
@@ -72,6 +74,8 @@ export function installDesktopLayer(doc: Document = document): void {
   installAdaptiveSelection(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
+  // FLOATING MATERIAL B1: the floating levels' material (floatingMaterial.experiment.ts, off by default).
+  root.setAttribute(FLOATING_MATERIAL_ATTRIBUTE, experimentArm(floatingMaterial));
   // TOOLTIP REFRESH: data-hover-look follows experiments.hoverLook (off by default; ui/hoverLook.ts).
   installHoverLook(doc);
   const view = doc.defaultView;

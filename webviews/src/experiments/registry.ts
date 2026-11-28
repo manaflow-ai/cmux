@@ -76,6 +76,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { cloudLastSeenLook } from "../agent-session/acpmux/cloudLastSeen.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
+import { floatingMaterial } from "../ui/glass/floatingMaterial.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
 import { hoverLook } from "../ui/hoverLook.experiment";
 import { textRollLook } from "../ui/motion/textRoll.experiment";
@@ -205,6 +206,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   timeHoverWording,
   timeHoverDate,
   chromiumGlassUnderlay,
+  floatingMaterial,
   glassEngine,
   hoverLook,
   questionPreviewLayout,
