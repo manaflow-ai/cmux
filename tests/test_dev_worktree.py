@@ -341,6 +341,24 @@ class GitCowTests(unittest.TestCase):
         self.assertEqual(version.returncode, 0, version.stderr)
         self.assertTrue(version.stdout.startswith("git-cow "), version.stdout)
 
+    def test_remove_never_collects_an_overlay_checkout_that_is_not_mounted(self) -> None:
+        # A `wt new` overlay checkout after a reboot, which git has let go of: its folder shows only the .git file,
+        # its files are in its layer (<parent>/.wt-overlay/<name>/u). `git cow remove` finishes a mounted one git
+        # unregistered (cmuxterm-hq's tests/test_git_cow.py mounts it for real); this one must stay, every file kept.
+        target = self.f.tmp / "rebooted"
+        self.assertEqual(self.cow("add", "-b", "rebooted", str(target)).returncode, 0)
+        layer = self.f.tmp / ".wt-overlay" / "rebooted"
+        (layer / "u").mkdir(parents=True)
+        (layer / "u" / "mine.txt").write_text("work\n")
+        (layer / "mount.json").write_text(json.dumps({"target": str(target), "upper": str(layer / "u")}))
+        gitdir = Path(git(target, "rev-parse", "--absolute-git-dir").stdout.strip())
+        subprocess.run(["rm", "-rf", "--", str(gitdir)], check=True)
+        removed = self.cow("remove", str(target))
+        self.assertNotEqual(removed.returncode, 0)
+        self.assertIn("not mounted", removed.stderr)
+        self.assertEqual((layer / "u" / "mine.txt").read_text(), "work\n")
+        self.assertTrue(target.is_dir())
+
 
 @unittest.skipUnless(DARWIN, "dedupe needs APFS clones")
 class DedupeTests(unittest.TestCase):

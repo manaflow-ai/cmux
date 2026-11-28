@@ -12,6 +12,12 @@ import CmuxNextCompat
 /// deadline on a wake that already happened (``WakeCoalescer``): the ledger
 /// then records it as `coalesced`, not as a wakeup of its own. Each deadline
 /// that fires is such a wake for the others.
+///
+/// On the system clock the deadline is a dispatch timer, which a cancel takes
+/// back: a cancelled `Task.sleep` that has begun still wakes the process at its
+/// old deadline, so each reset, cancel and ride cost the wakeup it saved (40
+/// cancelled sleeps made 24 wakeups, 40 cancelled dispatch timers none). An
+/// injected clock (tests) sleeps in a `Task`.
 public final class DemandTimer: Sendable {
     public let owner: String
     private let clock: any Clock<Duration>
@@ -24,7 +30,22 @@ public final class DemandTimer: Sendable {
     private struct State {
         var generation: UInt64 = 0
         var task: Task<Void, Never>?
+        var source: DispatchSourceTimer?
+
+        var isPending: Bool { task != nil || source != nil }
+
+        /// Drops the pending deadline's sleep or dispatch timer.
+        mutating func stop() {
+            task?.cancel()
+            task = nil
+            source?.cancel()
+            source = nil
+        }
     }
+
+    /// The system clock's kind, when `clock` is one (a dispatch timer then holds the deadline).
+    private enum SystemClock { case continuous, suspending }
+    private let systemClock: SystemClock?
 
     /// - Parameter early: How long before its deadline the timer may run on another wake (zero: never).
     public init(owner: String, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
@@ -33,18 +54,19 @@ public final class DemandTimer: Sendable {
         self.clock = clock
         self.ledger = ledger
         self.early = early
+        systemClock = clock is ContinuousClock ? .continuous : clock is SuspendingClock ? .suspending : nil
         let coalescer = coalescer ?? ledger.coalescer
         self.coalescer = coalescer
         coalescerID = coalescer.makeID()
     }
 
     deinit {
-        state.withLock { $0.task?.cancel() }
+        state.withLock { $0.stop() }
         coalescer.remove(coalescerID)
     }
 
     /// True while a deadline is pending.
-    public var isScheduled: Bool { state.withLock { $0.task != nil } }
+    public var isScheduled: Bool { state.withLock { $0.isPending } }
 
     /// Runs `action` once after `delay`, replacing any pending deadline.
     public func schedule(after delay: Duration, _ action: @escaping @isolated(any) @Sendable () async -> Void) {
@@ -55,18 +77,34 @@ public final class DemandTimer: Sendable {
     public func schedule(after delay: Duration, reason: String,
                          _ action: @escaping @isolated(any) @Sendable () async -> Void) {
         let clock = clock
+        let systemClock = systemClock
         let generation = state.withLock { state in
-            state.task?.cancel()
+            state.stop()
             state.generation &+= 1
             let generation = state.generation
-            state.task = Task { [weak self] in
-                do { try await clock.sleep(for: delay) } catch { return }
-                guard let self, self.take(generation) else { return }
-                self.coalescer.remove(self.coalescerID)
-                self.ledger.record(self.owner, reason: reason)
-                // This deadline woke the app: the timers whose window is open run on the same wake.
-                self.coalescer.wake()
-                await action()
+            if let systemClock {
+                // The handler only claims the fire and starts its action: a shared system queue, no thread of its own.
+                let source = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+                let nanos = Int(clamping: Self.nanoseconds(delay))
+                switch systemClock {
+                // Wall time goes on while the Mac sleeps, as ContinuousClock does; uptime does not.
+                case .continuous:
+                    source.schedule(wallDeadline: .now() + .nanoseconds(nanos), leeway: Self.leeway(nanos))
+                case .suspending: source.schedule(deadline: .now() + .nanoseconds(nanos), leeway: Self.leeway(nanos))
+                }
+                source.setEventHandler { [weak self] in
+                    guard let self, self.take(generation) else { return }
+                    self.fired(reason: reason, action)
+                }
+                source.resume()
+                state.source = source
+            } else {
+                state.task = Task { [weak self] in
+                    do { try await clock.sleep(for: delay) } catch { return }
+                    guard let self, self.take(generation) else { return }
+                    self.recordFire(reason: reason)
+                    await action()
+                }
             }
             return generation
         }
@@ -81,6 +119,25 @@ public final class DemandTimer: Sendable {
             // task-owner: the action of a deadline that ran on another wake; ends when the action returns.
             Task(operation: action)
         }
+    }
+
+    /// The deadline fired (not a ride): it records its own wake, which the timers whose window is open share.
+    private func recordFire(reason: String) {
+        coalescer.remove(coalescerID)
+        ledger.record(owner, reason: reason)
+        coalescer.wake()
+    }
+
+    /// A dispatch timer's fire: records it, then starts the action.
+    private func fired(reason: String, _ action: @escaping @isolated(any) @Sendable () async -> Void) {
+        recordFire(reason: reason)
+        // task-owner: the action of a deadline that fired; ends when the action returns.
+        Task(operation: action)
+    }
+
+    /// A tenth of the delay, at most 100 ms, at least 1 ms: the kernel may join nearby deadlines into one wake.
+    private static func leeway(_ nanos: Int) -> DispatchTimeInterval {
+        .nanoseconds(min(max(nanos / 10, 1_000_000), 100_000_000))
     }
 
     private static func nanoseconds(_ duration: Duration) -> UInt64 {
@@ -98,8 +155,7 @@ public final class DemandTimer: Sendable {
 
     public func cancel() {
         state.withLock { state in
-            state.task?.cancel()
-            state.task = nil
+            state.stop()
             state.generation &+= 1
         }
         coalescer.remove(coalescerID)
@@ -112,6 +168,9 @@ public final class DemandTimer: Sendable {
             guard state.generation == generation, cancelSleep || !Task.isCancelled else { return false }
             if cancelSleep { state.task?.cancel() }
             state.task = nil
+            // A fired dispatch timer is done; a ride's own deadline must not wake the process later.
+            state.source?.cancel()
+            state.source = nil
             // Claimed once: the deadline's own fire and a ride on another wake race for the same schedule.
             state.generation &+= 1
             return true
