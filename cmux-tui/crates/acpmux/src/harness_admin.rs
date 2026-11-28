@@ -47,6 +47,7 @@ pub enum AdminError {
     Invalid(String),
     /// Disk or registry trouble.
     Failed(String),
+    EndpointCheck(String),
 }
 
 impl AdminError {
@@ -56,7 +57,9 @@ impl AdminError {
             AdminError::NotRemovable(_) => Some("harness.not_removable"),
             AdminError::SecretInline(_) => Some("harness.secret_inline"),
             AdminError::NotFound(_) => Some("harness.not_found"),
-            AdminError::Invalid(_) | AdminError::Failed(_) => None,
+            AdminError::EndpointCheck(_) => Some("harness.endpoint_check"),
+            AdminError::Invalid(_) => Some("harness.invalid"),
+            AdminError::Failed(_) => None,
         }
     }
 
@@ -67,7 +70,8 @@ impl AdminError {
             | AdminError::SecretInline(m)
             | AdminError::NotFound(m)
             | AdminError::Invalid(m)
-            | AdminError::Failed(m) => m,
+            | AdminError::Failed(m)
+            | AdminError::EndpointCheck(m) => m,
         }
     }
 }
@@ -98,6 +102,9 @@ pub struct AddParams {
     /// KEY -> a plain non-secret value, `keychain:NAME` or `env:VAR`.
     pub env: BTreeMap<String, String>,
     pub replace: bool,
+    pub edit_endpoint: Option<String>,
+    pub endpoint_preset: Option<String>,
+    pub cloud_enabled: Option<bool>,
     /// Endpoint examples: the endpoint's base URL.
     pub base_url: Option<String>,
     /// Endpoint examples: the model ids, the default first; an entry may hold
@@ -182,6 +189,16 @@ impl AddParams {
             example: text("example")?,
             env,
             replace: params.get("replace").and_then(Value::as_bool).unwrap_or(false),
+            edit_endpoint: text("editEndpoint")?,
+            endpoint_preset: text("endpointPreset")?,
+            cloud_enabled: params
+                .get("servesCloud")
+                .map(|value| {
+                    value
+                        .as_bool()
+                        .ok_or_else(|| AdminError::Invalid("servesCloud must be a boolean".into()))
+                })
+                .transpose()?,
             base_url: text("baseUrl")?,
             models,
             keychain_item: text("keychainItem")?,
@@ -350,6 +367,14 @@ pub fn add(
         ));
     }
     let dir = user_dir(sources)?;
+    if p.example.as_deref().and_then(byo_endpoint::Kind::from_example).is_none() {
+        if p.edit_endpoint.is_some() {
+            return Err(AdminError::Invalid("editEndpoint needs an endpoint example".into()));
+        }
+        if p.endpoint_preset.is_some() {
+            return Err(AdminError::Invalid("endpointPreset needs an endpoint example".into()));
+        }
+    }
     if let Some(rid) = &p.registry {
         let reg =
             registry.ok_or_else(|| AdminError::Failed("the ACP Registry is not loaded".into()))?;
@@ -480,7 +505,7 @@ impl EndpointKey<'static> {
 /// pass the check, a later key never lands under another profile, and a remove
 /// never deletes the key of an add that came between. Released when the file
 /// closes.
-fn lock_endpoint_adds(dir: &Path) -> Result<cmux_file_lock::FileLock, AdminError> {
+pub(crate) fn lock_endpoint_adds(dir: &Path) -> Result<cmux_file_lock::FileLock, AdminError> {
     ensure_dir(dir)?;
     let file = crate::home_fs::OpenOptions::new()
         .create(true)
@@ -583,7 +608,11 @@ pub fn endpoint_id_free(
 struct ExistingEndpoint {
     kind: byo_endpoint::Kind,
     base_url: String,
+    models: Vec<String>,
     item: Option<String>,
+    cloud_enabled: Option<bool>,
+    preset: Option<String>,
+    credential_instance: Option<String>,
 }
 
 /// The endpoint profile `text` (one `add_endpoint` wrote), or None for any other profile.
@@ -609,19 +638,206 @@ fn existing_endpoint(text: &str) -> Option<ExistingEndpoint> {
         .and_then(|v| v.get("keychain"))
         .and_then(toml::Value::as_str)
         .map(str::to_owned);
-    Some(ExistingEndpoint { kind, base_url, item })
+    let cloud_enabled = value.get("cloud_enabled").and_then(toml::Value::as_bool);
+    let preset = value.get("endpoint_preset").and_then(toml::Value::as_str).map(str::to_owned);
+    let credential_instance = crate::agent_credentials::stored_instance(text);
+    let models = value
+        .get("models")
+        .and_then(|models| models.get("list"))
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| model.as_str().or_else(|| model.get("id")?.as_str()))
+        .map(str::to_owned)
+        .collect();
+    Some(ExistingEndpoint {
+        kind,
+        base_url,
+        models,
+        item,
+        cloud_enabled,
+        preset,
+        credential_instance,
+    })
+}
+
+/// Give an older endpoint profile an identity before it first delivers a Cloud credential.
+pub(crate) fn identify_endpoint(path: &Path) -> Result<(), AdminError> {
+    let dir = path.parent().ok_or_else(|| AdminError::Invalid("missing endpoint folder".into()))?;
+    let _one = lock_endpoint_adds(dir)?;
+    let text = std::fs::read_to_string(path).map_err(failed)?;
+    if existing_endpoint(&text).is_some_and(|endpoint| endpoint.credential_instance.is_none()) {
+        write_endpoint_instance(path, &text)?;
+    }
+    Ok(())
+}
+
+fn write_endpoint_instance(path: &Path, text: &str) -> Result<(), AdminError> {
+    let text =
+        crate::agent_credentials::with_stored_instance(text, &uuid::Uuid::new_v4().to_string());
+    crate::config::write_atomic(path, text.as_bytes()).map_err(failed)
+}
+
+/// Update the form's fields in the existing document, keeping the rest of the profile.
+fn edit_endpoint_profile(
+    old: &str,
+    generated: &str,
+    kind: byo_endpoint::Kind,
+    credential_changed: bool,
+    base_url_changed: bool,
+) -> Result<String, AdminError> {
+    use toml_edit::{DocumentMut, Item};
+
+    let mut doc = old.parse::<DocumentMut>().map_err(failed)?;
+    let update = generated.parse::<DocumentMut>().map_err(failed)?;
+    let name_changed = doc.get("name").and_then(Item::as_str) != update["name"].as_str();
+    fn model_id(value: &toml_edit::Value) -> Option<&str> {
+        value.as_str().or_else(|| value.as_inline_table()?.get("id")?.as_str())
+    }
+    let old_list = doc.get("models").and_then(|models| models.get("list")).and_then(Item::as_array);
+    let next_list = update["models"]["list"].as_array();
+    let models_changed = match (old_list, next_list) {
+        (Some(before), Some(after)) => !before.iter().map(model_id).eq(after.iter().map(model_id)),
+        _ => true,
+    };
+    let next_models = if models_changed {
+        next_list.map(|next| {
+            let mut list = toml_edit::Array::new();
+            for value in next.iter() {
+                let saved = old_list
+                    .and_then(|old| old.iter().find(|old| model_id(old) == model_id(value)));
+                list.push_formatted(saved.unwrap_or(value).clone());
+            }
+            list
+        })
+    } else {
+        None
+    };
+    if update.get("cloud_enabled").and_then(Item::as_bool) == Some(false) {
+        if doc.get("cloud_enabled").and_then(Item::as_bool) != Some(false) {
+            doc["cloud_enabled"] = toml_edit::value(false);
+        }
+    } else {
+        doc.remove("cloud_enabled");
+    }
+    if let Some(preset) = update.get("endpoint_preset").and_then(Item::as_str)
+        && doc.get("endpoint_preset").and_then(Item::as_str) != Some(preset)
+    {
+        doc["endpoint_preset"] = toml_edit::value(preset);
+    }
+    if name_changed {
+        doc["name"] = update["name"].clone();
+    }
+    if let Some(models) = next_models {
+        doc["models"]["list"] = toml_edit::value(models);
+        doc["defaults"]["model"] = update["defaults"]["model"].clone();
+    }
+    let unable = || AdminError::Invalid("the saved endpoint profile could not be edited".into());
+    let env = doc.get_mut("env").and_then(Item::as_table_like_mut).ok_or_else(unable)?;
+    if credential_changed {
+        let key = kind.secret_key();
+        if let Some(item) = update["env"].get(key) {
+            env.insert(key, item.clone());
+        } else {
+            env.remove(key);
+        }
+    }
+    match kind {
+        byo_endpoint::Kind::Anthropic => {
+            if base_url_changed {
+                env.remove("ANTHROPIC_API_KEY");
+                env.remove("ANTHROPIC_CUSTOM_HEADERS");
+                env.insert("ANTHROPIC_BASE_URL", update["env"]["ANTHROPIC_BASE_URL"].clone());
+            }
+            let prepared = update["env"].as_table_like().ok_or_else(unable)?;
+            if models_changed {
+                for (name, value) in prepared.iter().filter(|(name, _)| {
+                    *name == "ANTHROPIC_MODEL"
+                        || *name == "ANTHROPIC_SMALL_FAST_MODEL"
+                        || name.starts_with("ANTHROPIC_DEFAULT_")
+                }) {
+                    env.insert(name, value.clone());
+                }
+            }
+        }
+        byo_endpoint::Kind::OpenAi => {
+            let key = "OPENCODE_CONFIG_CONTENT";
+            let parse = |item: &Item| -> Result<Value, AdminError> {
+                serde_json::from_str(item.as_str().ok_or_else(unable)?).map_err(failed)
+            };
+            let mut config = parse(env.get(key).ok_or_else(unable)?)?;
+            let next = parse(&update["env"][key])?;
+            let provider = byo_endpoint::OPENCODE_PROVIDER;
+            let next_provider = &next["provider"][provider];
+            let old_provider = config
+                .get_mut("provider")
+                .and_then(|providers| providers.get_mut(provider))
+                .and_then(Value::as_object_mut)
+                .ok_or_else(unable)?;
+            if name_changed {
+                old_provider.insert("name".into(), next_provider["name"].clone());
+            }
+            let options = old_provider
+                .get_mut("options")
+                .and_then(Value::as_object_mut)
+                .ok_or_else(unable)?;
+            if base_url_changed {
+                options.insert("baseURL".into(), next_provider["options"]["baseURL"].clone());
+                options.remove("headers");
+                if let Some(headers) = next_provider["options"].get("headers") {
+                    options.insert("headers".into(), headers.clone());
+                }
+            }
+            if credential_changed {
+                if let Some(key) = next_provider["options"].get("apiKey") {
+                    options.insert("apiKey".into(), key.clone());
+                } else {
+                    options.remove("apiKey");
+                }
+            }
+            if base_url_changed {
+                old_provider.insert("npm".into(), next_provider["npm"].clone());
+            }
+            if models_changed || base_url_changed {
+                let models = next_provider["models"].as_object().ok_or_else(unable)?;
+                let previous = old_provider.get("models");
+                let revised = models
+                    .iter()
+                    .map(|(id, model)| {
+                        let mut saved =
+                            previous.and_then(|models| models.get(id)).unwrap_or(model).clone();
+                        if base_url_changed && let Some(object) = saved.as_object_mut() {
+                            match model.get("interleaved") {
+                                Some(interleaved) => {
+                                    object.insert("interleaved".into(), interleaved.clone());
+                                }
+                                None => {
+                                    object.remove("interleaved");
+                                }
+                            }
+                        }
+                        (id.clone(), saved)
+                    })
+                    .collect();
+                old_provider.insert("models".into(), Value::Object(revised));
+                config["model"] = next["model"].clone();
+                config["small_model"] = next["small_model"].clone();
+            }
+            env.insert(key, toml_edit::value(config.to_string()));
+        }
+    }
+    Ok(doc.to_string())
 }
 
 /// The Keychain item the endpoint profile at `path` reads its key from, only when that profile
 /// is of `kind` and sends to `base_url` (checked): a key reaches only the URL it was stored with,
 /// so a replace that changes the URL or the kind never takes the old key along.
 fn item_for_same_url(
-    path: &Path,
+    old: &ExistingEndpoint,
     id: &str,
     kind: byo_endpoint::Kind,
     base_url: &str,
 ) -> Option<String> {
-    let old = existing_endpoint(&std::fs::read_to_string(path).ok()?)?;
     let same = old.kind == kind
         && byo_endpoint::check_base_url(&old.base_url).is_ok_and(|url| url == base_url);
     // An item in cmux's own service only if it is this id's own (an older build took any).
@@ -629,7 +845,47 @@ fn item_for_same_url(
         let service = item.split_once('/').map_or(item.as_str(), |(s, _)| s);
         !byo_endpoint::is_own_service(service) || own_account(item, id).is_some()
     };
-    old.item.filter(|item| same && own_or_named(item))
+    old.item.as_ref().filter(|item| same && own_or_named(item)).cloned()
+}
+
+fn endpoint_preset<'a>(
+    p: &'a AddParams,
+    kind: byo_endpoint::Kind,
+    existing: Option<&'a ExistingEndpoint>,
+) -> Option<&'a str> {
+    if kind != byo_endpoint::Kind::OpenAi {
+        return None;
+    }
+    existing
+        .filter(|old| old.kind == kind)
+        .and_then(|old| {
+            old.preset.as_deref().or_else(|| byo_endpoint::legacy_preset(&old.base_url))
+        })
+        .or(p.endpoint_preset.as_deref())
+}
+
+fn checked_profile_base_url(
+    p: &AddParams,
+    preset: Option<&str>,
+    saved_query: bool,
+) -> Result<String, AdminError> {
+    let url = p.base_url.as_deref().unwrap_or("");
+    let checked = if saved_query {
+        byo_endpoint::check_base_url(url)
+    } else {
+        byo_endpoint::check_profile_base_url(url, preset)
+    };
+    checked.map_err(|e| match e {
+        byo_endpoint::UrlError::Invalid(m) => AdminError::Invalid(m),
+        byo_endpoint::UrlError::Secret(m) => AdminError::SecretInline(m),
+    })
+}
+
+fn check_endpoint_key(preset: Option<&str>, has_key: bool) -> Result<(), AdminError> {
+    if !has_key && preset.is_some_and(|id| !matches!(id, "endpoint" | "ollama" | "lm-studio")) {
+        return Err(AdminError::Invalid("Enter an API key for this endpoint.".into()));
+    }
+    Ok(())
 }
 
 /// The account suffix (`KEY` or `KEY.<generation>`) of an item in endpoint `id`'s own
@@ -715,11 +971,6 @@ fn add_endpoint(
                 .into(),
         ));
     }
-    let base_url =
-        byo_endpoint::check_base_url(p.base_url.as_deref().unwrap_or("")).map_err(|e| match e {
-            byo_endpoint::UrlError::Invalid(m) => AdminError::Invalid(m),
-            byo_endpoint::UrlError::Secret(m) => AdminError::SecretInline(m),
-        })?;
     let models = byo_endpoint::check_models(&p.models).map_err(AdminError::Invalid)?;
     if models.iter().any(|m| m == byo_endpoint::ALL_MODELS) {
         return Err(AdminError::Invalid(
@@ -738,17 +989,79 @@ fn add_endpoint(
     let default = byo_endpoint::default_item(kind, &id);
     let _one = lock_endpoint_adds(dir)?;
     id_free(&id, &path, p.replace, key.taken)?;
-    let old_item = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| existing_endpoint(&text))
-        .and_then(|old| old.item);
+    let previous = std::fs::read_to_string(&path).ok();
+    let existing = previous.as_deref().and_then(existing_endpoint);
+    let edited = if let Some(revision) = p.edit_endpoint.as_deref() {
+        let Some(old) = existing.as_ref().filter(|old| p.replace && old.kind == kind) else {
+            return Err(AdminError::Invalid(
+                "edit needs an existing endpoint of the same kind".into(),
+            ));
+        };
+        if previous.as_deref().is_none_or(|text| profiles::content_revision(text) != revision) {
+            return Err(AdminError::Invalid("the endpoint changed while it was open".into()));
+        }
+        Some(old)
+    } else {
+        None
+    };
+    let preset = endpoint_preset(p, kind, existing.as_ref());
+    if p.endpoint_preset.as_deref().is_some_and(|id| !profiles::valid_id(id)) {
+        return Err(AdminError::Invalid("endpointPreset must be a preset id".into()));
+    }
+    let saved_query = p
+        .base_url
+        .as_deref()
+        .is_some_and(|url| url.contains('?') && edited.is_some_and(|old| old.base_url == url));
+    let base_url = checked_profile_base_url(p, preset, saved_query)?;
+    let at_saved_url = edited
+        .filter(|old| byo_endpoint::check_base_url(&old.base_url).is_ok_and(|url| url == base_url));
+    if preset == Some("cloudflare")
+        && models.iter().any(|id| {
+            (id.starts_with('@')
+                || !id.split_once('/').is_some_and(|(vendor, model)| {
+                    !vendor.is_empty() && !model.is_empty() && !model.contains('/')
+                }))
+                && !at_saved_url.is_some_and(|old| {
+                    old.models
+                        .iter()
+                        .any(|saved| saved.strip_prefix("byo/").unwrap_or(saved) == id.as_str())
+                })
+        })
+    {
+        return Err(AdminError::Invalid("Cloudflare model IDs must use vendor/model.".into()));
+    }
+    let old_item = existing.as_ref().and_then(|old| old.item.clone());
     let account = key.value.map(|_| new_generation(kind.secret_key()));
     let item = match (given, &account) {
         (Some(item), _) => Some(item),
         (None, Some(account)) => Some(crate::cli::harness_secret::reference(&id, account)),
-        (None, None) => item_for_same_url(&path, &id, kind, &base_url).filter(|_| p.replace),
+        (None, None) => existing
+            .as_ref()
+            .filter(|_| p.replace)
+            .and_then(|old| item_for_same_url(old, &id, kind, &base_url)),
     };
-    let text = byo_endpoint::profile_text(&byo_endpoint::Endpoint {
+    if !saved_query || old_item.is_some() {
+        check_endpoint_key(preset, item.is_some())?;
+    }
+    if p.cloud_enabled == Some(true)
+        && (item.is_none()
+            || crate::agent_credentials::LaunchEndpoint::checked(kind, &base_url, &models)
+                .is_none())
+    {
+        return Err(AdminError::Invalid(
+            "Cloud access needs a public HTTPS endpoint and an API key".into(),
+        ));
+    }
+    let cloud_enabled =
+        p.cloud_enabled.or_else(|| existing.as_ref().and_then(|old| old.cloud_enabled));
+    let instance = existing
+        .as_ref()
+        .filter(|old| old.kind == kind)
+        .and_then(|old| old.credential_instance.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let generated = byo_endpoint::profile_text(&byo_endpoint::Endpoint {
+        cloud_enabled,
+        preset,
         kind,
         id: &id,
         name: &name,
@@ -756,6 +1069,20 @@ fn add_endpoint(
         models: &models,
         keychain_item: item.as_deref(),
     });
+    let text = match (previous.as_deref(), edited) {
+        (Some(previous), Some(_)) => {
+            let base_changed = at_saved_url.is_none();
+            edit_endpoint_profile(
+                previous,
+                &generated,
+                kind,
+                old_item != item || base_changed,
+                base_changed,
+            )?
+        }
+        _ => generated,
+    };
+    let text = crate::agent_credentials::with_stored_instance(&text, &instance);
     ensure_dir(dir)?;
     let delete = |account: &str| {
         let _ = (key.store)(&crate::cli::harness_secret::delete_command(
@@ -811,25 +1138,40 @@ pub async fn fetch_endpoint_models(
     sources: &ProfileSources,
     lookup_keychain: impl Fn(&str, Option<&str>) -> Result<String, String> + Send + 'static,
 ) -> Result<(), AdminError> {
+    prepare_endpoint_models(p, key, sources, lookup_keychain, false).await
+}
+
+pub(crate) async fn prepare_endpoint_models(
+    p: &mut AddParams,
+    key: Option<&str>,
+    sources: &ProfileSources,
+    lookup_keychain: impl Fn(&str, Option<&str>) -> Result<String, String> + Send + 'static,
+    validate: bool,
+) -> Result<(), AdminError> {
     let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) else {
         return Ok(());
     };
     let wanted = byo_endpoint::check_models(&p.models).map_err(AdminError::Invalid)?;
-    if !wanted.iter().any(|m| m == byo_endpoint::ALL_MODELS) {
+    let expand = wanted.iter().any(|m| m == byo_endpoint::ALL_MODELS);
+    if !expand && !validate {
         return Ok(());
     }
-    let base_url = p.base_url.clone().unwrap_or_default();
     let id = p.id.clone().unwrap_or_else(|| kind.example().to_owned());
+    let existing =
+        user_dir(sources).ok().filter(|_| p.replace && profiles::valid_id(&id)).and_then(|dir| {
+            existing_endpoint(&std::fs::read_to_string(dir.join(format!("{id}.toml"))).ok()?)
+        });
+    let preset = endpoint_preset(p, kind, existing.as_ref());
+    let base_url = checked_profile_base_url(p, preset, false)?;
+    if p.cloud_enabled == Some(true) && byo_endpoint::check_cloud_base_url(&base_url).is_err() {
+        return Err(AdminError::Invalid("Cloud access needs a public HTTPS endpoint.".into()));
+    }
     // The key of the profile this add replaces only if that one sends to this very URL.
     let item = match &p.keychain_item {
         Some(item) => Some(given_item(item)?),
-        None => byo_endpoint::check_base_url(&base_url).ok().and_then(|url| {
-            user_dir(sources)
-                .ok()
-                .filter(|_| p.replace)
-                .and_then(|dir| item_for_same_url(&dir.join(format!("{id}.toml")), &id, kind, &url))
-        }),
+        None => existing.as_ref().and_then(|old| item_for_same_url(old, &id, kind, &base_url)),
     };
+    check_endpoint_key(preset, key.is_some() || item.is_some())?;
     let key = match (key, item) {
         (Some(key), _) => Some(zeroize::Zeroizing::new(key.to_owned())),
         (None, None) => None,
@@ -840,20 +1182,39 @@ pub async fn fetch_endpoint_models(
             };
             // The one gate for an endpoint's Keychain reads: cmux's own items by exact account.
             byo_endpoint::endpoint_keychain_lookup(Some(&id), service, account, &lookup_keychain)
-                .ok()
                 .map(zeroize::Zeroizing::new)
+                .map_err(|_| AdminError::EndpointCheck("The saved key could not be read.".into()))
         })
         .await
-        .map_err(failed)?,
+        .map_err(failed)?
+        .map(Some)?,
     };
-    let fetched = byo_endpoint::fetch_models(
-        kind,
-        &base_url,
-        key.as_ref().map(|k| k.as_str()),
-        byo_endpoint::FETCH_TIMEOUT,
-    )
-    .await
-    .map_err(|e| AdminError::Invalid(format!("could not list the endpoint's models: {e}")))?;
+    let key = key.as_ref().map(|key| key.as_str());
+    if byo_endpoint::cloudflare_gateway(&base_url) {
+        let model = wanted
+            .first()
+            .filter(|model| model.as_str() != byo_endpoint::ALL_MODELS)
+            .ok_or_else(|| {
+                AdminError::Invalid("Cloudflare needs a model ID for the connection check.".into())
+            })?;
+        let key =
+            key.ok_or_else(|| AdminError::Invalid("Cloudflare needs a gateway token.".into()))?;
+        return byo_endpoint::check_cloudflare(&base_url, model, key)
+            .await
+            .map_err(AdminError::EndpointCheck);
+    }
+    let list_kind = if byo_endpoint::anthropic_compatible(&base_url) {
+        byo_endpoint::Kind::Anthropic
+    } else {
+        kind
+    };
+    let fetched =
+        byo_endpoint::fetch_models(list_kind, &base_url, key, byo_endpoint::FETCH_TIMEOUT)
+            .await
+            .map_err(AdminError::EndpointCheck)?;
+    if !expand {
+        return Ok(());
+    }
     let mut models: Vec<String> = Vec::new();
     for m in wanted
         .into_iter()
@@ -922,6 +1283,18 @@ pub fn remove(
     acpmux_home: &Path,
     forget: Option<&dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>>,
 ) -> Result<Removed, AdminError> {
+    remove_checked(id, cfg, sources, acpmux_home, forget, None)
+}
+
+/// Remove an endpoint only if it still matches the profile shown in Settings.
+pub(crate) fn remove_checked(
+    id: &str,
+    cfg: &Config,
+    sources: &ProfileSources,
+    acpmux_home: &Path,
+    forget: Option<&dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>>,
+    revision: Option<&str>,
+) -> Result<Removed, AdminError> {
     if !profiles::valid_id(id) {
         return Err(AdminError::Invalid(format!("{id:?} is not a harness id")));
     }
@@ -944,11 +1317,26 @@ pub fn remove(
             "no harness profile {id} in your harness folder"
         )));
     }
+    let text = std::fs::read_to_string(&path);
+    if let Some(revision) = revision {
+        if profiles::content_revision(text.as_ref().map_err(failed)?) != revision {
+            return Err(AdminError::Invalid("the endpoint changed while it was open".into()));
+        }
+    }
+    let text = text.unwrap_or_default();
     let dir = backup_dir(acpmux_home);
     ensure_dir(&dir)?;
     let backup = format!("{id}-{}.toml", unix_millis());
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
     move_file(&path, &dir.join(&backup))?;
+    if let Some(instance) = crate::agent_credentials::stored_instance(&text) {
+        let state = cfg.path.as_deref().and_then(Path::parent).unwrap_or(acpmux_home);
+        if let Err(error) = crate::routes::update_bindings(state, |bindings| {
+            bindings.disconnected_credentials.entry(id.to_owned()).or_default().insert(instance);
+        }) {
+            move_file(&dir.join(&backup), &path)?;
+            return Err(failed(error));
+        }
+    }
     // Only on `forget`: the items in this id's own Keychain space (`cmux-harness/<id>/...`)
     // go too. Kept otherwise, for Undo; a later fresh add of this id never reads them (it names
     // no item unless given a key, which then replaces the item).
@@ -1018,6 +1406,10 @@ pub fn restore(
             "{} exists; remove or rename it first",
             to.display()
         )));
+    }
+    let text = std::fs::read_to_string(&from).map_err(failed)?;
+    if existing_endpoint(&text).is_some() {
+        write_endpoint_instance(&from, &text)?;
     }
     move_file(&from, &to)?;
     Ok(Restored { id, path: to })
@@ -1133,6 +1525,46 @@ pub fn registry_value(reg: &Registry, which: &dyn Fn(&str) -> Option<String>) ->
 #[cfg(all(test, unix))]
 mod endpoint_lock_tests {
     use super::*;
+
+    #[test]
+    fn a_stale_disconnect_cannot_remove_a_recreated_endpoint() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("harnesses");
+        let sources = ProfileSources { user_dir: Some(dir.clone()), ..Default::default() };
+        let params = AddParams::from_json(&json!({
+            "example": "openai-endpoint", "id": "custom",
+            "baseUrl": "https://models.example/v1", "model": "model",
+        }))
+        .unwrap();
+        let add = || {
+            add_endpoint_keyed(
+                &params,
+                &sources,
+                &EndpointKey { value: None, store: &no_store, taken: &never },
+            )
+            .unwrap()
+        };
+        let original = add();
+        let original_text = std::fs::read_to_string(&original.path).unwrap();
+        let revision = profiles::content_revision(&original_text);
+        remove_checked("custom", &Config::default(), &sources, root.path(), None, Some(&revision))
+            .unwrap();
+        let replacement = add();
+        let replacement_text = std::fs::read_to_string(&replacement.path).unwrap();
+        assert_ne!(profiles::content_revision(&replacement_text), revision);
+        assert!(
+            remove_checked(
+                "custom",
+                &Config::default(),
+                &sources,
+                root.path(),
+                None,
+                Some(&revision)
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read_to_string(&replacement.path).unwrap(), replacement_text);
+    }
 
     /// An endpoint add lets go of its lock, also while a child the daemon forked meanwhile has
     /// the descriptor: else the next add or remove waits until that child execs.
