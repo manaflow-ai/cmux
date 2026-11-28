@@ -230,7 +230,8 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
         "app": app,
         # Whether the gate needs an ios-flows proof: some path besides this check's own files changed. A head that
         # changes only SELF builds the kit to test this check, and no flow reads it, so `cmux ios verify` selects
-        # nothing and posts no record (a pass needs a run): requiring one held cmux#62950 pending with no way out.
+        # nothing: requiring one held cmux#62950 pending with no way out. A head whose paths route here but
+        # select no flow gets a no-flows pass from `cmux ios verify` (ios_verify.no_flows_run, cmux#58097).
         "proof": proof,
         # The first reasons only: the plan rides one $GITHUB_OUTPUT line.
         "why": why[:MAX_WHY] + ([f"... {len(why) - MAX_WHY} more"] if len(why) > MAX_WHY else []),
@@ -239,6 +240,9 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
 
 # The tag a pass carries in its description, and the reuse's own description.
 INPUTS_TAG = "[inputs {}]"
+# The reuse read is optional (a failed read builds as before), so it never waits out a rate limit: the plan job's
+# timeout is 5 minutes, and gh_http's default rate wait (up to 1200 s) let a 403 cancel the job, not build.
+REUSE_READ_S = 30.0
 REUSED = "Reused the pass at this head " + INPUTS_TAG
 
 
@@ -274,7 +278,7 @@ def passed_at(repo: str, sha: str, digest: str, token: str) -> bool:
                                  headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                                           "X-GitHub-Api-Version": "2022-11-28"})
     try:
-        status, body, _ = gh_http.request(req, 20)
+        status, body, _ = gh_http.request(req, 20, budget_s=REUSE_READ_S, rate_budget_s=REUSE_READ_S)
         rows = json.loads(body) if status == 200 else []
     except Exception as e:  # noqa: BLE001 - no reuse; the Mac builds as before
         print(f"{STATUS_CONTEXT}: earlier statuses not read ({type(e).__name__}: {e}); building", file=sys.stderr)
