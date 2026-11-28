@@ -961,13 +961,28 @@ fn ask_again(
     loop {
         match ask(link, until, method, params.clone()) {
             Ok(answer) => return Ok(answer),
-            Err(LinkError::Closed) if Instant::now() < until => link.close(),
+            Err(error) if gone_under(&error) && Instant::now() < until => link.close(),
             Err(error) => {
                 link.close();
                 return Err(Refusal::of(error));
             }
         }
         *link = reconnect(socket, until).ok_or(Refusal::Unavailable)?;
+    }
+}
+
+/// acpmux went away under a call (restarting): it closed the link, or its stop answered the
+/// call it cut with the typed `daemon.restarting` (retryable) refusal before it hung up (acpmux
+/// `shutdown_drain.rs`). The staging Cloud chat proof (cmux run 46167191461, 2026-11-28) got
+/// the typed answer to its `session/new` and refused, where a close was already sent again.
+fn gone_under(error: &LinkError) -> bool {
+    match error {
+        LinkError::Closed => true,
+        LinkError::Rpc(_, data) => {
+            data.get("errorKind").and_then(Value::as_str) == Some("daemon.restarting")
+                && data.get("retryable").and_then(Value::as_bool) == Some(true)
+        }
+        _ => false,
     }
 }
 
@@ -1041,8 +1056,11 @@ fn create_session(
             },
         );
         match sent {
-            Err(LinkError::Closed)
-                if key.is_some() && resends < CREATE_RESENDS && Instant::now() < until =>
+            Err(error)
+                if gone_under(&error)
+                    && key.is_some()
+                    && resends < CREATE_RESENDS
+                    && Instant::now() < until =>
             {
                 link.close();
                 *link = reconnect(socket, until).ok_or(LinkError::Closed)?;

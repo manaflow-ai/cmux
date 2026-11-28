@@ -449,6 +449,17 @@ fn restarting_acpmux(
     close_on: &'static str,
     closes: usize,
 ) -> (std::path::PathBuf, Arc<Mutex<Vec<(String, Option<String>)>>>) {
+    acpmux_restarting(features, close_on, closes, false)
+}
+
+/// [`restarting_acpmux`]; `typed`: each cut call is first answered with acpmux's stop refusal
+/// (`daemon.restarting`, retryable), as acpmux's own stop does (acpmux `shutdown_drain.rs`).
+fn acpmux_restarting(
+    features: Value,
+    close_on: &'static str,
+    closes: usize,
+    typed: bool,
+) -> (std::path::PathBuf, Arc<Mutex<Vec<(String, Option<String>)>>>) {
     use std::io::{BufRead, BufReader, Write};
     let dir = std::env::temp_dir().join(format!(
         "ras-{}-{}",
@@ -479,6 +490,14 @@ fn restarting_acpmux(
                     if method == close_on
                         && closed.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < closes
                     {
+                        if typed {
+                            // acpmux's stop answers the call it cut, then hangs up.
+                            let cut = json!({"jsonrpc": "2.0", "id": request["id"], "error": {
+                                "code": -32000, "message": "acpmux is restarting",
+                                "data": {"reason": "daemon.restarting",
+                                    "errorKind": "daemon.restarting", "retryable": true}}});
+                            let _ = writeln!(writer, "{cut}");
+                        }
                         let _ = writer.shutdown(std::net::Shutdown::Both);
                         return;
                     }
@@ -546,6 +565,50 @@ fn a_create_without_create_keys_is_not_sent_again() {
 #[test]
 fn a_check_acpmux_closed_under_is_asked_again() {
     let (socket, seen) = restarting_acpmux(json!([]), "_acpmux/web_modes", 1);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let table = super::ask_again(&socket, &mut link, until, "_acpmux/web_modes", json!({}));
+    assert_eq!(table, Ok(json!({"ok": true})));
+    let asked = seen.lock().unwrap().iter().filter(|(m, _)| m == "_acpmux/web_modes").count();
+    assert_eq!(asked, 2);
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// The staging Cloud chat proof (cmux run 46167191461, 2026-11-28): acpmux's stop answered the
+/// start's `session/new` `daemon.restarting` (retryable) before it hung up, and the start
+/// refused. The typed answer is a restart like a close: sent again with the same create key.
+#[test]
+fn a_create_acpmux_stop_answered_restarting_is_sent_again_with_its_key() {
+    let (socket, seen) = acpmux_restarting(json!(["createKey"]), "session/new", 1, true);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let new = json!({"cwd": "/w", "mcpServers": [], "_meta": {"acpmux": {}}});
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let created = super::create_session(&socket, &mut link, new, until).expect("created");
+    assert_eq!(created, json!({"sessionId": "s1"}));
+    let keys = creates(&seen);
+    assert_eq!(keys.len(), 2, "{keys:?}");
+    assert!(keys[0].is_some());
+    assert_eq!(keys[0], keys[1], "the resend names the first create's key");
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// Without create keys the typed restart answer stays the refusal: a resend could make two.
+#[test]
+fn a_create_stop_answered_restarting_without_keys_is_not_sent_again() {
+    let (socket, seen) = acpmux_restarting(json!([]), "session/new", 1, true);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let new = json!({"cwd": "/w", "mcpServers": [], "_meta": {"acpmux": {}}});
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let created = super::create_session(&socket, &mut link, new, until);
+    assert!(matches!(created, Err(LinkError::Rpc(..))), "{created:?}");
+    assert_eq!(creates(&seen), vec![None]);
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// A check acpmux's stop answered `daemon.restarting` is asked again on a new link too.
+#[test]
+fn a_check_stop_answered_restarting_is_asked_again() {
+    let (socket, seen) = acpmux_restarting(json!([]), "_acpmux/web_modes", 1, true);
     let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
     let until = Instant::now() + std::time::Duration::from_secs(30);
     let table = super::ask_again(&socket, &mut link, until, "_acpmux/web_modes", json!({}));
