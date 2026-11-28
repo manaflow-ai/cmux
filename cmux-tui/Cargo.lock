@@ -1400,6 +1400,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-screen-detection"
+version = "0.1.0"
+dependencies = [
+ "cmux-sdk",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml",
+]
+
+[[package]]
 name = "cmux-api-compat"
 version = "0.1.0"
 dependencies = [
@@ -1727,6 +1740,21 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-cloud"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-cloud-client",
+ "cmux-cloud-disk",
+ "cmux-cloud-wire",
+ "cmux-terminal-iface",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -2205,6 +2233,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-feed-push-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-felt"
 version = "0.1.0"
 dependencies = [
@@ -2612,6 +2650,7 @@ name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-conversation",
+ "cmux-feed-push-core",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
@@ -3520,6 +3559,7 @@ dependencies = [
  "cmux-action-catalog",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-agent-screen-detection",
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
@@ -3533,6 +3573,7 @@ dependencies = [
  "cmux-bytes",
  "cmux-cas",
  "cmux-chat-index",
+ "cmux-cloud",
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-config",
