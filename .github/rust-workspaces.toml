@@ -157,4 +157,4 @@ skip = "the customize demo's looks check (#47546): run by hand over examples/cus
 
 [[workspace]]
 root = "scripts/bench/phone-speed"
-covered_by = "ci/steps.toml"
+run = true
