@@ -14,7 +14,21 @@
 name: iOS simulator screenshot loop
 
 on:
+  # Trunk cadence (2026-11-28; Leo: "de facto, im asking for 99% fewer minutes of ci time, period."): a feat-cmux-next
+  # push that touches these paths runs the loop at most once per 30-minute window (base-coalesce.yml), on the tip.
+  # At land it spent 1,288 runner-min in 20-22Z on 11-28 (42 heads, ~31 min each) for a check that gates nothing.
+  # Repository variable CI_IOS_SIM_LOOP_PER_PR=1 runs it on a pull request again (the heavy-at-land rule below);
+  # CI_IOS_SIM_LOOP_COALESCE=0 runs every tip push.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-next-ios/**
+      - Packages/iOS/**
+      - scripts/ci/cmux-next-ios-sim.sh
+      - .github/workflows/ios-sim-screenshot-loop.yml
   pull_request:
+    # labeled: the heavy-at-land rule on `loop` runs it on the event that adds ready-to-land (or full-ci).
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - cmux-next-ios/**
       - Packages/iOS/**
@@ -26,13 +40,34 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}${{ github.event_name == 'push' && format('-push-{0}', github.run_id) || '' }}
+  # A tip push's run is its own group: the next push (whose loop the window skips) must not cancel it.
   cancel-in-progress: true
 
 jobs:
+  # The first push of each 30-minute window runs the loop; the window's other pushes skip it, no runner taken.
+  coalesce:
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event_name == 'push' }}
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: ios-sim-screenshot-loop
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.CI_IOS_SIM_LOOP_COALESCE) == '0' }}
+
   loop:
     name: composer + terminal keyboard screenshots
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    needs: [coalesce]
+    # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-26: "de facto, im
+    # asking for 99% fewer minutes of ci time, period."): on a pull request this runs only on the `labeled` event that
+    # adds ready-to-land or full-ci, at that head; land-judge pulses ready-to-land at the head it lands. On 11-28
+    # 07Z..11:30Z it spent about 7.5k runner-min/day on every push of every iOS pull request head. Dispatch and CI_HEAVY_AT_LAND=0: as before.
+    # A push: its window's run (coalesce). A dispatch: always. A pull request: only with CI_IOS_SIM_LOOP_PER_PR=1, then
+    # the heavy-at-land rule as before.
+    if: ${{ !cancelled() && ((github.event_name == 'push' && needs.coalesce.result == 'success' && needs.coalesce.outputs.run != 'false') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && vars.CI_IOS_SIM_LOOP_PER_PR == '1' && ((github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     continue-on-error: true
     # The hosted simulator build and both UI suites can exceed an hour. Keep the
     # fire-and-forget run alive long enough to produce its screenshots instead of
@@ -43,15 +78,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # A fork's run is on GitHub's hosted macos-26 image, which has Xcode 26.6, not the pool pin (27.2); the
-      # floor is 26. Every other run takes the pool pin from scripts/ci/xcode-pins.txt.
+      # select-ci-xcode.sh takes the pool pin from scripts/ci/xcode-pins.txt, falls back to the image's newest
+      # stable Xcode on a fork's hosted macos-26, and writes DEVELOPER_DIR into GITHUB_ENV itself.
       - name: Select Xcode
-        env:
-          CMUX_CI_XCODE_APP: ${{ github.repository_owner != 'manaflow-ai' && '/Applications/Xcode_26.6.app' || '' }}
-        run: |
-          set -euo pipefail
-          ./scripts/select-ci-xcode.sh
-          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

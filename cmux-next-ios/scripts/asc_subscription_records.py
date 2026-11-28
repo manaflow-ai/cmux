@@ -29,8 +29,9 @@ Subcommands, all through the public App Store Connect API with the CI key
 
 Never written: prices, availability, territories, submissions, or anything on a
 subscription records.json does not list. The one deletion is a review
-screenshot or promotional image whose upload never completed (assetDeliveryState
-not COMPLETE or UPLOAD_COMPLETE): App Review cannot see it, and App Store
+screenshot or promotional image whose upload never completed (its
+assetDeliveryState, or a promotional image's state, is not one of
+ASSET_DONE_STATES): App Review cannot see it, and App Store
 Connect keeps it MISSING_METADATA until it is replaced. A missing price or
 availability is printed as a person's step (it is money). A subscription that
 is READY_TO_SUBMIT is complete; it goes to App Review with the next app version
@@ -131,17 +132,34 @@ def app_subscriptions(api: Api, app: str) -> dict[str, dict]:
     return out
 
 
+# A review screenshot reports its upload in attributes.assetDeliveryState.state.
+# A promotional image (subscriptionImages) has no assetDeliveryState: it reports
+# in attributes.state, which moves on past UPLOAD_COMPLETE as App Review takes
+# it. Reading only assetDeliveryState made every promotional image look stuck,
+# so each apply deleted a finished image and uploaded it again
+# (runs 46113010934, 46115014483, 46119337552).
+ASSET_DONE_STATES = ("COMPLETE", "UPLOAD_COMPLETE", "PREPARE_FOR_SUBMISSION",
+                     "WAITING_FOR_REVIEW", "APPROVED")
+
+
+def asset_state(asset: dict | None) -> tuple[str, list]:
+    """An asset's upload state and its errors, from whichever field it has."""
+    attributes = (asset or {}).get("attributes") or {}
+    delivery = attributes.get("assetDeliveryState") or {}
+    if delivery.get("state"):
+        return delivery["state"], delivery.get("errors") or []
+    return attributes.get("state") or "", []
+
+
 def asset_done(asset: dict | None) -> bool:
-    state = ((asset or {}).get("attributes") or {}).get("assetDeliveryState") or {}
-    return state.get("state") in ("COMPLETE", "UPLOAD_COMPLETE")
+    return asset_state(asset)[0] in ASSET_DONE_STATES
 
 
 def asset_stuck(asset: dict) -> str:
-    """Why an asset's upload is not complete: its delivery state and errors."""
-    state = (asset.get("attributes") or {}).get("assetDeliveryState") or {}
-    errors = "; ".join(str(e.get("description") or e.get("code") or e)
-                       for e in state.get("errors") or [])
-    return f"{state.get('state') or 'no delivery state'}" + (f" ({errors})" if errors else "")
+    """Why an asset's upload is not complete: its state and errors."""
+    state, errs = asset_state(asset)
+    errors = "; ".join(str(e.get("description") or e.get("code") or e) for e in errs)
+    return f"{state or 'no delivery state'}" + (f" ({errors})" if errors else "")
 
 
 def read_state(api: Api, sub: dict) -> dict:

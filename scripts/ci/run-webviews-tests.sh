@@ -217,6 +217,18 @@ if [ "${1:-}" = --one ]; then
     printf '%s\n' "$file" >> "$results/not-run"
     exit 0
   fi
+  # A file that exits 0 having run no test (bun's " 0 pass" and " 0 fail": every test skipped) judged nothing, and a
+  # passing file's log is never printed. 2026-11-28: a fleet run of 30 browser files read "30 files, 0 failed" while
+  # its browser files skipped (cmuxterm-hq docs/handbook/green-that-judged-nothing.md). The file's first skip reason
+  # (requireBrowserLane's guard, probeEngineOrSkip's "skipping, webkit did not launch here", a file's own
+  # `skipping chromium`) goes to ran-none: the summary names it and cmux-ci's coverage_failure reads that line.
+  ran_none=""
+  if [ "$result" = PASS ] && grep -qE '^[[:space:]]*0 pass[[:space:]]*$' "$log" && grep -qE '^[[:space:]]*0 fail[[:space:]]*$' "$log"; then
+    ran_none="$(grep -m1 -E 'browser test skipped|skipping|did not launch|[Nn]o Playwright' "$log" | tr -d '\t\r' || true)"
+    ran_none="${ran_none:0:240}"
+    ran_none="${ran_none:-every test skipped}"
+    printf '%s\t%s\n' "$file" "$ran_none" >> "$results/ran-none"
+  fi
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
   # CMUX_WEB_TEST_PASSED_OUT: each file that passes, as it passes, so a run a newer head cancels still leaves its passes
   # to that head's shard (ci-web.yml reuses those its change cannot reach).
@@ -226,7 +238,11 @@ if [ "${1:-}" = --one ]; then
   # The same with the verdict, for the manifest: a failed first run records no seconds (webviews_test_shards.py record).
   printf '%s %s %s\n' "$((SECONDS - started))" "$result" "$file" >> "$results/timed"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
-  echo "$result $file (raw log retained for the final bounded summary)"
+  if [ -n "$ran_none" ]; then
+    echo "$result $file (ran no test: $ran_none)"
+  else
+    echo "$result $file (raw log retained for the final bounded summary)"
+  fi
   exit 0
 fi
 
@@ -394,6 +410,16 @@ if [[ "$sized_for" =~ ^[1-9][0-9]*$ && "$default_jobs" =~ ^[1-9][0-9]*$ ]] && [ 
   plain_jobs=$((jobs - browser_jobs))
   echo "this runner has $default_jobs of the $sized_for vCPU these widths are for: $jobs files at a time, $dev_jobs dev server files"
 fi
+# Once the plain pool is done, the browser files left run CMUX_WEB_TEST_BROWSER_ALONE_JOBS wide (default the dev
+# server width, which runs a browser per file too, never narrower than the browser pool): nothing else runs then.
+# On the 8 vCPU fleet runners the browser pool is 1 wide, and shard 8 of run 46177265997 ran its browser files one
+# at a time for 26 min after the plain pool drained, with three of its four slots idle. GNU xargs takes one more
+# worker per SIGUSR1; another xargs (BSD on a Mac) keeps the browser pool's width.
+browser_alone_jobs="${CMUX_WEB_TEST_BROWSER_ALONE_JOBS:-$((dev_jobs > browser_jobs ? dev_jobs : browser_jobs))}"
+[[ "$browser_alone_jobs" =~ ^[1-9][0-9]*$ ]] || browser_alone_jobs="$browser_jobs"
+if [ "$browser_alone_jobs" -gt "$jobs" ]; then browser_alone_jobs="$jobs"; fi
+xargs_grows=0
+if xargs --version 2> /dev/null | grep -q 'GNU findutils'; then xargs_grows=1; fi
 shard="${CMUX_WEB_TEST_SHARD:-}"
 shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
 durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
@@ -504,10 +530,14 @@ browser="$(tr -cd '\0' < "$results/browser" | wc -c | tr -d ' ')"
 shard_note=""
 if [ -n "$shard" ]; then shard_note=", shard $shard/$shard_count"; fi
 if [ "$plain_jobs" -ge 1 ]; then pool_note="$plain_jobs at a time, beside $browser browser files $browser_jobs at a time"
-else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a time"; fi
+else pool_note="$jobs at a time, then $browser browser files $browser_alone_jobs at a time"; fi
+if [ "$plain_jobs" -ge 1 ] && [ "$xargs_grows" = 1 ] && [ "$browser_alone_jobs" -gt "$browser_jobs" ]; then
+  pool_note="$pool_note, $browser_alone_jobs once the plain pool is done"
+fi
 echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
 : > "$results/not-run"
+: > "$results/ran-none"
 # warm_transforms: once per run, before the first browser or dev server file, compile the agent pane's
 # modules into the run's React Compiler cache (webviews/scripts/warm-react-compiler-cache.mjs, about
 # 35 s), so the files that start together read it instead of each compiling App.tsx at once. A base
@@ -567,11 +597,29 @@ gallery_stages() {
 }
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
   # The plain jsdom files start at once; the browser files wait for the warm, beside them.
-  { warm_transforms; gallery_stages; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
+  # The browser pool widens to browser_alone_jobs once the plain pool is done (plain-pool-done), still in this order.
+  {
+    warm_transforms
+    gallery_stages
+    xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser" &
+    browser_xargs=$!
+    if [ "$xargs_grows" = 1 ] && [ "$browser_alone_jobs" -gt "$browser_jobs" ]; then
+      # The 1 s before the first look also lets xargs set its SIGUSR1 handler before any signal reaches it.
+      sleep 1
+      while kill -0 "$browser_xargs" 2> /dev/null && [ ! -e "$results/plain-pool-done" ]; do sleep 1; done
+      if kill -0 "$browser_xargs" 2> /dev/null; then
+        echo "plain pool done: the browser files left run $browser_alone_jobs at a time"
+        # One signal per worker, apart: two pending at once are one signal, so one worker.
+        for ((grow = browser_jobs; grow < browser_alone_jobs; grow++)); do kill -USR1 "$browser_xargs" 2> /dev/null || true; sleep 0.2; done
+      fi
+    fi
+    wait "$browser_xargs"
+  } &
   browser_pool=$!
   # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
   plain_status=0
   xargs -0 -P "$plain_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain" || plain_status=$?
+  : > "$results/plain-pool-done"
   wait "$browser_pool"
   [ "$plain_status" -eq 0 ] || exit "$plain_status"
 else
@@ -581,7 +629,8 @@ else
   if [ -s "$results/browser" ]; then
     warm_transforms
     gallery_stages
-    xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
+    # Nothing runs beside them here: the browser files run at their alone width.
+    xargs -0 -P "$browser_alone_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
   fi
 fi
 [ ! -s "$results/serial" ] || warm_transforms
@@ -1049,4 +1098,20 @@ fi
 while read -r result file _; do
   [ "$result" = PASS ] || echo "$result $file (limit $(file_limit "$file" "$timeout_seconds")s)"
 done < <(sort -k2 "$results/summary")
-[ "$failed" -eq 0 ] && [ ! -s "$results/not-run" ]
+# Files that passed having run no test, each with its first skip reason (a retried file is listed once). Where the
+# browser lane was asked for (CMUX_BROWSER_TESTS=1, which a Mac unsets above) an engine that did not launch fails the
+# run: the step installed the engines, so a browser file it skipped is a broken host, not a pass. Only
+# CMUX_BROWSER_SKIP_UNLAUNCHABLE=1 keeps that skip, for a laptop or VM with one engine.
+unlaunched=0
+if [ -s "$results/ran-none" ]; then
+  sort -u -o "$results/ran-none" "$results/ran-none"
+  echo "ran no test (every test skipped; a pass that judged nothing): $(grep -c . "$results/ran-none") of $count files"
+  while IFS=$'\t' read -r file why; do echo "  RAN NONE $file: $why"; done < "$results/ran-none"
+  if [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${CMUX_BROWSER_SKIP_UNLAUNCHABLE:-}" != 1 ]; then
+    unlaunched="$(grep -cE 'did not launch|skipping (chromium|webkit|firefox)\b' "$results/ran-none" || true)"
+    if [ "$unlaunched" -gt 0 ]; then
+      echo "browser lane asked for (CMUX_BROWSER_TESTS=1) but an engine did not launch, so these files skipped: $unlaunched; the run fails (CMUX_BROWSER_SKIP_UNLAUNCHABLE=1 keeps the skip on a laptop or VM)"
+    fi
+  fi
+fi
+[ "$failed" -eq 0 ] && [ ! -s "$results/not-run" ] && [ "$unlaunched" -eq 0 ]

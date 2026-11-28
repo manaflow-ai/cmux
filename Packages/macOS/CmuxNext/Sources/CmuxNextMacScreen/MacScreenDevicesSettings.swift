@@ -283,7 +283,7 @@ public final class MacScreenDevicesSettings {
         }
         return State(available: true, status: quietStatus(hub), signIn: nil, error: error ?? hubHost.lastError, labels: labels,
                      thisDevice: this, others: hub.otherDevices.map { device(for: $0, hub: hub, me: me) }, sharing: sharing,
-                     relays: relays, history: hub.audit.map { Self.historyRow($0, names: names, me: me) })
+                     relays: relays, history: Self.historyRows(hub.audit, names: names))
     }
 
     /// ``status(_:)`` with the hub link's redial held back (Leo, 2026-11-14: "i also want all our
@@ -333,135 +333,55 @@ public final class MacScreenDevicesSettings {
 
     private func device(for device: HubDevice, hub: DeviceHub, me: String) -> State.Device {
         let isMe = device.id == me
-        let presence: String
-        if isMe || device.online {
-            presence = L.t("devices.online", "Online")
-        } else if let seen = device.lastSeenAt {
-            presence = String(format: L.t("devices.offlineSeen", "Offline · seen %@"), seen.formatted(.relative(presentation: .named)))
-        } else {
-            presence = L.t("devices.offline", "Offline")
-        }
-        let confirm = isMe
-            ? State.Device.Confirm(title: L.t("devices.removeThisTitle", "Remove This Mac from your devices?"),
-                                   body: L.t("devices.removeThisBody", "This Mac signs out of your devices: its Mac Screen sessions end and your other devices no longer see it. Sign in again to add it back as a new device."),
-                                   confirm: L.t("devices.removeConfirm", "Remove"))
-            : State.Device.Confirm(title: String(format: L.t("devices.removeTitle", "Remove %@ from your devices?"), device.name),
-                                   body: L.t("devices.removeBody", "Its Mac Screen sessions end and it can no longer see or share screens. It comes back as a new device when it signs in again."),
-                                   confirm: L.t("devices.removeConfirm", "Remove"))
+        let row = MacScreenRules.rdDevices("rd_devices_device_row", [
+            "platform": device.platform?.rawValue as Any, "online": device.online, "this_device": isMe, "name": device.name,
+            "seen": device.lastSeenAt?.formatted(.relative(presentation: .named)) as Any,
+        ], as: Wire.Device.self)
+        let confirm = row?.remove ?? [:]
         return State.Device(
-            id: device.id, name: device.name, platform: Self.platformLabel(device.platform),
-            fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), fingerprintFull: device.fingerprint, online: isMe || device.online, presence: presence,
-            thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
+            id: device.id, name: device.name, platform: row?.platform.string ?? "",
+            fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), fingerprintFull: device.fingerprint, online: isMe || device.online,
+            presence: row?.presence.string ?? "", thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
             access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue,
-            screenAction: device.hostsScreenThisMacViews
-                ? .init(kind: isMe ? "share" : "view", title: isMe ? L.t("devices.shareScreen", "Share") : L.t("devices.viewScreen", "View screen"), disabled: !isMe && !device.online)
-                : nil,
-            removeConfirm: confirm)
+            screenAction: row?.screen.map { .init(kind: $0.kind, title: $0.title.string, disabled: $0.disabled) },
+            removeConfirm: .init(title: confirm["title"]?.string ?? "", body: confirm["body"]?.string ?? "", confirm: confirm["confirm"]?.string ?? ""))
     }
 
-    /// The device row's platform label (a device from before the hub sent a platform reads as a Mac).
+    /// The `rd_devices_*` answers this card reads: a device row (its words, screen button and Remove
+    /// confirmation), a History row, a relay draft's check and a Check Relay result.
+    private nonisolated enum Wire {
+        struct Screen: Decodable { var kind: String, title: RdWords, disabled: Bool }
+        struct Device: Decodable { var platform: RdWords, presence: RdWords, screen: Screen?, remove: [String: RdWords] }
+        struct Row: Decodable { var id, event, tone, duration: String; var event_text, device, host, scope, detail: RdWords }
+        struct Save: Decodable { var name: String, urls: [String], secret: RelaySecret }
+        struct Checked: Decodable { var ok: Save?, error: RdWords? }
+        struct Check: Decodable { var tone: String, text: RdWords }
+    }
+
+    /// The device row's platform label (`rd_devices_device_row`; a device from before platforms reads as a Mac).
     nonisolated static func platformLabel(_ platform: DevicePlatform?) -> String {
-        switch platform {
-        case .ios: L.t("devices.platform.ios", "iPhone")
-        case .linux: L.t("devices.platform.linux", "Linux")
-        case .windows: L.t("devices.platform.windows", "Windows")
-        case .macos, nil: L.t("devices.platform.mac", "Mac")
-        }
+        MacScreenRules.rdDevices("rd_devices_device_row", ["platform": platform?.rawValue as Any], as: Wire.Device.self)?.platform.string ?? ""
     }
 
     nonisolated static func modeText(_ mode: RelayAuthMode) -> String {
-        switch mode {
-        case .sharedSecret: L.t("devices.relay.modeShared", "Shared secret")
-        case .static: L.t("devices.relay.modeStatic", "Username and password")
-        }
+        MacScreenRules.rdDevices("rd_devices_relay_mode", mode.rawValue, as: RdWords.self)?.string ?? mode.rawValue
     }
 
     // MARK: History
 
-    /// One audit entry as the History table shows it (metadata only, as the hub stores it).
-    static func historyRow(_ entry: AuditEntry, names: [String: String], me: String) -> State.HistoryRow {
-        // A listed device's current name, else the name the entry kept (a removed device), else unknown.
-        func name(_ id: String?, kept: String? = nil) -> String {
-            guard let id else { return "—" }
-            return names[id] ?? kept.flatMap { $0.isEmpty ? nil : $0 } ?? L.t("devices.history.removedDevice", "Removed device")
-        }
-        let scope: String
-        switch entry.scope {
-        case "view": scope = SessionScope.view.title
-        case "full": scope = SessionScope.full.title
-        case let other?: scope = DeviceScope(rawValue: other).map { MacScreenAccess($0).title } ?? other
-        case nil: scope = "—"
-        }
-        return State.HistoryRow(id: entry.id, time: entry.ts.map(Self.timeText) ?? "—",
-                                event: entry.event, eventText: eventText(entry.event), tone: eventTone(entry.event),
-                                // A device_added/removed entry's device is in deviceId; it shows in the device column.
-                                device: entry.deviceId.map { name($0, kept: entry.deviceName) } ?? name(entry.viewerId, kept: entry.viewerName),
-                                host: name(entry.hostId, kept: entry.hostName), scope: scope,
-                                detail: detailText(entry, viewer: name(entry.viewerId, kept: entry.viewerName),
-                                                   host: name(entry.hostId, kept: entry.hostName),
-                                                   subject: entry.deviceId.map { name($0, kept: entry.deviceName) } ?? "—"),
-                                duration: entry.durationS.map(durationText) ?? "")
+    /// One audit entry as the History table shows it (`rd_devices_history`; Swift adds the time).
+    static func historyRow(_ entry: AuditEntry, names: [String: String], me _: String) -> State.HistoryRow {
+        historyRows([entry], names: names).first ?? State.HistoryRow(id: entry.id, time: "—", event: entry.event, eventText: entry.event,
+                                                                      tone: "neutral", device: "—", host: "—", scope: "—", detail: "", duration: "")
     }
 
-    static func eventText(_ event: String) -> String {
-        switch event {
-        case "shared": L.t("devices.event.shared", "Shared")
-        case "unshared": L.t("devices.event.unshared", "Stopped sharing")
-        case "requested": L.t("devices.event.requested", "Requested")
-        case "approved": L.t("devices.event.approved", "Approved")
-        case "denied": L.t("devices.event.denied", "Denied")
-        case "started": L.t("devices.event.started", "Started")
-        case "ended": L.t("devices.event.ended", "Ended")
-        case "permission_changed": L.t("devices.event.permission", "Access changed")
-        case "device_added": L.t("devices.event.added", "Device added")
-        case "device_removed": L.t("devices.event.removed", "Device removed")
-        case "agents_allowed": CmuxRemoteAgentStrings.historyAllowed
-        case "agents_disallowed": CmuxRemoteAgentStrings.historyDisallowed
-        default: event
-        }
-    }
-
-    static func eventTone(_ event: String) -> String {
-        switch event {
-        case "approved", "started", "shared", "device_added": "success"
-        case "denied", "device_removed": "danger"
-        case "requested", "permission_changed": "attention"
-        default: "neutral"
-        }
-    }
-
-    /// The entry's detail: an access change as "Ask → Full Control", a decision, an end reason.
-    static func detailText(_ entry: AuditEntry, viewer: String = "—", host: String = "—", subject: String = "—") -> String {
-        // A device joining or leaving names it (whichever id the entry carries).
-        if entry.event == "device_added" || entry.event == "device_removed" {
-            let name = [subject, viewer, host].first(where: known)
-            guard let name else { return entry.event == "device_added" ? "" : L.t("devices.history.someDeviceRemoved", "A device was removed") }
-            return entry.event == "device_added" ? String(format: L.t("devices.history.deviceAdded", "%@ was added"), name)
-                : String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), name)
-        }
-        guard let detail = entry.detail, !detail.isEmpty else { return "" }
-        switch entry.event {
-        case "permission_changed":
-            let parts = detail.components(separatedBy: "->")
-            guard parts.count == 2 else { return detail }
-            let titles = parts.map { part in
-                DeviceScope(rawValue: part.trimmingCharacters(in: .whitespaces)).map { MacScreenAccess($0).title } ?? part
-            }
-            return titles.joined(separator: " → ")
-        case "approved", "denied":
-            switch detail {
-            case "once": return MacScreenApprovalChoice.once.title
-            case "always": return L.t("devices.history.always", "Always Allow")
-            case "deny": return MacScreenApprovalChoice.deny.title
-            default: return detail
-            }
-        case "ended":
-            switch detail {
-            case "bye": return L.t("devices.history.bye", "Disconnected")
-            default: return endText(MacScreenEndReason(detail), viewer: viewer, host: host)
-            }
-        default:
-            return detail
+    static func historyRows(_ entries: [AuditEntry], names: [String: String]) -> [State.HistoryRow] {
+        guard let encoded = try? JSONEncoder().encode(entries), let list = try? JSONSerialization.jsonObject(with: encoded),
+              let rows = MacScreenRules.rdDevices("rd_devices_history", ["entries": list, "names": names], as: [Wire.Row].self) else { return [] }
+        return zip(entries, rows).map { entry, row in
+            State.HistoryRow(id: row.id, time: entry.ts.map(Self.timeText) ?? "—", event: row.event, eventText: row.event_text.string,
+                             tone: row.tone, device: row.device.string, host: row.host.string, scope: row.scope.string,
+                             detail: row.detail.string, duration: row.duration)
         }
     }
 
@@ -470,48 +390,16 @@ public final class MacScreenDevicesSettings {
         date.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
     }
 
-    /// Whether a History name is a device's (not "—" or "Removed device").
-    static func known(_ name: String) -> Bool {
-        name != "—" && name != L.t("devices.history.removedDevice", "Removed device")
-    }
-
-    /// An end reason in History, naming the devices (never "this Mac" for another one).
-    static func endText(_ reason: MacScreenEndReason, viewer: String, host: String) -> String {
-        switch reason {
-        case .permissionRevoked, .accessChanged: String(format: L.t("devices.history.revoked", "%@ removed the access"), host)
-        case .viewerRemoved: known(viewer) ? String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), viewer)
-            : L.t("devices.history.someDeviceRemoved", "A device was removed")
-        case .hostRemoved: known(host) ? String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), host)
-            : L.t("devices.history.someDeviceRemoved", "A device was removed")
-        case .deviceRemoved: L.t("devices.history.someDeviceRemoved", "A device was removed")
-        case .sharingOff: String(format: L.t("devices.history.sharingOff", "%@ turned off Mac Screen"), host)
-        case .hostStopped: String(format: L.t("devices.history.hostStopped", "%@ stopped sharing"), host)
-        case .viewerDisconnected: String(format: L.t("devices.history.viewerDisconnected", "%@ disconnected"), viewer)
-        case .signedOut: L.t("devices.history.signedOutOrQuit", "A device signed out or quit cmux")
-        case .peerOffline: L.t("devices.history.offline", "A device went offline")
-        case .failed: L.t("devices.history.failed", "The stream could not start")
-        case .expired: L.t("devices.history.expired", "No answer in time")
-        case .consentRequired: String(format: L.t("devices.history.consentRequired", "%@ hasn’t allowed screen sharing"), host)
-        case .approveFailed: L.t("devices.history.approveFailed", "Approved, but the session couldn’t start")
-        case .moved: L.t("devices.history.moved", "Moved to another device")
-        case .other: L.t("devices.history.other", "Ended")
-        }
-    }
-
-    /// "22m 27s", "1h 4m", "8s".
+    /// "22m 27s", "1h 4m", "8s" (`rd_devices_duration_text`).
     static func durationText(_ seconds: Double) -> String {
-        let total = max(0, Int(seconds.rounded()))
-        let hours = total / 3600, minutes = (total % 3600) / 60, rest = total % 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        if minutes > 0 { return "\(minutes)m \(rest)s" }
-        return "\(rest)s"
+        MacScreenRules.rdDevices("rd_devices_duration_text", ["seconds": seconds], as: String.self) ?? ""
     }
 
     // MARK: Gestures
 
     /// One gesture (`DevicesRun` in ops.ts).
     public nonisolated struct Run: Decodable, Sendable {
-        public struct RelayDraft: Decodable, Sendable, Equatable {
+        public struct RelayDraft: Codable, Sendable, Equatable {
             var id: String?
             var name: String
             var urls: [String]
@@ -552,11 +440,10 @@ public final class MacScreenDevicesSettings {
                 await hub.refreshAll()
                 await hub.refreshAudit()
             case "openScreen":
-                guard let id = run.id, let device = hub.devices.first(where: { $0.id == id }) else {
-                    return RunResult(error: L.t("devices.error.gone", "That device is no longer in your devices."))
-                }
-                guard id != hub.identity.id, device.hostsScreenThisMacViews else { return RunResult(error: L.t("devices.error.invalidAction", "That action is not available for this device.")) }
-                guard device.online else { return RunResult(error: L.t("devices.error.offline", "That Mac is offline.")) }
+                let id = run.id ?? "", device = hub.devices.first(where: { $0.id == id })
+                if let refusal = MacScreenRules.rdDevices("rd_devices_open_screen", [
+                    "listed": device != nil, "this_device": id == hub.identity.id, "platform": device?.platform?.rawValue as Any, "online": device?.online ?? false,
+                ], as: RdWords?.self) ?? nil { return RunResult(error: refusal.string) }
                 openScreen(id)
             case "shareThisMac":
                 guard run.id == hub.identity.id else { return RunResult(error: L.t("devices.error.invalidAction", "That action is not available for this device.")) }
@@ -613,59 +500,38 @@ public final class MacScreenDevicesSettings {
         }
     }
 
-    /// What a failed gesture says (never a secret: hub errors carry codes and the server's message).
+    /// What a failed gesture says (`rd_devices_error_message`; never a secret: hub errors carry codes).
     static func message(_ error: any Error) -> String {
-        // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
-        guard let hubError = error as? DeviceHubError else { return L.t("devices.error.generic", "That didn’t work. Try again.") }
-        switch hubError {
-        case .notSignedIn, .notConfigured: return L.t("devices.error.signedOut", "Sign in to cmux first.")
-        // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
-        case .transport: return L.t("devices.error.network", "Couldn’t reach the device hub. Check your connection and try again.")
-        default:
-            if hubError.code == .deviceRemoved || hubError.code == .notFound {
-                return L.t("devices.error.gone", "That device is no longer in your devices.")
-            }
-            // retry-prompt-ok: answers a Settings change the person made (permissions, removing a device)
-            return L.t("devices.error.generic", "That didn’t work. Try again.")
+        let failure: [String: Any] = switch error as? DeviceHubError {
+        case .notSignedIn?: ["kind": "not_signed_in"]
+        case .notConfigured?: ["kind": "not_configured"]
+        case .transport?: ["kind": "transport"]
+        case let hubError?: ["kind": "hub", "code": hubError.code?.rawValue as Any]
+        case nil: ["kind": "other"]
         }
+        return MacScreenRules.rdDevices("rd_devices_error_message", failure, as: RdWords.self)?.string ?? ""
     }
 
-    /// The secret a draft names, or (editing) the one this Mac holds when the fields are left empty.
+    /// The secret a draft names, or (editing) the one this Mac holds when the fields are left empty (`rd_devices_relay_secret`).
     static func secret(_ draft: Run.RelayDraft, existing: RelaySecret?) -> RelaySecret? {
-        switch draft.mode {
-        case RelayAuthMode.sharedSecret.rawValue:
-            if let secret = draft.secret, !secret.isEmpty { return .sharedSecret(secret) }
-            if case .sharedSecret? = existing { return existing }
-            return nil
-        default:
-            let username = draft.username ?? "", password = draft.password ?? ""
-            if !username.isEmpty || !password.isEmpty {
-                guard !username.isEmpty, !password.isEmpty else { return nil }
-                return .static(username: username, password: password)
-            }
-            if case .static? = existing { return existing }
-            return nil
-        }
+        relay("rd_devices_relay_secret", draft, existing: existing, as: RelaySecret?.self) ?? nil
     }
 
-    /// The draft's TURN URLs, trimmed, empty ones dropped.
+    /// The draft's TURN URLs, trimmed, empty ones dropped (`rd_devices_relay_validate` checks them).
     static func urls(_ draft: Run.RelayDraft) -> [String] {
         draft.urls.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
 
+    private static func relay<T: Decodable>(_ operation: String, _ draft: Run.RelayDraft, existing: RelaySecret?, as type: T.Type) -> T? {
+        guard let encoded = try? JSONEncoder().encode(draft), let object = try? JSONSerialization.jsonObject(with: encoded) else { return nil }
+        let secret = existing.flatMap { try? JSONEncoder().encode($0) }.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        return MacScreenRules.rdDevices(operation, ["draft": object, "existing": secret as Any], as: type)
+    }
+
     private func save(_ draft: Run.RelayDraft, hub: DeviceHub) async throws -> RunResult {
-        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let urls = Self.urls(draft)
-        guard !name.isEmpty else { return RunResult(error: L.t("devices.error.name", "Enter a name.")) }
-        guard !urls.isEmpty, urls.allSatisfy({ $0.hasPrefix("turn:") || $0.hasPrefix("turns:") || $0.hasPrefix("stun:") }) else {
-            return RunResult(error: L.t("devices.error.urls", "Enter at least one TURN URL, like turns:turn.example.com:5349."))
-        }
-        guard let secret = Self.secret(draft, existing: draft.id.flatMap(hub.relaySecret)) else {
-            return RunResult(error: draft.mode == RelayAuthMode.sharedSecret.rawValue
-                ? L.t("devices.error.secret", "Enter the relay’s shared secret.")
-                : L.t("devices.error.credentials", "Enter the relay’s username and password."))
-        }
-        let relay = try await hub.saveRelay(id: draft.id, name: name, urls: urls, secret: secret, enabled: draft.enabled, priority: draft.priority)
+        let checked = Self.relay("rd_devices_relay_validate", draft, existing: draft.id.flatMap(hub.relaySecret), as: Wire.Checked.self)
+        guard let save = checked?.ok else { return RunResult(error: checked?.error?.string ?? "relay") }
+        let relay = try await hub.saveRelay(id: draft.id, name: save.name, urls: save.urls, secret: save.secret, enabled: draft.enabled, priority: draft.priority)
         checks[relay.id] = nil
         return RunResult(ok: true)
     }
@@ -695,14 +561,17 @@ public final class MacScreenDevicesSettings {
         return RunResult(text: result.text, ok: outcome == .relayed)
     }
 
+    /// Check Relay's words for an outcome (`rd_devices_check_result`).
     static func checkResult(_ outcome: ICERelayCheck.Outcome) -> State.Check {
-        switch outcome {
-        case .relayed: .init(tone: "success", text: L.t("devices.relay.checkOK", "The relay works: it gave this Mac a relay address."))
-        case .refusedCredentials: .init(tone: "danger", text: L.t("devices.relay.checkRefused", "The relay refused the credentials. Check the shared secret, or the username and password."))
-        case .unreachable: .init(tone: "danger", text: L.t("devices.relay.checkUnreachable", "The relay can’t be reached. Check its URLs and that its port is open."))
-        case .noRelayCandidate: .init(tone: "danger", text: L.t("devices.relay.checkNone", "No relay address within 10 seconds. Check the URLs, the secret and that the port is open."))
-        case .failed: .init(tone: "danger", text: L.t("devices.relay.checkFailed", "The check could not start."))
+        let name = switch outcome {
+        case .relayed: "relayed"
+        case .refusedCredentials: "refused_credentials"
+        case .unreachable: "unreachable"
+        case .noRelayCandidate: "no_relay_candidate"
+        case .failed: "failed"
         }
+        let check = MacScreenRules.rdDevices("rd_devices_check_result", ["outcome": name], as: Wire.Check.self)
+        return State.Check(tone: check?.tone ?? "danger", text: check?.text.string ?? "")
     }
 }
 
