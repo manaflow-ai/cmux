@@ -255,7 +255,7 @@ pub(super) async fn enable_once(
         return Ok(false);
     }
     let common = Common { api: Some(api.to_owned()), team: None, token: token.clone() };
-    let verb = Verb::Mode { personal: true, mode: "gateway".into(), machine: None };
+    let verb = Verb::Mode { personal: true, mode: "gateway".into(), machine: None, standby: None };
     let (answer, code) = super::inference_gateway_admin::run(&common, &verb).await;
     if code != 0 {
         let reason = answer.pointer("/error/code").and_then(Value::as_str).unwrap_or("refused");

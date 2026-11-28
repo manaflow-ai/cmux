@@ -3,7 +3,8 @@
 //! - `cmux inference gateway status [--personal]`: the team's (or the person's own) gateway: mode, named machine,
 //!   whether a gateway is online, its kind and since when (`GET /v1/cloud/inference-gateway[/personal]`).
 //! - `cmux inference gateway mode gateway|off|joined [--personal] [--gateway-machine vm_…|machine_<uuid> |
-//!   --no-gateway-machine]`: sets it (`PUT`). The person's own gateway serves every machine they created, in any team;
+//!   --no-gateway-machine] [--standby-machine ID ... | --no-standby]`: sets it (`PUT`). A standby machine (at most 4)
+//!   holds its own socket and serves only while no other gateway is online (cmux-platform#2460). The person's own gateway serves every machine they created, in any team;
 //!   the team's serves the team. `joined` serves only the team's hub-joined machines (`acpmux machine join`, their
 //!   `cmm_` credential): its Cloud machines get no edge rule, as in `off`. A joined machine named as the gateway
 //!   machine (`machine_<uuid>`) holds the socket with its own credential (`cmux inference gateway --token-command`).
@@ -39,7 +40,8 @@ edge does not reach the gateway service: the team and the owner have no gateway 
 pub(super) const ADMIN_HELP: &str = "\
   cmux inference gateway status [--personal] [--token-stdin] [--json]
   cmux inference gateway mode gateway|off|joined [--personal]
-                         [--gateway-machine vm_...|machine_<uuid> | --no-gateway-machine] [--json]
+                         [--gateway-machine vm_...|machine_<uuid> | --no-gateway-machine]
+                         [--standby-machine vm_...|machine_<uuid> ... | --no-standby] [--json]
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,9 +55,20 @@ pub(super) struct Common {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Verb {
-    Status { personal: bool },
-    Mode { personal: bool, mode: String, machine: Option<Option<String>> },
-    Route { machine: String, agent: String },
+    Status {
+        personal: bool,
+    },
+    /// `standby`: `None` leaves the team's standby list as it is, `Some(vec![])` clears it.
+    Mode {
+        personal: bool,
+        mode: String,
+        machine: Option<Option<String>>,
+        standby: Option<Vec<String>>,
+    },
+    Route {
+        machine: String,
+        agent: String,
+    },
 }
 
 /// The error object every verb prints on failure.
@@ -78,6 +91,7 @@ pub(super) fn parse(
     let mut personal = false;
     let mut machine = None;
     let mut gateway_machine: Option<Option<String>> = None;
+    let mut standby: Option<Vec<String>> = None;
     let mut agent = None;
     let mut mode = None;
     let mut args = rest.iter();
@@ -104,6 +118,11 @@ pub(super) fn parse(
             "--agent" if kind == "route" => agent = Some(value()?),
             "--gateway-machine" if kind == "mode" => gateway_machine = Some(Some(value()?)),
             "--no-gateway-machine" if kind == "mode" => gateway_machine = Some(None),
+            "--standby-machine" if kind == "mode" => {
+                let m = value()?;
+                standby.get_or_insert_with(Vec::new).push(m);
+            }
+            "--no-standby" if kind == "mode" && inline.is_none() => standby = Some(Vec::new()),
             "gateway" | "off" | "joined" if kind == "mode" && mode.is_none() => {
                 mode = Some(arg.clone());
             }
@@ -136,10 +155,21 @@ pub(super) fn parse(
                         .into(),
                 );
             }
+            if let Some(list) = &standby {
+                if list.len() > MAX_STANDBY {
+                    return Err(format!("at most {MAX_STANDBY} --standby-machine"));
+                }
+                if let Some(bad) = list.iter().find(|m| !valid_machine(m) && !joined_machine(m)) {
+                    return Err(format!(
+                        "--standby-machine takes a machine id (vm_..., or a joined machine's machine_<uuid>), not {bad}"
+                    ));
+                }
+            }
             Verb::Mode {
                 personal,
                 mode: mode.ok_or("mode takes gateway, off or joined")?,
                 machine: gateway_machine,
+                standby,
             }
         }
         _ => {
@@ -156,6 +186,9 @@ pub(super) fn parse(
     };
     Ok((Common { api, team, token }, verb))
 }
+
+/// The most standby gateway machines a team names (cmux-platform InferenceGateway `MAX_STANDBY`).
+pub(super) const MAX_STANDBY: usize = 4;
 
 /// A hub-joined machine's id, as the join registry names it: `machine_` and a lowercase UUID.
 pub(super) fn joined_machine(id: &str) -> bool {
@@ -207,11 +240,17 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
         Verb::Status { personal } | Verb::Mode { personal, .. } => {
             let url = format!("{}{}", api, route_path(*personal));
             let mut request = match verb {
-                Verb::Mode { mode, machine, .. } => {
+                Verb::Mode { mode, machine, standby, .. } => {
                     let mut body = serde_json::Map::new();
                     body.insert("mode".to_owned(), json!(mode));
                     if let Some(m) = machine {
                         body.insert("machine".to_owned(), json!(m));
+                    }
+                    if let Some(list) = standby {
+                        body.insert(
+                            "standby".to_owned(),
+                            if list.is_empty() { Value::Null } else { json!(list) },
+                        );
                     }
                     http.put(url).json(&body)
                 }
@@ -381,7 +420,18 @@ pub(super) fn print(answer: &Value, json_out: bool) {
             .and_then(Value::as_str)
             .map(|m| format!(", machine {m}"))
             .unwrap_or_default();
-        println!("{name}: mode {mode}, {}{machine}", if online { "online" } else { "offline" });
+        let ids = |key: &str| {
+            g.get(key)
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
+                .filter(|s| !s.is_empty())
+        };
+        let standby = ids("standby").map(|s| format!(", standby {s}")).unwrap_or_default();
+        let up = ids("online_machines").map(|s| format!(", online on {s}")).unwrap_or_default();
+        println!(
+            "{name}: mode {mode}, {}{machine}{standby}{up}",
+            if online { "online" } else { "offline" }
+        );
     }
 }
 

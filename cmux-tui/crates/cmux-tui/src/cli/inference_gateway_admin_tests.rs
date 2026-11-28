@@ -60,12 +60,16 @@ fn parses_status_mode_and_route() {
         Verb::Mode {
             personal: false,
             mode: "gateway".into(),
-            machine: Some(Some("vm_abcdefghij0123456789".into()))
+            machine: Some(Some("vm_abcdefghij0123456789".into())),
+            standby: None,
         }
     );
     let (_, v) =
         parse(&words(&["mode", "off", "--no-gateway-machine", "--personal"]), &env).unwrap();
-    assert_eq!(v, Verb::Mode { personal: true, mode: "off".into(), machine: Some(None) });
+    assert_eq!(
+        v,
+        Verb::Mode { personal: true, mode: "off".into(), machine: Some(None), standby: None }
+    );
     let (_, v) = parse(
         &words(&["route", "--machine", "vm_abcdefghij0123456789", "--agent", "claude"]),
         &env,
@@ -82,10 +86,18 @@ fn parses_status_mode_and_route() {
     let (_, v) = parse(&words(&["mode", "joined", "--gateway-machine", joined]), &env).unwrap();
     assert_eq!(
         v,
-        Verb::Mode { personal: false, mode: "joined".into(), machine: Some(Some(joined.into())) }
+        Verb::Mode {
+            personal: false,
+            mode: "joined".into(),
+            machine: Some(Some(joined.into())),
+            standby: None
+        }
     );
     let (_, v) = parse(&words(&["mode", "joined"]), &env).unwrap();
-    assert_eq!(v, Verb::Mode { personal: false, mode: "joined".into(), machine: None });
+    assert_eq!(
+        v,
+        Verb::Mode { personal: false, mode: "joined".into(), machine: None, standby: None }
+    );
     for bad in [
         "machine_0F1E2D3C-4B5A-6978-8A9B-0C1D2E3F4A5B",
         "machine_0f1e2d3c4b5a69788a9b0c1d2e3f4a5b",
@@ -109,6 +121,48 @@ fn parses_status_mode_and_route() {
         .is_err()
     );
     assert!(parse(&words(&["status", "--machine", "vm_abcdefghij0123456789"]), &env).is_err());
+}
+
+/// 2026-11-27: the team's one gateway machine was powered off and 366 sessions met "no gateway online"; a standby
+/// machine (cmux-platform#2460) serves while the named one is down. `--standby-machine` names them, `--no-standby` clears.
+#[test]
+fn parses_standby_machines() {
+    let primary = "machine_0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
+    let spare = "machine_1f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
+    let (_, v) = parse(
+        &words(&[
+            "mode",
+            "joined",
+            "--gateway-machine",
+            primary,
+            "--standby-machine",
+            spare,
+            "--standby-machine=vm_abcdefghij0123456789",
+        ]),
+        &env,
+    )
+    .unwrap();
+    assert_eq!(
+        v,
+        Verb::Mode {
+            personal: false,
+            mode: "joined".into(),
+            machine: Some(Some(primary.into())),
+            standby: Some(vec![spare.into(), "vm_abcdefghij0123456789".into()]),
+        }
+    );
+    let (_, v) = parse(&words(&["mode", "joined", "--no-standby"]), &env).unwrap();
+    assert_eq!(
+        v,
+        Verb::Mode { personal: false, mode: "joined".into(), machine: None, standby: Some(vec![]) }
+    );
+    assert!(parse(&words(&["mode", "joined", "--standby-machine", "cmm_x"]), &env).is_err());
+    let mut five = words(&["mode", "joined"]);
+    for _ in 0..=MAX_STANDBY {
+        five.extend(words(&["--standby-machine", spare]));
+    }
+    assert!(parse(&five, &env).is_err());
+    assert!(parse(&words(&["status", "--standby-machine", spare]), &env).is_err());
 }
 
 #[test]
