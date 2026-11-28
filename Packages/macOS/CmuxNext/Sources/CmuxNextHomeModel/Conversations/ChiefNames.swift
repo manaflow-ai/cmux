@@ -11,7 +11,9 @@ extension String {
     /// rest in brackets (`claude-sr2-pipe` → "Claude (SR2 Pipe)", `claude-cr` → "Claude
     /// (CodeRouter)", `gemini` → "Gemini CLI"). A blank id comes back as it is.
     public nonisolated var chiefHarnessName: String {
-        (try? HomeRules.call("chief_settings.harnessName", ChiefNameRequest(id: self, strings: .official))) ?? self
+        ChiefNameMemo.harnesses.value(HomeRuleLanguageKey(self)) {
+            (try? HomeRules.call("chief_settings.harnessName", ChiefNameRequest(id: self, strings: .official))) ?? self
+        }
     }
 
     /// A model id as a name: words capitalized, a version's numbers joined by a dot, a trailing
@@ -19,8 +21,17 @@ extension String {
     /// `claude-sonnet-4-5-20250929` → "Claude Sonnet 4.5", `gpt-5.1-codex` → "GPT 5.1 Codex",
     /// `opus[1m]` → "Opus (1M)"). A blank id comes back as it is.
     public nonisolated var chiefModelName: String {
-        (try? HomeRules.call("chief_settings.modelName", ChiefNameRequest(id: self, strings: nil))) ?? self
+        ChiefNameMemo.models.value(self) {
+            (try? HomeRules.call("chief_settings.modelName", ChiefNameRequest(id: self, strings: nil))) ?? self
+        }
     }
+}
+
+/// `chiefHarnessName` (by id and app language: it reads `.official`'s localized titles) and
+/// `chiefModelName` (by id alone: it sends no strings): rows and headers ask them per draw.
+private nonisolated enum ChiefNameMemo {
+    static let harnesses = HomeRuleMemo<HomeRuleLanguageKey<String>, String>()
+    static let models = HomeRuleMemo<String, String>()
 }
 
 /// `chief_settings.harnessName` / `modelName` / `backendTitle`'s request.
