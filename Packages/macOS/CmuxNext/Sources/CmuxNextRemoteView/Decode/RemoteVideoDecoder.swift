@@ -72,8 +72,12 @@ nonisolated final class RemoteVideoDecoder {
         }
         let output = DecodeOutput()
         var info = VTDecodeInfoFlags()
+        // No flags: synchronous, and no `._1xRealTimePlayback`. That flag tells VideoToolbox the
+        // picture is only needed at its playback time, so the decoder may run slower to save
+        // power; a live screen shows each frame the moment it decodes, so every microsecond of
+        // decode is on the glass path.
         let status = VTDecompressionSessionDecodeFrame(
-            session, sampleBuffer: sample, flags: [._1xRealTimePlayback], infoFlagsOut: &info
+            session, sampleBuffer: sample, flags: [], infoFlagsOut: &info
         ) { status, _, image, _, _ in
             output.set(status: status, image: image)
         }
@@ -136,6 +140,9 @@ nonisolated final class RemoteVideoDecoder {
                 outputCallback: nil, decompressionSessionOut: &created)
             guard lastStatus == noErr, let created else { continue }
             VTSessionSetProperty(created, key: kVTDecompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+            // Latency over energy: a power-efficient decoder may clock the media engine down.
+            VTSessionSetProperty(created, key: kVTDecompressionPropertyKey_MaximizePowerEfficiency,
+                                 value: kCFBooleanFalse)
             var usingHardware: CFTypeRef?
             let query = withUnsafeMutablePointer(to: &usingHardware) {
                 VTSessionCopyProperty(

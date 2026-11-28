@@ -55,6 +55,8 @@ const LOCK_READ_ONLY: u64 = 1;
 unsafe extern "C" {
     static kCFTypeDictionaryKeyCallBacks: DictCallbacks;
     static kCFTypeDictionaryValueCallBacks: DictCallbacks;
+    static kCFBooleanTrue: CFTypeRef;
+    static kCFBooleanFalse: CFTypeRef;
     fn CFDictionaryCreate(
         a: *const c_void,
         keys: *const CFTypeRef,
@@ -127,6 +129,13 @@ unsafe extern "C" {
     ) -> OSStatus;
     fn VTDecompressionSessionWaitForAsynchronousFrames(s: VTDecompressionSessionRef) -> OSStatus;
     fn VTDecompressionSessionInvalidate(s: VTDecompressionSessionRef);
+    fn VTSessionSetProperty(
+        s: VTDecompressionSessionRef,
+        key: CFStringRef,
+        value: CFTypeRef,
+    ) -> OSStatus;
+    static kVTDecompressionPropertyKey_RealTime: CFStringRef;
+    static kVTDecompressionPropertyKey_MaximizePowerEfficiency: CFStringRef;
 }
 
 #[link(name = "CoreVideo", kind = "framework")]
@@ -336,6 +345,19 @@ impl VtDecoder {
             if status != 0 {
                 return Err(format!("VTDecompressionSessionCreate failed: {status}").into());
             }
+            // As the cmux-next viewer's decoder (RemoteVideoDecoder.swift): real-time, and
+            // latency over energy, so the bench measures the decode a person sees. Best effort:
+            // a decoder that refuses a property still decodes.
+            VTSessionSetProperty(
+                self.session,
+                kVTDecompressionPropertyKey_RealTime,
+                kCFBooleanTrue,
+            );
+            VTSessionSetProperty(
+                self.session,
+                kVTDecompressionPropertyKey_MaximizePowerEfficiency,
+                kCFBooleanFalse,
+            );
         }
         self.parameter_sets = vec![sps.to_vec(), pps.to_vec()];
         Ok(())
