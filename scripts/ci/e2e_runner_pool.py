@@ -11,16 +11,16 @@ request CI uses (pr_runner_pool.py, whose decide() this calls), limited to the
 macOS 26 pools:
 
     order     vars.CI_PR_POOL_ORDER without its macOS 15 pool; by default
-                blacksmith-12vcpu-macos-26, then blacksmith-6vcpu-macos-26
+                blacksmith-6vcpu-macos-26 (12vcpu left the default 2026-11-28: it started
+                nothing for 50 min, run 46162674498)
     headroom  a machine free on that label's Blacksmith plan capacity, or at most
               vars.CI_PR_POOL_MAX_QUEUED jobs queued (default 0), and no
               queued release or nightly job on the pool
 
-When neither pool has headroom the run takes the shorter queue in rounds.
-Every Blacksmith pool is sponsored, so cost is not a reason to hold the
-12vcpu pool back: a release or nightly job actually queued on it is the only
-thing that keeps E2E off it (release and nightly builds must not wait behind
-E2E). E2E never goes to macOS 15, whose Xcode and app-host tests differ from
+The only Blacksmith pool E2E takes is 6vcpu (E2E_POOLS): 12vcpu left the
+auto pick on 2026-11-28, when it started nothing for 50 min ("Stop relying on
+Blacksmith; use Freestyle capacity"), and stays an explicit choice only. A
+release or nightly job queued on 6vcpu keeps E2E on the default. E2E never goes to macOS 15, whose Xcode and app-host tests differ from
 the macOS 26 lane E2E answers for.
 
 The queue comes from the queue janitor's `macos-pool-load` snapshot, the one
@@ -139,10 +139,10 @@ SMALL_RUNNER = pr_runner_pool.DEFAULT_RUNNER
 LARGE_RUNNER = pr_runner_pool.LARGE_RUNNER
 # The Blacksmith pools E2E may take, all macOS 26. Owned pools for the lane's
 # Xcode pin join them when CI_PR_POOL_OWNED is 1 (e2e_pool()).
-E2E_POOLS = (LARGE_RUNNER, SMALL_RUNNER)
+E2E_POOLS = (SMALL_RUNNER,)
 # Blacksmith pools that cannot run UI tests (see the module docstring), so a UI
 # run pinned to one still moves to an owned pool with machines.
-BLACKSMITH_NO_UI = (*E2E_POOLS, "blacksmith-6vcpu-macos-latest")
+BLACKSMITH_NO_UI = (LARGE_RUNNER, *E2E_POOLS, "blacksmith-6vcpu-macos-latest")
 E2E_WORKFLOW = "test-e2e.yml"
 # Most machines one E2E run holds at once: the build job, then the test job.
 E2E_JOBS = 1
