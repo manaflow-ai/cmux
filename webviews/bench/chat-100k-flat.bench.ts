@@ -1204,6 +1204,20 @@ try {
       const heapMb = usedSize / 1048576;
       const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
       console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (process.env.PRESSURE === "1") {
+        // PRESSURE=1: how much of renderer MB is free space the renderer has not handed back (V8 and Oilpan pages,
+        // malloc and PartitionAlloc slack) rather than memory something holds: a critical memory-pressure signal
+        // releases that slack, then the same collection and reading.
+        for (const { cdp } of pages)
+          await cdp.send("Memory.simulatePressureNotification", { level: "critical" } as never).catch(() => {});
+        for (const { cdp } of pages) await cdp.send("HeapProfiler.collectGarbage");
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const pressed = renderers(root).reduce((sum, pid) => sum + pssMB(pid), 0);
+        const { usedSize: pressedHeap } = (await shownPage.cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
+        console.log(
+          `  ${name}: after critical pressure renderer MB ${pressed.toFixed(1)} (was ${mb.toFixed(1)}); JS heap ${(pressedHeap / 1048576).toFixed(1)} MB`,
+        );
+      }
       if (HEAP_SNAPSHOT) {
         // HEAP_SNAPSHOT=DIR: the first page's (hidden in an xN launch) and the shown page's V8 heap, for DevTools.
         fs.mkdirSync(HEAP_SNAPSHOT, { recursive: true });
