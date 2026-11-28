@@ -96,3 +96,48 @@ note: more strings await review than the baseline records: Resources/InfoPlist.x
 4603 catalogs, 9 locales: 64072 parity errors, over the debt baseline
 Rerun from this checkout: python3 scripts/verify-local.py --only localization
 RUN localization-defaults: Swift defaultValue parity
+INTERRUPTED localization-defaults (60.78s)
+
+Rerun from this checkout: python3 scripts/verify-local.py --only localization-defaults
+RUN project-tests: Project normalizer tests
+PASSED project-tests (34.41s; 16 tests executed, 1 skipped)
+RUN project: Xcode project normalization and version
+PASSED project (1.29s)
+RUN launch-policy: Generated Claude launch policy
+PASSED launch-policy (0.50s)
+RUN test-wiring: Swift test wiring and regression guard
+PASSED test-wiring (5.50s)
+RUN package-groups: Workspace Swift package groups
+FAILED package-groups (0.70s)
+::error file=cmux.xcworkspace/contents.xcworkspacedata::workspace package grouping is out of date.
+Run: python3 scripts/check-workspace-package-groups.py --write
+--- a/cmux.xcworkspace/contents.xcworkspacedata
++++ b/cmux.xcworkspace/contents.xcworkspacedata
+@@ -60,6 +60,9 @@
+       </FileRef>
+       <FileRef
+          location = "group:CmuxInstallAuthCore">
++      </FileRef>
++      <FileRef
++         location = "group:CmuxLiveCode">
+       </FileRef>
+       <FileRef
+          location = "group:CmuxMessagesLab">
+@@ -135,6 +138,9 @@
+          location = "group:CmuxMobileTunnel">
+       </FileRef>
+       <FileRef
++         location = "group:CmuxPushRegistration">
++      </FileRef>
++      <FileRef
+          location = "group:CmuxTabsKit">
+       </FileRef>
+    </Group>
+Rerun from this checkout: python3 scripts/verify-local.py --only package-groups
+RUN feature-flags: Feature flag policy
+PASSED feature-flags (42.80s)
+RUN backend-migrations: cmux-next backend migrations only through a PR
+PASSED backend-migrations (7.20s)
+Changed input drifted or was unreadable; rerun selection.
+INTERRUPTED: 10/10 selected checks ran. Native compilation, app tests and app launch were not checked.
+Next for Swift changes: use the normal native build/test workflow in CONTRIBUTING.md.

@@ -1,0 +1,3 @@
+wt push: format: 1 changed Rust/web file(s)
+wt push: lane receipt: running the fast gates on 54785d10a7c2 merged with feat-cmux-next here, before the push (up to 1800 s; log /home/cmux/.cache/wt-push/receipts/54785d10a7c27bf7fa60dd923fc948dce41889f2.log). Green records a receipt the PR's gates take instead of re-running; WT_PUSH_RECEIPT=0 skips it
+wt push: lane receipt: fast gates green here in 582 s. ci-receipt: passed and recorded: lane receipt for head tree 3a574daf988e3397f6c443823c9095d3ceece83b on base efe2ac6cddb1 by lane:fs-agent-lane-28. Push this tree (any commit with it): the PR's fast gates take the receipt instead of re-running.
