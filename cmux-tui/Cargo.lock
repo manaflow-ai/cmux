@@ -2644,6 +2644,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-native-transcript"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-netwatch"
 version = "0.1.0"
 dependencies = [

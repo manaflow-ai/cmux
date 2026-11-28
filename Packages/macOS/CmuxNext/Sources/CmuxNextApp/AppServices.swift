@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
+import CmuxNextNativeTranscript
 import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
@@ -67,6 +68,7 @@ final class AppServices {
     let selectionCloses = WorkspaceSelectionCloseFlow.Running()
     /// The incognito workspaces' chat purges under way (``IncognitoChats``); the quit drains them.
     let incognitoChats = IncognitoChats()
+    let nativeTranscript = NativeTranscriptControl()  // RFD 0121 native transcript window (debug.native_transcript); idle otherwise
     /// The recovery-draft backstop of unsaved documents (R96).
     let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.

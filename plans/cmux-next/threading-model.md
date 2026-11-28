@@ -184,6 +184,13 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.backdrop-shader.render` (the living wallpapers' Metal frames, user-initiated, serial: it blocks only on
   `CAMetalLayer.nextDrawable`, bounded by the layer's one-second timeout; one frame in flight per window, the
   next is skipped while it is busy, so no back-pressure; BackdropShaderRenderer),
+  `cmux-next native transcript render` (RFD 0121's read-only native transcript, only while its debug or
+  `CMUX_NATIVE_TRANSCRIPT=1` window is open: one user-interactive thread with its own run loop and display link;
+  it blocks only on `CAMetalLayer.nextDrawable`, bounded by the layer's timeout, and skips a frame while the GPU
+  still holds one; the window's close ends it; NativeTranscriptThread),
+  `cmux-next.native-transcript.rich-rows` (that transcript's placeholder rich-row rasters, utility, serial: it
+  blocks only on CoreText drawing of one row; at most a frame's texture requests wait, and a row that scrolled
+  away is evicted, not queued; NativeTranscriptRichRows),
   `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
   user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
   reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
