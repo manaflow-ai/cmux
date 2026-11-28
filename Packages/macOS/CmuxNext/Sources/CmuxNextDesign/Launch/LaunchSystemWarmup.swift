@@ -8,6 +8,17 @@ import UniformTypeIdentifiers
 public nonisolated struct LaunchSystemWarmup: Sendable {
     public init() {}
 
+    /// Every step on its own background thread, started by `main` once `LaunchShell` has read the screens and the
+    /// appearance. These steps load ColorSync, MobileGestalt and the font stems; started at the top of `main` they ran
+    /// beside `LaunchShell.prepare` and main waited there (#58659's marks: `nsapp_made` to `delegate_made` grew 3.1 to
+    /// 22.1 ms).
+    public nonisolated static func startAfterShell() {
+        let thread = Thread { LaunchSystemWarmup().all() }
+        thread.name = "cmux-next launch system warm-up"
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+
     /// Every step, in order.
     public nonisolated func all() {
         displays()

@@ -28,7 +28,6 @@ enum LaunchWarmup {
             // The SF Symbols catalog loads on first lookup (20 ms on the
             // main thread while the palette or the main menu first drew).
             _ = NSImage(systemSymbolName: "command", accessibilityDescription: nil)
-            LaunchSystemWarmup().all()
         }
         thread.name = "cmux-next launch warm-up"
         thread.qualityOfService = .userInitiated
