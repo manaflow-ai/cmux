@@ -48,6 +48,29 @@ import Testing
                 "\(h.updater.log.recent)")
     }
 
+    /// A quit with the update staged: Sparkle installs it as the app exits, and the pre-warm's processes, which outlive
+    /// the app, would still load from the folder the installer moves. The decided quit stops them first.
+    @Test func aQuitThatInstallsTheStagedUpdateStopsItsPrewarm() async throws {
+        let updater = StagedUpdatePrewarmInstallStopTests.updater()
+        let seen = StagedUpdatePrewarmInstallStopTests.Seen()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        defer { open.finish() }
+        updater.prewarmRunner = { _ in
+            await withTaskCancellationHandler {
+                for await _ in gate {}
+            } onCancel: {
+                seen.cancelled.withLock { $0 = true }
+                open.finish()
+            }
+            return "pre-warmed"
+        }
+        updater.followStagedUpdate(.ready(version: "2.0.0"))
+        #expect(updater.prewarmedBuild == "200")
+        _ = updater.prepareForQuit()
+        #expect(seen.cancelled.withLock { $0 }, "the app quit with the staged build's pre-warm still running")
+        #expect(updater.log.recent.contains("launch pre-warm of 200: stopped for the quit"), "\(updater.log.recent)")
+    }
+
     /// A pre-warm that already ended is left as it was: the cancel logs no stop.
     @Test func aCancelAfterThePrewarmEndedLogsNoStop() async throws {
         let updater = StagedUpdatePrewarmInstallStopTests.updater()
