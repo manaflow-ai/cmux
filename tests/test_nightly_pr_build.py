@@ -249,8 +249,8 @@ class Workflow(unittest.TestCase):
         )
         self.assertIn('"$client" cancel "$step" --reason "nightly pr build: job cancelled"', text)
         self.assertIn("arm64", npb.ARCHS)
-        # The gateway runner refuses any job whose id does not end in -fleet.
-        gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ vars.CI_EVAL_STEP_GATEWAY", text, re.M)
+        # The gateway runner refuses any job whose id does not end in -fleet (a fork's hosted arm may come first, #64401).
+        gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ (?:github\.repository_owner != 'manaflow-ai' && 'ubuntu-24\.04' \|\| )?vars.CI_EVAL_STEP_GATEWAY", text, re.M)
         self.assertTrue(gateway)
         for job in gateway:
             self.assertTrue(job.endswith("-fleet"), job)
@@ -267,7 +267,12 @@ class Workflow(unittest.TestCase):
         text = (ROOT / npb.WORKFLOW).read_text()
         match = re.search(r"(?ms)^  swift-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
         self.assertIsNotNone(match)
-        self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
+        # route runs past a skipped coalesce job (#63705), so the gate also says !cancelled() and route succeeded
+        # (tests/test_ci_needs_skip_propagation.py, #63984).
+        self.assertIn(
+            "if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.swift == 'true' }}",
+            match.group(1),
+        )
         self.assertIn("vars.CI_EVAL_STEP_GATEWAY || 'cmux-linux'", match.group(1))
 
     def test_queue_wait_is_bounded_and_an_unstarted_step_is_cancelled(self) -> None:
