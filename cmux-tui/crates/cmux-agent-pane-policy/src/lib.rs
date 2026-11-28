@@ -60,6 +60,7 @@
 
 pub mod act_as_me;
 pub mod answers;
+pub mod app_request;
 pub mod build_identity;
 pub mod canonical;
 pub mod check;
