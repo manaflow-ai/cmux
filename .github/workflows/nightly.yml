@@ -361,6 +361,7 @@ jobs:
           UNSIGNED_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           NIGHTLY_NEXT_ONE_JOB: ${{ vars.NIGHTLY_NEXT_ONE_JOB || '' }}
+          NIGHTLY_NEXT_SKIP_HOT_APPLY: ${{ vars.NIGHTLY_NEXT_SKIP_HOT_APPLY || '' }}
           CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
           REPUBLISH_RUN: ${{ inputs.nightly_next_republish_run }}
           REPUBLISH_ATTEMPT: ${{ inputs.nightly_next_republish_attempt }}
@@ -669,9 +670,15 @@ jobs:
             // schedule still publishes main HEAD as a backstop.
             let unchangedBuildInputs = false;
             let buildInputReason = null;
+            // nightly-next (default off: repo variable NIGHTLY_NEXT_SKIP_HOT_APPLY=1) skips the signed
+            // rebuild when every change since the published commit is hot-apply only (live_apply.py:
+            // no-app or web-live). A push to nightly-next also runs cmux-next-web-bundle-publish, which
+            // signs the `nightly` web update pointer, so the running NIGHTLY takes the web change
+            // without a new app, and the signer stays free for a build that needs it.
+            const nextHotApplySkip = isNextRef && process.env.NIGHTLY_NEXT_SKIP_HOT_APPLY === '1';
             if (
               shouldBuild &&
-              isMainRef &&
+              (isMainRef || nextHotApplySkip) &&
               nightlySha &&
               !forceBuild &&
               !buildOnly &&
@@ -703,6 +710,23 @@ jobs:
                   files.length > 0 &&
                   files.length < 300
                 ) {
+                  if (nextHotApplySkip) {
+                    // A rename is a delete of the old path and an add of the new one.
+                    const lines = files.flatMap((file) => [
+                      `${file.status === 'removed' ? 'D' : file.status === 'added' || file.previous_filename ? 'A' : 'M'}\t${file.filename}`,
+                      ...(file.previous_filename ? [`D\t${file.previous_filename}`] : []),
+                    ]);
+                    const verdict = await exec.getExecOutput(
+                      'python3',
+                      ['scripts/cmux-next/live_apply.py', '--paths-from', '-'],
+                      { input: Buffer.from(`${lines.join('\n')}\n`) },
+                    );
+                    const decision = JSON.parse(verdict.stdout.trim());
+                    unchangedBuildInputs = decision.hot_apply_only === true;
+                    buildInputReason = unchangedBuildInputs
+                      ? `hot-apply only (${decision.verdict}, ${files.length} files): web ships via the signed nightly web update pointer`
+                      : `needs a new app (${decision.verdict})`;
+                  } else {
                   const paths = files.flatMap((file) =>
                     [file.filename, file.previous_filename].filter(Boolean));
                   const classified = await exec.getExecOutput(
@@ -713,6 +737,7 @@ jobs:
                   const decision = JSON.parse(classified.stdout.trim());
                   unchangedBuildInputs = decision.build_inputs_changed === false;
                   buildInputReason = decision.reason;
+                  }
                 }
               } catch (error) {
                 core.warning(`Could not prove the Nightly build inputs unchanged; building: ${error.message}`);
@@ -2812,6 +2837,9 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && !env.LEFT_SLOT
         env:
           GH_TOKEN: ${{ github.token }}
+          # RATE_LIMIT_MOVES_TO_A_SPARE (pin-cmux-tui.sh github_get): the tree wait's runs reads move
+          # to the CI pool's tokens when the installation's hour is spent (nightly 46095639816).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
           CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
@@ -3132,6 +3160,10 @@ jobs:
       superseded: ${{ steps.superseded.outputs.superseded }}
       # The build number (<run id><attempt>) for both side-by-side jobs, the app and the daemon.
       daemon_build: ${{ steps.daemon-build.outputs.build }}
+    env:
+      # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
+      # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
+      GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
     steps:
       - name: Fix this run's build number
         id: daemon-build
@@ -6347,11 +6379,13 @@ jobs:
       - name: Download the published build's dSYMs from the run that compiled it (parallel)
         id: dsyms-parallel
         continue-on-error: true
-        timeout-minutes: 10
+        # Off the publish path: waits up to an hour for github.token's reset when every spare is spent or dead (run 46125411693).
+        timeout-minutes: 65
         env:
           GITHUB_TOKEN: ${{ github.token }}
           # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
           GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "3600"
           DSYMS_ARTIFACT: ${{ steps.producer.outputs.artifact }}
           DSYMS_RUN: ${{ steps.producer.outputs.run }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACT" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/published-dsyms/dSYMs" --connections 32
@@ -6394,12 +6428,25 @@ jobs:
       - *github-token-for-git
       - *checkout-publication-tooling-a
 
+      # 2026-11-28 06:29Z (Finish run 46116773791): this job's first gh call died on "API rate limit exceeded for
+      # installation" because it had no waiter and no spare pool, while keep-published-dsyms beside it had both.
+      - *gh-app-token-read
+
+      - *gh-app-install-tooling
+
+      - *wait-through-github-api-rate-l-2
+
       - name: Find the attempt that compiled the published build
         id: producer
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           DSYMS_NAMES: nightly-next-dsyms nightly-next-cmux-tui-dsyms
         run: bash .publish-tooling/scripts/ci/nightly-steps/dsyms-find-attempt.sh
+
+      # The action below cannot wait through a limit itself: wait here until the budget has room for its calls.
+      - name: Wait for API budget before the dSYM download
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
 
       - name: Download the build's dSYMs
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -6452,6 +6499,10 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts
+      # 2026-11-28 06:30Z (Finish run 46116773791): "Download published variant" died on the installation's spent
+      # hour, in the parallel downloader (no spare pool) and then in the action (no wait): the same pair
+      # publish-nightly already has.
+      - *wait-through-github-api-rate-l-2
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-deltas-select-xcode.md
       - name: Select Xcode
         run: ./.publish-tooling/scripts/select-ci-xcode.sh
@@ -6463,8 +6514,14 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out "$RUNNER_TEMP/nightly-delta/input" --connections 32
+
+      - name: Wait for API budget before the variant download action
+        if: steps.variant-parallel.outcome != 'success'
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
 
       - name: Download published variant
         if: steps.variant-parallel.outcome != 'success'
@@ -6968,6 +7025,9 @@ jobs:
       # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
       left_pending: ${{ steps.one-leave.outputs.pending }}
     env:
+      # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
+      # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
+      GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
@@ -7841,6 +7901,9 @@ jobs:
       comment: ${{ steps.record.outputs.comment }}
       run_tail: ${{ steps.record.outputs.cross_run == 'true' || steps.record.outputs.track != 'nightly-next' || github.event_name != 'push' && inputs.nightly_next_loop_retry == '' }}
     env:
+      # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
+      # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
+      GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
       SOURCE: ${{ inputs.nightly_next_post_publish }}
       NEEDS: ${{ toJSON(needs) }}
       RUN_ID: ${{ github.run_id }}
