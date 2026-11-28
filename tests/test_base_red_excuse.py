@@ -18696,8 +18696,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
-            # Builds each iPhone-touching head's cmux Dev device app ahead on the fleet (#51721); advisory.
-            "cmux-next-ios-try-ahead.yml",
+            # The Nightly auto-update e2e (#62005): a PR touching it runs it against the live Nightly feed.
+            "nightly-next-update-e2e.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
             # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
             "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",

@@ -6456,6 +6456,8 @@ PACKAGE_JOBS = {
                   # cmux-remote reaches cmux-proxy (#53785); ghostty-vt-sys and cmux-tui-core reach
                   # cmux-transport-rewrite (#56272)
                   "cmux-tui/crates/cmux-proxy/", "cmux-tui/crates/cmux-transport-rewrite/",
+                  # cmux-next-ios/rust names cmux-json (its Cargo.toml path dependency)
+                  "cmux-tui/crates/cmux-json/",
                   # files those crates include_str! and paths the kit's Swift names as literals (same date)
                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
                   "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",
