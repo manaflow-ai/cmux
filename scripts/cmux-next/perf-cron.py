@@ -351,7 +351,20 @@ PARTS = [
     # (an invalid swap) leaves the part due. A bench build plus 2 series of 20 saves: 45 minutes.
     {"name": "hot-swap", "args": [*MEASURE, "--config=bench", "--suite=graceful-swap"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "graceful-swap",
-     "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700},
+     "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700,
+     # harness: the files behind its goal rows; a fix to them gives the tip in flight's Mac to a newer tip when the
+     # part stored no goal row there (goal_harness_fixed).
+     "harness": ["scripts/measure/graceful-swap-cron.py", "scripts/measure/graceful-swap-fleet.py",
+                 "scripts/measure/graceful-swap-fleet.sh", "scripts/measure/graceful-swap.py",
+                 "webviews/dev-server/hotSwapTiming.ts"]},
+    # Goal infinite-tabs-flat: the app with 500 browser tabs, 200 workspaces and 100 chats, all but the front workspace
+    # hibernated, over the same app empty (scripts/measure/infinite-tabs-cron.py over bench_infinite_tabs.py;
+    # infinite_tabs.mac.*, report-only). NOW's infinite_tabs_memory_vs_empty_mac came only from a person's
+    # infinite-tabs.sh step, so it read "hand step, unconfirmed (one run)" and went STALE after 24 h (2026-11-28).
+    # goal_rows: a run that stored no memory_vs_empty row (built under 90 % of what was asked) leaves the part due.
+    {"name": "infinite-tabs", "args": [*MEASURE, "--config=bench", "--suite=infinite-tabs"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "infinite-tabs",
+     "goal": "infinite-tabs-flat", "goal_rows": r"infinite_tabs\.mac\.memory_vs_empty@", "run_seconds": 3600},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -489,7 +502,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"), (r"^infinite_tabs\.mac\.", "infinite-tabs"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -528,7 +541,7 @@ ROW_PARTS = [
 # part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
 # Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
 # keystroke row: shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|infinite_tabs\.mac\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work|to_frame_frames)$"
                                 r"|acp\.[^.]+\.frame_interval$|acp\.[^.]+-(capped|full|nolimit)\."
                                 r"|launch\.wake_proxy\.awake_echo_ms$"
@@ -1416,11 +1429,13 @@ def linux_bench_runs(root, part="diff-viewer"):
         # all-live: the same 1,000 items with lazy start off (every shell started at once), in a run of its own after
         # the product arm, its rows named infinite_items.all_live.nN.* (--row-arm) beside the product's
         # infinite_items.nN.*: NOW shows what lazy start saves next to what it costs (practices gap c155dd8eab85).
+        # Chat eviction off there too (the bench's default evicts at 5 s): every chat stays resident, so the arm is the
+        # everything-in-memory baseline the product's lazy start and eviction are measured against.
         script = os.path.join(root, INFINITE_ITEMS)
         return {"build": (["bash", script, "build-only"], root or ".", {}),
                 "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {}),
                 "all-live": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "--lazy-start=off",
-                              "--row-arm=all_live"], root or ".", {})}
+                              "--evict-idle-secs=0", "--row-arm=all_live"], root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -1598,7 +1613,40 @@ def unread_missing(state, cur):
     return [p for p in unread_parts(state) if p not in cur.get("parts", {}) and p not in cur.get("parts_todo", [])]
 
 
-def supersede_for_unread(state, t, newest, supported_parts):
+def harness_changed(old, new, paths):
+    """Whether a commit between old and new touched one of paths (git diff --name-only); False when git fails."""
+    try:
+        return bool(git("diff", "--name-only", old, new, "--", *paths))
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
+def goal_harness_fixed(state, cur, newest, changed=None):
+    """The goal parts (PARTS "goal_rows" and "harness") of the tip measurement in flight that ran there, stored none
+    of their goal rows (goal_rows_missing), and whose harness a commit after it up to newest changed: the tip would
+    otherwise keep the Mac for its other Mac parts while the goal's row waits for the next tip, which has the fix.
+    Empty unless it still has a Mac part to do.
+
+    2026-11-28: tip cdf458ee (picked 08:16Z) ran hot-swap at 13:38Z with a harness from before the graceful-swap fleet
+    fixes (cmux#64059, #64111, #64214, #64572, merged by 12:15Z) and stored no hot_swap.mac.*.p95_ms row (composer
+    saves: 0 runs; hidden: 20 never changed); the part read done, 19 Mac parts were still to do, and NOW's goal
+    hot-swap-fast had no value for 4 days."""
+    if not cur or cur.get("kind") != "tip" or not needs_mac(cur) or not newest or newest == cur.get("sha"):
+        return []
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    out = []
+    for name, rec in (cur.get("parts") or {}).items():
+        part = PART_BY_NAME.get(name, {})
+        e = stored.get(name)
+        if not (part.get("goal_rows") and part.get("harness") and (rec or {}).get("state") == "done"
+                and isinstance(e, dict) and e.get("sha") == cur["sha"] and goal_rows_missing(state, name, e)):
+            continue
+        if (changed or harness_changed)(cur["sha"], newest, part["harness"]):
+            out.append(name)
+    return out
+
+
+def supersede_for_unread(state, t, newest, supported_parts, changed=None):
     """End the Mac parts still to do of the tip measurement in flight as 'superseded' when a part that never produced a
     reading (unread_missing) runs at newest, the newest measurable commit with a published cmux-tui tree (plan): the
     measurement finishes with the parts that ran, as after no_host_for_tip, and the next tip, which has the part,
@@ -1665,6 +1713,18 @@ def supersede_for_unread(state, t, newest, supported_parts):
         cur.pop("tree_wait_since", None)
         cur.pop("host_asked_since", None)
         end_yield(cur, t)
+        return why
+    fixed = [p for p in goal_harness_fixed(state, cur, newest, changed) if p in supported_parts(newest)]
+    if fixed:
+        # No hold: the goal's row is what the measurement is for, and it reads nothing until a tip with the fix runs
+        # the part. Once per harness fix: the next tip has it (goal_harness_fixed).
+        why = f"{', '.join(fixed)} stored no goal row with a harness {newest[:12]} fixes"
+        for name in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
+            cur["parts"][name] = {"state": "superseded", "reason": why}
+            cur["parts_todo"].remove(name)
+        cur.pop("host_asked_since", None)
+        end_yield(cur, t)
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
         return why
     missing = unread_missing(state, cur)
     if not missing or not newest:
@@ -2909,7 +2969,7 @@ def supported_parts_at(sha):
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
-                      "chat-snappy", "graceful-swap"):
+                      "chat-snappy", "graceful-swap", "infinite-tabs"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
@@ -4301,9 +4361,11 @@ def plan(o):
     newest = None
     gone_by = state.get("current") or {}
     if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)
-                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))):
+                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))
+                       or goal_harness_fixed(state, gone_by, tip)):
         # A part that never produced a reading (unread_parts) and that the tip in flight predates, a tip whose app
-        # build failed (build_failed_tip), or one whose Mac parts wait for a tree still unpublished (tree_waiting):
+        # build failed (build_failed_tip), one whose Mac parts wait for a tree still unpublished (tree_waiting), or a
+        # goal part that stored no goal row with a harness the tip fixes (goal_harness_fixed):
         # the newest commit that can run it on the fleet (supersede_for_unread).
         later, _ = first_parent_since(tip, gone_by["sha"], CANDIDATE_DEPTH)
         for i, sha in enumerate(later):
@@ -4795,6 +4857,11 @@ def cmd_run_linux_part(o):
                 print(f"perf-cron web-ui: {line}")
             for line in webui_ladder_lines(stdout):
                 print(f"perf-cron web-ui: {line}")
+            # infinite-items' per-role wakeups/PSS and its fastest-growing files: the rows keep only totals, so the
+            # job log carries which thread woke and which file grew (goal infinite-items-flat) without a rerun.
+            for line in stdout.splitlines():
+                if line.startswith(("INFINITE-ROLE ", "INFINITE-DISKGROW ", "INFINITE-COMMITS ")):
+                    print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
                 # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
                 # rounds run first (cmux#57939), and a bare `report = value` dropped them, so the board kept the

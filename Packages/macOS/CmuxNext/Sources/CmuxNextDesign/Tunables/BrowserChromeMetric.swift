@@ -16,7 +16,7 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
     case closeInk
     /// The hover square's distance from the pill's trailing edge.
     case closeTrailing
-    /// The hover square's fill, in percent of the tab's most-contrasting ink (pressed is 2 less).
+    /// The hover plate's fill, in percent of the tab's most-contrasting ink, black or white (pressed is 2 less).
     case closeHoverOpacity
     /// The omnibar's page-info chip's distance from the bar's leading edge.
     case chipLeading
@@ -64,11 +64,11 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
         switch self {
         case .rowHeight: "Tab pill and omnibar height. Helium: 28."
         case .rowGap: "Gap above the tabs, between tabs and omnibar, and under the omnibar. Helium: 3."
-        case .closeSize: "Side of the tab x's hover square. Helium: 14 on a 28 pt tab."
-        case .closeCorner: "Corner of the x's hover square. Helium: 4."
-        case .closeInk: "Side of the x's ink. Helium: 8."
-        case .closeTrailing: "Hover square to the pill's trailing edge. Helium: 6."
-        case .closeHoverOpacity: "Hover fill, percent of the tab's ink; pressed is 2 less, no fade. Helium: 16."
+        case .closeSize: "The tab x's square and icon. Helium: 14 at every density."
+        case .closeCorner: "Corner of the x's hover plate. Helium: 4."
+        case .closeInk: "Side of the x's ink. Helium: 7.83 (its 14 pt icon)."
+        case .closeTrailing: "The x's square to the pill's trailing edge. Helium: 6, or 8 on a tab 32 pt or taller."
+        case .closeHoverOpacity: "Hover fill, percent of black (light) or white (dark); pressed is 2 less, no fade. Helium: 16."
         case .chipLeading: "Bar edge to the page-info chip. Helium: 2."
         case .textOrigin: "Bar edge to the URL's text. Helium: 31."
         }

@@ -22,14 +22,17 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, useLayoutEffect, useRef, useState } from "react";
 import type { Root } from "react-dom/client";
-import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
-import { setChipHost } from "../src/agent-session/acpmux/chips/host";
-import { translate } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { LASTING_MS, setLastingGrace } from "../src/ui/lasting";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { inlineToken } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
+const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
