@@ -33,6 +33,8 @@
  * Off unless CMUX_VM_PAUSED_ADDRESS_RELEASE_HOURS is a positive number.
  */
 
+import { maxMemoryMbForPlan, maxVcpusForPlan } from "./entitlements";
+
 export const VM_ADDRESS_RELEASE_KEY = "addressRelease";
 export const VM_PAUSED_ADDRESS_RELEASE_HOURS_ENV = "CMUX_VM_PAUSED_ADDRESS_RELEASE_HOURS";
 /** Machines one run parks at most; each park is a snapshot plus a destroy. */
@@ -118,4 +120,19 @@ export function addressReleaseIneligibleReason(row: {
   if (typeof metadata.homeVolume === "string" && metadata.homeVolume.length > 0) return "home_volume";
   if (typeof metadata.networkIpv4 !== "string" || !metadata.networkIpv4) return "no_address";
   return null;
+}
+
+/**
+ * True when the row's plan can restore a snapshot of this shape. A machine
+ * the plan could not restore is never parked: its snapshot would be the only
+ * copy, and a resume would refuse it.
+ */
+export function addressReleaseRestorable(
+  billingPlanId: string | null,
+  reservation: { readonly vcpus: number; readonly memoryMb: number },
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  const mutableEnv = env as Record<string, string | undefined>;
+  return reservation.memoryMb <= maxMemoryMbForPlan(billingPlanId, mutableEnv) &&
+    reservation.vcpus <= maxVcpusForPlan(billingPlanId, mutableEnv);
 }

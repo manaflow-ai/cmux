@@ -41,6 +41,9 @@ const network = {
   updatedAt: new Date(),
 };
 
+/** A recorded machine shape the free plan can restore (it allows 8 GB). */
+const SHAPE = { vcpus: 2, memoryMb: 4096, diskMb: 16384 };
+
 let seq = 0;
 function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   seq += 1;
@@ -64,7 +67,7 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     destroyedAt: null,
     failureCode: null,
     failureMessage: null,
-    providerMetadata: { networkIpv4: `10.40.0.${seq % 6 + 1}` },
+    providerMetadata: { networkIpv4: `10.40.0.${seq % 6 + 1}`, cmuxResourceReservation: SHAPE },
     networkPolicy: null,
     networkPolicyStatus: null,
     agentUpdates: null,
@@ -92,6 +95,7 @@ function fleet(rows: CloudVmRow[]): Fleet {
   const destroyed: string[] = [];
   const creates: string[] = [];
   const ownedSnapshots = new Set<string>();
+  const snapshotShapes = new Map<string, { vcpus: number; memoryMb: number; diskMb: number }>();
   const pauseState = new Map<string, VmPauseState>();
   const pauseStateQueue = new Map<string, VmPauseState[]>();
   const f: Fleet = {
@@ -135,7 +139,11 @@ function fleet(rows: CloudVmRow[]): Fleet {
       return parked ? releaseOf(parked)?.successorProviderVmId ?? null : null;
     }),
     hasOwnedSnapshot: (input: { snapshotId: string }) => Effect.sync(() => ownedSnapshots.has(input.snapshotId)),
-    recordSnapshotUsageEventIfMissing: (event: { metadata: { snapshotId: string } }) => Effect.sync(() => { ownedSnapshots.add(event.metadata.snapshotId); }),
+    recordSnapshotUsageEventIfMissing: (event: { metadata: { snapshotId: string; vcpus: number; memoryMb: number; diskMb: number } }) => Effect.sync(() => {
+      ownedSnapshots.add(event.metadata.snapshotId);
+      snapshotShapes.set(event.metadata.snapshotId, { vcpus: event.metadata.vcpus, memoryMb: event.metadata.memoryMb, diskMb: event.metadata.diskMb });
+    }),
+    ownedSnapshotResourceReservation: (input: { snapshotId: string }) => Effect.sync(() => snapshotShapes.get(input.snapshotId) ?? null),
     recordUsageEvent: () => Effect.void,
     recordUsageEvents: () => Effect.void,
     // --- lookups ---
@@ -348,6 +356,16 @@ describe("paused address release: eligibility", () => {
   test("a machine with a home volume is never snapshotted or destroyed", async () => {
     const f = fleet([row({ providerMetadata: { networkIpv4: "10.40.0.2", homeVolume: "home-x" } })]);
     expect(await park(f)).toMatchObject({ checked: 1, parked: 0, skipped: 1 });
+    expect(f.snapshotsTaken).toHaveLength(0);
+    expect(f.destroyed).toHaveLength(0);
+  });
+
+  test("a machine its plan could not restore is never snapshotted or destroyed", async () => {
+    // No recorded shape claims the provider maximum, which the free plan refuses on restore.
+    const unshaped = row({ providerMetadata: { networkIpv4: "10.40.0.2" } });
+    const tooBig = row({ providerMetadata: { networkIpv4: "10.40.0.3", cmuxResourceReservation: { vcpus: 8, memoryMb: 32768, diskMb: 16384 } } });
+    const f = fleet([unshaped, tooBig]);
+    expect(await park(f)).toMatchObject({ checked: 2, parked: 0, skipped: 2 });
     expect(f.snapshotsTaken).toHaveLength(0);
     expect(f.destroyed).toHaveLength(0);
   });
