@@ -435,6 +435,19 @@ def short_tmpdir():
     raise last if last else RuntimeError("no scratch directory")
 
 
+# Debuginfo for the dev and test profiles. `cargo test --workspace` links one binary per integration test file, each
+# with every dependency's full DWARF: optchat-chief's 185 test files filled a runner pool host's disk mid-link, and
+# rust-lld died with SIGBUS on its truncated mmapped output (signal 7 [Bus error], next to "No space left on device"),
+# on every pull request that planned it (2026-11-27). Line tables keep file:line in panics and backtraces.
+SLIM_DEBUGINFO = "line-tables-only"
+
+
+def slim_debuginfo(environ: dict[str, str] | os._Environ[str]) -> dict[str, str]:
+    """CARGO_PROFILE_{DEV,TEST}_DEBUG=line-tables-only, unless the caller already set one."""
+    return {key: SLIM_DEBUGINFO for key in ("CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG")
+            if key not in environ}
+
+
 def run(repo: Path, root: str) -> int:
     entry = next((entry for entry in load_list(repo) if entry.get("root") == root and entry.get("run") is True), None)
     if entry is None:
@@ -449,7 +462,7 @@ def run(repo: Path, root: str) -> int:
     red = []
     # Tests that bind Unix sockets under TMPDIR need a path shorter than SUN_LEN.
     with short_tmpdir() as short_tmp:
-        env = {**os.environ, "TMPDIR": short_tmp}
+        env = {**os.environ, "TMPDIR": short_tmp, **slim_debuginfo(os.environ)}
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)
             # From the workspace so rustup uses the nearest rust-toolchain.toml.
