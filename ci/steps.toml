@@ -425,6 +425,51 @@ python3 tests/test_cmux_next_pair_e2e_guards.py || status=1
 exit "$status"
 '''
 
+# The workflow-shape guards of ci-guards.yml's ci group: each reads every workflow file, so any workflow change can
+# fail it, and a feat-cmux-next pull request skipped all of them (cmux-next-guards.yml's ci-guard-group is Tier B
+# pull_request_skip, scripts/ci/affected-jobs.json). From 11-24 to 11-28 they went red only on the feat-cmux-next
+# push: #58713's repeated env block (fixed by #59095 and #59254), the runs-on lines #60640 and
+# #57979 fixed, a shallow dev fetch (#59181). At c295a9d3 the JIT-label one was red again (web-bundle-matrix.yml's
+# report job, fixed with this step). land_gate: a landing head that changes a workflow runs it too, since two green
+# heads can each add the same key. Inputs are the workflows, not every script: the shallow-fetch guard also reads
+# scripts, and a script-only change that breaks it is left to the post-merge batch. The cache-key guard is not here
+# yet: it is red on the base (11 new per-ref saves), and a blocking step would fail every workflow change.
+[step.ci-workflow-shape-guards]
+job = "linux"
+land_gate = true
+timeout = 300
+title = "Workflow shape guards (repeated keys, JIT labels, runner sizes, runs-on fallbacks, full clones, router mirror)"
+about = "no workflow repeats a key, write-token jobs lead with a JIT label, no job takes one runner size or waits on one machine through a variable, scripts keep full clones full, and the ci router's checkout mirror is registered"
+inputs = [
+  ".github/workflows/**",
+  ".github/actions/**",
+  ".github/single-host-fallbacks.json",
+  "scripts/cmux-next/check-single-host-fallbacks.py",
+  "tests/test_ci_workflows_have_no_repeated_keys.py",
+  "tests/test_ci_write_token_jit_label.py",
+  "tests/test_ci_router_checkout_mirror.py",
+  "tests/test_ci_runs_on_values.py",
+  "tests/test_ci_no_shallow_dev_fetch.py",
+  "tests/test_ci_linux_single_size.py",
+  "tests/test_ci_no_single_size_pins.py",
+]
+run = '''
+# At once: each reads the whole workflow tree (about 20 s alone); one after another they took 2.5 min.
+pids=()
+for t in workflows_have_no_repeated_keys write_token_jit_label router_checkout_mirror runs_on_values \
+         no_shallow_dev_fetch linux_single_size no_single_size_pins; do
+  python3 "tests/test_ci_$t.py" > "$CI_TOOLS/shape-$t.log" 2>&1 &
+  pids+=("$!:$t")
+done
+python3 scripts/cmux-next/check-single-host-fallbacks.py --advisory > "$CI_TOOLS/shape-fallbacks.log" 2>&1 &
+pids+=("$!:fallbacks")
+status=0
+for p in "${pids[@]}"; do
+  if ! wait "${p%%:*}"; then status=1; echo "::error title=workflow shape guard red::${p#*:}"; cat "$CI_TOOLS/shape-${p#*:}.log"; fi
+done
+exit "$status"
+'''
+
 [step.skill-contracts]
 job = "linux"
 timeout = 300

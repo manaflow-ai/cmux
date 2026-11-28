@@ -118,6 +118,18 @@ class NightlyGateTest(unittest.TestCase):
         start, why, (jobs, only) = self.landing(["docs/x.md"])
         self.assertNotIn("web-typecheck", only)
 
+    def test_a_workflow_change_runs_the_workflow_shape_guards_on_the_pr_and_the_landing_head(self) -> None:
+        # cmux#58713 (a repeated env block), #57363 and a runs-on without its JIT label each went red only on the
+        # feat-cmux-next push: ci-guards.yml's ci group, which reads every workflow, never ran on the pull request.
+        t = ci_steps.load()
+        paths = [".github/workflows/web-bundle-matrix.yml"]
+        self.assertIn("ci-workflow-shape-guards", ci_steps.route(t, paths, pr_scope=True)["linux"])
+        self.assertIn("ci-workflow-shape-guards", ci_steps.nightly_gate_steps(t, paths))
+        self.assertNotIn("ci-workflow-shape-guards", ci_steps.route(t, ["docs/x.md"], pr_scope=True).get("linux", []))
+        run = t.steps["ci-workflow-shape-guards"].run
+        for test in ("workflows_have_no_repeated_keys", "write_token_jit_label", "no_shallow_dev_fetch"):
+            self.assertIn(test, run)
+
     def test_the_table_maps_the_nightly_causes(self) -> None:
         steps = ci_steps.load().steps
         for name, paths in (("rust-notices", ["cmux-tui/Cargo.lock"]),
