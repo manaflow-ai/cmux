@@ -325,7 +325,20 @@ def source_identity(expected_commit: str | None, expected_tree: str | None) -> d
         env=git_environment(),
     ).returncode
     if tracked_dirty != 0 or index_dirty != 0:
-        raise ProfileError("checkout has tracked source changes")
+        # Name what changed, so a red run says which step left it (2026-11-27: two runs on persistent Linux runners
+        # refused here with no path to follow).
+        changed = subprocess.run(
+            ["/usr/bin/git", "diff", "--name-status", "HEAD", "--"],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            text=True,
+            env=git_environment(),
+        )
+        lines = (changed.stdout or changed.stderr).strip().splitlines()
+        shown = "; ".join(lines[:10]) + (f"; and {len(lines) - 10} more" if len(lines) > 10 else "")
+        raise ProfileError("checkout has tracked source changes" + (f": {shown}" if shown else ""))
     untracked = git_text(
         "status",
         "--porcelain=v1",
