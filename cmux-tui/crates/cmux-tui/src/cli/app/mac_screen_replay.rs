@@ -182,11 +182,7 @@ pub(super) fn run(global: &GlobalArgs, stream: &mut UnixStream, replay: Replay) 
 /// One line: the decode-to-glass p50 and p95 over the frames presented, or why it has none.
 pub(crate) fn human(report: &Value) -> String {
     let ms = |key: &str, stat: &str| {
-        report
-            .get(key)
-            .and_then(|value| value.get(stat))
-            .and_then(Value::as_f64)
-            .map_or_else(|| "-".to_owned(), |value| format!("{value}"))
+        report[key][stat].as_f64().map_or_else(|| "-".to_owned(), |value| format!("{value}"))
     };
     let presented = report["frames_presented"].as_u64().unwrap_or(0);
     let wanted = report["frames_wanted"].as_u64().unwrap_or(0);

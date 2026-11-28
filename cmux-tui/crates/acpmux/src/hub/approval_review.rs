@@ -168,8 +168,11 @@ fn cap(text: &str, max: usize) -> String {
     if text.len() <= max {
         return text.to_owned();
     }
-    let end = (0..=max).rev().find(|&at| text.is_char_boundary(at)).unwrap_or(0);
-    format!("{} …(cut)", text.get(..end).unwrap_or_default())
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{} …(cut)", &text[..end])
 }
 
 /// The reviewer's brief for `request`, run in `cwd`.

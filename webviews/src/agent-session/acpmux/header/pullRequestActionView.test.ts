@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { settleReact } from "../../../../test/support/domTeardown";
 import { PullRequestActionView, type PullRequestAction } from "./pullRequestActionView";
 import type { HeaderPullRequest } from "./headerState";
 
@@ -167,7 +166,6 @@ test("unrelated header updates retain the pending action and authoritative head"
     });
   } finally {
     await act(async () => root.unmount());
-    await settleReact();
     dom.window.close();
     for (const [key, value] of previous) {
       if (value === undefined) delete globals[key];

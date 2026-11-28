@@ -106,15 +106,15 @@ pub fn apply(state: State, event: Event, cx: &Context) -> Outcome {
             }
         }
         Event::Next if state.shows => {
-            let Some(&step) = STEPS.get(state.step.index().saturating_add(1)) else {
+            let index = state.step.index();
+            if index == STEPS.len() - 1 {
                 return apply(state, Event::Finish, cx);
-            };
-            next.step = step;
+            }
+            next.step = STEPS[index + 1];
             next.write_failed = false;
         }
         Event::Back if state.shows && state.step.index() > 0 => {
-            next.step =
-                STEPS.get(state.step.index().saturating_sub(1)).copied().unwrap_or(state.step);
+            next.step = STEPS[state.step.index() - 1];
             next.write_failed = false;
         }
         Event::Finish if state.shows => {

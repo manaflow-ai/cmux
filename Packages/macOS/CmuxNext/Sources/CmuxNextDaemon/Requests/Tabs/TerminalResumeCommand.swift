@@ -6,7 +6,18 @@ import Foundation
 /// respawns the terminal. Name the terminal by `surface` (a PTY tab showing
 /// it) or `terminal_id` (host id or public `term_` id).
 public struct TerminalResumeCommandRequest: DaemonRequest {
-    public typealias Response = TerminalResumeCommandResult
+    /// The stored resume command after the request.
+    public struct Response: Decodable, Sendable, Equatable {
+        /// The terminal's host id.
+        public var terminalID: TerminalID
+        /// The stored command, nil when none is set.
+        public var command: String?
+
+        enum CodingKeys: String, CodingKey {
+            case command
+            case terminalID = "terminal_id"
+        }
+    }
 
     /// What the request does to the stored command.
     public enum Change: Sendable, Hashable {

@@ -6,7 +6,10 @@ import Foundation
 /// answers. A new call replaces the previous set. Only a verified-app
 /// frontend connection may send it; others get `origin.forbidden`.
 public struct TerminalClipboardSubscribeRequest: DaemonRequest {
-    public typealias Response = TerminalClipboardSubscribeResult
+    public struct Response: Decodable, Sendable {
+        public var clipboardReadReady: Bool
+        enum CodingKeys: String, CodingKey { case clipboardReadReady = "clipboard_read_ready" }
+    }
     public static let command = "terminal-clipboard-subscribe"
     public var terminalIDs: [String]
 
@@ -20,7 +23,10 @@ public struct TerminalClipboardSubscribeRequest: DaemonRequest {
 /// `terminal-clipboard-reply`: answers one `terminal-clipboard-read`. A
 /// string `text` grants it; nil (sent as an absent field) refuses it.
 public struct TerminalClipboardReplyRequest: DaemonRequest {
-    public typealias Response = TerminalClipboardReplyResult
+    public struct Response: Decodable, Sendable {
+        public var accepted: Bool
+        public var granted: Bool
+    }
     public static let command = "terminal-clipboard-reply"
     public var requestID: String
     public var text: String?
