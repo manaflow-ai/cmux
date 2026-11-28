@@ -31,11 +31,12 @@ type Curve = {
 const unit = (n: number) => Math.max(0, Math.min(1, n));
 const span = (a: number, b: number): Range => ({ low: Math.min(a, b), high: Math.max(a, b) });
 const inset = (top: number, bottom: number) => `inset(${top}px -4096px ${bottom}px -4096px)`;
-const cssCurves: Record<string, string> = {
-  ease: "cubic-bezier(0.25, 0.1, 0.25, 1)",
-  "ease-in": "cubic-bezier(0.42, 0, 1, 1)",
-  "ease-out": "cubic-bezier(0, 0, 0.58, 1)",
-  "ease-in-out": "cubic-bezier(0.42, 0, 0.58, 1)",
+// CSS keyword definitions for interpreting an existing animation, not motion choices.
+const cssCurves: Record<string, CubicBezier> = {
+  ease: [0.25, 0.1, 0.25, 1],
+  "ease-in": [0.42, 0, 1, 1],
+  "ease-out": [0, 0, 0.58, 1],
+  "ease-in-out": [0.42, 0, 0.58, 1],
 };
 const curves = new Map<string, Curve>();
 
@@ -77,14 +78,14 @@ function parseLinearStops(stops: readonly string[]): { x: number; y: number }[] 
 function curve(text: string): Curve {
   const cached = curves.get(text);
   if (cached) return cached;
-  const easing = cssCurves[text] ?? text.trim();
+  const easing = text.trim();
   let result: Curve;
   if (easing === "linear") {
     result = { range: (a, b) => span(unit(a), unit(b)), monotone: true };
   } else {
     // Unlike the curve editor's parser, CSS permits arbitrary y control points. Include
     // derivative roots, so an overshooting custom curve is bounded by its extrema too.
-    const cubic = /^cubic-bezier\(([^)]+)\)$/.exec(easing)?.[1]?.split(",").map(Number);
+    const cubic = cssCurves[easing] ?? /^cubic-bezier\(([^)]+)\)$/.exec(easing)?.[1]?.split(",").map(Number);
     const linear = /^linear\(([^)]+)\)$/
       .exec(easing)?.[1]
       ?.split(",")
