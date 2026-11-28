@@ -15,7 +15,8 @@
     "ConversationPart": "ConversationPart",
     "ConversationReactionKind": "ConversationReactionKind",
     "NameSource": "WorkspaceNameSource",
-    "SplitDirection": "SplitDirection"
+    "SplitDirection": "SplitDirection",
+    "ViewAttachmentOutcome": "LeaseOutcome"
   },
   "families": {
     "Agents": {
@@ -2590,7 +2591,7 @@
       }
     },
     "TerminalIO": {
-      "$comment": "Hand-written still: the clipboard subscribe and reply, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work).",
+      "$comment": "Hand-written still: the clipboard subscribe and reply, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work).",
       "enums": {},
       "requests": {
         "send-key": {
@@ -2828,6 +2829,49 @@
             }
           },
           "response": "EmptyResponse"
+        },
+        "release-attached-view-size": {
+          "name": "ReleaseAttachedViewSizeRequest",
+          "allow_unadvertised_capability": "view-attachment-lease-v1",
+          "order": [
+            "surface",
+            "lease"
+          ],
+          "omit": [
+            "view"
+          ],
+          "response": "generate"
+        },
+        "set-size-counts": {
+          "name": "SetSizeCountsRequest",
+          "allow_unadvertised_capability": "shared-sizing-v1",
+          "doc": [
+            "Sets (`false`) or clears (`nil`) the counts-toward-size override of the caller's leased view",
+            "(`shared-sizing-v1`); the lease, stream and viewport stay."
+          ],
+          "order": [
+            "surface",
+            "lease",
+            "counts"
+          ],
+          "omit": [
+            "client",
+            "view",
+            "participant"
+          ],
+          "response": "generate"
+        },
+        "detach-attached-view": {
+          "name": "DetachAttachedViewRequest",
+          "allow_unadvertised_capability": "view-attachment-detach-v1",
+          "order": [
+            "surface",
+            "lease"
+          ],
+          "omit": [
+            "view"
+          ],
+          "response": "generate"
         }
       },
       "objects": {

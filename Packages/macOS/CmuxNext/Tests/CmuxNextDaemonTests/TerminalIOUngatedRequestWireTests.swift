@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The exact request lines `set-attach-visibility`, `cancel-creating-input` and `clear-history` send, and that they stay
+/// The exact request lines `set-attach-visibility`, `cancel-creating-input`, `clear-history` and the lease requests send, and that they stay
 /// ungated (the app sent them before the daemon advertised their capabilities). These bytes are the contract the
 /// generated types (swift_app bindings, family TerminalIO) keep with the hand-written ones they replaced.
 struct TerminalIOUngatedRequestWireTests {
@@ -30,5 +30,19 @@ struct TerminalIOUngatedRequestWireTests {
             + #""key":"k","macos_option_as_alt":true,"mods":"# + mods + #"true},"unshifted_codepoint":"k","utf8":""},"#
             + #""id":7,"surface":4}"#)
         #expect(ClearHistoryRequest.requiredCapability == nil)
+    }
+
+    @Test func leaseRequests() throws {
+        #expect(try line(ReleaseAttachedViewSizeRequest(surface: 4, lease: "l1"))
+            == #"{"cmd":"release-attached-view-size","id":7,"lease":"l1","surface":4}"#)
+        #expect(try line(DetachAttachedViewRequest(surface: 4, lease: "l1"))
+            == #"{"cmd":"detach-attached-view","id":7,"lease":"l1","surface":4}"#)
+        #expect(try line(SetSizeCountsRequest(surface: 4, lease: "l1", counts: false))
+            == #"{"cmd":"set-size-counts","counts":false,"id":7,"lease":"l1","surface":4}"#)
+        #expect(try line(SetSizeCountsRequest(surface: 4, lease: "l1", counts: nil))
+            == #"{"cmd":"set-size-counts","id":7,"lease":"l1","surface":4}"#)
+        #expect(ReleaseAttachedViewSizeRequest.requiredCapability == nil)
+        #expect(DetachAttachedViewRequest.requiredCapability == nil)
+        #expect(SetSizeCountsRequest.requiredCapability == nil)
     }
 }
