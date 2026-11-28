@@ -57,6 +57,9 @@ pub struct IdleFacts {
     pub declined_installs: u32,
     /// Seconds since the last declined install; none when there was none.
     pub seconds_since_decline: Option<f64>,
+    /// Seconds the staged update has waited for the person to be away; none when unknown (an older
+    /// app). Past [`ESCALATE_AFTER_SECONDS`] a short break in input is away enough ([`BREAK_IDLE_SECONDS`]).
+    pub staged_seconds: Option<f64>,
 }
 
 impl Default for IdleFacts {
@@ -69,7 +72,28 @@ impl Default for IdleFacts {
             screen_locked: None,
             declined_installs: 0,
             seconds_since_decline: None,
+            staged_seconds: None,
         }
+    }
+}
+
+/// How long a staged update waits for the full idle time before a natural break will do, in seconds.
+/// Leo, 2026-11-27: "well clearly we need to fix auto updating for everybody": a person who is at the
+/// keyboard all day never reaches 15 idle minutes, so the update never installed. The relaunch keeps
+/// every terminal, agent host and running turn, so a pause in typing is a safe moment for it.
+pub const ESCALATE_AFTER_SECONDS: f64 = 2.0 * 3600.0;
+/// The input quiet time that counts as a natural break once the update has waited
+/// [`ESCALATE_AFTER_SECONDS`], in seconds. An unsent draft and an unreadable input time still hold.
+pub const BREAK_IDLE_SECONDS: f64 = 60.0;
+
+/// The idle time the install needs now: the setting's, or a natural break once the update has waited long.
+pub fn needed_idle_seconds(idle_minutes: f64, staged_seconds: Option<f64>) -> f64 {
+    let needed = idle_seconds(idle_minutes);
+    match staged_seconds {
+        Some(staged) if staged.is_finite() && staged >= ESCALATE_AFTER_SECONDS => {
+            needed.min(BREAK_IDLE_SECONDS)
+        }
+        _ => needed,
     }
 }
 
@@ -181,13 +205,15 @@ pub fn decide(facts: &IdleFacts) -> Decision {
     if !facts.enabled {
         return Decision::hold(Hold::Off);
     }
-    let away =
-        match away(facts.input_idle_seconds, facts.screen_locked, idle_seconds(facts.idle_minutes))
-        {
-            Ok(away) => away,
-            Err(None) => return Decision::hold(Hold::Unknown),
-            Err(Some(seconds_left)) => return Decision::hold(Hold::NotIdle { seconds_left }),
-        };
+    let away = match away(
+        facts.input_idle_seconds,
+        facts.screen_locked,
+        needed_idle_seconds(facts.idle_minutes, facts.staged_seconds),
+    ) {
+        Ok(away) => away,
+        Err(None) => return Decision::hold(Hold::Unknown),
+        Err(Some(seconds_left)) => return Decision::hold(Hold::NotIdle { seconds_left }),
+    };
     if facts.declined_installs > 0 {
         let wait = retry_after_seconds(facts.declined_installs);
         // A decline with no time read is as recent as can be: wait the whole backoff.

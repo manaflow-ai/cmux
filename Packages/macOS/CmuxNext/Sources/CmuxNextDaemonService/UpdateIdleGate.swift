@@ -18,6 +18,11 @@ public final class UpdateIdleGate {
     private weak var daemon: DaemonService?
     private let newChatDrafts: @MainActor () -> Int?
     private let rules = WindowRules()
+    /// When the staged update began waiting (the gate is asked once a second while one waits; a gap longer than
+    /// ``waitGap`` is a new wait), so the rule can accept a natural break after two hours.
+    private var waitingSince: Date?
+    private var lastAsked: Date?
+    private static let waitGap: TimeInterval = 30
 
     /// - Parameter newChatDrafts: new chats' typed text the app keeps before they have a session; nil unknown.
     public init(activity: UpdateAgentActivity, daemon: DaemonService, newChatDrafts: @escaping @MainActor () -> Int?) {
@@ -45,10 +50,14 @@ public final class UpdateIdleGate {
     /// `declined`/`sinceDecline`: automatic installs declined in a row and seconds since the last (the backoff).
     public func hold(idleMinutes: Double, lastInput: Date? = nil, declined: Int = 0,
                      sinceDecline: Double? = nil) -> (hold: WindowRules.UpdateIdleHold?, away: String?) {
+        let asked = Date()
+        if lastAsked.map({ asked.timeIntervalSince($0) > Self.waitGap }) ?? true { waitingSince = asked }
+        lastAsked = asked
         let inputIdle = lastInput.map { Date().timeIntervalSince($0) } ?? DaemonService.secondsSinceInput()
         var facts = WindowRules.UpdateIdleFacts(enabled: true, idleMinutes: idleMinutes, inputIdleSeconds: inputIdle,
                                                 screenLocked: lastInput == nil ? Self.screenLocked() : nil,
-                                                declinedInstalls: declined, secondsSinceDecline: sinceDecline)
+                                                declinedInstalls: declined, secondsSinceDecline: sinceDecline,
+                                                stagedSeconds: waitingSince.map { asked.timeIntervalSince($0) })
         // Away first: while the person is at the Mac nothing else is read.
         switch rules.updateIdleHold(facts) {
         case .notIdle?: return (.notIdle, nil)

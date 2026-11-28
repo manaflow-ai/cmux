@@ -20,6 +20,35 @@ fn installs_after_the_idle_time_with_nothing_running() {
     assert!(decide(&idle(90.0)).install);
 }
 
+/// A person at the keyboard all day: a staged update that has waited two hours installs at a
+/// one-minute break in input, and before that still needs the full idle time.
+#[test]
+fn a_long_waiting_update_installs_at_a_natural_break() {
+    let early = IdleFacts { staged_seconds: Some(3600.0), ..idle(2.0) };
+    assert!(matches!(decide(&early).hold, Some(Hold::NotIdle { .. })));
+    let late = IdleFacts { staged_seconds: Some(ESCALATE_AFTER_SECONDS), ..idle(2.0) };
+    assert!(decide(&late).install);
+    let typing = IdleFacts { staged_seconds: Some(9.0 * 3600.0), ..idle(0.5) };
+    assert_eq!(decide(&typing).hold, Some(Hold::NotIdle { seconds_left: 30.0 }));
+}
+
+/// The break never overrides an unsent draft or an unreadable input time.
+#[test]
+fn a_natural_break_still_respects_drafts_and_unknowns() {
+    let facts =
+        IdleFacts { staged_seconds: Some(9.0 * 3600.0), unsent_drafts: Some(1), ..idle(5.0) };
+    assert_eq!(decide(&facts).hold, Some(Hold::UnsentDraft));
+    let facts =
+        IdleFacts { staged_seconds: Some(9.0 * 3600.0), input_idle_seconds: None, ..idle(5.0) };
+    assert_eq!(decide(&facts).hold, Some(Hold::Unknown));
+    // an older app sends no staged time: the full idle time applies
+    let old: IdleFacts = serde_json::from_value(serde_json::json!({
+        "enabled": true, "idleMinutes": 15, "inputIdleSeconds": 300, "unsentDrafts": 0
+    }))
+    .unwrap();
+    assert!(matches!(decide(&old).hold, Some(Hold::NotIdle { .. })));
+}
+
 /// Off by default: a default request never installs.
 #[test]
 fn the_setting_off_never_installs() {
