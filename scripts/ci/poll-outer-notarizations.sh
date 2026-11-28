@@ -46,7 +46,9 @@ done
 OUT="${GITHUB_OUTPUT:-/dev/stdout}"
 now() { date +%s; }
 mkdir -p "$REPORTS"
-mapfile -t variants < "$VARIANTS_FILE"
+# No mapfile: this runs on macOS runners, whose /bin/bash 3.2 has no mapfile (see kit_sim_fleet.sh, #63758).
+variants=()
+while IFS= read -r line || [ -n "$line" ]; do variants+=("$line"); done < "$VARIANTS_FILE"
 if [ "${#variants[@]}" -eq 0 ]; then
   printf 'decided=false\nouter_variants=[]\n' >> "$OUT"
   exit 0
