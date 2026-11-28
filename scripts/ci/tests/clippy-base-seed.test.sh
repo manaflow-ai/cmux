@@ -22,12 +22,12 @@ cat > "$work/repo/scripts/ci/cargo-target-delta.sh" <<F
 echo "delta \$*" >> "$log"
 exit 0
 F
-run() { bash "$work/repo/scripts/ci/clippy-base-seed.sh" restore "$@"; }
+run() { CARGO_HOME="$work/fleet-cargo" CMUX_CLIPPY_SEED_CARGO_HOME="$work/fleet-cargo" bash "$work/repo/scripts/ci/clippy-base-seed.sh" restore "$@"; }
 
 : > "$log"; run "$work/cold" >/dev/null 2>&1
 check "cold target restores the deps entry, the ws delta, then applies" \
   '[[ "$(grep -c "^r2 restore" "$log")" == 2 && "$(grep -c "^delta apply" "$log")" == 1 ]]'
-check "the deps key carries the 16-hex input hash" 'grep -Eq "seed-deps-v1-[0-9a-f]{16} " "$log"'
+check "the deps key carries the 16-hex input hash" 'grep -Eq "seed-deps-v2-[0-9a-f]{16} " "$log"'
 
 mkdir -p "$work/warm/release/.fingerprint"; : > "$log"; run "$work/warm" >/dev/null 2>&1
 check "a warm target is left alone" '[[ ! -s "$log" ]]'
@@ -37,6 +37,10 @@ check "CMUX_CLIPPY_BASE_SEED=off does nothing" '[[ ! -s "$log" ]]'
 
 : > "$log"; FAKE_R2_FAIL=1 run "$work/cold3" >/dev/null 2>&1; rc=$?
 check "a miss is not fatal" '[[ $rc == 0 ]]'
+
+: > "$log"; CARGO_HOME="$work/runner-cargo" CMUX_CLIPPY_SEED_CARGO_HOME="$work/fleet-cargo" bash "$work/repo/scripts/ci/clippy-base-seed.sh" restore "$work/cold4" >/dev/null 2>&1; rc=$?
+check "another CARGO_HOME than the seed's skips the restore" '[[ $rc == 0 && ! -s "$log" ]]'
+check "cargo-home prints the seed's CARGO_HOME" '[[ "$(CMUX_CLIPPY_SEED_CARGO_HOME=/x/cargo bash "$work/repo/scripts/ci/clippy-base-seed.sh" cargo-home)" == /x/cargo ]]'
 
 verdict() { bash "$work/repo/scripts/ci/clippy-base-seed.sh" verdict "$@"; }
 : > "$log"; verdict "$work/v" abc123 >/dev/null 2>&1; rc=$?
