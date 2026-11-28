@@ -429,6 +429,7 @@ pub struct ViewportSync {
     jitter: bool,
     copies_sent: u64,
     copy_bytes: u64,
+    send_errors: SendErrors,
 }
 
 /// Below this much round-trip spread the copies would only spend bytes (good wifi's few ms).
@@ -493,6 +494,7 @@ impl ViewportSync {
             jitter: false,
             copies_sent: 0,
             copy_bytes: 0,
+            send_errors: SendErrors::default(),
         }
     }
 
@@ -848,6 +850,11 @@ impl ViewportSync {
         (self.copies_sent, self.copy_bytes)
     }
 
+    /// The sends the socket refused under this epoch, by class ([`SendErrors`]).
+    pub fn send_errors(&self) -> SendErrors {
+        self.send_errors
+    }
+
     fn probe_at(&self, now: Instant) -> Option<Instant> {
         let selector = self.selector.as_ref()?;
         self.probe.as_ref()?;
@@ -1016,6 +1023,92 @@ pub trait DatagramIo: Send {
 /// A UDP socket's payload under a 1280-byte IPv6 minimum MTU path, with room for headers.
 pub const UDP_MAX_DATAGRAM: usize = 1200;
 
+/// What a refused send means for the driver ([`SendErrors::record`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendError {
+    /// Larger than the path or the session takes (`EMSGSIZE`): that datagram is lost. Above
+    /// 0 at [`UDP_MAX_DATAGRAM`] the 1200-byte pin is wrong for the path.
+    TooLarge,
+    /// No room right now (`ENOBUFS`, a full send queue): that datagram is lost.
+    NoBuffers,
+    /// The path refused it (`EPERM`, `EACCES`, unreachable, ICMP refused): that datagram is
+    /// lost; the next may go once the path or the firewall changes.
+    Refused,
+    /// Anything else transient: that datagram is lost.
+    Other,
+    /// The socket or session is gone (`EPIPE`, `ENOTCONN`, the tunnel shut down): every later
+    /// send fails too, so the driver ends instead of sending into it.
+    Fatal,
+}
+
+impl SendError {
+    pub fn classify(error: &io::Error) -> SendError {
+        match error.raw_os_error() {
+            Some(libc::EMSGSIZE) => return SendError::TooLarge,
+            Some(libc::ENOBUFS | libc::EAGAIN) => return SendError::NoBuffers,
+            Some(
+                libc::EPERM | libc::EACCES | libc::ECONNREFUSED | libc::EHOSTUNREACH | libc::ENETUNREACH,
+            ) => {
+                return SendError::Refused;
+            }
+            Some(libc::EPIPE | libc::ENOTCONN | libc::EBADF) => return SendError::Fatal,
+            _ => {}
+        }
+        match error.kind() {
+            io::ErrorKind::WouldBlock => SendError::NoBuffers,
+            io::ErrorKind::PermissionDenied
+            | io::ErrorKind::ConnectionRefused
+            | io::ErrorKind::HostUnreachable
+            | io::ErrorKind::NetworkUnreachable => SendError::Refused,
+            io::ErrorKind::BrokenPipe | io::ErrorKind::NotConnected => SendError::Fatal,
+            _ => SendError::Other,
+        }
+    }
+}
+
+/// Sends the socket refused, by class: each one a dropped datagram the next state or the resend
+/// covers (a [`SendError::Fatal`] one ends the driver).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SendErrors {
+    pub too_large: u64,
+    pub no_buffers: u64,
+    pub refused: u64,
+    pub other: u64,
+    pub fatal: u64,
+}
+
+impl SendErrors {
+    /// Counts `error` and says what it was.
+    pub fn record(&mut self, error: &io::Error) -> SendError {
+        let class = SendError::classify(error);
+        let counter = match class {
+            SendError::TooLarge => &mut self.too_large,
+            SendError::NoBuffers => &mut self.no_buffers,
+            SendError::Refused => &mut self.refused,
+            SendError::Other => &mut self.other,
+            SendError::Fatal => &mut self.fatal,
+        };
+        *counter += 1;
+        class
+    }
+
+    pub fn total(&self) -> u64 {
+        self.too_large + self.no_buffers + self.refused + self.other + self.fatal
+    }
+}
+
+/// A WireGuard datagram error as the [`SendError`] classes read it.
+fn wg_io_error(error: cmux_wg::WgError) -> io::Error {
+    match error {
+        cmux_wg::WgError::DatagramTooLarge { .. } => io::Error::from_raw_os_error(libc::EMSGSIZE),
+        cmux_wg::WgError::Shutdown => {
+            io::Error::new(io::ErrorKind::BrokenPipe, "the WireGuard session ended")
+        }
+        cmux_wg::WgError::Io(error) => error,
+        error => io::Error::other(error),
+    }
+}
+
 impl DatagramIo for UdpSocket {
     fn max_datagram(&self) -> usize {
         UDP_MAX_DATAGRAM
@@ -1039,7 +1132,7 @@ impl DatagramIo for WgDatagramSocket {
     }
 
     async fn send_to(&self, payload: &[u8], peer: SocketAddr) -> io::Result<()> {
-        WgDatagramSocket::send_to(self, payload, peer, Priority::Interactive).await.map_err(io::Error::other)
+        WgDatagramSocket::send_to(self, payload, peer, Priority::Interactive).await.map_err(wg_io_error)
     }
 
     async fn recv_from(&mut self) -> io::Result<(Vec<u8>, SocketAddr)> {
@@ -1117,8 +1210,13 @@ async fn drive<I: DatagramIo>(
         let now = Instant::now();
         if let Some(peer) = peer {
             for datagram in sync.poll(now) {
-                // A refused send is a lost datagram: the next state or the resend covers it.
-                let _ = io.send_to(&datagram, peer).await;
+                // A refused send is a lost datagram, counted by class: the next state or the
+                // resend covers it. A gone socket ends the driver instead of sending into it.
+                if let Err(error) = io.send_to(&datagram, peer).await
+                    && sync.send_errors.record(&error) == SendError::Fatal
+                {
+                    return Err(error);
+                }
             }
         }
         if let (Some(path), Sink::Selected(stream)) = (sync.take_switch(), &sink) {
@@ -1193,6 +1291,8 @@ async fn drive<I: DatagramIo>(
 mod tests {
     use super::*;
     use cmux_terminal_projection::sync::SyncReceiver;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     fn driver(now: Instant) -> ViewportSync {
         ViewportSync::new(80, 24, UDP_MAX_DATAGRAM, Config::default(), now)
@@ -1660,5 +1760,122 @@ mod tests {
         assert!(sync.settled());
         let receiver = phone_task.await.unwrap();
         assert_eq!(receiver.screen(), Some(&sync.capture()));
+    }
+
+    #[test]
+    fn viewport_sync_send_errors_classify_by_what_the_next_send_can_expect() {
+        let os = io::Error::from_raw_os_error;
+        assert_eq!(SendError::classify(&os(libc::EMSGSIZE)), SendError::TooLarge);
+        assert_eq!(SendError::classify(&os(libc::ENOBUFS)), SendError::NoBuffers);
+        assert_eq!(SendError::classify(&io::Error::from(io::ErrorKind::WouldBlock)), SendError::NoBuffers);
+        assert_eq!(SendError::classify(&os(libc::EPERM)), SendError::Refused);
+        assert_eq!(SendError::classify(&os(libc::ECONNREFUSED)), SendError::Refused);
+        assert_eq!(SendError::classify(&os(libc::EPIPE)), SendError::Fatal);
+        assert_eq!(SendError::classify(&io::Error::from(io::ErrorKind::NotConnected)), SendError::Fatal);
+        assert_eq!(SendError::classify(&io::Error::other("odd")), SendError::Other);
+        let too_large = wg_io_error(cmux_wg::WgError::DatagramTooLarge { len: 1500, max: 1200 });
+        assert_eq!(SendError::classify(&too_large), SendError::TooLarge);
+        assert_eq!(SendError::classify(&wg_io_error(cmux_wg::WgError::Shutdown)), SendError::Fatal);
+    }
+
+    /// A UDP socket behind a path narrower than the driver was told: every send above `path`
+    /// bytes is refused with `EMSGSIZE`, as a kernel with path MTU discovery on refuses it.
+    struct NarrowPath {
+        socket: UdpSocket,
+        path: usize,
+        refused: Arc<AtomicU64>,
+        delivered: Arc<AtomicU64>,
+        fatal_after: Option<u64>,
+    }
+
+    impl DatagramIo for NarrowPath {
+        fn max_datagram(&self) -> usize {
+            1500
+        }
+
+        async fn send_to(&self, payload: &[u8], peer: SocketAddr) -> io::Result<()> {
+            let sends = self.refused.load(Ordering::Relaxed) + self.delivered.load(Ordering::Relaxed);
+            if self.fatal_after.is_some_and(|after| sends >= after) {
+                return Err(io::Error::from_raw_os_error(libc::EPIPE));
+            }
+            if payload.len() > self.path {
+                self.refused.fetch_add(1, Ordering::Relaxed);
+                return Err(io::Error::from_raw_os_error(libc::EMSGSIZE));
+            }
+            self.delivered.fetch_add(1, Ordering::Relaxed);
+            DatagramIo::send_to(&self.socket, payload, peer).await
+        }
+
+        async fn recv_from(&mut self) -> io::Result<(Vec<u8>, SocketAddr)> {
+            DatagramIo::recv_from(&mut self.socket).await
+        }
+    }
+
+    async fn narrow_path_drill(fatal_after: Option<u64>) -> (io::Result<ViewportSync>, u64, u64) {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let phone = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        phone.connect(socket.local_addr().unwrap()).await.unwrap();
+        let refused = Arc::new(AtomicU64::new(0));
+        let delivered = Arc::new(AtomicU64::new(0));
+        let io = NarrowPath {
+            socket,
+            path: 600,
+            refused: Arc::clone(&refused),
+            delivered: Arc::clone(&delivered),
+            fatal_after,
+        };
+        // The pin the driver believes (1500) is wider than the path (600).
+        let config = Config { initial_rate: 50_000_000.0, ..Config::default() };
+        let sync = ViewportSync::new(160, 48, 1500, config, Instant::now());
+        let (output, batches) = mpsc::channel(1024);
+        let peer = Some(phone.local_addr().unwrap());
+        let host = tokio::spawn(run(sync, io, peer, batches, None, Duration::from_millis(300)));
+        let acker = tokio::spawn(async move {
+            let mut receiver = SyncReceiver::new();
+            let mut buffer = vec![0_u8; 64 * 1024];
+            while let Ok(Ok(n)) =
+                tokio::time::timeout(Duration::from_millis(500), phone.recv(&mut buffer)).await
+            {
+                if let Some(ack) = receiver.on_datagram(&buffer[..n]) {
+                    let _ = phone.send(&ack).await;
+                }
+            }
+        });
+        // A burst of full-width redraws: diffs well above 600 bytes, many datagrams each.
+        for i in 0..1_000 {
+            let line = format!(
+                "\x1b[{};1H{}",
+                i % 48 + 1,
+                char::from(b'a' + (i % 26) as u8).to_string().repeat(160)
+            );
+            if output.send(line.into_bytes()).await.is_err() {
+                break;
+            }
+            if i % 50 == 0 {
+                tokio::task::yield_now().await;
+            }
+        }
+        drop(output);
+        let result = host.await.unwrap();
+        acker.abort();
+        (result, refused.load(Ordering::Relaxed), delivered.load(Ordering::Relaxed))
+    }
+
+    #[tokio::test]
+    async fn viewport_sync_drops_and_counts_every_oversized_send_and_keeps_sending() {
+        let (result, refused, delivered) = narrow_path_drill(None).await;
+        let sync = result.expect("an oversized send never ends the driver");
+        let errors = sync.send_errors();
+        assert!(refused > 0, "the drill refused nothing");
+        assert_eq!(errors.too_large, refused, "every EMSGSIZE counted");
+        assert_eq!(errors.total(), refused);
+        assert!(delivered > 0, "sends under the path still went out after the refusals");
+    }
+
+    #[tokio::test]
+    async fn viewport_sync_ends_on_a_send_into_a_gone_socket() {
+        let (result, _, _) = narrow_path_drill(Some(20)).await;
+        let error = result.err().expect("a gone socket ends the driver");
+        assert_eq!(SendError::classify(&error), SendError::Fatal);
     }
 }
