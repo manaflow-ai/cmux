@@ -15,6 +15,7 @@ import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
 import { currentCloudPlan } from "./cloudMachines";
 import type { CloudSize } from "./cloudPlans";
+import { isEffortOption } from "./heldOptions";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
@@ -567,12 +568,26 @@ export function cloudRunsHere(answer: CloudStartAnswer): boolean {
 /// The picker's effort and account for a Cloud start (cmux-tui/docs/model-connections.md, "The picker's
 /// model and account in Cloud"): the effort the composer shows, and the chat's route when the Account
 /// menu bound one. A route that is not a connection id (acpmux `cloud_model_plane::is_connection_id`) is left out.
-export function cloudPickExtras(summary: { effort?: string; route?: string } | undefined): {
+///
+/// Before a session reports its effort (`summary.effort` unset: a New Tab, a chat whose harness is still starting), a
+/// level picked on the chip is held on the summary's effort option (harnessSwitch.ts switchView), which the chip
+/// draws; that level goes. Austin: "The user picks it, dont change what thr hser picks, always persist it". Before, it
+/// was dropped and the Cloud chat ran, and then showed, the machine's start level.
+export function cloudPickExtras(
+  summary:
+    | {
+        effort?: string;
+        route?: string;
+        configOptions?: readonly { id: string; category?: string | null; currentValue?: unknown }[];
+      }
+    | undefined,
+): {
   effort?: string;
   account?: string;
 } {
-  const effort =
-    summary?.effort && summary.effort !== "default" && summary.effort.length <= 128 ? summary.effort : undefined;
+  const held = summary?.configOptions?.find((option) => isEffortOption(option))?.currentValue;
+  const shown = summary?.effort ?? (typeof held === "string" ? held : undefined);
+  const effort = shown && shown !== "default" && shown.length <= 128 ? shown : undefined;
   const account = summary?.route && /^[A-Za-z0-9._:@-]{1,128}$/.test(summary.route) ? summary.route : undefined;
   return { ...(effort ? { effort } : {}), ...(account ? { account } : {}) };
 }
