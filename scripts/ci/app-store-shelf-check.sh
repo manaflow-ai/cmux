@@ -29,12 +29,28 @@ if ! grep -q 'test target: hit' "$restore_log"; then
   export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-0}" CARGO_PROFILE_TEST_DEBUG="${CARGO_PROFILE_TEST_DEBUG:-0}"
 fi
 rm -f "$restore_log"
+shelf_tests() {
+  cargo test --locked -p cmux-tui --test it -- \
+    every_shipped_store_listing_has_an_open_target_or_working_setting_switch \
+    a_command_only_store_listing_has_nothing_to_open_after_install \
+    a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed \
+    --test-threads=1 2>&1 | tee "$log"
+}
 build_start=$SECONDS
-cargo test --locked -p cmux-tui --test it -- \
-  every_shipped_store_listing_has_an_open_target_or_working_setting_switch \
-  a_command_only_store_listing_has_nothing_to_open_after_install \
-  a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed \
-  --test-threads=1 2>&1 | tee "$log"
+# A warm hit keeps line tables, so a changed acpmux rebuilds with them, and its lib's rustc alone outgrows a cmux-linux
+# slot's memory.max 14 GiB: the kernel SIGKILLed it (App Store shelf runs 46146928148, 46149212418, 46169673311 on
+# feat-cmux-next, 2026-11-28, `rustc --crate-name acpmux ... -C debuginfo=line-tables-only` "signal: 9, SIGKILL"),
+# while the shelf cargo seed's debug-0 build of the same acpmux fits there (run 46184000208). One retry without debug
+# info, as a miss builds, rather than a red that judged no listing.
+status=0
+shelf_tests || status=$?
+if (( status != 0 )) && [[ "${CARGO_PROFILE_DEV_DEBUG:-}" != 0 ]] && grep -q 'signal: 9, SIGKILL' "$log"; then
+  echo "::warning title=App Store shelf::a rustc was SIGKILLed (memory) on the warm line-tables build; retrying without debug info"
+  export CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+  status=0
+  shelf_tests || status=$?
+fi
+(( status == 0 )) || exit "$status"
 echo "app store shelf: cargo build and test $((SECONDS - build_start)) s, $(grep -cE '^ +Compiling ' "$log" || true) crates compiled"
 # A filter that matches nothing passes with 0 tests: that judged nothing.
 grep -Eq 'test result: ok\. 3 passed' "$log" || {
