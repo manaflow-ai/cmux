@@ -100,7 +100,8 @@ if [[ ",${rows:-mcp_tools}," == *,mcp_tools,* ]]; then
   echo '{"agents":{"cmuxMcp":"on"}}' > "$config" || exit 3
 fi
 if [[ ",${rows:-chat_widget}," == *,chat_widget,* ]]; then
-  # Only the disposable copy opts into chat widgets; preserve its other settings.
+  # Read only: the user-only experiment must already be enabled. The live row
+  # records a failed prerequisite in its artifact if it is unavailable.
   python3 - "$config" <<'PY' || exit 3
 import importlib.util
 import json
@@ -112,7 +113,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 receipt = module.prepare_test_copy_config(Path(sys.argv[1]))
 print("ERW chat widget config " + json.dumps(receipt), flush=True)
-sys.exit(0 if receipt.get("ok") is True else 3)
+# Effective settings are checked after launch; preserve the failed-row artifact.
 PY
 fi
 "$side" launch "$name" >&2 || exit 3
