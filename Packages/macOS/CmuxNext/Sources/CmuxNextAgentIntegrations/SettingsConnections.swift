@@ -1,3 +1,4 @@
+public import CmuxNextActions
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -113,6 +114,21 @@ public final class SettingsConnections: PageProvider {
         }
         await refresh()
         return answer
+    }
+
+    /// The `connections.connect` effect, a chat's Connect card (webviews githubConnect.ts: a tool call that
+    /// answered needs_auth, or a service the agent named): ``connectFromChat(name:returnTo:)`` for the
+    /// invocation's `service` and `returnTo` (checked by the pane). On a reason SHOWINTEGRATIONS opens
+    /// Settings > Integrations and the chat reads why.
+    public func chatConnectEffect(_ invocation: ActionInvocation, showIntegrations: @escaping @MainActor () -> Void) -> ActionEffect {
+        let name = invocation["service"]?.stringValue ?? "", returnTo = invocation["returnTo"]?.stringValue
+        return .applied(result: {
+            guard let reason = await self.connectFromChat(name: name, returnTo: returnTo) else {
+                return .success(["status": .string("ok"), "service": .string(name)])
+            }
+            showIntegrations()
+            return .failure(ActionWorkFailure(reason))
+        })
     }
 
     /// A chat's Connect card (`connections.connect`: a tool call that answered needs_auth, or a service the
