@@ -192,7 +192,7 @@ function answer(p: Play, method: string, params: Record<string, any> = {}): unkn
       const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
       if (params.promptIndex === true)
         return {
-          events: records.filter((event) => event.kind === "user_message" && event.seq < before),
+          events: process.env.NO_PROMPT_INDEX === "1" ? [] : records.filter((event) => event.kind === "user_message" && event.seq < before),
           hasMore: false,
           lastSeq: p.served,
         };
