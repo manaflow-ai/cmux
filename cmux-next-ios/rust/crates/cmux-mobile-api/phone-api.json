@@ -11545,6 +11545,7 @@
         "chunkDeltas": true,
         "class": true,
         "cliHost": true,
+        "cloudRegistryId": true,
         "compression": true,
         "context": true,
         "createKey": true,
@@ -16296,6 +16297,18 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "wchan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/acpmux.Wchan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What it sleeps on (RFD 0179 idea 12): its oldest tool call in flight; null while none is."
         }
       },
       "required": [
@@ -16306,7 +16319,8 @@
         "stalledSince",
         "startedAt",
         "turnId",
-        "turnSeq"
+        "turnSeq",
+        "wchan"
       ],
       "type": "object"
     },
@@ -16554,6 +16568,43 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "acpmux.Wchan": {
+      "description": "A running turn's oldest tool call in flight (`TurnSummary::wchan`, `hub/activity.rs`).",
+      "properties": {
+        "boundMs": {
+          "description": "The bound it declared at its start (`rawInput.timeout`, ms); null when it declared none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "startedAt": {
+          "description": "When acpmux first saw it, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "title": {
+          "description": "Its title, masked (`secret_scan`) and cut; null while untitled.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "toolCallId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "boundMs",
+        "startedAt",
+        "title",
+        "toolCallId"
+      ],
       "type": "object"
     },
     "daemon.ActivitySnapshot": {
@@ -17148,6 +17199,52 @@
     "daemon.ColorHex": {
       "type": "string"
     },
+    "daemon.ColumnDock": {
+      "properties": {
+        "allow_tabs": {
+          "type": "boolean"
+        },
+        "edge": {
+          "$ref": "#/types/daemon.ColumnDockEdge"
+        },
+        "mode": {
+          "$ref": "#/types/daemon.ColumnDockMode"
+        },
+        "permanent": {
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/types/daemon.ColumnDockRole"
+        }
+      },
+      "required": [
+        "edge",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "daemon.ColumnDockEdge": {
+      "enum": [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ]
+    },
+    "daemon.ColumnDockMode": {
+      "enum": [
+        "docked",
+        "overlay"
+      ]
+    },
+    "daemon.ColumnDockRole": {
+      "enum": [
+        "agent_chat"
+      ]
+    },
     "daemon.ColumnPin": {
       "additionalProperties": false,
       "properties": {
@@ -17340,6 +17437,38 @@
       "required": [
         "pane",
         "surfaces"
+      ],
+      "type": "object"
+    },
+    "daemon.FloatingPane": {
+      "additionalProperties": false,
+      "properties": {
+        "h": {
+          "format": "float64",
+          "type": "number"
+        },
+        "pane": {
+          "$ref": "#/types/daemon.Id"
+        },
+        "w": {
+          "format": "float64",
+          "type": "number"
+        },
+        "x": {
+          "format": "float64",
+          "type": "number"
+        },
+        "y": {
+          "format": "float64",
+          "type": "number"
+        }
+      },
+      "required": [
+        "h",
+        "pane",
+        "w",
+        "x",
+        "y"
       ],
       "type": "object"
     },
@@ -18070,7 +18199,7 @@
       "additionalProperties": false,
       "properties": {
         "dock": {
-          "$ref": "#/types/daemon.JsonValue",
+          "$ref": "#/types/daemon.ColumnDock",
           "x-since": 12
         },
         "id": {
@@ -19576,7 +19705,10 @@
           "x-since": 12
         },
         "floating": {
-          "$ref": "#/types/daemon.JsonValue",
+          "items": {
+            "$ref": "#/types/daemon.FloatingPane"
+          },
+          "type": "array",
           "x-since": 12
         },
         "group": {
