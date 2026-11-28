@@ -448,7 +448,7 @@ impl Scenario {
             return Ok(stall_ms);
         }
         Ok(match self.link_profile(knobs)?.and_then(|link| link.disruption) {
-            Some(Disruption::AddressChange { stall_ms }) => Some(stall_ms),
+            Some(Disruption::AddressChange { stall_ms, .. }) => Some(stall_ms),
             _ => None,
         })
     }

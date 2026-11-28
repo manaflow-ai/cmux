@@ -232,9 +232,23 @@ export function itemCollapsedFileKey(item: DiffItem, scopeKey: string): string {
   return collapsedFileKey(viewedScopeKeyRepoRoot(scopeKey), fileName(item.fileDiff ?? {}, ""));
 }
 
+// `collapsedFiles` stays an array (it is what viewer prefs persist); a lookup goes through a Set built
+// once per array, so building the items is O(items), not O(items x collapsed) (RFD 0199 section 11).
+const collapsedFileSets = new WeakMap<readonly string[], ReadonlySet<string>>();
+
+export function collapsedFileSet(collapsedFiles: readonly string[]): ReadonlySet<string> {
+  let set = collapsedFileSets.get(collapsedFiles);
+  if (set == null) {
+    set = new Set(collapsedFiles);
+    collapsedFileSets.set(collapsedFiles, set);
+  }
+  return set;
+}
+
 function isUserCollapsed(item: DiffItem, state: Pick<AppState, "collapsedFiles" | "viewedScopeKey">): boolean {
   return (
-    state.collapsedFiles.length > 0 && state.collapsedFiles.includes(itemCollapsedFileKey(item, state.viewedScopeKey))
+    state.collapsedFiles.length > 0 &&
+    collapsedFileSet(state.collapsedFiles).has(itemCollapsedFileKey(item, state.viewedScopeKey))
   );
 }
 
