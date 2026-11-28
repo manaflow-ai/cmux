@@ -164,8 +164,15 @@ struct SubagentsScreen: View {
     let surface: AgentChatSurface
     @State private var selected: String?
     @State private var order = SubagentOrderMemo()
+    #if DEBUG
+    /// Body evaluations (the red's counter, as on the head).
+    @Environment(\.renderProbe) private var probe
+    #endif
 
     var body: some View {
+        #if DEBUG
+        let _ = probe.map { $0.subagentListBodies += 1 }
+        #endif
         List {
             ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
                 Button { selected = entry.agent.id } label: {
