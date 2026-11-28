@@ -441,11 +441,7 @@ impl Hub {
         // never becomes New Tab's model. Settings rows and the profile still decide it. Sent only
         // when it differs; the page then asks for it by name.
         if pinned.is_none() && saved.model.is_some() {
-            let own = crate::config::SessionDefaults {
-                model: None,
-                effort: None,
-                ..saved.clone()
-            };
+            let own = crate::config::SessionDefaults { model: None, effort: None, ..saved.clone() };
             let (new_tab, _) = self.start_defaults(agent, profile, &own, None);
             let shown = v.get("model").and_then(Value::as_str);
             match new_tab {
