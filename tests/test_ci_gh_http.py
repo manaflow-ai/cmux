@@ -105,7 +105,7 @@ class Request(unittest.TestCase):
         # (now=1000): wait to it, beyond TRIES, and succeed.
         limited = answer(403, b'{"message":"API rate limit exceeded for installation"}',
                          x_ratelimit_remaining="0", x_ratelimit_reset="1100")
-        (status, _, _), calls, slept = self.run_with([limited] * 6 + [answer(200)])
+        (status, _, _), calls, slept = self.run_with([limited] * 6 + [answer(200)], rate_budget_s=gh_http.RATE_BUDGET_S)
         self.assertEqual(status, 200)
         self.assertGreater(len(calls), gh_http.TRIES)
         self.assertTrue(all(w == 101.0 for w in slept), slept)
@@ -127,10 +127,29 @@ class Request(unittest.TestCase):
         clock = [0.0]
         with mock.patch.object(deadline_http, "request", lambda *a, **k: limited):
             status, _, _ = gh_http.request(URL, sleep=lambda s: clock.__setitem__(0, clock[0] + s),
-                                           clock=lambda: clock[0], now=lambda: 1000.0, log=lines.append)
+                                           clock=lambda: clock[0], now=lambda: 1000.0, log=lines.append,
+                                           rate_budget_s=gh_http.RATE_BUDGET_S)
         self.assertEqual(status, 403)
         self.assertEqual(clock[0], 900.0)  # waited once; a second 900 s would pass RATE_BUDGET_S
         self.assertTrue(any("rate-limited until" in line for line in lines), lines)
+
+    def test_default_never_sleeps_past_the_callers_budget(self):
+        # ios-fast plan job (timeout 5 min) was cancelled after a 329 s wait: a caller that names no
+        # rate_budget_s must not sleep on a far-out reset beyond its budget_s (before: 900 s; after: 0 s).
+        limited = answer(403, b'{"message":"API rate limit exceeded"}',
+                         x_ratelimit_remaining="0", x_ratelimit_reset="1900")
+        for kwargs, cap in (({}, gh_http.BUDGET_S), ({"budget_s": 30.0}, 30.0)):
+            clock = [0.0]
+            with mock.patch.object(deadline_http, "request", lambda *a, **k: limited):
+                status, _, _ = gh_http.request(URL, sleep=lambda s: clock.__setitem__(0, clock[0] + s),
+                                               clock=lambda: clock[0], now=lambda: 1000.0, log=lambda _: None,
+                                               **kwargs)
+            self.assertEqual(status, 403)
+            self.assertLessEqual(clock[0], cap)
+        # a reset inside the budget is still waited out
+        near = answer(403, b"{}", x_ratelimit_remaining="0", x_ratelimit_reset="1050")
+        (status, _, _), _, slept = self.run_with([near, answer(200)])
+        self.assertEqual((status, slept), (200, [51.0]))
 
     def test_limited_until_names_the_end(self):
         _, _, parsed = answer(403, x_ratelimit_remaining="0", x_ratelimit_reset="3600")
