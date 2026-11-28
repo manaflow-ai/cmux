@@ -144,6 +144,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `dev-loop` | dev loop | n/a | no |
 | `download-bridge` | dev loop | n/a | no |
 | `ext-reload` | extensions | n/a | no |
+| `fold-hosts` | binary size, start and idle memory of the folded bin/cmux programs (CMUX-570) | base vs head release builds | no |
 | `footprint` | app memory | default session | no |
 | `graceful-swap` | web bundle swap | open pages | no |
 | `idle` | app idle | default session | no |
@@ -155,6 +156,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `launch-premain` | launch | n/a | no |
 | `launch-reboot` | launch | n/a | no |
 | `local-chat` | agent chat | one chat | no |
+| `local-summary` | on-device session summary model | 30 labeled sessions | no |
 | `localization-discovery` | localization tooling | excluded dependency trees (#63387) | no |
 | `mcp-fanout` | agents | N chats | no |
 | `mobile-flows` | iOS | per flow | no |
@@ -255,6 +257,7 @@ whether it fails on a number.
 | `TerminalLaunchFrameKeeperBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TerminalLaunchFrameKeeperBenchTests.swift` | `CMUX_KEEP_FRAMES_BENCH` | no |
 | `TerminalLoadBench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalLoadBench.swift` | `CMUX_TERMINAL_LOAD_BENCH` | no |
 | `TerminalScrollBenchUITests` | `cmux-next-ios/UITests/TerminalScrollBenchUITests.swift` | UI test plan | yes |
+| `TerminalReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalReadFirstR1Bench.swift` | `CMUX_READ_FIRST_R1` | no |
 | `TranscriptReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift` | none | no |
 | `WorkspaceSyncPerformanceTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/WorkspaceSyncPerformanceTests.swift` | none | no |
 
@@ -279,6 +282,7 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 
 | glob | area | on PR |
 |---|---|---|
+| `webviews/bench/god-length-curve.bench.ts` | god chat length curve, 1k-100k turns | no |
 | `webviews/bench/chat-*.bench.ts` | agent chat open, switch, scroll, 100k flat | chat-open: report only |
 | `webviews/bench/transcript-*.bench.ts` | transcript scroll, resize, replay, turn end | no |
 | `webviews/bench/million-event-chat.bench.ts` | 1M-event chat | no |
