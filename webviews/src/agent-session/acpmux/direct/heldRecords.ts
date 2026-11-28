@@ -1,3 +1,5 @@
+import { experimentArm } from "../../../experiments/experiment";
+import { hiddenMeasureCaches } from "../hiddenMeasureCaches.experiment";
 import type { AcpmuxRow } from "../model";
 import { type EventRecord, startsTurn, mergeEventRecords } from "./records";
 
@@ -17,7 +19,9 @@ export const REBUILD_WINDOW = 5_000;
 /// god log 3,000 to 6,500 rows, against a 600-turn chat's 2,800 whole, and each streamed thought and tool call
 /// cost 1.5x to 1.8x that chat's (bench/transcript-replay.bench.ts, FIXTURE=god; Leo, 2026-11-12: "even if a
 /// chat is long, there should be no percievable difference").
-export const HELD_KEPT = OLDER_PAGE_RECORDS / 4;
+/// The `dropped-window-200` arm of hidden-measure-caches keeps 100 and holds 200, read once at load, so a bench run
+/// shows whether a small held window flattens renderer memory (bench/chat-100k-flat.bench.ts EXPERIMENTS).
+export const HELD_KEPT = experimentArm(hiddenMeasureCaches) === "dropped-window-200" ? 100 : OLDER_PAGE_RECORDS / 4;
 /// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice what a cut
 /// keeps, so it sheds at most once per `HELD_KEPT` records, each time dropping what leaves in place (`dropHeldRun`).
 export const HELD_RECORDS = 2 * HELD_KEPT;

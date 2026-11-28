@@ -1,5 +1,5 @@
 import { experimentArm } from "../../experiments/experiment";
-import { hiddenMeasureCaches } from "../acpmux/hiddenMeasureCaches.experiment";
+import { cachesBounded, hiddenMeasureCaches } from "../acpmux/hiddenMeasureCaches.experiment";
 
 /// A memo keyed by object, as a WeakMap is, whose table stays bounded however many keys pass
 /// through it.
@@ -80,7 +80,7 @@ export const HIDDEN_ROW_MEMO_LIMIT = 2048;
 
 function limitNow(limit: number | undefined): number {
   if (limit !== undefined) return limit;
-  return experimentArm(hiddenMeasureCaches) === "dropped" ? HIDDEN_ROW_MEMO_LIMIT : ROW_MEMO_LIMIT;
+  return cachesBounded(experimentArm(hiddenMeasureCaches)) ? HIDDEN_ROW_MEMO_LIMIT : ROW_MEMO_LIMIT;
 }
 
 // Every memo of this module copy (each bundle that includes this file has its own copy, its own set
@@ -90,7 +90,7 @@ let hideHookInstalled = false;
 
 /// Clears every memo of this module copy when `doc` is hidden on the `dropped` arm. True when it did.
 export function dropRowMemosWhenHidden(doc: Pick<Document, "visibilityState"> | undefined): boolean {
-  if (doc?.visibilityState !== "hidden" || experimentArm(hiddenMeasureCaches) !== "dropped") return false;
+  if (doc?.visibilityState !== "hidden" || !cachesBounded(experimentArm(hiddenMeasureCaches))) return false;
   for (const ref of memos) {
     const memo = ref.deref();
     if (memo) memo.clear();

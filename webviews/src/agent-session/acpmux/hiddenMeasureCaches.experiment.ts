@@ -19,6 +19,14 @@ export const hiddenMeasureCaches = defineExperiment({
       label: "Dropped",
       description: "The cache starts over when the page hides; a shown page measures its words again.",
     },
+    "dropped-window-200": {
+      label: "Dropped, 200 held",
+      description:
+        "As Dropped, and a chat left open holds 200 records, not 1,000 (direct/heldRecords.ts HELD_RECORDS).",
+    },
   },
   defaultArm: "kept",
 });
+
+/// Whether an arm bounds the caches (both arms but `kept`).
+export const cachesBounded = (arm: string): boolean => arm !== "kept";

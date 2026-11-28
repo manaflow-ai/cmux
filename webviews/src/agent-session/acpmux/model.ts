@@ -1,7 +1,7 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
 import type { ApprovedPlan } from "./approvedPlan";
 import { experimentArm } from "../../experiments/experiment";
-import { hiddenMeasureCaches } from "./hiddenMeasureCaches.experiment";
+import { cachesBounded, hiddenMeasureCaches } from "./hiddenMeasureCaches.experiment";
 import type { PromptHeads } from "./promptHeads";
 import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
 import { ensureMeasureContext, freshMeasureContext } from "./measureContext";
@@ -3378,7 +3378,7 @@ let hiddenDropInstalled = false;
 /// starts the library's caches over after this many characters, not PREPARED_TEXT_CHARS.
 export const HIDDEN_PREPARED_TEXT_CHARS = 50_000;
 function hiddenDropOn(doc: Pick<Document, "visibilityState"> | undefined = globalThis.document): boolean {
-  return doc?.visibilityState === "hidden" && experimentArm(hiddenMeasureCaches) === "dropped";
+  return doc?.visibilityState === "hidden" && cachesBounded(experimentArm(hiddenMeasureCaches));
 }
 /// Behind the `hidden-measure-caches` experiment (default off): a page that hides drops the library's
 /// caches at once instead of holding them until PREPARED_TEXT_CHARS. A window has one shown chat page
