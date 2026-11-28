@@ -49,6 +49,10 @@ import Testing
         func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) { turnEnded = handler }
         func placeIdentity() -> CloudPlaceIdentity? { identity }
         func placeIdentityChangedReason() -> String { "account changed" }
+        /// No daemon in this test: Auto reads only its own signals.
+        func placeVerdict() async -> Data? { nil }
+        var shadow: [String] = []
+        func placeShadow(_ line: String) { shadow.append(line) }
     }
 
     private static func local(_ session: String) -> CloudPlaceChat {
