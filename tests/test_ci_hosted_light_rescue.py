@@ -1280,6 +1280,33 @@ class Backlog(unittest.TestCase):
         backlog(fake, now=NOW + dt.timedelta(minutes=10))
         self.assertEqual(backlog_mutations(fake), [("rerun", 780), ("cancel", 781)])
 
+    def test_a_newer_pass_cancelled_before_a_runner_took_it_holds_nothing(self):
+        # 2026-11-20: every pass queued behind a starved label was cancelled while pending; its job never got a
+        # runner, so GitHub serves no log for it (404). It ran nothing and journalled nothing, so the walk reads past
+        # it to the older whole journal instead of holding every current-head cancel on it.
+        runs = [backlog_run(795, pr=1)]
+        fake = BacklogFake(runs, {795: [job("x", waited=6000)]}, pulls=own_heads(runs))
+        fake.record_pass(rescue.journal_lines({}), minutes_ago=30)
+        fake.record_pass([])
+        unstarted = fake.passes[-1][0]
+        real_jobs, real_log = fake.jobs, fake.job_log
+
+        def jobs(run_id):
+            if run_id == unstarted:
+                fake.reads += 1
+                return [{"id": run_id + 1, "name": "backlog", "status": "completed", "conclusion": "cancelled",
+                         "runner_id": 0, "steps": []}]
+            return real_jobs(run_id)
+
+        def job_log(job_id):
+            if job_id == unstarted + 1:
+                raise RuntimeError("HTTP Error 404: The specified blob does not exist.")
+            return real_log(job_id)
+        fake.jobs, fake.job_log = jobs, job_log
+        lines, _ = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 795)])
+        self.assertFalse(any("could not read backlog pass" in line for line in lines))
+
     def test_a_cancel_whose_answer_was_lost_is_journalled(self):
         runs = [backlog_run(790, pr=1)]
         fake = BacklogFake(runs, {790: [job("x", waited=6000)]}, pulls=own_heads(runs))

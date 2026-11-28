@@ -1396,6 +1396,11 @@ def read_journal(client: Any, *, now: dt.datetime, since: dt.datetime | None,
                 log = []
                 for found in client.jobs(earlier["id"]):
                     if isinstance(found.get("id"), int):
+                        # A pass cancelled before any runner took its job ran nothing and has no log (GitHub
+                        # answers 404): read it as empty, or every pass queued behind a starved label holds the
+                        # next one's current-head cancels (2026-11-20, run 44687363880).
+                        if found.get("status") == "completed" and not found.get("runner_id") and not found.get("steps"):
+                            break
                         log = list(client.job_log(found["id"]))
                         break
                 break
