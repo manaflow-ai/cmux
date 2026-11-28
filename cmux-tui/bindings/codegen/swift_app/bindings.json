@@ -2636,7 +2636,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: create (the schema gates it on workspace-registry-v1, which the app does not check before sending), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: put-blob (its init base64-encodes).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2788,6 +2788,44 @@
             },
             "release": {
               "encode": "if_true"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "create-workspace": {
+          "name": "CreateWorkspaceRequest",
+          "doc": [
+            "`create-workspace`: a new workspace, named `name` (else the daemon's next `workspace-N`) under `key`",
+            "(else a fresh one)."
+          ],
+          "ungated": "a daemon that predates workspace-registry-v1 still makes the workspace.",
+          "mutation": true,
+          "order": [
+            "name",
+            "key",
+            "first_tab",
+            "name_source",
+            "mutation"
+          ],
+          "fields": {
+            "key": {
+              "type": "WorkspaceKey"
+            },
+            "first_tab": {
+              "type": "WorkspaceFirstBrowserTab",
+              "doc": [
+                "The workspace's first tab, made by this request; the reply names it",
+                "(``WorkspaceMutationResult/firstTab``)."
+              ]
+            },
+            "name_source": {
+              "type": "WorkspaceNameSource",
+              "with": "name",
+              "doc": [
+                "`.user`: `name` is exactly what the caller asked for (`agents chat new --name`, `agent open --name`), so the",
+                "daemon pins it like a rename and no automatic name or chat title replaces it (#56422). Nil: a starting name",
+                "(Cmd-N's `workspace-N`, a moved tab's name), the automatic namer's. A daemon without it ignores the field."
+              ]
             }
           },
           "response": "WorkspaceMutationResult"

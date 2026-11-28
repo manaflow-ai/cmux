@@ -675,6 +675,36 @@ class InitTests(unittest.TestCase):
                 self.source(binding)
 
 
+class UngatedTests(unittest.TestCase):
+    """Request `ungated`: a command the schema gates on a capability that the app sends without asking."""
+
+    def source(self, binding: dict[str, Any], capability: str | None = "layout-v1") -> str:
+        document = layout_document()
+        if capability:
+            document["commands"]["swap-pane"]["capability"] = capability
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["swap-pane"].update(binding)
+        return rendered(document, bindings)["Layout/SwapPaneRequest.generated.swift"]
+
+    def test_the_schema_gate_is_emitted_by_default(self) -> None:
+        self.assertIn('    public static let requiredCapability: String? = "layout-v1"\n', self.source({}))
+
+    def test_ungated_drops_the_gate_and_says_why(self) -> None:
+        source = self.source({"ungated": "an older daemon still swaps."})
+        self.assertNotIn("requiredCapability", source)
+        self.assertIn("/// The schema gates it on `layout-v1`; the app sends it without asking:\n"
+                      "/// an older daemon still swaps.\n", source)
+
+    def test_ungated_is_refused_without_a_reason_or_a_gate(self) -> None:
+        for name, binding, capability in [
+            ("an empty reason", {"ungated": " "}, "layout-v1"),
+            ("a reason that is no string", {"ungated": True}, "layout-v1"),
+            ("no schema gate", {"ungated": "why"}, None),
+        ]:
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(binding, capability)
+
+
 class DecimalTests(unittest.TestCase):
     """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
 
