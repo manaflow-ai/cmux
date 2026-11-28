@@ -117,7 +117,8 @@ pub(crate) fn go_text(window: Duration) -> String {
     format!("No reply to your plan in {}s: go ahead with it.", window.as_secs())
 }
 
-/// Whether a prompt's provenance is the go prompt.
+/// Whether a prompt's provenance is the go prompt (the inbox matches `GO_KIND` directly).
+#[cfg(test)]
 pub(crate) fn is_go(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(GO_KIND)
 }
