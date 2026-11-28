@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.zai.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux رصيدك في واجهة API لدى Z.ai للوصول إلى نماذج GLM."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoje stanje na API računu za Z.ai za pristup opciji modeli GLM."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger din API-saldo hos Z.ai til at tilgå GLM-modeller."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet dein API-Guthaben bei Z.ai für den Zugriff auf Modelle von GLM."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your Z.ai API balance to access GLM models."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu saldo de API de Z.ai para acceder a los modelos de GLM."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre solde API Z.ai pour accéder à des modèles GLM."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà il tuo saldo API di Z.ai per accedere a modelli GLM."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのZ.aiのAPI残高を使用してGLMモデルにアクセスします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ សមតុល្យ API របស់អ្នកនៅ Z.ai ដើម្បីចូលប្រើ ម៉ូដែល GLM។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Z.ai API 잔액로 GLM 모델에 액세스합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker API-saldoen din hos Z.ai for å få tilgang til modeller fra GLM."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje salda API na Twoim koncie Z.ai, aby uzyskać dostęp do modeli GLM."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará seu saldo de API de Z.ai para acessar os modelos de GLM."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать ваш баланс API в Z.ai для доступа к следующему: модели GLM."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้ยอดคงเหลือ API ของ Z.aiเพื่อเข้าถึงโมเดล GLM"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux GLM modellerine erişmek için Z.ai API bakiyenizi kullanacak."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає ваш баланс API у Z.ai для доступу до такого: моделі GLM."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng số dư API Z.ai của bạn để truy cập mô hình GLM."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的Z.ai API 余额访问GLM模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的Z.ai API 餘額存取GLM模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,7 +1,6 @@
 import Foundation
 
-/// Fit to Phone remembered per foreground program (Leo, 2026-11-21: projection is the
-/// default, "Fit to Phone" stays one tap away, remembered per program). A program the
+/// Fit to Phone remembered per foreground program. A program the
 /// person never toggled follows Settings → Terminal → Fit to Phone
 /// (`CmuxMobilePreferences.terminalFitToPhone`); one they toggled from the terminal's page
 /// menu keeps its own choice. Keyed by the session's `programName` ("zsh", "claude",
@@ -17,7 +16,7 @@ public struct TerminalFitToPhoneMemory {
     }
 
     /// Whether `program`'s terminal resizes the Mac to the phone (true) or the phone
-    /// projects it (false): its own choice when it has one, else the global setting.
+    /// keeps the Mac's grid (false): its own choice when it has one, else the global setting.
     public func fitToPhone(for program: String) -> Bool {
         defaults.object(forKey: Self.key(program)) as? Bool ?? CmuxMobilePreferences.terminalFitToPhone(defaults)
     }

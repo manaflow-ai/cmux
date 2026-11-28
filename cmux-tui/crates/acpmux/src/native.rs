@@ -415,6 +415,41 @@ fn restore_as(bundle: &Path, meta: &SessionMeta, home: &Path, placing: Placing) 
     Ok(n)
 }
 
+/// The bundle's agent files a restore did not place: each `<label>/<path>` under the bundle's
+/// `native` folder (the source's manifest of what the chat owns) whose file is not at its place
+/// under the home folder, or that has no place for this chat here. A file kept as it was (the
+/// home folder held other bytes there) counts as placed. Empty when every entry landed.
+pub fn unacked(bundle: &Path, meta: &SessionMeta) -> Vec<String> {
+    unacked_in(bundle, meta, &dirs::home_dir().unwrap_or_default())
+}
+
+/// [`unacked`] under the home folder `home`.
+pub fn unacked_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Vec<String> {
+    let Ok(labels) = std::fs::read_dir(bundle.join("native")) else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    for label in labels.flatten() {
+        let label_name = label.file_name().to_string_lossy().into_owned();
+        if label_name == OPENCODE_EXPORT {
+            continue;
+        }
+        for file in walk(&label.path(), 8) {
+            let rel = file.strip_prefix(label.path()).unwrap_or(&file);
+            let entry = format!("{label_name}/{}", rel.display());
+            match restore_target(meta, &label_name, rel) {
+                None => out.push(format!("{entry}: no place for this chat")),
+                Some(target) if !home.join(&target).is_file() => {
+                    out.push(format!("{entry}: not at {}", target.display()))
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Whether `old` holds fewer bytes than `new` and they are the first bytes of `new`: an
 /// append-only agent log that grew since `old` was copied.
 fn is_strict_prefix(old: &Path, new: &Path) -> Result<bool> {
