@@ -67,6 +67,16 @@ pub(crate) const RETRY_FOR_MS: u64 = KEEP_SETTLED_MS;
 /// sees that it may not have run; it is never dropped while open.
 pub const OPEN_ON_PEER_FOR_MS: u64 = 30 * KEEP_SETTLED_MS;
 
+/// How many settled deliveries (delivered, held or failed, closed on their peer, and not a team
+/// receipt) the book keeps at most. Past it the oldest-settled go first, whatever their age, down
+/// to [`SETTLED_KEEP_AFTER_EVICT`], and each is counted (`evictedSettled` in the stats). A day's
+/// real book held 104,497 of them (63 MB on disk, a clone of whole requests per lookup) for a
+/// queue 48 deep. Unsettled and open-on-peer deliveries are never evicted.
+pub const MAX_SETTLED: usize = 10_000;
+
+/// What eviction trims to, so a book at the cap does not sort on every change.
+pub const SETTLED_KEEP_AFTER_EVICT: usize = MAX_SETTLED * 9 / 10;
+
 /// The reason, and the first words of the error, of a delivery whose target session's folder is
 /// gone (`hub/worktree_care.rs` `folder_missing`): kept and sent again once it is back.
 pub const FOLDER_MISSING: &str = "session.folder_missing";
@@ -1267,8 +1277,32 @@ impl Book {
             // Open on its peer is not settled for this: kept until it closes or lapses.
             !d.settled() || d.open_on_peer || now.saturating_sub(d.updated_at) < keep
         });
+        self.evict_settled(MAX_SETTLED, SETTLED_KEEP_AFTER_EVICT);
         self.changes += 1;
         self.changes
+    }
+
+    /// Past `max` settled deliveries, drops the oldest-settled down to `keep`, counting each.
+    fn evict_settled(&mut self, max: usize, keep: usize) {
+        let evictable = |d: &Delivery| d.settled() && !d.open_on_peer && !d.is_team_receipt();
+        let count = self.deliveries.values().filter(|d| evictable(d)).count();
+        if count <= max {
+            return;
+        }
+        let mut order: Vec<(u64, &String)> = self
+            .deliveries
+            .iter()
+            .filter(|(_, d)| evictable(d))
+            .map(|(id, d)| (d.updated_at, id))
+            .collect();
+        order.sort_unstable();
+        let drop_ids: Vec<String> =
+            order.into_iter().take(count - keep).map(|(_, id)| id.clone()).collect();
+        for id in &drop_ids {
+            self.deliveries.remove(id);
+            self.dirty.remove(id);
+        }
+        self.stats.evicted_settled += drop_ids.len() as u64;
     }
 }
 
@@ -1403,6 +1437,61 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// A book past [`MAX_SETTLED`] settled deliveries drops the oldest-settled ones, counts them,
+    /// and never touches a queued delivery or a team receipt.
+    #[test]
+    fn settled_deliveries_are_capped_oldest_first_and_counted() {
+        let mut book = Book::default();
+        let mut queued = delivery(0);
+        queued.updated_at = 1;
+        book.deliveries.insert(queued.id.clone(), queued);
+        let mut receipt = delivery(1);
+        receipt.id = "mesh:r".into();
+        receipt.request = json!({"teamOrigin": true});
+        receipt.state = State::Delivered;
+        receipt.updated_at = 1;
+        book.deliveries.insert(receipt.id.clone(), receipt);
+        for n in 2..22 {
+            let mut d = delivery(n);
+            d.state = if n % 2 == 0 { State::Delivered } else { State::Failed };
+            d.updated_at = n as u64;
+            book.deliveries.insert(d.id.clone(), d);
+        }
+        book.evict_settled(20, 10);
+        assert_eq!(book.stats.evicted_settled, 10);
+        assert!(book.deliveries.contains_key("d-0"), "a queued delivery stays");
+        assert!(book.deliveries.contains_key("mesh:r"), "a team receipt stays");
+        let kept: Vec<usize> =
+            (2..22).filter(|n| book.deliveries.contains_key(&format!("d-{n}"))).collect();
+        assert_eq!(kept, (12..22).collect::<Vec<_>>(), "the oldest-settled went");
+        book.evict_settled(20, 10);
+        assert_eq!(book.stats.evicted_settled, 10, "at or under the cap changes nothing");
+    }
+
+    /// The real cap trims a book past it on a change.
+    #[test]
+    fn a_change_past_the_settled_cap_trims_to_the_keep_mark() {
+        let (dir, path) = temp_outbox();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        {
+            let mut book = outbox.book();
+            for n in 0..MAX_SETTLED + 5 {
+                let mut d = delivery(n);
+                d.state = State::Delivered;
+                d.updated_at = n as u64 + crate::store::now_ms();
+                book.deliveries.insert(d.id.clone(), d);
+            }
+            book.changed();
+            assert_eq!(book.deliveries.len(), SETTLED_KEEP_AFTER_EVICT);
+            assert_eq!(
+                book.stats.evicted_settled as usize,
+                MAX_SETTLED + 5 - SETTLED_KEEP_AFTER_EVICT
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// cmuxterm-hq#17418: a message queued behind another to the same session waits in the

@@ -83,6 +83,8 @@ pub struct Counters {
     pub failed: BTreeMap<String, u64>,
     /// Attempts past each delivery's first.
     pub retries: u64,
+    /// Settled deliveries dropped past the book's cap (`outbox::MAX_SETTLED`), oldest first.
+    pub evicted_settled: u64,
     /// Inbound messages the mesh hub leased to this daemon, and of those, ones leased again (a
     /// lease that ended unacked).
     pub relay_leases: u64,
@@ -177,6 +179,7 @@ impl Counters {
             "failed": self.failed,
             "failedTotal": self.failed_total(),
             "retries": self.retries,
+            "evictedSettled": self.evicted_settled,
             "relayLeases": self.relay_leases,
             "relayReleases": self.relay_releases,
             "latencyMsLog2": self.latency_ms_log2,
