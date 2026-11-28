@@ -17,7 +17,7 @@ extension IPhoneHostService {
 
     /// Hands the host what it needs from the app: the bundled hostd, the account's tokens,
     /// the app's daemon socket and acpmux, the chat roots, the computer name, and the
-    /// `mobile.allowIPhoneConnections` setting it follows.
+    /// `mobile.allowIPhoneConnections` and `mobile.siteDataHandoff` settings it follows.
     ///
     /// - Parameters:
     ///   - auth: The app's Stack session; tokens are read per request, never stored here.
@@ -73,6 +73,13 @@ extension IPhoneHostService {
         let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
+        followingSiteDataHandoff?.cancel()
+        // task-owner: lives as long as the app; the supervisor replays the choice to each hostd launch
+        followingSiteDataHandoff = Task { [weak self] in
+            for await enabled in ObservationStream({ settings()?.snapshot.mobile.siteDataHandoff ?? false }) {
+                await self?.setSiteDataHandoff(enabled: enabled)
+            }
+        }
         followingAutoApprove?.cancel()
         // task-owner: lives as long as the app (stop() cancels it); one pass each time the setting turns on
         followingAutoApprove = Task { [weak self] in
