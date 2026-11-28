@@ -24,6 +24,9 @@
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
+//! - [`link_routes`]: which URLs only a Chromium tab shows, the New Tab page, which sign-in tab to
+//!   close and a popup's requested size (`ChromiumInternalURL`, `BrowserNewTabPage`, `SignInPageTab`,
+//!   `BrowserPopupRequest`).
 //! - [`tab_state`]: the tab state machine, the reducer from an engine's navigation events to
 //!   the state the chrome renders (`BrowserTabStateMachine`).
 
@@ -35,6 +38,7 @@ pub mod cookies;
 pub mod driver;
 pub mod frames;
 pub mod input;
+pub mod link_routes;
 pub mod links;
 pub mod load_waits;
 pub mod ops;
@@ -58,6 +62,8 @@ mod driver_tests;
 mod frames_tests;
 #[cfg(test)]
 mod input_tests;
+#[cfg(test)]
+mod link_routes_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]

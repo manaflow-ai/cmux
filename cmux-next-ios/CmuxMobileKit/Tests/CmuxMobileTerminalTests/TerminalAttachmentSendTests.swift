@@ -249,24 +249,26 @@ import Testing
         #expect(progress.isCancelled)
     }
 
-    /// The load runs past one idle window in total while each step comes
-    /// well inside it. The window is 800 ms against 30 ms steps: a loaded
-    /// simulator late-ran a 30 ms sleep past the old 150 ms window, so the
-    /// idle deadline fired on a load that was advancing.
+    /// Progress moves every 100 ms of clock time against a 150 ms idle window,
+    /// for 1 s in all. The clock moves only when the test advances it, so a
+    /// slow simulator can't stretch a step past the window.
     @Test func advancingPhotoLoadOutlivesOneIdleWindowAndCompletesWithoutCancellation() async throws {
-        let steps = 40
-        let progress = Progress(totalUnitCount: Int64(steps))
-        let value: Int = try await TerminalComposer.loadWithInactivityDeadline({ finish in
-            Task {
-                for step in 1...steps {
-                    try await Task.sleep(for: .milliseconds(30)) // test: one step of a slow Photos load
-                    progress.completedUnitCount = Int64(step)
-                }
-                finish(.success(42))
-            }
+        let clock = StepClock()
+        let progress = Progress(totalUnitCount: 10)
+        let finisher = Finisher()
+        async let value: Int = TerminalComposer.loadWithInactivityDeadline({ finish in
+            finisher.set(finish)
             return progress
-        }, inactivityDeadline: .milliseconds(800), progressPoll: .milliseconds(5))
-        #expect(value == 42)
+        }, inactivityDeadline: .milliseconds(150), progressPoll: .milliseconds(5), clock: clock)
+        for step in 1...10 {
+            await clock.untilSleeping()
+            progress.completedUnitCount = Int64(step)
+            clock.advance(by: .milliseconds(100))
+        }
+        await clock.untilSleeping()
+        #expect(clock.now.offset == .seconds(1))
+        finisher.finish(.success(42))
+        #expect(try await value == 42)
         #expect(!progress.isCancelled)
     }
 
@@ -307,7 +309,7 @@ import Testing
 
     static func waitFor(_ condition: () -> Bool) async -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(10) // test: a loaded simulator schedules late
+        let deadline = clock.now + .seconds(2)
         while !condition(), clock.now < deadline { await Task.yield() }
         return condition()
     }
@@ -387,15 +389,23 @@ import Testing
         let first = ComposerAttachment(kind: .video, name: "first.mov", data: Data([1]))
         let second = ComposerAttachment(kind: .video, name: "second.mov", data: Data([2]))
         var waiting: CheckedContinuation<String, Never>?
+        // The first upload says when it is held, so the test waits on that
+        // event, not on a wall-clock window a slow simulator can outlast.
+        let (held, heldSignal) = AsyncStream.makeStream(of: Void.self)
         model.uploader = { _, name in
-            if name == "first.mov" { return await withCheckedContinuation { waiting = $0 } }
+            if name == "first.mov" {
+                return await withCheckedContinuation {
+                    waiting = $0
+                    heldSignal.yield()
+                }
+            }
             return "/mac/" + name
         }
         model.addAttachment(first)
         model.addAttachment(second)
         model.composerText = "keep"
         model.send()
-        try #require(await Self.waitFor { waiting != nil })
+        for await _ in held { break }
         model.removeAttachment(first.id)
         let late = try #require(waiting)
         late.resume(returning: "/mac/late")
