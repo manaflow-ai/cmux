@@ -485,8 +485,9 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "state_bytes": INT, "effects_bytes": INT, "commits": INT, "drain_ms": INT, "wake_ms": INT,
                  "waited_ms": INT,
                  # cloud.rows.scan_large (cmux-platform#2511, AllRows.ts eachRow): the table a scan walked, rows it
-                 # read and kept; its `at` frames are kept only as function names (scan_callers).
-                 "table": TOKEN, "rows": INT, "yielded": INT}
+                 # read and kept; its `at` frames are kept only as function names (scan_callers). cmux-platform#2546
+                 # adds the call site (the shared `site` above) and the pages it read.
+                 "table": TOKEN, "rows": INT, "yielded": INT, "pages": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).

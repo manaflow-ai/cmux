@@ -36,10 +36,9 @@ import Testing
         #expect(store.turns.count == 1)
         #expect(shown.isUnconfirmed)
         #expect(shown.prompt == "run the tests\nand summarize")
-        // Drawn at once by the outgoing overlay (OutgoingMessagesView, #56098), not as a transcript row:
-        // a message still on its way has no Working line and runs nothing until the Mac records it (#57933).
+        // While it is sending, the outgoing bubble draws it (`OutgoingMessagesView`, `store.outgoing`),
+        // not the transcript: one bubble, never two. The chat runs from the Mac's record on.
         #expect(!store.isRunning)
-        #expect(store.waitingMessages.map(\.promptID) == [id])
         #expect(!Self.rowIDs(store).contains("u-\(AgentChatStore.localTurnID(id))"))
         #expect(store.justSentRowKey() == AgentChatStore.localTurnID(id))
         #expect(store.justSentRowKey(now: ProcessInfo.processInfo.systemUptime + 2) == nil, "only a moment after the send")
@@ -51,10 +50,9 @@ import Testing
         #expect(turn.id == "t1")
         #expect(!turn.isUnconfirmed)
         #expect(turn.rowKey == AgentChatStore.localTurnID(id))
-        #expect(store.waitingMessages.isEmpty)
-        // The recorded turn's rows keep the bubble's key, so the overlay's bubble hands over in place.
-        #expect(Self.rowIDs(store).contains("u-\(AgentChatStore.localTurnID(id))"))
         #expect(store.isRunning)
+        let rows = Self.rowIDs(store)
+        #expect(rows.contains("u-\(AgentChatStore.localTurnID(id))"), "the record keeps the sent turn's row key: no pop")
 
         // The turn goes on under the Mac's id: its answer and its end land in it.
         store.apply(.update(.agentMessageChunk(text: "All green.", messageId: "m1")))
@@ -112,27 +110,27 @@ import Testing
         // The Mac ran another prompt first: its updates must not land in the shown bubble's turn.
         store.apply(.userMessage(text: "from the Mac", promptId: "other", turnId: "t1", attachments: [], at: Date()))
         store.apply(.update(.agentMessageChunk(text: "Working on it.", messageId: "m1")))
-        // The waiting bubble stays last; the Mac's turn and its answer go before it.
-        #expect(store.turns.map(\.id) == ["t1", AgentChatStore.localTurnID(id)])
+        #expect(store.turns.first?.id == "t1")
         #expect(store.turns.first?.answerMarkdown == "Working on it.")
-        #expect(store.turns.last?.answerMarkdown.isEmpty == true)
+        #expect(store.turns.dropFirst().allSatisfy { $0.isUnconfirmed && $0.answerMarkdown.isEmpty },
+                "the shown prompt waits for its own record")
         store.apply(.turnResult(turnId: "t1", status: .completed, errorText: nil, at: Date()))
         store.apply(.userMessage(text: "mine", promptId: id, turnId: "t2", attachments: [], at: Date()))
         #expect(store.turns.map(\.id) == ["t1", "t2"], "each once, in the Mac's order")
         #expect(store.turns.last?.prompt == "mine")
     }
 
-    @Test func aMessageIntoARunningTurnShowsAtOnceAsASteer() throws {
+    @Test func aMessageIntoARunningTurnWaitsForTheMac() throws {
         let source = Recorder()
         let store = AgentChatStore(source: source)
         store.apply(.userMessage(text: "first", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
         #expect(store.isRunning)
         store.send(prompt: "and the docs", steer: true)
-        #expect(store.turns.count == 1, "no turn of its own: it goes into the running one")
-        let steers = store.turns.last?.items.compactMap { item -> SteeredMessage? in
-            if case .steer(let message) = item { message } else { nil }
-        } ?? []
-        #expect(steers.map(\.text) == ["and the docs"])
+        // Drawn at once as a steer in the running turn, no new turn of its own.
+        #expect(store.turns.count == 1)
+        let steers = store.turns.last?.items.filter { if case .steer = $0 { true } else { false } } ?? []
+        #expect(steers.count == 1)
+        #expect(store.turns.last?.items.count == 1)
     }
 
     @Test func aSentPromptKeepsItsAttachmentsThroughTheRecord() throws {
