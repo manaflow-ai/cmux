@@ -334,6 +334,8 @@ cmux-composer-send.workspace = true
 cmux-layout-reducer.workspace = true
 # Seeded-secret tests: the gate sends each payload path's request to a local capture server.
 cmux-egress = { workspace = true, features = ["capture"] }
+# src/app/tests/frame_work.rs: the list views are held to flat per-frame work in N (cmux-view-rows src/frame_work.rs).
+cmux-view-rows = { path = "../cmux-view-rows", features = ["frame-work"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).
