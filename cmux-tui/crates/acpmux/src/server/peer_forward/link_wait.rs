@@ -171,6 +171,12 @@ pub(super) async fn hold_upload_for_link(peer: &crate::peer::Peer) -> bool {
     }
 }
 
+/// Whether a prompt asked to hear `_acpmux/prompt_held` while its chat's link is down
+/// (`capabilities::PROMPT_LINK_WAIT`): only an explicit `true` asks.
+pub(in crate::server) fn waits_for_peer_link(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/waitForLink").and_then(Value::as_bool) == Some(true)
+}
+
 /// Whether `e` is a refusal of a request that never left this daemon: the peer's link took
 /// nothing (`peer_link::unreachable_error`).
 pub(super) fn unsent(e: &RpcError) -> bool {
@@ -258,10 +264,15 @@ pub(super) struct Hold {
 ///
 /// The prompt is checked first, so a bad one is refused at once, as is one the remote guard
 /// keeps off every peer (`remote_guard::cloud_mobile`).
+///
+/// A send never blocks on the link (autocloud proof plan, Transport): a client that asked
+/// (`waitForLink`, prompt-link-wait-v1) and is not refused at the end of the live wait hears
+/// `_acpmux/prompt_held` at once, so its pane keeps the row "sending when ready".
 pub(super) async fn wait_for_prompt_link(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     peer: &crate::peer::Peer,
+    session: &str,
     params: &Value,
     hold: &mut Option<Hold>,
 ) -> Result<Option<Value>, RpcError> {
@@ -275,9 +286,19 @@ pub(super) async fn wait_for_prompt_link(
     }
     // A message wakes the peer's machine as its refusal would have (`ask_back`), now instead of
     // after the wait.
+    let wait = link_wait(conn);
+    // A send never blocks on the link: a client that asked (`waitForLink`, prompt-link-wait-v1)
+    // hears at once that its prompt is held for the link or kept for it, so its pane keeps the row
+    // "sending when ready". A sender that is refused at the end of the live wait hears nothing.
+    if wait != LinkWait::Brief && waits_for_peer_link(params) {
+        let prompt_id = params.pointer("/_meta/acpmux/promptId").cloned().unwrap_or(Value::Null);
+        conn.send(&Message::notification(
+            method::MUX_PROMPT_HELD,
+            json!({"sessionId": session, "promptId": prompt_id, "peer": peer.name}),
+        ));
+    }
     peer.wake();
     let closed = || RpcError::internal("the client closed the connection");
-    let wait = link_wait(conn);
     let first = match wait {
         LinkWait::Brief => PROMPT_LINK_WAIT,
         LinkWait::Outbox => PROMPT_QUEUED_AFTER,
