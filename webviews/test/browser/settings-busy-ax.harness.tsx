@@ -107,7 +107,7 @@ window.axHold = () => {
   };
   if (card === "library") store.customizeLibrary = () => run({ library: null, refusal: null });
   else if (card === "shares") store.revokeShares = () => run(null);
-  else store.runHarnesses = () => run(undefined);
+  else store.runHarnesses = () => run({ ok: true as const, value: undefined });
 };
 window.axAnswer = () => answer();
 window.axCalls = () => calls;

@@ -90,7 +90,7 @@ test("a harness's accounts: a routing change in flight disables every gesture co
   const renameForm = () => rows()[0]!.querySelector<HTMLFormElement>("[data-account-rename]");
   expect(renameForm()).not.toBeNull();
 
-  const change = held(undefined);
+  const change = held({ ok: true as const, value: undefined });
   page.store.runHarnesses = change.run;
   const renders = rowRenders();
   renders.begin(page.container, selector);
@@ -155,7 +155,7 @@ test("a harness's accounts: a rename cancelled while a change is in flight bring
   await click(renameOf(1)!);
   expect(renameOf(1)).toBeNull();
 
-  const change = held(undefined);
+  const change = held({ ok: true as const, value: undefined });
   page.store.runHarnesses = change.run;
   const renders = rowRenders();
   renders.begin(page.container, selector);
