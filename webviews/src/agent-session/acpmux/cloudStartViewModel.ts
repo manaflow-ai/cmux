@@ -35,8 +35,8 @@ export function stageClock(ms: number): string {
 function elapsed(startedAt: number | undefined, finishedAt: number | undefined, now = Date.now()): string | undefined {
   if (startedAt === undefined) return undefined;
   const ms = Math.max(0, (finishedAt ?? now) - startedAt);
-  // A finished step that took under a second reads "<1s", not a floored "0s".
-  return finishedAt !== undefined && ms < 1000 ? "<1s" : stageClock(ms);
+  // A step under a second reads "0s", never "<1s", like the turn's Working for (#60596).
+  return stageClock(ms);
 }
 
 function operationStatus(operation: CloudStartupOperation | undefined): ChecklistStatus | undefined {
@@ -172,6 +172,7 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStart.stage.machine": "Starting your Cloud machine",
   "cloudStart.stage.clone": "Copying your project",
   "cloudStart.stage.setup": "Running your setup script",
+  "cloudStart.eta.longer": "taking longer than usual",
   "cloudStartup.leftOnMac": "{count} files stayed on this Mac",
   "cloudStartup.leftOnMac#one": "{count} file stayed on this Mac",
 };
@@ -256,7 +257,13 @@ export function startupChecklist(
           ...(start.setup.logTail ? { logTail: start.setup.logTail } : {}),
         }
       : {}),
-    ...(hasScript === false ? { detail: t("cloudStartup.setupHint"), action: true } : {}),
+    ...(hasScript === false ||
+    (start.state === "failed" && setupState === "error" && Boolean(start.environmentId ?? start.environment))
+      ? {
+          detail: hasScript === false ? t("cloudStartup.setupHint") : start.setup?.logTail || start.setup?.error,
+          action: true,
+        }
+      : {}),
   };
   const harnessStatus: ChecklistStatus =
     failedStep === "harness" ? "error" : start.initialized ? "done" : oldStep === 2 ? "running" : "pending";
@@ -341,5 +348,30 @@ export function quietStage(
     ...(since !== undefined ? { since } : {}),
     step: counted.indexOf(current) + 1,
     steps: counted.length,
+  };
+}
+
+/// How long an agent usually takes to start on a Cloud machine before its line says the start is
+/// taking longer than usual.
+export const AGENT_START_SLOW_MS = 30_000;
+
+/// The line a Cloud chat's first prompt shows on the machine's own chat page while that agent
+/// starts: the same "Starting Claude Code" and clock the Mac's start view ended on,
+/// never a bare "Thinking" (Leo, 2026-11-24: "what would a new user be seeing here?"). Past
+/// `AGENT_START_SLOW_MS` the usual wait gives way to "taking longer than usual".
+export function agentStartStage(
+  agent: string,
+  since: number | undefined,
+  now: number,
+  t: Translate = defaultTranslate,
+): QuietStage {
+  const slow = since !== undefined && now - since >= AGENT_START_SLOW_MS;
+  return {
+    id: "harness",
+    label: t("cloudStartup.harnessStarting", { harness: agent }),
+    ...(slow ? { detail: t("cloudStart.eta.longer") } : {}),
+    since,
+    step: 1,
+    steps: 1,
   };
 }

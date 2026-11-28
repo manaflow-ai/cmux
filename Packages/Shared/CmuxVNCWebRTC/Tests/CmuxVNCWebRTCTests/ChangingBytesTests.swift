@@ -12,10 +12,9 @@ import WebRTC
 /// full-screen scroll. Prints CHANGING-BYTES lines.
 @Suite(.serialized)
 struct ChangingBytesTests {
-    static let matrix = true // experiment: runs by default while measuring
-
     struct Result {
         var kbps: Double
+        var size: CGSize = .zero
         var fps: Double
         var qp: Double
     }
@@ -55,8 +54,10 @@ struct ChangingBytesTests {
             let frames = after.framesDecoded - before.framesDecoded
             let result = Result(kbps: (after.bytesReceived - before.bytesReceived) * 8 / seconds / 1000,
                                 fps: frames / seconds, qp: frames > 0 ? (after.qpSum - before.qpSum) / frames : 0)
-            results[phase.rawValue] = result
             let size = counter.snapshot.1
+            var measured = result
+            measured.size = size
+            results[phase.rawValue] = measured
             print("CHANGING-BYTES config=\(label) phase=\(phase.rawValue) source=\(width)x\(height) \(phase.describe) " +
                 "kbit/s=\(String(format: "%.0f", result.kbps)) fps=\(String(format: "%.1f", result.fps)) " +
                 "qp=\(String(format: "%.1f", result.qp)) size=\(Int(size.width))x\(Int(size.height))")
@@ -65,13 +66,25 @@ struct ChangingBytesTests {
         return results
     }
 
-    /// Each encoding knob against the same phases (opt-in: about 30 s a config).
-    @Test(.enabled(if: matrix), .timeLimit(.minutes(2)),
-          arguments: ["baseline", "motion", "cap2M", "cap1M", "cap500k", "fps30", "balanced", "maintainFramerate", "area", "areaFps30"])
-    func encodingKnob(config: String) async throws {
-        setenv("CMUX_VNC_ENCODING_EXPERIMENT", config, 1)
-        defer { unsetenv("CMUX_VNC_ENCODING_EXPERIMENT") }
-        _ = try await Self.measure(label: config)
+    /// The shipped encoding keeps text at full size and spends little on a
+    /// small change. Measured on a fleet Mac (#58093): typing 102, pane 163,
+    /// full scroll 304 kbit/s at 1280x800. No knob tried (bitrate caps, 30 fps,
+    /// balanced or maintain-framerate degradation, a ceiling following the
+    /// changed area) spent less beyond run-to-run noise; a camera
+    /// (non-screencast) source dropped to 320x200 and spent 4x more on a
+    /// scroll. The bounds leave about 2x headroom over those numbers.
+    @Test(.timeLimit(.minutes(2)))
+    func smallChangesStaySharpAndCheap() async throws {
+        let results = try await Self.measure(label: "shipped")
+        let typing = try #require(results["typing"]), pane = try #require(results["pane"]), full = try #require(results["full"])
+        #expect(typing.kbps < 250, "a typed line costs \(typing.kbps) kbit/s")
+        #expect(pane.kbps < 400, "a scrolling pane costs \(pane.kbps) kbit/s")
+        #expect(full.kbps < 700, "a full-screen scroll costs \(full.kbps) kbit/s")
+        #expect(typing.kbps < full.kbps, "a typed line costs no less than a full scroll")
+        #expect(full.fps > 50, "a full scroll runs at \(full.fps) fps")
+        for (phase, result) in results {
+            #expect(result.size == CGSize(width: 1280, height: 800), "\(phase) arrived at \(result.size): text is no longer sharp")
+        }
     }
 }
 

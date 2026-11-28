@@ -561,6 +561,13 @@ import CmuxNextCompat
 /// `request.toolCall._meta.acpmux.question` (the daemon's normalized question) is an object is a
 /// question; its items' ids and prompts are the keys its `answers` may use (``questionKeys(permissionId:)``).
 /// A permission seen once without a question is no question (as the policy crate's `is_question`).
+///
+/// Both maps drop a permission when the daemon settles it (RFD 0191 step 3): the
+/// `permission_decision` record (`dir` "mux", `msg.permissionId`) the daemon writes when the
+/// prompt is answered, cancelled or expires, in the `_acpmux/event` stream or in a history reply.
+/// Records apply in order, so a request after the settle (the same id again) is kept. Never
+/// dropped by size: a dropped option reads as unknown, which ``isDeny(permissionId:optionId:)``
+/// treats as allow.
 public nonisolated final class AcpmuxPermissionOptions: Sendable {
     /// permissionId -> optionId -> whether every kind seen for it denies (`reject_*`).
     private let denies = Mutex<[String: [String: Bool]]>([:])
@@ -583,6 +590,9 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
     public func observe(_ object: [String: Any], replyTo method: String?) {
         var found: [(permission: String, option: String, denies: Bool)] = []
         var asked: [(permission: String, keys: Set<String>?)] = []
+        // The permissions this frame settles: dropped from both maps before what follows each
+        // settle in the frame (a request for the same id again) is added.
+        var settled = Set<String>()
         func request(_ record: [String: Any]?) {
             guard let record, let permission = record["permissionId"] as? String else { return }
             let request = record["request"] as? [String: Any]
@@ -594,9 +604,16 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
             }
         }
         func event(_ value: Any?) {
-            guard let event = value as? [String: Any], event["kind"] as? String == "permission_request",
-                  event["dir"] as? String == "mux" else { return }
-            request(event["msg"] as? [String: Any])
+            guard let event = value as? [String: Any], event["dir"] as? String == "mux" else { return }
+            switch event["kind"] as? String {
+            case "permission_request": request(event["msg"] as? [String: Any])
+            case "permission_decision":
+                guard let permission = (event["msg"] as? [String: Any])?["permissionId"] as? String else { return }
+                settled.insert(permission)
+                found.removeAll { $0.permission == permission }
+                asked.removeAll { $0.permission == permission }
+            default: return
+            }
         }
         switch object["method"] as? String {
         case "_acpmux/permission_pending": request(object["params"] as? [String: Any])
@@ -607,6 +624,11 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
             events.forEach(event)
         default: return
         }
+        if !settled.isEmpty {
+            let ended = settled
+            denies.withLock { denies in for permission in ended { denies.removeValue(forKey: permission) } }
+            questions.withLock { questions in for permission in ended { questions.removeValue(forKey: permission) } }
+        }
         if !asked.isEmpty {
             questions.withLock { questions in
                 for entry in asked {
@@ -616,12 +638,18 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
                 }
             }
         }
-        guard !found.isEmpty else { return }
-        denies.withLock { denies in
-            for entry in found {
-                denies[entry.permission, default: [:]][entry.option] = (denies[entry.permission]?[entry.option] ?? true) && entry.denies
+        if !found.isEmpty {
+            denies.withLock { denies in
+                for entry in found {
+                    denies[entry.permission, default: [:]][entry.option] = (denies[entry.permission]?[entry.option] ?? true) && entry.denies
+                }
             }
         }
+    }
+
+    /// The permissions each map holds (tests and benches: settled ones are gone).
+    var heldCount: (denies: Int, questions: Int) {
+        (denies.withLock { $0.count }, questions.withLock { $0.count })
     }
 
     /// The keys `answers` may use for `permissionId`: its question's item ids and prompts; nil

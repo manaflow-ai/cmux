@@ -125,15 +125,6 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
         var maxFramerate: Int
         /// The factor the picture is scaled down by before encoding (1: full size).
         var scaleDown: Double
-
-        /// These settings with the bitrate ceiling lowered to `ceiling` (``ChangedArea``; nil: unchanged).
-        func capped(_ ceiling: Int?) -> Settings {
-            guard let ceiling else { return self }
-            var settings = self
-            settings.maxBitrate = min(maxBitrate, ceiling)
-            settings.minBitrate = minBitrate.map { min($0, settings.maxBitrate) }
-            return settings
-        }
     }
 
     /// The rate a stream runs at unless both displays can show more, and the
@@ -418,11 +409,6 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var images = ScreenImageAssembler()
         /// The source state the viewer last heard (live until the host says otherwise).
         var source = ScreenSourceState.live
-        /// How much of the picture changed lately, and the bitrate ceiling last applied for it (nil: none yet).
-        var changed = ChangedArea()
-        var ceiling: Int?
-        /// The encoding ``applyQuality(_:)`` last set: the ceiling's full value comes from it.
-        var encoding: (quality: ScreenQuality, settings: ScreenQuality.Settings)?
         init(link: VNCPeerLink, backend: any ScreenBackend, rules: ScreenRules) {
             self.link = link
             self.backend = backend
@@ -654,15 +640,6 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 log("video: \(summary) capture \(String(format: "%.1f", Double(captured) / seconds)) fps target \(target.map(String.init) ?? "-") fps")
             }
         })
-        // The bitrate ceiling falls after a big change ends (ChangedArea).
-        if Self.followsChangedArea {
-            session.add(Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(250)) // ceiling relax period
-                    self?.relaxCeiling(session)
-                }
-            })
-        }
         // Idle refresh: capture sends nothing while the screen is still, so the
         // last picture is repeated a few times for the encoder to sharpen it,
         // then nothing goes out until something asks again (IdleRefresh).
@@ -859,10 +836,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             let pixels = session.lock.withLock { session.displays.indices.contains(session.current) ? session.displays[session.current] : nil }
             return pixels.map { FocusGeometry(display: display, pixels: $0) }
         }, send: { link.sendText($0, onlyOn: VNCPeerLink.focusLabel) })
-        (session.backend as? any ScreenDamageSource)?.onDamage = { [weak self] rects, size in
-            producer.damage(rects, captured: size)
-            self?.damaged(rects, size: size, session: session)
-        }
+        (session.backend as? any ScreenDamageSource)?.onDamage = { rects, size in producer.damage(rects, captured: size) }
         session.add(Task { await producer.run { link.hasOpenChannel(VNCPeerLink.focusLabel) } })
     }
 
@@ -1054,7 +1028,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
     @discardableResult
     private func applyQuality(_ session: Session) -> Bool {
         let hostRate = session.backend.maximumFrameRate
-        let (quality, settings, cap, fps, changed) = session.lock.withLock { () -> (ScreenQuality, ScreenQuality.Settings?, Int?, Int, Bool) in
+        let (settings, cap, fps, changed) = session.lock.withLock { () -> (ScreenQuality.Settings?, Int?, Int, Bool) in
             let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
             let cap = session.demand.captureCap(quality: session.quality, scales: session.backend.scalesToDemand)
             let size = ViewerDemand.fit(display, cap: cap, rules: rules)
@@ -1062,61 +1036,14 @@ public final class ScreenStreamHost: @unchecked Sendable {
                                                     hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate, rules: rules)
             let fps = encoding?.frameRate ?? ScreenQuality.baselineFrameRate
             defer { session.frameRate = fps }
-            return (session.quality, encoding?.settings, cap, fps, session.frameRate != fps)
+            return (encoding?.settings, cap, fps, session.frameRate != fps)
         }
-        let ceiling = session.lock.withLock { () -> Int? in
-            session.encoding = settings.map { (quality, $0) }
-            session.ceiling = Self.areaCeiling(session, now: DispatchTime.now().uptimeNanoseconds)
-            return session.ceiling
-        }
-        if let settings { session.link.applyVideo(settings.capped(ceiling)) }
+        if let settings { session.link.applyVideo(settings) }
         session.backend.setFrameRate(fps)
         session.backend.setMaximumLongEdge(cap)
         refreshSoon(session) // new encoder settings take effect on the next picture, which a still screen does not send
         if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
         return changed
-    }
-
-    /// Whether the bitrate ceiling follows the changed area.
-    static var followsChangedArea: Bool {
-        #if DEBUG
-        ScreenEncodingExperiment.current.areaBitrate
-        #else
-        false
-        #endif
-    }
-
-    /// The ceiling the changed area earns under Auto and Smooth Motion (nil:
-    /// the quality's own, or no encoding yet). Under `session.lock`.
-    private static func areaCeiling(_ session: Session, now: UInt64) -> Int? {
-        guard followsChangedArea, let encoding = session.encoding, encoding.quality == .auto || encoding.quality == .smooth else { return nil }
-        return ChangedArea.ceiling(full: encoding.settings.maxBitrate, fraction: session.changed.fraction(now: now))
-    }
-
-    /// One picture's damage: a bigger change raises the ceiling before the encoder needs it.
-    private func damaged(_ rects: [CGRect], size: CGSize, session: Session) {
-        guard Self.followsChangedArea else { return }
-        let now = DispatchTime.now().uptimeNanoseconds
-        let update = session.lock.withLock { () -> ScreenQuality.Settings? in
-            session.changed.add(rects, in: size, now: now)
-            guard let encoding = session.encoding, let next = Self.areaCeiling(session, now: now),
-                  ChangedArea.worthApplying(next, over: session.ceiling) else { return nil }
-            session.ceiling = next
-            return encoding.settings.capped(next)
-        }
-        if let update { session.link.applyVideo(update) }
-    }
-
-    /// The ceiling falls once the change has been small for a while (``ChangedArea/window``).
-    private func relaxCeiling(_ session: Session) {
-        let now = DispatchTime.now().uptimeNanoseconds
-        let update = session.lock.withLock { () -> ScreenQuality.Settings? in
-            guard let encoding = session.encoding, let next = Self.areaCeiling(session, now: now),
-                  next < (session.ceiling ?? .max), ChangedArea.worthApplying(next, over: session.ceiling) else { return nil }
-            session.ceiling = next
-            return encoding.settings.capped(next)
-        }
-        if let update { session.link.applyVideo(update) }
     }
 
     private func endSession(ifCurrent expected: Session? = nil) {

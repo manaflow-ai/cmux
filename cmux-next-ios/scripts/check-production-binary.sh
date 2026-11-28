@@ -49,6 +49,10 @@ forbidden=(
   # user, and the old fake terminal placeholder page.
   DemoDirector WorkspaceDemoDirector "Mock session" "aziz@example.com"
   "Last login: Sun Oct 12" "Live terminal arrives with CmuxMobileTerminal"
+  # Swift live code (Packages/Shared/CmuxLiveCode on iOS, CmuxMobileLive LiveCodeLinkFeed): the
+  # loader, the interposer, the device patch check and the link feed are DEBUG only.
+  dyld_dynamic_interpose CMUX_LIVE_CODE_DIR CMUX_LIVE_CODE_LINK LiveCodeLinkFeed LiveCodeDeviceSigner
+  LiveCodeRedraw MachOCodeSignature "cmux-live-code/live"
 )
 
 # Every Mach-O in the bundle: the executable, Frameworks/, and the

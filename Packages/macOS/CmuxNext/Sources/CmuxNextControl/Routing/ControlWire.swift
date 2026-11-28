@@ -39,6 +39,12 @@ public struct ControlError: Error, Sendable, Hashable {
                      data: ["action": .string(name), "feature": .string(feature)])
     }
 
+    /// Only a person may do this, never a caller of the control socket: an action marked person-only, or a
+    /// capture of the screen with no person's pick or mask (cmux#43102 review F1).
+    public static func personOnly() -> ControlError {
+        ControlError(code: "unavailable", message: ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
+    }
+
     public static func invalidParams(_ message: String, data: JSONValue? = nil) -> ControlError {
         ControlError(code: "invalid_params", message: message, data: data)
     }

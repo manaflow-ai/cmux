@@ -20,6 +20,8 @@
     "sidebar.groupHeader.background": "sections",
     "sidebar.groupHeader.memberCount": false,
     "sidebar.groupHeader.unreadCount": false,
+    // The app's session rows carry no tab count.
+    "sidebar.workspaceRow.tabCount": false,
     "sidebar.workspaceRow.icon": false,
     "sidebar.showColors": false,
     "sidebar.showTimestamps": false,
@@ -52,6 +54,8 @@
     "agentPane.display.harnessPlacement": "compact",
     // The app's model picker is a short menu (models, then effort), not a searchable list.
     "agentPane.display.modelPickerStyle": "menu",
+    // The app's model menu offers only Claude Code's own update, never another agent's (Codex).
+    "agentPane.display.ownHarnessUpdatesOnly": true,
     "agentPane.showContextUsage": true,
     "agentPane.composerRing": "context",
     // Claude's look: the computer, folder, mode and model chips sit in the quiet row under the box,
