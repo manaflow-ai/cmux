@@ -509,11 +509,12 @@ def head_green_before(checks: list | None, statuses: list | None, cutoff: float 
 def _get_json(url: str, token: str) -> object | None:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     try:
-        import deadline_http  # the router's sparse checkout carries it beside this file
+        import gh_http  # every checkout that runs this carries scripts/ci (gh_http beside deadline_http)
         req = urllib.request.Request(url, headers={
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28"})
-        status, body, _ = deadline_http.request(req, VERDICT_SECONDS)
+        # A 5xx or secondary limit is asked again inside the same VERDICT_SECONDS bound; no rate-limit sleep.
+        status, body, _ = gh_http.request(req, VERDICT_SECONDS, budget_s=VERDICT_SECONDS, rate_budget_s=0)
         return json.loads(body) if status == 200 else None
     except Exception:  # fail open: unread is not green
         return None

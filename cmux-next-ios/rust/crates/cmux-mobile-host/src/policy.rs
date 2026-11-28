@@ -318,6 +318,9 @@ pub struct DaemonPolicy {
     /// The `agent_session.host` this Mac's app records on its own agent tabs
     /// (`CMUX_MOBILE_AGENT_TAB_HOST`). Unset: a phone cannot create agent tabs.
     agent_tab_host: Option<String>,
+    /// The phone opened `daemon` with `"strict": true`: a field its command's schema
+    /// (cmux-mobile-api) does not name is refused (`unknown_field`) instead of logged.
+    strict: bool,
 }
 
 impl DaemonPolicy {
@@ -326,7 +329,14 @@ impl DaemonPolicy {
             projection_subject: format!("ios-device:{device_id}"),
             device_id: device_id.to_string(),
             agent_tab_host: None,
+            strict: false,
         }
+    }
+
+    /// Refuses fields a command's schema does not name (the phone asked for it).
+    pub fn with_strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
     }
 
     /// The phone's device id this policy was made for.
@@ -364,6 +374,20 @@ impl DaemonPolicy {
         }
         if let Some(why) = trace_meta_refusal(&object) {
             return Verdict::Refuse(error_line(id, "forbidden", &why));
+        }
+        // Requests are strict (cmux-next-ios/contract/README.md): a field this Mac's
+        // schema for the command does not name means the phone and Mac disagree.
+        let problems =
+            cmux_mobile_api::contract().check_request_fields(&format!("daemon/{command}"), &object);
+        if !problems.is_empty() {
+            if self.strict {
+                return Verdict::Refuse(error_line(
+                    id,
+                    "unknown_field",
+                    &format!("{command}: {}", problems.join("; ")),
+                ));
+            }
+            tracing::info!(command, problems = problems.join("; "), "phone request off its schema");
         }
         if let Some(allowed) = creation_fields(command) {
             let extra: BTreeSet<&str> = object
