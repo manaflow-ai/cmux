@@ -22,6 +22,13 @@ public import Foundation
 /// `controlSidebarSetAgentHibernation`). Synchronous resolution reads/writes
 /// stay `@MainActor` and are reached through the single
 /// ``controlSidebarOnMain(_:)`` hop per command.
+public enum ControlSidebarShellStateAdmission: Sendable, Equatable {
+    case accepted
+    case alreadyCurrent
+    case staleLifecycle
+    case rejected
+}
+
 @MainActor
 public protocol ControlSidebarContext: AnyObject {
     // MARK: Worker-lane main hop
@@ -253,6 +260,13 @@ public protocol ControlSidebarContext: AnyObject {
     /// Runs the explicit-scope `report_shell_state` fast path (dedupe gate +
     /// enqueue).
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String)
+
+    /// Admits an explicit-scope shell-state report and distinguishes duplicate
+    /// current state from a stale lifecycle for opt-in acknowledgement callers.
+    nonisolated func controlSidebarAcknowledgeScopedShellState(
+        scope: ControlSidebarPanelScope,
+        stateRawValue: String
+    ) -> ControlSidebarShellStateAdmission
 
     /// Returns the app-bundle-localized v1 error for a malformed terminal
     /// lifecycle token. This stays app-side so package code never resolves

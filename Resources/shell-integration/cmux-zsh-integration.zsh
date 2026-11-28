@@ -78,20 +78,39 @@ _cmux_send() {
         # shutdown-after-EOF flag), so the -N form fails option parsing; use
         # the bounded -w form directly. nc waits for the server to process the
         # line and close, preserving order in a batched child.
-        _cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
-        return 0
+        _cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1
+        return $?
     fi
     if command -v ncat >/dev/null 2>&1; then
         _cmux_write_socket_payload "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
     elif command -v socat >/dev/null 2>&1; then
         _cmux_write_socket_payload "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
     elif command -v nc >/dev/null 2>&1; then
-        if _cmux_write_socket_payload "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
-            :
-        else
-            _cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
-        fi
+        _cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1
+    else
+        return 127
     fi
+}
+
+_cmux_send_shell_activity_ack() {
+    local payload="$1"
+    local response=""
+    if [[ -x /usr/bin/nc ]]; then
+        response="$(_cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" 2>/dev/null)" || return 1
+    elif command -v ncat >/dev/null 2>&1; then
+        response="$(_cmux_write_socket_payload "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" 2>/dev/null)" || return 1
+    elif command -v socat >/dev/null 2>&1; then
+        response="$(_cmux_write_socket_payload "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" 2>/dev/null)" || return 1
+    elif command -v nc >/dev/null 2>&1; then
+        response="$(_cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" 2>/dev/null)" || return 1
+    else
+        return 127
+    fi
+    case "$response" in
+        "ACK:accepted"|"ACK:already-current") return 0 ;;
+        "ERROR: stale-lifecycle") return 2 ;;
+        *) return 1 ;;
+    esac
 }
 
 # Fire-and-forget send, always detached from the interactive shell: the
@@ -655,6 +674,10 @@ typeset -g _CMUX_LAST_PR_TARGET=""
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
+typeset -g _CMUX_SHELL_ACTIVITY_CANCEL_DIR=""
+typeset -g _CMUX_SHELL_ACTIVITY_STATE_FILE=""
+typeset -g _CMUX_SHELL_ACTIVITY_SEND_TOKEN=""
+typeset -gi _CMUX_SHELL_ACTIVITY_SEND_SEQUENCE=0
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
@@ -1091,21 +1114,81 @@ _cmux_report_tty_once() {
     fi
 }
 
+_cmux_shell_activity_token_is_current() {
+    local state_file="$1"
+    local token="$2"
+    [[ -r "$state_file" ]] || return 1
+    [[ "$(<"$state_file")" == "$token" ]]
+}
+
+_cmux_shell_activity_send_worker() {
+    local payload="$1"
+    local token="$2"
+    local state_file="$3"
+    local attempts=0
+    while (( attempts < 5 )); do
+        _cmux_shell_activity_token_is_current "$state_file" "$token" || return 1
+        _cmux_send_shell_activity_ack "$payload"
+        case $? in
+            0) return 0 ;;
+            2) return 2 ;;
+        esac
+        (( attempts++ ))
+        (( attempts < 5 )) && sleep 0.15
+    done
+    return 1
+}
+
+_cmux_cancel_shell_activity_send() {
+    [[ -n "${_CMUX_SHELL_ACTIVITY_SEND_TOKEN:-}" ]] || return 0
+    [[ -n "${_CMUX_SHELL_ACTIVITY_STATE_FILE:-}" ]] || return 0
+    print -r -- "cancelled:${_CMUX_SHELL_ACTIVITY_SEND_TOKEN}" >| "$_CMUX_SHELL_ACTIVITY_STATE_FILE"
+    _CMUX_SHELL_ACTIVITY_SEND_TOKEN=""
+}
+
+_cmux_shell_activity_ensure_state_file() {
+    if [[ -n "${_CMUX_SHELL_ACTIVITY_STATE_FILE:-}" && -d "${_CMUX_SHELL_ACTIVITY_CANCEL_DIR:-}" ]]; then
+        return 0
+    fi
+    local directory=""
+    directory="$(mktemp -d "${TMPDIR:-/tmp}/cmux-shell-activity.XXXXXX")" || return 1
+    _CMUX_SHELL_ACTIVITY_CANCEL_DIR="$directory"
+    _CMUX_SHELL_ACTIVITY_STATE_FILE="$directory/state"
+    return 0
+}
+
+_cmux_send_shell_activity_bg() {
+    local payload="$1"
+    _cmux_zsh_job_table_saturated && return 1
+    _cmux_shell_activity_ensure_state_file || return 1
+    (( _CMUX_SHELL_ACTIVITY_SEND_SEQUENCE++ ))
+    local token="${_CMUX_SHELL_ACTIVITY_SEND_SEQUENCE}:$CMUX_TERMINAL_LIFECYCLE_ID"
+    print -r -- "$token" >| "$_CMUX_SHELL_ACTIVITY_STATE_FILE" || return 1
+    _CMUX_SHELL_ACTIVITY_SEND_TOKEN="$token"
+    _cmux_shell_activity_send_worker \
+        "$payload" "$token" "$_CMUX_SHELL_ACTIVITY_STATE_FILE" \
+        >/dev/null 2>&1 &!
+    return 0
+}
+
 _cmux_report_shell_activity_state() {
     local state="$1"
+    local local_socket_path=0
+    [[ "${CMUX_SOCKET_PATH:-}" == /* ]] && local_socket_path=1
     [[ -n "$state" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    if _cmux_socket_is_unix; then
+    if (( local_socket_path )); then
         [[ -n "$CMUX_PANEL_ID" ]] || return 0
     fi
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
+    _cmux_cancel_shell_activity_send
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    if _cmux_socket_is_unix; then
-        local payload="report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if (( local_socket_path )); then
+        local payload="report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --ack"
         if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
             payload+=" --terminal-lifecycle-id=$CMUX_TERMINAL_LIFECYCLE_ID"
         fi
-        _cmux_send_bg "$payload" \
+        _cmux_send_shell_activity_bg "$payload" \
             || _CMUX_SHELL_ACTIVITY_LAST=""
     else
         _cmux_report_shell_activity_state_via_relay "$state" || _CMUX_SHELL_ACTIVITY_LAST=""
@@ -2469,6 +2552,11 @@ _cmux_restore_terminal_identity_after_startup() {
 _cmux_zshexit() {
     _cmux_stop_git_head_watch
     _cmux_stop_pr_poll_loop
+    _cmux_cancel_shell_activity_send
+    if [[ -n "${_CMUX_SHELL_ACTIVITY_CANCEL_DIR:-}" ]]; then
+        /bin/rm -f -- "$_CMUX_SHELL_ACTIVITY_STATE_FILE" >/dev/null 2>&1 || true
+        /bin/rmdir "$_CMUX_SHELL_ACTIVITY_CANCEL_DIR" >/dev/null 2>&1 || true
+    fi
     [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] && /bin/rm -f -- "$_CMUX_GIT_ACTIVE_PWD_FILE" >/dev/null 2>&1 || true
 }
 
