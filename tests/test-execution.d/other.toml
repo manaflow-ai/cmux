@@ -361,6 +361,11 @@ path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_git_fixture_cleanup.py"
+lane = "manual"
+reason = "No workflow step runs it. Unit tests of the git fixture helper's cleanup; run python3 tests/test_git_fixture_cleanup.py after changing that helper (seconds, no build)."
+
+[[test]]
 path = "tests/test_git_history.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_git_history.py"
@@ -409,6 +414,11 @@ reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins scripts
 path = "tests/test_guards_new_reds.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_guards_new_reds.py"
+
+[[test]]
+path = "tests/test_head_compile.py"
+lane = "manual"
+reason = "No workflow step runs it. Unit tests of the feat-cmux-next head compile helper; run python3 tests/test_head_compile.py after changing it (seconds, no build)."
 
 [[test]]
 path = "tests/test_head_tier.py"
@@ -638,6 +648,10 @@ path = "tests/test_media_tag_lock.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_memory_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_memory_resource_diagnostics.py"
 lane = "legacy"
 
@@ -663,6 +677,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_migrate_journey_verdict.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_mobile_ffi_pin.py"
 lane = "linux-guard"
 
 [[test]]
@@ -803,6 +821,11 @@ reason = "No ci-guards step runs it yet. Pins scripts/ci/prefetch-sparse-checkou
 [[test]]
 path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_prepush_backup_refs.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_backup_refs.py"
 
 [[test]]
 path = "tests/test_prepush_fast_tier.py"
@@ -1001,6 +1024,10 @@ path = "tests/test_sans_io_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_scale_fixture_bench.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_screen_sharing_helper_release.py"
 lane = "linux-guard"
 
@@ -1132,6 +1159,11 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins that ea
 [[test]]
 path = "tests/test_static_analysis_ratchet.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stress_bench_starve.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stress_bench_starve.py"
 
 [[test]]
 path = "tests/test_stress_cli_socket_api.py"
@@ -1319,7 +1351,16 @@ path = "tests/test_whats_new_gallery_triggers.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_windows_msi.py"
+lane = "manual"
+reason = "Needs wixl, msitools, osslsigncode and wine64, which the guard runners do not carry; cmux-tui-build-package.yml package-windows-msi runs the same build, test-sign and Wine round trip on every include_windows build. Run it yourself after changing scripts/ci/windows-msi.py: python3 tests/test_windows_msi.py (35 s with Wine)."
+
+[[test]]
 path = "tests/test_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_inline_python_f_strings.py"
 lane = "linux-guard"
 
 [[test]]

@@ -34,7 +34,8 @@ main() {
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # The harness and summary as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/" \
-    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"  # run.py and idle_e2e.py import them from their parent folder
+    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/" \
+    && cp scripts/ci/timeout.sh "$tools/timeout.sh"  # run.py and idle_e2e.py import them from their parent folder; fetch_checkout's deadline
   local base="" head rounds=3 delay=3 stress=0 frames=0 arg rc=0 i side
   local harness_args=()
   head="$(git rev-parse HEAD)"
@@ -61,7 +62,7 @@ main() {
   for side in base head; do
     local sha="$base"
     [[ "$side" == head ]] && sha="$head"
-    fetch_checkout "$sha" || exit 3
+    fetch_checkout "$sha" "$tools" || exit 3
     build_app "$out" "$side" || { git -c advice.detachedHead=false checkout --quiet --detach "$checkout"; exit 3; }
   done
   git -c advice.detachedHead=false checkout --quiet --detach "$checkout" || exit 3
@@ -157,11 +158,23 @@ stop_frames() {
 }
 
 fetch_checkout() {
-  local sha="$1" depth=()
+  local sha="$1" tools="$2" depth=() remote rc
   [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1) # a full clone stays full
+  git cat-file -e "$sha^{commit}" 2>/dev/null && { git -c advice.detachedHead=false checkout --quiet --detach "$sha"; return; }
   # A fleet step's origin is the fleet mirror, which holds feat-cmux-next only: a PR or lane commit comes from GitHub.
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha" 2>/dev/null \
-    || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" || { echo "UCA cannot fetch $sha" >&2; return 3; }
+  # Each fetch is named and bounded (UCA_FETCH_TIMEOUT_S, 300 s, 0 for none): an unbounded silent fetch here was the
+  # last thing three measurements ran before the controller stopped them as hung at 45 min (146b1d956eee1058e20391c3,
+  # 71c6b617c8762dc71c3518ff, 88c862624ec2e83377cf2568, 2026-11-27), each holding an exclusive Mac for that long.
+  for remote in origin https://github.com/manaflow-ai/cmux.git; do
+    echo "UCA fetch $sha from $remote"
+    GIT_TERMINAL_PROMPT=0 "$tools/timeout.sh" --kill-after=15 "${UCA_FETCH_TIMEOUT_S:-300}" \
+      git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=20 fetch --quiet --no-tags --recurse-submodules=no \
+      ${depth[@]+"${depth[@]}"} "$remote" "$sha" 2>&1 | tail -n 3
+    rc=${PIPESTATUS[0]}
+    (( rc == 124 || rc == 137 )) && echo "UCA fetch $sha from $remote: no answer in ${UCA_FETCH_TIMEOUT_S:-300} s" >&2
+    git cat-file -e "$sha^{commit}" 2>/dev/null && break
+  done
+  git cat-file -e "$sha^{commit}" 2>/dev/null || { echo "UCA cannot fetch $sha" >&2; return 3; }
   git -c advice.detachedHead=false checkout --quiet --detach "$sha"
 }
 

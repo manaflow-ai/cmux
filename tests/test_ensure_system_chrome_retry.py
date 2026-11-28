@@ -64,9 +64,13 @@ class ChromeInstallRetryTests(unittest.TestCase):
                        / "chrome-headless-shell", "#!/usr/bin/env bash\necho 157.0.8103.78\n")
             env = {k: v for k, v in os.environ.items() if k not in ("GITHUB_ENV", "GITHUB_ACTIONS")}
             env.update(PATH=f"{tmp / 'bin'}:{env.get('PATH', '/usr/bin:/bin')}", FAKE_STATE=str(state),
-                       CMUX_CI_CACHE_DIR=str(cache), CMUX_CHROME_INSTALL_RETRY_SECONDS="0")
+                       CMUX_CI_CACHE_DIR=str(cache), CMUX_CHROME_INSTALL_RETRY_SECONDS="0",
+                       CMUX_APT_LOCK_CONF=str(tmp / "apt.conf.d" / "90-cmux-ci-lock-timeout"))
+            (tmp / "apt.conf.d").mkdir()
             done = subprocess.run(["bash", str(SCRIPT)], cwd=work, env=env, capture_output=True, text=True,
                                   timeout=60)
+            self.lock_conf = (tmp / "apt.conf.d" / "90-cmux-ci-lock-timeout").read_text() \
+                if (tmp / "apt.conf.d" / "90-cmux-ci-lock-timeout").exists() else ""
             calls = int((state / "calls").read_text().strip() or 0) if (state / "calls").exists() else 0
             return done, calls
 
@@ -98,6 +102,22 @@ class ChromeInstallRetryTests(unittest.TestCase):
     def test_an_apt_hash_mismatch_is_still_tried_once_more(self):
         done, calls = self.run_script(["E: Hashes of received file sha256 do not match", "ok"])
         self.assertEqual((done.returncode, calls), (0, 2), done.stdout + done.stderr)
+
+    def test_a_held_dpkg_lock_is_tried_again(self):
+        # job 92c95b17ff19cd8dde8d2b2b: two Playwright installs on one fleet VM at once
+        held = "E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 16395 (apt-get)"
+        done, calls = self.run_script([held, "ok"])
+        self.assertEqual((done.returncode, calls), (0, 2), done.stdout + done.stderr)
+
+    def test_a_held_lock_three_times_ends_the_tries(self):
+        held = "E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend)"
+        done, calls = self.run_script([held, held, held, "ok"])
+        self.assertEqual((done.returncode, calls), (1, 3))
+
+    def test_apt_is_told_to_wait_for_the_lock_before_the_install(self):
+        done, _ = self.run_script(["ok"])
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.lock_conf, 'DPkg::Lock::Timeout "600";\n')
 
 
 if __name__ == "__main__":

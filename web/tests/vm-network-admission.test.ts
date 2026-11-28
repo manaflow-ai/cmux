@@ -7,14 +7,10 @@ import {
   admitNetworkAddress,
   ipv4CidrCapacity,
   networkAdmissionVerdict,
+  pausedHolders,
   resetNetworkAddressAlertsForTest,
 } from "../services/vms/networkAdmission";
-import { teamNetworkCidr, userNetworkCidr } from "../services/vms/privateNetwork";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-
-function ipv4ToInt(address: string): number {
-  return address.split(".").reduce((value, octet) => value * 256 + Number(octet), 0);
-}
 
 const TEAM_NET = { providerNetworkId: "vpc-team", cidr: "10.40.0.0/24", scope: "team" as const };
 
@@ -58,14 +54,14 @@ describe("networkAdmissionVerdict", () => {
 });
 
 describe("admitNetworkAddress", () => {
-  test("a mostly empty network costs one count and no tunnel read", async () => {
+  test("a tunnel-heavy network with few machines is full: tunnels are always counted", async () => {
     const { repo, calls } = repoHolding(10);
     let tunnelReads = 0;
-    const usage = await Effect.runPromise(admitNetworkAddress(repo, {
-      listNetworkTunnelIds: () => Effect.sync(() => { tunnelReads += 1; return []; }),
-    }, input()));
-    expect(usage).toEqual({ held: 10, capacity: 254, machines: 10, tunnels: null });
-    expect(tunnelReads).toBe(0);
+    const result = await Effect.runPromise(Effect.either(admitNetworkAddress(repo, {
+      listNetworkTunnelIds: () => Effect.sync(() => { tunnelReads += 1; return Array.from({ length: 245 }, (_, i) => `wg-${i}`); }),
+    }, input())));
+    expect(tunnelReads).toBe(1);
+    expect(result._tag).toBe("Left");
     expect(calls).toEqual([{ provider: "freestyle", userId: "user-1", billingTeamId: "team-1", scope: "team", cidr: "10.40.0.0/24" }]);
   });
 
@@ -105,19 +101,48 @@ describe("admitNetworkAddress", () => {
   });
 });
 
-describe("team network CIDR", () => {
-  test("is a stable, aligned /20 inside 10.128.0.0/10, clear of the user pool", () => {
-    const teams = ["team-1", "team-2", "a-much-longer-stack-team-id"];
-    expect(teamNetworkCidr("team-1")).toBe(teamNetworkCidr("team-1"));
-    const userLow = ipv4ToInt("10.192.0.0");
-    for (const team of teams) {
-      const [address, prefix] = teamNetworkCidr(team).split("/");
-      expect(prefix).toBe("20");
-      const base = ipv4ToInt(address!);
-      expect(base % 4096).toBe(0);
-      expect(base).toBeGreaterThanOrEqual(ipv4ToInt("10.128.0.0"));
-      expect(base + 4095).toBeLessThan(userLow);
-      expect(ipv4ToInt(userNetworkCidr(team).split("/")[0]!)).toBeGreaterThanOrEqual(userLow);
-    }
+describe("paused address holders (item 4: paused machines keep their address)", () => {
+  function repoWithPaused(total: number, paused: { paused: number; oldestPausedWriteAt: number | null } | "error" | "hang") {
+    let pausedReads = 0;
+    return {
+      pausedReads: () => pausedReads,
+      repo: {
+        countNetworkAddressHolders: () => Effect.succeed(total),
+        countPausedNetworkAddressHolders: () => {
+          pausedReads += 1;
+          if (paused === "error") return Effect.fail(new Error("db down") as never);
+          if (paused === "hang") return Effect.never;
+          return Effect.succeed(paused);
+        },
+      },
+    };
+  }
+
+  test("below 80% admission never reads the paused share", async () => {
+    const r = repoWithPaused(100, { paused: 90, oldestPausedWriteAt: 0 });
+    await Effect.runPromise(admitNetworkAddress(r.repo, {}, input()));
+    expect(r.pausedReads()).toBe(0);
+  });
+
+  test("an 80% alert reads the paused share once per alert window, and a full network still refuses", async () => {
+    const r = repoWithPaused(255, { paused: 180, oldestPausedWriteAt: Date.now() - 50 * 3_600_000 });
+    expect((await Effect.runPromiseExit(admitNetworkAddress(r.repo, {}, input())))._tag).toBe("Failure");
+    expect((await Effect.runPromiseExit(admitNetworkAddress(r.repo, {}, input())))._tag).toBe("Failure");
+    expect(r.pausedReads()).toBe(1);
+  });
+
+  test("names how many held addresses are paused and the oldest pause age in hours", async () => {
+    const r = repoWithPaused(220, { paused: 180, oldestPausedWriteAt: Date.now() - 50 * 3_600_000 - 1_000 });
+    expect(await Effect.runPromise(pausedHolders(r.repo, input()))).toEqual({ paused: 180, oldestPausedHours: 50 });
+    const none = repoWithPaused(220, { paused: 0, oldestPausedWriteAt: null });
+    expect(await Effect.runPromise(pausedHolders(none.repo, input()))).toEqual({ paused: 0, oldestPausedHours: null });
+  });
+
+  test("a failed, slow or absent paused read reports null and never blocks admission", async () => {
+    expect(await Effect.runPromise(pausedHolders(repoWithPaused(220, "error").repo, input()))).toBeNull();
+    expect(await Effect.runPromise(pausedHolders(repoWithPaused(220, "hang").repo, input()))).toBeNull();
+    expect(await Effect.runPromise(pausedHolders(repoHolding(220).repo, input()))).toBeNull();
+    const usage = await Effect.runPromise(admitNetworkAddress(repoWithPaused(220, "hang").repo, {}, input()));
+    expect(usage).toMatchObject({ held: 220 });
   });
 });

@@ -79,10 +79,19 @@ def flat(text: str) -> str:
 
 
 class DaemonTestsGateTests(unittest.TestCase):
-    def test_the_gate_runs_on_the_shared_linux_label_on_every_attempt(self) -> None:
+    def test_the_gate_runs_on_the_shared_linux_label_and_a_nightly_rerun_leaves_it(self) -> None:
+        # A nightly-ref rerun takes the reserved GCP pool: 2026-11-28 run 46107444639 failed this
+        # gate on one cmux-linux box (cargo EACCES) and every promote waited on that pool.
         runs_on = sole_runs_on(jobs()["cmux-next-daemon-tests"])
         for context in contexts():
-            expected = "cmux-linux" if context["github.repository_owner"] == "manaflow-ai" else "ubuntu-24.04"
+            nightly = context["github.event_name"] == "workflow_dispatch" or context["github.ref"] in (
+                "refs/heads/nightly-next", "refs/heads/feat-cmux-next")
+            if context["github.repository_owner"] != "manaflow-ai":
+                expected = "ubuntu-24.04"
+            elif int(context["github.run_attempt"]) > 1 and nightly:
+                expected = "cmux-gcp-nightly-x64"
+            else:
+                expected = "cmux-linux"
             self.assertEqual(route(runs_on, context), expected, context)
 
     def test_the_job_keeps_its_id_and_setup(self) -> None:
@@ -101,6 +110,11 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertIn("scripts/ci/cmux-next-daemon-tests.sh", step(daemon, "cargo test cmux_next_")["run"])
         script = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text(encoding="utf-8")
         self.assertIn("--locked cmux_next_", script)
+        # A 14 GiB cmux-linux slot SIGKILLed the test compile at -j8 (job 140997699588): the jobs follow its memory,
+        # and an OOM-killed attempt retries at half.
+        self.assertIn("scripts/ci/cargo-mem-jobs.sh", script)
+        self.assertLess(script.index("cargo-mem-jobs.sh"), script.index("for attempt in 1 2 3"))
+        self.assertIn("signal: 9, SIGKILL", script)
         self.assertNotIn("continue-on-error", daemon)
 
     def test_a_pass_writes_the_marker_without_naming_an_os(self) -> None:

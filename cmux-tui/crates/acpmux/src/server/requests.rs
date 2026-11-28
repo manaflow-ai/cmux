@@ -4,6 +4,7 @@ use super::*;
 use crate::heap_future::heap;
 use crate::no_panic::{JsonExt, LockExt};
 
+mod brief_start;
 mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
@@ -24,6 +25,7 @@ use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
+mod session_resources;
 mod signature;
 mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
@@ -454,6 +456,7 @@ async fn dispatch_brief(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     mut params: Value,
+    start: &mut Option<(brief_start::Pending, Value)>,
 ) -> Result<Value, RpcError> {
     if hub.briefs.load_failed() {
         return Err(RpcError::internal(
@@ -787,102 +790,23 @@ async fn dispatch_brief(
         }
         return Box::pin(workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
     }
-    let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
-            Ok(created) => created,
-            Err(error) => {
-                hub.briefs.release(&id);
-                return Err(error);
-            }
-        };
-    let sid = created
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::internal("dispatch session/new returned no sessionId"))?
-        .to_owned();
-    let session = hub.resolve(&sid)?;
-    let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":match params.get("host").and_then(Value::as_str) { None => json!("local"), Some("auto") if !forwarded => json!("local"), Some(h) => json!(h) },"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
-    if let Some(key) = idempotency {
-        record.set("idempotencyKey", json!(key));
-    }
-    if let Some(caller) = conn.caller() {
-        record.set("fromSession", json!(caller)); // its result card's chat (`hub/tasks.rs`)
-    }
-    let row = hub.briefs.put(record);
-    let mut prompt = json!({"sessionId":session.id,"text":row.get("brief"),"_meta":{"acpmux":{"briefId":id,"fromAgent":row.get("from")}}});
-    if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        prompt.set_path(&["_meta", "acpmux", "via"], via);
-    }
-    let task_hub = hub.clone();
-    let task_conn = conn.clone();
-    let task_id = id.clone();
-    let task_session = session.clone();
-    let task_via = params.pointer("/_meta/acpmux/via").cloned();
-    let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
-    let task_device = super::remote_guard::sending_device(conn, &prompt);
-    tokio::spawn(async move {
-        let mut blocks =
-            vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
-        let web = super::trust_gate::for_web(task_conn.origin, &prompt);
-        if let Err(error) = task_hub
-            .prompt_with(
-                &task_session,
-                std::mem::take(&mut blocks),
-                &task_conn.label(),
-                false,
-                crate::hub::PromptOptions {
-                    control: super::remote_guard::control_of(
-                        task_conn.origin,
-                        task_conn.auth,
-                        &prompt,
-                    ),
-                    trust_gate: task_via.is_some() || web,
-                    agent: task_agent,
-                    full_access_device: task_device,
-                    ..Default::default()
-                },
-            )
-            .await
-        {
-            let _ = task_hub.briefs.update(&task_id, |r| {
-                r["status"] = json!("reported");
-                r["error"] = json!(error.message);
-            });
-        }
-    });
-    let pressure = hub
-        .status()
-        .await
-        .pointer("/host_pressure/warning")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    // Another host only when it has room: an overloaded pick is no better a place (`placement.rs`).
-    // A peer daemon's connection hears that this host is over its budget, and of no other host.
-    let suggestion = match &pressure {
-        Some(_) if !from_peer => {
-            let v = super::place::pick(hub, super::place::brief_work(&brief)).await;
-            let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
-            (!flag("overloaded") && !flag("local"))
-                .then(|| v.get("pick").and_then(Value::as_str).map(str::to_owned))
-                .flatten()
-        }
-        _ => None,
-    }
-    .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
-    let row = hub
-        .briefs
-        .update(&id, |r| {
-            if let Some(warning) = &pressure {
-                r["warning"] = json!(warning);
-            }
-            if let Some(host) = &suggestion {
-                r["suggestedHost"] = json!(host);
-            }
-        })
-        .unwrap_or(row);
-    Ok(
-        json!({"brief":row,"event":crate::hub::dispatch::event("dispatch", &row),"status":"running","warning":pressure,"suggestedHost":suggestion}),
-    )
+    *start = Some((
+        brief_start::Pending {
+            idempotency: idempotency.map(str::to_owned),
+            id,
+            title,
+            brief,
+            from,
+            to,
+            selected,
+            stop,
+            forwarded,
+            from_peer,
+            params,
+        },
+        new_params,
+    ));
+    Ok(Value::Null)
 }
 
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
@@ -1614,7 +1538,7 @@ async fn dispatch_request_with_identity(
     // These methods can dispatch session/new or session/prompt while their poll is on the worker
     // stack. Enter the large method match only for the child, after ordinary routing above.
     match m {
-        method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
+        method::MUX_DISPATCH => brief_start::run(hub, conn, params).await,
         method::MUX_STEER => heap(|| briefs::steer(hub, conn, params)).await,
         method::SESSION_FORK => heap(|| fork_session(hub, conn, params, resolved)).await,
         method::CHAT_FIX_FROM_LINK => {
@@ -1623,6 +1547,7 @@ async fn dispatch_request_with_identity(
         method::CHAT_FIX_FROM_LINK_PREPARE => {
             heap(|| super::fix_from_link::handle(hub, conn, params, true)).await
         }
+        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         other => {
             heap(|| dispatch_method(hub, conn, other, params, resolved, fixed_id, received)).await
         }
@@ -2234,9 +2159,8 @@ async fn dispatch_method(
                 restricted,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
-                // Purged by its creator right after its work (the Chief compactor's nodes): its
-                // prompts' bodies are not kept (`hub/ephemeral.rs`). An `ephemeral` run keeps
-                // them, so a failed first send can still be resent.
+                // Purged by its creator after its work (Chief compactor nodes): its prompt
+                // bodies are not kept (`hub/ephemeral.rs`); an `ephemeral` run keeps them.
                 throwaway: !adopting
                     && mux_meta(&params).and_then(|m| m.get("throwaway")).and_then(Value::as_bool)
                         == Some(true),
@@ -2245,6 +2169,7 @@ async fn dispatch_method(
                 create_key,
                 placed_by: pick("placedBy")
                     .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
+                priority: crate::subrouter_priority::asked_tag(meta), // fleet-only-ok: Cloud
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2262,12 +2187,11 @@ async fn dispatch_method(
             if remote_start {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
-                // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
-                // session the owner's peer daemon starts with no policy runs
-                // approve-all, as vmHost's did. Web clients still ask. Before the
-                // mode settles, so a Codex chat there settles in full access
-                // (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a
-                // narrower policy needs.
+                // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a session the
+                // owner's peer daemon starts with no policy runs approve-all, as vmHost's did. Web
+                // clients still ask. Before the mode settles, so a Codex chat there settles in full
+                // access (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a narrower
+                // policy needs.
                 let vm_boundary = s.meta().vm_boundary && hub.takes_vm_boundary().await;
                 if !asked_policy
                     && crate::hub::vm_boundary_peer_approves(
@@ -2561,7 +2485,8 @@ async fn dispatch_method(
             let steer = steer.unwrap_or(false);
             // An outside producer's message that waits for the chat's cold batch (`acpmux send
             // --gather`, `hub/cold_wake.rs`): refused when it could not wait.
-            if flag(crate::hub::cold_wake::GATHER_META) == Some(true) {
+            let gather = flag(crate::hub::cold_wake::GATHER_META) == Some(true);
+            if gather {
                 let fire = mux_meta(&params)
                     .and_then(|m| m.pointer("/notice/severity"))
                     .and_then(Value::as_str)
@@ -2575,6 +2500,12 @@ async fn dispatch_method(
                     return Err(refused);
                 }
             }
+            let provenance = provenance.map(|mut p| {
+                if gather {
+                    p.set(crate::hub::cold_wake::GATHER_META, json!(true));
+                }
+                p
+            });
             // A subagent's prompt that starts a turn of a lane of its own lead: that turn's answer
             // reaches the subagent (`hub/lane_report_subagents.rs`), so the receiver is told to end
             // its turn with it rather than send it to the lead (`hub/prompt_attribution.rs`). Not
@@ -3489,6 +3420,8 @@ async fn dispatch_method(
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
         // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
         method::SESSION_SIGNATURE => signature::handle(params),
+        // Read on request from the OS, nothing kept (`requests/session_resources.rs`).
+        method::MUX_SESSION_RESOURCES => session_resources::handle(hub, &params).await,
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -3519,7 +3452,6 @@ async fn dispatch_method(
                 .await
                 .map_err(|e| RpcError::internal(format!("review brief stopped: {e}")))?
         }
-        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         // Only the person writes the library: an agent's or a remote client's save could
         // replace a prompt the person types, or shadow one from `agentPane.savedPrompts`.
         method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE if !conn.is_person() => {
@@ -3897,14 +3829,30 @@ async fn dispatch_method(
                     // the worker, not queued on the blocking pool. Under load the pool's queue
                     // held this read behind every other blocking job (cosmic-gray, 2026-11-27:
                     // `acpmux session inbox` 60 s+); the read itself takes no hub-wide lock.
-                    Ok(crate::qos::off_worker(|| hub.inbox_threads(&s)))
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let before = params.get("before").and_then(Value::as_u64);
+                    Ok(crate::qos::off_worker(|| hub.inbox_threads_page(&s, limit, before)))
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
                     let thread = thread()?;
                     // Held messages that left memory are read from the log (`inbox_surge.rs`),
                     // off the worker and not behind the blocking pool's queue, as above.
-                    crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let mut reply =
+                        crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))?;
+                    // A page of the newest `limit` messages; `more` says the rest are there.
+                    if let (Some(limit), Some(list)) =
+                        (limit, reply.get_mut("messages").and_then(Value::as_array_mut))
+                    {
+                        let total = list.len();
+                        list.truncate(limit.max(1));
+                        if let Some(map) = reply.as_object_mut() {
+                            map.insert("total".into(), json!(total));
+                            map.insert("more".into(), json!(total > limit.max(1)));
+                        }
+                    }
+                    Ok(reply)
                 }
                 _ => {
                     let text = text_of("text")

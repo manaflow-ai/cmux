@@ -69,6 +69,7 @@ import PackageDescription
 //     Stashed Tabs page's restore and delete; the App answers StashHost)
 //   CmuxNextAppInstallLink -> Compat, Daemon, Design (cmux.com's Open in cmux link: forwards it to the bundled
 //     `cmux apps install-link`, shows its consent card and runs Install only on the person's yes)
+//   CmuxNextBrowserAutomation -> Browser, Compat, Wakeups, CCmuxAppFFI (the WebKit driver; its rules in Rust, cmux-browser-rules)
 //   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash, Wakeups (the React
 //     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
 //   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Design, Pages, Server, Settings, Wakeups (app health's
@@ -196,7 +197,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 0945b915d77374ed30cad02e8fba126952eedb4c43ab596bc7be4e1145f4dcb8
+// app-ffi-pin-checksum: 275df2b7d897a9a28bdfc3c95a3535e214d8123c608fc704115a7c2414831292
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -243,6 +244,13 @@ let uiLayerPreviewProducts: [Product] = [
         "CmuxNextSidebar",
         "CmuxNextTabs",
     ]),
+    // The UI shell's HomeEngine host (Prototypes/UiLayerHost cmux-ui-home --shoot) draws HomeEngine's playgrounds
+    // from an incremental build of HomeEngine and what it needs, without the app composition root.
+    .library(name: "CmuxNextUiHomeModules", targets: ["CmuxNextHomeEngine"]),
+    // The UI shell's Settings window and Cloud UI hosts (cmux-ui-settings, cmux-ui-cloud --shoot): one product per
+    // module, so a push to one rebuilds only that module, what it needs and its small host.
+    .library(name: "CmuxNextUiSettingsModules", targets: ["CmuxNextSettingsWindow"]),
+    .library(name: "CmuxNextUiCloudModules", targets: ["CmuxNextCloudUI"]),
 ]
 
 // Debug-only: the preview leaf and its tests share this one condition.
@@ -498,8 +506,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // The free tier's App Attest provider is composed here (cx-ds09i).
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
-                // The signed approve answer format shared with the iPhone (cx-aocz).
-                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
@@ -631,6 +637,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextFeedClient",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // The feed push rules (cmux-feed-push-core) the approve check hashes and signs with.
+                "CCmuxAppFFI",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -726,6 +734,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextPalette",
                 "CmuxNextRemoteFetch",
+                "CmuxNextResources",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
                 "CmuxNextWindowRules",
@@ -1407,10 +1416,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
         // iPhones through devicectl, recordings and feedback clips. No daemon,
-        // no UI framework beyond AppKit; the App supplies the page and the sink.
+        // no UI framework beyond AppKit; the App supplies the page and the sink. The rules
+        // (tool output parsing, key usages, touches, adb calls) are cmux-phone-core's, over CCmuxAppFFI.
         .target(
             name: "CmuxNextPhone",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
@@ -1632,6 +1643,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextPhoneAccess",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
@@ -2048,6 +2060,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            // CmuxScreenKit's rules are Rust (cmux-rd-core screen_kit); its
+            // Swift is thin wrappers over the C ABI, so its tests link
+            // CCmuxAppFFI here instead of running in their own package.
+            name: "CmuxScreenKitTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                .product(name: "CmuxScreenKit", package: "CmuxScreenKit"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
         // whose runtime is on another machine. Decode and present come from
@@ -2784,6 +2807,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextBrowserTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextBrowser",
+                "CmuxNextBrowserCore",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextRemoteFetch",
@@ -2797,6 +2821,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBrowserAutomation",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // the driver's rules: params, deadlines, tab place, frame tree (cmux-browser-rules)
+                "CCmuxAppFFI",
                 "CmuxNextBrowser",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
@@ -3127,6 +3153,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextMobileHost",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextBrowserCore",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -3150,6 +3177,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextMobileHostTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextBrowser",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextMobile",
@@ -3239,7 +3267,6 @@ let package = !targetsLinux ? Package(
         .package(path: "../../Shared/CmuxHomeCore"),
         // The one Chief list rule, shared with the iPhone's Home.
         .package(path: "../../Shared/CmuxChiefList"),
-        .package(path: "../../Shared/CmuxFeedPushCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
         .package(path: "../../Shared/CmuxAgentQuestion"),

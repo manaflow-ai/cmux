@@ -91,6 +91,7 @@ jobs:
       transport: ${{ steps.artifact-transport.outputs.transport }}
       artifact: ${{ steps.artifact-name.outputs.name }}
     env:
+      GH_HTTP_DEADLINE_S: "420"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_WEB_BUN_VERSION: "1.4.4"
       CMUX_WEB_NODE_VERSION: "24.22.1"

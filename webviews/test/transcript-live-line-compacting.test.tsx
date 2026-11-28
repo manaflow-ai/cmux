@@ -11,10 +11,15 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import type { WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { THINKING, turnView } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
+const { Thinking } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/Thinking"));
+const { WorkingCountsContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/workingForModel"),
+);
 
 const START = Date.UTC(2026, 10, 7, 8, 0, 0);
 const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

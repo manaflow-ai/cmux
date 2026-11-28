@@ -10,13 +10,14 @@
 import { SnapshotCapture, SnapshotKeyFence, snapshotCapture, type SnapshotCaptureCommand, type SnapshotCaptureResult } from "./snapshot-capture.ts";
 import { pendingCreations } from "./pending-creations.ts";
 import { Schema } from "effect";
+import { PROVIDER_CREATE_BUDGET_MS } from "./create-admission.ts";
 import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { VmCreationReceipt } from "../api/creations.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
 import { deleteMany, getMany, Reservation, type LedgerStorage } from "./storage.ts";
 import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
-import { admitAgentSlot, bindAgentCreation, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
+import { admitAgentSlot, bindAgentCreation, describeAgentSlots, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
 export type { LedgerStorage } from "./storage.ts";
 
 /** The subset of Durable Object storage the ledger uses. Values come back untyped and are checked on read. */
@@ -133,8 +134,24 @@ export const creationNeverSent = async (storage: LedgerStorage, key: string): Pr
   const p = readRecord(await storage.get(`idem:${key}`))?.progress;
   return p?.phase === "creating" && (p.dispatch?.state === "ready" || p.dispatch?.state === "rejected");
 };
+/**
+ * Whether beginCreateSend would let a send for `vmId` under this record begin now: the read-only half of that gate. A
+ * create checks it before it takes a provider create slot (upstream/live-create.ts), so a retry whose send the gate
+ * would refuse (a send still in flight or of unknown outcome, a cancelled or finished creation) answers at once and
+ * holds no slot. beginCreateSend still decides, inside its transaction.
+ */
+export const createSendOpen = (record: IdempotencyRecord | null | undefined, vmId: string, nowMs: number | undefined): boolean => {
+  const p = record?.progress;
+  return p !== undefined && p.phase === "creating" && p.vmId === vmId && p.cancelRequested !== true && p.dispatch !== undefined && sendResendable(p.dispatch, nowMs);
+};
 /** Decodes a stored idempotency record (plain or generated); exported for the scan oracle in test/support. */
 export const readIdempotencyRecord = readRecord;
+/** A held create's idempotency state, as an agent key's cap refusal names it: its phase and its dispatch receipt. */
+export const describeCreationState = async (storage: LedgerStorage, key: string): Promise<string> => {
+  const p = readRecord(await storage.get(`idem:${key}`))?.progress;
+  if (p === undefined) return "no record";
+  return p.phase === "creating" || p.phase === "cancelled" ? `${p.phase}, dispatch ${p.dispatch?.state ?? "none"}` : p.phase;
+};
 const putRecord = (storage: LedgerStorage, key: string, record: IdempotencyRecord) => storage.put(key,
   record.generated === undefined ? record : { ...record, progress: { phase: "generated", value: record.progress } },
 );
@@ -185,13 +202,17 @@ export const CREATE_SEND_GRACE_MS = 10 * 60 * 1000;
  * exact-slug read answered 404. The provider refuses a second VM at a slug ("409 CONFLICT: that slug is already used by
  * another VM in your account"; nothing here passes `reassignSlug`), so a resend can never make a second VM: either the
  * first send made nothing and this one creates it, or it answers 409 and the read after it adopts the first send's VM.
- * It is the 120 s create timeout plus 30 s, so no two of this key's sends are open at once, and it sits well inside the
- * platform's 5-minute create retry window (cmux-platform `CREATE_RETRY_WINDOW_MS`). Before this, the resend waited the
- * whole CREATE_SEND_GRACE_MS: one provider timeout failed every retry of that create (staging vm_9fca061251a7f47ec504,
- * 2026-11-26: 1 timed-out send, then 7 refused retries and cloud.provider.unavailable). Settling a cancellation as
- * "nothing was made" still waits CREATE_SEND_GRACE_MS: no provider answer backs that one.
+ * It is the provider create budget (PROVIDER_CREATE_BUDGET_MS, the send's timeout, background polls included) plus
+ * 30 s, so no two of this key's sends are open at once, and it sits well inside the platform's 5-minute create retry
+ * window (cmux-platform `CREATE_RETRY_WINDOW_MS`). Before this, the resend waited the whole CREATE_SEND_GRACE_MS: one
+ * provider timeout failed every retry of that create (staging vm_9fca061251a7f47ec504, 2026-11-26: 1 timed-out send,
+ * then 7 refused retries and cloud.provider.unavailable). It was a fixed 150 s, sized for the old 120 s send timeout;
+ * once sends were cut at 45 s, a cut create's retries were refused for 105 s more than any send could still be open
+ * (production 2026-11-28 17:25-17:55Z: 35 sends cut at 45 s, then 111 retries refused at the send fence and
+ * create_overdue). Settling a cancellation as "nothing was made" still waits CREATE_SEND_GRACE_MS: no provider answer
+ * backs that one.
  */
-export const CREATE_RESEND_AFTER_MS = 150 * 1000;
+export const CREATE_RESEND_AFTER_MS = PROVIDER_CREATE_BUDGET_MS + 30_000;
 type Dispatch = { readonly state: "ready" | "sent" | "rejected"; readonly at?: number | undefined };
 const sentAgo = (dispatch: Dispatch, nowMs: number | undefined, ms: number) =>
   dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= ms);
@@ -216,6 +237,7 @@ export class TenantLedger {
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
   admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, heldBoundMs?: number): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId, creationNeverSent, heldBoundMs); }
+  describeAgentSlots(agent: string, ownedVmIds: ReadonlyArray<string>, nowMs: number): Promise<ReadonlyArray<string>> { return describeAgentSlots(this.storage, agent, ownedVmIds, nowMs, describeCreationState); }
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return settleAgentSlot(this.storage, agent, slotId, outcome, nowMs); }
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return bindAgentCreation(this.storage, agent, creationKey, vmId, nowMs); }
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return forgetAgentVm(this.storage, vmId, creationKey); }
@@ -258,7 +280,7 @@ export class TenantLedger {
       const record = readRecord(await storage.get(`idem:${key}`));
       if (record === undefined) return false;
       const p = record.progress;
-      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendResendable(p.dispatch, nowMs)) return false;
+      if (!createSendOpen(record, vmId, nowMs) || p.phase !== "creating") return false;
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token, ...(nowMs === undefined ? {} : { at: nowMs }) } } });
       return true;
     });
