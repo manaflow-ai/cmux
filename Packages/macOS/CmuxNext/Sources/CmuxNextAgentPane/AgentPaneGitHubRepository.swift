@@ -9,7 +9,16 @@ public nonisolated struct AgentPaneGitHubRepository {
     public init() {}
 
     public static func read(at path: String?) async -> String? {
+        await read(at: path, files: .shared)
+    }
+
+    static func read(at path: String?, files: AgentPaneProjectRepoReader) async -> String? {
         guard let path, path.hasPrefix("/"), !path.contains("\0") else { return nil }
+        // Git's own small files first (`.git`, `commondir`, `config`), as the pickers read them: the chat's
+        // ready handshake waits on this answer, and a `git` process costs a spawn at launch (goal
+        // restart-to-chat). `git` still answers what the files leave open: an `include`, an `insteadOf`,
+        // a folder deeper than the reader walks.
+        if let github = files.repo(for: path)?.github { return github }
         let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/git"), ["-C", path, "remote", "get-url", "origin"])
         guard let outcome = try? await AsyncProcess().run(request), outcome.succeeded else { return nil }
         return parse(outcome.text)
