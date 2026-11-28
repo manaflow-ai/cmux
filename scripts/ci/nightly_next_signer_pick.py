@@ -20,13 +20,19 @@ The pick, in order:
    the delta jobs; minutes), then a holder at or past FINISH_STEPS (notarizing or publishing), then the holder
    that started first. A host that already has a nightly-next-one waiting for it is never picked: a second waiting
    job in its group would get GitHub to replace (cancel) the first.
+A host whose last finished nightly-next-one failed in CRASH_STEPS (the app build) is a crashed host: steps 1 and 2
+take the other host whenever it can take the build (free, or rankable in step 2) and the crashed host only when no
+other can. Without it, one Mac with a crashing build service took every build: 2026-11-27 15:24Z-17:57Z, 9 builds
+in a row picked the same Mac as "an idle signer" and failed in "Build nightly app (Release)", 21 of 22 builds in 48 h
+ran there, and nothing moved them to the other signer.
 3. Else, and on ANY failure (no census, a read that fails, a malformed answer): host cmux15 and the pin of the label
    alone, which is exactly the routing before this script (one group, either Mac).
 
 Reads, all bounded and none waiting on a rate limit: vars.CI_RUNNER_STATE (the runner census runner-heal publishes
 every two minutes, no API call), then one listing of nightly.yml's runs on nightly-next and one jobs listing for
-each open loop run (at most MAX_RUNS). Each request has a READ_TIMEOUT and is never retried with the same token. The
-reads go first as SPARE_READ_TOKEN (the glaeda-route App's read-only token decide already mints: its own hourly
+each open loop run (at most MAX_RUNS), plus one for each of the newest finished loop runs (at most MAX_DONE_RUNS) to
+find each host's last finished nightly-next-one. Each request has a READ_TIMEOUT and is never retried with the same
+token. The reads go first as SPARE_READ_TOKEN (the glaeda-route App's read-only token decide already mints: its own hourly
 budget) and, on a 403 or 429 or with no spare, as the job's GITHUB_TOKEN (actions: read). With the GITHUB_TOKEN alone
 the shared budget ran dry and the pick fell back (run 45575194160, 2026-11-25: "HTTP Error 403: Forbidden"), so
 both builds took cmux15 and the second waited 10.5 min at the slot. Leo (ask-c0123d25e8): "why so long that they
@@ -68,6 +74,11 @@ WAITING = ("queued", "pending", "waiting", "requested")
 RUNNER_PIN = re.compile(r"^glaeda-runner-[a-z0-9._-]+$")
 READ_TIMEOUT = 10.0
 MAX_RUNS = 6
+# The newest finished loop runs read for each host's last finished nightly-next-one (the crashed-host check).
+MAX_DONE_RUNS = 3
+# A nightly-next-one that failed in one of these steps marks its host as crashed (the app build: the build service
+# crash on one signer Mac is host state, and the next build there crashes the same way).
+CRASH_STEPS = ("Build nightly app (Release)",)
 # The census's age the pick accepts. vars are read when the run starts, and the pick runs after resolve (~13 min):
 # runs 44990363506, 44992267457 and 44993740115 (2026-11-22) read censuses 30, 36 and 23 min old against the pool's
 # 5 min, so every pick fell back and every build queued in nightly-next-one-push-cmux15, one at a time. The pick
@@ -76,10 +87,10 @@ MAX_RUNS = 6
 CENSUS_MAX_AGE_SECONDS = 50 * 60
 
 
-def loop_run(run: Mapping[str, Any]) -> bool:
+def loop_run(run: Mapping[str, Any], finished: bool = False) -> bool:
     """A nightly.yml run on nightly-next whose nightly-next-one takes a slot group: a push (not a resume) or the
-    loop's retry dispatch. Every other run's nightly-next-one is run-scoped."""
-    if run.get("head_branch") not in (None, "nightly-next") or run.get("status") == "completed":
+    loop's retry dispatch. Every other run's nightly-next-one is run-scoped. Open runs, or with finished, done ones."""
+    if run.get("head_branch") not in (None, "nightly-next") or (run.get("status") == "completed") != finished:
         return False
     title = str(run.get("display_title") or "")
     if run.get("event") == "push":
@@ -136,8 +147,37 @@ def holder_host(job: Mapping[str, Any], names: Sequence[str]) -> str:
     return FALLBACK_HOST
 
 
-def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]]) -> tuple[str, str, str]:
-    """(host, pin, why) from the census runners and the open loop runs' nightly-next-one jobs (not this run's)."""
+def crashed_hosts(done: Sequence[Mapping[str, Any]]) -> frozenset[str]:
+    """HOSTS whose last finished nightly-next-one (by completed_at) failed in CRASH_STEPS."""
+    last: dict[str, Mapping[str, Any]] = {}
+    for job in done:
+        if job.get("name") != ONE_JOB or job.get("status") != "completed" or not job.get("runner_name"):
+            continue
+        host = member(str(job.get("runner_name")))
+        if host in HOSTS and str(job.get("completed_at") or "") >= str(last.get(host, {}).get("completed_at") or ""):
+            last[host] = job
+    return frozenset(host for host, job in last.items() if job.get("conclusion") == "failure" and any(
+        step.get("name") in CRASH_STEPS and step.get("conclusion") == "failure" for step in job.get("steps") or []))
+
+
+def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]],
+         crashed: frozenset[str] = frozenset()) -> tuple[str, str, str]:
+    """(host, pin, why) from the census runners and the open loop runs' nightly-next-one jobs (not this run's).
+    The crashed hosts are picked only when no other host can take the build."""
+    healthy = tuple(host for host in HOSTS if host not in crashed)
+    if healthy != HOSTS:
+        found = pick_among(runners, holders, healthy)
+        if found:
+            host, pin, why = found
+            return host, pin, f"{why}; {', '.join(sorted(crashed))} skipped: its last build failed in the app build"
+    return pick_among(runners, holders, HOSTS) or (
+        FALLBACK_HOST, FALLBACK_PIN,
+        "no signer is free and none can take a waiting build without replacing one; the signer label alone, as before")
+
+
+def pick_among(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]],
+               hosts: Sequence[str]) -> tuple[str, str, str] | None:
+    """pick's steps 1 and 2 over hosts only; None when none of them can take the build."""
     by_host = signers(runners)
     names = [str(r.get("name") or "") for r in runners]
     claims: dict[str, list[Mapping[str, Any]]] = {host: [] for host in HOSTS}
@@ -151,12 +191,12 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
               for host, found in by_host.items()}
     idle = {host: [r for r in found if not r.get("busy")] for host, found in online.items()}
     busy = {host: any(r.get("busy") for r in found) for host, found in by_host.items()}
-    for host in HOSTS:
+    for host in hosts:
         if idle[host] and not busy[host] and not claims[host]:
             runner = str(idle[host][0].get("name"))
             return host, pin_for(runner), f"`{runner}` on {host}: an idle signer with no nightly-next-one for it"
     ranked = []
-    for host in HOSTS:
+    for host in hosts:
         if not online[host] or any(job.get("status") in WAITING for job in claims[host]) or len(claims[host]) > 1:
             continue
         runner = str((idle[host] or online[host])[0].get("name"))
@@ -175,8 +215,7 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
     if ranked:
         _, host, runner, why = sorted(ranked)[0]
         return host, pin_for(runner), f"`{runner}` on {host}, no signer is free: {why}"
-    return FALLBACK_HOST, FALLBACK_PIN, ("no signer is free and none can take a waiting build without replacing one; "
-                                         "the signer label alone, as before")
+    return None
 
 
 def api_get(repo: str, tokens: Sequence[str]) -> Callable[[str], Any]:
@@ -218,12 +257,21 @@ def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
         listing = get("actions/workflows/nightly.yml/runs?" + urllib.parse.urlencode(
             {"branch": "nightly-next", "per_page": 30}))
         runs = [run for run in listing["workflow_runs"] if loop_run(run) and str(run.get("id")) != own]
+        done_runs = [run for run in listing["workflow_runs"] if loop_run(run, finished=True)][:MAX_DONE_RUNS]
         if len(runs) > MAX_RUNS:
             raise LookupError(f"{len(runs)} open nightly-next loop runs (more than {MAX_RUNS})")
         holders = []
         for run in runs:
             holders.extend(get(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100")["jobs"])
-        return pick(runners, holders)
+        crashed: frozenset[str] = frozenset()
+        try:
+            done = []
+            for run in done_runs:
+                done.extend(get(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100")["jobs"])
+            crashed = crashed_hosts(done)
+        except Exception as error:  # noqa: BLE001 - the crashed-host check only reorders; a failed read skips it
+            print(f"::warning title=nightly-next signer pick::crashed-host check skipped ({type(error).__name__})")
+        return pick(runners, holders, crashed)
     except Exception as error:  # noqa: BLE001 - never fail the job: the label alone is the routing before this
         why = f"pick failed ({type(error).__name__}: {str(error)[:200]}); the signer label alone, as before"
         print(f"::warning title=nightly-next signer pick::{why}")

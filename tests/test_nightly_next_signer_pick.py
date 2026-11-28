@@ -164,6 +164,62 @@ class PickTests(unittest.TestCase):
         self.assertEqual((host, pin), ("cmux15", LABEL_ONLY), why)
 
 
+def done(runner_name: str, conclusion: str, completed: str, failed_step: str = "Build nightly app (Release)") -> dict:
+    steps = [{"name": failed_step, "status": "completed", "conclusion": "failure"}] if conclusion == "failure" else []
+    return {"name": "nightly-next-one", "status": "completed", "conclusion": conclusion, "runner_name": runner_name,
+            "completed_at": completed, "steps": steps}
+
+
+class CrashedHostTests(unittest.TestCase):
+    """2026-11-27 15:24Z-17:57Z: 9 builds in a row took one signer Mac as "an idle signer" and failed in the app build;
+    21 of 22 builds in 48 h ran there. A host whose last build failed in the app build yields to the other."""
+
+    def test_last_build_failed_in_the_app_build_marks_the_host(self):
+        crashed = pick_mod.crashed_hosts([done("cmux15-glaeda", "success", "2026-11-27T10:00:00Z"),
+                                          done("cmux15-glaeda-1", "failure", "2026-11-27T11:00:00Z")])
+        self.assertEqual(crashed, {"cmux15"})
+
+    def test_a_later_success_clears_it_and_other_steps_do_not_count(self):
+        self.assertEqual(pick_mod.crashed_hosts([done("ultra1-glaeda", "failure", "2026-11-27T10:00:00Z"),
+                                                 done("ultra1-glaeda", "success", "2026-11-27T11:00:00Z")]), set())
+        self.assertEqual(pick_mod.crashed_hosts([done("ultra1-glaeda", "failure", "2026-11-27T11:00:00Z",
+                                                      failed_step="Notarize app ticket through final DMG")]), set())
+
+    def test_both_free_skips_the_crashed_first_host(self):
+        host, pin, why = pick_mod.pick(fleet(), [], frozenset({"cmux15"}))
+        self.assertEqual(host, "ultra1", why)
+        self.assertIn("skipped", why)
+
+    def test_a_crashed_idle_host_yields_to_a_busy_healthy_one(self):
+        holders = [one("in_progress", "ultra1-glaeda", started="2026-11-27T16:00:00Z")]
+        runners = fleet(ultra1_glaeda=runner("ultra1-glaeda", busy=True))
+        host, pin, why = pick_mod.pick(runners, holders, frozenset({"cmux15"}))
+        self.assertEqual(host, "ultra1", why)
+        self.assertEqual(json.loads(pin)[0], SIGNER)
+
+    def test_the_crashed_host_still_builds_when_no_other_can(self):
+        runners = fleet(ultra1_glaeda=runner("ultra1-glaeda", status="offline"),
+                        ultra1_glaeda_1=runner("ultra1-glaeda-1", status="offline"))
+        host, _, why = pick_mod.pick(runners, [], frozenset({"cmux15"}))
+        self.assertEqual(host, "cmux15", why)
+
+    def test_evaluate_reads_finished_runs_and_moves_off_the_crashed_host(self):
+        runs = [loop_run(7, status="completed")]
+        api = Api(runs, {7: [done("cmux15-glaeda", "failure", "2026-11-27T11:00:00Z")]})
+        host, _, why = pick_mod.evaluate(env(), api, now=NOW)
+        self.assertEqual(host, "ultra1", why)
+
+    def test_a_failed_finished_read_keeps_the_pick(self):
+        class Flaky(Api):
+            def __call__(self, path):
+                if "/runs/7/" in path:
+                    raise OSError("boom")
+                return super().__call__(path)
+        host, _, why = pick_mod.evaluate(env(), Flaky([loop_run(7, status="completed")], {}), now=NOW)
+        self.assertEqual(host, "cmux15", why)
+        self.assertNotIn("pick failed", why)
+
+
 class EvaluateTests(unittest.TestCase):
     def test_reads_one_listing_and_each_open_loop_run_s_jobs(self):
         runs = [loop_run(1), loop_run(2, event="workflow_dispatch", title="Retry nightly-next (1 of 2)"),
@@ -172,8 +228,9 @@ class EvaluateTests(unittest.TestCase):
         api = Api(runs, {1: [one("in_progress", "cmux15-glaeda")]})
         host, pin, why = pick_mod.evaluate(env(), api, now=NOW)
         self.assertEqual(host, "ultra1", why)
-        self.assertEqual(len(api.paths), 3, api.paths)
-        self.assertFalse(any("/runs/500/" in p or "/runs/3/" in p or "/runs/4/" in p for p in api.paths), api.paths)
+        self.assertEqual(len(api.paths), 4, api.paths)
+        self.assertIn("actions/runs/3/jobs?filter=latest&per_page=100", api.paths, "a finished push run is read")
+        self.assertFalse(any("/runs/500/" in p or "/runs/4/" in p for p in api.paths), api.paths)
 
     def test_a_census_as_old_as_the_run_reads_it_still_picks(self):
         """vars are read when the run starts and the pick runs after resolve (~13 min); runs 44990363506,
