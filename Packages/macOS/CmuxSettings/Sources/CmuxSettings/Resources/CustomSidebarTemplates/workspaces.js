@@ -37,9 +37,6 @@ function selectWorkspace(id) {
   cmux("workspace.select", { workspace_id: id });
 }
 
-const closedOverride = new Set();
-const [closeTick, setCloseTick] = signal(0);
-
 // Optimistic tabs order: a bulk drop rearranges rows locally the same frame
 // (reorder_many echoes ~1s later); clears itself once the data agrees.
 let orderOverride = null;
@@ -51,13 +48,8 @@ function setOrderOverride(ids) {
 }
 
 function visibleWorkspaces() {
-  closeTick();
   orderTick();
   let ws = data.workspaces() ?? [];
-  for (const id of Array.from(closedOverride)) {
-    if (!ws.some((w) => w.id === id)) closedOverride.delete(id); // caught up
-  }
-  ws = ws.filter((w) => !closedOverride.has(w.id));
   if (orderOverride) {
     const actual = ws.map((w) => w.id).join(",");
     const wanted = orderOverride.filter((id) => ws.some((w) => w.id === id)).join(",");
@@ -71,9 +63,11 @@ function visibleWorkspaces() {
   return ws;
 }
 
+// Close is deliberately NOT optimistic. cmux refuses workspace.close when the
+// workspace has a running process, and the sidebar never sees that refusal;
+// hiding the row up front would leave an open workspace with no row (still
+// counted by Cmd+1…9). The row goes when the data drops the workspace.
 function closeWorkspace(id) {
-  closedOverride.add(id);
-  setCloseTick(closeTick() + 1);
   cmux("workspace.close", { workspace_id: id });
 }
 
@@ -214,7 +208,7 @@ const flatEntries = computed(() => {
     if (w.group && groups.has(w.group)) {
       const g = groups.get(w.group);
       // Emit the group at its anchor's position; a group whose anchor is
-      // hidden (optimistically closed) falls back to its first member.
+      // missing falls back to its first member.
       const isAnchor = w.id === g.anchorId || !ws.some((x) => x.id === g.anchorId);
       if (seen.has(g.id) || !isAnchor) continue;
       seen.add(g.id);
