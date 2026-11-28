@@ -146,7 +146,6 @@ fn rich_tree() -> Value {
     let right = mux
         .new_pane_right_with_options(pane, 0.5, crate::TerminalSpawnOptions::default(), None)
         .unwrap()
-        .surface
         .id;
     let right = mux.with_state(|state| state.pane_of(right)).unwrap();
     // `Screen.floating` (floating_panes.rs floating_json): one `{pane, x, y, w, h}`.
