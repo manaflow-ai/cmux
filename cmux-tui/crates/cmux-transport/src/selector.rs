@@ -483,7 +483,15 @@ impl Selector {
                     && !held.view.kind.class().is_direct()
                     && best.view.kind.class().is_direct()
                     && matches!((best.view.rtt_us, held.view.rtt_us), (Some(new), Some(old)) if new > old);
-                if best.view.rank() < rank && !slower_than_held_relay {
+                // Regain: a relay the session rides that lost one probe is
+                // held while it is suspect, not handed to a direct path short
+                // of its streak (the unqualified fallback is for when nothing
+                // else carries). Otherwise each lost relay probe while a
+                // flapping direct path answered once flipped the session
+                // there and back, a few seconds apart (Leo's phone on lossy
+                // cellular, 2026-11-27), whatever the streak.
+                let relay_holds = !held.view.kind.class().is_direct() && !self.qualified(best);
+                if best.view.rank() < rank && !slower_than_held_relay && !relay_holds {
                     Some(best.view.id)
                 } else if let Some(relay) = self.relay_for_suspect(held) {
                     Some(relay.view.id)
