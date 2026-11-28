@@ -590,7 +590,7 @@ jobs:
     # while vars.CI_PR_POOL_OWNED is 1, else pick-proof-runner's Blacksmith macOS 26 label; a re-run, or a
     # failed pick, takes the declared macos_26 pool. The Stack pair is no reason to keep it off our Macs: this
     # runs only from feat-cmux-next (the environment's branch policy), never from a fork (Leo, 2026-11-19).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'mac-gui' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
@@ -1045,7 +1045,7 @@ jobs:
     # while vars.CI_PR_POOL_OWNED is 1, else pick-proof-runner's Blacksmith macOS 26 label; a re-run, or a
     # failed pick, takes the declared macos_26 pool. The Stack pair is no reason to keep it off our Macs: this
     # runs only from feat-cmux-next (the environment's branch policy), never from a fork (Leo, 2026-11-19).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'mac-gui' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}

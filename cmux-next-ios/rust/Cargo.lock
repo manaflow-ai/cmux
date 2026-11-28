@@ -698,6 +698,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
@@ -745,6 +752,7 @@ dependencies = [
  "cmux-deadline",
  "cmux-egress",
  "cmux-fault",
+ "cmux-json",
  "cmux-message-preview",
  "cmux-mobile-core",
  "cmux-mobile-link",
@@ -841,6 +849,7 @@ dependencies = [
  "webrtc",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -861,6 +870,7 @@ dependencies = [
  "cmux-mobile-host",
  "cmux-mobile-last-place",
  "cmux-mobile-link",
+ "cmux-mobile-tailnet",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-ffi",
@@ -923,6 +933,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -979,8 +990,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2 0.6.5",
  "windows-sys 0.61.2",
 ]
 

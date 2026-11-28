@@ -413,7 +413,10 @@ export const PAGES = {
   // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/pages/home-channels/Localizable.xcstrings" },
+      { file: "webviews/src/pages/home-channels/transcript/Localizable.xcstrings.d" },
+    ],
   },
   // Home's Set Up cmux card (setup-card), with the Swift keys it replaces; its table lives next to it.
   "setup-card": {
