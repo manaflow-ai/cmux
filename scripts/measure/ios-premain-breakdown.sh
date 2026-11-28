@@ -33,12 +33,14 @@ fi
 [[ -n "$measure" && -d "$measure" ]] || { echo "ios-premain-breakdown.sh: --measure-dir is required" >&2; exit 2; }
 mkdir -p "$out"
 work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/premain.XXXXXX")"
+# macOS has no coreutils `timeout`: SECONDS CMD... runs CMD under an alarm (exit 142 when it fires).
+bounded() { local s="$1"; shift; perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$s" "$@"; }
 
 # 1. Floor.
 echo "== premain: floor"
 if floor_app="$(bash "$measure/ios-launch-floor/build.sh" "$work/floor" 2>"$out/premain-floor-build.err" | tail -1)" &&
    [[ -d "$floor_app" ]]; then
-  timeout 600 bash "$measure/ios-first-connect-simctl.sh" --app "$floor_app" --runs 10 --out "$out" --tag floor \
+  bounded 600 bash "$measure/ios-first-connect-simctl.sh" --app "$floor_app" --runs 10 --out "$out" --tag floor \
     >"$out/premain-floor.log" 2>&1 || echo "floor arm failed: see premain-floor.log" >&2
 else
   echo "floor build failed: see premain-floor-build.err" >&2
@@ -65,12 +67,13 @@ for f in sorted(root.rglob("*")):
 loads = [l.split(" (")[0].strip() for l in open(otool).read().splitlines()[1:] if l.strip()]
 lc = open(otool_l).read()
 sections = {}
-for m in re.finditer(r"sectname (\S+)\n\s+segname (\S+)\n(?:.*\n){2}?\s+size (0x[0-9a-f]+)", lc):
+for m in re.finditer(r"sectname (\S+)\n\s+segname (\S+)\n(?:.*\n){0,2}?\s+size (0x[0-9a-f]+)", lc):
     sections[f"{m.group(2)},{m.group(1)}"] = int(m.group(3), 16)
 out = {"app": app, "executable": exe, "executable_bytes": size(root / exe), "bundle_bytes": size(root),
        "embedded_count": len(embedded), "embedded_bytes": sum(e["bytes"] for e in embedded),
        "embedded": sorted(embedded, key=lambda e: -e["bytes"]),
        "loads_count": len(loads), "loads": loads,
+       "sections_bytes_top": dict(sorted(sections.items(), key=lambda kv: -kv[1])[:30]),
        "init_sections_bytes": {k: v for k, v in sections.items()
                                if any(s in k for s in ("mod_init_func", "init_offsets", "objc_nlclslist",
                                                        "objc_nlcatlist", "swift5_protos", "swift5_types",
@@ -98,7 +101,7 @@ for _ in 1 2; do
   sleep 1
 done
 mkdir -p "$out/premain-trace"
-if timeout 240 xcrun xctrace record --template 'App Launch' --device "$udid" --time-limit 15s \
+if bounded 240 xcrun xctrace record --template 'App Launch' --device "$udid" --time-limit 15s \
      --output "$trace" --env CMUX_MOBILE_MOCK_AUTH=1 --launch -- "$app" -cmuxMobile.setupComplete YES \
      >"$out/premain-trace/record.log" 2>&1 && [[ -d "$trace" ]]; then
   xcrun xctrace export --input "$trace" --toc >"$out/premain-trace/toc.xml" 2>"$out/premain-trace/toc.err" || true
@@ -116,7 +119,7 @@ PY
   sort -u "$work/schemas.txt" | while read -r schema; do
     case "$schema" in
       *life*|*dyld*|*static*|*init*|*launch*|*process*|*thread-state*|*time-profile*|*region*|*os-signpost*)
-        timeout 120 xcrun xctrace export --input "$trace" \
+        bounded 120 xcrun xctrace export --input "$trace" \
           --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$schema\"]" \
           >"$out/premain-trace/$schema.xml" 2>/dev/null || true ;;
     esac
