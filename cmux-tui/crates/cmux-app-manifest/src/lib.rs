@@ -67,7 +67,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// The manifest v2 JSON Schema, embedded so every consumer validates identically.
-pub const SCHEMA: &str = include_str!("../../cmux-app-host/schema/v2/cmux-app.schema.json");
+pub static SCHEMA: &str = cmux_config::schema::APP_MANIFEST_SCHEMA;
 
 /// Compiles an embedded JSON Schema. The embedded schemas have unit tests
 /// that they compile, so an `Err` means a broken build; callers then refuse

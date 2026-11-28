@@ -24,6 +24,7 @@ use serde_json::value::RawValue;
 
 pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color, is_search_template};
 pub use aliases::{choice_alias, choice_aliases};
+pub use app_id::MANIFEST_SCHEMA as APP_MANIFEST_SCHEMA;
 pub use backdrop::normalize_backdrop;
 pub use backdrop::{
     RECENTS_CAP, is_location as is_backdrop_location, is_memory as is_backdrop_memory,

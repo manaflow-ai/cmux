@@ -68,7 +68,7 @@ pub struct Recipe {
     includes: &'static [(&'static str, &'static str)],
 }
 
-const MY_PRS: &[(&str, &str)] = &[
+static MY_PRS: &[(&str, &str)] = &[
     (
         "customize/cmux-app.json",
         include_str!("../../../../skills/cmux-customization/templates/my-prs/cmux-app.json"),
@@ -79,7 +79,7 @@ const MY_PRS: &[(&str, &str)] = &[
     ),
 ];
 
-const CLOCK_WEATHER: &[(&str, &str)] = &[
+static CLOCK_WEATHER: &[(&str, &str)] = &[
     (
         "customize/cmux-app.json",
         include_str!("../../../../skills/cmux-customization/templates/clock-weather/cmux-app.json"),
@@ -92,44 +92,44 @@ const CLOCK_WEATHER: &[(&str, &str)] = &[
 
 /// A look-alike carries its theme file and its chat stylesheet, kept as real
 /// files beside the recipe so they read and diff like any theme or stylesheet.
-const CODEX_APP: &[(&str, &str)] = &[
+static CODEX_APP: &[(&str, &str)] = &[
     ("themes/codex-app.json", include_str!("../recipes/apps/codex-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app/agent-pane.css")),
 ];
 
-const CLAUDE_CODE_APP: &[(&str, &str)] = &[
+static CLAUDE_CODE_APP: &[(&str, &str)] = &[
     ("themes/claude-code-app.json", include_str!("../recipes/apps/claude-code-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
 ];
 
 /// Lamina: a layered, translucent desktop look. Each recipe carries its own theme file (dark or
 /// light) and the variant's chat stylesheet, which both modes share.
-const LAMINA: &[(&str, &str)] = &[
+static LAMINA: &[(&str, &str)] = &[
     ("themes/lamina.json", include_str!("../recipes/apps/lamina/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/lamina/agent-pane.css")),
 ];
 
-const LAMINA_LIGHT: &[(&str, &str)] = &[
+static LAMINA_LIGHT: &[(&str, &str)] = &[
     ("themes/lamina-light.json", include_str!("../recipes/apps/lamina/theme-light.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/lamina/agent-pane.css")),
 ];
 
-const LAMINA_MIST: &[(&str, &str)] = &[
+static LAMINA_MIST: &[(&str, &str)] = &[
     ("themes/lamina-mist.json", include_str!("../recipes/apps/lamina-mist/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-mist/agent-pane.css")),
 ];
 
-const LAMINA_MIST_LIGHT: &[(&str, &str)] = &[
+static LAMINA_MIST_LIGHT: &[(&str, &str)] = &[
     ("themes/lamina-mist-light.json", include_str!("../recipes/apps/lamina-mist/theme-light.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-mist/agent-pane.css")),
 ];
 
-const LAMINA_SLATE: &[(&str, &str)] = &[
+static LAMINA_SLATE: &[(&str, &str)] = &[
     ("themes/lamina-slate.json", include_str!("../recipes/apps/lamina-slate/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-slate/agent-pane.css")),
 ];
 
-const LAMINA_SLATE_LIGHT: &[(&str, &str)] = &[
+static LAMINA_SLATE_LIGHT: &[(&str, &str)] = &[
     (
         "themes/lamina-slate-light.json",
         include_str!("../recipes/apps/lamina-slate/theme-light.json"),
@@ -137,18 +137,18 @@ const LAMINA_SLATE_LIGHT: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-slate/agent-pane.css")),
 ];
 
-const LAMINA_TIDE: &[(&str, &str)] = &[
+static LAMINA_TIDE: &[(&str, &str)] = &[
     ("themes/lamina-tide.json", include_str!("../recipes/apps/lamina-tide/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-tide/agent-pane.css")),
 ];
 
-const LAMINA_TIDE_LIGHT: &[(&str, &str)] = &[
+static LAMINA_TIDE_LIGHT: &[(&str, &str)] = &[
     ("themes/lamina-tide-light.json", include_str!("../recipes/apps/lamina-tide/theme-light.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/lamina-tide/agent-pane.css")),
 ];
 
 /// A tonal theme: its light and dark theme files and its chat stylesheet, beside the recipe.
-const TONAL: &[(&str, &str)] = &[
+static TONAL: &[(&str, &str)] = &[
     ("themes/tonal.json", include_str!("../recipes/apps/tonal/theme.json")),
     ("themes/tonal-dark.json", include_str!("../recipes/apps/tonal/theme-dark.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/tonal/agent-pane.css")),
@@ -157,17 +157,17 @@ const TONAL: &[(&str, &str)] = &[
 /// Layout and behaviour looks (c-07be086806, Leo: "im saying the big stuff"): each is a look
 /// folder in `examples/looks`, and the recipe is that look's `cmux-setup.json` with its
 /// `keybindings.json`, so the gallery's install test and these tests hold the same files.
-const LEADER: &[(&str, &str)] =
+static LEADER: &[(&str, &str)] =
     &[("keybindings.json", include_str!("../../../../examples/looks/leader/keybindings.json"))];
 
-const REVIEW_DESK: &[(&str, &str)] = &[(
+static REVIEW_DESK: &[(&str, &str)] = &[(
     "keybindings.json",
     include_str!("../../../../examples/looks/review-desk/keybindings.json"),
 )];
 
 /// Hairline carries the gallery look's own files, so the recipe and the
 /// installable look stay one design.
-const HAIRLINE: &[(&str, &str)] = &[
+static HAIRLINE: &[(&str, &str)] = &[
     (
         "themes/hairline.json",
         include_str!("../../../../examples/looks/hairline/themes/hairline.json"),
@@ -209,16 +209,16 @@ macro_rules! look {
     };
 }
 
-const CODEX_APP_DARK: &[(&str, &str)] = &[
+static CODEX_APP_DARK: &[(&str, &str)] = &[
     ("themes/codex-app-dark.json", include_str!("../recipes/apps/codex-app-dark/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app-dark/agent-pane.css")),
 ];
 
-const WEB_CODING_APP: &[(&str, &str)] = &[
+static WEB_CODING_APP: &[(&str, &str)] = &[
     ("themes/web-coding-app.json", include_str!("../recipes/apps/web-coding-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/web-coding-app/agent-pane.css")),
 ];
-const VIOLET_APP: &[(&str, &str)] = &[
+static VIOLET_APP: &[(&str, &str)] = &[
     ("themes/violet-app.json", include_str!("../recipes/apps/violet-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/violet-app/agent-pane.css")),
 ];
@@ -226,7 +226,7 @@ const VIOLET_APP: &[(&str, &str)] = &[
 /// Every recipe, in the order a guide lists them.
 /// Plush (examples/looks/plush): six theme files (three tints, each light and
 /// dark) and its chat and Markdown stylesheets, taken from the look itself.
-const PLUSH: &[(&str, &str)] = &[
+static PLUSH: &[(&str, &str)] = &[
     ("themes/plush.json", include_str!("../../../../examples/looks/plush/themes/plush.json")),
     (
         "themes/plush-dark.json",
@@ -252,7 +252,9 @@ const PLUSH: &[(&str, &str)] = &[
     ("markdown/theme.css", include_str!("../../../../examples/looks/plush/markdown/theme.css")),
 ];
 
-pub const RECIPES: &[Recipe] = &[
+/// `static`, not `const`: every crate that reads a `const` slice can emit its own copy of
+/// the embedded files.
+pub static RECIPES: &[Recipe] = &[
     Recipe {
         name: "compact-sidebar",
         title: "A compact sidebar",
