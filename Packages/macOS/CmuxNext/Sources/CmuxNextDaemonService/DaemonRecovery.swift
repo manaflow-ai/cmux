@@ -50,6 +50,14 @@ public final class DaemonRecovery {
     public private(set) var isRestoring = false
     /// ``restoring`` in the person's words ("Restoring sessions… 4m 12s"); nil while none.
     public var restoringText: String? { restoring.map { RefusalStrings.restoringSessions(waitedMs: $0.waitedMs) } }
+    /// ``restoringText`` for the sidebar's card, once the restore has waited the shared bound
+    /// (``QuietHold/connectionDelay``); nil before. A routine launch's restore ends well under it, and its card
+    /// showed then left within a second, in the Updated card's slot (Leo, 2026-11-22: "i am still seeing flickers
+    /// and flashes of bulls\*\*\*. sub-second in and out bulls\*\*\*. remove it."). Progress lines come every 5 s.
+    public var restoringCardText: String? {
+        guard let restoring, restoring.waitedMs >= UInt64(QuietHold.connectionDelaySeconds * 1000) else { return nil }
+        return RefusalStrings.restoringSessions(waitedMs: restoring.waitedMs)
+    }
     /// When the restore ``restoring`` reports began, and its owner; nil after a start that worked.
     @ObservationIgnored private var restoreBegan: (pid: Int32?, at: Date)?
     /// A Restart runs (up to 20 s of probe and stop, then the new owner's start).

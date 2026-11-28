@@ -232,6 +232,19 @@ class PersistedFormatsTest(unittest.TestCase):
         self.assert_error("published-keys.txt: a.two removed")
         self.assert_error("retired-keys.json: a.old removed")
 
+    def test_settings_schema_rows_are_published_or_retired(self) -> None:
+        self.write("schemas/settings/published-keys.txt", "# header\na.one\na.two\n")
+        self.write("schemas/settings/retired-keys.json", '{"retired": [{"key": "a.old", "reason": "r"}]}\n')
+        self.write("schemas/settings/settings-schema.json", '{"rows": [{"key": "a.one"}, {"key": "a.two"}]}\n')
+        self.base = self.commit()
+
+        self.write("schemas/settings/settings-schema.json", '{"rows": [{"key": "a.one"}]}\n')
+        self.assert_error("settings-schema.json: a.two removed without a retired-keys.json entry")
+
+        self.write("schemas/settings/settings-schema.json",
+                   '{"rows": [{"key": "a.one"}, {"key": "a.two"}, {"key": "a.new"}]}\n')
+        self.assert_error("settings-schema.json: a.new is not in schemas/settings/published-keys.txt")
+
     def write_app(self) -> None:
         self.write("persisted-formats/formats.toml", APP_REGISTRY)
         self.write(SWIFT, "struct Store {\n    private static let recordVersion = 2\n}\n")

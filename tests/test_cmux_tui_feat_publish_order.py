@@ -319,6 +319,7 @@ def coalesce_marks_only_a_window_without_a_tree(all_jobs):
         _check(outcome(publish_tree=result) == (True, False),
                f"publish-tree {result}: the window's next push builds again")
     base_coalesce_holds_a_held_window()
+    base_coalesce_retries_from_the_caller()
 
 
 def _step(workflow_jobs_, job, name):
@@ -357,6 +358,49 @@ def base_coalesce_holds_a_held_window():
                      START="", WORKFLOW_REF="", GH_TOKEN="")
     _check(rc == 0 and "retry=45733047134" in out and "round=1" in out,
            f"a failed marker still lets the next push build again ({out.strip()!r})")
+
+
+def base_coalesce_retries_from_the_caller():
+    """The window's retry budget is an input (default 3, the old constant), and cmux-tui-artifacts passes one
+    variable to both the claim and the failure marker (RFD 0200 tier 3: a retry of an unchanged red is a rebuild).
+
+    11-27 21:49Z..11-28 05:37Z feat-cmux-next pushes built 22 first-attempt trees in about 8 windows, nearly all red
+    on the same link failure: the claim and the marker must agree, or a window retries past its budget.
+    """
+    import subprocess
+    import tempfile
+
+    path = Path(ROOT, ".github", "workflows", "base-coalesce.yml")
+    raw = yaml.safe_load(path.read_text())
+    inputs = (raw.get("on") or raw.get(True))["workflow_call"]["inputs"]
+    _check(inputs.get("retries", {}).get("default") == 3, "base-coalesce's retries input defaults to 3")
+    coalesce = workflow_jobs.jobs(path)
+    for job in ("coalesce", "mark"):
+        _check(coalesce[job]["env"].get("RETRIES") == "${{ inputs.retries }}", f"base-coalesce {job} reads inputs.retries")
+    caller = yaml.safe_load(Path(WORKFLOW).read_text())["jobs"]
+    want = "${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_RETRIES || '3') }}"
+    for job in ("coalesce", "coalesce-failed"):
+        _check(caller[job]["with"].get("retries") == want, f"cmux-tui-artifacts {job} passes {want}")
+
+    read_marker = _step(coalesce, "coalesce", "Did this window's run fail?")
+    name_marker = _step(coalesce, "mark", "Name the marker")
+
+    def run(script, retries, **env):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp, "out")
+            out.write_text("")
+            full = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(out), "GITHUB_RUN_ID": "46085536332",
+                    "RETRIES": retries, "START": "", "WORKFLOW_REF": "", "GH_TOKEN": "", **env}
+            done = subprocess.run(["bash", "-c", script], cwd=tmp, env=full, capture_output=True, text=True)
+            return done.returncode, out.read_text()
+
+    marker = "base-coalesce-cmux-tui-artifacts-f-29400060-0-46085536332"
+    rc, out = run(read_marker, "3", WINDOW="29400060", MARKER=marker)
+    _check(rc == 0 and "retry=46085536332" in out, f"retries 3: a failed window run is retried ({out.strip()!r})")
+    rc, out = run(read_marker, "0", WINDOW="29400060", MARKER=marker)
+    _check(rc == 0 and "retry=" not in out, f"retries 0: the window holds after its run failed ({out.strip()!r})")
+    rc, out = run(name_marker, "1", WINDOW="29400060", ROUND="1", HELD="false")
+    _check(rc == 0 and "key=" not in out, f"retries 1: the retry's failure saves no marker ({out.strip()!r})")
 
 
 def main():

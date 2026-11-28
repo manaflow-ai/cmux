@@ -13,6 +13,11 @@ public protocol PaletteProvider: AnyObject {
     /// Items available synchronously, used on open so the first frame is
     /// never empty. Nil means "call `items()`".
     var immediateItems: [PaletteItem]? { get }
+    /// A cheaper read of `immediateItems` for the open's first frame on an empty query: every row that query can show
+    /// (a row it lists, a pinned or recent row), read the same way, and maybe others. The open shows these and reads
+    /// `immediateItems` after its first frame, or at once when a query is typed first (the command page: the actions
+    /// its root lists, of the hundreds it searches). Nil: the open reads `immediateItems`.
+    var firstFrameItems: [PaletteItem]? { get }
     /// Cached rows draw immediately while this provider refreshes their state.
     var refreshesOnOpen: Bool { get }
     func items() async -> [PaletteItem]
@@ -28,6 +33,7 @@ public protocol PaletteProvider: AnyObject {
 extension PaletteProvider {
     public var showsItemsForEmptyQuery: Bool { true }
     public var immediateItems: [PaletteItem]? { nil }
+    public var firstFrameItems: [PaletteItem]? { nil }
     public var refreshesOnOpen: Bool { false }
     public func itemUpdates() -> AsyncStream<[PaletteItem]>? { nil }
     public func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject? { nil }

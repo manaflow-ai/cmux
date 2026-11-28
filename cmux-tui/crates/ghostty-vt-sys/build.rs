@@ -48,12 +48,27 @@ fn main() {
         env::var_os("PATH").as_deref(),
         required_zig.as_deref(),
     );
-    let (zig, why) = build_support::select_zig(&zig_candidates, required_zig.as_deref(), |zig| {
+    let version_of = |zig: &str| {
         let output = Command::new(zig).arg("version").output().ok()?;
         output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
-    });
+    };
+    let (zig, why) =
+        build_support::select_zig(&zig_candidates, required_zig.as_deref(), version_of);
     if let Some(why) = why {
         println!("cargo:warning={why}");
+    }
+    // No zig of the pinned series: stop here with what was tried and how to get it, not in
+    // Ghostty's own version check halfway through `zig build`.
+    if let Some(required) = required_zig.as_deref()
+        && !version_of(&zig).is_some_and(|v| build_support::zig_compatible(&v, required))
+    {
+        let tried: Vec<(String, Option<String>)> =
+            zig_candidates.iter().map(|z| (z.clone(), version_of(z))).collect();
+        // `cargo::error` fails the build with the message and no panic backtrace.
+        for line in build_support::pin_unmet_message(required, &tried).lines() {
+            println!("cargo::error={line}");
+        }
+        return;
     }
     // No build fetches from a third-party host: every package this build
     // fetches comes from our mirror first (scripts/ci/zig-packages.lock), and in
@@ -111,13 +126,11 @@ fn main() {
     if let Some(target_arg) = build_support::zig_target_arg(&target, &host, &macos_min) {
         command.arg(target_arg);
     }
-    // macOS builds use a baseline CPU, not the build Mac's. Valgrind's
-    // instruction emulation doesn't cover every CPU-native SIMD extension
-    // zig's default target detection can select (e.g. some AVX-512 variants),
-    // which SIGILLs under valgrind. CI's valgrind job sets
-    // CMUX_GHOSTTY_VT_ZIG_CPU to "baseline" to match the same workaround
-    // ghostty's own build.zig uses for its valgrind step (see
-    // `Config.baselineTarget()`).
+    // Every build uses a baseline CPU, not the build host's: zig's default
+    // (the host's CPU, e.g. AVX-512 on a Zen 4 fleet host) SIGILLs the binary
+    // on any older CPU it is copied to, and under valgrind, whose emulation
+    // lacks some AVX-512 variants. CMUX_GHOSTTY_VT_ZIG_CPU overrides it
+    // (`native` for a build that never leaves its host).
     let cpu = env::var("CMUX_GHOSTTY_VT_ZIG_CPU").ok();
     if let Some(cpu_arg) = build_support::zig_cpu_arg(&target, cpu.as_deref()) {
         command.arg(cpu_arg);
