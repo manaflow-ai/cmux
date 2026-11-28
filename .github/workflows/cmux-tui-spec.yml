@@ -44,6 +44,7 @@ on:
       # (tests/test_cargo_test_verdict.py keeps this list whole).
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
+      - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
       - "Resources/theme-files/*.json"
       - "Resources/sidebar-looks/*.json"
       - "docs/remote-agents-and-cloud.md"
