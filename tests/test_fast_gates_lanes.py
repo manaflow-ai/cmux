@@ -39,6 +39,12 @@ class GateLanes(unittest.TestCase):
         self.assertEqual([[name for name, _ in lane] for lane in lanes],
                          [["prepush gate"], ["crash-class rules"], ["web lint", "webviews checks"]])
 
+    def test_a_shared_install_gives_every_gate_its_own_lane(self) -> None:
+        active = [("web lint", ["a"]), ("webviews checks", ["d"]), ("prepush gate", ["b"])]
+        lanes = fast_gates.gate_lanes(active, shared_install=True)
+        self.assertEqual([[name for name, _ in lane] for lane in lanes],
+                         [["web lint"], ["webviews checks"], ["prepush gate"]])
+
     def test_webviews_checks_alone_gets_its_own_lane(self) -> None:
         lanes = fast_gates.gate_lanes([("crash-class rules", ["c"]), ("webviews checks", ["d"])])
         self.assertEqual([[name for name, _ in lane] for lane in lanes],
