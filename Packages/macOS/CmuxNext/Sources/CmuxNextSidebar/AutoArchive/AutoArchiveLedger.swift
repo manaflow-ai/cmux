@@ -13,21 +13,6 @@ public nonisolated struct AutoArchiveLedger: Codable, Equatable, Sendable {
     public var snoozedUntil: Double?
 
     public init() {}
-
-    /// Records a use of `workspace` at `date` (the newer of the two wins).
-    public mutating func saw(_ workspace: String, at date: Date) {
-        let time = date.timeIntervalSince1970
-        if seen[workspace].map({ $0 < time }) ?? true { seen[workspace] = time }
-    }
-
-    /// The last use of `workspace`, if recorded.
-    public func lastSeen(_ workspace: String) -> Date? { seen[workspace].map(Date.init(timeIntervalSince1970:)) }
-
-    /// Drops the records of workspaces that are gone, so the ledger stays as large as the sidebar.
-    public mutating func keep(only workspaces: Set<String>, items: Set<String>) {
-        seen = seen.filter { workspaces.contains($0.key) }
-        autoArchived = autoArchived.intersection(items)
-    }
 }
 
 /// Loads and saves the ``AutoArchiveLedger`` in one `UserDefaults` key (Repository). The defaults are

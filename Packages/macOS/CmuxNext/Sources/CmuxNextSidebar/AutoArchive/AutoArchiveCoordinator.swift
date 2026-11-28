@@ -56,8 +56,6 @@ public final class AutoArchiveCoordinator {
     /// The ledger is saved at most this often while shows keep coming (a lost minute of shows only
     /// delays an archive).
     public static let flushDelay: Duration = .seconds(300)
-    /// The card lists at most this many names.
-    static let cardNames = 5
 
     /// - Parameters:
     ///   - document: the app's sidebar document while it is active (its own store, from the composition root).
@@ -126,32 +124,31 @@ public final class AutoArchiveCoordinator {
     /// group), last used first: the Archived page's rows.
     public func archivedWorkspaces() -> [AutoArchivePlanner.Candidate] {
         guard let store = activeStore() else { return [] }
-        let records = store.records
-        return host.autoArchiveCandidates().compactMap { candidate in
-            let under = groups(of: candidate.item, in: records).contains { records.isArchived(item: $0) }
-            guard records.isArchived(item: candidate.item) || under else { return nil }
-            var row = candidate
+        let candidates = host.autoArchiveCandidates()
+        let rows = AutoArchiveRules.archived(store.records, candidates: candidates, seen: ledger.seen) ?? []
+        return rows.compactMap { reply in
+            guard candidates.indices.contains(reply.index) else { return nil }
+            var row = candidates[reply.index]
             row.archived = true
-            row.lastActive = [candidate.lastActive, ledger.lastSeen(candidate.workspace)].compactMap { $0 }.max()
+            row.lastActive = reply.lastActive.map(Date.init(timeIntervalSince1970:))
             return row
         }
-        .sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
     }
 
     /// Runs the background pass now (tests, and the deadline).
     public func runPass() {
         let policy = host.autoArchivePolicy()
         let plan = plan(.background)
-        if let next = plan.nextCheck { schedulePass(after: .seconds(max(1, next.timeIntervalSince(clockNow())))) }
-        guard !plan.due.isEmpty else { return }
-        switch policy.style {
-        case .quiet, .groups:
+        guard let pass = AutoArchiveRules.pass(policy, due: plan.due.count, nextCheck: plan.nextCheck, now: clockNow()) else { return }
+        if let after = pass.recheckAfter { schedulePass(after: .seconds(after)) }
+        switch pass.action {
+        case .archive:
             // Nobody here asked for this pass: a refusal is logged, never a toast (Leo, 2026-11-14).
             guard let store = activeStore() else { return }
             try? store.automatically { () throws(AutoArchiveRefusal) in try archive(plan.due.map(\.item)) }
         case .suggest:
-            suggest(plan.due, days: Int(policy.idleDays.rounded()))
-        case .manual, .off:
+            suggest(plan.due, days: pass.days)
+        case .none:
             break
         }
     }
@@ -165,40 +162,28 @@ public final class AutoArchiveCoordinator {
         let records = store.records
         let shown = host.autoArchiveShownWorkspaces()
         let time = clockNow()
-        var rules: [String: SidebarDocAutoArchiveRule] = [:]
-        for item in records.items.values where item.body.isGroup {
-            if let rule = item.autoArchive { rules[item.id] = rule }
-        }
         var candidates = host.autoArchiveCandidates()
+        // The document's and the windows' marks and each candidate's groups (Rust `sidebar_archive_marks`); a refused
+        // call plans nothing, as a refused plan does.
+        guard let marks = AutoArchiveRules.marks(records, candidates: candidates, shown: shown) else { return AutoArchivePlanner.Plan() }
         var seen: [String: Date] = [:]
-        for index in candidates.indices {
-            var candidate = candidates[index]
-            seen[candidate.workspace] = ledger.lastSeen(candidate.workspace)
-            candidate.shown = candidate.shown || shown.contains(candidate.workspace)
-            candidate.archived = candidate.archived || records.isArchived(item: candidate.item)
-            candidate.pinned = candidate.pinned || records.isPinned(item: candidate.item)
-            candidate.groups = groups(of: candidate.item, in: records)
-            candidates[index] = candidate
+        for (index, mark) in marks.marks.enumerated() {
+            candidates[index].shown = mark.shown
+            candidates[index].archived = mark.archived
+            candidates[index].pinned = mark.pinned
+            candidates[index].groups = mark.groups
+            seen[candidates[index].workspace] = ledger.seen[candidates[index].workspace].map(Date.init(timeIntervalSince1970:))
         }
         let snoozedUntil = ledger.snoozedUntil.map(Date.init(timeIntervalSince1970:))
-        let plan = planner.plan(candidates, seen: seen, rules: rules, policy: host.autoArchivePolicy(), trigger: trigger,
-                                now: time, snoozedUntil: snoozedUntil)
-        // First sight: the clock starts now, so a workspace is never idle on arrival.
-        for workspace in plan.firstSight { ledger.saw(workspace, at: time) }
-        if !plan.firstSight.isEmpty { markDirty() }
-        if !plan.snoozed { ledger.keep(only: Set(candidates.map(\.workspace)), items: Set(records.items.keys)) }
-        return plan
-    }
-
-    /// The group items above `item`, nearest first (bounded by the document's nesting limit).
-    private func groups(of item: String, in records: SidebarDocRecords) -> [String] {
-        var out: [String] = []
-        var parent = records.items[item]?.parent
-        while let id = parent, out.count < 16, !out.contains(id) {
-            out.append(id)
-            parent = records.items[id]?.parent
+        let plan = planner.plan(candidates, seen: seen, rules: marks.rules.mapValues(\.rule), policy: host.autoArchivePolicy(),
+                                trigger: trigger, now: time, snoozedUntil: snoozedUntil)
+        // First sight: the clock starts now, so a workspace is never idle on arrival (Rust `auto_archive_ledger`).
+        if let planned = AutoArchiveRules.planned(ledger, firstSight: plan.firstSight, snoozed: plan.snoozed,
+                                                  workspaces: Set(candidates.map(\.workspace)), items: Set(records.items.keys), now: time) {
+            ledger = planned.ledger
+            if planned.dirty { markDirty() }
         }
-        return out
+        return plan
     }
 
     // MARK: - Act
@@ -210,7 +195,7 @@ public final class AutoArchiveCoordinator {
         } catch {
             throw AutoArchiveRefusal(message: error.message)
         }
-        ledger.autoArchived.formUnion(items)
+        if let archived = AutoArchiveRules.archived(ledger, items: items) { ledger = archived }
         markDirty()
         host.autoArchiveToast(AutoArchiveStrings.archived(items.count)) { [weak self] in self?.restore(items) }
     }
@@ -220,11 +205,7 @@ public final class AutoArchiveCoordinator {
     /// and not archived yet, by itself or under an archived group.
     public func archivableItems(workspaces: [String]) -> [String] {
         guard let records = activeStore()?.records else { return [] }
-        var seen = Set<String>()
-        return workspaces.compactMap { host.autoArchiveItem(workspace: $0) }.filter { item in
-            records.items[item] != nil && seen.insert(item).inserted && !records.isPinned(item: item) && !records.isArchived(item: item)
-                && !groups(of: item, in: records).contains { records.isArchived(item: $0) }
-        }
+        return AutoArchiveRules.archivable(records, items: workspaces.map { host.autoArchiveItem(workspace: $0) }) ?? []
     }
 
     /// Archives `workspaces` a person named (the bulk archive rows): their ``archivableItems(workspaces:)``
@@ -249,11 +230,10 @@ public final class AutoArchiveCoordinator {
     public func restore(_ items: [String]) {
         guard let store = activeStore(), !items.isEmpty else { return }
         try? store.setArchived(items, archived: false, title: AutoArchiveStrings.restoreTitle)
-        ledger.autoArchived.subtract(items)
-        let time = clockNow()
-        for item in items {
-            if case let .workspace(ref)? = store.records.items[item]?.body { ledger.saw(ref.workspaceID, at: time) }
+        let workspaces = items.compactMap { item -> String? in
+            if case let .workspace(ref)? = store.records.items[item]?.body { ref.workspaceID } else { nil }
         }
+        if let restored = AutoArchiveRules.restored(ledger, items: items, workspaces: workspaces, now: clockNow()) { ledger = restored }
         markDirty()
     }
 
@@ -261,9 +241,9 @@ public final class AutoArchiveCoordinator {
     /// the names, Archive and an inline "Always" switch; the x is Not Now (a day's snooze). Flipping Always turns
     /// on `workspaces.autoArchive.style` `quiet` and archives these now.
     private func suggest(_ due: [AutoArchivePlanner.Candidate], days: Int) {
-        guard card == nil else { return }
-        var lines = due.prefix(Self.cardNames).map(\.title)
-        if due.count > Self.cardNames { lines.append(AutoArchiveStrings.andMore(due.count - Self.cardNames)) }
+        guard card == nil, let names = AutoArchiveRules.card(due.map(\.title)) else { return }
+        var lines = names.lines
+        if let more = names.more { lines.append(AutoArchiveStrings.andMore(more)) }
         let card = SidebarNoticeCard(
             id: "auto-archive.suggest", symbol: "archivebox",
             title: AutoArchiveStrings.cardQuestion(due.count), lines: lines,
@@ -281,12 +261,16 @@ public final class AutoArchiveCoordinator {
             case Self.archiveAction?, Self.alwaysAction?:
                 if chosen == Self.alwaysAction { await host.autoArchiveSetStyle(.quiet) }
                 // Only what is still idle: the person may have opened one while the card showed.
-                let still = Set(plan(.sweep).due.map(\.item))
-                try? archive(items.filter(still.contains))
+                let still = AutoArchiveRules.stillDue(items, due: plan(.sweep).due.map(\.item)) ?? []
+                try? archive(still)
             default:
-                ledger.snoozedUntil = clockNow().addingTimeInterval(Self.snooze).timeIntervalSince1970
-                markDirty()
-                schedulePass(after: .seconds(Self.snooze))
+                var after = Self.snooze
+                if let snoozed = AutoArchiveRules.snoozed(ledger, now: clockNow()) {
+                    ledger = snoozed.ledger
+                    after = snoozed.recheckAfter
+                    markDirty()
+                }
+                schedulePass(after: .seconds(after))
             }
         }
     }
@@ -297,17 +281,19 @@ public final class AutoArchiveCoordinator {
     // MARK: - Shows
 
     func noteShown(_ shown: Set<String>) {
-        let time = clockNow()
-        var back: [String] = []
-        for workspace in shown {
-            ledger.saw(workspace, at: time)
-            // O(shown windows) per switch: the item lookup runs only while something is auto-archived.
-            guard !ledger.autoArchived.isEmpty, let item = host.autoArchiveItem(workspace: workspace),
-                  ledger.autoArchived.contains(item), activeStore()?.records.isArchived(item: item) == true else { continue }
-            back.append(item)
+        // O(shown windows) per switch: the item lookup runs only while something is auto-archived, and only the shown
+        // workspaces' sights cross to Rust (`auto_archive_ledger` `shown`).
+        let lookup = !ledger.autoArchived.isEmpty
+        let records = lookup ? activeStore()?.records : nil
+        let rows = shown.map { workspace in
+            let item = lookup ? host.autoArchiveItem(workspace: workspace) : nil
+            return AutoArchiveRules.Shown(workspace: workspace, item: item,
+                                          archived: item.map { records?.isArchived(item: $0) == true } ?? false)
         }
-        if !back.isEmpty { restore(back) }
-        if !shown.isEmpty { markDirty() }
+        guard let reply = AutoArchiveRules.shown(ledger, rows, now: clockNow()) else { return }
+        ledger = reply.ledger
+        if !reply.back.isEmpty { restore(reply.back) }
+        if reply.dirty { markDirty() }
     }
 
     // MARK: - Deadlines
