@@ -292,6 +292,8 @@ test("every line of the tray, and its header, does something", async () => {
     {
       items,
       working: true,
+      // The faces are the `kinds` header's: the default became one plain line (#56287, kept by #61105).
+      foldHeadLook: "kinds",
       waiting: new Set<string>(),
       onOpen: () => undefined,
       onOpenCommand: () => undefined,
@@ -414,11 +416,11 @@ for (const [label, place] of [["an SSH peer's", { peer: "huge-blue", host: "huge
     // A command whose call is not loaded has nothing to open: not a button, and it says why.
     const cargo = row("cargo watch");
     expect(cargo.disabled).toBe(true);
-    // It says why as text on the row, not a title: a disabled row gets no hover (TasksSection.tsx).
-    expect(cargo.querySelector(".acpmux-session-info-task__why")?.textContent).toBe(
-      translatorFor("en")("sessionInfo.tasks.noTerminal.remote"),
-    );
-    expect(cargo.closest("li")?.hasAttribute("title")).toBe(false);
+    // It says why in the row's tooltip, on the <li> (a disabled button takes no hover), and to
+    // VoiceOver as the button's description: #51164 moved the reason off the row's text.
+    const why = translatorFor("en")("sessionInfo.tasks.noTerminal.remote");
+    expect(cargo.closest("li")?.getAttribute("title")).toBe(why);
+    expect(cargo.getAttribute("aria-description")).toBe(why);
     const { dead } = await deadClicks(container, calls);
     expect(dead).toEqual([]);
     expect(hoverOnDisabled(container)).toEqual([]);
