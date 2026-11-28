@@ -210,6 +210,31 @@ class PlanAndJudgeTest(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertIn("known red", notes[0])
 
+    def test_a_red_on_other_steps_is_another_red(self) -> None:
+        # Run 46058976708 (11-27): web-typecheck red on `Install dependencies` after a batch that was red on `Typecheck`.
+        # They are two reds: the install red looks past the typecheck one to the green (one confirm probe, not a
+        # seven-probe bisect of a stuck red), and the typecheck red is still the typecheck red's own known red.
+        verdicts = {"web / check": ("web", "failure")}
+        runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
+                run(1, "d" * 40, "2026-11-21T06:00:00Z")]
+        older = {3: ({"web / check": ("web", "failure")}, True), 2: ({"web / check": ("web", "failure")}, True),
+                 1: ({"web / check": ("web", "success")}, True)}
+        typecheck = {"web / check": frozenset({"Typecheck"})}
+        install = {"web / check": frozenset({"Install dependencies"})}
+        steps = {3: typecheck, 2: typecheck, 1: {}}
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, install, steps.get)
+        self.assertEqual(found, [("web / check", "web", "d" * 40)])
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites,
+                                        steps=install, steps_of=steps.get), [])
+        found, notes = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, typecheck, steps.get)
+        self.assertEqual(found, [])
+        self.assertIn("known red", notes[0])
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites,
+                                        steps=typecheck, steps_of=steps.get), [("web / check", "web", "d" * 40, "c" * 40)])
+        # Unknown steps on either side keep the job-level reading.
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, {}, steps.get)
+        self.assertEqual(found, [])
+
     def stuck_setup(self):
         verdicts = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
         runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
@@ -459,6 +484,10 @@ class WiringTest(unittest.TestCase):
             self.assertEqual({k: v for k, v in job["with"].items() if k in ("sha", "only")},
                              {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
             for k, v in job["with"].items():
+                # A literal is the called workflow's own constant (swift-acpmux-protocol.yml's `check: acpmux`,
+                # #61885 folded several Swift checks into one workflow); an expression is plan's output of its name.
+                if isinstance(v, str) and "${{" not in v:
+                    continue
                 self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
             if key == "gallery-health":
                 self.assertEqual(job["with"]["base"], "${{ needs.plan.outputs.base }}")
