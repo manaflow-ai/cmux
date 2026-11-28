@@ -70,6 +70,32 @@ const hoverHoldsCounts = async (ctx: PlayContext) => {
       throw new Error("the live line's times or tokens overlap under the pointer");
 };
 
+/// https://github.com/manaflow-ai/cmux/issues/35021: on a pane too narrow for the label, the
+/// turn's time, its tokens and the hint, the label's group (which holds the time) gives way first
+/// and clips what it holds: its time never draws over the tokens after it, and no two parts overlap.
+const narrowLineHolds = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${LINE} .cv-command__bg`));
+  await ctx.resize(280);
+  const line = ctx.find({ selector: LINE });
+  // Where each part paints: a part that clips sideways (overflow-x other than visible) paints only inside its box.
+  const painted = (node: Element, clip: DOMRect | undefined) => {
+    const box = node.getBoundingClientRect();
+    return clip ? Math.min(box.right, clip.right) : box.right;
+  };
+  const parts = [...line.children].filter((part) => part.getBoundingClientRect().width > 0);
+  for (let index = 1; index < parts.length; index++) {
+    const before = parts[index - 1]!;
+    const clip = getComputedStyle(before).overflowX === "visible" ? undefined : before.getBoundingClientRect();
+    const ends = Math.max(
+      painted(before, clip),
+      ...[...before.querySelectorAll(".cv-worked__time, .cv-worked__own")].map((time) => painted(time, clip)),
+    );
+    const next = parts[index]!.getBoundingClientRect().left;
+    if (ends > next + 0.5)
+      throw new Error(`${before.className} paints to ${ends}, over ${parts[index]!.className} at ${next}`);
+  }
+};
+
 export default agentPaneEntry({
   id: "agent-pane.background-hint",
   title: "Ctrl-B background hint",
@@ -89,6 +115,11 @@ export default agentPaneEntry({
       note: 'Leo, 2026-11-06, on "8s · 2m5 1.4K toke" drawn over itself while he hovered the line\'s right edge: "this flickers". A long command with its time, the turn\'s and its tokens; hovered, the hint fades in its kept room and every count holds still.',
       snapshot: running("claude", true, long, 1_400),
       play: hoverHoldsCounts,
+    },
+    narrow: {
+      note: "https://github.com/manaflow-ai/cmux/issues/35021: a described Bash running for 16 minutes, with the turn's tokens, on a pane too narrow for the tokens, the hint's kept room and the label. The label and the turn's time give way (clipped in their own box), and the time never draws over the tokens or the hint.",
+      snapshot: running("claude", true, described, 3_900),
+      play: narrowLineHolds,
     },
     claude: {
       note: "A Claude Code chat's running command: the row ends with the Ctrl-B hint.",
