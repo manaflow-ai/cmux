@@ -1754,9 +1754,30 @@ impl Drop for Reserved<'_> {
 }
 
 #[cfg(test)]
-#[path = "fork_same_folder_tests.rs"]
-mod same_folder_tests;
+mod same_folder_tests {
+    use super::same_folder;
+
+    #[test]
+    fn the_same_folder_spelled_another_way_is_not_a_move() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        assert!(same_folder(dir.path(), &dir.path().join(".")));
+        assert!(!same_folder(dir.path(), other.path()));
+    }
+}
 
 #[cfg(test)]
-#[path = "fork_parent_side_servers_tests.rs"]
-mod parent_side_servers_tests;
+mod parent_side_servers_tests {
+    use super::parent_side_servers;
+    use serde_json::json;
+
+    /// OpenCode's parent process gets no servers with its `session/fork` (they would replace the
+    /// parent's own); every other agent gets the fork's list as before.
+    #[test]
+    fn only_opencode_forks_without_servers() {
+        let servers =
+            json!([{"name": "acpmux", "type": "http", "url": "http://x/mcp/fork/tools/acpmux"}]);
+        assert_eq!(parent_side_servers(true, servers.clone()), json!([]));
+        assert_eq!(parent_side_servers(false, servers.clone()), servers);
+    }
+}

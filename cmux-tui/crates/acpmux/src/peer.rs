@@ -1518,19 +1518,486 @@ mod remote_config_tests {
 mod briefs_tests;
 
 #[cfg(test)]
-#[path = "peer_link_epoch_tests.rs"]
-mod link_epoch_tests;
+mod link_epoch_tests {
+    use super::*;
+
+    /// A prompt admitted on a link that went down before it was registered fails at once: the
+    /// next link drops its frame, and a prompt has no deadline, so it would wait for good.
+    #[tokio::test]
+    async fn a_prompt_admitted_on_a_link_that_went_down_fails_instead_of_waiting() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        let admitted_on = peer.link_epoch();
+        // The link drops and the next one is up again before the request registers.
+        peer.link_ended();
+        let answer = tokio::time::timeout(
+            Duration::from_secs(5),
+            peer.link_request_on(method::SESSION_PROMPT, json!({}), Some(admitted_on)),
+        )
+        .await
+        .expect("a prompt on a dead link must not wait");
+        assert!(answer.is_err());
+        assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+    }
+
+    /// A forwarded request its client cancels (`request_cancel.rs`): the peer hears
+    /// `$/cancel_request` for its id on the link it went out on, nothing waits on it any more,
+    /// and its id is kept so the late answer is dropped on purpose.
+    #[tokio::test]
+    async fn a_cancelled_request_tells_the_peer_and_waits_for_nothing() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        peer.features.lock_or_recover().push(crate::request_cancel::FEATURE.to_owned());
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        let sent = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&sent.line).unwrap();
+        assert_eq!(peer.pending_requests().await, 1);
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none(), "the request gave up");
+        let note = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let note: Value = serde_json::from_str(&note.line).unwrap();
+        assert_eq!(note["method"], method::CANCEL_REQUEST);
+        assert_eq!(note["params"]["requestId"], request["id"]);
+        assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+        let key = request["id"].to_string();
+        assert!(peer.cancelled.lock_or_recover().take_late(&key, "peer"), "its answer is dropped");
+    }
+
+    /// Review F1 of #41285: the peer's answer comes between the cancel and the cleanup of its
+    /// entry (the pending map was busy as the request was dropped). It reaches a waiter that is
+    /// gone, so it is dropped and logged as late, never lost unlogged, and a peer that already
+    /// answered hears no cancel.
+    #[tokio::test]
+    async fn an_answer_between_the_cancel_and_the_cleanup_is_dropped_as_late() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        peer.features.lock_or_recover().push(crate::request_cancel::FEATURE.to_owned());
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        let sent = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&sent.line).unwrap();
+        let key = request["id"].to_string();
+        let mut busy = peer.pending.lock().await;
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none(), "the request gave up");
+        // The link's reader takes the answer's entry while the cleanup waits for the map.
+        let waiter = busy.remove(&key).expect("the entry is still there");
+        assert!(waiter.send(Ok(json!({}))).is_err(), "its waiter is gone");
+        drop(busy);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while peer.cancelled.lock_or_recover().dropped == 0
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(peer.cancelled.lock_or_recover().dropped, 1, "dropped as late, and logged");
+        assert!(peer.cancelled.lock_or_recover().is_empty(), "no id kept for an answer that came");
+        assert_eq!(peer.pending_requests().await, 0);
+        assert!(out.try_recv().is_err(), "a peer that answered hears no cancel");
+    }
+
+    /// Review F2 of #41285: a cancel to a peer whose outbound queue is full is never dropped:
+    /// it goes out once there is room (an awaited send).
+    #[tokio::test]
+    async fn a_cancel_to_a_peer_with_a_full_queue_still_goes_out() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        peer.features.lock_or_recover().push(crate::request_cancel::FEATURE.to_owned());
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        let sent = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&sent.line).unwrap();
+        let mut filler = 0;
+        while peer
+            .out
+            .try_send(Outbound { epoch: sent.epoch, key: None, line: "{}".into() })
+            .is_ok()
+        {
+            filler += 1;
+        }
+        assert!(filler > 0, "the queue was filled");
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none(), "the request gave up");
+        for _ in 0..filler {
+            let frame = out.recv().await.unwrap();
+            assert_eq!(frame.line, "{}");
+        }
+        let note = tokio::time::timeout(Duration::from_secs(5), out.recv())
+            .await
+            .expect("the cancel went out once there was room")
+            .unwrap();
+        let note: Value = serde_json::from_str(&note.line).unwrap();
+        assert_eq!(note["method"], method::CANCEL_REQUEST);
+        assert_eq!(note["params"]["requestId"], request["id"]);
+        assert_eq!(peer.pending_requests().await, 0);
+    }
+
+    /// A peer that does not list the feature hears nothing more: an older daemon.
+    #[tokio::test]
+    async fn an_older_peer_gets_no_cancel_frame() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none());
+        assert!(tokio::time::timeout(Duration::from_millis(200), out.recv()).await.is_err());
+        assert_eq!(peer.pending_requests().await, 0);
+    }
+
+    /// Review of #24797 at 45ab6b1: lending was on for a plain `ws://` peer on another host, so
+    /// anything on the path could answer the handshake as that peer and ask as it.
+    #[test]
+    fn github_is_lent_only_over_ssh_tls_or_loopback() {
+        let (tx, _rx) = mpsc::channel(8);
+        for (url, lends) in [
+            ("ws://10.0.0.5:7777", false),
+            ("ws://box.example:7777", false),
+            ("ws://127.0.0.1:7777", true),
+            ("ws://localhost:7777", true),
+            ("ws://[::1]:7777", true),
+            ("ws://127.0.0.2:7777", true),
+            ("ws://[::2]:7777", false),
+            ("wss://box.example", true),
+            ("ssh://leo@box.example", true),
+        ] {
+            let peer = Peer::new("p", url, None, None, tx.clone());
+            peer.set_github_broker(true);
+            assert_eq!(peer.github_broker(), lends, "{url}");
+        }
+    }
+
+    /// Review of #24797 at ee07ea5: an action admitted just before the peer stopped took the
+    /// epoch after the stop as its own, so it still ran.
+    #[tokio::test]
+    async fn an_action_admitted_before_a_stop_never_runs() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("stopped-mid-admit", "ws://127.0.0.1:9", None, None, tx);
+        peer.set_github_broker(true);
+        let link = peer.link_epoch();
+        peer.github_link.store(link + 1, Ordering::SeqCst);
+        let slot = crate::github_broker::admit_owner(
+            &peer.name,
+            peer.github_ready(link),
+            &peer.github_slots,
+            &json!({"action": "read", "repo": "o/r"}),
+        )
+        .unwrap();
+        peer.stop();
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        peer.serve_github_action(json!(1), json!({"action": "read", "repo": "o/r"}), slot, link);
+        let sent = tokio::time::timeout(Duration::from_secs(1), out.recv()).await;
+        assert!(
+            sent.is_err(),
+            "nothing ran or answered: {:?}",
+            sent.ok().flatten().map(|f| f.line)
+        );
+        assert_eq!(peer.github_slots.available_permits(), crate::github_broker::OWNER_SLOTS);
+    }
+
+    /// Review of #24797 at 30e24d1: each reconnect's new peer had slots of its own while the
+    /// old one's GitHub actions still ran, so reconnects started more than `OWNER_SLOTS` `gh`s.
+    #[tokio::test]
+    async fn a_reconnect_shares_its_github_slots_with_the_actions_still_running() {
+        let (tx, _rx) = mpsc::channel(8);
+        let old = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx.clone());
+        let running: Vec<_> = (0..crate::github_broker::OWNER_SLOTS)
+            .map(|_| {
+                crate::github_broker::admit_owner(
+                    &old.name,
+                    true,
+                    &old.github_slots,
+                    &json!({"action": "token"}),
+                )
+                .unwrap()
+            })
+            .collect();
+        old.stop();
+        let new = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx);
+        let e = crate::github_broker::admit_owner(
+            &new.name,
+            true,
+            &new.github_slots,
+            &json!({"action": "token"}),
+        )
+        .unwrap_err();
+        assert_eq!(e.data.unwrap()["reason"], "github.busy");
+        drop(running);
+        assert!(
+            crate::github_broker::admit_owner(
+                &new.name,
+                true,
+                &new.github_slots,
+                &json!({"action": "token"})
+            )
+            .is_ok()
+        );
+    }
+}
 
 #[cfg(test)]
-#[path = "peer_frame_epoch_tests.rs"]
-mod frame_epoch_tests;
+mod frame_epoch_tests {
+    use super::*;
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
+
+    /// A frame admitted on a link that went down is dropped when `serve` dequeues it, even
+    /// when its sender woke only after the next link opened; one admitted on the live link
+    /// goes out.
+    #[tokio::test]
+    async fn a_frame_tagged_with_an_ended_link_never_goes_out_on_the_next() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        let stale = peer.link_epoch();
+        peer.link_ended();
+        let frame = |epoch, line: &str| Outbound { epoch, key: None, line: line.to_owned() };
+        peer.out.send(frame(stale, r#"{"jsonrpc":"2.0","method":"stale"}"#)).await.unwrap();
+        let live = peer.link_epoch();
+        peer.out.send(frame(live, r#"{"jsonrpc":"2.0","method":"live"}"#)).await.unwrap();
+
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+
+        let mut seen = Vec::new();
+        while !seen.iter().any(|t: &String| t.contains("\"live\"")) {
+            let frame = tokio::time::timeout(Duration::from_secs(5), server.next())
+                .await
+                .expect("the live frame goes out")
+                .expect("the link stays open")
+                .unwrap();
+            if let Frame::Text(text) = frame {
+                seen.push(text.to_string());
+            }
+        }
+        assert!(!seen.iter().any(|t| t.contains("\"stale\"")), "a stale frame went out: {seen:?}");
+        serving.abort();
+    }
+
+    /// Review of #24797 at f2e68a4: a peer's request was refused with a send that had no time
+    /// limit, so a peer that asks and never reads held the link's loop, pings and all, for good.
+    #[tokio::test]
+    async fn a_peer_that_asks_and_never_reads_loses_the_link() {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+        timings.ping_every = Duration::from_millis(200);
+        timings.ping_misses = 2;
+        timings.send = Duration::from_millis(400);
+        let (ours, theirs) = tokio::io::duplex(1024);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+        let asking = tokio::spawn(async move {
+            for i in 0u64.. {
+                let ask =
+                    Message::request(json!(i), method::MUX_GITHUB_ACTION, json!({})).to_line();
+                if server.send(Frame::Text(ask.trim_end().to_owned().into())).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+            .await
+            .expect("the link ends instead of hanging");
+        assert!(ended.unwrap().is_err());
+        asking.abort();
+    }
+}
 
 #[cfg(test)]
-#[path = "peer_watch_order_tests.rs"]
-mod watch_order_tests;
+mod watch_order_tests {
+    use super::*;
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
+
+    /// A `session_changed` the peer sends right after its `_acpmux/watch` reply is newer than
+    /// the reply's list, so it reaches the hub after the list: a purge of a listed session
+    /// leaves no row behind, where a list that came second put the purged row back.
+    #[tokio::test]
+    async fn a_purge_sent_right_after_the_watch_reply_lands_after_its_list() {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-po");
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let (tx, mut rx) = mpsc::channel(64);
+        let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
+
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+        // The peer answers every request; its watch reply lists m1, and the purge of m1
+        // follows it in the same write.
+        let fake = tokio::spawn(async move {
+            let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
+            while let Some(Ok(frame)) = server.next().await {
+                let Frame::Text(text) = frame else { continue };
+                let msg: Value = serde_json::from_str(&text).unwrap();
+                let Some(id) = msg.get("id").cloned() else { continue };
+                let watch = msg["method"] == method::MUX_WATCH;
+                let result = if watch { json!({"sessions": [row]}) } else { json!({}) };
+                let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                if !watch {
+                    server.send(Frame::Text(reply.to_string().into())).await.unwrap();
+                    continue;
+                }
+                let purge = json!({"jsonrpc": "2.0", "method": method::MUX_SESSION_CHANGED,
+                    "params": {"kind": "purged", "seq": 2, "session": {"sessionId": "m1"}}});
+                server.feed(Frame::Text(reply.to_string().into())).await.unwrap();
+                server.send(Frame::Text(purge.to_string().into())).await.unwrap();
+            }
+        });
+
+        let mut seen = Vec::new();
+        let (mut connected, mut purged) = (false, false);
+        while !(connected && purged) {
+            let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .expect("the handshake settles and the purge comes")
+                .expect("the link stays open");
+            connected |= matches!(notice, PeerNotice::Connected);
+            purged |=
+                matches!(&notice, PeerNotice::SessionChanged { kind, .. } if kind == "purged");
+            seen.push(notice);
+        }
+        let at = |want: fn(&PeerNotice) -> bool| seen.iter().position(want).unwrap();
+        let list = at(|n| matches!(n, PeerNotice::Sessions(_)));
+        let purge = at(|n| matches!(n, PeerNotice::SessionChanged { .. }));
+        let ready = at(|n| matches!(n, PeerNotice::Connected));
+        assert!(list < purge, "the list came after a newer purge: {seen:?}");
+        assert!(list < ready, "connected before the list: {seen:?}");
+
+        // The hub applies them in the order the link gave them; a second Connected is a
+        // barrier: once it settled, every notice before it was applied.
+        let mut settled = peer.settled();
+        for notice in seen.into_iter().chain([PeerNotice::Connected]) {
+            hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), settled.wait_for(|n| *n >= 2))
+            .await
+            .expect("the hub applies the notices")
+            .unwrap();
+        let rows = hub.remote_sessions();
+        assert!(rows.is_empty(), "the purged row came back: {rows:?}");
+        serving.abort();
+        fake.abort();
+    }
+}
 
 /// Every dial on this thread fails at once, with no socket, and is recorded, so a test drives
 /// the whole run loop (`Peer::run`) under paused time and reads when each attempt went.
 #[cfg(test)]
-#[path = "peer_test_dial_tests.rs"]
-pub(crate) mod test_dial;
+pub(crate) mod test_dial {
+    use std::cell::RefCell;
+
+    /// One dial: its monotonic instant and its wall-clock millisecond.
+    pub(crate) type Attempt = (tokio::time::Instant, u64);
+
+    thread_local!(static ATTEMPTS: RefCell<Option<Vec<Attempt>>> = const { RefCell::new(None) });
+    thread_local!(static AUTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+    thread_local!(static HOST_KEY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+
+    pub(crate) fn refuse_all() {
+        ATTEMPTS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+        AUTH.with(|a| a.set(false));
+        HOST_KEY.with(|a| a.set(false));
+    }
+
+    /// Every dial fails as ssh does when the remote refuses this computer's key or password
+    /// (`Permission denied`), and is recorded.
+    pub(crate) fn refuse_login_all() {
+        refuse_all();
+        AUTH.with(|a| a.set(true));
+    }
+
+    /// Every dial fails as ssh does when the machine's host key does not match
+    /// (`Host key verification failed`), and is recorded.
+    pub(crate) fn refuse_host_key_all() {
+        refuse_all();
+        HOST_KEY.with(|a| a.set(true));
+    }
+
+    /// Whether the dials fail as a refused host key.
+    pub(super) fn host_key_refused() -> bool {
+        HOST_KEY.with(|a| a.get())
+    }
+
+    /// Whether the dials fail as a refused login.
+    pub(super) fn login_refused() -> bool {
+        AUTH.with(|a| a.get())
+    }
+
+    /// The dials so far; dials keep failing.
+    pub(crate) fn attempts() -> Vec<Attempt> {
+        ATTEMPTS.with(|a| a.borrow().clone().unwrap_or_default())
+    }
+
+    /// Dials go out for real again.
+    pub(crate) fn clear() {
+        ATTEMPTS.with(|a| *a.borrow_mut() = None);
+        AUTH.with(|a| a.set(false));
+        HOST_KEY.with(|a| a.set(false));
+    }
+
+    pub(super) fn refused() -> bool {
+        ATTEMPTS.with(|a| {
+            let mut a = a.borrow_mut();
+            let Some(list) = a.as_mut() else { return false };
+            list.push((tokio::time::Instant::now(), crate::store::now_ms()));
+            true
+        })
+    }
+}

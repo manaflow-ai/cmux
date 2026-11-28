@@ -341,13 +341,21 @@ pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: &Path) -> McpSer
     if all_tools {
         args.push("--all-tools".to_owned());
     }
-    let env = vec![
+    let mut env = vec![
         (
             crate::user_settings::CONFIG_OVERRIDE.to_owned(),
             settings_file.to_string_lossy().into_owned(),
         ),
         (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
     ];
+    // macOS: the server runs malloc in space-efficient mode, as the daemons do (malloc_space.rs).
+    // An idle chat's server held 32 MB, about 20 of it freed blocks still dirty in its footprint
+    // (goal ram-baseline); its `main` drops the variable, so the tools it starts run the default.
+    env.extend(
+        cmux_tui_platform::malloc_space::child_env()
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
+    );
     McpServer { name: CMUX_SERVER.into(), command: cmux.to_path_buf(), args, env }
 }
 
@@ -1964,5 +1972,21 @@ fn app_daemon_socket_for(
 }
 
 #[cfg(test)]
-#[path = "agent_tools_app_daemon_socket_tests.rs"]
-mod app_daemon_socket_tests;
+mod app_daemon_socket_tests {
+    use cmux_agent_pane_policy::build_identity::BuildIdentity;
+
+    use super::app_daemon_socket_for;
+
+    /// An agent chat's Computer Use bridge reaches its own app's daemon, never `main`.
+    #[test]
+    fn a_chat_bridge_names_its_apps_daemon() {
+        let tagged =
+            BuildIdentity::new(Some("com.cmuxterm.app.debug.cu.preview2"), Some("cu-preview2"));
+        let path = app_daemon_socket_for(&tagged, None).expect("a tagged build has a daemon");
+        assert!(path.ends_with("cmux-app-cu-preview2.sock"), "{}", path.display());
+        let release = BuildIdentity::new(Some("com.cmuxterm.app"), None);
+        let path = app_daemon_socket_for(&release, None).expect("release has a daemon");
+        assert!(path.ends_with("cmux-app.sock"), "{}", path.display());
+        assert!(app_daemon_socket_for(&BuildIdentity::new(None, None), None).is_none());
+    }
+}

@@ -171,6 +171,7 @@ mod hunk_summary;
 mod hybrid_hold;
 pub(super) mod idle;
 mod idle_census;
+mod idle_digest;
 mod idle_governor;
 pub(crate) mod image_size;
 pub(crate) mod inactive_archive;
@@ -443,6 +444,7 @@ mod task_names;
 pub(crate) mod tasks;
 mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
+mod best_of_n;
 mod team_information;
 mod team_sent;
 mod team_settings;
@@ -3266,6 +3268,8 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
         turn_frames::record(&session.id, kind, &msg);
+        // A check red twice in a row marks the turn for best-of-N (`best_of_n.rs`, RFD 0158 §3).
+        best_of_n::record(&session.id, kind, &msg);
         // The turn's artifact card gathers its edits, tests and PRs (`turn_artifacts.rs`).
         turn_artifacts::record(&session.id, kind, &msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
