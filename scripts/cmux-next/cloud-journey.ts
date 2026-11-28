@@ -187,6 +187,9 @@ export function defaultSizeVerdict(atRunning: SizeRow, now: SizeRow): { problem:
 export const COLD_CREATE_SIZE = Object.freeze({ cpu: 4, memory_mb: 8192, disk_mb: 32768 });
 /** The guest reads a little under the size asked: the kernel keeps some memory, the filesystem some disk (16203 of 16384 MiB, 64328 of 65536 MiB at 4/16/64). */
 const SIZE_READ_SLACK = 0.06;
+// The Cloud guest image's agent-auth choice folder (agent-auth.sh writes one file per agent there): a path on the
+// guest VM, read and written by the journey's guest commands, not a cmux NEXT state root on this machine.
+const GUEST_AGENT_AUTH_DIR = "/home/cmux/.config/cmux/agent-auth";
 
 /**
  * Null when a guest's `cpu=N mem_mib=N disk_mib=N` reading (the "first exec" command) is the size asked: the CPU count
@@ -4440,7 +4443,7 @@ export const CREDENTIAL_PROCESSES_PROGRAM =
  */
 export const STUB_BYPASS_PROGRAM =
   `[ -e /etc/cmux/model-plane.env ] && echo "model-plane.env present" || echo "model-plane.env absent"; ` +
-  `echo "vm-kind $(head -c 32 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]'), claude choice $(head -c 16 /home/cmux/.config/cmux/agent-auth/claude 2>/dev/null | tr -d '[:space:]')"; ` +
+  `echo "vm-kind $(head -c 32 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]'), claude choice $(head -c 16 ${GUEST_AGENT_AUTH_DIR}/claude 2>/dev/null | tr -d '[:space:]')"; ` +
   `echo "settings.json base URL host: $(grep -oE '"ANTHROPIC_BASE_URL": *"[a-z]+://[^/"]+' /home/cmux/.claude/settings.json 2>/dev/null | sed -E 's#.*://##')"; ` +
   `n=0; for d in /proc/[0-9]*; do [ -O "$d" ] || continue; ` +
   `c=$(tr '\\0\\n' '  ' < "$d/cmdline" 2>/dev/null | cut -c1-60); ` +
@@ -6534,7 +6537,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // Port 0: the stub binds a free port and writes it to the ready file.
       const point = provider === "codex"
         ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
-        : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nd = pathlib.Path('/home/cmux/.config/cmux/agent-auth')\nd.mkdir(parents=True, exist_ok=True)\n(d / 'claude').write_text('own\\n')\nprint('stub-ready')\nPY`;
+        : `python3 - "$port" ${shq(GUEST_AGENT_AUTH_DIR)} <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nd = pathlib.Path(sys.argv[2])\nd.mkdir(parents=True, exist_ok=True)\n(d / 'claude').write_text('own\\n')\nprint('stub-ready')\nPY`;
       const r = await run(
         `rm -f ${shq(stubLog)} ${shq(ready)} ${shq(pidFile)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 & echo $! >${shq(pidFile)}); ` +
           `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
