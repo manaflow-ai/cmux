@@ -327,7 +327,10 @@ async function run(name: string, engine: BrowserType) {
     if (restyler)
       await restyler.send("Tracing.start", {
         transferMode: "ReturnAsStream",
-        traceConfig: { recordMode: "recordAsMuchAsPossible", includedCategories: ["devtools.timeline"] },
+        traceConfig: {
+          recordMode: "recordAsMuchAsPossible",
+          includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+        },
       });
     if (tracer)
       await tracer.send("Tracing.start", {
@@ -427,10 +430,27 @@ async function run(name: string, engine: BrowserType) {
         const name = (element.getAttribute("class") ?? "").split(/\s+/)[0] || element.localName;
         byClass.set(name, (byClass.get(name) ?? 0) + 1);
       }
+      // Rules whose subject (the compound after the last combinator) names no class, id or tag: the engine
+      // buckets a rule by its subject, so each of these is tried against every element it restyles.
       let rules = 0;
+      const universal: string[] = [];
+      const walk = (list: CSSRuleList) => {
+        for (const rule of list) {
+          if (rule instanceof CSSStyleRule) {
+            rules += 1;
+            for (const selector of rule.selectorText.split(/,(?![^(]*\))/)) {
+              const subject = selector.trim().split(/\s*[\s>+~]\s*(?![^(]*\))/).pop() ?? "";
+              const bare = subject.replace(/\([^)]*\)/g, "()");
+              if (!/[.#]|^[a-z]/i.test(bare)) universal.push(selector.trim());
+            }
+          }
+          const inner = (rule as CSSGroupingRule).cssRules;
+          if (inner) walk(inner);
+        }
+      };
       for (const sheet of document.styleSheets)
         try {
-          rules += sheet.cssRules.length;
+          walk(sheet.cssRules);
         } catch {
           // A sheet from another origin has no readable rules.
         }
@@ -441,6 +461,8 @@ async function run(name: string, engine: BrowserType) {
         styled: document.querySelectorAll("[style]").length,
         sheets: document.styleSheets.length,
         rules,
+        universal: universal.length,
+        universalSample: universal.slice(0, 40),
         top: [...byClass].sort((a, b) => b[1] - a[1]).slice(0, 12),
       };
     });
@@ -627,7 +649,9 @@ async function run(name: string, engine: BrowserType) {
       });
     }
     // RESTYLE=1: the elements restyled over the run, per painted frame and per style pass.
-    let restyled: { perFrame: number; passP95: number; passMax: number; lost: boolean } | undefined;
+    let restyled:
+      | ({ perFrame: number; passP95: number; passMax: number; lost: boolean } & Record<string, number | boolean>)
+      | undefined;
     if (restyler) {
       const complete = new Promise<{ stream?: string; dataLossOccurred?: boolean }>((done) =>
         restyler.once("Tracing.tracingComplete", done),
@@ -645,17 +669,58 @@ async function run(name: string, engine: BrowserType) {
       const events = (Array.isArray(parsed) ? parsed : (parsed.traceEvents ?? [])) as {
         name?: string;
         ph?: string;
-        args?: { elementCount?: number; data?: { elementCount?: number } };
+        dur?: number;
+        args?: {
+          elementCount?: number;
+          data?: { elementCount?: number };
+          beginData?: {
+            dirtyObjects?: number;
+            totalObjects?: number;
+            stackTrace?: { functionName?: string; url?: string; lineNumber?: number }[];
+          };
+        };
       }[];
+      // Each forced style or layout pass by the script that forced it (the trace's stack on a pass that a read
+      // forced; a frame's own pass has none): the top frame and its caller.
+      const forcers = new Map<string, number>();
+      for (const event of events) {
+        if ((event.name !== "UpdateLayoutTree" && event.name !== "Layout") || event.ph !== "X") continue;
+        const stack = event.args?.beginData?.stackTrace;
+        if (!stack?.length) continue;
+        const at = (frame?: { functionName?: string; url?: string; lineNumber?: number }) =>
+          frame ? `${frame.functionName || "(anon)"}@${(frame.url ?? "").split("/").pop()}:${frame.lineNumber}` : "";
+        const key = `${event.name} ${at(stack[0])} <- ${at(stack[1])} <- ${at(stack[2])}`;
+        forcers.set(key, (forcers.get(key) ?? 0) + 1);
+      }
+      for (const [key, count] of [...forcers].sort((a, b) => b[1] - a[1]).slice(0, 20))
+        console.log(`transcript-scroll-up ${name} forced ${count} ${key}`);
+      const styleEvents = events.filter((event) => event.name === "UpdateLayoutTree" && event.ph === "X");
       const passes = events
         .filter((event) => event.name === "UpdateLayoutTree" && (event.ph === "X" || event.ph === "E"))
         .map((event) => event.args?.elementCount ?? event.args?.data?.elementCount ?? 0);
+      const layouts = events.filter((event) => event.name === "Layout" && event.ph === "X");
+      const ms = (list: typeof events) => round2(list.reduce((sum, event) => sum + (event.dur ?? 0), 0) / 1000);
       const painted = Math.max(1, watched.frames.length);
       restyled = {
         perFrame: round2(passes.reduce((sum, count) => sum + count, 0) / painted),
         passP95: percentile(passes, 95),
         passMax: Math.max(0, ...passes),
         lost: dataLossOccurred === true,
+        // What a frame's style and layout cost, and of what: a pass's time over its elements, and the layout
+        // objects each layout walked (`totalObjects`) against those it had to lay out (`dirtyObjects`).
+        stylePassesPerFrame: round2(styleEvents.length / painted),
+        styleMsPerFrame: round2(ms(styleEvents) / painted),
+        styleUsPerElement: round2((ms(styleEvents) * 1000) / Math.max(1, passes.reduce((sum, count) => sum + count, 0))),
+        layoutsPerFrame: round2(layouts.length / painted),
+        layoutMsPerFrame: round2(ms(layouts) / painted),
+        layoutTotalObjectsP95: percentile(
+          layouts.map((event) => event.args?.beginData?.totalObjects ?? 0),
+          95,
+        ),
+        layoutDirtyObjectsP95: percentile(
+          layouts.map((event) => event.args?.beginData?.dirtyObjects ?? 0),
+          95,
+        ),
       };
     }
     const reachedTop = rounds < MAX_ROUNDS;
@@ -762,6 +827,13 @@ async function run(name: string, engine: BrowserType) {
             restyledPassP95: restyled.passP95,
             restyledPassMax: restyled.passMax,
             restyleTraceLost: restyled.lost,
+            stylePassesPerFrame: restyled.stylePassesPerFrame,
+            styleMsPerFrame: restyled.styleMsPerFrame,
+            styleUsPerElement: restyled.styleUsPerElement,
+            layoutsPerFrame: restyled.layoutsPerFrame,
+            layoutMsPerFrame: restyled.layoutMsPerFrame,
+            layoutTotalObjectsP95: restyled.layoutTotalObjectsP95,
+            layoutDirtyObjectsP95: restyled.layoutDirtyObjectsP95,
           }
         : {}),
     };
