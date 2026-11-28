@@ -223,8 +223,11 @@ import Testing
         #expect(viewer.screen === screen)
         let id = await reattach.wait()
         #expect(id == "s7")
-        // The first try goes at once: the drop is already known (conn-quiet, 2026-11-14).
-        #expect(ContinuousClock.now - droppedAt < .milliseconds(500))
+        // The first try goes at once: the drop is already known (conn-quiet, 2026-11-14). "At once"
+        // is the zero step, so the bound is the next step (1 s), not a wall-clock guess a loaded
+        // runner misses (ios fast verdict jobs 141021123609 and 141054326771 missed 500 ms).
+        #expect(ScreenSharingViewer.reattachBackoff.first == .zero)
+        #expect(ContinuousClock.now - droppedAt < ScreenSharingViewer.reattachBackoff[1])
         #expect(viewer.phase == .streaming(sessionID: "s7", scope: .full))
         #expect(viewer.screen === screen)
         #expect(ends.calls.isEmpty)
@@ -366,7 +369,9 @@ import Testing
         let resumedAt = ContinuousClock.now
         viewer.reattachNow()
         _ = await calls.wait()
-        #expect(ContinuousClock.now - resumedAt < .milliseconds(500))
+        // Now, not after sleeping out the pending step (2 s): that step is the bound, not a
+        // wall-clock guess a loaded runner misses.
+        #expect(ContinuousClock.now - resumedAt < ScreenSharingViewer.reattachBackoff[2])
         for _ in 0 ..< 200 where viewer.phase != .streaming(sessionID: "s10", scope: .full) { await Task.yield() }
         viewer.close(reason: .viewerDisconnected)
     }
