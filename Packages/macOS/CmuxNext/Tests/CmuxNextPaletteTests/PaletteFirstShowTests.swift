@@ -10,7 +10,7 @@ import Testing
 @MainActor
 @Suite(.paletteRanker, .closesItsWindows)
 struct PaletteFirstShowTests {
-    @Test func theFirstOpenRunsTheWorkOnceAfterItAndNothingBefore() async {
+    @Test(.timeLimit(.minutes(1))) func theFirstOpenRunsTheWorkOnceAfterItAndNothingBefore() async {
         _ = NSApplication.shared
         let palette = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
         defer { palette.closeForTest() }
