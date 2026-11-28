@@ -143,15 +143,17 @@ async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) 
     };
     if matches!(
         route.file.kind,
-        RouteKind::ChatgptPlan
-            | RouteKind::ClaudeToken
-            | RouteKind::GrokPlan
-            | RouteKind::CopilotPlan
-            | RouteKind::KimiPlan
+        RouteKind::ChatgptPlan | RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan
     ) {
         return answer(
             ProbeStatus::Unknown,
             "the selected subscription is checked when its agent starts".into(),
+        );
+    }
+    if route.file.kind == RouteKind::ClaudeToken {
+        return answer(
+            ProbeStatus::Unknown,
+            "a Claude setup token: Claude Code checks it when a chat starts on it".into(),
         );
     }
     if route.file.kind == RouteKind::DirectSubscription && route.file.health_url.is_none() {

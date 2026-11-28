@@ -361,33 +361,18 @@ extension SettingsModels {
         try await mutate(.connectionsRemove, ["id": replacing.id, "instance": replacing.instance])
     }
 
-    nonisolated static let claudeTokenPrefix = "sk-ant-oat"
+    nonisolated static let claudeTokenPrefix = ClaudeSetupToken.prefix
 
     nonisolated static func isModelAPIKey(_ key: String) -> Bool {
         isOneWord(key) && !key.hasPrefix("sk-ant-oat")
     }
 
-    /// TOKEN with every space, tab, line break and invisible space (zero-width, BOM) taken out. A setup
-    /// token never holds whitespace, so a pasted one loses only what the copy added.
-    nonisolated static func withoutWhitespace(_ secret: String) -> String {
-        String(String.UnicodeScalarView(secret.unicodeScalars.filter { scalar in
-            !scalar.properties.isWhitespace && !invisibleSpaces.contains(scalar.value)
-        }))
-    }
+    /// TOKEN with every space, tab, line break and invisible space (zero-width, BOM) taken out
+    /// (``ClaudeSetupToken/withoutWhitespace(_:)``, which the chat's Add account checks with too).
+    nonisolated static func withoutWhitespace(_ secret: String) -> String { ClaudeSetupToken.withoutWhitespace(secret) }
 
-    /// Zero-width space, non-joiner, joiner, word joiner and BOM: not whitespace to Unicode, but a paste adds them.
-    nonisolated private static let invisibleSpaces: Set<UInt32> = [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF]
-
-    /// Whether TOKEN reads as a Claude setup token: `sk-ant-oat`, two digits, a dash, then base64url
-    /// (letters, digits, `-`, `_`), as webviews' `claudeSetupToken.ts` checks it.
-    nonisolated static func isClaudeToken(_ token: String) -> Bool {
-        guard token.hasPrefix(claudeTokenPrefix), token.utf8.count <= keyLimit else { return false }
-        let rest = Array(token.utf8.dropFirst(claudeTokenPrefix.utf8.count))
-        guard rest.count > 3, rest[0] >= 0x30, rest[0] <= 0x39, rest[1] >= 0x30, rest[1] <= 0x39, rest[2] == 0x2D else { return false }
-        return rest.dropFirst(3).allSatisfy { byte in
-            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A) || byte == 0x2D || byte == 0x5F
-        }
-    }
+    /// Whether TOKEN reads as a Claude setup token (``ClaudeSetupToken/isValid(_:)``).
+    nonisolated static func isClaudeToken(_ token: String) -> Bool { ClaudeSetupToken.isValid(token) }
 
     /// One line of printable characters with no spaces, as a key or token is; the Keychain line must not break.
     nonisolated static func isOneWord(_ secret: String) -> Bool {

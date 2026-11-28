@@ -776,7 +776,7 @@ fn route_of(
     profile_env: &BTreeMap<String, String>,
 ) -> Result<Option<(routes::Route, &'static str)>, String> {
     let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-    let chosen = routes::spawn_route(dir, bindings, &meta.id, workspace, family, profile_env);
+    let chosen = routes::spawn_route(bindings, &meta.id, workspace, family, profile_env);
     spawn_route_for(dir, chosen, family)
 }
 
@@ -795,7 +795,7 @@ fn target_route(
         None => {
             let mut bindings = bindings.clone();
             bindings.chats.clear();
-            routes::spawn_route(dir, &bindings, "", None, family, profile_env)
+            routes::spawn_route(&bindings, "", None, family, profile_env)
         }
     };
     spawn_route_for(dir, chosen, family).map_err(RpcError::invalid_params)

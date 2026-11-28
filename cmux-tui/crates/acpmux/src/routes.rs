@@ -161,7 +161,9 @@ pub enum RouteKind {
     /// and refreshes in `<acpmux home>/chatgpt/<id>.json`.
     ChatgptPlan,
     /// Claude Code's long-lived token from `claude setup-token`, as a secret reference
-    /// Added by `_acpmux/connections/claude_token.add` for Cloud credential delivery.
+    /// Added by `_acpmux/connections/claude_token.add`. Delivered to a Cloud machine's agent
+    /// (`_acpmux/connections/credential`), and to a local Claude spawn that runs on it as
+    /// `CLAUDE_CODE_OAUTH_TOKEN` ([`env_for_on`], cmux#59852).
     ClaudeToken,
     /// xAI device sign-in managed by acpmux.
     GrokPlan,
@@ -390,16 +392,6 @@ impl Route {
     }
 
     /// Whether a launch on this machine can use the route directly.
-    pub(crate) fn check_local_launch(&self) -> Result<(), RouteError> {
-        if self.file.kind == RouteKind::ClaudeToken {
-            return Err(RouteError::Unavailable(format!(
-                "route {} is a Cloud connection: its credential goes to a Cloud machine's agent, not a chat on this Mac",
-                self.id
-            )));
-        }
-        Ok(())
-    }
-
     pub(crate) fn check_local_harness(
         &self,
         profile: Option<&crate::config::HarnessProfile>,
@@ -704,7 +696,8 @@ fn validate_contents(file: &RouteFile) -> Result<(), RouteError> {
     crate::route_account::validate(file)
 }
 
-const CLAUDE_TOKEN_NOTES: &str = "claude setup-token: served to Cloud machines' Claude agents";
+const CLAUDE_TOKEN_NOTES: &str =
+    "claude setup-token: serves Claude chats on this Mac and Cloud machines' Claude agents";
 
 fn file_from_toml(text: &str) -> Result<RouteFile, RouteError> {
     let mut file: RouteFile =
@@ -1591,7 +1584,6 @@ pub(crate) fn set_default_binding(
     let (dir, home) = places(config);
     if let Some(id) = route {
         let found = find(dir.as_deref(), id)?;
-        found.check_local_launch()?;
         // These scopes are shared by every harness they cover that can use the route.
         if found.file.kind == RouteKind::ChatgptPlan {
             for (name, profile) in &config.harnesses {
@@ -1636,26 +1628,16 @@ pub fn bound_route(
 /// else none for your own endpoint (`byo_endpoint.rs` names its provider itself), else a
 /// family or global binding. The route may be gone or not serve the family; the caller checks.
 pub fn spawn_route(
-    dir: Option<&Path>,
     b: &Bindings,
     session_id: &str,
     workspace: Option<&str>,
     family: &str,
     profile_env: &BTreeMap<String, String>,
 ) -> Option<(String, &'static str)> {
-    // Older builds could write a Cloud-only setup token as a local default.
-    let usable_default = |id: &&String| {
-        family != "claude" || !find(dir, id).is_ok_and(|route| route.check_local_launch().is_err())
-    };
     b.chats
         .get(session_id)
         .map(|id| (id, "chat"))
-        .or_else(|| {
-            workspace
-                .and_then(|w| b.workspaces.get(w))
-                .filter(usable_default)
-                .map(|id| (id, "workspace"))
-        })
+        .or_else(|| workspace.and_then(|w| b.workspaces.get(w)).map(|id| (id, "workspace")))
         .or_else(|| profile_env.get(PROFILE_ROUTE_KEY).map(|id| (id, "profile")))
         .or_else(|| {
             if crate::byo_endpoint::Kind::of_env(profile_env).is_some() {
@@ -1663,9 +1645,8 @@ pub fn spawn_route(
             }
             b.families
                 .get(family)
-                .filter(usable_default)
                 .map(|id| (id, "family"))
-                .or_else(|| b.global.as_ref().filter(usable_default).map(|id| (id, "global")))
+                .or_else(|| b.global.as_ref().map(|id| (id, "global")))
         })
         .map(|(id, scope)| (id.clone(), scope))
 }
@@ -1814,7 +1795,6 @@ pub fn env_for_on(
     home: &Path,
     gateway: Option<&str>,
 ) -> Result<RouteEnv, RouteError> {
-    route.check_local_launch()?;
     if !route.serves(family) {
         return Err(RouteError::BadParams(format!(
             "route {} does not serve the {family} harness",
@@ -1825,6 +1805,15 @@ pub fn env_for_on(
         set: BTreeMap::new(),
         unset: SCRUBBED.iter().map(|k| (*k).to_owned()).collect(),
     };
+    // A Claude setup token signs Claude Code in as the subscription it was made for: its reference
+    // goes in `CLAUDE_CODE_OAUTH_TOKEN`, resolved at the spawn like a key, with no endpoint and none
+    // of the scrubbed keys (an `ANTHROPIC_API_KEY` would win over it).
+    if route.file.kind == RouteKind::ClaudeToken {
+        if let Some(secret) = route.file.secret.as_deref() {
+            out.set.insert(crate::agent_credentials::CLAUDE_OAUTH.into(), reference_value(secret));
+        }
+        return Ok(out);
+    }
     if matches!(
         route.file.kind,
         RouteKind::ChatgptPlan | RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan

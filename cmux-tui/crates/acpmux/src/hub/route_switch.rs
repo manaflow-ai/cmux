@@ -20,7 +20,6 @@ impl Hub {
         let (dir, _) = crate::routes::places(&*self.config.read().await);
         let found = crate::routes::find(dir.as_deref(), route_id)
             .map_err(|e| RpcError::invalid_params(format!("route {route_id}: {}", e.message())))?;
-        found.check_local_launch().map_err(|e| route_error(&e))?;
         if !found.serves(family) {
             return Err(RpcError::invalid_params(format!(
                 "route {route_id} does not serve the {family} harness"
@@ -80,7 +79,6 @@ impl Hub {
             _ => None,
         };
         let Some((id, scope)) = routes::spawn_route(
-            dir.as_deref(),
             &bindings,
             session.unwrap_or_default(),
             workspace,
@@ -747,7 +745,6 @@ fn local_chatgpt_route(
         return None;
     }
     let (id, _) = routes::spawn_route(
-        dir,
         &routes::bindings(home),
         &meta.id,
         meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
@@ -813,7 +810,6 @@ impl Hub {
         // The route the spawn ran on (`routes::spawn_route`); a profile's own only for codex,
         // whose logins this moves between.
         let bound = routes::spawn_route(
-            dir.as_deref(),
             &routes::bindings(&state),
             &session.id,
             workspace,

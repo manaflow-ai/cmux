@@ -469,10 +469,12 @@ fn saved_claude_token_route_can_serve_cloud_and_can_be_removed() {
     let settings = state(dir, &d.home, &ProfileSources::none());
     assert_eq!(find(&settings, id)["can_serve_cloud"], true);
     let route = routes::find(dir, id).unwrap();
-    assert!(matches!(
-        routes::env_for(&route, "claude", &d.home),
-        Err(routes::RouteError::Unavailable(_))
-    ));
+    // cmux#59852: a chat on this Mac runs on it too.
+    let env = routes::env_for(&route, "claude", &d.home).unwrap();
+    assert_eq!(
+        env.set["CLAUDE_CODE_OAUTH_TOKEN"],
+        "${keychain:cmux-model-key/claude-token-1234abcd}"
+    );
     let (family, kind, var, reference, _) =
         credential_plan(dir, &d.home, id, &ProfileSources::none()).unwrap();
     assert_eq!((family.as_str(), kind, var), ("claude", "claude-token", "ANTHROPIC_AUTH_TOKEN"));
@@ -981,6 +983,19 @@ fn a_claude_token_is_added_as_a_reference_and_delivered_as_anthropic_auth() {
     assert_eq!(connection["signed_in"], true);
     assert_eq!(connection["serves_cloud"], true);
     assert!(!settings.to_string().contains(token));
+    // cmux#59852: a chat on this Mac runs on it too, signed in by the token's reference alone.
+    let env = routes::env_for(&route, "claude", &d.home).unwrap();
+    assert_eq!(
+        env.set,
+        [("CLAUDE_CODE_OAUTH_TOKEN".to_owned(), format!("${{{reference}}}"))].into()
+    );
+    for scrubbed in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"] {
+        assert!(env.unset.iter().any(|k| k == scrubbed), "{scrubbed} would win over the token");
+    }
+    assert!(
+        routes::env_for(&route, "codex", &d.home).is_err(),
+        "a Claude token serves Claude only"
+    );
 
     let (family, kind, var, secret, _) =
         credential_plan(dir, &d.home, &route.id, &ProfileSources::none()).unwrap();

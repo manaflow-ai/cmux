@@ -100,10 +100,7 @@ pub(super) async fn handle(
                 .map(|route| {
                     let mut view = route.view();
                     if let (Some(family), Some(obj)) = (&family, view.as_object_mut()) {
-                        obj.insert(
-                            "serves".into(),
-                            json!(route.serves(family) && route.check_local_launch().is_ok()),
-                        );
+                        obj.insert("serves".into(), json!(route.serves(family)));
                     }
                     view
                 })

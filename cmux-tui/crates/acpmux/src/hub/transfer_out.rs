@@ -576,7 +576,6 @@ impl Hub {
         let bindings = crate::routes::bindings(&state);
         let env = profile.map(|profile| profile.env).unwrap_or_default();
         let selected = crate::routes::spawn_route(
-            dir.as_deref(),
             &bindings,
             &session.id,
             meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
