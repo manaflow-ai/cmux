@@ -4,6 +4,7 @@ import { teamDomain } from "../src/domains/team.ts"
 import { personalTeamIdFor, stackTeamIdFor } from "../src/domains/user.ts"
 import { call, deliver, mirroredTeam, PROJECT, teamState, teamStub } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
+import type { PersonalTenantMarker } from "../src/team-vm-api-personal-store.ts"
 
 interface TenantReader {
   vmApiTenant(entity: string, purpose: "operate" | "cleanup"): Promise<{ team: string; tenant: string; project: string } | null>
@@ -76,4 +77,32 @@ it("does not route a valid mirror through a different configured Stack project",
   expect(vmApiTenantOf(state, entity, PROJECT, "operate")).toEqual({ team: entity, tenant, project: PROJECT })
   // Even cleanup cannot use a mapping whose project does not derive its owner.
   expect(vmApiTenantOf(state, entity, "different-project", "cleanup")).toBeNull()
+})
+
+it("answers a personal tenant read whose Stack member list failed with a throw (retry), never null (no tenant)", async () => {
+  // cmux-platform takes null as final: staging's idle-pause probe got "no Cloud provider is configured on this
+  // deployment" (2026-11-28 17:49Z) and "the creation or owner route is no longer active" (20:48Z) from one blip.
+  const t = await mirroredTeam("Personal transient")
+  const personal = personalTeamIdFor(t.user), tenant = crypto.randomUUID()
+  await inDO(teamStub(personal), async (owner) => {
+    let found: Array<{ id: string; marker: PersonalTenantMarker }> = []
+    let fail = false
+    owner.personalStack = {
+      find: async () => found,
+      members: async () => { if (fail) throw new Error("Stack answered 503"); return [t.stackUser] },
+      create: async (marker: PersonalTenantMarker) => { const receipt = { id: tenant, marker }; found = [receipt]; return receipt },
+    }
+    expect(await owner.ensureVmApiTenant(personal)).toMatchObject({ status: "ready", target: { team: personal, tenant } })
+    const solo = owner as unknown as { personalSoloChecked: unknown }
+    fail = true
+    solo.personalSoloChecked = undefined
+    await expect(owner.vmApiTenant(personal, "operate")).rejects.toThrow("Stack answered 503")
+    expect(await owner.vmApiTenant(personal, "cleanup")).toMatchObject({ team: personal, tenant })
+    fail = false
+    expect(await owner.vmApiTenant(personal, "operate")).toMatchObject({ team: personal, tenant })
+    // A definite answer stays null: someone else joined the tenant's Stack team.
+    owner.personalStack = { ...owner.personalStack!, members: async () => [t.stackUser, crypto.randomUUID()] }
+    solo.personalSoloChecked = undefined
+    expect(await owner.vmApiTenant(personal, "operate")).toBeNull()
+  })
 })

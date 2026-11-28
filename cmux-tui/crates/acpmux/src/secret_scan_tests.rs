@@ -346,10 +346,144 @@ fn nosey_parker_examples_are_caught_and_its_negatives_left_alone() {
     );
 }
 
-/// Measured on gitleaks v8.30.1 and Nosey Parker v0.24.0 (282 of 413 caught, 49 of 135 flagged);
+/// Measured on gitleaks v8.30.1 and Nosey Parker v0.24.0 (291 of 413 caught, 50 of 135 flagged;
+/// the label rule added the gitalk `clientSecret` hex value, an OAuth client secret);
 /// move them when a change catches more. Most misses are not secrets a prompt holds (ARNs,
 /// password hashes, Kerberos tickets) or hex and words with no name saying secret. Most
 /// flagged negatives are secrets under another rule's name (a Slack user token among the bot
 /// token's negatives) or values assigned to a password: masking them is right here.
-const MIN_RECALL_PERCENT: usize = 68;
-const MAX_FLAGGED_NEGATIVES: usize = 49;
+const MIN_RECALL_PERCENT: usize = 70;
+const MAX_FLAGGED_NEGATIVES: usize = 50;
+
+/// A value given after a credential label in words (card d-08bd4815d1): the label alone on its
+/// line with the value below it, `API key: value`, and a random run next to a label. Every value
+/// is fake, built at run time.
+mod labelled {
+    use super::*;
+
+    fn hex() -> String {
+        ["3f9a", "07c2e1", "b84d5f60", "9e1a2b7c", "d3e4f5a6b7c8d9e0"].concat()
+    }
+    fn b64() -> String {
+        ["Qm9", "ndXMt", "ZmFrZS1zZWNyZXQtdmFsdWUx"].concat()
+    }
+
+    #[track_caller]
+    fn gone(secret: &str, text: &str) -> String {
+        let out = mask(text);
+        assert!(!out.contains(secret), "survives in {out:?}");
+        assert!(out.contains('['), "no mask in {out:?}");
+        assert_eq!(mask(&out), out, "idempotent");
+        out
+    }
+
+    #[test]
+    fn label_alone_with_the_value_on_a_later_line() {
+        let hex = hex();
+        for label in [
+            "Client secret",
+            "client secret",
+            "CLIENT SECRET",
+            "Client Secret:",
+            "secret",
+            "Password",
+            "token",
+            "API key",
+            "api key =",
+            "Access token",
+            "- client_secret:",
+        ] {
+            for gap in ["\n", "\n\n", "\n \n\n"] {
+                let text =
+                    format!("Very well\n\n{label}{gap}{hex}\nTo be honest those users are ours");
+                let out = gone(&hex, &text);
+                assert!(out.starts_with(&format!("Very well\n\n{label}")), "{out:?}");
+                assert!(out.ends_with("\nTo be honest those users are ours"), "{out:?}");
+            }
+        }
+        gone("Zq7vRtLw", "Password\nZq7vRtLw");
+    }
+
+    #[test]
+    fn label_then_colon_or_equals_with_spaces_in_the_label() {
+        let b64 = b64();
+        for text in [
+            "API key: {}",
+            "api key={}",
+            "Client secret = {}",
+            "Access Token: '{}'",
+            "the api key is {}",
+            "Secret key: ({})",
+            "Personal access token: {}.",
+        ] {
+            gone(&b64, &text.replace("{}", &b64));
+        }
+    }
+
+    #[test]
+    fn a_link_given_as_the_value() {
+        let other = ["https://", "vault.example.com/v/", "x9Y8z7"].concat();
+        gone(&other, &format!("client secret: {other}"));
+    }
+
+    #[test]
+    fn a_random_run_next_to_a_label() {
+        let hex = hex();
+        let out = gone(&hex, &format!("the oauth client secret {hex} for the app"));
+        assert!(out.ends_with(" for the app"), "{out:?}");
+        gone(&hex, &format!("{hex} (that's the client secret)"));
+        gone(&b64(), &format!("token -> {}", b64()));
+    }
+
+    #[test]
+    fn labels_in_prose_keep_their_words() {
+        for text in [
+            "Client secret\n\nwe should rotate it",
+            "API key: see the vault",
+            "api key: ~/.config/gh/hosts.yml",
+            "the api key is missing",
+            "password:\nreset",
+            "Client secret\nTBD",
+            "rotate the client secret today",
+            "the scrubber misses 2e845eef3c0030c3560938b3850ccbfc08a6e70e",
+            "API URL: https://api.example.com",
+            "token budget is 120000",
+            "the token count was high",
+            "sha 2e845eef3c0030c3560938b3850ccbfc08a6e70e",
+            "gh secret set CMUX_E2E_ANTHROPIC_API_KEY in the repo",
+            "The token is CMUX_JOURNEY_CLAUDE_TOKEN_2.",
+            "api key: ${OPENAI_API_KEY_V2}",
+            "Attached file: bot.private-key.pem (application/x-x509-ca-cert, 1679 bytes)",
+            "Client secret below\n\nmerged as 2e845eef3c0030c3560938b3850ccbfc08a6e70e in the end",
+        ] {
+            assert_eq!(mask(text), text, "{:?}", find(text));
+        }
+    }
+}
+
+/// `translate` walks characters, not bytes: multibyte text, an escape at the
+/// end, an escaped brace, a brace inside a class and a real repetition each
+/// come through without a slice off a character boundary.
+#[test]
+fn translate_keeps_character_boundaries_and_repetitions() {
+    assert_eq!(translate("é{{ env }}ü"), "é\\{\\{ env }}ü");
+    assert_eq!(translate("a{2,3}b{4}c{5,}"), "a{2,3}b{4}c{5,}");
+    assert_eq!(translate("x{"), "x\\{");
+    assert_eq!(translate("[{]\\{é\\"), "[{]\\{é\\");
+    assert_eq!(translate("\\é{1}"), "\\é{1}");
+    assert!(!repetition("{"));
+    assert!(!repetition("{,2}"));
+    assert!(repetition("{1,}"));
+}
+
+/// `in_mask` reads the bytes around a range without indexing: a range at either
+/// end of the text, past its end, or inside brackets on another line.
+#[test]
+fn in_mask_handles_ranges_at_the_edges() {
+    assert!(in_mask(b"[abc]", &(1..4)));
+    assert!(!in_mask(b"abc", &(0..3)));
+    assert!(!in_mask(b"[abc", &(1..4)));
+    assert!(!in_mask(b"abc]", &(0..3)));
+    assert!(!in_mask(b"[\nabc\n]", &(2..5)));
+    assert!(!in_mask(b"[ab]", &(9..12)));
+}

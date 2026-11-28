@@ -69,6 +69,92 @@ class WindowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             window.timestamp("2026-11-27T00:00:10")
 
+    def fixture(self, root):
+        workspace = root / "workspace"
+        tools = workspace / "tools"
+        tools.mkdir(parents=True)
+        (tools / "hook_context_bytes.py").write_text(
+            'from pathlib import Path\n'
+            'def report(files, after=False, since=None):\n'
+            '    return {"files": len(files), "bytes": sum(Path(f).stat().st_size for f in files)}\n')
+        git_fixture_env.init_repo(workspace, "-q")
+        subprocess.run(["git", "-C", str(workspace), "-c", "core.hooksPath=/dev/null",
+                        "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                        "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        transcripts = root / "input"
+        transcripts.mkdir()
+        return workspace, transcripts
+
+    def test_invalid_files_refuse_by_default_and_subset_excludes_whole_files(self):
+        invalid_records = {"malformed_json": b"SECRET\n", "non_object_records": b"[]\n",
+                           "malformed_timestamps": row(timestamp="invalid"),
+                           "incomplete_records": b'{"partial":1}'}
+        for candidate_selected in (True, False):
+            for diagnostic, bad in invalid_records.items():
+                with self.subTest(selected=candidate_selected, diagnostic=diagnostic), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    workspace, transcripts = self.fixture(root)
+                    valid = row(1) + row(15)
+                    invalid = row(15 if candidate_selected else 1) + bad
+                    (transcripts / "good.jsonl").write_bytes(valid)
+                    (transcripts / "bad.jsonl").write_bytes(invalid)
+                    strict, code = window.measure(workspace, transcripts, root / "strict", self.end, 10 / 3600)
+                    self.assertEqual((code, strict["status"]), (2, "invalid-input"))
+                    self.assertNotIn("reports", strict)
+                    self.assertEqual(strict["coverage"]["measured_files"], 0)
+                    output = root / "subset"
+                    receipt, code = window.measure(workspace, transcripts, output, self.end, 10 / 3600,
+                                                   valid_file_subset=True)
+                    self.assertEqual((code, receipt["status"]), (0, "subset-exploratory"))
+                    self.assertFalse(receipt["conservation_claim"])
+                    self.assertEqual(receipt["diagnostics"], strict["diagnostics"])
+                    self.assertEqual(receipt["diagnostics"][diagnostic], 1)
+                    self.assertEqual(receipt["reports"]["recorded"], {"files": 1, "bytes": len(valid)})
+                    coverage = receipt["coverage"]
+                    self.assertEqual(coverage["source_files"], 2)
+                    self.assertEqual(coverage["source_captured_bytes"], len(valid) + len(invalid))
+                    self.assertEqual(coverage["excluded_files"], 1)
+                    self.assertEqual(coverage["excluded_captured_bytes"], len(invalid))
+                    self.assertEqual(coverage["measured_files"], 1)
+                    self.assertEqual(coverage["measured_captured_bytes"], len(valid))
+                    excluded = coverage["excluded"][0]
+                    self.assertEqual(excluded["id"], window.sha256(b"bad.jsonl"))
+                    self.assertEqual(excluded["captured_sha256"], window.sha256(invalid))
+                    self.assertEqual(excluded["window_candidate_selected"], candidate_selected)
+                    manifest = json.loads((output / "manifest.json").read_text())
+                    bad_row = next(r for r in manifest if r["id"] == excluded["id"])
+                    self.assertFalse(bad_row["selected"])
+                    self.assertNotIn("file", bad_row)
+                    self.assertEqual([p.read_bytes() for p in (output / "transcripts").iterdir()], [valid])
+                    self.assertNotIn("SECRET", json.dumps(receipt))
+
+    def test_subset_without_valid_window_file_has_no_measurement(self):
+        for include_outside in (True, False):
+            with self.subTest(outside=include_outside), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                workspace, transcripts = self.fixture(root)
+                (transcripts / "bad.jsonl").write_bytes(row(15) + b"INVALID\n")
+                if include_outside:
+                    (transcripts / "outside.jsonl").write_bytes(row(1))
+                receipt, code = window.measure(workspace, transcripts, root / "subset", self.end,
+                                               10 / 3600, valid_file_subset=True)
+                self.assertEqual((code, receipt["status"]), (2, "empty-window"))
+                self.assertEqual(receipt["input_policy"], "valid-file-subset")
+                self.assertEqual(receipt["coverage"]["measured_files"], 0)
+                self.assertEqual(receipt["coverage"]["excluded_files"], 1)
+                self.assertNotIn("reports", receipt)
+                self.assertEqual(list((root / "subset/transcripts").iterdir()), [])
+
+    def test_opt_in_is_subset_exploratory_even_without_exclusions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace, transcripts = self.fixture(root)
+            (transcripts / "good.jsonl").write_bytes(row(15))
+            receipt, code = window.measure(workspace, transcripts, root / "subset", self.end,
+                                           10 / 3600, valid_file_subset=True)
+            self.assertEqual((code, receipt["status"]), (0, "subset-exploratory"))
+            self.assertEqual(receipt["coverage"]["excluded_files"], 0)
+
     def test_receipt_hashes_reports_and_overwrite_refusal(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

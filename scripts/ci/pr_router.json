@@ -199,7 +199,9 @@
     "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLinkFFILinuxTests/**",
     ".github/workflows/ios-link-ffi-linux.yml"
    ],
-   "affects_why": "The linkage receipt (RFD 0051 route 2) breaks when the FFI surface, the checked-in binding, the kit manifest's Linux module, these tests, the script or the toolchain change. A change deeper in the crates the FFI compiles (cmux-mobile-link, cmux-tui/crates) is caught by the feat-cmux-next push run, which keeps the broad path filter, so a pull request touching only those does not start a 40-minute Rust and Swift build."
+   "affects_why": "The linkage receipt (RFD 0051 route 2) breaks when the FFI surface, the checked-in binding, the kit manifest's Linux module, these tests, the script or the toolchain change. A change deeper in the crates the FFI compiles (cmux-mobile-link, cmux-tui/crates) is caught by the feat-cmux-next push run, which keeps the broad path filter, so a pull request touching only those does not start a 40-minute Rust and Swift build.",
+   "land_affected": true,
+   "land_affected_why": "uniffi folds every exported item's doc comment into its checksum, so any edit to the FFI crate, even a comment, needs the binding regenerated, and only this job regenerates it and diffs it against the checked-in CmuxMobileLinkFFI.swift. Before this, the affected landing tier routed it off (the hourly full tier ran it after the merge): cmux#62170 changed a doc comment in pane_filter.rs and hand-edited the binding, its router run 46093023059 skipped this job, and Swift to Rust FFI on Linux, the Mac FFI seed and the iOS verdict seed stayed red on feat-cmux-next until cmux#64446 regenerated it. It starts only when a changed file is in `affects` (the crate, the binding, the build script, the kit manifest), so a stale binding is red on the PR it came from."
   },
   "cmux-next-compile-preflight.yml": {
    "types": [
@@ -471,6 +473,41 @@
    "affects_why": "cmux-bench for-paths --run measures only the areas of docs/benches/relevance-map.toml with a Linux `run` bench: New Tab (web), Diff view and Model picker search under webviews/src (benches in webviews/bench, run with the webviews packages), and Bench tooling (scripts/bench, docs/benches). A change touching none of those has no bench to compare with its nightly baseline.",
    "skip_docs_only": true,
    "land_affected": true
+  },
+  "first-run-setup-check.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView+SetupCard.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/ClassicImportPrompt.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstRunSetupTests.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SkipOnboardingLaunchTests.swift",
+    "scripts/measure/first-run-setup-walk.sh",
+    "scripts/measure/first-run-setup-walk.swift",
+    "scripts/cmux-next/side-instance.sh",
+    ".github/workflows/first-run-setup-check.yml"
+   ],
+   "affects": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView+SetupCard.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/ClassicImportPrompt.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstRunSetupTests.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SkipOnboardingLaunchTests.swift",
+    "scripts/measure/first-run-setup-walk.sh",
+    "scripts/measure/first-run-setup-walk.swift",
+    "scripts/cmux-next/side-instance.sh",
+    ".github/workflows/first-run-setup-check.yml"
+   ],
+   "affects_why": "The walk launches the head's built app and reads the first-run setup card (CmuxNextOnboarding, the app's Onboarding service, the Home setup card and the Classic import prompt it hosts); the harness is the measure script, its Accessibility reader and side-instance.sh. A change elsewhere that breaks first run is still the nightly onboarding walk's to catch."
   }
  }
 }
