@@ -324,6 +324,32 @@ async fn a_stalled_hub_queues_the_send_within_the_bound_and_the_retry_delivers_i
     assert!(stub.posts.lock().unwrap().iter().all(|m| m.idempotency_key == "prompt-stalled"));
 }
 
+/// A hub that holds every request (`hubslow`): the first send waits [`INLINE_WAIT`] for it and is
+/// queued; a send after the gate's window ended is queued at once, with no inline probe, since
+/// the queued delivery's retry is the probe (`mesh_send::post_or_queue`). Before, the first send
+/// after each window drew the probe and paid the whole wait (duress bench, 2026-11-28: hubslow
+/// send p99 513 ms with p50 13 ms).
+#[tokio::test(start_paused = true)]
+async fn a_send_after_a_stalled_hubs_window_is_not_the_probe() {
+    let script = vec![Answer::Stall; 1000];
+    let (hub, stub) = setup(StubHub { script: Mutex::new(script.into()), ..StubHub::default() });
+    let (first, runtime, _) = timed_send(&hub, request("far-host/lane-a", "prompt-slow-a")).await;
+    assert_eq!(first.unwrap()["status"], "queued");
+    assert!(runtime >= crate::server::mesh_send::INLINE_WAIT, "the first send asked: {runtime:?}");
+    assert!(hub.mesh.gate().shut());
+    // Past the first window (1 s): the gate would let a probe go now.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    for n in 0..5 {
+        let params = request(&format!("far-host/lane-{n}"), &format!("prompt-slow-b{n}"));
+        let (answer, runtime, _) = timed_send(&hub, params).await;
+        assert_eq!(answer.unwrap()["status"], "queued");
+        assert!(runtime < Duration::from_millis(50), "send {n} waited on the hub: {runtime:?}");
+        tokio::time::sleep(Duration::from_secs(70)).await;
+    }
+    // The outbox still probes: the retries asked the hub again, not only the first send.
+    assert!(stub.posts.lock().unwrap().len() > 1, "the queued deliveries' retries probe");
+}
+
 /// A batch to two recipients, one the hub does not know and one while it answers 503: each keeps
 /// its own row (`acpmux_mcp_send.rs` sends a batch as one `send_queue` per recipient). The
 /// unknown name fails with the hub's reason, the other is queued and delivered.
