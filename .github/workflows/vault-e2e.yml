@@ -117,7 +117,12 @@ jobs:
           CMUX_GHOSTTY_SRC: ""
         run: |
           set -euo pipefail
-          cargo build -p cmux-tui --bin cmux-tui --locked
+          # Run 46143957278: rustc was SIGKILLed (out of memory) compiling acpmux on a
+          # pooled runner. A second pass at -j 2 keeps what the first built and fits.
+          if ! cargo build -p cmux-tui --bin cmux-tui --locked; then
+            echo "::warning::cargo build failed (likely out of memory); building again at -j 2"
+            cargo build -j 2 -p cmux-tui --bin cmux-tui --locked
+          fi
           target_dir="${CARGO_TARGET_DIR:-target}"
           mkdir -p "$RUNNER_TEMP/bin"
           # Named `cmux`: argv[0] selects the `host` verb on the machine.
