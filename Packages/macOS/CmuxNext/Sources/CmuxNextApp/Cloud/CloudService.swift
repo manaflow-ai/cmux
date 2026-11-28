@@ -447,15 +447,8 @@ final class CloudService {
             guard let connection = local?.connection else { return }
             provider.handle(event) { result in _ = try await connection.request(result) }
         }
-        // task-owner: observers; cancelled in stop()
-        observers.append(Task {
-            for await state in ObservationStream({ local.store.connectionState }) {
-                guard case .connected = state, let connection = local.connection else { continue }
-                provider.stop()
-                let allowed = await connection.userOriginAllowed
-                _ = await CloudCredentialProvider.register(userOriginAllowed: allowed) { try await connection.request($0) }
-            }
-        })
+        // task-owner: observers; cancelled in stop(), which also cancels the registration it started
+        observers.append(Task { await CloudCredentialRegistration.follow(local.store, connection: { [weak local] in local?.connection }, provider: provider) })
     }
 
     // MARK: Machine list
