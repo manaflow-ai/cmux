@@ -144,6 +144,10 @@
       "kind": "check",
       "why": "duress scenarios on each base head, compared with the previous base push's numbers (#51030); a pull request has no previous push to compare"
     },
+    "cmux-mobile-ffi-release.yml": {
+      "kind": "publish",
+      "why": "a push only registers this dispatch-only release workflow; its jobs skip"
+    },
     "cmux-mobile-ffi.yml": {
       "kind": "check",
       "why": "mobile FFI build on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"

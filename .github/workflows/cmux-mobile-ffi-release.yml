@@ -20,6 +20,13 @@
 name: cmux-mobile-ffi-release
 
 on:
+  # GitHub only accepts a dispatch for a workflow it has registered, and a dispatch-only file that lives off the
+  # default branch never registers (dispatch by name answers 404). This push trigger, limited to this file on
+  # feat-cmux-next, gives it a run so it registers; both jobs' `if` skips that run, so it publishes nothing.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/cmux-mobile-ffi-release.yml
   workflow_dispatch:
     inputs:
       run_id:

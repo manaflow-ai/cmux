@@ -399,7 +399,11 @@ class NightlyGateTest(unittest.TestCase):
             self.assertEqual((step.job, step.tier, step.timeout), ("linux", "push", 360))
             self.assertEqual(step.needs, ("bun", "node"))
         self.assertEqual(hooks.inputs, types.inputs)
-        self.assertEqual(hooks.nightly, types.nightly)
+        # A nightly step maps to one table step (.github/nightly-step-coverage.json): check-nightly-webviews's is the
+        # type check, and the hook tests keep the landing-head gate through land_gate.
+        self.assertEqual(hooks.nightly, ())
+        self.assertTrue(hooks.land_gate)
+        self.assertEqual(types.nightly, ("nightly.yml:check-nightly-webviews:Webview checks on the build commit",))
         for path in ("webviews/src/App.tsx", "scripts/web_lint_prepush.py",
                      "tests/test_web_lint_prepush.py", ".github/workflows/cmux-next-web-lint.yml"):
             with self.subTest(path=path):

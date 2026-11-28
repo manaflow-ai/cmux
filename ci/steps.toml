@@ -2862,7 +2862,9 @@ timeout = 360
 title = "Web lint hook tests"
 about = "the pre-push web lint hook's integration tests pass independently of whole-tree typechecking"
 needs = ["bun", "node"]
-# No `nightly` pointer: that nightly step's one table is webviews-typecheck (.github/nightly-step-coverage.json).
+# No `nightly` pointer: that nightly step's one table is webviews-typecheck (.github/nightly-step-coverage.json);
+# land_gate starts it on a landing head instead, as the pointer did.
+land_gate = true
 inputs = [
   "webviews/**",
   "scripts/web_lint_prepush.py",
