@@ -1497,7 +1497,11 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Its own goblin App token first (leo-workspace machines/gh-app-roles.json push.actions_secrets
+          # NIGHTLY_HELPER_LOOKUP_TOKEN), then github.token; a 403 waits to the limit's reset, at most 240 s a token.
+          GH_TOKEN: ${{ secrets.NIGHTLY_HELPER_LOOKUP_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ github.token }}
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: '240'
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
         run: python3 scripts/ci/nightly_ghostty_helper_reuse.py --build-sha "$BUILD_SHA" --archs "$NIGHTLY_COMPILE_ARCHS" --out nightly-helper
@@ -1730,6 +1734,8 @@ jobs:
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Set up Bun
@@ -1745,6 +1751,8 @@ jobs:
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
@@ -2569,10 +2577,15 @@ jobs:
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       # Why: docs/ci/nightly-workflow-notes.md#note-13
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+      # Every restore here sets TOOLCHAIN_R2_ALL: the nightly Macs are not Freestyle runners, and github.com refuses
+      # setup-bun's anonymous download from them (403, runs 45765712386 and 45756842046).
+      - &restore-bun-web-bundles
+        name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - &x26
@@ -2583,10 +2596,13 @@ jobs:
           bun-version: "1.4.4"
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-restore-pinned-node-24-22-1-from-the-ci-ca-2.md
-      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+      - &restore-node-web-bundles
+        name: Restore pinned Node 24.22.1 from the CI cache bucket
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - &x27
@@ -3267,6 +3283,8 @@ jobs:
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -3276,6 +3294,8 @@ jobs:
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -3387,6 +3407,8 @@ jobs:
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -3396,6 +3418,8 @@ jobs:
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -4044,6 +4068,8 @@ jobs:
         if: ${{ !env.LEFT_SLOT }}
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
 
       - &set-up-node
@@ -5238,6 +5264,8 @@ jobs:
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
@@ -5250,6 +5278,8 @@ jobs:
       - name: Restore pinned Node 24.11.1 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.11.1 || true
 
       - name: Setup Node
@@ -7090,7 +7120,9 @@ jobs:
       - *x23
       - *x24
       - *x25
+      - *restore-bun-web-bundles
       - *x26
+      - *restore-node-web-bundles
       - *x27
       - *x28
       - *x29
