@@ -577,6 +577,9 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       echo "::error::pushed the repair without its Swift changes, which the build fleet did not pass; not pushed:" >&2
       printf '%s\n' "$compile_held" | sed 's/^/  /' >&2
       echo "next: fix the generator that wrote them (base-autofix.sh), or the base if it does not compile on its own." >&2
+      # CMUX_BASE_AUTOFIX_COMPILE_HELD names a file for them: base-autofix-land.sh fails the run for them
+      # even when it leaves the held files to the next run.
+      [[ -z "${CMUX_BASE_AUTOFIX_COMPILE_HELD:-}" ]] || printf '%s\n' "$compile_held" > "$CMUX_BASE_AUTOFIX_COMPILE_HELD"
       [[ -z "$held" ]] || held_exit=1
       exit 1
     fi
