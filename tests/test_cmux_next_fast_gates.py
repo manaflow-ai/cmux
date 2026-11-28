@@ -65,6 +65,7 @@ GATE_SCRIPTS = {
     "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
     "egress gate": "scripts/ci/egress_new_sites.py",
     "measure bash 3.2 arrays": "scripts/measure/tests/empty-array-bash32.test.py",
+    "palette coverage": "scripts/ci/palette_coverage_gate.py",
 }
 # Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
 # does not leave the parallel barrier one marker short.
