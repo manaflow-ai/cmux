@@ -710,6 +710,7 @@ impl Engine {
                 }
                 Err(e) => {
                     self.saved = Some(saved);
+                    // fleet-only-ok: log compaction of acpmux's own state file after a failed append, not context compaction; every user's daemon needs it
                     self.compact_due = true;
                     tracing::warn!("append the memory sync log: {e}; writing a snapshot");
                     self.save()?;
