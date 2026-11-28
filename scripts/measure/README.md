@@ -12,6 +12,27 @@ Details: [scripts/bench/README.md](../bench/README.md).
 
 This file indexes every entry in `scripts/measure/`. Registered benches wrap some of these scripts; the rest are listed below by area. Status is by last commit date as of 2026-11-16: `active` is touched in the last 30 days, `stale` is not.
 
+## NIGHTLY GUI probe transport
+
+`ext-rows-nightly.sh rows=agent_prompts cu_host=nightly` and
+`accounts-nightly-launch.py cu_host=nightly` explicitly use the fleet Mac's installed
+`/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux` for Computer Use. The direct
+Python probes accept `--cu-host nightly`; omission retains the existing PATH transport.
+The app being tested remains the isolated copy and every interaction is scoped to its PID.
+
+The shared transport reads `server status` for `cmux-app-nightly`, validates the returned
+session, PID and absolute socket, then runs `computer-use doctor` against that socket.
+Only exit zero permits MCP startup. MCP receives `CMUX_TUI_SOCKET` explicitly because its
+transport does not use global CLI flags. Probe app identity variables are removed only
+from this host client's child environment. A missing host CLI, unavailable daemon, failed
+doctor or denied tool ends the probe; no settings, permissions or services are changed,
+and there is no alternate driver. A fleet GUI label alone does not prove product Computer
+Use readiness. Receipts include the selected host executable, session, PID and socket.
+
+Regression detector: `python3.9 tests/test_accounts_nightly_transport.py` checks the real
+subprocess arguments/environment, launcher/parser compatibility and failure before probe
+actions, including doctor refusal and terminal MCP denial.
+
 ## Registered benches
 
 | bench | wraps (script) | what |
