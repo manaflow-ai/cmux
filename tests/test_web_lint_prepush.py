@@ -37,7 +37,8 @@ SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
               "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_LOCAL_HEAVY_CHECKS", "CMUX_WEB_LINT_STRICT",
-              "CMUX_WEB_LINT_TIMEOUT_SECONDS", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS")
+              "CMUX_WEB_LINT_TIMEOUT_SECONDS", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS",
+              "CMUX_PREPUSH_QUEUE_HELD", "CMUX_PREPUSH_PASS_KEY_HELD")
 # A web lint finding never stops a push in the hook unless CMUX_WEB_LINT_STRICT=1 (lint never stops a push). The
 # fixture runs strict, so the tests about what the lint finds read it as a refusal; HOOK_DEFAULT is the person's hook.
 HOOK_DEFAULT = {"CMUX_WEB_LINT_STRICT": ""}
@@ -112,6 +113,9 @@ class WebLintPrePushTests(unittest.TestCase):
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root), ESLINT_LOG=str(self.eslint_log), CMUX_WEB_LINT_STRICT="1")
+        # The hook's queue is host-wide (/tmp), independent of HOME. Fixture pushes must not wait behind
+        # another suite or a real push, nor inherit a parent's claim that it already holds a slot.
+        self.env["CMUX_PREPUSH_QUEUE_DIR"] = str(self.root)
         git_fixture_env.without_auto_maintenance(self.env)
         self.stub_lint_tools()
 
