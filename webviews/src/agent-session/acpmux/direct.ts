@@ -928,6 +928,19 @@ export function settledAppend(
   return page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
 }
 
+/// A first page that has older records past it, from its first record that opens a turn on: the
+/// partial turn before it is read with the older page (`backfillOpen`), so the first paint draws
+/// whole turns only. A page with no turn start past its first record, or one that holds what
+/// configures the chat (`COMMANDS_KIND`), is kept whole.
+export function firstTurnOnward(page: EventRecord[], hasMore: boolean): EventRecord[] {
+  if (!hasMore || page.length < 2) return page;
+  const sorted = [...page].sort((a, b) => a.seq - b.seq);
+  const at = sorted.findIndex((event) => startsTurn(event));
+  if (at <= 0) return page;
+  if (sorted.slice(0, at).some((event) => event.kind === COMMANDS_KIND)) return page;
+  return sorted.slice(at);
+}
+
 /// The opener of the turn an attach page starts inside, as the reply names it (acpmux reads it
 /// with the page, `server/requests/turn_opener.rs`): `undefined` when the reply does not say (an
 /// older acpmux) or the rows start before the page (a kept tail drawn first), so the pane reads it
@@ -941,6 +954,9 @@ function servedTurnOpener(
   if (!result || !("turnOpener" in result)) return undefined;
   const first = page[0];
   if (!first || rows[0]?.seq !== first.seq) return undefined;
+  // A page that starts on a turn's opener (`firstTurnOnward`) has no turn it starts inside: the
+  // opener named was of the partial turn the trim left to the older page.
+  if (startsTurn(first)) return null;
   const opener = result.turnOpener as EventRecord | null | undefined;
   if (!opener || typeof opener !== "object" || typeof opener.seq !== "number") return null;
   if (opener.seq >= first.seq || !startsTurn(opener)) return null;
@@ -7151,7 +7167,11 @@ export class AcpmuxDirectClient {
       if (!sent.reads) this.startAttachReads(sessionId);
       return [];
     }
-    const page = records(result?.events);
+    // The open's first page (`FIRST_PAGE_BYTES`) is cut by bytes, so it usually starts inside a
+    // turn: drawn, that turn's tail lays out unfolded under the newest turns, more to draw than the
+    // whole turns the old 128 KiB page started with. The records before its first whole turn are
+    // left to the backfill (`firstTurnOnward`), which reads them with the rest of the older page.
+    const page = forward ? records(result?.events) : firstTurnOnward(records(result?.events), result?.hasMore === true);
     const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
     // A forward page continues the rows held only when the machine read it as one, of the same
     // session, with its log still past them. A session recreated meanwhile (another `createdAt` than

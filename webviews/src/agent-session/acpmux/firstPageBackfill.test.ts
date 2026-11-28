@@ -129,3 +129,19 @@ test("a full backfill holds every row the old open page held, through the chat's
     after.client.close();
   }
 }, 120_000);
+
+test("a first page cut inside a turn starts at its first whole turn, and a page with no older records stays whole", async () => {
+  const { firstTurnOnward } = await import("./direct");
+  const rec = (seq: number, kind: string, dir = "in") => ({ seq, kind, dir, sessionId: "s", msg: {} }) as never;
+  const page = [
+    rec(12, "tool_call"),
+    rec(13, "turn_result", "mux"),
+    rec(14, "user_message", "mux"),
+    rec(15, "tool_call"),
+  ];
+  expect(firstTurnOnward(page, true).map((event: { seq: number }) => event.seq)).toEqual([14, 15]);
+  expect(firstTurnOnward(page, false)).toBe(page);
+  // No turn starts past the first record: the page is one turn's tail, kept whole.
+  const inside = [rec(12, "tool_call"), rec(13, "tool_call")];
+  expect(firstTurnOnward(inside, true)).toBe(inside);
+});

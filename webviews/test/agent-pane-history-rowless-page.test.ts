@@ -162,9 +162,10 @@ test("every older page the reader asks for brings an older turn in, past a promp
     ...turn(6),
   ]);
   const { client, snapshot } = await open(history);
-  // The chat opens on its tail: the open page ends at the big queued prompt, in turn 3 (whose
-  // prompt the pane reads on its own, direct.ts fetchTurnOpener).
-  expect(questions(snapshot().rows)).toEqual(["Question 3", "Question 4", "Question 5", "Question 6"]);
+  // The chat opens on its tail from its first whole turn (direct.ts firstTurnOnward): the end of
+  // turn 3 before it is left to the open's backfill, whose page is the big queued prompt alone, so
+  // turn 3 comes in with the reader's first ask.
+  expect(questions(snapshot().rows)).toEqual(["Question 4", "Question 5", "Question 6"]);
   expect(snapshot().canLoadOlder).toBe(true);
 
   // A page can contain a large queued record that draws no row. The cursor still advances, so the
