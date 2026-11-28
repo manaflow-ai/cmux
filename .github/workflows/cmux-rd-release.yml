@@ -53,7 +53,7 @@ jobs:
   tag:
     name: release tag
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
     outputs:
@@ -80,17 +80,38 @@ jobs:
           fi
           version="$(python3 cmux-tui/crates/cmux-rd-host/scripts/release.py version)"
           tag="cmux-rd-v$version"
-          # Git over HTTPS, not the REST API: the shared installation REST budget
-          # runs dry on busy hours (v0.2.10's run died on a 403 rate limit at the
-          # create call), and a swallowed 403 on the lookup read as "missing".
-          # ls-remote fails loudly; push of an existing tag is refused, not moved.
+          # Look up over git: ls-remote fails loudly, where a swallowed REST 403
+          # read as "missing". Create over REST: a git push of the tag is refused
+          # for the default token ("`workflows` scope may be required", v0.2.10's
+          # second run), and REST creates refs without that check. The shared
+          # installation REST budget runs dry on busy hours (v0.2.10's first run
+          # died on a 403 rate limit at the create), so a rate-limited create
+          # waits and retries; any other error fails the job.
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           found="$(git ls-remote --tags "$remote" "refs/tags/$tag")"
           if [[ -n "$found" ]]; then
             echo "$tag exists; nothing to release"
             echo "tag=" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          git push "$remote" "$GITHUB_SHA:refs/tags/$tag"
+          made=
+          for wait in 60 120 240 0; do
+            if out="$(gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref="refs/tags/$tag" -f sha="$GITHUB_SHA" 2>&1)"; then
+              made=1; break
+            fi
+            echo "$out"
+            if [[ -n "$(git ls-remote --tags "$remote" "refs/tags/$tag")" ]]; then
+              made=1; break
+            fi
+            if ! grep -qiE 'rate limit|HTTP 429|secondary' <<<"$out" || [[ "$wait" == 0 ]]; then
+              break
+            fi
+            echo "rate limited; retrying in ${wait}s"
+            sleep "$wait"
+          done
+          if [[ -z "$made" ]]; then
+            echo "::error::could not create $tag"; exit 1
+          fi
           echo "made $tag at $GITHUB_SHA"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
