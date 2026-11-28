@@ -1,0 +1,53 @@
+{
+  "about": "One account's history-<hash>.sqlite as this build (user_version 1) writes it: message bodies and the conversation's info are JSONEncoder output stored as BLOBs (sentAt is seconds since 2001-01-01). msg-3 has no `tables` key, as a build before markdown tables wrote it. msg-gone is deleted for me: a later write of it must not bring it back. Seeded with `sql`, opened through ConversationHistoryDatabase, read with newest(), info() and syncedRange(); `newer_build_sql` stands in for a later build (a new column and table, a newer user_version) and the same reads must hold. Test: ConversationHistoryPersistedFormatTests (conversationHistoryFixturesLoad).",
+  "user_version": 1,
+  "sql": [
+    "CREATE TABLE messages (conversation TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL, body BLOB NOT NULL, PRIMARY KEY (conversation, id))",
+    "CREATE INDEX messages_by_seq ON messages (conversation, seq)",
+    "CREATE TABLE conversations (conversation TEXT PRIMARY KEY, info BLOB, me_id TEXT, oldest_seq INTEGER, newest_seq INTEGER, complete INTEGER NOT NULL DEFAULT 0, written_at REAL NOT NULL DEFAULT 0)",
+    "CREATE TABLE deleted (conversation TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (conversation, id))",
+    "INSERT INTO messages (conversation, id, seq, body) VALUES ('mac:m1', 'msg-1', 1, CAST('{\"id\":\"msg-1\",\"seq\":1,\"senderID\":\"p-bob\",\"sentAt\":785894400.0,\"text\":\"Is the build green?\",\"replyCount\":0,\"editCount\":0,\"reactions\":[{\"participantID\":\"p-me\",\"reaction\":\"heart\"}],\"attachments\":[],\"mentions\":[],\"textRuns\":[],\"links\":[],\"tables\":[],\"unsendFailed\":false,\"deliveredQuietly\":false,\"notifiedAnyway\":false}' AS BLOB))",
+    "INSERT INTO messages (conversation, id, seq, body) VALUES ('mac:m1', 'msg-2', 2, CAST('{\"id\":\"msg-2\",\"seq\":2,\"clientMessageID\":\"c-2\",\"senderID\":\"p-me\",\"sentAt\":785894460.25,\"text\":\"Yes, merged.\",\"replyToID\":\"msg-1\",\"replyCount\":0,\"editCount\":0,\"reactions\":[],\"attachments\":[],\"mentions\":[],\"textRuns\":[],\"links\":[],\"delivery\":{\"sent\":{}},\"tables\":[],\"unsendFailed\":false,\"deliveredQuietly\":false,\"notifiedAnyway\":false}' AS BLOB))",
+    "INSERT INTO messages (conversation, id, seq, body) VALUES ('mac:m1', 'msg-3', 3, CAST('{\"id\":\"msg-3\",\"seq\":3,\"senderID\":\"p-bob\",\"sentAt\":785894520.0,\"text\":\"Thanks!\",\"replyCount\":0,\"editCount\":0,\"reactions\":[],\"attachments\":[],\"mentions\":[],\"textRuns\":[],\"links\":[],\"unsendFailed\":false,\"deliveredQuietly\":false,\"notifiedAnyway\":false}' AS BLOB))",
+    "INSERT INTO conversations (conversation, info, me_id, oldest_seq, newest_seq, complete, written_at) VALUES ('mac:m1', CAST('{\"id\":\"mac:m1\",\"title\":\"Build chat\",\"kind\":\"direct\",\"participants\":[{\"id\":\"p-me\",\"name\":\"Me\",\"initials\":\"M\",\"colorHex\":\"#3478F6\",\"isMe\":true,\"notificationsSilenced\":false,\"hasLeft\":false},{\"id\":\"p-bob\",\"name\":\"Bob\",\"initials\":\"B\",\"colorHex\":\"#34C759\",\"isMe\":false,\"notificationsSilenced\":false,\"hasLeft\":false}],\"listState\":{\"pinned\":true,\"pinOrder\":0,\"muted\":false,\"markedUnread\":false,\"deleted\":false,\"sendReadReceipts\":true}}' AS BLOB), 'p-me', 1, 3, 1, 1764201600.0)",
+    "INSERT INTO deleted (conversation, id) VALUES ('mac:m1', 'msg-gone')"
+  ],
+  "newer_build_sql": [
+    "ALTER TABLE messages ADD COLUMN future_note TEXT",
+    "CREATE TABLE future_table (x INTEGER)"
+  ],
+  "conversation": "mac:m1",
+  "messages": [
+    {
+      "id": "msg-1",
+      "seq": 1,
+      "senderID": "p-bob",
+      "text": "Is the build green?",
+      "reactions": 1
+    },
+    {
+      "id": "msg-2",
+      "seq": 2,
+      "senderID": "p-me",
+      "text": "Yes, merged.",
+      "reactions": 0
+    },
+    {
+      "id": "msg-3",
+      "seq": 3,
+      "senderID": "p-bob",
+      "text": "Thanks!",
+      "reactions": 0
+    }
+  ],
+  "title": "Build chat",
+  "meID": "p-me",
+  "participants": 2,
+  "pinned": true,
+  "range": {
+    "oldestSeq": 1,
+    "newestSeq": 3,
+    "complete": true
+  },
+  "deletedID": "msg-gone"
+}

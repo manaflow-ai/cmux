@@ -59,7 +59,7 @@ struct PageFactory {
         return page
     }
 
-    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/needs-you`, the only route the app opens now); nil only when the page resources
+    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/needs-you` for Chief Home, `#/inbox` for the Feed top page); nil only when the page resources
     /// are missing. `cmux.feed.` goes to the daemon's feed client through the page relay, `cmux.app.` runs the page's actions (open an item, a
     /// GitHub action, Settings), `cmux.settings.hub.` (with Chief's `hub`) its integrations hub approval cards.
     func feedWebPage(route: String, hub: SettingsIntegrationsHub? = nil) -> PageWebView? {
