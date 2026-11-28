@@ -18,7 +18,7 @@
 //! Bring Back (`cmux_projection::way_back`) reads what the agent changed with three more dials,
 //! each one request and its answer, by projection `name`, mounted or not (the state folder
 //! outlives the mount and a daemon restart):
-//! - `{"id", "cmd": "projection.layer", "name"}`: answered `{"id", "ok": true, "data": {"bytes",
+//! - `{"id", "cmd": "projection.layer", "name", "prune"?}`: answered `{"id", "ok": true, "data": {"bytes",
 //!   "upper", "whiteouts", "mark"}}`, then that many bytes of the encoded
 //!   `cmux_projection::layer::Layer`. `mark` is the upper layer as it was when it was read
 //!   (`cmux_projection::state::mark`);
@@ -32,6 +32,13 @@
 //!   An upper layer written since `mark` stays whole: `projection.edited_since`;
 //! - `{"id", "cmd": "projection.drop", "name"}`: the same with no mark (a Mac from before
 //!   `projection.brought_back`); `{"id", "ok": true, "data": {"dropped"}}`.
+//!
+//! - `{"id", "cmd": "projection.unsynced", "name", "prune"?}`: one metadata walk of the upper
+//!   layer, no bytes, for a "N files to bring back" line: `{"files", "bytes", "deleted"}`, what
+//!   Bring Back would list (files and links) and its whiteouts. With `prune`, as
+//!   `projection.layer` prunes, plus `"kept_on_machine": {"folders", "files", "bytes", "paths"}`
+//!   (the first 256 folders): a caller whose manifest holds one of `paths` asks again without
+//!   `prune`, as Bring Back does, so a committed `node_modules`'s edits are counted.
 //!
 //! Pinned folders (`cmux_projection::overlay::pin`, "available offline"), by projection `name`,
 //! mounted here, each one request and its answer:
@@ -54,6 +61,18 @@
 //!
 //! `pins` is one `{"path", "files", "bytes", "local_bytes", "present", "complete"}` per pin, and
 //! `pinned_bytes` the bytes kept on disk for them; a mount's answer carries both too.
+//!
+//! When a folder is removed from its chat (live, even mid-turn: Leo, 2026-11-25, "we'll also
+//! presumably want to deal with various cases of like them maybe adding/removing folders and files
+//! per chat?"), `{"id", "cmd": "projection.detach", "name", "chat"?}` seals the mount at once
+//! (every change from then on answers `EROFS`; reads still answer, so a tool mid-read finishes),
+//! detaches it from the folder tree lazily (a file the agent holds open stays readable until it
+//! closes it) and removes the empty mount point (a later write there fails `ENOENT` instead of
+//! landing outside every projection), and records it detached (`cmux_projection::state::Detached`). Its upper layer
+//! keeps edits and deletions for Bring Back or Discard (`projection.drop`). The reaper
+//! can reclaim an empty detached layer once the chat is archived or the orphan grace expires. The agents working there, and chat `chat`, are told once.
+//! `{"detached": true, "was_mounted", "mark"}`; serving the name again (the folder added back)
+//! clears the record's detach.
 //!
 //! When a chat is archived or deleted, `{"id", "cmd": "projection.release", "name", "why":
 //! "archived" | "deleted"}` ends its projection, deletes its state and its empty mount point:
@@ -123,6 +142,8 @@ pub const DROP: &str = "projection.drop";
 pub const BROUGHT_BACK: &str = "projection.brought_back";
 /// The chat is archived or deleted: free its projection.
 pub const RELEASE: &str = "projection.release";
+/// The folder was removed from its chat: seal and unmount it, keep its edits (module docs).
+pub const DETACH: &str = "projection.detach";
 /// Pinned folders' dials (module docs).
 pub const PIN: &str = "projection.pin";
 pub const UNPIN: &str = "projection.unpin";
@@ -133,6 +154,9 @@ pub const WARM: &str = "projection.warm";
 pub const WARM_MAX_FILES: usize = 256;
 /// The most bytes one [`WARM`] fetches.
 pub const WARM_MAX_BYTES: u64 = 32 * 1024 * 1024;
+/// What the agent changed that Bring Back would carry, and what stays on the machine, as counts
+/// (module docs).
+pub const UNSYNCED: &str = "projection.unsynced";
 /// How long after the daemon starts the first reaper pass runs (acpmux starts beside it).
 const REAP_FIRST_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 /// How often the reaper runs.
@@ -151,6 +175,9 @@ struct ServeLine {
     at: String,
     #[serde(default)]
     manifest_bytes: u64,
+    /// A running server reconnecting, including when it resends its entire manifest.
+    #[serde(default)]
+    redial: bool,
     /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
     #[serde(default)]
     lines: bool,
@@ -368,7 +395,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, WARM]
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, DETACH, PIN, UNPIN, PINS, WARM, UNSYNCED]
         .into_iter()
         .find(|known| *known == cmd)
 }
@@ -507,9 +534,10 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
     projected.link.serve_with(reader, framed(writer), projected.ext());
 }
 
-/// Where an away episode's notice goes: `(mount point, prompt id, notice title, notice text)`.
+/// Where an away episode's notice goes: `(mount point, chat also told, prompt id, notice title,
+/// notice text)`.
 /// The daemon installs it once ([`tell_away_with`]); with none, nobody is told.
-type AwayTeller = Box<dyn Fn(&Path, &str, &str, &str) + Send + Sync>;
+type AwayTeller = Box<dyn Fn(&Path, Option<&str>, &str, &str, &str) + Send + Sync>;
 
 fn away_teller() -> &'static OnceLock<AwayTeller> {
     static TELLER: OnceLock<AwayTeller> = OnceLock::new();
@@ -518,7 +546,9 @@ fn away_teller() -> &'static OnceLock<AwayTeller> {
 
 /// Sends every projection's away notices through `teller` (the first call wins): the daemon
 /// hands each one to the agent sessions working in the folder.
-pub(crate) fn tell_away_with(teller: impl Fn(&Path, &str, &str, &str) + Send + Sync + 'static) {
+pub(crate) fn tell_away_with(
+    teller: impl Fn(&Path, Option<&str>, &str, &str, &str) + Send + Sync + 'static,
+) {
     let _ = away_teller().set(Box::new(teller));
 }
 
@@ -584,7 +614,7 @@ fn tell_away(name: &str, at: &Path, report: &cmux_projection::away::Report) {
         report.failed
     );
     if let Some(teller) = away_teller().get() {
-        teller(at, &prompt_id, &title, &away_prompt(&title, &body));
+        teller(at, None, &prompt_id, &title, &away_prompt(&title, &body));
     }
 }
 
@@ -612,6 +642,13 @@ struct WayBackLine {
     /// [`WARM`]'s paths, relative to the projected folder.
     #[serde(default)]
     paths: Vec<String>,
+    /// [`DETACH`]'s chat: the one that removed the folder.
+    #[serde(default)]
+    chat: Option<String>,
+    /// [`LAYER`]: leave dependency, cache and build folders out of the listing
+    /// (`cmux_projection::layer::Layer::collect_pruned`); they follow it as `pruned_bytes`.
+    #[serde(default)]
+    prune: bool,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
@@ -694,12 +731,38 @@ fn way_back_answer(
             // Taken before the listing: a write between the two makes the mark older than the
             // listing, so `projection.brought_back` finds it changed and keeps everything.
             let mark = cmux_projection::state::mark(&state).map_err(|error| io(&error))?;
-            let layer =
-                cmux_projection::layer::Layer::collect(&state).map_err(|error| io(&error))?;
-            let encoded = layer.encode().map_err(|error| io(&error))?;
-            let data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
-                              "whiteouts": layer.whiteouts.len(), "mark": mark});
+            let (layer, pruned) = if line.prune {
+                cmux_projection::layer::Layer::collect_pruned(&state)
+            } else {
+                cmux_projection::layer::Layer::collect(&state).map(|layer| (layer, Vec::new()))
+            }
+            .map_err(|error| io(&error))?;
+            let mut encoded = layer.encode().map_err(|error| io(&error))?;
+            let data = if line.prune {
+                // The pruned folders follow the listing, so a dial with thousands of them
+                // (`__pycache__` in every package) never makes a long answer line.
+                let more = cmux_projection::layer::Layer::encode_pruned(&pruned)
+                    .map_err(|error| io(&error))?;
+                let data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                "whiteouts": layer.whiteouts.len(), "mark": mark,
+                "pruned_bytes": more.len(), "kept_on_machine": {
+                    "folders": pruned.len(),
+                    "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
+                    "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
+                }});
+                encoded.extend_from_slice(&more);
+                data
+            } else {
+                json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                       "whiteouts": layer.whiteouts.len(), "mark": mark})
+            };
             Ok((data, WayBackBody::Bytes(encoded)))
+        }
+        UNSYNCED => {
+            if !state.is_dir() {
+                return Err(("projection.unknown", format!("no projection {} here", line.name)));
+            }
+            Ok((unsynced(&state, line.prune).map_err(|error| io(&error))?, WayBackBody::None))
         }
         FILES => {
             if line.paths_bytes > MAX_PATHS_BYTES {
@@ -717,6 +780,7 @@ fn way_back_answer(
             Ok((json!({}), WayBackBody::Files(state, paths)))
         }
         BROUGHT_BACK | RELEASE => Ok((free(cmd, &line, &state)?, WayBackBody::None)),
+        DETACH => Ok((detach(&line, &state)?, WayBackBody::None)),
         PIN | UNPIN | PINS | WARM => Ok((pin_answer(cmd, &line)?, WayBackBody::None)),
         _ => {
             end(
@@ -733,7 +797,35 @@ fn way_back_answer(
     }
 }
 
-/// [`PIN`], [`UNPIN`], [`PINS`] or [`WARM`] of projection `line.name`, mounted here (module docs).
+/// The most pruned folders [`UNSYNCED`]'s answer names.
+const UNSYNCED_FOLDERS: usize = 256;
+
+/// [`UNSYNCED`]'s answer for the projection whose state folder is `state` (module docs).
+fn unsynced(state: &Path, prune: bool) -> anyhow::Result<Value> {
+    let (layer, pruned) = if prune {
+        cmux_projection::layer::Layer::collect_pruned(state)?
+    } else {
+        (cmux_projection::layer::Layer::collect(state)?, Vec::new())
+    };
+    let (files, bytes) = layer
+        .upper
+        .iter()
+        .filter(|entry| entry.kind != cmux_projection::manifest::Kind::Dir)
+        .fold((0u64, 0u64), |(files, bytes), entry| (files + 1, bytes + entry.size));
+    Ok(if prune {
+        json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len(),
+        "kept_on_machine": {
+            "folders": pruned.len(),
+            "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
+            "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
+            "paths": pruned.iter().take(UNSYNCED_FOLDERS).map(|f| &f.path).collect::<Vec<_>>(),
+        }})
+    } else {
+        json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len()})
+    })
+}
+
+/// [`PIN`], [`UNPIN`] or [`PINS`] of projection `line.name`, mounted here (module docs).
 fn pin_answer(cmd: &str, line: &WayBackLine) -> Result<Value, Refusal> {
     let projected =
         projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
@@ -844,10 +936,15 @@ fn free(cmd: &str, line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
     let now = record::ms_of(std::time::SystemTime::now());
     // Held throughout: no mount of this name starts while its state goes.
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
-    let at = record::read(state)
-        .map(|found| found.at)
-        .or_else(|| table.get(&line.name).map(|projected| projected.at.clone()));
-    let recorded_at = at.clone().unwrap_or_default();
+    let record = record::read(state);
+    let recorded_at = record
+        .as_ref()
+        .map(|r| r.at.clone())
+        .or_else(|| table.get(&line.name).map(|projected| projected.at.clone()))
+        .unwrap_or_default();
+    // Detach gave up this path. Only the state directory still belongs to this projection.
+    let at = (!recorded_at.as_os_str().is_empty() && !record.is_some_and(|r| r.detached.is_some()))
+        .then_some(recorded_at.as_path());
     let why = if cmd == BROUGHT_BACK {
         let Some(mark) = line.mark.as_deref() else {
             return Err(("projection.params_invalid", "brought_back needs the mark".into()));
@@ -863,7 +960,7 @@ fn free(cmd: &str, line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
             found.brought_back = Some(BroughtBack { ms: now, mark: mark.to_owned() });
         })
         .map_err(io)?;
-        end(&mut table, &line.name, at.as_deref());
+        end(&mut table, &line.name, at);
         // A write that landed before the unmount is in the upper layer now.
         let current = record::mark(state).map_err(io)?;
         if current != mark {
@@ -880,14 +977,124 @@ fn free(cmd: &str, line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
             })
             .map_err(io)?;
         }
-        end(&mut table, &line.name, at.as_deref());
+        end(&mut table, &line.name, at);
         release.into()
     };
-    let freed = reap::free_projection(state, at.as_deref(), why);
+    let freed = reap::free_projection(state, at, why);
     drop(table);
     let freed = freed.map_err(io)?;
     eprintln!("cmux projection: freed {} ({}): {freed} bytes", state.display(), why.as_str());
     Ok(json!({"freed_bytes": freed, "dropped": true}))
+}
+
+/// The notice that tells the agent folder `at` was removed from its chat.
+#[must_use]
+pub(crate) fn detach_notice(at: &Path) -> (String, String) {
+    let title = format!("The folder {} was removed from this chat", at.display());
+    let body = format!(
+        "The person removed {} from this chat. It is no longer mounted here: new reads of it fail \
+         and every write is refused (EROFS, read-only file system). Nothing you wrote there is \
+         lost: your edits up to now are kept on this machine for the person to bring back to \
+         their Mac or discard. Do not recreate the folder or copy its files elsewhere to get \
+         around this; carry on with the folders this chat still has.",
+        at.display()
+    );
+    (title, body)
+}
+
+/// [`DETACH`] of projection `line.name`, whose state folder is `state`: sealed now, unmounted
+/// lazily, recorded detached, the agents told. Never deletes state.
+fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
+    detach_with_timeout(line, state, std::time::Duration::from_secs(5))
+}
+
+fn detach_with_timeout(
+    line: &WayBackLine,
+    state: &Path,
+    drain_timeout: std::time::Duration,
+) -> Result<Value, Refusal> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = drain_timeout;
+    use cmux_projection::state::{self as record, Detached};
+    let io = |error: std::io::Error| ("projection.io", error.to_string());
+    if !state.is_dir() {
+        return Err(("projection.unknown", format!("no projection {} here", line.name)));
+    }
+    if let Some(chat) = line.chat.as_deref()
+        && (chat.is_empty() || chat.len() > 128 || chat.chars().any(char::is_control))
+    {
+        return Err(("projection.params_invalid", "chat is a chat id".into()));
+    }
+    let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    #[cfg(target_os = "linux")]
+    if let Some(projected) = table.get(&line.name).cloned() {
+        // An admitted copy-up can be waiting for bytes from the Mac. Other projections
+        // must remain usable while it finishes. Only unmount the instance we sealed.
+        drop(table);
+        if !projected.overlay.seal(drain_timeout) {
+            return Err((
+                "projection.busy",
+                format!(
+                    "projection {} is draining admitted writes; new writes are refused, \
+                     mount and edits are kept; retry detach when the writes finish",
+                    line.name
+                ),
+            ));
+        }
+        table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+        if !table.get(&line.name).is_some_and(|current| Arc::ptr_eq(current, &projected)) {
+            return Err((
+                "projection.busy",
+                format!("projection {} changed during detach", line.name),
+            ));
+        }
+    }
+    let found = table.remove(&line.name);
+    let previous = record::read(state);
+    let already_detached = previous.as_ref().is_some_and(|r| r.detached.is_some());
+    let at = previous
+        .map(|found| found.at)
+        .or_else(|| found.as_ref().map(|projected| projected.at.clone()));
+    let recorded_at = at.clone().unwrap_or_default();
+    let was_mounted = found.is_some();
+    if let Some(projected) = found {
+        projected.link.detach();
+        #[cfg(target_os = "linux")]
+        {
+            // Out of the folder tree now; the session ends once the last open file closes.
+            cmux_projection::mount::unmount_stale(&projected.at);
+            // The empty mount point goes too, so a write there after the removal fails (ENOENT)
+            // instead of landing on this machine's disk outside every projection. Only if empty.
+            let _ = std::fs::remove_dir(&projected.at);
+            if let Some(mounted) =
+                projected.mounted.lock().unwrap_or_else(PoisonError::into_inner).take()
+            {
+                let _ = std::thread::Builder::new()
+                    .name("projection-detach".into())
+                    .spawn(move || mounted.unmount());
+            }
+        }
+    } else if !already_detached && !table.values().any(|other| Some(&other.at) == at.as_ref()) {
+        end(&mut table, &line.name, at.as_deref());
+    }
+    let now = record::ms_of(std::time::SystemTime::now());
+    record::update(state, &recorded_at, |found| {
+        found.detached = Some(Detached { ms: now, chat: line.chat.clone() });
+    })
+    .map_err(io)?;
+    drop(table);
+    let mark = record::mark(state).map_err(io)?;
+    eprintln!(
+        "cmux projection: detached {} ({}), edits kept at mark {mark}",
+        line.name,
+        recorded_at.display()
+    );
+    if let Some(teller) = away_teller().get() {
+        let (title, body) = detach_notice(&recorded_at);
+        let prompt_id = format!("projection-detach-{}-{now}", line.name);
+        teller(&recorded_at, line.chat.as_deref(), &prompt_id, &title, &away_prompt(&title, &body));
+    }
+    Ok(json!({"detached": true, "was_mounted": was_mounted, "mark": mark}))
 }
 
 /// Ends projection `name`: this daemon's mount of it, or a dead daemon's mount left at `at`.
@@ -920,12 +1127,13 @@ fn is_mount(at: &Path) -> bool {
     }
 }
 
-/// The Mac dialed projection `name` again: its record says when (an orphan's grace counts from it).
-fn attached(name: &str, at: &Path) {
-    if let Ok(state) = state_of(name) {
-        let now = cmux_projection::state::ms_of(std::time::SystemTime::now());
-        let _ = cmux_projection::state::update(&state, at, |record| record.attached_ms = now);
-    }
+fn attached_in(state: &Path, at: &Path) {
+    let now = cmux_projection::state::ms_of(std::time::SystemTime::now());
+    let _ = cmux_projection::state::update(state, at, |record| {
+        record.attached_ms = now;
+        // Served again: the folder is back in a chat.
+        record.detached = None;
+    });
 }
 
 /// The reaper's view of this daemon's mounts ([`cmux_projection::reap::Live`]).
@@ -941,10 +1149,11 @@ impl cmux_projection::reap::Live for DaemonMounts {
         name: &str,
         at: Option<&Path>,
         only_if_idle: bool,
+        still_eligible: &dyn Fn() -> bool,
         free: &mut dyn FnMut() -> std::io::Result<u64>,
     ) -> Option<std::io::Result<u64>> {
         let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
-        if only_if_idle && table.contains_key(name) {
+        if (only_if_idle && table.contains_key(name)) || !still_eligible() {
             return None;
         }
         end(&mut table, name, at);
@@ -1078,6 +1287,16 @@ pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
     }
 }
 
+fn allow_redial(state: &Path, name: &str) -> Result<(), Refusal> {
+    if cmux_projection::state::read(state).is_some_and(|record| record.detached.is_some()) {
+        return Err((
+            "projection.detached",
+            format!("projection {name} was removed from its chat"),
+        ));
+    }
+    Ok(())
+}
+
 /// Reads the dial's manifest and mounts it (or finds the mount it attaches to again).
 fn attach(
     first: &str,
@@ -1104,22 +1323,48 @@ fn attach(
     if encoded.len() as u64 != line.manifest_bytes {
         return Err(("projection.io", "the dial ended inside the manifest".into()));
     }
-    let existing =
-        projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
+    let state = state_of(&line.name)?;
     let started = std::time::Instant::now();
-    if line.extend {
-        return extend(&line.name, &at, &encoded, existing, started);
+    let digest = fnv(&encoded);
+    let table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    let existing = table.get(&line.name).cloned();
+    // A timed-out detach keeps the old overlay until its admitted edits drain. A redial
+    // may supply those edits' missing bytes, but a serve/extend must not replace their state.
+    #[cfg(target_os = "linux")]
+    if line.extend || (!line.redial && !encoded.is_empty()) {
+        allow_replacement(existing.as_ref(), &line.name)?;
     }
-    let mut from_store = None;
-    let (manifest, digest) = if encoded.is_empty() {
-        let existing = existing.filter(|projected| projected.at == at);
-        if let Some(projected) = existing {
-            attached(&line.name, &at);
-            return Ok((
-                projected.clone(),
-                with_pins(json!({"at": at, "attached": true}), &projected),
+    if line.extend {
+        drop(table);
+        let (extended, data) = extend(&line.name, &at, &encoded, existing, started)?;
+        // The old mount can finish extending after detach or replacement. Only a live mount
+        // can refresh its record, under the same lock that removes it.
+        let table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+        if !table.get(&line.name).is_some_and(|current| Arc::ptr_eq(current, &extended)) {
+            return Err((
+                "projection.unknown",
+                format!("projection {} changed during extend", line.name),
             ));
         }
+        attached_in(&state, &at);
+        return Ok((extended, data));
+    }
+    // An existing server redials without a manifest. Only a new explicit serve may add back a
+    // detached folder. Check alongside detach's table update, before offering a manifest retry.
+    if line.redial || encoded.is_empty() {
+        allow_redial(&state, &line.name)?;
+    }
+    let existing = existing.filter(|projected| projected.at == at);
+    if let Some(projected) = existing.filter(|projected| {
+        encoded.is_empty() || projected.digest.load(Ordering::Relaxed) == digest
+    }) {
+        attached_in(&state, &at);
+        drop(table);
+        return Ok((projected.clone(), with_pins(json!({"at": at, "attached": true}), &projected)));
+    }
+    drop(table);
+    let mut from_store = None;
+    let (manifest, digest) = if encoded.is_empty() {
         // Not mounted here (a resume, a daemon restart): the stored revision, when the Mac named one.
         let Some(revision) = &line.revision else {
             return Err(("projection.unknown", format!("no projection {} here", line.name)));
@@ -1128,16 +1373,6 @@ fn attach(
         from_store = Some(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
         (manifest, fnv(revision.root.as_bytes()))
     } else {
-        let digest = fnv(&encoded);
-        if let Some(projected) = existing.filter(|projected| {
-            projected.digest.load(Ordering::Relaxed) == digest && projected.at == at
-        }) {
-            attached(&line.name, &at);
-            return Ok((
-                projected.clone(),
-                with_pins(json!({"at": at, "attached": true}), &projected),
-            ));
-        }
         let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
             .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
         (manifest, digest)
@@ -1145,9 +1380,7 @@ fn attach(
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
-    let state = state_of(&line.name)?;
-    let projected =
-        mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
+    let projected = mount(&line, manifest, &state, &at, digest)?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME")) {
         if let Err(error) = git_stat::keep(dir, Path::new(&home), &at) {
             eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
@@ -1174,6 +1407,17 @@ fn with_pins(mut data: Value, projected: &Projected) -> Value {
     data
 }
 
+#[cfg(target_os = "linux")]
+fn allow_replacement(existing: Option<&Arc<Projected>>, name: &str) -> Result<(), Refusal> {
+    if existing.is_some_and(|projected| projected.overlay.is_sealed()) {
+        return Err((
+            "projection.busy",
+            format!("projection {name} is detaching; finish detach before serving it again"),
+        ));
+    }
+    Ok(())
+}
+
 /// `projection-extend-v1`: the mount of `name` at `at` takes the full manifest `encoded` in place
 /// of the one it mounted, and its sync barrier (held at the head by a `"head": true` dial) opens.
 #[cfg(target_os = "linux")]
@@ -1194,7 +1438,6 @@ fn extend(
     if projected.digest.load(Ordering::Relaxed) == digest {
         // The same manifest again (a dial that retried): nothing to swap, the barrier may still wait.
         open_barrier(&projected)?;
-        attached(name, at);
         return Ok((projected, json!({"at": at, "extended": true, "added": 0})));
     }
     let full = cmux_projection::manifest::Manifest::decode(encoded)
@@ -1214,7 +1457,6 @@ fn extend(
         mounted.forget_inodes(&extended.changed);
     }
     open_barrier(&projected)?;
-    attached(name, at);
     let data = json!({
         "at": at,
         "extended": true,
@@ -1263,15 +1505,38 @@ fn mount_point(at: &str, roots: &[PathBuf]) -> Result<PathBuf, Refusal> {
         return Err(refused("not an absolute, plain path"));
     }
     let parent = path.parent().ok_or_else(|| refused("no folder above it"))?;
-    std::fs::create_dir_all(parent).map_err(|error| refused(&error.to_string()))?;
-    let parent = std::fs::canonicalize(parent).map_err(|error| refused(&error.to_string()))?;
+    // Resolve the nearest existing ancestor first. This validates symlinked and existing
+    // components before creating anything, so a rejected request cannot leave an arbitrary tree
+    // outside the daemon's approved roots.
+    let mut existing = parent;
+    while !existing.exists() {
+        existing = existing.parent().ok_or_else(|| refused("no existing ancestor"))?;
+    }
+    let existing = std::fs::canonicalize(existing).map_err(|error| refused(&error.to_string()))?;
     let below = roots
         .iter()
-        .any(|root| std::fs::canonicalize(root).is_ok_and(|root| parent.starts_with(&root)));
+        .any(|root| std::fs::canonicalize(root).is_ok_and(|root| existing.starts_with(&root)));
     if !below {
         return Err(refused("outside this machine's file roots"));
     }
+    std::fs::create_dir_all(parent).map_err(|error| refused(&error.to_string()))?;
+    let parent = std::fs::canonicalize(parent).map_err(|error| refused(&error.to_string()))?;
+    if !parent.starts_with(&existing)
+        || !roots
+            .iter()
+            .any(|root| std::fs::canonicalize(root).is_ok_and(|root| parent.starts_with(&root)))
+    {
+        return Err(refused("mount point parent changed while creating it"));
+    }
     let path = parent.join(path.file_name().ok_or_else(|| refused("no name"))?);
+    if let Ok(meta) = std::fs::symlink_metadata(&path) {
+        if meta.file_type().is_symlink() {
+            return Err(refused("mount point is a symlink"));
+        }
+        if !meta.is_dir() {
+            return Err(refused("mount point is not a folder"));
+        }
+    }
     #[cfg(target_os = "linux")]
     if !projections()
         .lock()
@@ -1286,16 +1551,23 @@ fn mount_point(at: &str, roots: &[PathBuf]) -> Result<PathBuf, Refusal> {
 
 #[cfg(target_os = "linux")]
 fn mount(
-    name: &str,
+    line: &ServeLine,
     manifest: cmux_projection::manifest::Manifest,
     state: &Path,
     at: &Path,
     digest: u64,
-    head: bool,
-    from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     use std::os::unix::fs::MetadataExt as _;
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    let name = &line.name;
+    let head = line.head;
+    let from = line.from.as_deref();
+    // Preparing a manifest can overlap detach. Recheck under the lock that detach
+    // holds, before replacing a mount or clearing its persisted detached state.
+    if line.redial || line.manifest_bytes == 0 {
+        allow_redial(state, name)?;
+    }
+    allow_replacement(table.get(name), name)?;
     // A barrier the old mount held at its head: a remount that is no head dial has the whole
     // folder to offer, so it opens (below, once that mount is up); another head dial takes its own.
     let mut old_barrier = None;
@@ -1423,8 +1695,12 @@ fn mount(
     }
     // RFD 0007, seed bundles: carry is on by default. The sender's live git probe adds a depth-1
     // pack and base to the manifest, and the machine switches from projection to that repository.
-    // CMUX_PROJECTION_GIT_SWAP=off is the diagnostic kill switch.
-    if cmux_projection::git_swap::enabled() {
+    // CMUX_PROJECTION_GIT_SWAP=off is the diagnostic kill switch. The swap's `.git` link names the
+    // state folder, and the machine's fs-v1 (rooted at HOME) follows only links that stay under its
+    // root: with the state outside HOME, Bring Back's `.git/cmux-sync.json` read would be refused
+    // (fs.permission_denied), so that folder keeps its projected `.git`.
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if cmux_projection::git_swap::enabled() && swap_link_served(at, state, home.as_deref()) {
         let swapping = projected.clone();
         let (at, state) = (at.to_path_buf(), state.to_path_buf());
         let _ = std::thread::Builder::new().name("projection-git-swap".into()).spawn(move || {
@@ -1453,19 +1729,35 @@ fn mount(
         record.attached_ms = now;
         record.released = None;
         record.brought_back = None;
+        record.detached = None;
     });
     Ok(projected)
 }
 
+/// Whether fs-v1, rooted at `home`, follows a `.git` link from `at` into `state`: either the folder
+/// is not under `home` (fs-v1 does not serve it), or the state folder is under it too, as the
+/// default state folder (`~/.local/state`) is. fs-v1 matches its root as given and canonical.
+#[cfg(target_os = "linux")]
+pub(crate) fn swap_link_served(at: &Path, state: &Path, home: Option<&Path>) -> bool {
+    let Some(home) = home else { return true };
+    let spellings: Vec<PathBuf> = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()]
+        .into_iter()
+        .flatten()
+        .collect();
+    let canonical = std::fs::canonicalize(at).ok();
+    let served = spellings.iter().any(|home| {
+        at.starts_with(home) || canonical.as_deref().is_some_and(|at| at.starts_with(home))
+    });
+    !served || spellings.iter().any(|home| state.starts_with(home))
+}
+
 #[cfg(not(target_os = "linux"))]
 fn mount(
-    _name: &str,
+    _line: &ServeLine,
     _manifest: cmux_projection::manifest::Manifest,
     _state: &Path,
     _at: &Path,
     _digest: u64,
-    _head: bool,
-    _from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
 }

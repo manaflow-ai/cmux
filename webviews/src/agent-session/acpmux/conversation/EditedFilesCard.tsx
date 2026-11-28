@@ -2,8 +2,8 @@
 // the totals, Undo, and a chevron. A click anywhere on the row opens the whole card into every file's
 // diff, stacked as the diff viewer lists a turn (EditDiff, whole, each under its sticky repo-relative
 // name with its own counts, Open in Changes in its corner), in one box at most 60% of the view tall
-// that scrolls once. Opened, the card takes the transcript's width, past the message column where the
-// pane has room. A Markdown file (.md, .markdown) also has Open beside its name, or in the head of a
+// that scrolls once. Opened, the card keeps the message column's width. While the closed head is hovered,
+// its counts read what a click does: "View changes"; open, they stay the counts, the chevron alone closing it. A Markdown file (.md, .markdown) also has Open beside its name, or in the head of a
 // card for one file: it shows the file in cmux's Markdown page beside the chat (writtenArtifacts.tsx
 // `OpenWrittenMarkdown`), once per file however often the turn wrote it. The data is
 // turnChanges/model.ts; this file is only its view.
@@ -15,9 +15,8 @@
 // cmux.json `agentPane.editedFiles.*` (turnChanges/settings.ts): `show` always or collapsed (the
 // card, its one row until the reader opens it) or never (the plain tool rows); `scope` turn, or
 // session (one card, at the session's latest edit).
-import { useContext, useMemo } from "react";
+import { useContext, useMemo, useState } from "react";
 import { commonDirectory, turnFiles, turnPathsOnly, type PathRef, type TurnFile } from "../diff";
-import { ChevronDown } from "../changeIcons";
 import { EditDiff } from "./EditDiff";
 import { cornerAction } from "./cornerActions";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
@@ -35,7 +34,7 @@ import { useDisclosure } from "./useDisclosure";
 import { TurnFramesStrip } from "../liveFrames/TurnFramesStrip";
 import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
-import { DiffFile, Undo } from "./icons";
+import { ChevronDown, DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -45,6 +44,20 @@ import { isMarkdownPath } from "./writtenArtifactsModel";
 import "./EditedFilesCard.css";
 import "./transcriptWorkLog.css";
 import { intl } from "../../../ui/intl";
+import { INSET_SCROLLER_ATTRIBUTE } from "../../../scrollers";
+import { installStackWheel } from "./stackWheel";
+import { installStackEdge } from "./stackEdge";
+
+/// The file stack's wheel (stackWheel.ts) and the code's fade under each file name (stackEdge.ts), installed
+/// while the stack is drawn. One function for every card, so a render does not install them again.
+const stackWheel = (node: HTMLDivElement) => {
+  const removeWheel = installStackWheel(node);
+  const removeEdge = installStackEdge(node);
+  return () => {
+    removeWheel();
+    removeEdge();
+  };
+};
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 export function EditedFilesCard({
@@ -175,6 +188,10 @@ function Card({
     onOpenChange: setOpen,
   });
   const headClick = total > 0 ? headerToggleClick(fold.toggle) : undefined;
+  // A click that opens or closes the card quiets its hover label until the pointer leaves the head: a
+  // reader clicking open and closed sees the counts, and "View changes" only on a fresh hover (Lucas,
+  // 2026-11-26). Undo and the head's other buttons never quiet it; a key press never does.
+  const [quiet, setQuiet] = useState(false);
   const fullPath = single ? fromRoot(single.path) : undefined;
   // The host answers for the path Undo sent (turnChanges/model.ts `undoPath`), which may be another
   // spelling of the row's.
@@ -207,6 +224,12 @@ function Card({
         {...(headClick ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
         // A control of its own for the transcript's gap selection (#26704), as the title was.
         data-interactive={headClick ? "" : undefined}
+        data-hover-quiet={quiet ? "" : undefined}
+        onClickCapture={(event) => {
+          const target = event.target as Element;
+          if (headClick && event.detail > 0 && !target.closest("button:not(.acpmux-edited-toggle)")) setQuiet(true);
+        }}
+        onPointerLeave={quiet ? () => setQuiet(false) : undefined}
         onClick={headClick}
       >
         <span className="acpmux-edited-icon">
@@ -245,7 +268,17 @@ function Card({
                   {title}
                 </div>
                 <div className="acpmux-edited-sub">
-                  {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
+                  {files.length > 0 && (
+                    <span className="acpmux-edited-counts">
+                      <Counts additions={counts.additions} deletions={counts.deletions} />
+                      {/* Closed only: open, the head keeps its counts (Lucas, 2026-11-26: no "Hide changes"). */}
+                      {!fold.present && (
+                        <span className="acpmux-edited-hover-label" aria-hidden data-find-skip="">
+                          {t("edited.view")}
+                        </span>
+                      )}
+                    </span>
+                  )}
                   {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
                 </div>
               </>
@@ -263,10 +296,12 @@ function Card({
             type="button"
             className="acpmux-edited-toggle acpmux-edited-chevron"
             aria-expanded={fold.open}
-            aria-label={fold.open ? t("edited.hideFiles") : single ? t("edited.view") : t("edited.showFiles")}
+            aria-label={fold.open ? t("edited.hide") : single ? t("edited.view") : t("edited.showFiles")}
             onClick={fold.toggle}
           >
-            <ChevronDown width={14} height={14} style={fold.open ? { transform: "rotate(180deg)" } : undefined} />
+            {/* The cmux disclosure glyph at 16: about 10px wide, as wide as Undo's 14px arrow beside it (Lucas,
+                2026-11-26); at 14 the flat chevron read smaller than the arrow. */}
+            <ChevronDown size={16} style={fold.open ? { transform: "rotate(180deg)" } : undefined} />
           </button>
         )}
       </div>
@@ -281,7 +316,12 @@ function Card({
       )}
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className="acpmux-edited-stack" data-files={total}>
+          <div
+            ref={stackWheel}
+            className="acpmux-edited-stack"
+            data-files={total}
+            {...{ [INSET_SCROLLER_ATTRIBUTE]: "" }}
+          >
             {files.map((file) => {
               const markdown = single ? undefined : markdownPath(file);
               return (
@@ -290,6 +330,7 @@ function Card({
                     file={file}
                     whole
                     flat
+                    collapsible
                     label={fromRoot(file.path)}
                     actions={
                       <>
@@ -380,7 +421,8 @@ function UndoButton({
       onClick={() => void checkUndo(rowId, files)}
     >
       <span className="cv-fit-label">{label}</span>
-      <Undo size={12} />
+      {/* 14, the icon scale's mark inline with text: 12 drew the arrow smaller than its word. */}
+      <Undo size={14} />
     </button>
   );
 }

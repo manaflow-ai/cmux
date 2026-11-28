@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { userMessage } from "../shared/userMessage";
-import { SETTINGS_SENTENCES, type DeveloperTokensState, type SettingsClient } from "./ops";
+import { SETTINGS_SENTENCES, type CreatedToken, type DeveloperTokensState, type SettingsClient } from "./ops";
 import { SettingsStore } from "./store";
 
 function listedState(): DeveloperTokensState {
@@ -89,7 +89,7 @@ test("a disconnected host preserves the gesture error with management unavailabl
 
 test("a successful create returns its secret once outside the refreshed state", async () => {
   const state = listedState();
-  const created = { token: "cmux_pat_test_secret", tokenInfo: { scopes: ["machines"] } };
+  const created: CreatedToken = { token: "cmux_pat_test_secret", tokenInfo: { scopes: ["machines"] } };
   let creates = 0;
   const store = new SettingsStore(
     clientFor(

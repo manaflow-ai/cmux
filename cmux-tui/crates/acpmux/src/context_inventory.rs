@@ -288,7 +288,8 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// Capture preset bytes as well as the injected addition so later config edits do not
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
-    let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness, meta.remote_origin);
+    let auto = meta.auto_session.as_ref().is_some_and(|a| a.auto);
+    let mut parts = snapshot_with(cfg, &meta.cwd, &meta.harness, meta.remote_origin, auto);
     // A folder set up for another harness: its instructions, which this one does not read itself.
     let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
@@ -422,8 +423,16 @@ fn rules_text(parts: &[ContextPart], channel: &str) -> Option<String> {
 /// Whether `part` is one of cmux's rules: the default rule or the person's override of it,
 /// or the chat guidance.
 fn is_rule(part: &ContextPart) -> bool {
-    matches!(part.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project" | GUIDANCE_SOURCE)
+    RULE_SOURCES.contains(&part.source.as_str())
 }
+
+/// Every `contextSource` of a hidden cmux block: each goes out as `<SOURCE-context>` and the
+/// transcript hides it. The acpmux test fakes strip exactly these, read from
+/// `tests/guidance_sources.json`; `context_inventory_tests` fails when the two differ, so a new
+/// block cannot reach the fakes unstripped (cmux#56653 added `cmux-card` and the session-move
+/// matrix went red after merge).
+pub const RULE_SOURCES: [&str; 5] =
+    ["cmux-default", "cmux-user", "cmux-project", GUIDANCE_SOURCE, crate::agent_card::SOURCE];
 
 /// The words a spawn of `profile` (as resolved for this start: its presets, route and
 /// expanded env) in `cwd` adds for the captured rules on a system-level channel
@@ -554,16 +563,30 @@ pub const GUIDANCE_SOURCE: &str = "cmux-guidance";
 /// the `agents.guidance.*` settings turn it off.
 /// Both take the channel [`rules_channel`] picks for the harness, or the first message when
 /// they are longer than one launch argument may carry ([`MAX_LAUNCH_RULES_BYTES`]).
+/// The "where you are" card ([`crate::agent_card`]) comes last, so its numbers end the text.
 pub fn snapshot_for(
     cfg: &Config,
     cwd: &Path,
     harness: &str,
     remote_origin: bool,
 ) -> Vec<ContextPart> {
+    snapshot_with(cfg, cwd, harness, remote_origin, false)
+}
+
+/// [`snapshot_for`] for a chat whose Auto is `auto` (an AutoCloud chat's card says so).
+pub fn snapshot_with(
+    cfg: &Config,
+    cwd: &Path,
+    harness: &str,
+    remote_origin: bool,
+    auto: bool,
+) -> Vec<ContextPart> {
     let guidance = crate::agent_guidance::for_session(cfg, harness, remote_origin);
+    let card = crate::agent_card::for_session(cfg, harness, cwd, remote_origin, auto);
     let on = |channel: &str| {
         let mut parts = snapshot_on(cfg, cwd, channel);
         parts.extend(guidance.clone().map(|t| guidance_part_on(t, channel)));
+        parts.extend(card.clone().map(|t| crate::agent_card::part_on(t, channel)));
         parts
     };
     let channel = rules_channel(cfg, cwd, harness);

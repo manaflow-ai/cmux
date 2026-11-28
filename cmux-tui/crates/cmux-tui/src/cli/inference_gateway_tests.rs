@@ -622,6 +622,102 @@ fn busy_retry_after_is_full_jitter_within_its_bound() {
     assert!(distinct.len() > 5, "spread out, not one value: {distinct:?}");
 }
 
+/// A keep-alive fake proxy: answers every request on every socket `200 ok`, and counts the sockets it accepted.
+async fn counting_upstream() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let count = accepted.clone();
+    tokio::spawn(async move {
+        loop {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            count.fetch_add(1, Ordering::SeqCst);
+            tokio::spawn(async move {
+                let mut got = Vec::new();
+                let mut buf = [0u8; 4096];
+                loop {
+                    let Ok(n) = sock.read(&mut buf).await else { return };
+                    if n == 0 {
+                        return;
+                    }
+                    got.extend_from_slice(&buf[..n]);
+                    // One request at a time: its head, then its declared body.
+                    while let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&got[..end]).to_ascii_lowercase();
+                        let len = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .map_or(0, |v| v.trim().parse::<usize>().unwrap());
+                        if got.len() < end + 4 + len {
+                            break;
+                        }
+                        got.drain(..end + 4 + len);
+                        // HEAD advertises the representation length but sends no body bytes.
+                        let reply = if head.starts_with("head ") {
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n"
+                        } else {
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}"
+                        };
+                        if sock.write_all(reply.as_bytes()).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+    });
+    (base, accepted)
+}
+
+#[tokio::test]
+async fn the_start_warms_the_proxy_and_the_first_call_reuses_that_connection() {
+    use std::sync::atomic::Ordering;
+    let (base, accepted) = counting_upstream().await;
+    let provider = Arc::new(Provider::new(Upstream::Proxy { base, key_file: None }, test_client()));
+    // What serve() starts before it dials the backend.
+    let scope = cmux_scope::Scope::new("test warm-up");
+    assert_eq!(start_warm(&scope, &provider).await.unwrap(), Some(1));
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    let (tx, mut rx) = mpsc::channel(8);
+    answer(&provider, "c1", pending("/v1/messages", "{}"), &tx).await;
+    let got = frames(&mut rx).await;
+    assert_eq!(got[0]["t"], "head", "{got:?}");
+    assert_eq!(
+        accepted.load(Ordering::SeqCst),
+        1,
+        "the call dialed again instead of reusing the warm socket"
+    );
+}
+
+#[tokio::test]
+async fn a_warm_up_that_fails_changes_nothing() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let provider = Arc::new(Provider::new(
+        Upstream::Proxy { base: format!("http://127.0.0.1:{port}"), key_file: None },
+        test_client(),
+    ));
+    let scope = cmux_scope::Scope::new("test warm-up");
+    assert_eq!(start_warm(&scope, &provider).await.unwrap(), Some(0));
+    // The call still runs and fails the way it always did.
+    let (tx, mut rx) = mpsc::channel(4);
+    answer(&provider, "c2", pending("/v1/messages", "{}"), &tx).await;
+    let got = frames(&mut rx).await;
+    assert_eq!(got[0]["code"], "inference.upstream_unreachable");
+}
+
+#[test]
+fn warms_every_origin_its_calls_go_to() {
+    let proxy = Provider::new(
+        Upstream::Proxy { base: "http://sr2:4016".into(), key_file: None },
+        test_client(),
+    );
+    assert_eq!(proxy.warm_urls(), vec!["http://sr2:4016".to_owned()]);
+    let codex = Provider::new(Upstream::Codex { auth: "/x/auth.json".into() }, test_client());
+    assert_eq!(codex.warm_urls(), vec![CODEX_BACKEND.to_owned()]);
+}
+
 /// The call line splits the provider's wait before its head (time to first token on a pool that holds its head) from
 /// the stream after it, under the 200 characters the Cloud probe keeps, starting `-> STATUS (TOTAL ms` as it reads.
 #[test]

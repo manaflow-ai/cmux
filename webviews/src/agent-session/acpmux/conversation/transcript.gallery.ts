@@ -1702,7 +1702,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
-    "agent-session/acpmux/conversation/PromptDelivery.tsx#PendingDelivery",
+    "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/conversation/icons.tsx#MultiTool",
@@ -3340,7 +3340,7 @@ export default agentPaneEntry({
       },
     },
     "prompt-delivery": {
-      note: "Each sent prompt's way to the agent, one state per row: the read check once it started, unread once acpmux took it, Sending in the footer's time slot while it waits (no age beside it, no second label), and one that failed with Retry, Edit, Remove and Details and no sent footer.",
+      note: "Each sent prompt's way to the agent, one state per row: the read check once it started, unread once acpmux took it, a quiet Sending at the footer's left while it waits (its time and Copy where they always are), and one acpmux never answered, which says Sending when ready and goes again by itself: no Not sent, no Retry, Edit, Remove or Details (Leo, 2026-11-24).",
       snapshot: chat([
         user("Add retries to the client", 6, {
           delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
@@ -3356,6 +3356,7 @@ export default agentPaneEntry({
         }),
         user("Ship it", 1, {
           failed: true,
+          pending: true,
           error: "Not sent: no answer from acpmux.",
           delivery: {
             state: "failed",
@@ -3372,7 +3373,7 @@ export default agentPaneEntry({
     },
     ...promptPendingLooks(),
     "failed-sends-grouped": {
-      note: "Three prompts acpmux held behind the folder's trust question (Leo 2026-10-21): one card under the last of them, one plain sentence with Trust folder, and Retry, Edit, Remove and Details once for the three; the raw code only under Details.",
+      note: 'Three prompts acpmux held behind the folder\'s trust question (Leo 2026-10-21): one short line under the last of them with Trust folder, once for the three, and no Retry, Edit, Remove or Details (Leo, 2026-11-24: "these 4 buttons are really bad tho"); a Trust answer sends them.',
       snapshot: chat([
         user(prompt, 6),
         assistant("Added retries with backoff.", 5.5),
@@ -4171,10 +4172,11 @@ function forkTurns(family: string | undefined, title = "Add retries to the fetch
   };
 }
 
-/// A slow acknowledgement on a prompt, and a steer on its way into the running turn, in each look
-/// (Leo, 2026-11-11: "what's up with this still sending thing? ... it already, like, shows that it's
-/// sent. So this is incongruous."). Every look keeps the state in the footer's time slot, the age's
-/// place once it lands, so the row moves nothing and never says sent and sending at once.
+/// A waiting prompt in each of its states, all in one look: the queued row's copy, X and Send now
+/// (PendingSteer.tsx; Leo, 2026-11-24: "this one is good. why were ther e2 of them"). Queued behind
+/// the running turn, on its way past its first second (X and Send now drawn disabled: nothing to
+/// stop or hurry yet), and going again by itself after no answer (Send now tries again at once, X
+/// takes it back into the composer). No "(clock) Sending" anywhere.
 function promptPendingLooks() {
   const rows = () =>
     chat(
@@ -4184,30 +4186,54 @@ function promptPendingLooks() {
         }),
         assistant("Added retries with backoff.", 5.5, { streaming: true }),
         user("Use the cache dir, not tmp", 1, {
-          pending: true,
-          delivery: { state: "sending", promptId: "p2", sessionId: "s", sentAt: 0, queued: true },
+          steer: "waiting",
+          steerPromptId: "p2",
+          delivery: { state: "delivered", promptId: "p2", sessionId: "s", sentAt: 0, acceptedAt: 40, queued: true },
         }),
         user("Then open a PR", 0.5, {
           pending: true,
           delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
         }),
+        user("And tag the release", 0.4, {
+          failed: true,
+          pending: true,
+          error: "Not sent: no answer from acpmux.",
+          delivery: {
+            state: "failed",
+            promptId: "p4",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 60000,
+            hop: "acpmux",
+            code: "timeout",
+            error: "Not sent: no answer from acpmux.",
+          },
+        }),
       ],
       { isWorking: true },
     );
+  const pointAt = (text: string) => async (ctx: { hover: (target: { selector: string }) => Promise<unknown> }) => {
+    await ctx.hover({ selector: `.cv-user:has(.cv-user__send-now[data-pending-state="${text}"])` });
+  };
   return {
     "prompt-pending": {
-      note: "Chosen (A): a prompt still on its way says so in its footer's time slot, a clock and one sentence (Sending), shown at rest, its row anchored at the bubble's right edge so Copy never moves; a steer queued behind the running turn looks sent (its age, no words; Leo, 2026-11-17); the row's buttons come with the pointer and the age takes the slot once it lands.",
+      note: "Chosen: one pending look for every state of a waiting prompt, the queued row (Send now at rest; copy, Retry, Fork and X on hover, no Save as Prompt). Queued behind the running turn: X and Send now act. On its way past its first second: both drawn disabled, the row the same size. Going again by itself after no answer: Send now tries at once, X takes it back to the composer. No Sending status, no Not sent, no Retry, Edit, Remove or Details.",
       snapshot: rows(),
     },
-    "prompt-pending-clock": {
-      note: "Variant B, not shipped: the clock alone in the time slot, its words for VoiceOver only. Quietest, but the clock alone says less than Sending.",
+    "prompt-pending-queued": {
+      note: 'The queued state pointed: copy, X and Send now, as before but without Save as Prompt (Leo, 2026-11-24: "this one is good", then "save prompt butotn still bad").',
       snapshot: rows(),
-      documentAttributes: { "prompt-pending-look": "clock" },
+      play: pointAt("queued"),
     },
-    "prompt-pending-dim": {
-      note: "Variant C, not shipped: A's words, and the bubble's text muted until it lands. Clearest at a glance, but the bubble changing tone when the send lands reads as a second event.",
+    "prompt-pending-sending": {
+      note: "On its way, pointed: the same row, X and Send now disabled until acpmux takes it; no clock, no Sending.",
       snapshot: rows(),
-      documentAttributes: { "prompt-pending-look": "dim" },
+      play: pointAt("sending"),
+    },
+    "prompt-pending-retrying": {
+      note: "Waiting for the link after no answer, pointed: the same row, Send now tries again at once and X takes it back; it also goes again by itself, 1 s then doubling to 30 s.",
+      snapshot: rows(),
+      play: pointAt("retrying"),
     },
   };
 }

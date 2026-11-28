@@ -33,6 +33,12 @@ pub const MEMORY_LOW_SHARE: f64 = 0.10;
 /// Probes in a row a CPU reading must hold to change state (2 s at [`PROBE_INTERVAL_MS`]), so one
 /// burst does not wake the sizer.
 pub const CPU_PROBES: u8 = 3;
+/// A gap between probes longer than this (wall clock) is a pause: the machine was stopped and
+/// restored (a warmed spare at its bind, a resume). What the probe held before it is not this
+/// machine's pressure now, so the tracker starts over. Production read-back 45952116856: a spare
+/// pegged while it warmed was restored at its bind still reporting `cpu: pegged`, and the Cloud
+/// grew the user's machine 2.5 s after it was made, before any work (and a grow is not undone).
+pub const PAUSE_GAP_MS: u64 = 10 * PROBE_INTERVAL_MS;
 
 /// One read of the three files.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -124,12 +130,20 @@ pub struct Tracker {
     /// Probes in a row whose CPU reading disagreed with the reported state.
     cpu_streak: u8,
     pressure: Pressure,
+    /// The previous reading's wall clock, for [`PAUSE_GAP_MS`].
+    last_ms: Option<u64>,
 }
 
 impl Tracker {
-    /// One reading at `wall_ms`: the pressure as it now stands. The first reading sets the OOM
-    /// baseline (kills before the probe started are not a rise).
+    /// One reading at `wall_ms`: the pressure as it now stands. The first reading, and the first
+    /// after a pause ([`PAUSE_GAP_MS`]), sets the OOM baseline (kills before the probe started are
+    /// not a rise) and names nothing pegged.
     pub fn observe(&mut self, r: &Reading, wall_ms: u64) -> &Pressure {
+        if self.last_ms.is_some_and(|last| wall_ms.saturating_sub(last) > PAUSE_GAP_MS) {
+            // After a pause: this reading is a first one (a new OOM baseline, no CPU streak).
+            *self = Self::default();
+        }
+        self.last_ms = Some(wall_ms);
         let share = r.mem_available_kib as f64 / r.mem_total_kib as f64;
         self.pressure.memory_low = share < MEMORY_LOW_SHARE;
         if self.oom_kills.is_some_and(|before| r.oom_kills > before) {

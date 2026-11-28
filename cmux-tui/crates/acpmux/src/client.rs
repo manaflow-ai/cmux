@@ -66,6 +66,21 @@ pub struct Client {
     print_admission_waiting: Arc<std::sync::atomic::AtomicBool>,
 }
 
+/// The error a client returns for a daemon whose ABI range it shares nothing with: a
+/// [`DaemonError`] typed `version.incompatible`, as the daemon's own refusal would be.
+fn incompatible_daemon(
+    ours: crate::protocol::range::AbiRange,
+    theirs: crate::protocol::range::AbiRange,
+) -> anyhow::Error {
+    let (message, recovery, details) =
+        crate::protocol::range::incompatible(ours, theirs, "the daemon");
+    anyhow::Error::new(DaemonError(crate::rpc::RpcError::new(-32600, message).with_data(json!({
+        "errorKind": crate::recovery::kind::VERSION_INCOMPATIBLE,
+        "recovery": recovery,
+        "details": details,
+    }))))
+}
+
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
         Self::open_socket(path).await?.initialize(true).await
@@ -224,6 +239,14 @@ impl Client {
         // Whether it runs in an acpmux session's environment, said positively: only a terminal
         // declaration may be the owner's own send (`cli_caller.rs`).
         crate::cli_caller::declare(&mut meta, caller);
+        // The ABI hello (`abi_hello.rs`): this build's revision and build id; with the oldest
+        // revision it speaks (`protocol/range.rs`), a daemon that shares none with it refuses the
+        // hello typed, and one from before the check ignores the keys.
+        crate::abi_hello::stamp(&mut meta);
+        meta.insert(
+            crate::protocol::range::ABI_MIN_FIELD.to_owned(),
+            json!(crate::protocol::range::ABI_MIN),
+        );
         hello.set("_meta", json!({"acpmux": meta}));
         // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
         let init = crate::slow_notice::noted(
@@ -242,6 +265,13 @@ impl Client {
             .and_then(Value::as_str)
             .filter(|path| std::path::Path::new(path).is_absolute())
             .map(std::path::PathBuf::from);
+        // A daemon from before the range check answers any hello: this side refuses one it
+        // shares no ABI with, typed, so the caller reads which side to update.
+        let (ours, theirs) =
+            (crate::protocol::range::AbiRange::ours(), crate::protocol::range::AbiRange::of(&init));
+        if init.pointer("/_meta/acpmux/abi").is_some() && ours.common(theirs).is_none() {
+            return Err(incompatible_daemon(ours, theirs));
+        }
         self.daemon_abi
             .store(crate::protocol::peer_abi(&init), std::sync::atomic::Ordering::Relaxed);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
@@ -329,14 +359,26 @@ impl Client {
     }
 
     /// Take the notification stream. The first call gets the original
-    /// receiver; later calls get a fresh one and the previous holder stops
-    /// receiving, so one command can stream several turns in sequence.
+    /// receiver; a later call gets a fresh one once the previous holder has
+    /// dropped its own, so one command can stream several turns in sequence.
+    /// While an earlier receiver is still held, the call is refused (`None`,
+    /// logged): it used to replace that receiver silently, so the earlier
+    /// holder waited on a stream that no longer got anything and a test read
+    /// that as a missing event, not as two readers of one connection.
     pub async fn notifications(&self) -> Option<mpsc::Receiver<Message>> {
         if let Some(rx) = self.notifications.lock().await.take() {
             return Some(rx);
         }
+        let mut current = self.notif_tx.lock().await;
+        if !current.is_closed() {
+            tracing::error!(
+                socket = %self.socket.display(),
+                "notifications() refused: an earlier receiver of this connection is still held; drop it first"
+            );
+            return None;
+        }
         let (tx, rx) = mpsc::channel::<Message>(4096);
-        *self.notif_tx.lock().await = tx;
+        *current = tx;
         Some(rx)
     }
 
@@ -715,57 +757,5 @@ mod closed_tests;
 mod cancel_tests;
 
 #[cfg(test)]
-mod lineage_tests {
-    use super::*;
-
-    #[test]
-    fn a_session_new_names_the_env_tool_call_once() {
-        let p = json!({"cwd": "/tmp", "_meta": {"acpmux": {"name": "kid"}}});
-        let sent = with_spawn_tool_call(p.clone(), Some("toolu_7".into()));
-        assert_eq!(sent["_meta"]["acpmux"]["spawnToolCallId"], "toolu_7");
-        assert_eq!(sent["_meta"]["acpmux"]["name"], "kid");
-        assert_eq!(with_spawn_tool_call(p.clone(), None), p);
-        assert_eq!(with_spawn_tool_call(p.clone(), Some(String::new())), p);
-        let named = json!({"_meta": {"acpmux": {"spawnToolCallId": "mine"}}});
-        let sent = with_spawn_tool_call(named, Some("env".into()));
-        assert_eq!(sent["_meta"]["acpmux"]["spawnToolCallId"], "mine");
-        let bare = with_spawn_tool_call(json!({"cwd": "/tmp"}), Some("t".into()));
-        assert_eq!(bare["_meta"]["acpmux"]["spawnToolCallId"], "t");
-    }
-
-    #[test]
-    fn an_admission_waiting_note_prints_its_warning() {
-        let note = json!({"warning": "a machine is being added", "scalingUp": true});
-        assert_eq!(
-            admission_waiting_text(Some(&note)).as_deref(),
-            Some("acpmux: a machine is being added")
-        );
-        assert_eq!(admission_waiting_text(Some(&json!({}))), None);
-        assert_eq!(admission_waiting_text(None), None);
-    }
-
-    #[test]
-    fn a_parentless_session_new_asks_for_no_parent() {
-        let sent = parentless(json!({"cwd": "/tmp", "_meta": {"acpmux": {"ephemeral": true}}}));
-        assert_eq!(sent["_meta"]["acpmux"]["parent"], Value::Null);
-        assert!(sent["_meta"]["acpmux"].as_object().unwrap().contains_key("parent"));
-        assert_eq!(sent["_meta"]["acpmux"]["ephemeral"], true);
-    }
-
-    /// The tag request goes only to a daemon that records no lineage: the CLI path of a
-    /// proven caller makes none, and a root the daemon made (an unproven caller) is never
-    /// tagged under the env's session.
-    #[test]
-    fn only_a_daemon_without_lineage_gets_the_spawned_by_tag() {
-        let recorded = json!({"sessionId": "c", "_meta": {"acpmux": {"parent": "p"}}});
-        assert!(!reply_lacks_lineage(&recorded));
-        let root = json!({"sessionId": "c", "_meta": {"acpmux": {"parent": null}}});
-        assert!(!reply_lacks_lineage(&root), "a new daemon's root is final");
-        let older_daemon = json!({"sessionId": "c", "_meta": {"acpmux": {"name": "c"}}});
-        assert!(reply_lacks_lineage(&older_daemon));
-        assert!(reply_lacks_lineage(&json!({"sessionId": "c"})));
-        let on_a_peer =
-            json!({"sessionId": "c", "peer": "box", "_meta": {"acpmux": {"parent": null}}});
-        assert!(reply_lacks_lineage(&on_a_peer));
-    }
-}
+#[path = "client_lineage_tests.rs"]
+mod lineage_tests;

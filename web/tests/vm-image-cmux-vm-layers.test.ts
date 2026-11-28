@@ -277,7 +277,7 @@ describe("deferred inventory", () => {
 });
 
 describe("baked npm cache", () => {
-  test.skipIf(process.platform !== "linux")("experimental guest profiles share the npm seed for offline installs", async () => {
+  (process.platform === "linux" ? test : test.skip)("experimental guest profiles share the npm seed for offline installs", async () => {
     const result = await runChild("python3", ["-I", path.join(repoRoot, "web/tests/fixtures/npm-host-cache.py")], { timeout: 45_000 });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);

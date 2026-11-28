@@ -24,6 +24,9 @@ export type UnsentPromptRecord = {
   error?: string;
   /// The refusal's cause, for the row's Details and its Retry rules (sendFailure.ts).
   failure?: Pick<PromptDelivery, "hop" | "code" | "reason" | "error" | "failedAt">;
+  /// Sent while the pane had no link to acpmux (offlineSends.ts): it was never refused, it waits,
+  /// and a reload sends it once the link is up instead of drawing it as Not sent.
+  queued?: true;
 };
 
 /// The host's store of unsent prompts, by chat.
@@ -75,6 +78,7 @@ export function parseUnsentPrompts(value: unknown): UnsentPromptRecord[] {
         attachments,
         at: record.at,
         ...(typeof record.error === "string" ? { error: record.error } : {}),
+        ...(record.queued === true ? { queued: true as const } : {}),
         ...(failure
           ? {
               failure: {

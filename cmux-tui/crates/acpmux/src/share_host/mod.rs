@@ -27,6 +27,8 @@
 
 pub(crate) mod cli;
 
+pub use cli::{OffHere, share_off_here};
+
 #[cfg(unix)]
 pub(crate) mod approval;
 #[cfg(unix)]

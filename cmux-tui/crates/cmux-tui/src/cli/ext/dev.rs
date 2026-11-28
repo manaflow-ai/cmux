@@ -850,7 +850,7 @@ pub(super) fn web_check(manifest: &Value, record: Option<&Value>) -> Result<Vec<
 /// The context the load check mounts `interface` with: a widget mounts as a tile of its default
 /// size in the first place it goes (the daemon builds the rest of its context); anything else
 /// renders with no context.
-fn probe_context(manifest: &Value, interface: &str) -> Value {
+pub(super) fn probe_context(manifest: &Value, interface: &str) -> Value {
     if interface != "cmux.widget/1" {
         return json!({});
     }
@@ -979,7 +979,7 @@ pub(super) struct Outcome {
 }
 
 impl Outcome {
-    fn new(phase: Phase) -> Self {
+    pub(super) fn new(phase: Phase) -> Self {
         Self {
             phase,
             errors: Vec::new(),
@@ -1004,7 +1004,7 @@ impl Outcome {
         }
     }
 
-    fn failed(mut self, phase: Phase, errors: Vec<Problem>) -> Self {
+    pub(super) fn failed(mut self, phase: Phase, errors: Vec<Problem>) -> Self {
         self.phase = phase;
         self.errors = errors;
         self
@@ -1635,6 +1635,9 @@ pub(super) fn run_once(global: &GlobalArgs, options: &DevOptions, json_out: bool
 /// The reload behind `run_once` (tests read it directly, with no Ctrl-C
 /// watch: with no signal handler installed it would wake at once).
 pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) -> Outcome {
+    if options.headless {
+        return super::headless::once(options);
+    }
     // A broken manifest or build needs no daemon to report. The main script
     // the build will write is checked after the build (`Session::reload`).
     let builds = build_will_run(&options.dir, options.build.as_deref(), options.bun.as_deref());

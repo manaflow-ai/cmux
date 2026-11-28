@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import { usePageNow } from "../../../ui/pageClock";
 import type { AcpmuxRow } from "../model";
+import { formatDuration } from "../conversation/turns";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
@@ -45,6 +46,15 @@ export const STATE_LABEL = {
 /// One waiting on background work of its own has not ended: its time keeps going.
 export const elapsed = (agent: Subagent, now: number) =>
   Math.max(0, (awaitsOwnWork(agent) ? now : (agent.endedAt ?? now)) - agent.startedAt);
+
+/// A subagent's time as its lines and cards say it: its own run, from real start and end times. An
+/// ended one whose start and end are one moment (an end acpmux recovered for a run whose start the
+/// chat never read) has no known time: none, never "0s" (Leo, 2026-11-22, on a card reading
+/// "Disconnected · 0s" after a restart). A running one counts up from 0s.
+export function subagentTime(agent: Subagent, now: number): string | undefined {
+  const ms = elapsed(agent, now);
+  return ms < 1000 && !ticking(agent) ? undefined : formatDuration(ms);
+}
 
 /// Whether a subagent's clock still runs: running, or waiting on background work of its own.
 export const ticking = (agent: Subagent) => running(agent) || awaitsOwnWork(agent);

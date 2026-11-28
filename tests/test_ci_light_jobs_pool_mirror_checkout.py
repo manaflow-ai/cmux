@@ -11,11 +11,13 @@ commit, depth and sparse paths; every other runner, and every non-pull-request r
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -28,6 +30,8 @@ CASES = (
     ("cmux-next-size-budget.yml", "size-budget", "needs.plan.outputs.tool == 'true' && ", False),
     ("cmux-tui-spec.yml", "changes", "", True),
     ("rust-workspaces.yml", "plan", "", True),
+    # path_route: 4-6 s of blob:none checkout and 4-5 s of blob prefetch of its ~31 s, on ~7,500 runs a day.
+    ("cmux-next.yml", "path_route", "", False),
 )
 
 
@@ -45,8 +49,28 @@ class LightJobsPoolMirrorCheckout(unittest.TestCase):
         steps = steps_of(workflow, job)
         action = next(s for s in steps if s.get("uses", "").startswith("actions/checkout@") and s.get("name") == "Checkout")
         pool = next(s for s in steps if s.get("name") == "Pool mirror: Checkout")
-        self.assertEqual(steps.index(pool), steps.index(action) + 1)
+        self.assertGreater(steps.index(pool), steps.index(action))
+        # Checkout retries now sit between the action and its pool alternative.
+        # Only failure-gated retries/pauses may intervene, never a consumer.
+        for step in steps[steps.index(action) + 1:steps.index(pool)]:
+            self.assertIn(step.get("if"), (
+                "steps.checkout.outcome == 'failure'",
+                "steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'",
+            ))
+            if "uses" in step:
+                self.assertEqual(step["uses"], action["uses"])
+                self.assertEqual(step["with"], action["with"])
+            else:
+                self.assertRegex(step.get("run", ""), r'^rm -rf "\$GITHUB_WORKSPACE/\.git"; sleep [0-9]+$')
         return action, pool
+
+    def test_a_consumer_cannot_precede_the_pool_checkout(self):
+        steps = steps_of("cmux-next-size-budget.yml", "plan")
+        index = next(i for i, s in enumerate(steps) if s.get("name") == "Pool mirror: Checkout")
+        steps.insert(index, {"name": "Consumer", "run": "python3 scripts/check.py"})
+        with patch(__name__ + ".steps_of", return_value=steps):
+            with self.assertRaises(AssertionError):
+                self.pair("cmux-next-size-budget.yml", "plan")
 
     def test_each_light_checkout_has_a_pool_twin_with_the_same_paths(self):
         for workflow, job, extra, pr_only in CASES:
@@ -69,20 +93,22 @@ class LightJobsPoolMirrorCheckout(unittest.TestCase):
                     self.assertEqual(pool["env"]["SPARSE"].split(), ["/" + p.strip("/") + "/" for p in sparse.split()])
                 else:
                     self.assertEqual(pool["env"]["SPARSE"], "")
-                fetch = next(line for line in pool["run"].splitlines() if "git fetch" in line)
+                fetch = next(line for line in pool["run"].splitlines()
+                             if re.search(r"\bgit(?:\s+-c\s+\S+)*\s+fetch\s", line))
                 self.assertNotIn("--filter", fetch)
                 self.assertIn("--depth=2", fetch)
                 self.assertNotIn("$TOKEN", fetch)
                 self.assertIn('echo "$mirror" > .git/objects/info/alternates', pool["run"])
 
-    def run_pool(self, step: dict, sparse: str) -> Path:
+    def run_pool(self, step: dict, sparse: str, extra: dict[str, str] | None = None) -> Path:
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp, True)
         seed = tmp / "seed"
         git(tmp, "init", "-q", "-b", "main", str(seed))
-        for rel in ("scripts/cmux-next/a.py", "webviews/b.ts", "outside/c.txt"):
+        files = {rel: rel for rel in ("scripts/cmux-next/a.py", "webviews/b.ts", "outside/c.txt")}
+        for rel, text in {**files, **(extra or {})}.items():
             (seed / rel).parent.mkdir(parents=True, exist_ok=True)
-            (seed / rel).write_text(rel)
+            (seed / rel).write_text(text)
         git(seed, "add", "-A")
         git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one")
         (seed / "scripts/cmux-next/d.py").write_text("d")
@@ -111,6 +137,16 @@ class LightJobsPoolMirrorCheckout(unittest.TestCase):
         self.assertFalse((ws / "outside").exists())
         # The checker sizes every blob of both commits through git: all present, no lazy fetch.
         git(ws, "ls-tree", "-r", "-l", "HEAD^1")
+
+    def test_path_route_twin_checks_out_its_pattern_list_at_once(self):
+        _, pool = self.pair("cmux-next.yml", "path_route")
+        # The commit's pattern list joins the step's own paths, so the widen step that follows changes nothing.
+        ws = self.run_pool(pool, pool["env"]["SPARSE"], {"scripts/ci/path-route-sparse-checkout.txt": "/webviews/\n"})
+        patterns = (ws / ".git/info/sparse-checkout").read_text().split()
+        for line in pool["env"]["SPARSE"].split() + ["/webviews/"]:
+            self.assertIn(line, patterns)
+        self.assertTrue((ws / "webviews/b.ts").exists() and (ws / "scripts/ci/path-route-sparse-checkout.txt").exists())
+        self.assertFalse((ws / "outside").exists())
 
     def test_whole_tree_twin_checks_out_everything(self):
         _, pool = self.pair("rust-workspaces.yml", "plan")

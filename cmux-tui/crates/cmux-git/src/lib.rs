@@ -32,7 +32,9 @@ pub mod worktree_root;
 pub mod write_run;
 
 pub use own_work_tree::two_folders;
-pub use repository::{OpenError, Repository, filter_overrides, main_root};
+pub use repository::{
+    OpenError, Repository, filter_overrides, in_progress, main_checkout_of, main_root,
+};
 
 /// The output limit for a run whose result is a line or a few names.
 pub const MAX_SMALL_OUTPUT_BYTES: usize = 64 * 1024;

@@ -151,6 +151,9 @@ pub(crate) struct Mux {
     /// carrier gone): any other end (the far machine restarted, the relay or the hub dropped it,
     /// the keepalive heard nothing) has the carrier open it again at once (`reopen_closed`).
     reopen: AtomicBool,
+    /// A held circuit (`hub_carrier_hold.rs`): it never idles out, so the next dial to the
+    /// machine is a stream on it however long nobody dialed.
+    held: AtomicBool,
 }
 
 /// The most early bytes a stream open carries behind its OPEN ([`Mux::open`]): well inside a
@@ -187,6 +190,7 @@ impl Mux {
             ended: Mutex::new(None),
             open: Mutex::new(Some(crate::gauges::Held::on(&crate::gauges::links().hub_kept_open))),
             reopen: AtomicBool::new(role == Role::Dialer),
+            held: AtomicBool::new(false),
         })
     }
 
@@ -210,9 +214,19 @@ impl Mux {
         self.is_closed() && self.reopen.load(Ordering::SeqCst)
     }
 
-    /// How long the circuit has had no stream (since its last one ended, or it opened).
+    /// Hold the circuit: no idle close and no idle give-up on reopen (`hub_carrier_hold.rs`).
+    pub(crate) fn hold(&self) {
+        self.held.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn is_held(&self) -> bool {
+        self.held.load(Ordering::SeqCst)
+    }
+
+    /// How long the circuit has had no stream (since its last one ended, or it opened); zero
+    /// while it is held.
     pub(crate) fn quiet_for(&self) -> Duration {
-        if self.streams() > 0 {
+        if self.streams() > 0 || self.is_held() {
             return Duration::ZERO;
         }
         self.quiet_since.lock().unwrap_or_else(|e| e.into_inner()).elapsed()
@@ -471,6 +485,12 @@ impl Mux {
                 }
                 Err(refusal) => refuse(refusal).await,
             },
+            Ok(CircuitService::Consent) => match incoming.consent(from).await {
+                Ok((local, serving)) => {
+                    tokio::join!(serving, self.carry_admitted(id, local, events, credit));
+                }
+                Err(refusal) => refuse(refusal).await,
+            },
             // The acpmux listener, reached as a plain circuit with no hello reaches it: the
             // peer link and its hub probe ride the pair's one kept circuit.
             Ok(CircuitService::Acpmux)
@@ -692,8 +712,7 @@ impl Mux {
             if self.is_closed() {
                 return;
             }
-            let quiet = self.streams() == 0
-                && self.quiet_since.lock().unwrap_or_else(|e| e.into_inner()).elapsed() >= idle;
+            let quiet = self.quiet_for() >= idle;
             // Every close says why at info: a kept circuit that ends early costs the next dial a
             // whole new handshake (0.6 s against 0.07 s), and the reason was debug-only.
             let why = if owner.upgrade().is_none() {
@@ -769,6 +788,8 @@ pub(crate) struct Kept {
     /// A failed reopen waits until then, doubling to [`REOPEN_BACKOFF_MAX`].
     pub(crate) reopen_at: Option<Instant>,
     pub(crate) reopen_wait: Duration,
+    /// The slot is held (`hub_carrier_hold.rs`): every circuit opened on it is held.
+    pub(crate) held: bool,
 }
 
 /// The longest wait between two tries to open a kept circuit again that ended under its dialer.
@@ -792,6 +813,19 @@ impl KeptCircuits {
             .clone()
     }
 
+    /// Whether a kept circuit to `daemon` on `lane` is open now, so a stream on it costs the
+    /// relay no new circuit. A slot mid-open (locked) counts as not open; no slot is made.
+    pub(crate) fn has_live(&self, daemon: &str, lane: Lane) -> bool {
+        let slot = {
+            let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+            match by_machine.get(&(daemon.to_owned(), lane)) {
+                Some(slot) => slot.clone(),
+                None => return false,
+            }
+        };
+        slot.try_lock().is_ok_and(|kept| kept.live.as_ref().is_some_and(|mux| !mux.is_closed()))
+    }
+
     /// Drop every kept circuit (a rekey: the far machines pinned the old key).
     pub(crate) fn clear(&self) {
         let all = std::mem::take(&mut *self.by_machine.lock().unwrap_or_else(|e| e.into_inner()));
@@ -805,6 +839,44 @@ impl KeptCircuits {
                 );
             }
         }
+    }
+
+    /// Machines with a slot, live circuit or not.
+    #[cfg(test)]
+    pub(crate) fn slots(&self) -> usize {
+        self.by_machine.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    /// Drop every slot that holds nothing a dial would read: no circuit, or one closed for good
+    /// (idled out, its carrier gone: never opened again), no hold, and no refusal or reopen wait
+    /// still running. A slot a dial holds now (locked, or its `Arc` taken) stays.
+    ///
+    /// Without it a slot stayed for every machine ever dialed, its closed circuit and that
+    /// circuit's link with it: on a daemon that brokers for short-lived VMs, every VM ever made
+    /// is one (2026-11-27: a control host's daemon at 2.5 GB, VMs recreated all day). A dropped slot is
+    /// made again, empty, by the next dial, as the first dial made it, so nothing but memory
+    /// changes. Returns how many went.
+    pub(crate) fn prune(&self) -> usize {
+        let now = Instant::now();
+        let mut by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+        let before = by_machine.len();
+        by_machine.retain(|_, slot| {
+            // `by_machine`'s own reference is the one; any other is a dial or a pass using it.
+            if Arc::strong_count(slot) > 1 {
+                return true;
+            }
+            let Ok(mut kept) = slot.try_lock() else { return true };
+            if kept.live.as_ref().is_some_and(|mux| mux.is_closed() && !mux.wants_reopen()) {
+                kept.live = None;
+            }
+            let waiting = |until: Option<Instant>| until.is_some_and(|at| now < at);
+            kept.live.is_some()
+                || kept.held
+                || waiting(kept.no_mux_until)
+                || waiting(kept.no_acpmux_until)
+                || waiting(kept.reopen_at)
+        });
+        before - by_machine.len()
     }
 
     /// Every machine's slot whose kept circuit ended under it and wants opening again.

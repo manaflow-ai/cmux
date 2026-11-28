@@ -65,7 +65,7 @@ fn name(request: &Value) -> Result<Value, OpError> {
     })
 }
 
-fn exception_keys(root: &Value) -> BTreeSet<String> {
+pub(super) fn exception_keys(root: &Value) -> BTreeSet<String> {
     let schema = Schema::embedded();
     exceptions_in(root)
         .into_iter()

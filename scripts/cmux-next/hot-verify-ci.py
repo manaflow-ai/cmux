@@ -248,6 +248,13 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     step = read_json(out / "step.json")
     if step.get("needs_build") or receipt.get("plan", {}).get("needs_build"):
         return {"needs_build": True, "staged": [], "withheld": []}
+    # The worker's plan found nothing to look at (hq hot_verify_run.py `nothing`: e.g. "the app already contains
+    # SHA", a merge look whose NIGHTLY already ships the merge): a result, not a missing receipt. It failed `post the
+    # look` as "the receipt has no hot-verify marker" (runs 46054808380, 46008620288, 46007530167, 2026-11-27).
+    if step.get("nothing") and not receipt.get("marker"):
+        notes = (read_json(out / "plan.json").get("notes") or [])
+        reason = "; ".join(str(note) for note in notes if isinstance(note, str))[:300] or "nothing to look at"
+        return {"needs_build": False, "nothing": True, "reason": reason, "staged": [], "withheld": []}
     if not receipt.get("marker") and step.get("error"):
         raise NoReceipt(worker_stop(step))
     check_marker(receipt, head)
@@ -391,6 +398,8 @@ def render(out: Path, pr: int, head: str, repo: str = REPO, uploaded: list[str] 
 QUOTA_WAIT_SECONDS = 1800
 QUOTA_RETRY_SECONDS = 60  # a secondary limit, or the reset unreadable: try again after this
 RATE_LIMITED = re.compile(r"rate limit", re.IGNORECASE)
+GH_TIMEOUT_SECONDS = 120
+GH_TIMEOUT_ATTEMPTS = 3  # one initial call and at most two retries for an idempotent read
 
 
 def quota_wait() -> float:
@@ -404,10 +413,45 @@ def quota_wait() -> float:
     return max(5.0, reset - time.time() + 5) if remaining == 0 else QUOTA_RETRY_SECONDS
 
 
+def gh_read_only(args: tuple[str, ...], body: str | None) -> bool:
+    """Whether a timed-out call can be retried without risking a duplicate GitHub write."""
+    if body is not None:
+        return False
+    return not any(arg in {"-X", "--method", "--input", "--field", "--raw-field", "-f"} for arg in args)
+
+
+def gh_timeout_tokens() -> list[str]:
+    """The alternate identities a timed-out read may try, without exposing tokens in logs."""
+    current = os.environ.get("GH_TOKEN", "")
+    return list(dict.fromkeys(token for token in (
+        os.environ.get("GH_TOKEN_SPARE", ""), *os.environ.get("GH_TOKEN_SPARES", "").split()
+    ) if token and token != current))
+
+
 def gh(*args: str, body: str | None = None) -> str:
     waited = 0.0
+    timed_out = 0
+    alternate_tokens = gh_timeout_tokens()
+    retry_env = None
+    read_only = gh_read_only(args, body)
     while True:
-        done = subprocess.run(["gh", *args], input=body, capture_output=True, text=True, timeout=120)
+        try:
+            done = subprocess.run(["gh", *args], input=body, capture_output=True, text=True,
+                                  timeout=GH_TIMEOUT_SECONDS, env=retry_env)
+        except subprocess.TimeoutExpired as error:
+            what = f"gh {args[0]} {args[1] if len(args) > 1 else ''}"
+            timed_out += 1
+            if not read_only or timed_out >= GH_TIMEOUT_ATTEMPTS:
+                raise Refused(f"{what} timed out after {GH_TIMEOUT_SECONDS}s on attempt {timed_out}") from error
+            if timed_out <= len(alternate_tokens):
+                retry_env = os.environ.copy()
+                retry_env["GH_TOKEN"] = alternate_tokens[timed_out - 1]
+                identity = "an alternate GitHub token"
+            else:
+                retry_env = None
+                identity = "the original GitHub token"
+            print(f"hot-verify-ci: {what} timed out; retrying the read with {identity}", file=sys.stderr)
+            continue
         if done.returncode == 0:
             return done.stdout
         why = (done.stderr or "").strip()[:300]

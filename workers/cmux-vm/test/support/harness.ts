@@ -16,12 +16,13 @@ import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedR
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
 import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
+import type { CreateAdmissionClient } from "../../src/limits/create-admission.ts";
 import { memoryReplicaLayer, type ReplicaStore } from "../../src/replica/store.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements, entitlementsFromPolicyLayer } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
-import { makeUpstreamClient } from "../../src/upstream/live.ts";
+import { makeUpstreamClient, upstreamConfigOf } from "../../src/upstream/live.ts";
 import { parseVmImages, VmImages } from "../../src/upstream/live-images.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
@@ -37,6 +38,8 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  /** The provider create queue the upstream client asks before each create send (src/limits/create-admission.ts); none by default. */
+  readonly createAdmission?: CreateAdmissionClient;
   /** The dated-version compat table the API serves (`Cmux-Api-Version`); default the Worker's own. */
   readonly apiVersions?: ApiVersionTable;
   readonly limits?: Layer.Layer<TenantLimits>;
@@ -129,7 +132,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
   // The Worker names its provider resources with the same environment its policy runs in.
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1 });
+  const upstreamClient = makeUpstreamClient(upstreamConfigOf({ baseUrl: UPSTREAM_URL, apiKey: UPSTREAM_KEY, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) }));
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -452,7 +455,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1 }));
+      Object.assign(upstreamClient, makeUpstreamClient(upstreamConfigOf({ baseUrl, apiKey, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) })));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,

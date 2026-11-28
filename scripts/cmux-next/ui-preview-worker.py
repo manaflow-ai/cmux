@@ -3,7 +3,7 @@
 before and after, and hands them to the agent that pushed, with no app build and no agent action.
 
     ui-preview-worker.py serve --state DIR [--bind ADDR] [--port 8765] [--public URL] [--send CMD]
-                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--follow]
+                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--swift-peer URL] [--follow]
     ui-preview-worker.py once --state DIR [REQUEST.json|-] [--send CMD] [--public URL]
     ui-preview-worker.py warm --state DIR
     ui-preview-worker.py submit --to http://HOST:PORT [REQUEST.json|-]
@@ -14,6 +14,10 @@ long-poll; cmuxterm-hq tools/lane-gh-broker/parts/49-calls-ui-preview.py), so a 
 POST. The last seq taken is kept in DIR/follow-seq; a first start begins at the broker's newest, not its backlog.
 --no-swift makes a web-only worker (a Linux host with no display or Xcode): it warms and shoots the web side only,
 takes from the broker only requests with a web file, and names a request's Swift scenes as not shot here.
+--swift-peer URL (with --no-swift) hands those Swift scenes to a display Mac's `serve` instead: a POST to URL/shoot
+({"sha", "scenes", "branch"}) answers each scene's PNG, base64, and this worker posts the look as before. The Mac needs
+Xcode, a display and the tailnet, but no lane-gh broker: no broker client is a Mac, so a Mac `--follow` never got a
+request, and every Swift push was a miss.
 `publish FILE HOST` writes FILE (the receipts) as ui-preview/HOST.json on cmuxterm-hq's now-census through the
 broker's state_put, which NOW's ui_preview.p95_push_to_post_s reads:
 `--publish-receipts 'python3 ui-preview-worker.py publish {file} {host}'`.
@@ -60,6 +64,7 @@ send) and `push_to_post_s`. Exit 0 posted, 1 failed, 2 usage.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import fnmatch
 import hashlib
@@ -77,6 +82,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -130,18 +136,23 @@ KEEP_H = 36
 PUBLISH_WINDOW_H = 25
 PUBLISH_MAX = 768 << 10
 PUBLISH_FILES = 8  # NOW asks only whether any is a UI path; the count stays as ui_files_n
-PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "posted_at", "error",
+PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "recipient_host", "posted_at", "error_posted_at", "error",
                   "synthetic")
 # Bounds, seconds.
 FETCH_SECONDS = 180
 COLD_BUILD_SECONDS = 45 * 60
 BUILD_SECONDS = 15 * 60
 SHOOT_SECONDS = 180
+# A peer's /shoot: its fetch, checkout, incremental build and shoot of one side (a cold build answers past it, and that
+# look names the timeout; the next push finds the Mac's .build warm).
+PEER_SECONDS = 10 * 60
 INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
 # The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
 GALLERY_RANKER = "webviews/scripts/gallery/touched.ts"
+STRINGS_GENERATOR = "scripts/pages/gen-strings.mjs"  # under webviews/; writes the gitignored generated/strings.json
 SEND_SECONDS = 60
+SEND_RETRY_S = 2  # between a HOST/NAME send that failed and the bare-NAME lookup after it
 PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
 # (objects/info/alternates), so a fetch from GitHub sends only what the mirror lacks and a checkout's blobs are local.
@@ -198,8 +209,33 @@ def tail(text, most: int = 400) -> str:
     return " ".join((text or "").split())[-most:]
 
 
+def send_targets(req: dict) -> list[str]:
+    """Whom a look's message goes to, in order: HOST/NAME when the request names the pushing session's host and the
+    recipient is a bare name, then the recipient as given."""
+    recipient, host = str(req["recipient"]), req.get("recipient_host")
+    if host and "/" not in recipient and SESSION.match(str(host)) and "/" not in str(host):
+        return [f"{host}/{recipient}", recipient]
+    return [recipient]
+
+
+def send_why(text) -> str:
+    """A send's refusal, its `send:` line first: lane-gh prints hints (a report's --state) before the refusal, and
+    the last 400 characters cut the refusal in half."""
+    lines = [ln.strip() for ln in (text.decode("utf-8", "replace") if isinstance(text, bytes) else text or "").splitlines()]
+    why = [ln for ln in lines if "send:" in ln and "reads faster" not in ln]
+    return tail(" ".join(why) if why else "\n".join(lines), 300)
+
+
 class LookError(Exception):
     pass
+
+
+class NoShotError(LookError):
+    """A look that ran and shot nothing: its errors say why."""
+
+
+# A touched.ts failure is the head's own code failing to load (a pusher's bug), not this worker's.
+PUSHER_ERROR = "touched.ts exited"
 
 
 def run(argv: list[str], cwd: Path | None = None, timeout: float = 120, env: dict | None = None,
@@ -313,6 +349,7 @@ class Gallery:
         self.lock = threading.Lock()  # the tree, its vite and its shooter: one side's checkout and shots at a time
         self.proc: subprocess.Popen | None = None
         self.lock_hash: str | None = None
+        self.strings_hash: str | None = None
         self.shooter: subprocess.Popen | None = None
         self.shooter_lines: "queue.Queue[str | None]" = queue.Queue()
         suffix = "" if name == "web" else f"-{name}"
@@ -353,15 +390,33 @@ class Gallery:
         return ids
 
     def install(self) -> bool:
-        """bun install when the lockfile changed since the last install; True when it ran."""
+        """bun install when the lockfile changed since the last install; True when it ran. Then the strings tables
+        when a catalog or their generator changed: generated/strings.json is gitignored build output that only
+        bun install's postinstall writes, so a push adding a catalog on an unchanged lockfile had no table and
+        touched.ts failed "Cannot find module '../generated/strings.json'" (3 looks on 11-27)."""
         lock = self.tree / "bun.lock"
         digest = git(self.tree, "hash-object", str(lock)) if lock.exists() else "none"
-        if digest == self.lock_hash and (self.tree / "webviews" / "node_modules").is_dir():
-            return False
-        run([self.worker.bun(), "install", "--frozen-lockfile"], cwd=self.tree / "webviews", timeout=INSTALL_SECONDS,
-            what="bun install")
-        self.lock_hash = digest
-        return True
+        ran = False
+        if digest != self.lock_hash or not (self.tree / "webviews" / "node_modules").is_dir():
+            run([self.worker.bun(), "install", "--frozen-lockfile"], cwd=self.tree / "webviews",
+                timeout=INSTALL_SECONDS, what="bun install")
+            self.lock_hash = digest
+            ran = True
+        strings = self.strings_digest()
+        if ran:
+            self.strings_hash = strings  # the postinstall wrote them
+        elif strings != self.strings_hash:
+            run([self.worker.bun(), STRINGS_GENERATOR, "--best-effort"], cwd=self.tree / "webviews",
+                timeout=INSTALL_SECONDS, what="gen-strings")
+            self.strings_hash = strings
+        return ran
+
+    def strings_digest(self) -> str:
+        """The checkout's string catalogs and their generator, as git names them (a tree read, no file hashing)."""
+        listed = git(self.tree, "ls-tree", "-r", "HEAD", "--", "webviews/src", f"webviews/{STRINGS_GENERATOR}")
+        return hashlib.sha256("".join(ln for ln in listed.splitlines(keepends=True)
+                                      if ".xcstrings" in ln or ln.rstrip().endswith(STRINGS_GENERATOR)).encode()
+                              ).hexdigest()
 
     def deps_dir(self, key: str | None = None) -> Path:
         return self.tree / "webviews" / "node_modules" / f".vite-{key or self.key or 'none'}"
@@ -555,6 +610,7 @@ class Worker:
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
         self.receipt_lock = threading.Lock()
         self.swift_on = True  # serve --no-swift: a web-only worker
+        self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes
         self.mirror = MIRROR if (MIRROR / "objects").is_dir() else None
         self.publisher = Publisher(self)
         self.newest: dict[str, tuple[float, str]] = {}  # branch -> (received, head) of its newest queued request
@@ -734,17 +790,20 @@ class Worker:
                 shots[shot["scene"]] = files[0]
         return shots
 
-    def swift_side(self, sha: str, scenes: list[str]) -> dict:
+    def swift_side(self, sha: str, scenes: list[str], branch: str | None = None) -> dict:
         """SHA's shell shots of SCENES, from the shot cache when this worker already took them, else checkout,
-        incremental build and shoot. {scene: path}."""
+        incremental build and shoot (here, or on the --swift-peer Mac). {scene: path}."""
         cache = self.state / "shots" / "swift" / sha
         have = {s: cache / f for s, f in (self._cached(cache)).items() if s in scenes}
         want = [s for s in scenes if s not in have]
         if want:
-            self.ensure_tree(self.swift_tree, SWIFT_SPARSE, sha)
-            self.build_shell()
             fresh = cache.with_name(f".{sha}.{os.getpid()}.{threading.get_ident()}")
-            shots = self.shoot_shell(want, fresh)
+            if self.swift_peer and not self.swift_on:
+                shots = self.peer_shoot(sha, want, fresh, branch)
+            else:
+                self.ensure_tree(self.swift_tree, SWIFT_SPARSE, sha)
+                self.build_shell()
+                shots = self.shoot_shell(want, fresh)
             merged = {**self._cached(cache), **shots}
             cache.mkdir(parents=True, exist_ok=True)
             for scene, name in shots.items():
@@ -753,6 +812,50 @@ class Worker:
             shutil.rmtree(fresh, ignore_errors=True)
             have.update({s: cache / shots[s] for s in want if s in shots})
         return have
+
+    def peer_shoot(self, sha: str, scenes: list[str], out: Path, branch: str | None = None) -> dict:
+        """The --swift-peer Mac's shell shots of SCENES at SHA, written into OUT; {scene: file} as shoot_shell."""
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir(parents=True)
+        body = json.dumps({"sha": sha, "scenes": scenes, "branch": branch}).encode()
+        request = urllib.request.Request(self.swift_peer.rstrip("/") + "/shoot", data=body,
+                                         headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=PEER_SECONDS) as answer:
+                doc = json.loads(answer.read())
+        except urllib.error.HTTPError as err:
+            raise LookError(f"the Swift peer {self.swift_peer} answered {err.code}: "
+                            f"{tail(err.read().decode(errors='replace'))}") from None
+        except (OSError, ValueError) as err:
+            raise LookError(f"the Swift peer {self.swift_peer} did not answer: {err}") from None
+        shots = {}
+        for scene, data in (doc.get("shots") or {}).items():
+            if scene in scenes and isinstance(data, str):
+                (out / f"{scene}.png").write_bytes(base64.b64decode(data))
+                shots[scene] = f"{scene}.png"
+        if not shots and doc.get("error"):
+            raise LookError(f"the Swift peer: {doc['error']}")
+        return shots
+
+    def peer_answer(self, ask) -> dict:
+        """What this display Mac answers a web worker's POST /shoot: SHA's shell shots of SCENES, base64."""
+        if not isinstance(ask, dict) or not SHA.match(str(ask.get("sha") or "")):
+            raise LookError("sha must be 40 hex")
+        scenes = ask.get("scenes")
+        if not isinstance(scenes, list) or not scenes or not set(scenes) <= set(ALL_SWIFT_SCENES):
+            raise LookError(f"scenes must be some of {', '.join(ALL_SWIFT_SCENES)}")
+        branch = ask.get("branch")
+        if branch is not None and not BRANCH.match(str(branch)):
+            raise LookError("branch is not a plain branch name")
+        if not self.swift_on:
+            raise LookError(f"this worker ({self.host}) shoots web scenes only")
+        self.ensure_clone()
+        self.fetch(ask["sha"], branches=(branch,))
+        with self.swift_lock:
+            shots = self.swift_side(ask["sha"], scenes)
+        return {"sha": ask["sha"], "shots": {s: base64.b64encode(Path(f).read_bytes()).decode()
+                                             for s, f in shots.items()}}
 
     @staticmethod
     def _cached(cache: Path) -> dict:
@@ -931,7 +1034,7 @@ class Worker:
     # One look.
     def new_receipt(self, req: dict) -> dict:
         receipt = {k: req.get(k) for k in ("repo", "head_sha", "base_sha", "branch", "pushed_at", "ui_files",
-                                           "recipient")}
+                                           "recipient", "recipient_host")}
         receipt.update(posted_at=None, scenes=[], worker=self.host, started_at=utc_now())
         if req.get("synthetic"):
             receipt["synthetic"] = True
@@ -973,6 +1076,8 @@ class Worker:
         except LookError as err:
             receipt["error"] = str(err)[:500]
             log(f"{req.get('head_sha', '')[:12]}: {receipt['error']}")
+            if isinstance(err, NoShotError) and PUSHER_ERROR in receipt["error"]:
+                self.post_error(req, receipt)
         receipt["stages"] = stages.seconds
         pushed, posted = parse_ts(receipt.get("pushed_at")), parse_ts(receipt.get("posted_at"))
         if pushed and posted:
@@ -1004,7 +1109,7 @@ class Worker:
         errors = []
         if planned["needs_build"]:
             pass  # The web side still shows; the shell is not built over Swift it does not hold (said below).
-        elif planned["swift"] and not self.swift_on:
+        elif planned["swift"] and not self.swift_on and not self.swift_peer:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
         elif planned["swift"]:
@@ -1013,7 +1118,7 @@ class Worker:
                     with stages("swift_before"):
                         before = self.swift_side(base, planned["swift"])
                     with stages("swift_after"):
-                        after = self.swift_side(head, planned["swift"])
+                        after = self.swift_side(head, planned["swift"], req.get("branch"))
                 pairs += [("swift", s, before.get(s), after.get(s)) for s in planned["swift"]]
             except LookError as err:
                 errors.append(f"swift: {err}")
@@ -1064,10 +1169,23 @@ class Worker:
         if errors:
             receipt["error"] = "; ".join(errors)[:500]
         if not any(s.get("before") and s.get("after") for s in scenes):
-            raise LookError(receipt.get("error") or "no scene was shot")
+            raise NoShotError(receipt.get("error") or "no scene was shot")
         with stages("send"):
-            self.send(req["recipient"], self.message(req, scenes, receipt))
+            receipt["sent_to"] = self.send(send_targets(req), self.message(req, scenes, receipt))
         receipt["posted_at"] = utc_now()
+
+    def post_error(self, req: dict, receipt: dict) -> None:
+        """Tells the pusher why its push has no pictures, when the why is in its own code (touched.ts could not
+        load the head: "already declared", a SyntaxError, merge markers; 10 silent looks on 11-27). posted_at stays
+        null (no pictures were posted); error_posted_at says the note landed, and only when it did."""
+        head = req["head_sha"][:12]
+        text = (f"UI preview of your push {head} ({req.get('branch') or 'no branch'}): no pictures, the gallery "
+                f"could not load this commit. Fix it and push again:\n{receipt['error']}\n")
+        try:
+            receipt["sent_to"] = self.send(send_targets(req), text)
+            receipt["error_posted_at"] = utc_now()
+        except LookError as err:
+            receipt["error"] = f"{receipt['error']}; the error note: {err}"[:500]
 
     def url(self, token: str, side: str, name: str) -> str:
         rel = f"looks/{token}/{side}/{name}"
@@ -1087,21 +1205,34 @@ class Worker:
             lines.append(f"Read one: d=$(mktemp -d) && curl -s -o \"$d/ui-preview-{head}.png\" URL, then open it (tailnet only).")
         return "\n".join(lines) + "\n"
 
-    def send(self, recipient: str, text: str) -> None:
-        """Hands TEXT to RECIPIENT with --send's command ({recipient} filled in, the text on stdin); with no --send,
-        writes it to outbox/ (a test)."""
+    def send(self, recipients, text: str) -> str:
+        """Hands TEXT to the first of RECIPIENTS that takes it, with --send's command ({recipient} filled in, the
+        text on stdin), and returns the one that did. The pushing session is named HOST/NAME first (the request's
+        recipient_host): a bare NAME makes `lane-gh send` look it up on every machine, and with any machine unread
+        it refuses ("no session named X on the machines read; unread: ..."), which dropped 33 posts on 11-27. The
+        bare NAME comes second, for a session that moved off its host since the push. With no --send, writes it to
+        outbox/ (a test)."""
+        if isinstance(recipients, str):
+            recipients = [recipients]
         if not self.send_template:
             box = self.state / "outbox"
             box.mkdir(exist_ok=True)
-            (box / f"{int(time.time() * 1000)}-{re.sub(r'[^A-Za-z0-9._-]', '_', recipient)}.txt").write_text(text)
-            return
-        argv = [a.replace("{recipient}", recipient) for a in shlex.split(self.send_template)]
-        try:
-            done = subprocess.run(argv, input=text, capture_output=True, text=True, timeout=SEND_SECONDS)
-        except (subprocess.TimeoutExpired, OSError) as err:
-            raise LookError(f"the send to {recipient} failed: {err}") from None
-        if done.returncode != 0:
-            raise LookError(f"the send to {recipient} exited {done.returncode}: {tail(done.stderr or done.stdout)}")
+            (box / f"{int(time.time() * 1000)}-{re.sub(r'[^A-Za-z0-9._-]', '_', recipients[0])}.txt").write_text(text)
+            return recipients[0]
+        errors = []
+        for attempt, recipient in enumerate(recipients):
+            if attempt:
+                time.sleep(SEND_RETRY_S)
+            argv = [a.replace("{recipient}", recipient) for a in shlex.split(self.send_template)]
+            try:
+                done = subprocess.run(argv, input=text, capture_output=True, text=True, timeout=SEND_SECONDS)
+            except (subprocess.TimeoutExpired, OSError) as err:
+                errors.append(f"the send to {recipient} failed: {err}")
+                continue
+            if done.returncode == 0:
+                return recipient
+            errors.append(f"the send to {recipient} exited {done.returncode}: {send_why(done.stderr or done.stdout)}")
+        raise LookError("; ".join(errors))
 
     # Receipts.
     def write_receipt(self, receipt: dict) -> None:
@@ -1274,6 +1405,14 @@ def make_handler(worker: Worker, jobs: "queue.Queue"):
             return self.reply(404, {"error": "not found"})
 
         def do_POST(self):
+            if self.path == "/shoot":
+                try:
+                    size = int(self.headers.get("Content-Length") or 0)
+                    return self.reply(200, worker.peer_answer(json.loads(self.rfile.read(min(size, 1 << 16)))))
+                except ValueError as err:
+                    return self.reply(400, {"error": str(err)})
+                except LookError as err:
+                    return self.reply(422, {"error": str(err)[:500]})
             if self.path != "/request":
                 return self.reply(404, {"error": "not found"})
             try:
@@ -1302,10 +1441,12 @@ FOLLOW_RETRY_S = 10  # after a failed call
 # ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
 # RESTART_S 5.
 TAKEOVER_S = 90
+# Where every worker's census copy is (answered_keys reads the predecessor's answers from it).
+CENSUS_REPO, CENSUS_REF, CENSUS_FOLDER = "manaflow-ai/cmuxterm-hq", "reconciler-state/now-census", "ui-preview"
 
 
-def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
-    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError. With a
+def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None, whole: bool = False):
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (any 2xx status), or LookError. With a
     REPO the JSON goes on stdin (`lane-gh call TOOL REPO -`): one argv string holds at most 128 KiB on Linux
     (MAX_ARG_STRLEN), and the census copy state_put carries runs to PUBLISH_MAX, so in argv every publish of a
     receipts file past 128 KiB failed with E2BIG and the host's census copy stood still for hours. A tool with no
@@ -1322,9 +1463,14 @@ def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None)
         answer = json.loads(done.stdout)
     except ValueError:
         raise LookError(f"lane-gh call {tool}: not JSON: {tail(done.stdout)}") from None
-    if not isinstance(answer, dict) or answer.get("status") != 200:
-        raise LookError(f"lane-gh call {tool}: not answered 200: {tail(json.dumps(answer))}")
+    # Any 2xx is an answer: state_put says 201 for a written commit, and reading only 200 as success logged
+    # "publish exited 1" for every census publish that landed, hiding the ones that really failed.
+    status = answer.get("status") if isinstance(answer, dict) else None
+    if not isinstance(status, int) or not 200 <= status < 300:
+        raise LookError(f"lane-gh call {tool}: not answered 2xx: {tail(json.dumps(answer))}")
     data = answer.get("data")
+    if whole:
+        return data  # a list answer too (a contents folder listing)
     return data if isinstance(data, dict) else {}
 
 
@@ -1370,13 +1516,54 @@ def replayed(worker: "Worker", req: dict) -> bool:
     every request pushed since: 2026-11-27 the second host took over at 01:18:28 and posted ten pushes the first had
     already handled, one of them 1,000 s after its push, and NOW keeps the later posted_at of a key, so a replay
     also turns a covered 25 s post into a 1,000 s one. A request pushed more than TAKEOVER_S before this worker
-    started was its predecessor's to post, which had longer than the whole 60 s goal to do it; within TAKEOVER_S it
-    may have been in flight when the predecessor stopped (the lease's TTL plus its probe, role_lease's stop and
-    restart), so it is taken. A replayed request gets no receipt here: the poster's receipt, or the trigger's
-    posted_at null one, stands."""
+    started was its predecessor's term; within TAKEOVER_S it may have been in flight when the predecessor stopped
+    (the lease's TTL plus its probe, role_lease's stop and restart), so it is taken. Whether a replayed request is
+    then skipped is answered_keys': only one a poster already answered."""
     pushed = parse_ts(req.get("pushed_at"))
     since = getattr(worker, "started_at", None)
     return pushed is not None and since is not None and (since - pushed).total_seconds() > TAKEOVER_S
+
+
+def answered(receipt) -> bool:
+    """A poster's receipt: the look reached its recipient (posted_at) or ended with why it did not (error). The
+    trigger's posted_at null receipt, and a look's own started one, are neither."""
+    return isinstance(receipt, dict) and bool(receipt.get("posted_at") or receipt.get("error"))
+
+
+def answered_keys(worker: "Worker", call=lane_gh_call) -> set | None:
+    """(repo, head_sha) of every request a poster already answered: this host's receipts file and every other
+    host's census copy (ui-preview/HOST.json on cmuxterm-hq reconciler-state/now-census, through the broker). None
+    when the census could not be read: the caller falls back to the time cutoff alone.
+
+    2026-11-27 03:48-04:19Z the worker was restarted every few minutes mid-backlog, and each new leader dropped
+    every request pushed more than TAKEOVER_S before it started as "its predecessor's", though the predecessor
+    had been stopped before posting them: they stayed uncovered. The skip has to ask whether the predecessor
+    answered, not only when the push was. A file over PUBLISH_MAX is a trigger's (the broker host's), whose
+    receipts are never answers, so it is not read; the rest are read by blob (a contents read of a file over 1 MB
+    has no body)."""
+    keys: set = set()
+    try:
+        own = json.loads(worker.receipts_path.read_text())
+        keys |= {(r.get("repo"), r.get("head_sha")) for r in own.get("receipts") or [] if answered(r)}
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        listing = call("get", {"path": f"contents/{CENSUS_FOLDER}", "query": {"ref": CENSUS_REF}},
+                       SEND_SECONDS, repo=CENSUS_REPO, whole=True)
+        if not isinstance(listing, list):
+            raise LookError(f"the census folder listing is not a list: {tail(json.dumps(listing))}")
+        for item in listing:
+            if not isinstance(item, dict) or item.get("name") == f"{worker.host}.json" \
+                    or not str(item.get("name", "")).endswith(".json") or (item.get("size") or 0) > PUBLISH_MAX:
+                continue
+            blob = call("get", {"path": f"git/blobs/{item['sha']}"}, SEND_SECONDS, repo=CENSUS_REPO)
+            doc = json.loads(base64.b64decode(blob.get("content") or ""))
+            keys |= {(r.get("repo"), r.get("head_sha")) for r in doc.get("receipts") or [] if answered(r)}
+    except (LookError, ValueError, KeyError, TypeError, AttributeError) as err:
+        log(f"follow: the census copies could not be read ({err}): a request pushed before this worker took the "
+            "role is skipped by its push time alone")
+        return None
+    return keys
 
 
 def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
@@ -1388,6 +1575,7 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
     newest = answer.get("seq") if isinstance(answer.get("seq"), int) else 0
     if after is None:
         return newest
+    answers: set | None = getattr(worker, "takeover_answers", None)
     for raw in answer.get("requests") or []:
         seq = raw.get("seq") if isinstance(raw, dict) else None
         if isinstance(seq, int):
@@ -1398,11 +1586,17 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
             log(f"follow: request {seq} not taken: {err}")
             continue
         if replayed(worker, req):
+            if answers is None and not getattr(worker, "takeover_read", False):
+                worker.takeover_read = True  # once per takeover: the first batch that has replayed requests
+                answers = worker.takeover_answers = answered_keys(worker, call)
+            if answers is None or (req["repo"], req["head_sha"]) in answers:
+                log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
+                    f"took the role: its predecessor's, not posted again")
+                continue
             log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
-                f"took the role: its predecessor's, not posted again")
-            continue
+                f"took the role, and no worker answered it: taken late")
         planned = plan(req["ui_files"])
-        if not worker.swift_on and not planned["web"] and not skip_reason(planned):
+        if not worker.swift_on and not worker.swift_peer and not planned["web"] and not skip_reason(planned):
             continue  # Swift scenes only: the display Mac's
         if enqueue(worker, jobs, req):
             log(f"follow: request {seq} {req['head_sha'][:12]} ({req.get('branch')}) queued for {req['recipient']}")
@@ -1433,6 +1627,7 @@ def follow(worker: "Worker", jobs: "queue.Queue", call=lane_gh_call) -> None:
 def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
     worker.swift_on = not args.no_swift
+    worker.swift_peer = args.swift_peer or ""
     bind = args.bind or tailnet_address() or "127.0.0.1"
     if not worker.public:
         worker.public = f"http://{bind}:{args.port}"
@@ -1577,6 +1772,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--port", type=int, default=8765)
             p.add_argument("--no-warm", action="store_true")
             p.add_argument("--no-swift", action="store_true", help="a web-only worker (no display, no Xcode)")
+            p.add_argument("--swift-peer", help="with --no-swift: the display Mac's serve URL (http://HOST:PORT) "
+                                                "that shoots the Swift scenes (POST /shoot)")
             p.add_argument("--follow", action="store_true",
                            help="take requests from the lane-gh broker's push trigger (ui_preview_requests)")
         else:

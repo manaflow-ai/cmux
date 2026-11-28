@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "resume-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
+    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "resume-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-offline-cover", "ws-terminal-composer", "ws-terminal-cancel-send", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "live-attach", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -223,6 +223,13 @@ struct DemoDriver {
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+        case "ws-chat-idle":
+            // The workspace's agent chat tab, as the app shows it, and nothing scripted after
+            // (SwipeBackWholePageUITests).
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
         case "ws-terminal-reattach":
             // The zsh tab, attached, then its link drops and stays down past the
             // quiet bound (`QuietStatusGate.threshold`): a reattach that is not a
@@ -235,6 +242,49 @@ struct DemoDriver {
             guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
             model.demoConnection(.reattaching(mac: "Demo Mac"))
             model.reconnect = { [weak model] in model?.demoConnection(.attached) }
+        case "ws-terminal-offline-cover":
+            // Leo, 2026-11-25 (elevator): "be able to still like interact with the rest of the app
+            // with that saved copy". The zsh tab, attached; its Mac goes offline at about 4 s and
+            // stays away past the quiet bound (the page keeps the saved copy, the pill says
+            // "Mac offline · updated …"); at about 20 s the page's Retry runs and it attaches again.
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+            await pause(1.5)
+            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+            model.demoConnection(.offline(mac: "Demo Mac"))
+            model.reconnect = { [weak model] in model?.demoConnection(.attached) }
+            await pause(16)
+            await model.reconnect?()
+        case "ws-terminal-outage":
+            // Leo, 2026-11-23: the "Keys typed while your Mac was unreachable were not
+            // sent." banner "shows up even when you didnt type into the terminal... it
+            // even layout shifts". The zsh tab, attached; the link drops and the
+            // session drops input the person never saw typed (keys in flight when the
+            // link fell); the link comes back. Then a composer send during a second
+            // drop that never reaches the Mac: its text comes back to the composer.
+            // TerminalUnsentKeysUITests: no notice row and no composer movement.
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+            await pause(3.0)
+            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+            model.demoConnection(.reattaching(mac: "Demo Mac"))
+            await pause(1.5)
+            model.demoInputDropped(bytes: 3)
+            await pause(1.5)
+            model.demoConnection(.attached)
+            await pause(2.0)
+            model.demoConnection(.reattaching(mac: "Demo Mac"))
+            await pause(0.5)
+            model.demoFillComposer("make test", attachments: false)
+            model.send()
+            await pause(1.5)
+            model.demoInputDropped(bytes: 9)
+            await pause(1.5)
+            model.demoConnection(.attached)
         case "ws-terminal-composer":
             // The zsh tab with a draft in the composer, for gallery captures
             // of its states: CMUX_MOBILE_DEMO_COMPOSER=short (one line),
@@ -267,6 +317,19 @@ struct DemoDriver {
             default:
                 model.demoFillComposer("Can you check why the build fails on the\nsecond step? The log is attached, and the\nscreenshots show the error dialog.", attachments: true)
             }
+        case "ws-terminal-cancel-send":
+            // The zsh tab with a draft and a large video whose upload moves at a fixed
+            // pace (CMUX_MOBILE_DEMO_UPLOAD_SECONDS, default 12), so Stop lands partway
+            // through the send (TerminalCancelMidSendUITests).
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(0.6)
+            guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+            shell.workspacesPath = [ws]
+            await pause(1.0)
+            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+            let seconds = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_UPLOAD_SECONDS"].flatMap(Double.init) ?? 12
+            model.demoSlowVideoSend(seconds: seconds)
         case "ws-terminal-kbd-toggles": await workspaceTerminalKeyboardToggles()
         case "ws-terminal-armed":
             // The zsh tab with a draft in the composer and Control armed: the
@@ -289,6 +352,7 @@ struct DemoDriver {
         case "onboarding": break  // driven by CmuxMobileOnboarding's script until the shell appears
         case "live": await live()
         case "live-terminal": await liveTerminal()
+        case "live-attach": await liveAttach()
         case "approve": await approve()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
@@ -858,6 +922,65 @@ struct DemoDriver {
         let known = CmuxMobileTerminalThemes.shared.theme(for: ws.macID)?.background ?? "none"
         step("live-terminal theme \(model.hostTheme?.background ?? "none"), known for its Mac \(known), state \(model.debugState)")
         step("live-terminal shown")
+    }
+
+    /// Live end to end (real Mac), the pair-e2e rig's attachment leg: a big video picked into the
+    /// first terminal's composer (`-CmuxMobileAttachE2EFile PATH`) uploads to the Mac with progress on
+    /// its tile; the rig screenshots at each `demo step: live-attach ...` line. Then the tile is removed
+    /// after Stop preserves the draft. The driver sends fresh text and reads its output from the terminal.
+    private func liveAttach() async {
+        step("live-attach start")
+        guard let path = UserDefaults.standard.string(forKey: "CmuxMobileAttachE2EFile") else { return step("live-attach no file") }
+        shell.tab = .workspaces
+        guard await until(120, { shell.live?.link.phase.isConnected == true }) else { return step("live-attach no link") }
+        guard await until(60, { shell.store.workspaces.contains { $0.tabs.contains { $0.kind == .terminal } } }),
+              let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .terminal } }),
+              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return step("live-attach no terminal") }
+        shell.store.requestOpen(tabID: tab.id, in: ws.id)
+        shell.workspacesPath = [ws]
+        await pause(2)
+        WorkspaceDemoDirector.shared.post(.activate(tab.id))
+        guard await until(30, { shell.terminalTabs.model(forTabID: tab.id) != nil }),
+              let model = shell.terminalTabs.model(forTabID: tab.id) else { return step("live-attach no model") }
+        await until(30) { model.connectionState.isAttached }
+        await pause(1.5)
+        step("live-attach ready")
+        model.demoAttachVideo(at: URL(fileURLWithPath: path))
+        step("live-attach tile added: \(model.attachments.count) attachment(s), \(model.demoUploadState())")
+        guard await until(180, { model.demoUploadAcked }) else {
+            return step("live-attach no progress: \(model.demoUploadState())")
+        }
+        step("live-attach progress \(model.demoUploadState())")
+        await pause(4)
+        step("live-attach progress-later \(model.demoUploadState())")
+        await pause(2)
+        guard model.demoUploadAcked else { return step("live-attach no in-flight upload to stop") }
+        let t0 = ContinuousClock.now
+        let draft = "Pending attachment"
+        model.composerText = draft
+        model.send()
+        guard model.isUploading else { return step("live-attach no pending send") }
+        model.cancelSend()
+        guard !model.isUploading, model.composerText == draft, model.attachments.count == 1,
+              model.demoUploadState() == "none" else { return step("live-attach no cancelled draft") }
+        model.demoRemoveFirstAttachment()
+        let nonce = String(UUID().uuidString.prefix(8))
+        let marker = "attach-\(nonce)"
+        // The echoed command line never contains the output marker, even when it wraps.
+        model.composerText = "echo attach-'\(nonce)'"
+        let free = model.attachments.isEmpty && !model.isUploading
+        model.send()
+        let ms = (ContinuousClock.now - t0).components.attoseconds / 1_000_000_000_000_000
+        guard await until(15, {
+            model.rowsForSaving()?.split(separator: "\n").contains {
+                $0.trimmingCharacters(in: .whitespaces) == marker
+            } == true
+        }) else { return step("live-attach no terminal-readback") }
+        step("live-attach cancelled-and-sent readback=\(marker) attachments=\(model.attachments.count) uploading=\(model.isUploading) composerFree=\(free) text=\(model.composerText.isEmpty ? "sent" : "NOT sent") in \(ms) ms")
+        await pause(3)
+        step("live-attach after-cancel \(model.demoUploadState())")
+        await pause(3)
+        step("live-attach shown")
     }
 
     /// Live end to end (real Mac): Mac online and connected, the daemon's

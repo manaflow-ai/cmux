@@ -3,6 +3,9 @@ import AppKit
 import Foundation
 import Testing
 
+// The API under test is DEBUG-only, so `swift test -c release` skips this file.
+#if DEBUG
+
 /// conn-quiet (Leo, 2026-11-14: connectivity should "shut the f*** up and load faster"): a
 /// Cloud desktop that reconnects over its last frame says nothing until it has tried for
 /// ``RemotePaneState/reconnectNoticeDelay``, and a path that closed under a live picture comes
@@ -146,3 +149,4 @@ import Testing
         pane.stop()
     }
 }
+#endif

@@ -696,11 +696,17 @@ class RealWorkflow(unittest.TestCase):
         expected = [s["id"] for s in self.job["steps"] if "run" in s and not s["id"].startswith("setup-")]
         self.assertEqual([s.key for s in decision.steps], expected)
 
-    def test_an_iphone_swift_change_runs_the_placeholder_bounds_step(self):
-        decision = tooling_steps.route(ROOT, ".github/workflows/cmux-next-guards.yml", "tooling-tests",
-            ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift"], "pull_request")
-        step = next(s for s in decision.steps if s.key == "tt-ios-placeholder-bounds")
-        self.assertTrue(step.run, step.reason)
+    def test_the_placeholder_bounds_check_is_its_own_job_on_every_head(self):
+        # ios-placeholder-bounds (Leo, 2026-11-24) left tooling-tests for a job of its own name, so land-judge's
+        # required list can name its check run; it runs on every pull request, never routed or land-tier skipped.
+        for workflow in (".github/workflows/cmux-next-guards.yml", ".github/workflows/cmux-next-tooling-tests-batch.yml"):
+            decision = tooling_steps.route(ROOT, workflow, "tooling-tests",
+                ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift"], "pull_request")
+            self.assertNotIn("tt-ios-placeholder-bounds", [s.key for s in decision.steps], workflow)
+        job = self.document["jobs"]["ios-placeholder-bounds"]
+        self.assertEqual(job["name"], "ios-placeholder-bounds")
+        self.assertNotIn("CI_LAND_TIER", job["if"])
+        self.assertIn("python3 -I tests/test_ios_placeholder_bounds.py", [s.get("run") for s in job["steps"]])
 
     def test_cmux_57119s_files_run_the_license_gate_test_in_both_jobs(self):
         # cmux#57119's diff (merge 19a767c7c0b1): it changed the license gate's allowlist and not the test that pins

@@ -5,7 +5,7 @@ declare const Bun: {
 };
 import { spawn } from "node:child_process";
 import { runChild } from "./helpers/run-child";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -52,6 +52,7 @@ import {
   devboxSourceManifest,
   devboxTeamKindDefaultCommand,
   devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeTeamCloneCheckCommand,
   devboxWorkUserCmuxConfigDirCommand,
   devboxClaudeSettingsDefaultsCommand,
   devboxClaudeSettingsDefaultsCheckCommand,
@@ -1210,7 +1211,7 @@ test "$daemon_pid" = fixture
     expect(bake).toContain(
       'await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);',
     );
-    expect(readScript("verify-devbox-image.ts")).toContain("  devboxClaudeTeamOnboardingCheckCommand(),");
+    expect(readScript("verify-devbox-image.ts")).toContain("  devboxClaudeTeamCloneCheckCommand(),");
   });
 
   test("the Claude team seed check passes on the seed and fails on the config a Claude start rewrote", async () => {
@@ -1255,6 +1256,54 @@ test "$daemon_pid" = fixture
         }),
         { mode: 0o600 },
       );
+      expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the clone's Claude team check takes the warm pool's start after resume and refuses ids from the bake", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-claude-team-clone-"));
+    try {
+      const homes = [path.join(root, "root"), path.join(root, "work")];
+      const configs = homes.map((home) => path.join(home, ".config/cmux/claude-team/.claude.json"));
+      const stamp = path.join(root, "image-stamp");
+      writeFileSync(stamp, "cmux-devbox test\n");
+      const bakedAt = new Date("2026-11-27T06:48:35Z");
+      utimesSync(stamp, bakedAt, bakedAt);
+      const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), ...configs], {
+        env: { ...process.env, ANTHROPIC_API_KEY: "cmux-vm-edge-placeholder" },
+      });
+      expect(seeded.status).toBe(0);
+      const check = devboxClaudeTeamCloneCheckCommand(homes, stamp);
+      expect((await runChild("/bin/sh", ["-c", check])).stdout).toContain("claude-team-onboarding-ok");
+      // The work user's file as rebake 45947789684's verify read it: the warm
+      // pool's Claude started 8 s after resume and dropped `theme`.
+      const started = (firstStartTime: string) =>
+        writeFileSync(
+          configs[1],
+          JSON.stringify({
+            customApiKeyResponses: { approved: ["-vm-edge-placeholder"], rejected: [] },
+            hasCompletedOnboarding: true,
+            projects: { "/": { hasTrustDialogAccepted: true } },
+            firstStartTime,
+            machineID: "m",
+            userID: "u",
+          }),
+          { mode: 0o600 },
+        );
+      started("2026-11-27T06:57:31.874Z");
+      const resumed = await runChild("/bin/sh", ["-c", check]);
+      expect(resumed.stdout).toContain("claude-team-onboarding-ok");
+      expect(resumed.status).toBe(0);
+      // Ids from a start before the stamp came from the bake: every clone shares them.
+      started("2026-11-27T06:40:00.000Z");
+      expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+      // Ids with no start time, or a lost trust entry, fail too.
+      writeFileSync(configs[1], JSON.stringify({ hasCompletedOnboarding: true, theme: "dark", projects: { "/": { hasTrustDialogAccepted: true } }, customApiKeyResponses: { approved: ["-vm-edge-placeholder"] }, userID: "u" }), { mode: 0o600 });
+      expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+      started("2026-11-27T06:57:31.874Z");
+      chmodSync(configs[1], 0o644);
       expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });

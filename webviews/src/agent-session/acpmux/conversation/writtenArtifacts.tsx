@@ -8,6 +8,8 @@ import { useExperimentSwitch } from "../../../experiments/switches";
 import { ArtifactContext, type Artifact } from "./artifactPreview";
 import { toolArtifacts } from "./artifactWrites";
 import { isMarkdownPath } from "./writtenArtifactsModel";
+import { Tooltip } from "../../../ui/Tooltip";
+import { Button } from "../../../ui/Button";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -40,24 +42,27 @@ export function WrittenArtifactButtons({ tools }: { tools: readonly Tool[] }) {
     <div>
       {artifacts.map((artifact, index) => (
         <span key={`${artifact.path}:${index}`}>
-          <button
+          <Button
+            bare
             type="button"
             className="acpmux-review-changes"
             aria-label={t("artifact.open")}
             onClick={() => open(artifact)}
           >
             {t("artifact.open")} · {artifact.path?.split("/").pop()}
-          </button>
+          </Button>
           {beside && opensBeside(artifact) && (
-            <button
-              type="button"
-              className="acpmux-review-changes"
-              aria-label={t("artifact.openBeside")}
-              title={artifact.path}
-              onClick={() => void openBeside(artifact, open)}
-            >
-              {t("artifact.openBeside")}
-            </button>
+            <Tooltip label={artifact.path}>
+              <Button
+                bare
+                type="button"
+                className="acpmux-review-changes"
+                aria-label={t("artifact.openBeside")}
+                onClick={() => void openBeside(artifact, open)}
+              >
+                {t("artifact.openBeside")}
+              </Button>
+            </Tooltip>
           )}
         </span>
       ))}
@@ -76,14 +81,16 @@ export function OpenWrittenMarkdown({ path }: { path: string }) {
   if (!isMarkdownPath(path)) return null;
   const name = path.split("/").pop() ?? path;
   return (
-    <button
-      type="button"
-      className="acpmux-review-changes acpmux-edited-open"
-      aria-label={`${t("artifact.open")} · ${name}`}
-      title={path}
-      onClick={() => void callChipHost("link.openPath", { path })}
-    >
-      {t("artifact.open")}
-    </button>
+    <Tooltip label={path}>
+      <Button
+        bare
+        type="button"
+        className="acpmux-review-changes acpmux-edited-open"
+        aria-label={`${t("artifact.open")} · ${name}`}
+        onClick={() => void callChipHost("link.openPath", { path })}
+      >
+        {t("artifact.open")}
+      </Button>
+    </Tooltip>
   );
 }

@@ -53,6 +53,9 @@ SETTINGS_INPUTS = (
     r"|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py$"
     # A settings row is its JSON source; the SwiftPM plugin writes the Swift (#50929).
     r"|schemas/settings/source/|scripts/cmux-next/gen-settings-sources\.py$"
+    # The backdrop art's artist and collection (linux-exports/swift_data.py reads them from the manifest: the
+    # build writes BackdropArt+Entries.swift, BackdropArtEntriesPlugin).
+    r"|art/manifest\.json$"
 )
 
 
@@ -69,8 +72,12 @@ def _settings_exports() -> tuple[str, ...]:
 
 SETTINGS_EXPORTS = _settings_exports()
 SDK_INPUTS = r"cmux-tui/spec/|cmux-tui/bindings/codegen/"
+DAEMON_ABI_INPUTS = (r"cmux-tui/spec/|cmux-tui/crates/cmux-api-compat/"
+                     r"|cmux-tui/(Cargo\.(toml|lock)|rust-toolchain\.toml)$")
 CAPABILITY_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift$"
+    r"|cmux-tui/spec/gui-capabilities\.json$"
+    r"|scripts/cmux-next/gen-daemon-capabilities\.py$"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift$"
     r"|scripts/cmux-next/check-daemon-capabilities-fresh\.py$"
     r"|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh$"
@@ -113,6 +120,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      r"cmux-tui/spec/resource-operations-v2\.json$|backend/catalog/cloud-operations\.json$|first-party-apps/"
      r"|cmux-tui/crates/cmux-app-host/(tools|schema)/|" + ACTIONS_INPUTS,
      "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts"),
+    (("cmux-tui/spec/api-compat.surface.json",), DAEMON_ABI_INPUTS,
+     "cd cmux-tui && cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write (the autofix)"),
     (("cmux-tui/bindings/*.cmux-sdk-manifest.json",
       "cmux-tui/bindings/python/cmux/raw/_generated/*", "cmux-tui/bindings/cpp/include/cmux/raw/generated/*",
       "cmux-tui/bindings/cpp/src/raw/generated/*", "cmux-tui/bindings/go/raw/generated_*.go",

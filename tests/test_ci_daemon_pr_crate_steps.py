@@ -31,9 +31,9 @@ STEP = "cmux-next-daemon-crates"
 # Gate members whose cmux_next_ tests the step does not run, and why. A member that gains a cmux_next_ test is
 # added to the step (when its compile is small) or here.
 POST_MERGE = {
-    "acpmux": "its lib and test targets compile most of the workspace (minutes cold); the gate's own step",
-    "cmux-tui-core": "its lib tests compile ghostty-vt with Zig and most of the workspace; the gate's own step",
-    "cmux-tui": "its test targets build the daemon binary over cmux-tui-core; the gate's own step",
+    "acpmux": "its lib and test targets compile most of the workspace; step cmux-next-acpmux (its own files)",
+    "cmux-tui-core": "its lib tests compile ghostty-vt with Zig and most of the workspace; step cmux-next-tui-core",
+    "cmux-tui": "its test targets build the daemon binary over cmux-tui-core; step cmux-next-tui",
     "cmux-config": "its published_keys test is the settings-published-keys step's (named settings files)",
     "cmux-vmd": "no test name of it matches cmux_next_ (the filter runs none of its tests)",
 }

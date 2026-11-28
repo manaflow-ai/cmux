@@ -19,6 +19,19 @@ name: cmux machine channel
 # held the group to 21:09Z, and the next build started 21:11Z. Merge-to-channel was p50 45.7 min, p90 112 over 800
 # pushes (10:43-21:13Z, scripts/ci/cmux_machine_channel_latency.py); a stage's group frees when its stage ends.
 #
+# TWO_BUILD_LANES: each target's build group is split in two by run_number parity (plan's lane output), so two
+# thin builds per target run staggered. With one group
+# the builds ran back to back (00:29-00:46, 00:46-01:05, 01:05-01:25 failed on a full runner disk, 01:25-01:40Z
+# 2026-11-27) and a merge waited for the running build plus its own: p50 36.3 min, max 53.5 over 100 merges
+# (00:15-01:24Z), 3 points carried all 100, and one failed build held every merge a whole extra cycle. The point
+# group stays one per ref and the point is forward-only, so a lane that finishes an older commit late never moves
+# the channel back. Cost: up to two thin builds per target at a time instead of one.
+#
+# FREE_LANE: three lanes, and the plan picks one (scripts/ci/cmux_machine_channel_lane.py): a lane with no x86_64
+# build, else the one whose build started first. By parity a push waited for its own lane's build, half a leg
+# (about 7.5 min of 15) on average, even with the other lane idle; the sooner of three staggered lanes is about
+# a sixth of a leg. Cost: up to three thin builds per target at a time.
+#
 # LINUX_X86_64_FIRST (cmux#55570): each thin musl target is its own build call, so point-x86_64 moves
 # the channel for x86_64 machines when that leg is done, and an aarch64 failure never holds it back;
 # point-linux adds aarch64 once both legs pass (web-ota-pointer.py newer's completes rule). In run
@@ -99,6 +112,7 @@ jobs:
       from_run: ${{ steps.plan.outputs.from_run }}
       x86_64_target_set: ${{ steps.plan.outputs.x86_64_target_set }}
       aarch64_target_set: ${{ steps.plan.outputs.aarch64_target_set }}
+      lane: ${{ steps.plan.outputs.lane }}
       lto: ${{ steps.plan.outputs.lto }}
       artifact_prefix: ${{ steps.plan.outputs.artifact_prefix }}
     steps:
@@ -186,14 +200,20 @@ jobs:
             fi
           fi
           echo "build=$build" >> "$GITHUB_OUTPUT"
+          # FREE_LANE (see the header): a free build lane, else the one that frees first; run_number % 3 when
+          # the read fails.
+          lane="$(GH_TOKEN="$GH_TOKEN" scripts/ci/timeout.sh 60 python3 -I scripts/ci/cmux_machine_channel_lane.py pick)" || lane=""
+          [[ "$lane" =~ ^[0-2]$ ]] || lane=$(( GITHUB_RUN_NUMBER % 3 ))
+          echo "lane=$lane" >> "$GITHUB_OUTPUT"
 
   build-x86_64:
-    # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
-    name: build-machine-channel
+    # Shows as "build-machine-channel x86_64 lane N / build TARGET" on a push (FREE_LANE: the plan's lane reader
+    # matches "build-machine-channel x86_64 lane N"), "build-machine-channel / build TARGET" on a pull request.
+    name: ${{ github.event_name == 'push' && format('build-machine-channel x86_64 lane {0}', needs.plan.outputs.lane) || 'build-machine-channel' }}
     needs: plan
     # A push's stage group (see the header); a pull request's run is already one group of its own.
     concurrency:
-      group: cmux-machine-channel-build-x86_64-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
+      group: cmux-machine-channel-build-x86_64-${{ github.event_name == 'push' && format('{0}-lane{1}', github.ref, needs.plan.outputs.lane) || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
     # The router's answer on a pull request (plan skipped), else plan's.
     if: ${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' }}
@@ -221,12 +241,12 @@ jobs:
       linux_runner: cmux-linux
 
   build-aarch64:
-    # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
-    name: build-machine-channel
+    # Shows as "build-machine-channel aarch64 lane N / build TARGET" on a push, as build-x86_64.
+    name: ${{ github.event_name == 'push' && format('build-machine-channel aarch64 lane {0}', needs.plan.outputs.lane) || 'build-machine-channel' }}
     needs: plan
     # A push's stage group (see the header); a pull request's run is already one group of its own.
     concurrency:
-      group: cmux-machine-channel-build-aarch64-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
+      group: cmux-machine-channel-build-aarch64-${{ github.event_name == 'push' && format('{0}-lane{1}', github.ref, needs.plan.outputs.lane) || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
     # The router's answer on a pull request (plan skipped), else plan's.
     if: ${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' }}

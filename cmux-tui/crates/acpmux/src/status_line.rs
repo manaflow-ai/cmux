@@ -171,10 +171,11 @@ fn run_blocking(command: &str, cwd: &Path, body: &[u8]) -> Result<String, String
         if n == 0 {
             break;
         }
-        out.extend_from_slice(&buf[..n.min(MAX_READ - out.len())]);
+        let room = n.min(MAX_READ.saturating_sub(out.len()));
+        out.extend_from_slice(buf.get(..room).unwrap_or_default());
         // The first line with text is all that shows: stop once a whole one is in.
         if let Some(at) = out.iter().rposition(|b| *b == b'\n')
-            && !first_line(&out[..at]).is_empty()
+            && !first_line(out.get(..at).unwrap_or_default()).is_empty()
         {
             break;
         }

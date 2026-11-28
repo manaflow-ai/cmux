@@ -170,7 +170,7 @@ class NightlyJobSdkroot(unittest.TestCase):
             "refresh-compilation-cache", "refresh-test-compilation-cache", "build-nightly-ghostty-cli-helper",
             "build-nightly-app", "build-sign-notarize-nightly", "verify-signed-nightly",
             "verify-final-dmg-nightly", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
-            "visual-gate-nightly", "build-nightly-deltas", "generate-nightly-deltas", "nightly-next-one", "nightly-next-pkg",
+            "visual-gate-nightly", "build-nightly-deltas", "generate-nightly-deltas", "nightly-next-one", "nightly-next-deltas", "nightly-next-pkg",
             "build-live-code-variant", "sign-live-code-variant",
         ]))
 

@@ -1291,7 +1291,8 @@ pub struct TitlesConfig {
     /// then keeps its first-prompt title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
-    /// `model`: the Claude model of the default command. Default `haiku`.
+    /// `model`: the Claude model of the default command. Unset: the cmux setting
+    /// `agents.titles.model` (`model_settings.rs`), else `haiku`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
@@ -1340,6 +1341,26 @@ pub struct SessionResourceConfig {
 }
 
 impl SessionResourceConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// `remotePipe`: loopback services beside `remoteDaemon` that this person's other machines may
+/// reach over the hub carrier (`_acpmux/remote.pipe`, `cmux_tui_service.rs`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePipeConfig {
+    /// `remotePipe.ssh`: a circuit may also reach this machine's sshd on loopback port 22, so
+    /// ssh rides the carrier as a ProxyCommand (leo-workspace `tools/carrier-pipe`) with no
+    /// inbound port. `remoteDaemon` keeps its own port. Off by default; sshd still checks every
+    /// login, and a joined machine still needs its "control" consent. Set with
+    /// `acpmux config --set remote_pipe.ssh=true`.
+    #[serde(default)]
+    pub ssh: bool,
+}
+
+impl RemotePipeConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
@@ -1772,6 +1793,10 @@ pub struct Config {
     /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_daemon: Option<String>,
+    /// `remotePipe`: what else a circuit may reach beside `remoteDaemon`
+    /// (`cmux_tui_service.rs`). Off unless set.
+    #[serde(default, skip_serializing_if = "RemotePipeConfig::is_default")]
+    pub remote_pipe: RemotePipeConfig,
     /// `laneGhBroker`: the lane-gh broker's unix socket on this machine (its `socket`, e.g.
     /// `~/.cache/lane-gh-broker/broker.sock`), which the person's other machines reach as a
     /// carrier service, each its own `client-<machine>.sock` beside it (RFD 0127 cut 2,

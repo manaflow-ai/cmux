@@ -105,6 +105,8 @@ pub mod wake_echo;
 #[cfg(test)]
 mod wake_echo_tests;
 pub mod wire;
+#[cfg(test)]
+mod wire_origin_tests;
 pub mod workload;
 
 #[cfg(all(test, unix))]

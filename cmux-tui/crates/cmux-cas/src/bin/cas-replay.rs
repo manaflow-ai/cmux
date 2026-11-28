@@ -47,26 +47,33 @@ fn main() -> Result<()> {
         ms.push((m, t.elapsed().as_millis()));
     }
     let row = |from: usize, to: usize| -> Result<()> {
-        let (next, t) = &ms[to];
-        let want = plan::want_after(next, &[&ms[from].0]);
+        let (next, t) = ms.get(to).ok_or("missing destination manifest")?;
+        let (previous, _) = ms.get(from).ok_or("missing source manifest")?;
+        let from_dir = dirs.get(from).ok_or("missing source directory")?;
+        let to_dir = dirs.get(to).ok_or("missing destination directory")?;
+        let want = plan::want_after(next, &[previous]);
         let want_raw: u64 = want.iter().map(|c| u64::from(c.len)).sum();
-        let want_wire: u64 = want.iter().map(|c| wire[&c.id]).sum();
+        let want_wire = want.iter().try_fold(0u64, |total, c| -> Result<u64> {
+            Ok(total + wire.get(&c.id).ok_or("missing wanted chunk size")?)
+        })?;
         // One pack of the newest tree's chunks, in manifest order, as the floor would publish it.
         let mut placed = 0u64;
         let mut idx = pack::Index { pack: Some(next.id()?), entries: Vec::new() };
         for c in next.distinct_chunks() {
-            let len = wire[&c.id];
+            let len = *wire.get(&c.id).ok_or("missing packed chunk size")?;
             idx.entries.push(pack::Entry { id: c.id, offset: placed, len: u32::try_from(len)? });
             placed += len;
         }
         let (ranges, missing) = pack::ranges(&[idx], &want, pack::GAP);
-        assert!(missing.is_empty());
+        if !missing.is_empty() {
+            return Err("pack is missing wanted chunks".into());
+        }
         let range_bytes: u64 = ranges.iter().map(pack::Range::len).sum();
         let full = full.get(to).copied().unwrap_or_else(|| next.size());
         println!(
             "{}",
             serde_json::json!({
-                "behind": to - from, "from": dirs[from], "to": dirs[to], "full": full, "tree": next.size(),
+                "behind": to - from, "from": from_dir, "to": to_dir, "full": full, "tree": next.size(),
                 "want_raw": want_raw, "want_wire": want_wire, "ranges": ranges.len(),
                 "range_bytes": range_bytes, "pct_of_full": (range_bytes as f64) * 100.0 / (full as f64),
                 "ms": t,

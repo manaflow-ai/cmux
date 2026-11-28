@@ -149,7 +149,7 @@ async fn edit(hub: &Hub, s: &Arc<Session>, kind: Kind, n: u32) {
             hub.synced_record(title_key(&s.id), json!(s.meta().name));
         }
         Kind::Read => {
-            let read = n % 2 == 0;
+            let read = n.is_multiple_of(2);
             if read {
                 hub.mark_read_answered(s).unwrap();
             } else {
@@ -178,7 +178,7 @@ fn shows(s: &Session, kind: Kind) -> Value {
 fn expected(kind: Kind, n: u32) -> Value {
     match kind {
         Kind::Title => json!(format!("title-{n}")),
-        Kind::Read => json!(n % 2 == 0),
+        Kind::Read => json!(n.is_multiple_of(2)),
         Kind::Pin => json!(n % 2 == 1),
         Kind::Draft => json!(format!("draft {n}")),
     }
@@ -287,4 +287,23 @@ async fn an_offline_edit_crosses_on_reconnect() {
     assert!(lacking.entries.is_empty());
     let (_, lacking, _) = b.synced().pull(&a.synced().vv());
     assert!(lacking.entries.is_empty());
+}
+
+/// A pin or a draft set here is heard by a watcher (a peer daemon following this list) at once,
+/// with no list read after it. Before, each only waited for the next list read, which a peer never
+/// makes: the peer's row kept the old pin until some other change of the chat (two-daemon check).
+#[tokio::test]
+async fn a_pin_or_draft_is_told_to_watchers_with_no_list_read() {
+    let (hub, s) = hub_with_chat();
+    let mut events = hub.subscribe();
+    let told = |events: &mut tokio::sync::broadcast::Receiver<super::super::HubEvent>| {
+        std::iter::from_fn(|| events.try_recv().ok())
+            .any(|e| e.session_id == CHAT && e.record.kind == "row")
+    };
+    hub.set_pinned(&s, true).unwrap();
+    assert!(told(&mut events), "the pin is told with no list read");
+    hub.set_composer_draft(&s, "half a thought").unwrap();
+    assert!(told(&mut events), "the draft is told with no list read");
+    hub.set_pinned(&s, false).unwrap();
+    assert!(told(&mut events), "the unpin is told with no list read");
 }

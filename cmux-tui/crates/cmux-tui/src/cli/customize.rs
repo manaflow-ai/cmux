@@ -14,6 +14,7 @@
 
 mod ask;
 mod dir;
+mod docs;
 mod doctor;
 mod expire;
 mod library;
@@ -84,6 +85,10 @@ For an agent (the customize_* MCP tools are these verbs):
   cmux customize brief 'WISH'                 Open the draft and print what to edit and how; starts no chat
   cmux customize check                        Validate what is live, and mark your turn done
   cmux customize schema [PART]                Every key you can change (settings, theme, views, extensions); --typescript, --rust
+  cmux customize docs [SURFACE]               The reference for each surface (sidebar, theme, section, pane, ...),
+                                              written from this build, each with a working example
+  cmux customize prompts [NAME]               Copy-paste prompts for common goals: paste one into an agent, it
+                                              ends with `cmux ext dev --once --json` exit 0
   cmux customize tokens [list|show|test]      The design tokens and scales: list [GROUP], show NAME, test 14 [--as spacing]
   cmux customize components [list|show|test] The web kit's components: list [TIER], show NAME, test NAME '{\"prop\":1}'
 
@@ -128,6 +133,8 @@ const VERBS: &[&str] = &[
     "check",
     "ask",
     "schema",
+    "docs",
+    "prompts",
     "tokens",
     "components",
 ];
@@ -213,6 +220,14 @@ pub(super) enum Request {
     Schema {
         section: Option<Section>,
         format: SchemaFormat,
+    },
+    /// `docs [SURFACE]`: one surface's reference, or the list.
+    Docs {
+        surface: Option<String>,
+    },
+    /// `prompts [NAME]`: one copy-paste prompt, or the list.
+    Prompts {
+        name: Option<String>,
     },
     /// `tokens …`: the design tokens and scales (cmux_customize::kit).
     Tokens(cmux_customize::kit::Request),
@@ -316,6 +331,28 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "ask" => wish_of(rest).map(|(wish, options)| Request::Ask { wish, options }),
         "schema" => schema_of(rest),
+        "docs" | "doc" | "reference" => match rest {
+            [] => Ok(Request::Docs { surface: None }),
+            [name] if docs::surface_names().contains(&name.as_str()) => {
+                Ok(Request::Docs { surface: Some(name.clone()) })
+            }
+            [name] => Err(format!(
+                "{name:?} is not a surface; the surfaces are {}",
+                docs::surface_names().join(", ")
+            )),
+            [_, extra, ..] => Err(format!("customize docs takes one surface, got {extra:?} too")),
+        },
+        "prompts" | "prompt" => match rest {
+            [] => Ok(Request::Prompts { name: None }),
+            [name] if docs::prompt_names().contains(&name.as_str()) => {
+                Ok(Request::Prompts { name: Some(name.clone()) })
+            }
+            [name] => Err(format!(
+                "{name:?} is not a prompt; the prompts are {}",
+                docs::prompt_names().join(", ")
+            )),
+            [_, extra, ..] => Err(format!("customize prompts takes one name, got {extra:?} too")),
+        },
         // A wish is said in words: one quoted argument with a space in it, or
         // several words. One bare word is a verb, so a typo gets a suggestion
         // instead of an agent.
@@ -572,6 +609,16 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
         return Some(0);
     }
+    // The references and prompts are this build's embedded pages: no store either.
+    if let Some((text, answer)) = docs::answer(&request) {
+        if json_out {
+            println!("{answer}");
+        } else if global.output != OutputMode::Quiet {
+            print!("{}", text.trim_end());
+            println!();
+        }
+        return Some(0);
+    }
     // The kit reads built-in tables and the kit's manifest: no store either.
     if let Some(answer) = kit_answer(&request) {
         return Some(match answer {
@@ -641,6 +688,9 @@ pub(super) fn run_json(
     }
     if let Request::Schema { section, format } = request {
         return Ok(render::Answer::Schema(Schema::current(), section, format).json());
+    }
+    if let Some((_, answer)) = docs::answer(&request) {
+        return Ok(answer);
     }
     if let Some(answer) = kit_answer(&request) {
         return answer.map(|answer| answer.json()).map_err(|failure| failure.envelope());
@@ -851,6 +901,11 @@ pub(super) fn execute(
         Request::Doctor(request) => doctor::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
+        Request::Docs { .. } | Request::Prompts { .. } => {
+            return Err(Failure::usage(
+                "docs and prompts are answered before the store".to_owned(),
+            ));
+        }
         request @ (Request::Tokens(_) | Request::Components(_)) => kit_answer(&request)
             .unwrap_or_else(|| Err(Failure::usage("not a kit verb".to_owned())))?,
     })

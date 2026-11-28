@@ -94,7 +94,7 @@ public enum CmuxMobilePreferences {
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
-    /// On (Leo asked twice, 2026-11-25): `TerminalScrollDefault` holds the value Settings reads too.
+    /// Off again (iOS regression row 18, Aziz 2026-11-26, Leo "Ok"); `TerminalScrollDefault` holds the value Settings reads too.
     public static let defaultTerminalPlainScroll = TerminalScrollDefault.plainScroll
     public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false

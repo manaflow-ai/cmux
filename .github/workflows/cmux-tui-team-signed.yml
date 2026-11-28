@@ -241,7 +241,7 @@ jobs:
         run: ./scripts/ci/signing-runner-claim.sh
 
       - name: Download the unsigned helper
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: screen-sharing-helper-unsigned-${{ needs.plan.outputs.helper_key }}
           path: helper-unsigned
@@ -334,7 +334,7 @@ jobs:
           sparse-checkout: scripts/ci
 
       - name: Download the signed helper
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: screen-sharing-helper-signed-${{ needs.plan.outputs.helper_key }}
           path: helper-signed
@@ -475,7 +475,7 @@ jobs:
           sparse-checkout: scripts/ci
 
       - name: Download the signed set
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-tui-team-signed-${{ needs.plan.outputs.key }}
           path: team-signed

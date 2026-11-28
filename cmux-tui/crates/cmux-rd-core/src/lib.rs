@@ -21,6 +21,10 @@ pub mod packetize;
 pub mod policy;
 pub mod probe;
 pub mod profile;
+#[cfg(feature = "app")]
+pub mod rd_devices;
+#[cfg(feature = "app")]
+pub mod rd_hub;
 pub mod reassembly;
 pub mod resolution;
 pub mod screen_kit;

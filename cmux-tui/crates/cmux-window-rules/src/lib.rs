@@ -50,6 +50,15 @@
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
+//! - [`launch_recovery`]: how a launch follows the previous run (clean, a
+//!   restart with the notice, a safe restart after a restart loop).
+//! - [`keybind_route`]: which registry action a Ghostty keybind runs.
+//! - [`server`]: Add Server…'s headless approval (the code and the four
+//!   words) and the helper fix ledger Stop Serving reverts.
+//! - [`crash_report`]: the app's crash report objects, file names and
+//!   pruning, which log Show Crash Logs opens, and the restart cause line.
+//! - [`cloud_pairing`]: the cloud pairing calls' Worker bodies, how their
+//!   replies read, the hosts paging bound and which refusal a failure shows.
 //! - [`editors`]: the code editors Open in Editor knows and which one opens
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`empty_workspace`]: what happens to a workspace with no pane (its
@@ -65,6 +74,8 @@ pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod cloud_pairing;
+pub mod crash_report;
 pub mod desktop_announce;
 pub mod desktop_attention;
 pub mod desktop_bursts;
@@ -72,8 +83,11 @@ pub mod desktop_center;
 pub mod editors;
 pub mod empty_workspace;
 pub mod files;
+pub mod handlers_verbs;
 pub mod history;
+pub mod keybind_route;
 pub mod launch;
+pub mod launch_recovery;
 pub mod notification_policy;
 pub mod notification_rings;
 pub mod notifications;
@@ -82,6 +96,7 @@ pub mod remote;
 pub mod restore;
 pub mod right_column;
 pub mod screen_share;
+pub mod server;
 pub mod subagent_panes;
 pub mod tabs;
 pub mod targets;

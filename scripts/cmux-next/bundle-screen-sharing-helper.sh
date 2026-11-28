@@ -7,6 +7,8 @@
 #     Contents/MacOS/cmux-screen-sharing
 #     Contents/Info.plist   <app bundle id>.screen-sharing (every DEV build: com.cmuxterm.app.debug.screen-sharing),
 #                           LSUIElement, named "<app name> Helper"
+#     Contents/Resources/AppIcon.icns   the app's own icon (its CFBundleIconFile), so onboarding's drag row and
+#                           System Settings show cmux, not the generic blank app
 #
 # The name is what macOS permission alerts show ("cmux NIGHTLY Helper"). The bundle id keeps
 # ".screen-sharing" (Screen Recording and Accessibility grants are keyed to it), and the executable
@@ -57,9 +59,38 @@ plist_get() {
   fi
 }
 
-# The helper's Info.plist: <path> <bundle id> <name> <version> <minimum macOS>.
+# The helper's icon file in its Resources (CFBundleIconFile), copied from the app's own: without one macOS draws
+# the generic blank app icon for the helper in the Computer Use onboarding's drag row and in System Settings'
+# Privacy & Security lists (Austin: "We need to show the icon instead of the blank white icon").
+HELPER_ICON=AppIcon
+
+# Copies the app's icon into the helper: <app> <helper bundle> [icon name...]. Each name (the build's
+# ASSETCATALOG_COMPILER_APPICON_NAME first: in the Xcode phase the processed Info.plist may not be written yet),
+# then the app's CFBundleIconFile, names Resources/<name>.icns; the first that is there is copied. Prints
+# $HELPER_ICON when it copied one, nothing when the app has no icns (the helper then keeps the generic icon).
+copy_icon() {
+  local app="$1" helper="$2" name src=""
+  shift 2
+  rm -f "$helper/Contents/Resources/$HELPER_ICON.icns"
+  for name in "$@" "$(plist_get "$app/Contents/Info.plist" CFBundleIconFile)"; do
+    name="${name%.icns}"
+    [[ -n "$name" && "$name" != */* && -f "$app/Contents/Resources/$name.icns" ]] || continue
+    src="$app/Contents/Resources/$name.icns"
+    break
+  done
+  if [[ -z "$src" ]]; then
+    echo "warning: Screen Sharing helper: $app has no icon .icns in Contents/Resources; the helper shows the generic app icon" >&2
+    return 0
+  fi
+  mkdir -p "$helper/Contents/Resources"
+  cp "$src" "$helper/Contents/Resources/$HELPER_ICON.icns"
+  echo "$HELPER_ICON"
+}
+
+# The helper's Info.plist: <path> <bundle id> <name> <version> <minimum macOS> [icon file].
 write_plist() {
-  local path="$1" id="$2" name="$3" version="$4" minimum="$5"
+  local path="$1" id="$2" name="$3" version="$4" minimum="$5" icon="${6:-}" icon_key=""
+  [[ -z "$icon" ]] || icon_key="<key>CFBundleIconFile</key><string>$icon</string>"
   cat > "$path" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,6 +99,7 @@ write_plist() {
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleExecutable</key><string>$EXECUTABLE</string>
   <key>CFBundleIdentifier</key><string>$id</string>
+  $icon_key
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>$name</string>
   <key>CFBundleDisplayName</key><string>$name</string>
@@ -145,7 +177,8 @@ if [[ "${1:-}" == "--stamp" ]]; then
   [[ "$found" == "$dest" ]] || { rm -rf "$dest"; mv "$found" "$dest"; }
   remove_other_helpers "$app" "$dest"
   helper_id="$(helper_id_for "$id")"
-  write_plist "$dest/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}"
+  icon="$(copy_icon "$app" "$dest")"
+  write_plist "$dest/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}" "$icon"
   echo "stamped the Screen Sharing helper: $(basename "$dest") ($helper_id)"
   exit 0
 fi
@@ -230,7 +263,8 @@ mkdir -p "$staged/Contents/MacOS"
 cp "$src" "$staged/Contents/MacOS/$EXECUTABLE"
 chmod 755 "$staged/Contents/MacOS/$EXECUTABLE"
 helper_id="$(helper_id_for "$id")"
-write_plist "$staged/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "$version" "$minimum"
+icon="$(copy_icon "$app" "$staged" "${ASSETCATALOG_COMPILER_APPICON_NAME:-}")"
+write_plist "$staged/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "$version" "$minimum" "$icon"
 printf 'APPL????' > "$staged/Contents/PkgInfo"
 
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
