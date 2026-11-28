@@ -70,6 +70,9 @@ jobs:
       statuses: write
     outputs:
       start: ${{ steps.route.outputs.start }}
+      # The change's CI areas (docs/benches/relevance-map.toml, pr_router.py change_areas) as a JSON list, or `all`
+      # when the router cannot tell: a callee reads them instead of a raw path filter.
+      areas: ${{ steps.route.outputs.areas }}
       # The land tier status this head should carry, and `true` when the post above did not get through.
       land_status: ${{ steps.route.outputs.land_status }}
       land_status_unposted: ${{ steps.land-status-post.outputs.unposted }}
@@ -108,6 +111,9 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_router.py
             scripts/ci/pr_router.json
+            docs/benches/relevance-map.toml
+            scripts/bench/benchlib/__init__.py
+            scripts/bench/benchlib/relevance.py
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py

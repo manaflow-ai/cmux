@@ -15,12 +15,12 @@ name: cmux-next motion frames
 # cmux-next-motion-golden.yml it needs no label: the paths below are narrow, and the run drives
 # one scenario. This job is a dispatcher on Linux, so the pull_request run itself never takes
 # Mac capacity. Fork and draft pull requests dispatch nothing.
-# The paths are the motion areas' own files until the CI area map (ci-rigor-area-map) lands;
-# then this reads that map's motion areas.
+# It reads the CI area map's motion areas (docs/benches/relevance-map.toml: Pane layout, Palette
+# and omnibar) through pr-router.yml's `areas`, not a raw path list.
 
 on:
   # Started only by pr-router.yml (one router per push, RFD 0023) when the change touches a motion
-  # area: scripts/ci/pr_router.json `affects`, the list of those areas' files.
+  # area: scripts/ci/pr_router.json `areas` (and `affects`, this workflow's own files).
   workflow_call:
 
 permissions: {}

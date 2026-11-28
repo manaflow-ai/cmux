@@ -408,19 +408,14 @@
    "affects": [
     ".github/workflows/cmux-next-motion-frames.yml",
     "scripts/ci/frame-pacing/motion_frames.py",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Motion*.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Visibility.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+SnapFrame.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/LayoutPaneContentProvider.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion*.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneZoomDim*.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutModel+PaneClose.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/PendingPaneClose.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitMotion*.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController+PaneClose.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/**"
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController+PaneClose.swift"
    ],
-   "affects_why": "golden.py's motion_frames (scripts/ci/frame-pacing/motion_frames.py) records Cmd-Shift-Enter (split zoom), Cmd-P (the palette) and Cmd-W (a pane's close) on an owned Mac; the files listed are those gestures' motion and what each pane's content sees during it. A change touching none of them moves no frame it records.",
+   "areas": [
+    "Pane layout",
+    "Palette and omnibar"
+   ],
+   "affects_why": "golden.py's motion_frames (scripts/ci/frame-pacing/motion_frames.py) records Cmd-Shift-Enter (split zoom), Cmd-P (the palette) and Cmd-W (a pane's close) on an owned Mac. It reads the CI area map (docs/benches/relevance-map.toml) instead of a path list: a change in the Pane layout area (CmuxNextLayout: split zoom, a pane's close) or the Palette and omnibar area (CmuxNextPalette) starts it, and so does a change to the workflow, the recorder, or the two motion files outside those areas (CmuxNextDesign's PaneCommitMotion, CmuxNextApp's pane close), which `affects` keeps. A change in no motion area moves no frame it records.",
    "skip_docs_only": true
   }
  }

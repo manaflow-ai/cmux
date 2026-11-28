@@ -24,6 +24,11 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              a change of only prose and images does not start it;
   affects    optional, narrower: globs (same syntax) of the inputs the workflow actually reads; when given, a
              change must also touch one of them;
+  areas      optional, narrower: names of [[area]] rows of docs/benches/relevance-map.toml (the CI area map:
+             each changed path takes its most specific area, scripts/bench/benchlib/relevance.py). When given,
+             a change must touch one of those areas, or one of its `affects` globs when both are set (the
+             workflow's own files, which no area holds). A map that does not load starts the callee. The
+             route job also writes areas=<JSON list of the change's areas>, or "all" when it cannot tell;
   table_jobs for the step table's workflow (pr-pipeline.yml): the jobs of ci/steps.toml it runs. It starts
              when the change routes a step of one of them (scripts/ci/ci_steps.py, each step's `inputs`);
              a table that cannot be read starts it. A job of FULL_TIER_JOBS (the `mac` job) is routed only
@@ -192,6 +197,60 @@ def affects(config: dict, files: list[str]) -> bool:
     return any(filters.admits("paths", globs, f) for f in files)
 
 
+AREA_MAP = ROOT / "docs/benches/relevance-map.toml"
+_AREA_INDEX: dict[str, object] = {}
+
+
+def area_index(path: Path | None = None):
+    """The CI area map's index (scripts/bench/benchlib/relevance.py), or None when it does not load."""
+    path = path or AREA_MAP
+    key = str(path)
+    if key not in _AREA_INDEX:
+        try:
+            bench = str(ROOT / "scripts" / "bench")
+            if bench not in sys.path:
+                sys.path.insert(0, bench)
+            from benchlib import relevance  # noqa: PLC0415 - only a callee with `areas` needs it
+            _AREA_INDEX[key] = relevance.load(path, steps=None)
+        except Exception:  # noqa: BLE001 - any unreadable map fails open
+            _AREA_INDEX[key] = None
+    return _AREA_INDEX[key]
+
+
+def change_areas(files: list[str] | None, path: Path | None = None) -> list[str] | None:
+    """The areas a change's paths fall in (an unmapped path takes `default:<top dir>`), or None (all) when
+    the changed files or the map are unknown."""
+    if files is None:
+        return None
+    index = area_index(path)
+    if index is None:
+        return None
+    names = set()
+    for f in files:
+        hit = index.match(f)
+        names.add(hit.area.name if hit.area is not None else hit.default_area)
+    return sorted(names)
+
+
+def area_names(path: Path | None = None) -> set[str] | None:
+    index = area_index(path)
+    if index is None:
+        return None
+    return {r.name for r in index.rules if r.kind == "area"}
+
+
+def reaches(config: dict, files: list[str], path: Path | None = None) -> bool:
+    """A change reaches a callee through its `affects` globs or its `areas`; an unset key does not narrow,
+    and with both set either one is enough. An unreadable area map reaches it (fail open)."""
+    wanted = config.get("areas")
+    if not wanted:
+        return affects(config, files)
+    if config.get("affects") and affects(config, files):
+        return True
+    got = change_areas(files, path)
+    return got is None or bool(set(got) & set(wanted))
+
+
 def table_steps(config: dict, files: list[str], table: Path | None = None, full: bool = True,
                 full_ci: bool = True, tier: str = "full") -> list[str] | None:
     """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read. FULL: the head
@@ -279,7 +338,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if config.get("land_handoff_only") and train_tip and action in ("opened", "reopened", "synchronize"):
             # The merge train's combined tip is the tree its last member squashes to: the one head whose build a
             # merge can take when every member's own head is behind the base (cmux_machine_channel_pr_head.py).
-            if files is None or (matches_filter(config, files) and affects(config, files)):
+            if files is None or (matches_filter(config, files) and reaches(config, files)):
                 start.append(name)
                 why[name] = f"the merge train's tip ({TRAIN_TIP})"
             else:
@@ -350,7 +409,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if not matches_filter(config, files):
             why[name] = "its path filter admits no changed file"
             continue
-        if not affects(config, files):
+        if not reaches(config, files):
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
@@ -598,6 +657,17 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
     for name in jobs:
         if name not in callees:
             problems.append(f"{name}: pr-router.yml calls it but pr_router.json does not route it")
+    if any(config.get("areas") for config in callees.values()):
+        known = area_names()
+        for name, config in callees.items():
+            if not config.get("areas"):
+                continue
+            if known is None:
+                problems.append(f"{name}: docs/benches/relevance-map.toml does not load, so its areas cannot be read")
+                continue
+            unknown = sorted(set(config["areas"]) - known)
+            if unknown:
+                problems.append(f"{name}: areas {unknown} are not [[area]] names of docs/benches/relevance-map.toml")
     for name in callees:
         path = workflows / name
         if not path.is_file():
@@ -694,12 +764,19 @@ def nightly_gate_table(callees: dict, files: list[str] | None, decided: tuple[st
     return (table + jobs, only) if jobs else (table, [])
 
 
+def areas_output(files: list[str] | None) -> str:
+    """The route job's `areas` output: the change's CI areas as a JSON list, or `all` when it cannot tell."""
+    got = change_areas(files)
+    return "all" if got is None else json.dumps(got, separators=(',', ':'))
+
+
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
                   table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
                   ui: tuple[str, str] = ("", ""), only: list[str] | None = None,
                   preflight: tuple[bool, str] = (True, "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
+        out.write(f"areas={areas_output(files)}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"only={' '.join(only or [])}\n")
         out.write(f"land_status={status}\n")
