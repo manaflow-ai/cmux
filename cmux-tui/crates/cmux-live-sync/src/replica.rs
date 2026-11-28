@@ -146,12 +146,12 @@ impl Replica {
         }
         // Each folder's .gitignore, from the root down, on the path relative to that folder.
         for depth in 0..parts.len() {
-            let dir = parts[..depth].join("/");
+            let dir = parts.get(..depth).map(|d| d.join("/")).unwrap_or_default();
             if let Some(gi) = self.ignores.get(&dir) {
                 // Every ancestor folder of the path below `dir` counts too (an ignored folder
                 // ignores what is in it).
                 for end in depth + 1..=parts.len() {
-                    let sub = parts[depth..end].join("/");
+                    let sub = parts.get(depth..end).map(|d| d.join("/")).unwrap_or_default();
                     let sub_is_dir = end < parts.len() || is_dir;
                     if gi.matched(&sub, sub_is_dir).is_ignore() {
                         return true;
@@ -430,7 +430,7 @@ impl Replica {
                 if n == 0 {
                     return Ok(());
                 }
-                h.update(&buf[..n]);
+                h.update(buf.get(..n).unwrap_or(&[]));
             }
         })();
         if let Err(e) = read {

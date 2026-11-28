@@ -64,6 +64,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+import codex_chatgpt_import  # noqa: E402
 from app_launch_env import launch_env  # noqa: E402
 from state_wait import wait_stable  # noqa: E402
 
@@ -140,6 +141,11 @@ ENV = {
 }
 # The token goes to `cloud secret set` on stdin only; no CLI call inherits it.
 ENV.pop(claude_login_cache.TOKEN_ENV, None)
+# The Codex login goes only to the import's 0600 file (codex_chatgpt_import.py); no CLI call inherits it.
+CODEX_AUTH = os.environ.get("CODEX_AUTH_JSON", "")
+ENV.pop("CODEX_AUTH_JSON", None)
+# A Codex chat's imported chatgpt-plan connection (codex_chatgpt_import.Import), cleared in finish() after the quit.
+CODEX_IMPORT = None
 # The cached login entries this run stored, removed in finish().
 CACHED_LOGINS: list[str] = []
 # The Claude connections this run added (claude_login_cache.connect), removed in finish().
@@ -335,6 +341,12 @@ def finish(result: str) -> None:
             record("app exited", 124, "", "the launched app did not exit within 60s")
             if result == "pass":
                 result = "fail: the launched app did not exit"
+    if CODEX_IMPORT is not None:
+        # After the quit: the imported home (and the route the import wrote) leave the runner.
+        left = CODEX_IMPORT.clear()
+        record("clear codex import", 1 if left else 0, "", ", ".join(left))
+        if left and result == "pass":
+            result = "fail: codex import left on the runner"
     if FOLDER_PROOF_DIR:
         shutil.rmtree(FOLDER_PROOF_DIR, ignore_errors=True)
     if CONFIG_DIR:
@@ -699,6 +711,22 @@ launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
 # instance.lock); a second launch hands off to the copy already running on the Mac and exits before it binds
 # this socket, so `app identify` never reached it (kinds run 45821171663, job 139987363954). Opt out, as a test run.
 launch.extend(["--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"])
+# A Codex chat starts only on a Cloud-serving Codex connection ("No Cloud connection serves codex yet", runs
+# 45999014551 and 46040021553). Import the agent account's Codex login as a chatgpt-plan connection into a fresh
+# acpmux home before the launch, and run the app (and this proof's CLI calls) on that home.
+if (not claude_chat(args.agent) and not args.cleanup_machine and not args.cleanup_tag
+        and not args.paused_capture):
+    CODEX_IMPORT = codex_chatgpt_import.Import()
+    started = time.monotonic()
+    imported = CODEX_IMPORT.prepare(Path(args.app).resolve(), CODEX_AUTH)
+    record("import codex chatgpt connection", 1 if imported.get("error") else 0, "", imported.get("error", ""),
+           elapsed_ms=round((time.monotonic() - started) * 1000), error_code=imported.get("error_code"),
+           connection=imported.get("connection"))
+    evidence["codex_import"] = {"connection": imported.get("connection"), "error_code": imported.get("error_code")}
+    if imported.get("error"):
+        finish(f"fail: {imported['error_code']}")
+    ENV["ACPMUX_HOME"] = imported["home"]
+    launch.extend(["--env", f"ACPMUX_HOME={imported['home']}"])
 if CONFIG_FILE:
     # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
     launch.extend(["--env", f"CMUX_NEXT_CONFIG_FILE={CONFIG_FILE}"])

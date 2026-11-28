@@ -23,11 +23,24 @@ for have in 1.4.4 1.4.5 1.4.10 1.5.0 1.10.0 1.4.5-canary.1 1.4.4+abc; do
   fake "$have"; check
   [[ "$status" == 0 ]] || fail "bun $have must pass a 1.4.4 pin: $out"
 done
+
+# The pre-commit hook uses the trusted reader's compatibility predicate too,
+# so its bootstrap accepts the same newer patch/minor releases as this checker.
+for have in 1.4.4 1.4.5 1.4.10 1.5.0 1.10.0 1.4.5-canary.1 1.4.4+abc; do
+  python3 -I "$ROOT/scripts/webviews_bun_version.py" --compatible "$have" 1.4.4 || fail "reader rejected compatible bun $have"
+done
 for have in 1.4.3 1.3.14 1.3.6 1.4.4-rc.1 2.0.0 0.9.9 garbage; do
   fake "$have"; check
   [[ "$status" != 0 ]] || fail "bun $have must fail a 1.4.4 pin"
   [[ "$out" == *"curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4"* ]] || fail "bun $have must print the install command: $out"
 done
+for have in 1.4.3 1.3.14 1.3.6 1.4.4-rc.1 2.0.0 0.9.9 garbage; do
+  python3 -I "$ROOT/scripts/webviews_bun_version.py" --compatible "$have" 1.4.4 && fail "reader accepted incompatible bun $have"
+done
+grep -Fq '"$BUN_VERSION_READER" --compatible "$have" "$want"' "$ROOT/scripts/git-hooks/pre-commit" \
+  || fail "pre-commit must use the trusted reader's compatibility predicate"
+grep -Fq 'newer same-major release is compatible' "$ROOT/scripts/git-hooks/pre-commit" \
+  || fail "pre-commit must warn when it uses a newer compatible Bun"
 
 # --quiet prints nothing; an explicit binary is checked instead of PATH's.
 fake 1.3.6; check --quiet

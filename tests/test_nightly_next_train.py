@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -624,6 +625,44 @@ class Wiring(unittest.TestCase):
         tick = self.read("nightly-next-tick.yml")
         self.assertIn("gh workflow run nightly-next-train.yml", tick)
         self.assertIn("if: vars.NIGHTLY_NEXT_TRAIN != 'on'", tick)
+
+
+class CarGuardBounds(unittest.TestCase):
+    """Run 46068974948: two car guards hit the 1800 s bound with no verdict, while eight cars each ran cpu_count tests
+    at once. Each car gets its share of the CPUs and a deadline under the bound, and a guard past the bound is
+    stopped with everything it started."""
+
+    def guard(self, body: str) -> tuple[str, Path]:
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: subprocess.run(["rm", "-r", "--", tmp], check=False))
+        script = Path(tmp) / "guard.sh"
+        script.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
+        script.chmod(0o755)
+        return str(script), Path(tmp)
+
+    def test_each_car_gets_a_cpu_share_and_a_deadline_under_the_bound(self):
+        command, tmp = self.guard('echo "$CAR_GUARDS_JOBS $CAR_GUARDS_DEADLINE" > "$(dirname "$0")/env.txt"\n')
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CAR_GUARDS_")}
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            out, warnings = drive.run_car_guards([train.Car(id="pr-1", kind="pr", commits=["a" * 40], pr=1)], command)
+        self.assertEqual((out, warnings), ([], []))
+        jobs, deadline = (tmp / "env.txt").read_text().split()
+        self.assertEqual(int(jobs), max(2, (os.cpu_count() or 4) // drive.GUARD_CARS))
+        self.assertLess(float(deadline), drive.GUARD_TIMEOUT_S)
+
+    def test_a_guard_past_the_bound_is_stopped_with_its_children(self):
+        command, tmp = self.guard('sleep 60 & echo $! > "$(dirname "$0")/child.pid"\nwait\n')
+        with unittest.mock.patch.object(drive, "GUARD_TIMEOUT_S", 2):
+            out, warnings = drive.run_car_guards([train.Car(id="pr-1", kind="pr", commits=["a" * 40], pr=1)], command)
+        self.assertEqual(out, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("timed out", warnings[0])
+        pid = int((tmp / "child.pid").read_text())
+        stat = Path(f"/proc/{pid}/stat")
+        alive = stat.exists() and stat.read_text().split()[2] != "Z"
+        if alive:
+            os.kill(pid, 9)  # the sleeper this test started
+        self.assertFalse(alive, "the guard's child outlived its bound")
 
 
 if __name__ == "__main__":

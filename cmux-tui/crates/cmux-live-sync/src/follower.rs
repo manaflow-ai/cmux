@@ -53,29 +53,40 @@ impl Follower {
     }
 
     /// Serves one connection until it closes or goes silent past [`IDLE_DROP`].
+    ///
+    /// `close` must end a read blocked on `reader` (shut the stream down). It runs as the
+    /// connection ends, so the reader thread is joined here and never outlives its connection.
     pub fn serve(
         &mut self,
-        reader: impl Read + Send + 'static,
+        reader: impl Read + Send,
         writer: impl Write,
+        close: impl FnOnce(),
     ) -> anyhow::Result<()> {
-        let mut w = BufWriter::new(writer);
-        let (tx, rx) = unbounded::<In>();
-        std::thread::spawn(move || {
-            let mut r = BufReader::new(reader);
-            loop {
-                match proto::read_frame(&mut r) {
-                    Ok((m, b)) => {
-                        if tx.send(In::Frame(m, b)).is_err() {
+        std::thread::scope(|scope| {
+            let (tx, rx) = unbounded::<In>();
+            scope.spawn(move || {
+                let mut r = BufReader::new(reader);
+                loop {
+                    match proto::read_frame(&mut r) {
+                        Ok((m, b)) => {
+                            if tx.send(In::Frame(m, b)).is_err() {
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.send(In::Closed(e.to_string()));
                             return;
                         }
                     }
-                    Err(e) => {
-                        let _ = tx.send(In::Closed(e.to_string()));
-                        return;
-                    }
                 }
-            }
-        });
+            });
+            let _close = crate::CloseOnDrop(Some(close));
+            self.serve_link(writer, rx)
+        })
+    }
+
+    fn serve_link(&mut self, writer: impl Write, rx: Receiver<In>) -> anyhow::Result<()> {
+        let mut w = BufWriter::new(writer);
         // Whatever the watcher queued before this connection is covered by the full scan below.
         while self.watch_rx.try_recv().is_ok() {}
         self.replica.full_scan();

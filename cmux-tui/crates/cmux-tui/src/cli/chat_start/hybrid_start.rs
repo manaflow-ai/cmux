@@ -67,7 +67,13 @@ const MACHINE_GRACE: Duration = Duration::from_secs(30 * 60);
 /// The driver's `--machine` word for a Cloud route a chat here can stand in for: `new`, or the
 /// machine's id. None: the Cloud start runs as before (a named machine, `--environment`,
 /// `--from-folder`, `--no-folder`, `--cwd` on the machine, `--wait`, `--timeout`, `--timings`,
-/// `--name`, `--attach`, no prompt: each is the Cloud start's own, or its refusal).
+/// `--attach`, no prompt: each is the Cloud start's own, or its refusal).
+///
+/// `--name` is taken: the Cloud start refuses it (a Cloud chat has no name of its own), but the
+/// chat here takes it (`agents chat new --name`), and its move carries the name to the machine
+/// (`transfer_in`'s `name`), so a named Cloud start runs at once instead of refusing. `--attach`
+/// stays the Cloud start's: a large file goes to the chat by upload, which a move is not known to
+/// carry.
 pub(super) fn takes(start: &Start, machine: &Machine) -> Option<String> {
     let plain = start.prompt.is_some()
         && start.environment.is_none()
@@ -75,7 +81,6 @@ pub(super) fn takes(start: &Start, machine: &Machine) -> Option<String> {
         && !start.no_folder
         && start.cwd.is_none()
         && start.repo.is_none()
-        && start.name.is_none()
         && start.attach.is_empty()
         && !start.wait
         && start.timeout.is_none()

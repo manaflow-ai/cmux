@@ -881,10 +881,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
         }
         // Fit to Phone, one tap away and remembered for this program (Leo, 2026-11-21): on,
-        // the Mac's terminal resizes to the phone; off, the phone projects it.
+        // the Mac's terminal resizes to the phone; off, the Mac keeps its columns.
         if liveTabs.contains(tab.id) {
-            let fits = !(model.session is TerminalProjectingSession)
             let program = model.session.programName
+            let fits = fitToPhoneMemory.fitToPhone(for: program)
             actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
                 self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
             })
@@ -936,8 +936,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// builds in the new mode when it is shown next.
     private func setFitToPhone(_ fit: Bool, program: String, tab: WorkspaceTab, in workspace: Workspace) {
         fitToPhoneMemory.set(fit, for: program)
-        for (id, other) in hosts where id != tab.id && other.model.session.programName == program
-            && (other.model.session is TerminalProjectingSession) == fit {
+        for (id, other) in hosts where id != tab.id && other.model.session.programName == program {
             cool(id)
         }
         guard let old = hosts[tab.id], liveTabs.contains(tab.id) else { return }

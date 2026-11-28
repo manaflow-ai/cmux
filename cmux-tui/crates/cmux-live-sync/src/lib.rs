@@ -32,3 +32,15 @@ pub const DEBOUNCE_MAX: Duration = Duration::from_millis(100);
 pub const PING_EVERY: Duration = Duration::from_secs(5);
 /// A link silent this long is dropped and dialed again.
 pub const IDLE_DROP: Duration = Duration::from_secs(15);
+
+/// Runs a link's close when the session ends, even by a panic, so the session's reader thread
+/// unblocks and its scope can join it.
+pub(crate) struct CloseOnDrop<F: FnOnce()>(pub(crate) Option<F>);
+
+impl<F: FnOnce()> Drop for CloseOnDrop<F> {
+    fn drop(&mut self) {
+        if let Some(close) = self.0.take() {
+            close();
+        }
+    }
+}
