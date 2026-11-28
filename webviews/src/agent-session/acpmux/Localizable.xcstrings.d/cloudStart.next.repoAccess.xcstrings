@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "cloudStart.next.repoAccess" : {
+      "comment" : "Agent pane: Cloud start failure card: the next step (cmux-cloud-start-core surface::Next)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Check the repository URL, or give cmux access to it with the cmux GitHub App, then retry."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -207,7 +207,9 @@ def violations(root: Path) -> list[str]:
     for path in files(root, everywhere=True):
         try:
             source = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
+        except (UnicodeDecodeError, FileNotFoundError):
+            # A file the walk listed can go before it is read: the lint tree's other checks run alongside
+            # (2026-11-28, cmux#63855: cmux-next-ios/verify/alignment/alignscan.swift raised and failed web lint).
             continue
         relative = path.relative_to(root)
         upload_code = attachment_path(relative)

@@ -7,6 +7,8 @@ import {
   CLOUD_START_STALL_MS,
   CLOUD_START_STEPS,
   cloudStartWayOn,
+  SURFACE_NEXT,
+  SURFACE_WHAT,
   type CloudFolderTooBig,
   type CloudStartAsk as Ask,
   type CloudStartProgress,
@@ -28,16 +30,16 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
+  cloudPlanMachineWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
   type CloudSizeLocked,
-  cloudPlanMachineWords,
 } from "./cloudPlans";
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
 import { useGitHubPicker, type GitHubPickerStore, gitHubPickerStore, githubFullName } from "./githubRepos";
 import "./cloudStart.css";
-import { type ChecklistStep, startupChecklist, type QuietStage, quietStage, stageClock } from "./cloudStartViewModel";
+import { type ChecklistStep, type QuietStage, quietStage, startupChecklist, stageClock } from "./cloudStartViewModel";
 import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
 import { WithFacts } from "./chips/FactsHoverCard";
 
@@ -704,7 +706,8 @@ export function CloudStartView({
   // it, to name the step it stopped at.
   const autoOpen = (failed && !POLICY_REFUSALS.has(start.code ?? "")) || stalled;
   const [expanded, setExpanded] = useState(autoOpen);
-  const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
+  const signInRequired =
+    failed && (start.code === "not_signed_in" || start.surface?.next === "cloudSignIn") && onSignIn;
   const [signingIn, setSigningIn] = useState(false);
   const signInTitleId = useId();
   const now = usePageNow(!start.initialized && start.state !== "failed");
@@ -1024,7 +1027,17 @@ export function CloudStartView({
       {planTeamRefusal}
       {failed && !planTeamRefusal && (
         <div className="acpmux-cloud-start__failure" role="alert">
+          {start.surface && (
+            <strong className="acpmux-cloud-start__failure-what" data-what={start.surface.what}>
+              {t(SURFACE_WHAT[start.surface.what])}
+            </strong>
+          )}
           <output className="acpmux-cloud-start__status">{start.message ?? t("sandbox.failed")}</output>
+          {start.surface && (
+            <p className="acpmux-cloud-start__failure-next" data-next={start.surface.next}>
+              {t(SURFACE_NEXT[start.surface.next])}
+            </p>
+          )}
           {signInRequired && (
             <button
               type="button"

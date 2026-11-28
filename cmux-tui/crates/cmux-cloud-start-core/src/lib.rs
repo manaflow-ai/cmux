@@ -33,4 +33,5 @@ pub mod spare_shapes;
 pub mod spending_write;
 pub mod start;
 pub mod start_session;
+pub mod surface;
 pub mod vm_kind;
