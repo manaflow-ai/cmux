@@ -24,7 +24,6 @@ EARLY = ("build-nightly-inputs", "build-nightly-ghostty-cli-helper")
 # reservation pool, the two that hold no key take cmux-linux.
 RESERVED_CONTROLS = ("find-nightly-next-recovery", "pick-nightly-build-runner")
 LINUX_CONTROLS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper")
-VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
 
@@ -196,34 +195,6 @@ class DedicatedMini(unittest.TestCase):
         self.assertFalse(evaluate(condition, {**values, BUILDER_VARIABLE: ""}))
         self.assertTrue(evaluate(condition, {**values, BUILDER_VARIABLE: BUILDER}))
         self.assertIn(f"${{{{ {BUILDER_VARIABLE} }}}}", steps["pick"]["env"]["NIGHTLY_ONLY_BUILDER_LABEL"])
-
-
-    def test_sign_picker_prefers_reservation_for_secret_free_mac_consumers(self):
-        output = DOC["jobs"]["pick-nightly-sign-runner"]["outputs"]["owned"]
-        expression = parse_expression(output.removeprefix("${{").removesuffix("}}"))
-        valid = context(**{"github.ref_name": "nightly-next",
-                            "steps.owned.outputs.owned": "glaeda-side-std-xcode-26.6"})
-        self.assertEqual(evaluate(expression, valid), LABEL)
-        self.assertEqual(evaluate(expression, {**valid, "github.event_name": "workflow_dispatch"}), LABEL)
-        # A bad variable, fork, other track or retry falls through to the normal
-        # owned picker (or an empty output); it can never widen the reservation.
-        self.assertEqual(evaluate(expression, {**valid, VARIABLE: "glaeda-unregistered"}),
-                         "glaeda-side-std-xcode-26.6")
-        for changes in ({VARIABLE: "", "steps.owned.outputs.owned": "glaeda-side-std-xcode-26.6"},
-                        {"github.run_attempt": 2},
-                        {"github.repository": "other/cmux", "github.repository_owner": "other"},
-                        {"github.ref_name": "main"}):
-            with self.subTest(changes=changes):
-                self.assertNotEqual(evaluate(expression, {**valid, **changes}), LABEL)
-
-        for job in VERIFY_OWNED:
-            source = written_runs_on(job)
-            selected_job = evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")),
-                                     {**valid,
-                                      "needs.pick-nightly-sign-runner.outputs.attempt": "1",
-                                      "needs.pick-nightly-sign-runner.outputs.owned": LABEL,
-                                      "vars.CI_PR_POOL_OWNED": "1"})
-            self.assertEqual(selected_job, LABEL, job)
 
 
 if __name__ == "__main__":

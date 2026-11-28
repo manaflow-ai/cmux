@@ -583,64 +583,6 @@ class Main(unittest.TestCase):
                             read_runners=lambda t, r: [runner(*BUILDER)])
         self.assertEqual(out, {"dedicated": DEDICATED})
 
-    def test_the_verify_mode_prints_owned_only_and_never_the_dedicated_builder(self) -> None:
-        fleet = [runner(*BUILDER), runner(SIDE)]
-        out = self.run_main({"DEDICATED_LABEL": DEDICATED}, argv=("verify",), read_runners=lambda t, r: fleet,
-                            read_snapshot=lambda t, r: snapshot({}))
-        self.assertEqual(out, {"owned": SIDE})
-        out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
-                            read_snapshot=lambda t, r: snapshot({LARGE: 90}))
-        self.assertEqual(out, {"owned": ""})
-        # While every Blacksmith label is stalled, a busy owned pool is queued on instead: it frees within
-        # one build, and the rescue holds the job there until the Blacksmith label moves.
-        out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
-                            read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
-        self.assertEqual(out, {"owned": SIDE})
-
-    def test_the_verify_mode_takes_the_all_nightly_reservation_without_a_runner_read(self) -> None:
-        # Run 41365440328: signer-dmg-image sat 809 s in glaeda's admission on a shared nightly slot mini
-        # ("1 of 14 units free"); the reservation's runners hold no shared capacity. Run 41400519218: the
-        # verify pick's live read got a 403 (routing-App budget spent) and both jobs waited 6-15 min on the
-        # shared pool. The reservation is taken with no read, even when every read would fail or show it busy.
-        plain = picker.NIGHTLY_ONLY_LABEL
-        reserved = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "NIGHTLY_ONLY_LABEL": plain}
-        calls: list[str] = []
-
-        def counted(token: str, repo: str):
-            calls.append("read")
-            raise OSError("HTTP 403: API rate limit exceeded for installation")
-        for env in (reserved, {**reserved, "UNREAD_OWNED_FALLBACK": "1"}, {**reserved, "ROUTE_TOKEN": ""}):
-            with self.subTest(env=env):
-                out = self.run_main(env, argv=("verify",), read_runners=counted, read_snapshot=counted)
-                self.assertEqual(out, {"owned": plain})
-        self.assertEqual(calls, [])
-        # A re-run, another ref, an unset or foreign label, or another repository keeps the old owned pick.
-        idle = [runner(plain), runner(plain), runner(SIDE)]
-        for env in ({**reserved, "GITHUB_RUN_ATTEMPT": "2"}, {**reserved, "GITHUB_REF": "refs/heads/main"},
-                    {**reserved, "GITHUB_EVENT_NAME": "schedule"}, {**reserved, "NIGHTLY_ONLY_LABEL": ""},
-                    {**reserved, "NIGHTLY_ONLY_LABEL": "glaeda-other"}, {"NIGHTLY_ONLY_LABEL": plain}):
-            with self.subTest(env=env):
-                out = self.run_main(env, argv=("verify",), read_runners=lambda t, r: idle,
-                                    read_snapshot=lambda t, r: snapshot({}))
-                self.assertEqual(out, {"owned": SIDE})
-
-    def test_the_verify_pick_reads_the_reservation_variable(self) -> None:
-        text = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
-        step = text[text.index("- name: Pick an owned Mac for the verify jobs"):]
-        step = step[:step.index("nightly_build_runner.py verify")]
-        self.assertIn("NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}", step)
-
-    def test_the_verify_mode_queues_unread_runners_on_the_owned_pool(self) -> None:
-        # Run 41335987427: every routing-App read got a 403 rate limit, and the verify jobs went blind to
-        # blacksmith-6vcpu-macos-26. A refused read is not "no owned runners": with the opt-in they queue on
-        # the first watched owned pool; without it they keep Blacksmith.
-        def broken(token: str, repo: str):
-            raise OSError("HTTP 403: API rate limit exceeded for installation")
-        out = self.run_main({"UNREAD_OWNED_FALLBACK": "1"}, argv=("verify",), read_runners=broken, read_snapshot=broken)
-        self.assertEqual(out, {"owned": SIDE})
-        out = self.run_main({}, argv=("verify",), read_runners=broken, read_snapshot=broken)
-        self.assertEqual(out, {"owned": ""})
-
     def test_every_blacksmith_label_stalled_queues_on_the_busy_owned_pool(self) -> None:
         # Run 40622241620 (2026-10-28): build-nightly-app waited 15 min on a stalled Blacksmith label
         # while the owned nightly slots took the next two tips.
@@ -733,11 +675,10 @@ class SharedWait(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_only_the_nightly_build_and_verify_picks_opt_into_the_unread_owned_fallback(self) -> None:
-        # nightly.yml's build pick and the sign picker's verify pick (run 41335987427): on only while the
-        # CI_PR_POOL_OWNED kill switch is on.
+    def test_only_the_nightly_build_pick_opts_into_the_unread_owned_fallback(self) -> None:
+        # nightly.yml's build pick (run 41335987427): on only while the CI_PR_POOL_OWNED kill switch is on.
         import yaml  # noqa: PLC0415
-        picks = {"pick-nightly-build-runner": "pick", "pick-nightly-sign-runner": "owned"}
+        picks = {"pick-nightly-build-runner": "pick"}
         for job, step_id in picks.items():
             steps = DOC["jobs"][job]["steps"]
             pick = next(step for step in steps if step.get("id") == step_id)
@@ -748,9 +689,6 @@ class Workflow(unittest.TestCase):
                 with self.subTest(job=job, owned_on=owned_on, rescue_on=rescue_on):
                     context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
                     self.assertEqual(evaluate(parse_nightly_expression(flag), context) or "", want)
-        # The signing pick (signing_runner.py owned) never takes it: its exclusive claim needs a pinned runner.
-        sign = next(step for step in DOC["jobs"]["pick-nightly-sign-runner"]["steps"] if step.get("id") == "sign-owned")
-        self.assertNotIn("UNREAD_OWNED_FALLBACK", sign.get("env") or {})
         # nightly-next-train.yml has no owned-pool rescue, so its pick never sets it.
         train = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly-next-train.yml").read_text())
         for step in train["jobs"]["pick-train-runner"]["steps"]:

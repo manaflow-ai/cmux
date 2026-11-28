@@ -11,10 +11,6 @@ Above `STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.st
 
     # Set only when the 6 h stapled-app fallback shipped the first DMG.
 
-Above `CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs`:
-
-    # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
-
 Above `- &checkout-publication-tooling-a`:
 
     # Publication tooling from this workflow's own commit (see publish-nightly).

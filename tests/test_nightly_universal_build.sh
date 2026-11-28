@@ -416,9 +416,9 @@ if ! awk '
   /^  republish-nightly-deltas:/ { job="republish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   # The tail jobs read the published build from published-build (in the dispatched run on nightly-next).
-  job == "delta" && /needs: \[published-build, build-nightly-deltas(, pick-nightly-sign-runner)?\]/ { saw_publish_need=1 }
+  job == "delta" && /needs: \[published-build, build-nightly-deltas\]/ { saw_publish_need=1 }
   job == "delta" && /fail-fast: false/ { saw_matrix=1 }
-  job == "republish" && /needs: \[published-build, generate-nightly-deltas(, pick-nightly-sign-runner)?\]/ { saw_delta_need=1 }
+  job == "republish" && /needs: \[published-build, generate-nightly-deltas\]/ { saw_delta_need=1 }
   # The tag itself: commits/<name> resolves a same-named branch (cx-urd.67).
   job == "republish" && /gh api .*git\/ref\/tags\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
   job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_branch_read=1 }
@@ -959,17 +959,11 @@ NOT_CONTINUE="needs.decide.outputs.continue_only != 'true'"
 NOT_SUPERSEDED="needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
 # A one-job nightly-next run builds in nightly-next-one, not in the split build jobs (#42267).
 NOT_ONE_JOB="needs.decide.outputs.one_job != 'true'"
-# A build a newer published build is already above spends no notarization (#33109): the macOS
-# signer adds it as one more top-level conjunct, so it only narrows the gate.
-NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
 # The helper, the variant and the macOS signer each exclude build_only with a top-level `&&`.
 BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE"
-# A run whose build a newer published build is above spends no notarization (#33109): the macOS
-# signer adds it as one more top-level conjunct, after the build gate.
-NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
 # The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
 # prefix only adds conjuncts, so the build_only exclusion still holds.
-SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success'"
+SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success'"
 # The build jobs and prepare start with !cancelled() and their own needs' success, so a timed-out
 # continue-on-error pick-nightly-build-runner cannot skip a started build (2026-11-12); these are
 # only more conjuncts, so the build_only exclusion still holds.
@@ -979,7 +973,7 @@ PREPARE_NEEDS_OK="\"!cancelled() && needs.decide.result == 'success' && needs.bu
 if [ "$(job_if build-nightly-app)" != "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: $HELPER_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
   || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE\"" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" != "$(job_if build-nightly-app)" ] \
   || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success') || needs.republish-nightly-next.result == 'success')\"" ]; then
