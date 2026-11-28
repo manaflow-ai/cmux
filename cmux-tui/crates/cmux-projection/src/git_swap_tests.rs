@@ -818,3 +818,6 @@ fn carry_swap_bring_back_transfers_new_commits_and_tracks_later_edits() {
     assert!(layer.upper.iter().any(|entry| entry.path == "other-link" && entry.kind == Kind::Link));
     assert!(!layer.upper.iter().any(|entry| entry.path.starts_with("other-link/")));
 }
+
+#[path = "git_swap_nested_mount_tests.rs"]
+mod nested_mount;
