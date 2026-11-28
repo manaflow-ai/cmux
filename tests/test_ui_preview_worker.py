@@ -66,6 +66,34 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiCloudHost/UiCloudHostMain.swift"])["swift"],
                          ["env-secrets"])
 
+    def test_mac_screen_agent_pane_and_browser_shoot_their_own_hosts(self):
+        # The most-pushed view modules that said "needs an app build" (24 h of receipts, 2026-11-28): each module's
+        # files, a view or not, get its representative scene from its own host; the App and the Daemon still need a
+        # build and stay in the coverage denominator.
+        src = "Packages/macOS/CmuxNext/Sources/"
+        cases = {"CmuxNextMacScreen/MacScreenHomeView.swift": "mac-screen-sharing",
+                 "CmuxNextMacScreen/DeviceHubService.swift": "mac-screen-sharing",
+                 "CmuxNextAgentPane/AgentPaneActAsMeCard.swift": "agent-new-tab",
+                 "CmuxNextAgentPane/AcpmuxConnection.swift": "agent-new-tab",
+                 "CmuxNextBrowser/UI/BrowserNoticeView.swift": "browser-notice"}
+        hosts = {"mac-screen-sharing": ("cmux-ui-macscreen", "UiMacScreenHost"),
+                 "agent-new-tab": ("cmux-ui-agentpane", "UiAgentPaneHost"),
+                 "browser-notice": ("cmux-ui-browser", "UiBrowserHost")}
+        for path, scene in cases.items():
+            p = w.plan([src + path])
+            self.assertEqual((p["swift"], p["needs_build"]), ([scene], []), path)
+            self.assertIsNone(w.skip_reason(p), path)
+        for scene, (product, target) in hosts.items():
+            self.assertEqual(w.HEAVY_SCENES[scene], product)
+            self.assertEqual(w.plan([f"Prototypes/UiLayerHost/Sources/{target}/{target}Main.swift"])["swift"], [scene])
+            self.assertTrue((ROOT / w.SHELL_PACKAGE / "Sources" / target / f"{target}Main.swift").is_file(), target)
+        mixed = w.plan([src + "CmuxNextApp/AppDelegate.swift", src + "CmuxNextMacScreen/MacScreenPane.swift"])
+        self.assertEqual(mixed["swift"], ["mac-screen-sharing"])
+        self.assertEqual(mixed["needs_build"], [src + "CmuxNextApp/AppDelegate.swift"])
+        self.assertIsNone(w.skip_reason(mixed))  # the scene shows; the receipt still names the App file
+        for module in ("CmuxNextApp", "CmuxNextDaemon"):
+            self.assertEqual(w.plan([src + module + "/X.swift"])["needs_build"], [src + module + "/X.swift"])
+
     def test_the_screen_map_names_each_unmapped_file(self):
         app = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
         got = w.screen_map([app, "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/X.swift", "webviews/src/a.ts",
@@ -83,7 +111,7 @@ class PlanTests(unittest.TestCase):
             self.assertTrue((ROOT / w.SHELL_PACKAGE / "Sources" / target).is_dir(), target)
 
     def test_swift_outside_the_shell_needs_a_build(self):
-        f = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMeCard.swift"
+        f = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/DaemonClient.swift"
         self.assertEqual(w.plan([f])["needs_build"], [f])
         self.assertEqual(w.plan(["Packages/macOS/CmuxNext/Package.swift"])["needs_build"],
                          ["Packages/macOS/CmuxNext/Package.swift"])
@@ -256,7 +284,7 @@ class LookTests(unittest.TestCase):
     def test_a_needs_build_change_says_so_and_builds_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
-            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]))
+            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
 
@@ -723,7 +751,7 @@ class SpeedTests(unittest.TestCase):
             worker = FakeWorker(Path(tmp))
             jobs = w.queue.Queue()
             web = dict(request(ui_files=["webviews/src/a.tsx"]), seq=42)
-            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]),
+            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/A.swift"]),
                        seq=43)
             tests_only = dict(request(head_sha="e" * 40, ui_files=["Packages/macOS/CmuxNext/Tests/T.swift"]), seq=44)
             _, call = FollowTests().broker({"seq": 44, "requests": [web, app, tests_only]})
@@ -737,11 +765,25 @@ class SpeedTests(unittest.TestCase):
             self.assertIn("no scene shows", rows["e" * 40]["error"])
             self.assertIsNotNone(rows["d" * 40]["stages"])
 
+    def test_a_needs_build_file_beside_a_scene_module_still_gets_that_scene(self):
+        # An App file beside a Mac Screen file was a skip: the Mac Screen host builds only its own module, so the scene
+        # shows and the receipt still names the App file it does not show.
+        app = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = True
+            receipt = worker.look(request(ui_files=[app,
+                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenPane.swift"]))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual([s["scene"] for s in receipt["scenes"]], ["mac-screen-sharing"])
+            self.assertIn("needs an app build", receipt["error"])
+            self.assertIn(app, receipt["error"])
+
     def test_a_needs_build_file_beside_a_web_file_still_gets_the_web_look(self):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
             receipt = worker.look(request(ui_files=["webviews/src/a.tsx",
-                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]))
+                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/A.swift"]))
             self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
             self.assertEqual([s["scene"] for s in receipt["scenes"]], ["entry.a"])
             self.assertIn("needs an app build", receipt["error"])

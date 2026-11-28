@@ -119,16 +119,24 @@ SHELL_SCENES = ("tabs", "sidebar-states", "all-themes", "keycaps")
 # The heavy modules' scenes, by the UiLayerHost product that draws them. Each host links one heavy module (and what it
 # needs), so a push to it is that module's incremental build plus the host's link, on the warm .build the leaf shell
 # shares (ui-preview-heavy-rebuild.sh, one-module rebuilds: a per-module build 7.0 s median for AgentPane, the app
-# library 31.2 s), and a leaf push never builds them. AgentPane draws in WKWebView: its looks are the web gallery's.
+# library 31.2 s), and a leaf push never builds them. Any Swift file of a heavy module shoots that module's scene, a
+# view or not: the scene is the module's representative page, and a push that changes nothing drawn shows a before
+# and after that match. Mac Screen, Agent Pane (its native New Tab page; its chat draws in WKWebView, the web
+# gallery's) and Browser were the most-pushed view modules still needing an app build (24 h of receipts, 2026-11-28).
 # CmuxNextApp has no public view to draw, and a scene hook there grows the App (the arch ratchet's app_lines row):
-# it stays needs_build until a playground of its own moves out to a domain package.
+# it stays needs_build until a playground of its own moves out to a domain package. CmuxNextDaemon draws nothing:
+# its pushes stay an honest needs_build, counted in the coverage denominator.
 HEAVY_SCENES = {
     "chief-teleport": "cmux-ui-home",  # CmuxNextHomeEngine: ChiefTeleportPlayground
     "density-overlay": "cmux-ui-settings",  # CmuxNextSettingsWindow: DensityOverlayPlaygroundWindow
     "env-secrets": "cmux-ui-cloud",  # CmuxNextCloudUI: EnvSecretsPlayground
+    "mac-screen-sharing": "cmux-ui-macscreen",  # CmuxNextMacScreen: MacScreenScenePlayground
+    "agent-new-tab": "cmux-ui-agentpane",  # CmuxNextAgentPane: NativeNewTabScenePlayground
+    "browser-notice": "cmux-ui-browser",  # CmuxNextBrowser: BrowserNoticeScenePlayground
 }
 HEAVY_HOST_SOURCES = {"UiHomeHost": ("chief-teleport",), "UiSettingsHost": ("density-overlay",),
-                      "UiCloudHost": ("env-secrets",)}
+                      "UiCloudHost": ("env-secrets",), "UiMacScreenHost": ("mac-screen-sharing",),
+                      "UiAgentPaneHost": ("agent-new-tab",), "UiBrowserHost": ("browser-notice",)}
 ALL_SWIFT_SCENES = SHELL_SCENES + tuple(HEAVY_SCENES)
 SWIFT_SCENES = {
     "CmuxNextTabs": ("tabs",),
@@ -139,6 +147,9 @@ SWIFT_SCENES = {
     "CmuxNextHomeEngine": ("chief-teleport",),
     "CmuxNextSettingsWindow": ("density-overlay",),
     "CmuxNextCloudUI": ("env-secrets",),
+    "CmuxNextMacScreen": ("mac-screen-sharing",),
+    "CmuxNextAgentPane": ("agent-new-tab",),
+    "CmuxNextBrowser": ("browser-notice",),
 }
 # A host that links CmuxNext's CmuxGhosttyKit binary target needs the prebuilt GhosttyKit.xcframework at the tree's
 # root (HomeEngine's closure does not).
@@ -1419,9 +1430,9 @@ class Worker:
                                     f"(a branch off main, not {BASE_BRANCH})")
         pairs: list[tuple[str, str, Path | None, Path | None]] = []  # (kind, scene, before, after)
         errors = []
-        if planned["needs_build"]:
-            pass  # The web side still shows; the shell is not built over Swift it does not hold (said below).
-        elif planned["swift"] and not self.swift_on and not self.swift_peer:
+        # A needs_build file beside a scene's module still gets that scene (said below): each host builds only its own
+        # module's closure, never the app, so the other file is not built here, and the receipt names it.
+        if planned["swift"] and not self.swift_on and not self.swift_peer:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
         elif planned["swift"]:
@@ -1739,8 +1750,9 @@ def needs_build_reason(planned: dict) -> str:
 
 def skip_reason(planned: dict) -> str | None:
     """Why a plan gets no look at all (said in the receipt at once, nothing fetched): every file needs an app build or
-    shows in no scene. A needs_build file beside a web file still gets the web look."""
-    if planned["web"]:
+    shows in no scene. A needs_build file beside a web file or a Swift scene's module still gets that look, and the
+    receipt's error names the file it does not show."""
+    if planned["web"] or planned["swift"]:
         return None
     if planned["needs_build"]:
         return needs_build_reason(planned)

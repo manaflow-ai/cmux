@@ -250,6 +250,11 @@ let uiLayerPreviewProducts: [Product] = [
     // module, so a push to one rebuilds only that module, what it needs and its small host.
     .library(name: "CmuxNextUiSettingsModules", targets: ["CmuxNextSettingsWindow"]),
     .library(name: "CmuxNextUiCloudModules", targets: ["CmuxNextCloudUI"]),
+    // The Mac Screen, Agent Pane and Browser hosts (cmux-ui-macscreen, cmux-ui-agentpane, cmux-ui-browser --shoot): the
+    // most-pushed view modules with no scene of their own, one product each for the same reason.
+    .library(name: "CmuxNextUiMacScreenModules", targets: ["CmuxNextMacScreen"]),
+    .library(name: "CmuxNextUiAgentPaneModules", targets: ["CmuxNextAgentPane"]),
+    .library(name: "CmuxNextUiBrowserModules", targets: ["CmuxNextBrowser"]),
 ]
 
 // Debug-only: the preview leaf and its tests share this one condition.
