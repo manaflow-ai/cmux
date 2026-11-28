@@ -450,8 +450,12 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
     else:
         print(("### " if markdown else "") + f"Bench runs: {len(results)} selected, {len(over)} over budget")
         for r in results:
-            took = f"{r['seconds']:.3f} s" if r["seconds"] is not None else "-"
-            budget = f" / budget {r['budget_s']:g} s" if r["budget_s"] is not None else " (no budget_s)"
+            unit = r.get("measured") if r.get("budget_work") is not None else "s"
+            took = f"{r['seconds']:.3f} {unit}" if r["seconds"] is not None else "-"
+            if r.get("budget_work") is not None:
+                budget = f" / budget {r['budget_work']:g} {unit} (counted work)"
+            else:
+                budget = f" / budget {r['budget_s']:g} s" if r["budget_s"] is not None else " (no budget_s)"
             if r.get("verdict"):
                 base_s = f"{r['baseline_s']:.3f} s" if r.get("baseline_s") else "none"
                 reps = ", ".join(f"{x:.3f}" for x in r.get("repeats_s") or [])
@@ -463,7 +467,9 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
             print(f"cmux-bench: for-paths: warning: bench {r['status']}, fail open: {r['cmd']}: {r['detail']}",
                   file=sys.stderr)
         elif r["status"] == relevance.OVER:
-            print(f"cmux-bench: for-paths: {r['cmd']} took {r['seconds']} s, over its {r['budget_s']:g} s budget "
+            counted = r.get("budget_work") is not None
+            print(f"cmux-bench: for-paths: {r['cmd']} took {r['seconds']} {r.get('measured') if counted else 's'}, over "
+                  f"its {format(r['budget_work'], 'g') + ' ' + r['measured'] if counted else format(r['budget_s'], 'g') + ' s'} budget "
                   f"({', '.join(r['areas'])})", file=sys.stderr)
         elif r["status"] == relevance.REGRESSED:
             print(f"cmux-bench: for-paths: {r['cmd']}: every repeat ({r['repeats_s']}) is over the "

@@ -17,7 +17,8 @@
 # every [[situation]] it matches. A path neither maps falls back to its top-level folder and warns: fail open.
 #
 # [[area]]       name, paths, benches (names in coverage-map.md), tests (commands), budget, situations
-#                run (Linux bench commands `for-paths --run` runs), budget_s (seconds; over it fails the run)
+#                run (Linux bench commands `for-paths --run` runs), budget_s (seconds; over it fails the run),
+#                budget_work (a `run` command that counts work prints `bench_work=<n> <unit>`; over it fails the run)
 # [[situation]]  name, paths, template (docs/benches/templates/<name>.md: the minimal check this kind of change needs)
 # [[unit]]       generated: one per Rust crate, Swift module or test target, webviews/src folder, tooling folder
 
@@ -129,16 +130,38 @@ budget = "sidebar flush of 1,104 rows x 5 Chiefs under 250 ms"
 name = "Sidebar row feed and flush"
 paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextSidebar"]
 situations = ["main-thread"]
-benches = ["SidebarLagBench", "SidebarScrollBench", "SidebarStructuralChangeBenchTests", "SidebarHoverCardRetargetBenchTests", "ChiefFaceFlushBenchTests"]
-tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextSidebarTests"]
-budget = "flush under 250 ms at 1,104 rows"
+benches = ["SidebarLagBench", "SidebarScrollBench", "SidebarStructuralChangeBenchTests", "SidebarHoverCardRetargetBenchTests", "ChiefFaceFlushBenchTests", "sidebar_face_work"]
+tests = [
+  "swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextSidebarTests",
+  "cargo test --manifest-path cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml --test sidebar_face --test sidebar_face_work",
+]
+budget = "flush under 250 ms at 1,104 rows; under 1,024 bytes across the Swift/Rust bridge per row (counted, not timed)"
+# Counted work (cmux-bench `bench_work=<n> <unit>`): what the sidebar sends the Rust face call for each row. A row
+# that carries a per-row root or a settings blob (the #59531 class: 157 KB a row) is over by orders of magnitude on any
+# machine; 408 B a row today.
+run = ["cargo test --manifest-path cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml --test sidebar_face_work -- --nocapture --test-threads=1 2>/dev/null | grep '^bench_work='"]
+budget_work = 1024
 
 [[area]]
 name = "Sidebar row mapping"
-paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping+Face.swift"]
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping+Face.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarFaceBatch.swift",
+  "cmux-tui/crates/cmux-layout-reducer-ffi/src/sidebar_face.rs",
+  "cmux-tui/crates/cmux-layout-reducer/src/sidebar_face.rs",
+  "cmux-tui/crates/cmux-layout-reducer/src/sidebar_face",
+  "cmux-tui/crates/cmux-layout-reducer-ffi/tests/sidebar_face.rs",
+  "cmux-tui/crates/cmux-layout-reducer-ffi/tests/sidebar_face_work.rs",
+]
 situations = ["bridge", "main-thread"]
-benches = ["ChiefFaceFlushBenchTests"]
-tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextBridgeTests"]
+benches = ["ChiefFaceFlushBenchTests", "sidebar_face_work"]
+tests = [
+  "swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextBridgeTests",
+  "cargo test --manifest-path cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml --test sidebar_face --test sidebar_face_work",
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer sidebar_face",
+]
+run = ["cargo test --manifest-path cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml --test sidebar_face_work -- --nocapture --test-threads=1 2>/dev/null | grep '^bench_work='"]
+budget_work = 1024
 
 [[area]]
 name = "Chief pictures"
