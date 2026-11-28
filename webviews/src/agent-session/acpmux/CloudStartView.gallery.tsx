@@ -291,6 +291,51 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         onDismiss: () => undefined,
       },
     },
+    "agent-out-of-usage": {
+      note: "The machine's agent (Claude) is out of usage: said as that, never as Cloud being unavailable; Run on This Mac goes on here.",
+      props: {
+        start: {
+          ...begun,
+          step: "opening",
+          ...known,
+          state: "failed",
+          code: "cloud_start_failed",
+          message: "The agent's account is out of usage. Try again later, switch accounts, or run on This Mac.",
+        },
+        onRunHere: () => undefined,
+        onDismiss: () => undefined,
+      },
+    },
+    "machine-not-started": {
+      note: "A start that failed with no words of its own: the machine didn't start, with Retry.",
+      props: {
+        start: {
+          ...begun,
+          step: "machine",
+          state: "failed",
+          code: "cloud_start_failed",
+          message: "The Cloud machine didn't start. Try again.",
+          retryable: true,
+        },
+        onRetry: () => undefined,
+        onRunHere: () => undefined,
+      },
+    },
+    "repo-not-cloned": {
+      note: "The repository didn't clone on the machine: the host's own sentence names it, with Retry.",
+      props: {
+        start: {
+          ...begun,
+          step: "folder",
+          ...known,
+          state: "failed",
+          code: "cloud_start_failed",
+          message: "Couldn't clone manaflow-ai/cmux on paint-dev. Check the repository's access and try again.",
+          retryable: true,
+        },
+        onRetry: () => undefined,
+      },
+    },
     "cloud-disabled": {
       note: "Cloud is off in the app (cloud_disabled): a sentence, never the raw code; Run on This Mac sends the same prompt here, Not now leaves the draft.",
       props: {
