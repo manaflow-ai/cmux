@@ -1252,6 +1252,59 @@ done
 exit "$status"
 '''
 
+# The two slow ratchets cmux#64665 left to the batch, now on the pull request too: crash safety (check-crash-safety.sh,
+# 4 base reds in 7 days, 155 s for the whole tree) and main-actor work (check-main-actor-work.py, the crash-class
+# job's ratchet, 3 base reds, 125 s with that job's other rules). Under --changed-range BASE..TIP each reads only
+# what `git diff HEAD^1 HEAD` names: the per-file crash rules and main-actor rows those files, crash_ratchet.py the
+# Swift modules and Rust crates that hold them. Every count is per file or a per-module sum, so a scanned file or
+# module's verdict is the whole-tree run's; a change to a checker, its baseline or allowlists, or a Package.swift
+# reads the whole tree. new_red_only.sh runs the same range on HEAD^1 with the base's own baseline, so a red the base
+# already has warns. The whole-tree runs stay in their jobs.
+[step.next-crash-safety]
+job = "linux"
+timeout = 300
+title = "No new crash-class hit in the modules a change touches (cmux NEXT)"
+about = "check-crash-safety.sh --changed-range: no new try!, external-data force unwrap, unguarded socket or tuple do/catch in the changed Swift files, and no changed Swift module or Rust crate gains a crash_ratchet.py hit (the cmux-next.yml checks step of the same name, scoped), red only when this change adds it"
+land_gate = true
+# The tuple do/catch rule reads every tracked Swift file; crash_ratchet.py the package closure's Sources, the app's
+# Tests (env writes) and every cmux-tui crate's src.
+inputs = [
+  "**/*.swift",
+  "cmux-tui/crates/*/src/**/*.rs",
+  "scripts/cmux-next/check-crash-safety.sh",
+  "scripts/cmux-next/crash_ratchet.py",
+  "scripts/cmux-next/crash-safety-baseline.json",
+  "scripts/cmux-next/crash-allowlist.json",
+  "scripts/cmux-next/env-write-allowlist.json",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+tip="$(git rev-parse HEAD)"
+git cat-file -e "$base^{commit}"
+scripts/ci/new_red_only.sh "Crash safety (changed modules)" -- bash scripts/cmux-next/check-crash-safety.sh --changed-range "$base..$tip"
+'''
+
+[step.next-main-actor-work]
+job = "linux"
+timeout = 300
+title = "No new main-actor hot spot in the files a change touches (cmux NEXT)"
+about = "check-main-actor-work.py --changed-range: no changed CmuxNext Sources file gains a main-actor work hit over main-actor-work-baseline.json (the crash-class job's ratchet, scoped), red only when this change adds it"
+land_gate = true
+inputs = [
+  "Packages/macOS/CmuxNext/Sources/**/*.swift",
+  "Packages/macOS/CmuxNext/Package.swift",
+  "scripts/cmux-next/check-main-actor-work.py",
+  "scripts/cmux-next/main-actor-work-baseline.json",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+tip="$(git rev-parse HEAD)"
+git cat-file -e "$base^{commit}"
+scripts/ci/new_red_only.sh "Main-actor work (changed files)" -- python3 -I scripts/cmux-next/check-main-actor-work.py --changed-range "$base..$tip"
+'''
+
 # ci-web.yml's web-typecheck job, which a feat-cmux-next pull request reached through ci.yml's `web` call when
 # web_subareas.py routed its `typecheck` subarea: a TS/JS/JSON file under web/, web/bun.lock, or ci-web.yml and
 # web_subareas.py themselves. The job keeps pushes, dispatch, the post-merge batch and pull requests into other

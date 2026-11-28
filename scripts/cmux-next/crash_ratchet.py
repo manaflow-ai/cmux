@@ -105,8 +105,13 @@ crash-allow does not waive it; only an "allow" entry {path, class, count, reason
 reviewer} passes that many hits in that file. Flip a class to banned in the commit
 that brings it to zero (moving its reviewed crash-allow lines into the allowlist).
 
-Usage: crash_ratchet.py [--repo ROOT] [--exported-tree]
+Usage: crash_ratchet.py [--repo ROOT] [--exported-tree] [--changed-range BASE..TIP]
                         [--update-baseline [--record-waivers] [--base REF] | --baseline-against BASE_TREE]
+--changed-range BASE..TIP scans only the Swift modules and Rust crates holding a file that
+`git diff BASE TIP` names (and checks env writes in those files only), so a pull request's gate
+reads the modules it changes, not the whole tree; every count is a sum per module, so a scanned
+module's verdict is the full run's. A change to this script, its baseline or allowlists, or a
+Package.swift (which moves module roots) scans the whole tree.
 Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseline, when
 a row stays above the baseline; with --baseline-against, when a counted row rose.
 """
@@ -715,6 +720,42 @@ def refuse(message):
     raise SystemExit(2)
 
 
+# The modules and crates --changed-range scans, or None (the whole tree): {"swift": {...}, "rust": {...},
+# "paths": {repo-relative changed paths}}.
+SCOPE = None
+# A change to one of these scans the whole tree under --changed-range: they move every module's verdict.
+WHOLE_TREE_INPUTS = ("scripts/cmux-next/crash_ratchet.py", "scripts/cmux-next/check-crash-safety.sh",
+                     "scripts/cmux-next/crash-safety-baseline.json",
+                     "scripts/cmux-next/crash-allowlist.json", "scripts/cmux-next/env-write-allowlist.json")
+
+
+def changed_scope(repo, spec):
+    """SCOPE for --changed-range BASE..TIP, or None when the change reaches every module."""
+    base, sep, tip = spec.partition("..")
+    if not sep or not base or not tip:
+        raise SystemExit(f"crash-ratchet: --changed-range wants BASE..TIP, not {spec!r}")
+    try:
+        out = subprocess.run(["git", "-C", repo, "diff", "--name-only", "--no-renames", "-z", base, tip],
+                             check=True, capture_output=True).stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.CalledProcessError) as error:
+        refuse(f"git diff {base} {tip} failed in {repo} ({error}); the range needs both commits")
+    paths = {p for p in out.split("\0") if p}
+    if any(p in WHOLE_TREE_INPUTS or (p.startswith("Packages/") and p.endswith("/Package.swift")) for p in paths):
+        return None
+    swift, rust = set(), set()
+    for rel in paths:
+        for root in swift_source_roots(repo):
+            if rel.startswith(root + "/"):
+                swift.add(rel[len(root) + 1:].split("/")[0])
+        if rel.startswith("cmux-tui/crates/") and rel.count("/") >= 3:
+            rust.add(rel.split("/")[2])
+    return {"swift": swift, "rust": rust, "paths": paths}
+
+
+def in_scope(lang, module):
+    return SCOPE is None or module in SCOPE[lang]
+
+
 def tracked_files(repo, root, exported):
     """Files under ROOT that git tracks (absolute paths, sorted). Ignored and untracked
     files never count: build or sync output in a per-job tree made the ratchet red while
@@ -906,6 +947,8 @@ def module_collections(repo, exported):
             module = os.path.relpath(path, sources).split(os.sep)[0]
             if module not in INDEX_MODULES or not path.endswith(".swift") or not os.path.isfile(path):
                 continue
+            if not in_scope("swift", module):
+                continue
             items.append((module, path))
     for module, (dicts, arrays, others) in parallel_map(_collections_of_file, items):
         entry = declared.setdefault(module, (set(), set(), set()))
@@ -969,7 +1012,10 @@ def scan_swift(repo, scan, exported):
             name = os.path.basename(path)
             if not name.endswith(".swift") or not os.path.isfile(path):
                 continue
-            items.append((path, os.path.relpath(path, sources).split(os.sep)[0]))  # the path, the Swift module
+            module = os.path.relpath(path, sources).split(os.sep)[0]
+            if not in_scope("swift", module):
+                continue
+            items.append((path, module))  # the path, the Swift module
     for events in parallel_map(_swift_file_events, items):
         replay(scan, events)
 
@@ -1077,6 +1123,8 @@ def scan_env_writes(repo, exported):
         if not path.endswith(".swift") or not os.path.isfile(path):
             continue
         rel = os.path.relpath(path, repo)
+        if SCOPE is not None and rel not in SCOPE["paths"]:
+            continue  # counted and allowed per file: an unchanged file keeps the base's verdict
         for line in open(path, encoding="utf-8").read().split("\n"):
             if line.lstrip().startswith("//"):
                 continue
@@ -1125,7 +1173,8 @@ def rust_test_modules(paths):
 def scan_rust(repo, scan, exported):
     crates = os.path.join(repo, "cmux-tui/crates")
     skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
-    paths = tracked_files(repo, crates, exported)
+    paths = [p for p in tracked_files(repo, crates, exported)
+             if in_scope("rust", os.path.relpath(p, crates).split(os.sep)[0])]
     test_files, test_folders = rust_test_modules(paths)
     items = []
     for path in paths:
@@ -1445,6 +1494,7 @@ def baseline_against(repo, exported, base_tree):
 
 
 def main():
+    global SCOPE
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=os.path.abspath(os.path.join(HERE, "../..")))
     parser.add_argument("--update-baseline", action="store_true",
@@ -1455,6 +1505,8 @@ def main():
                         help="with --update-baseline: rows of hits that moved to another module since REF move too")
     parser.add_argument("--baseline-against", metavar="BASE_TREE",
                         help="judge this baseline against BASE_TREE's (an exported tree); no tree check")
+    parser.add_argument("--changed-range", metavar="BASE..TIP",
+                        help="scan only the modules and crates the files of `git diff BASE TIP` are in")
     parser.add_argument("--exported-tree", action="store_true",
                         help="REPO holds only tracked files (git archive): scan every file, no git needed")
     opts = parser.parse_args()
@@ -1465,8 +1517,17 @@ def main():
         parser.error("--base reads REF from git: REPO must be a checkout")
     if opts.baseline_against and updating:
         parser.error("--baseline-against judges the baseline; it does not write it")
+    if opts.changed_range and (updating or opts.baseline_against or opts.exported_tree):
+        parser.error("--changed-range judges a change's modules; it does not write or judge the baseline")
     if opts.baseline_against:
         return baseline_against(opts.repo, opts.exported_tree, opts.baseline_against)
+    if opts.changed_range:
+        SCOPE = changed_scope(opts.repo, opts.changed_range)
+        if SCOPE is None:
+            print(f"crash-ratchet: {opts.changed_range} changes the ratchet or a Package.swift: the whole tree")
+        else:
+            print(f"crash-ratchet: {opts.changed_range}: Swift modules {sorted(SCOPE['swift']) or '-'}, "
+                  f"Rust crates {sorted(SCOPE['rust']) or '-'}")
     scan = scan_tree(opts.repo, opts.exported_tree)
     if updating:
         return update_baseline(opts.repo, scan, opts.base, opts.record_waivers)
@@ -1485,11 +1546,11 @@ def main():
                     continue
                 files = {m: n for m, n in files.items() if (kind, m) not in banned_in(lang)}
                 for rel, hits in files.items():
-                    if found[lang].get(kind, {}).get(rel, 0) < hits:
+                    if in_scope(lang, rel) and found[lang].get(kind, {}).get(rel, 0) < hits:
                         shrunk += 1
     banned_over, banned_notes = check_banned(scan.banned_files)
     grown.extend(banned_over)
-    for line in banned_notes:
+    for line in banned_notes if SCOPE is None else ():  # an unscanned file reads as 0 hits
         print("crash-ratchet: note: " + line)
     env_over = scan_env_writes(opts.repo, opts.exported_tree)
     for module, details in sorted(env_over.items()):
