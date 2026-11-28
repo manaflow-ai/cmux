@@ -203,7 +203,7 @@ import { useChatDisplay, useChatRenderPipeline, sendPopEnabled, useSendScrollsTo
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
-import { sinceDone } from "./conversation/SinceDivider";
+import { sinceDone } from "./conversation/unreadState";
 import {
   readUnread,
   subscribeUnread,
@@ -299,8 +299,6 @@ import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEsti
 import { SNAPSHOT_HOST_TAG, TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE } from "./chatSnapshot/shared";
 import { useStreamAppendDeclaration } from "./devMotionAudit";
 export { RowContent } from "./transcript/RowFrame";
-export { broughtSentPrompt } from "./transcript/arrivals";
-export { heldReaderPlace } from "./transcript/scrollAnchors";
 export type { ScrollAnchor } from "./transcript/scrollAnchors";
 export { JumpToLatest, JumpUp } from "./transcript/JumpButtons";
 import { JumpToLatest } from "./transcript/JumpButtons";

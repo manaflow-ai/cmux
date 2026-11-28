@@ -756,6 +756,19 @@ class NeverBoundTests(unittest.TestCase):
                                       "run_ms": 2128, "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050}})
         self.assertIn("cloud.create.approved", logs.PLATFORM_MSGS)
 
+
+    def test_carrier_delete_keeps_site_machine_and_callers(self):
+        """Production 2026-11-28 21:31:50Z: a probe's own new machine was deleted mid-request under its install, and no
+        kept line named the path that asked. cmux-platform#2614 logs cloud.carrier.delete at each platform delete."""
+        at = ("at Scaler.sweepEach (index.js:7463:15) < at async Scaler.alarm (index.js:900:3) < "
+              "at /srv/hunter2/x.js:1:1")
+        row = logs.line(event({"msg": "cloud.carrier.delete", "machine": VM, "site": "destroy", "at": at}))
+        self.assertEqual(row["log"]["site"], "destroy")
+        self.assertEqual(row["log"]["callers"], ["Scaler.sweepEach", "Scaler.alarm"])
+        self.assertIn("machine", row["log"])
+        self.assertNotIn("hunter2", json.dumps(row))
+        bare = logs.line(event({"msg": "cloud.carrier.delete", "machine": VM, "site": "size_mismatch"}))
+        self.assertNotIn("callers", bare["log"])
     def test_a_large_row_scan_keeps_its_table_counts_and_caller_names_only(self):
         """Staging 2026-11-28 04:40-05:06Z (ask-6b8661d57a): cmux-platform#2511's cloud.rows.scan_large was unlisted,
         so the read meant to name the CloudDO's CPU-heavy scan kept 0 rows."""
