@@ -120,6 +120,7 @@ export function TextRoll({
   });
   useLayoutEffect(() => {
     if (cell.current) applyLook(cell.current.ownerDocument);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the look is applied once, on mount.
   }, []);
   // The width ease: one animation per roll on the cell alone, on the roll's own clock.
   useLayoutEffect(() => {
