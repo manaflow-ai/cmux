@@ -6,7 +6,7 @@ import Foundation
 /// 2026-11-14: "surely we don't need to stream the f***ing thing"). The
 /// decision is Rust's (`terminal_stream_plan`, cmux-mobile-link-ffi
 /// `terminal_stream.rs`): on screen in the foreground it streams; off screen
-/// for 3 s, or in the background for 45 s (the size claim's grace), it stops,
+/// for 3 s, or in the background for 45 s (the size claim is released at once), it stops,
 /// and the page keeps its grid and last frame as the cache. Shown again, the
 /// session attaches once and the Mac's replay brings the page up to date.
 ///

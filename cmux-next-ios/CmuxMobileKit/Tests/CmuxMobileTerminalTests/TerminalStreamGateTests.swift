@@ -39,7 +39,7 @@ import Testing
         #expect(told.isEmpty)
     }
 
-    /// The background keeps the stream as long as the size claim (45 s).
+    /// The background keeps the stream 45 s (the size claim goes at once).
     @Test func theBackgroundKeepsAShownPageStreamingFor45Seconds() async {
         let clock = SteppedClock()
         var told: [Bool] = []

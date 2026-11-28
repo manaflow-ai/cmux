@@ -2309,8 +2309,9 @@ streams. No wire change: the phone closes and reopens its own attach channel.
   workspace list, mid-swipe) it streams for 3 s, then stops: a tab flip, a
   peek at the grid or a swipe across tabs comes back inside it and finds the
   page live. On screen when the app goes to the background it streams for
-  45 s, the size claim's grace above (an app switch or a lock inside it
-  changes nothing). Off screen and in the background: the 3 s from when it
+  45 s (an app switch or a lock inside it changes nothing). The size claim
+  does not wait: it is released when the app leaves, so the Mac pane goes
+  back to its own size while the stream stays. Off screen and in the background: the 3 s from when it
   left the screen.
 - **Stop (phone, `DaemonTerminalSession.setStreaming(false)`).** As a
   session stop does: a claimed size is released (`release-surface-size`, at

@@ -16,9 +16,8 @@
 //!   flip, a peek at the grid or a swipe across tabs comes back inside it and
 //!   finds the page live, with no attach and no replay.
 //! - On screen when the app left the foreground (another app, the lock
-//!   screen): stream for [`BACKGROUND_GRACE_MS`], the same 45 s the page keeps
-//!   its size claim on the Mac (`TerminalSizeClaimDebounce.backgroundDelay`),
-//!   so an app switch or a lock and unlock inside it changes nothing.
+//!   screen): stream for [`BACKGROUND_GRACE_MS`] (45 s), so an app switch
+//!   or a lock and unlock inside it changes nothing.
 //! - Off screen and in the background: the off-screen grace, counted from
 //!   when the page left the screen (the background never lengthens it).
 
@@ -102,7 +101,7 @@ mod tests {
             ("long off screen", facts(false, true, Some(600_000), None), plan(false, None)),
             // A page never shown (built for a card): its grace runs from its build.
             ("never shown, no time yet", facts(false, true, None, None), plan(true, Some(3_000))),
-            // On screen when the app left: the size claim's 45 s.
+            // On screen when the app left: the 45 s background grace.
             ("just backgrounded", facts(true, false, None, Some(0)), plan(true, Some(45_000))),
             ("an app switch", facts(true, false, None, Some(20_000)), plan(true, Some(25_000))),
             ("at 45 s in the background", facts(true, false, None, Some(45_000)), plan(false, None)),
