@@ -1748,7 +1748,7 @@ img.onb-make-tile-image {
   font-size: calc(var(--text-caption) * 0.9);
 }
 [data-onb-labels="tight"] :is(.onb-make-segments, .onb-make-chips) {
-  padding: 2px;
+  padding: var(--grid-half-step);
 }
 [data-onb-labels="fit"] :is(.onb-make-segment, .onb-make-chip) {
   height: auto;
