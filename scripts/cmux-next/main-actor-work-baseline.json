@@ -544,6 +544,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineWire.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudAutoSignals.swift": {
+  "JSON / property-list decode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceFlows.swift": {
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1,
