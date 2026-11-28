@@ -1893,7 +1893,7 @@ img.cv-user__image {
     --cv-table-fade-right calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out);
 }
 .cv-table-block.cv-enter tbody tr {
-  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
 }
 :root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .cv-table-wrap {
   transition: none;
@@ -7174,9 +7174,14 @@ a.cv-sha:focus-visible {
     opacity: 1;
   }
 }
+/* Every opacity-only entrance here fills backwards, never both: each ends on its element's own
+   rest (opacity 1), so holding the end draws the same, but a held animation stays in effect for
+   as long as the element lives. A 300-row window kept ~28 of them alive under a stream
+   (WebKit L3: frame p95 30 ms against 22 ms without them), and the engine walks each one every
+   frame. The recap entrances keep both: their clip-path end (inset(0)) is not their rest (none). */
 @media (prefers-reduced-motion: no-preference) {
   .cv-enter {
-    animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
   /* A row's entry holds nothing once it ends (backwards, not both): its end is the row's own rest
      (opacity 1, no translate), and a translate held past it would win over the one a row's glide
@@ -7188,7 +7193,7 @@ a.cv-sha:focus-visible {
      visible transcript when a subagent or command arrives; the row's measured box is already in
      the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
   .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
-    animation: cv-enter-fade var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter-fade var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
   /* A call's row arriving while the live line hands its words over (Thinking.tsx `useRoll`) waits
      the roll out, so the call's name leaves the line before it lands in its row, never drawn twice
@@ -7240,7 +7245,7 @@ a.cv-sha:focus-visible {
     transform-origin: 50% 0;
   }
   .acpmux-row__message-presentation {
-    animation: cv-message-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-message-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -7248,7 +7253,7 @@ a.cv-sha:focus-visible {
   .acpmux-row--enter,
   /* An arriving prompt or reply (acpmux-row--message-enter) fades too, with no reveal or rise. */
   .acpmux-row--message-enter .acpmux-row__message-presentation {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
   }
   /* A sent prompt, its pictures and the thinking row that came with it are in place at once, never
      the ordinary fade (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just do
@@ -7330,11 +7335,11 @@ a.cv-sha:focus-visible {
      being sent takes the send's clock; a picture drawn again in an older prompt fades on the
      ordinary one. */
   .cv-user .cv-enter {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
   }
   .acpmux-user.acpmux-row--message-enter .cv-user .cv-enter {
     animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 180ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
-      both;
+      backwards;
   }
   /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
@@ -7344,7 +7349,7 @@ a.cv-sha:focus-visible {
   /* The text comes in a beat behind the bubble's edge, so no letter shows cut at the edge. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble > * {
     animation: cv-message-enter calc(var(--agent-motion-send-fade, var(--agent-motion-send, 180ms)) * 0.7)
-      var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--agent-motion-send, 180ms) * 0.3) both;
+      var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--agent-motion-send, 180ms) * 0.3) backwards;
   }
   [data-send-entrance="grow"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
     transform-origin: right bottom;
@@ -7525,7 +7530,7 @@ a.cv-sha:focus-visible {
  * read as lag (Leo, 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take long").
  * A zero token (motion off, the minimal motion under load) makes it zero. */
 .cv-fresh {
-  animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) backwards;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
