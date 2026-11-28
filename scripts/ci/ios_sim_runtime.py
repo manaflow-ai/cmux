@@ -28,9 +28,12 @@ Neither set: the newest available iOS runtime, as before.
 
 The iPhone is the first of PHONES the runtime supports, unless the step names one:
 `--device NAME` (the step's device= argument) picks that iPhone type and nothing else. The one
-other family it takes is the iPad mini: its window (744 x 1133 pt) stands in for an unfolded
+other families it takes are the iPad mini: its window (744 x 1133 pt) stands in for an unfolded
 foldable iPhone's nearly square screen, which the app's Debug build lays out for (cmuxterm-hq
-docs/design/ios-foldable.md); no other iPad. NAME
+docs/design/ios-foldable.md); and the 13-inch iPad App Review judges the app on (IPAD_13, the same
+list as ios-review-gate.yml's iPad leg, cmux-next-ios/scripts/app_review_pick_simulator.py), which
+cmux-next-ios-sim.sh builds iPhone-only for, as that leg does. `--device ipad-13` takes the first of
+IPAD_13 the runtime has (fleet step arguments hold no parentheses). No other iPad. NAME
 is the device type's name ("iPhone 16e"), the same with commas for spaces ("iPhone,16e",
 since fleet step arguments hold no spaces), or its identifier's last part
 ("iPhone-SE-3rd-generation", for names with parentheses). A name the runtime does not
@@ -60,12 +63,24 @@ def version_key(runtime):
     return [int(x) if x.isdigit() else 0 for x in str(runtime.get("version", "0")).split(".")]
 
 
-# Device families a step may name: every iPhone, and the iPad mini (an unfolded foldable's stand-in).
-FAMILIES = ("iPhone", "iPad mini")
+# App Review's iPad: a 13-inch one (app_review_pick_simulator.py PREFERRED["ipad"], in its order).
+IPAD_13 = ("iPad Pro 13-inch (M5)", "iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)")
+IPAD_13_ALIAS = "ipad-13"
+# Device families a step may name: every iPhone, the iPad mini (an unfolded foldable's stand-in) and
+# the 13-inch iPads App Review uses.
+FAMILIES = ("iPhone", "iPad mini") + IPAD_13
 
 
 def find_device(types, want):
     """The device type identifier and name for want among types ({name: identifier}), or raise SystemExit."""
+    if want.lower() == IPAD_13_ALIAS:
+        for name in IPAD_13:
+            if name in types:
+                return types[name], name
+        raise SystemExit(
+            f"cmux-next-ios-sim.sh: device={want}: this runtime has none of {', '.join(IPAD_13)}; "
+            f"available iPad types: {', '.join(sorted(k for k in types if k.startswith('iPad'))) or 'none'}"
+        )
     spaced = want.replace(",", " ").strip()
     types = {k: v for k, v in types.items() if k.startswith(FAMILIES)}
     for name, ident in types.items():
@@ -73,7 +88,7 @@ def find_device(types, want):
             return ident, name
     phones = sorted(types)
     raise SystemExit(
-        f"cmux-next-ios-sim.sh: device={want}: this runtime has no such iPhone or iPad mini device type; "
+        f"cmux-next-ios-sim.sh: device={want}: this runtime has no such iPhone, iPad mini or 13-inch iPad device type; "
         f"available iPhone types: {', '.join(phones) or 'none'}"
     )
 

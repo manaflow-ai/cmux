@@ -694,7 +694,7 @@ macro_rules! home_rule {
   agents share. In a cmux clone make it with `python3 scripts/cmux_worktree.py
   add -b BRANCH PATH origin/feat-cmux-next`: its files are clones of a clean
   seed checkout (4 s and almost no disk, not 17 s and 1.6 GiB); elsewhere use
-  `git worktree add`. Never symlink node_modules or share one Cargo target
+  `git cow add` (the same tool), else `git worktree add`. Never symlink node_modules or share one Cargo target
   dir: `bun install` already clones from bun's store, and `--cargo DIR`
   seeds DIR/target from a sibling worktree's. Read remote state (a branch's head, a pull
   request's checks, whether it merged) with `gh api` or `gh pr view`, not
@@ -1160,7 +1160,7 @@ report.
   agents share. In a cmux clone make it with `python3 scripts/cmux_worktree.py
   add -b BRANCH PATH origin/feat-cmux-next`: its files are clones of a clean
   seed checkout (4 s and almost no disk, not 17 s and 1.6 GiB); elsewhere use
-  `git worktree add`. Never symlink node_modules or share one Cargo target
+  `git cow add` (the same tool), else `git worktree add`. Never symlink node_modules or share one Cargo target
   dir: `bun install` already clones from bun's store, and `--cargo DIR`
   seeds DIR/target from a sibling worktree's. Read remote state (a branch's head, a pull
   request's checks, whether it merged) with `gh api` or `gh pr view`, not

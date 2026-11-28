@@ -18,6 +18,12 @@ known-good sites:
    the repository's own value written next to it as a literal. The table below
    is the one hand-maintained part, and it names three variables, not the
    dozens of sites that read them.
+3. A variable compared with the string '0' must be read through
+   `format('{0}', vars.X)` (or given a literal with `||`). An unset variable is
+   null, and Actions compares null with '0' as numbers, 0 == 0, so a bare
+   `vars.X != '0'` is false when nobody set X: the switch documented as "on
+   unless set to 0" is off. #55354's PR scoping (vars.CI_FAST_TIER_PR_SCOPE) was
+   off on every pull request this way, with no repository variable set.
 """
 
 from __future__ import annotations
@@ -147,15 +153,17 @@ def is_comparison(text: str, end: int) -> bool:
 def default_chain_reaches_literal(text: str, end: int) -> bool:
     """True when a chain ends in a literal, a literal label list or a declared runner pool.
 
-    A literal list (`fromJSON('["cmux-mac","xcode-27.0"]')`, ios-internal-nightly's archive fallback) is a constant
-    non-empty runs-on, as a quoted label is.
+    A literal list (`fromJSON('["cmux-mac","xcode-27.0"]')`) is a constant non-empty runs-on, as a quoted label
+    is, and so is a list read that falls back to one inside fromJSON (`fromJSON(needs.X.outputs.fallback != '' &&
+    needs.X.outputs.fallback || '["cmux-mac","xcode-27.0"]')`, ios-internal-nightly's archive fallback).
     """
     rest = text[end:]
     while True:
         chained = re.match(r"\s*\|\|\s*vars\.[A-Z0-9_]+", rest)
         if chained is None:
             return re.match(
-                r"\s*\|\|\s*(?:'[^']+'|fromJSON\('\[\s*\"[^']+\]'\)|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+)",
+                r"\s*\|\|\s*(?:'[^']+'|fromJSON\('\[\s*\"[^']+\]'\)|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+"
+                r"|fromJSON\([^()]*?\|\|\s*'\[\s*\"[^']+\]'\))",
                 rest,
             ) is not None
         rest = rest[chained.end():]
@@ -346,6 +354,10 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
         if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
             continue
+        # A last top-level `|| fromJSON('["label", ...]')` is a literal label set, the same fallback
+        # (ios-internal-nightly's archive: cmux-mac AND xcode-27.0 when no picker output applies).
+        if re.search(r"\|\|\s*fromJSON\('\[\s*\"[^\"']+\"(?:\s*,\s*\"[^\"']+\")*\s*\]'\)\s*\}\}\s*(#.*)?$", line):
+            continue
         errors.append(
             f"{path.name}:{number}: runs-on reads "
             f"{', '.join(read.group(0) for read in reads)} with no literal runner "
@@ -516,6 +528,48 @@ def self_test_pool_reads(errors: list[str]) -> None:
             errors.append(f"self-test: pool read {'accepted' if not expected else 'refused'} wrongly: {text}")
 
 
+# `vars.X != '0'` / `vars.X == '0'` with no format() around the read (rule 3).
+BARE_ZERO_COMPARE = re.compile(r"(?<![(,]\s)(?<![(,])vars\.([A-Z0-9_]+)\s*[!=]=\s*'0'")
+
+# Sites that read a bare `vars.X != '0'` on feat-cmux-next when rule 3 landed.
+# Each is off today while unset (rule 3); turning one on is its owner's call,
+# so they are named here rather than flipped. Drop a name once its sites read
+# `format('{0}', vars.X)`. Do not add names: fix the new site instead.
+UNSET_READS_AS_ZERO_KNOWN = {
+    "CI_FAST_TIER_CARGO_BOT_READ",
+    "CI_REACT_SHARD_RECEIPT",
+    "CI_IOS_FAST_VERDICT",
+    "CMUX_NEXT_LANGUAGE_PACKS",
+    "CMUX_NEXT_TOOL_PACKS",
+    "FIXIT_HANDOFF",
+    "IOS_BASE_BISECT",
+}
+
+
+def check_unset_zero_reads(path: Path, errors: list[str]) -> None:
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if line.lstrip().startswith("#"):
+            continue
+        for match in BARE_ZERO_COMPARE.finditer(line):
+            if match.group(1) not in UNSET_READS_AS_ZERO_KNOWN:
+                errors.append(
+                    f"{path.relative_to(ROOT)}:{number}: vars.{match.group(1)} compared with '0' reads an "
+                    f"unset variable as '0' (null and '0' both coerce to 0); write "
+                    f"format('{{0}}', vars.{match.group(1)})"
+                )
+
+
+def self_test_unset_zero_reads(errors: list[str]) -> None:
+    for text, expected in (
+        ("vars.CI_X != '0'", True),
+        ("vars.CI_X == '0'", True),
+        ("format('{0}', vars.CI_X) != '0'", False),
+        ("(vars.CI_X || '1') != '0'", False),
+    ):
+        if bool(BARE_ZERO_COMPARE.search(text)) != expected:
+            errors.append(f"self-test: unset-as-zero read {'missed' if expected else 'flagged'}: {text}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
@@ -525,10 +579,12 @@ def main() -> int:
     self_test_gate_matcher(errors)
     self_test_runs_on_gate(errors)
     self_test_pool_reads(errors)
+    self_test_unset_zero_reads(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)
         check_paid_overflow_gate(path, errors)
+        check_unset_zero_reads(path, errors)
 
     if errors:
         print("Repository variables that an unset value makes expensive:", file=sys.stderr)

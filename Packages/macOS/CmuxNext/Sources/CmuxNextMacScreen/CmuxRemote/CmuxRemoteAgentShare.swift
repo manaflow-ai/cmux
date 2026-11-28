@@ -107,7 +107,7 @@ nonisolated enum CmuxRemoteAgentStrings {
     }
     static var allowBody: String {
         String(localized: "remote.agents.allow.body",
-               defaultValue: "Your agents on your own devices can then turn screen sharing and control on or off for your Macs without asking. Each change shows a notice with Turn Off, and sharing an agent turned on turns off after a few minutes with no viewer. Other people and their agents still ask.",
+               defaultValue: "Agents on your own devices can turn screen sharing and control of your Macs on or off without asking. Each change shows a notice.",
                table: "CmuxRemote", bundle: .module)
     }
     static var allowed: String {

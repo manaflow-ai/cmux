@@ -27,6 +27,7 @@ public final class Events {
     public static final EventMetadata CLIENT_ATTACHED = new EventMetadata("client-attached", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_CHANGED = new EventMetadata("client-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_DETACHED = new EventMetadata("client-detached", 6, null, List.of("subscribe"), true);
+    public static final EventMetadata CLIENT_DISCONNECTED_BY = new EventMetadata("client-disconnected-by", 12, null, List.of("control"), true);
     public static final EventMetadata CLIENT_LIST_INVALIDATED = new EventMetadata("client-list-invalidated", 9, null, List.of("subscribe"), false);
     public static final EventMetadata CLOUD_CONVERSATION_CHANGED = new EventMetadata("cloud-conversation-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_LIVE = new EventMetadata("cloud-conversation-live", 12, "cloud-chief-live-v1", List.of("subscribe"), true);
@@ -72,6 +73,7 @@ public final class Events {
     public static final EventMetadata PANE_CLOSED = new EventMetadata("pane-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata PARTICIPANT_AVATAR_CHANGED = new EventMetadata("participant-avatar-changed", 12, "participant-avatars-v1", List.of("subscribe"), true);
     public static final EventMetadata PERSONAL_CHANGED = new EventMetadata("personal-changed", 12, "profiles-v1", List.of("subscribe"), true);
+    public static final EventMetadata PHONE_OPEN_LINK = new EventMetadata("phone-open-link", 12, null, List.of("control"), true);
     public static final EventMetadata PROGRAM_STATUS_CHANGED = new EventMetadata("program-status-changed", 12, null, List.of("subscribe"), true);
     public static final EventMetadata RENDER_DELTA = new EventMetadata("render-delta", 7, null, List.of("attach-render"), true);
     public static final EventMetadata RENDER_STATE = new EventMetadata("render-state", 7, null, List.of("attach-render"), true);
@@ -131,6 +133,7 @@ public final class Events {
         values.put("client-attached", CLIENT_ATTACHED);
         values.put("client-changed", CLIENT_CHANGED);
         values.put("client-detached", CLIENT_DETACHED);
+        values.put("client-disconnected-by", CLIENT_DISCONNECTED_BY);
         values.put("client-list-invalidated", CLIENT_LIST_INVALIDATED);
         values.put("cloud-conversation-changed", CLOUD_CONVERSATION_CHANGED);
         values.put("cloud-conversation-live", CLOUD_CONVERSATION_LIVE);
@@ -176,6 +179,7 @@ public final class Events {
         values.put("pane-closed", PANE_CLOSED);
         values.put("participant-avatar-changed", PARTICIPANT_AVATAR_CHANGED);
         values.put("personal-changed", PERSONAL_CHANGED);
+        values.put("phone-open-link", PHONE_OPEN_LINK);
         values.put("program-status-changed", PROGRAM_STATUS_CHANGED);
         values.put("render-delta", RENDER_DELTA);
         values.put("render-state", RENDER_STATE);

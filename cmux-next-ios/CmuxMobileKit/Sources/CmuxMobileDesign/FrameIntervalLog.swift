@@ -9,6 +9,8 @@ public struct FrameIntervalStats: Codable, Hashable, Sendable {
     public var frames: Int
     /// The display's nominal frame interval (ms), from the link's target.
     public var expectedMs: Double
+    /// The measured screen's advertised maximum, when supplied by a bench.
+    public var displayMaximumHz: Int?
     public var p50Ms: Double
     public var p90Ms: Double
     public var p95Ms: Double
@@ -234,7 +236,7 @@ public final class FrameIntervalLog {
 
     /// Ends the window and returns its summary (nil when none was open).
     @discardableResult
-    public func end() -> FrameIntervalStats? {
+    public func end(displayMaximumHz: Int? = nil) -> FrameIntervalStats? {
         guard isEnabled, let label else { return nil }
         if let token { FrameClock.shared.unsubscribe(token) }
         token = nil
@@ -242,6 +244,7 @@ public final class FrameIntervalLog {
         if let window { signposter.endInterval("window", window) }
         window = nil
         var stats = FrameIntervalStats(label: label, intervals: intervals, expected: expected)
+        stats.displayMaximumHz = displayMaximumHz
         if let cpuAtBegin, let now = Self.mainThreadCPUSeconds() { stats.mainThreadCPUMs = ((now - cpuAtBegin) * 100_000).rounded() / 100 }
         cpuAtBegin = nil
         if cpuPerFrame.count == intervals.count { stats.mainThreadCPUPerFrameMs = cpuPerFrame.map { ($0 * 100_000).rounded() / 100 } }

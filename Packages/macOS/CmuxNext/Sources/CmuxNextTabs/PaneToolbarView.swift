@@ -117,13 +117,16 @@ public final class PaneToolbarView: NSView {
         zoomButton.state = .on
         zoomButton.isHidden = true
         addSubview(zoomButton)
+        // The grouped and glass styles' pill, under every button (`appearance.toolbarButtonStyle`).
+        addSubview(groupPill, positioned: .below, relativeTo: nil)
+        _ = reveal.add(groupPill)
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
         // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
         applyRest()
         restObservation = Task { [weak self] in
             for await _ in ObservationStream({
                 (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value,
-                 DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
+                 DesignSettings.shared.sidebarSections.hidesControlsUntilHover, DesignSettings.shared.toolbarButtonStyle)
             }) { self?.applyRest() }
         }
     }
@@ -131,6 +134,7 @@ public final class PaneToolbarView: NSView {
     /// Hidden at rest while the tabs leave room; muted once they fill the bar (Leo 2026-10-20: no
     /// reservation of hidden icons, and no push or overlay that takes the rightmost tabs away).
     private func applyRest() {
+        applyButtonStyle()
         reveal.restAlpha = TabTunables.restingControlAlpha(crowded: strip?.isCrowded ?? false, minimal: DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
     }
 
@@ -160,6 +164,7 @@ public final class PaneToolbarView: NSView {
         self.nativeGlass = nativeItems.contains(where: \.glass)
         if items != self.items { setButtons(items) }
         if nativeItems != self.nativeItems || glassChanged { setNativeButtons(nativeItems) }
+        applyButtonStyle()
         self.zoomed = zoomed
         zoomButton.isHidden = !zoomed
         applyTint()
@@ -511,7 +516,36 @@ public final class PaneToolbarView: NSView {
             }
             cursor = x - gap
         }
+        layoutGroupPill()
         applyTint()
+    }
+
+    // MARK: The pill (`appearance.toolbarButtonStyle`)
+
+    /// The grouped and glass styles' one pill behind the shown buttons; hidden in the other styles. It fades with the
+    /// buttons (``reveal``), so a Minimal Mode bar at rest shows no empty pill.
+    let groupPill = ToolbarGroupPill()
+
+    /// The style's hover on the pane's own buttons: inside a pill they brighten their glyph only.
+    private func applyButtonStyle() {
+        let style = DesignSettings.shared.toolbarButtonStyle
+        let paintsFill = style.hoverStyle?.paintsFill ?? true
+        for button in buttons + nativeButtons + [zoomButton] { button.hover.paintsFill = paintsFill }
+        groupPill.style = style
+        needsLayout = true
+    }
+
+    /// The pill around every button that shows, padded by a quarter step, its ends round.
+    private func layoutGroupPill() {
+        let shown = (buttons + nativeButtons + [zoomButton]).filter { !$0.isHidden }.map(\.frame)
+        groupPill.frame = Self.groupPillFrame(around: shown, padding: Metrics.space1 / 4)
+        groupPill.isHidden = !DesignSettings.shared.toolbarButtonStyle.drawsGroup || shown.isEmpty
+    }
+
+    /// The pill's frame around `frames`, `padding` out on every side; zero with nothing to hold.
+    static func groupPillFrame(around frames: [NSRect], padding: CGFloat) -> NSRect {
+        guard let first = frames.first else { return .zero }
+        return frames.dropFirst().reduce(first) { $0.union($1) }.insetBy(dx: -padding, dy: -padding)
     }
 
     /// The Exit Zoom button's slot: the trailing one, on the row, at a tab bar button's size.

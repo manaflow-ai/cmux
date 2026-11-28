@@ -78,7 +78,8 @@ public final class AgentPaneIMessageConnector {
         return try? JSONValue.parse(reply)
     }
 
-    private func invalidate() { for view in views.allObjects { view.iMessageChanged() } }
+    /// Held per pane to one per turn, and while nobody sees it (``AgentPaneShownPushes``): the page reads the state again when it shows.
+    private func invalidate() { for view in views.allObjects { view.shownPushes.push("imessage", to: view) { $0.iMessageChanged() } } }
     private func unavailable() -> [String: Any] { AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
 
     private func follow() {

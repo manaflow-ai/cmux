@@ -31,6 +31,27 @@ test("the turn repair read fails on a page that says more but holds nothing past
   expect(logged).toEqual(["turn repair read stalled"]);
 });
 
+test("the turn repair read fails on an empty page that says more, and says why", async () => {
+  const asked: number[] = [];
+  const logged: string[] = [];
+  const client = directClientStub<{
+    readTurnRecords(sessionId: string, generation: number, afterSeq: number, endSeq: number): Promise<unknown[]>;
+  }>({
+    selectedSessionId: "s",
+    selectionGeneration: 1,
+    wire: { lifecycle: (event: string) => logged.push(event) },
+    typed: async (_method: string, params: { afterSeq: number }) => {
+      asked.push(params.afterSeq);
+      if (asked.length > 5) throw new Error("read the same page again and again");
+      return { events: [], hasMore: true };
+    },
+  });
+  // Not a complete read of 10..20: it fails, so repairTurns retries it on its bounded delays.
+  await expect(client.readTurnRecords("s", 1, 10, 20)).rejects.toThrow("said more but held nothing past it");
+  expect(asked).toEqual([10]);
+  expect(logged).toEqual(["turn repair read stalled"]);
+});
+
 test("the turn repair read still pages on while each page moves its cursor", async () => {
   const asked: number[] = [];
   const client = directClientStub<{

@@ -18,8 +18,36 @@ use zeroize::Zeroizing;
 
 use crate::UltraChoice;
 
-/// The WireGuard default interface MTU, used when the config sets none.
-pub const DEFAULT_MTU: u16 = 1420;
+/// Bytes WireGuard adds around an inner packet on an IPv4 underlay: the outer
+/// IPv4 (20) and UDP (8) headers and the data message's own 32 (16-byte
+/// header, 16-byte tag).
+pub const OVERHEAD_V4: u16 = 20 + 8 + 32;
+
+/// As [`OVERHEAD_V4`], on an IPv6 underlay (a 40-byte outer header).
+pub const OVERHEAD_V6: u16 = 40 + 8 + 32;
+
+/// The underlay path MTU [`DEFAULT_MTU`] must fit: a GCP VPC network's
+/// default 1460, the smallest common cloud underlay.
+pub const SMALLEST_CLOUD_PATH_MTU: u16 = 1460;
+
+/// The inner MTU whose full packets fit an underlay path of `path_mtu`
+/// bytes once WireGuard wrapped them (`ipv6`: the underlay's family), never
+/// below the stack's floor.
+pub const fn inner_mtu_for_path(path_mtu: u16, ipv6: bool) -> u16 {
+    let overhead = if ipv6 { OVERHEAD_V6 } else { OVERHEAD_V4 };
+    let mtu = path_mtu.saturating_sub(overhead);
+    if mtu < MIN_MTU { MIN_MTU } else { mtu }
+}
+
+/// The interface MTU used when the config sets none: 1380, what fits a
+/// [`SMALLEST_CLOUD_PATH_MTU`] path over IPv6 (and so over IPv4).
+///
+/// Not WireGuard's own 1420, which assumes a 1500-byte path: on a GCP VM
+/// (1460) a full 1420 packet leaves as a 1480-byte datagram. The kernel
+/// fragments it when sent alone, and refuses it with EMSGSIZE when it rides
+/// in a UDP GSO message (`underlay_batch.rs`), so bulk traffic to a peer in
+/// the same VPC failed some 95 times a minute.
+pub const DEFAULT_MTU: u16 = inner_mtu_for_path(SMALLEST_CLOUD_PATH_MTU, true);
 
 /// Smallest MTU the stack accepts. Below this TCP cannot carry a useful segment.
 const MIN_MTU: u16 = 576;

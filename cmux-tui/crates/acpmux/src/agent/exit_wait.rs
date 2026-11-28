@@ -98,7 +98,9 @@ impl ChildAgent {
             #[cfg(windows)]
             crate::job::ctrl_break(pid);
             if let Some(child) = guard.as_mut() {
-                let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
+                let began = std::time::Instant::now();
+                let on_term = tokio::time::timeout(KILL_GRACE, child.wait()).await.is_ok();
+                log_stop(&self.name, "direct", KILL_GRACE, began, on_term);
             }
             // Then the job ends, stragglers included (SIGKILL on Unix).
             #[cfg(windows)]

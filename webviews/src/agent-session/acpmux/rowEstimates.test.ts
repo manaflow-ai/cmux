@@ -781,11 +781,11 @@ test("the first layout reserves every question option before placing the reply b
   const two = layoutConversation([questionAsk(2), reply("after", "Next")] as AcpmuxRow[], 720);
   const five = layoutConversation([questionAsk(5), reply("after", "Next")] as AcpmuxRow[], 720);
   // The card's 8 px inset, the 28 px "Needs your input" line, the question as a 14/20 title, 36 px
-  // rows 2 px apart, then the 36 px last row under its 8 px gap (question/questionCard.css).
+  // rows 4 px apart, then the 36 px last row under its 8 px gap (question/questionCard.css).
   const title = drawnFontSize(chatDisplay()) * (20 / 14);
-  expect(two.heights[0]).toBeCloseTo(16 + 28 + 2 + title + 8 + (2 * 36 + 2) + 8 + 36);
-  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 38);
-  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 38);
+  expect(two.heights[0]).toBeCloseTo(16 + 28 + 2 + title + 8 + (2 * 36 + 4) + 8 + 36);
+  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 40);
+  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 40);
 });
 
 test("question estimates follow description wrapping at the actual column width", () => {

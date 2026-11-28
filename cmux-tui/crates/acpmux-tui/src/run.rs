@@ -103,7 +103,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                         } else { match &mut app.overlay {
                             Overlay::NewSession(f) => match f.field {
                                 2 => f.cwd.insert_str(s.trim()),
-                                4 => f.prompt.insert_str(&s),
+                                4 => f.prompt.insert_paste(&s),
                                 1 => f.name.insert_str(s.trim()),
                                 _ => {}
                             },
@@ -112,7 +112,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                                 p.refilter();
                             }
                             Overlay::AddHost { text } | Overlay::Directory { text } => text.insert_str(s.trim()),
-                            _ => app.editor_mut().insert_str(&s),
+                            _ => app.editor_mut().insert_paste(&s),
                         }}
                     }
                     Some(Err(e)) => break Err(e.into()),
@@ -240,6 +240,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             _ = tokio::time::sleep_until(settle) => break,
         }
     }
+    let report = app.scope.close(std::time::Duration::from_secs(1)).await;
     app.set_pointer(false);
     let _ = crossterm::execute!(
         std::io::stdout(),
@@ -249,6 +250,9 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         crossterm::event::DisableMouseCapture
     );
     ratatui::restore();
+    if !report.joined() {
+        eprintln!("acpmux: {report}");
+    }
     if let Some(u) = &app.web_url {
         println!("acpmux: agents keep running. Web dashboard: {u}");
     }
@@ -270,8 +274,11 @@ pub(super) fn make_app(
         .chain(tui.palette_aliases.iter())
         .chain(std::iter::once(&tui.skill_prefix))
     {
+        let Some(first) = p.chars().next() else {
+            anyhow::bail!("TUI prefixes must each be one non-space character");
+        };
         anyhow::ensure!(
-            p.chars().count() == 1 && !p.chars().next().unwrap().is_whitespace(),
+            p.chars().count() == 1 && !first.is_whitespace(),
             "TUI prefixes must each be one non-space character"
         );
     }
@@ -282,6 +289,7 @@ pub(super) fn make_app(
     let keymap = keymap::Keymap::new(&tui)?;
     let palette_aliases = tui.palette_aliases.clone();
     Ok(App {
+        scope: cmux_scope::Scope::new("acpmux terminal UI"),
         client: client.clone(),
         tx: tx.clone(),
         sessions,

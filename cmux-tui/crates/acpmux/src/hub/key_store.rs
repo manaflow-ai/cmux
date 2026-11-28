@@ -1,7 +1,7 @@
 //! "Keep as key NAME" on a chat's `request_secret` card (`secrets.rs`, docs/design/safe-keys.md):
 //! where the person's value goes when they keep it. The key store is cmux's (`cmux keys`, the
 //! cmux-tui crate's `cli/key_broker/local.rs`): the OS secret store's item `key.NAME` and the audit
-//! in `~/.config/cmux/keys.json`, never a value there. This daemon reaches it as Settings > Keys
+//! in `~/.config/cmux-next/keys.json`, never a value there. This daemon reaches it as Settings > Keys
 //! does, through the CLI with the value on stdin, so the store keeps one writer of its audit.
 
 use super::secrets::MASK;

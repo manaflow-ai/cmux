@@ -432,11 +432,11 @@ public final class ConversationViewController: UIViewController {
         rebuild(change: .reset)
     }
 
-    /// The header's line under the name: only a drop past the store's quiet bound says so,
-    /// a normal reconnect shows nothing.
+    /// The header's line under the name says nothing about the link, however long it is down: the
+    /// conversation reconnects on its own (Leo, 2026-11-22: "i dont wanna see connecting to
+    /// cosmic-gray... with the spinner, i want it to just work").
     private func showConnectionStatus() {
-        let down = store.connection != .connected && store.connectionNoticeDue
-        header.setConnectionStatus(down ? String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module) : nil)
+        header.setConnectionStatus(nil)
     }
 
     /// The conversation draws its own header, so it hides its navigation

@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// The `_acpmux/event` params of a record of this daemon's own chat, built once and shared by
+/// every connection (`HubEvent::event_params`). `deliver`'s `routed` leaves them as they are: it
+/// changes only a peer's chat's, and `event_value` has no `peer` to take out. None for a peer's.
+fn shared_event(ev: &HubEvent) -> Option<&Value> {
+    if ev.remote.is_some() {
+        return None;
+    }
+    Some(ev.event_params.get_or_init(|| event_value(&ev.session_id, &ev.record)))
+}
+
 /// Turn a hub record into client notifications for one connection. It is called only for the
 /// records routed to the connection (`interest.rs`): a record a watcher is sent anything for here
 /// must be one `interest::watch_hears` names.
@@ -123,11 +133,33 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             && (!sub.event_stream || sub.filter.matches_live(rec))
             && conn.leaves_out_hidden(&ev.session_id, rec.seq);
         if repeat || quiet {
-            // Sent by the replay, or left out while hidden.
+            // Sent by the replay, or left out while hidden (the show's `_acpmux/lagged` covers
+            // those). A replayed record is the client's: the next record's `prev` counts it.
+            if repeat && sub.event_stream {
+                conn.stream_prev(&ev.session_id, rec.seq);
+            }
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
-                let params = routed(event_value(&ev.session_id, rec));
-                conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
+                // A peer daemon's link keeps its own cursors (`peer_forward.rs`); every client
+                // that draws the chat hears what this stream sent before the record.
+                let prev = if conn.origin != Origin::Peer {
+                    conn.stream_prev(&ev.session_id, rec.seq)
+                } else {
+                    0
+                };
+                match shared_event(&ev) {
+                    // A compact chunk reads the shared params in place; `prev` rides the frame.
+                    Some(params) => {
+                        conn.send(&conn.chunk_deltas.frame_shared(&ev.session_id, params, prev))
+                    }
+                    None => {
+                        let mut params = routed(event_value(&ev.session_id, rec));
+                        if prev > 0 {
+                            params.set("prev", json!(prev));
+                        }
+                        conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
+                    }
+                }
             }
         } else {
             // Agent -> client updates as standard ACP notifications.
@@ -163,10 +195,11 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 sent = true;
             }
             if rec.dir == "mux" {
-                conn.send(&Message::notification(
-                    method::MUX_EVENT,
-                    routed(event_value(&ev.session_id, rec)),
-                ));
+                let params = match shared_event(&ev) {
+                    Some(params) => params.clone(),
+                    None => routed(event_value(&ev.session_id, rec)),
+                };
+                conn.send(&Message::notification(method::MUX_EVENT, params));
                 sent = true;
             }
         }
@@ -340,7 +373,7 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
             Some(if full {
-                let mut summary = hub.session_change_summary(&s);
+                let mut summary = hub.session_change_summary(&s, rec.seq);
                 if lean {
                     requests::without_time_breakdown(&mut summary);
                 }

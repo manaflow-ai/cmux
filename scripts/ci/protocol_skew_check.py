@@ -161,13 +161,37 @@ def judge_decoders(base: str, head: str) -> list[str]:
     new_spec, old_spec = show(head, RESOURCE_SPEC), show(base, RESOURCE_SPEC)
     if new_spec and old_spec:
         # `"extra": false` alone drops an undeclared param (catalog_validation.rs, #49712); only
-        # `"unknown_params": "refuse"` refuses the request.
-        strict = re.compile(r"\"unknown_params\"\s*:\s*\"refuse\"")
-        rise = len(strict.findall(new_spec)) - len(strict.findall(old_spec))
-        if rise > 0:
-            fail.append(f"{RESOURCE_SPEC}: {rise} more operation(s) refuse unknown params "
-                        f"(\"unknown_params\": \"refuse\")")
+        # `"unknown_params": "refuse"` refuses the request. Only an operation the old peer already knows can be
+        # skewed: a new operation (born strict or not) has no older caller to send it unknown params.
+        old_ops, new_ops = strict_ops(old_spec), strict_ops(new_spec)
+        flipped = sorted(name for name, strict in new_ops.items() if strict and old_ops.get(name) is False)
+        if flipped:
+            fail.append(f"{RESOURCE_SPEC}: {len(flipped)} more operation(s) refuse unknown params "
+                        f"(\"unknown_params\": \"refuse\"): {', '.join(flipped[:5])}")
     return fail
+
+
+def strict_ops(spec: str) -> dict[str, bool]:
+    """Each operation's name and whether it refuses unknown params; False means it takes them."""
+    try:
+        tree = json.loads(spec)
+    except ValueError:
+        return {}
+    found: dict[str, bool] = {}
+
+    def walk(node: object, name: str) -> None:
+        if isinstance(node, dict):
+            params = node.get("params")
+            if isinstance(params, dict):
+                found[name] = params.get("unknown_params") == "refuse"
+            for key, child in node.items():
+                walk(child, key)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child, name)
+
+    walk(tree, "")
+    return found
 
 
 def main(argv: list[str] | None = None) -> int:

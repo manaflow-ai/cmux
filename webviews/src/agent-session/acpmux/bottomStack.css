@@ -43,6 +43,29 @@
 .acpmux-main[data-dock="float"] > .acpmux-dock[data-foot] {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
+/* A pane too short for that floor and the composer both (140 and 200 px tall, ask c-6a24624c5c, Leo
+   2026-11-25: the composer clipped, the mode and model row cut): the transcript's floor gives way, and
+   the stack may take the whole pane under the header. The floor left the stack 32 px at 140 px and
+   92 px at 200 px, under the card and its quiet row, so the stack ran past the pane's bottom edge and
+   the quiet row with it. The card's draft still gives up its height first and scrolls inside the card
+   (below), so the card and the quiet row stay in the pane. The rule takes no part at 260 px and up, where
+   the floor and the composer both fit (test/agent-pane-short-pane-composer.test.ts; gallery
+   `agent-pane.composer-stress` short-*). */
+@media (height < 260px) {
+  .acpmux-main[data-dock="float"] > .acpmux-dock,
+  .acpmux-main[data-dock="float"] > .acpmux-dock[data-foot] {
+    max-height: calc(100% - 44px);
+  }
+}
+/* Under 180 px the card and its quiet row take about all the room under the header: the queue, the
+   tray and a question give up their one-row floor too and scroll in what is left, so a running turn's
+   queued prompts never push the controls out of the pane (140 px with three queued prompts). */
+@media (height < 180px) {
+  .acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
+  .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > .acpmux-composer-queue {
+    min-height: 0;
+  }
+}
 /* An open chat's stack in flow (`data-dock="flow"`: the inspector, a handoff review) keeps the same
    floor over it, so a tall draft's composer keeps its height as the stage over it switches (Leo,
    2026-11-24: "we need to have more things decoupled from posisble shifts";

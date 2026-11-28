@@ -69,7 +69,6 @@ const KNOWN = new Set([
   "src/agent-session/acpmux/subagents/subagents.css: .cv-subagent-done__actions:focus-within",
   "src/pages/home-channels/styles.css: .hc-msg:focus-within .hc-msg-hover-time",
   "src/pages/keybindings/styles.css: .keys-row:focus-within .keys-icon-button",
-  "src/pages/machines/styles.css: .machines-row:focus-within .machines-action",
   "src/pages/settings/layout.css: .channel-build:focus-within .channel-switch",
   "src/pages/settings/styles.css: .menu-row:focus-within .menu-row-actions",
   "src/styles.css: .comment-card:focus-within .comment-card-actions",

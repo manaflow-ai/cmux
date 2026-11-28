@@ -80,13 +80,28 @@ enum ListStressMacCards {
         TabCardFaceProbe.macDropped()
     }
 
-    /// A flat colored picture, a different color for each tab.
+    /// A page-like picture, a different color for each tab: a header band and lines of "text" on
+    /// the tab's color. Never one flat color: the grid gates a one-color picture as a placeholder
+    /// (`CardPictureGate`, #54985), so a flat thumbnail would leave its card blank.
     private static func png(size: CGSize, index: Int) -> Data {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
+        let hue = CGFloat(index % 12) / 12
         return UIGraphicsImageRenderer(size: size, format: format).pngData { context in
-            UIColor(hue: CGFloat(index % 12) / 12, saturation: 0.5, brightness: 0.9, alpha: 1).setFill()
+            UIColor(hue: hue, saturation: 0.5, brightness: 0.9, alpha: 1).setFill()
             context.fill(CGRect(origin: .zero, size: size))
+            guard size.width > 64 else { return }
+            UIColor(hue: hue, saturation: 0.7, brightness: 0.5, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: size.width, height: min(48, size.height / 6)))
+            UIColor(white: 0.15, alpha: 1).setFill()
+            var y = min(48, size.height / 6) + 20
+            var line = 0
+            while y + 8 < size.height {
+                let width = (size.width - 32) * (line % 3 == 2 ? 0.6 : 0.9)
+                context.fill(CGRect(x: 16, y: y, width: width, height: 8))
+                y += 22
+                line += 1
+            }
         }
     }
 }

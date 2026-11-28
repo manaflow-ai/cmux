@@ -28,7 +28,7 @@ import {
   SubagentStopContext,
   running,
   STATE_LABEL,
-  elapsed,
+  subagentTime,
   ticking,
   groupElapsed,
   useNow,
@@ -135,6 +135,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   ]
     .filter(Boolean)
     .join(" · ");
+  const time = subagentTime(agent, now);
   const content = (
     <>
       <Avatar agent={agent} />
@@ -142,7 +143,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
         <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      <Clock className="cv-subagent__time" text={formatDuration(elapsed(agent, now))} />
+      {time && <Clock className="cv-subagent__time" text={time} />}
     </>
   );
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;

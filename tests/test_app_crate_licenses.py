@@ -122,6 +122,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-daemon-conn-core",
                     # The daemon launch rules and the install-key proof they use (cmux-daemon-launch-core).
                     "cmux-daemon-launch-core",
+                    # The staged-update pre-warm record (cmux-update-prewarm-core).
+                    "cmux-update-prewarm-core",
                     # The app health model (cmux-health-core).
                     "cmux-health-core",
                     # Each window's last frame for the launch's first frame (cmux-launch-image).
@@ -140,6 +142,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     # The app's daemon client: the cmux SDK and its C ABI.
                     "cmux-sdk",
                     "cmux-sdk-ffi",
+                    # The leftover Chromium code-sign clone sweep (cmux-sign-clone-sweep).
+                    "cmux-sign-clone-sweep",
                     # Predictive local echo for remote terminals (cmux-terminal-prediction).
                     "cmux-terminal-prediction",
                     # The browser's address bar resolver, BrowserURLResolver step A (cmux-url-input, #57119).

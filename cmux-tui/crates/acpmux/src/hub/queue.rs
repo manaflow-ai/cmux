@@ -559,16 +559,10 @@ impl Hub {
                     let rate_compaction = p.after_turn
                         && (super::auto_resume::rate_compaction_runs(session)
                             || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
-                    let queues = (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
-                        || Self::rate_holds(session, p.provenance);
-                    match guard {
-                        Some(guard) if !queues => ClaimedTurn::new(session, guard),
-                        guard => {
-                            if guard.is_none() {
-                                tracing::warn!(session = %session.id, prompt = %p.prompt_id, "turn lock not free by the answer's due time: queued");
-                            }
-                            drop(guard);
-                            // Its `queued` reservation is still counted.
+                    let guard = match guard {
+                        Some(guard) => guard,
+                        None => {
+                            tracing::warn!(session = %session.id, prompt = %p.prompt_id, "turn lock not free by the answer's due time: queued");
                             let (waits, position) =
                                 self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                             accept(
@@ -577,7 +571,21 @@ impl Hub {
                             self.persons_prompt_unparks(session, p.agent, p.provenance);
                             break 'run (waits, None);
                         }
+                    };
+                    if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
+                        || Self::rate_holds(session, p.provenance)
+                    {
+                        drop(guard);
+                        // Its `queued` reservation is still counted.
+                        let (waits, position) =
+                            self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
+                        accept(
+                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
+                        );
+                        self.persons_prompt_unparks(session, p.agent, p.provenance);
+                        break 'run (waits, None);
                     }
+                    ClaimedTurn::new(session, guard)
                 };
                 // Claimed before it leaves the count: a prompt that comes between sees one.
                 session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -977,8 +985,9 @@ impl Hub {
             (gone, session.prompts.lock().unwrap_or_else(|e| e.into_inner()))
         });
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
-        // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
-        // the person's own and a prompt sent now.
+        // The person's prompt goes ahead of every prompt the person did not send too: another
+        // agent's message, an inbox notice or digest, a surge digest (`queue_origin::person_place`),
+        // behind the person's own and a prompt sent now.
         // An inbox digest goes behind the person's prompts, held ones too (`inbox_digest.rs`).
         // Another agent's message while a person's Stop holds them waits held, behind them
         // (`cancel.rs` `hold_agent_messages`); a digest then waits held in its place.
@@ -990,6 +999,11 @@ impl Hub {
             }
             Some(_) if stop_held => None,
             Some(_) => queue.iter().position(|q| q.held),
+            None if super::queue_origin::of(p.provenance, None)
+                == super::queue_origin::QueueOrigin::Person =>
+            {
+                super::queue_origin::person_place(&queue)
+            }
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
         let at = at.unwrap_or(queue.len());

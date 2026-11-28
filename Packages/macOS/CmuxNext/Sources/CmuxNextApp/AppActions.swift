@@ -15,23 +15,18 @@ import CmuxNextWorkspaceNaming
 /// context menus all resolve through the registry (REWRITE.md "Action
 /// contract"), so each behavior is written once here.
 enum AppActions {
-    static func bind(_ services: AppServices, laps: LaunchBinderLaps = LaunchBinderLaps()) { // laps: each binder's time, for the launch-times row
+    static func bind(_ services: AppServices, laps: LaunchBinderLaps = LaunchBinderLaps(), deferring: Bool = false) { // laps: each binder's time, for the launch-times row; deferring (the launch): bindDeferred waits for the first frame
         bindApp(services); laps.lap("bindApp")
         bindWorkspaces(services); laps.lap("bindWorkspaces")
         bindBrowser(services); laps.lap("bindBrowser")
-        let registry = services.registry
-        let context = AppActionContext(services: services)
+        let registry = services.registry, context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context); laps.lap("WindowHandlers.bind")
         // Pin/Unpin Chat on a history row: bound with the app's actions, with or without a local acpmux (the
         // Chats feed only fills the history; a launch without one used to leave the action unbound).
         SidebarChatHistoryFeed.bind(into: registry); laps.lap("SidebarChatHistoryFeed.bind")
         FilesPaneHandlers.bind(into: registry, context: context); laps.lap("FilesPaneHandlers.bind")
-        HistoryHandlers.bind(into: registry, context: context); laps.lap("HistoryHandlers.bind")
-        StashHandlers.bind(into: registry, context: context); laps.lap("StashHandlers.bind")
         TabSearchHandlers.bind(into: registry, context: context); laps.lap("TabSearchHandlers.bind")
         PaletteScopeHandlers.bind(into: registry, context: context); laps.lap("PaletteScopeHandlers.bind")
-        BookmarkHandlers.bind(into: registry, context: context); laps.lap("BookmarkHandlers.bind")
-        BookmarkIconHandlers.bind(into: registry, context: context); laps.lap("BookmarkIconHandlers.bind")
         AppStoreHandlers.bind(into: registry, context: context); laps.lap("AppStoreHandlers.bind")
         CustomSidebarToggle(apps: { [weak services] in services?.apps.client }, environment: ProcessInfo.processInfo.environment, window: { [weak services] in services?.windows.active?.window }).bind(into: registry); laps.lap("CustomSidebarToggle")
         TasksHandlers.bind(into: registry, context: context); laps.lap("TasksHandlers.bind")
@@ -41,7 +36,6 @@ enum AppActions {
         ListHandlers.bind(into: registry, context: context); laps.lap("ListHandlers.bind")
         PasswordHandlers.bind(into: registry, context: context); laps.lap("PasswordHandlers.bind")
         CloudPageHandlers.bind(into: registry, context: context); laps.lap("CloudPageHandlers.bind")
-        ServerHandlers.bind(into: registry, context: context); laps.lap("ServerHandlers.bind")
         WorkspaceHandlers.bind(into: registry, context: context); laps.lap("WorkspaceHandlers.bind")
         WorkspaceVerbHandlers.bind(into: registry, context: context); laps.lap("WorkspaceVerbHandlers.bind")
         WorkspaceStructureHandlers.bind(into: registry, context: context); laps.lap("WorkspaceStructureHandlers.bind")
@@ -59,7 +53,6 @@ enum AppActions {
         RemoteLocalhostHandlers.bind(into: registry, context: context); laps.lap("RemoteLocalhostHandlers.bind")
         WindowMembershipHandlers.bind(into: registry, context: context); laps.lap("WindowMembershipHandlers.bind")
         SidebarHandlers.bind(into: registry, context: context); laps.lap("SidebarHandlers.bind")
-        VaultHandlers.bind(into: registry, context: context); laps.lap("VaultHandlers.bind")
         SidebarSectionHandlers.bind(into: registry, context: context); laps.lap("SidebarSectionHandlers.bind")
         SidebarHiddenSections.bind(into: registry, context: context); laps.lap("SidebarHiddenSections.bind")
         SidebarPriorityFeed.bind(into: registry, context: context); laps.lap("SidebarPriorityFeed.bind")
@@ -87,19 +80,10 @@ enum AppActions {
         ColumnDocking.bind(into: registry, context: context); laps.lap("ColumnDocking.bind")
         ColumnAvailability.bind(into: registry, context: context); laps.lap("ColumnAvailability.bind")
         ScreenHandlers.bind(into: registry, context: context); laps.lap("ScreenHandlers.bind")
-        TerminalHandlers.bind(into: registry, context: context); laps.lap("TerminalHandlers.bind")
-        FindInDirectoryHandlers.bind(into: registry, context: context); laps.lap("FindInDirectoryHandlers.bind")
-        GlobalSearchHandlers.bind(into: registry, context: context); laps.lap("GlobalSearchHandlers.bind")
         BrowserHandlers.bind(into: registry, context: context); laps.lap("BrowserHandlers.bind")
         ScreenshotHandlers.bind(into: registry, context: context); laps.lap("ScreenshotHandlers.bind")
         DevToolsHandlers.bind(into: registry, context: context); laps.lap("DevToolsHandlers.bind")
-        HintHandlers.bind(into: registry, context: context); laps.lap("HintHandlers.bind")
-        MusicHandlers.bind(into: registry, context: context); laps.lap("MusicHandlers.bind")
         context.services.keyRouter.keyModes.bind(into: registry); laps.lap("context.services.keyRouter.keyModes.bind")
-        VoiceRoomHandlers.bind(into: registry, context: context); laps.lap("VoiceRoomHandlers.bind")
-        NowPlayingCardHandlers.bind(into: registry, context: context); laps.lap("NowPlayingCardHandlers.bind")
-        PictureInPictureHandlers.bind(into: registry, context: context); laps.lap("PictureInPictureHandlers.bind")
-        StatsPageTab.bind(into: registry, context: context); laps.lap("StatsPageTab.bind")
         ChiefUsagePageTab.bind(into: registry, context: context); laps.lap("ChiefUsagePageTab.bind")
         ChiefViewsPageTab.bind(into: registry, context: context); laps.lap("ChiefViewsPageTab.bind")
         PhoneHandlers.bind(into: registry, context: context); laps.lap("PhoneHandlers.bind")
@@ -123,8 +107,6 @@ enum AppActions {
         AgentChatKeyHandlers.bind(into: registry, context: context); laps.lap("AgentChatKeyHandlers.bind")
         CloudHandlers.bind(into: registry, context: context); laps.lap("CloudHandlers.bind")
         DaemonStartupWait(daemon: services.daemon).bind(into: registry); laps.lap("DaemonStartupWait")
-        AccountsHandlers.bind(into: registry, context: context); laps.lap("AccountsHandlers.bind")
-        ProfileMenuHandlers.bind(into: registry, context: context); laps.lap("ProfileMenuHandlers.bind")
         RemoteHandlers.bind(into: registry, context: context); laps.lap("RemoteHandlers.bind")
         SSHTargetHandlers.bind(into: registry, context: context); laps.lap("SSHTargetHandlers.bind")
         ResumeCommandHandlers.bind(into: registry, context: context); laps.lap("ResumeCommandHandlers.bind")
@@ -134,9 +116,9 @@ enum AppActions {
         RemoteBrowserPages.bind(into: registry, context: context); laps.lap("RemoteBrowserPages.bind")
         ResourceHandlers.bind(into: registry, context: context); laps.lap("ResourceHandlers.bind")
         LinkHandlers.bind(into: registry, context: context); laps.lap("LinkHandlers.bind")
-        // Last: a catalog row with a daemon request and no handler above sends it (cmux-action-catalog `Action::request`).
-        CatalogRequestHandlers(host: services).bind(into: registry); laps.lap("CatalogRequestHandlers")
-        HandlerPlaceholders.bind(into: registry); laps.lap("HandlerPlaceholders.bind")
+        if !deferring { bindDeferred(services, laps: laps) }
+        // Last: a catalog row with a daemon request and no handler above sends it (cmux-action-catalog `Action::request`); deferring, a fallback the deferred binder replaces.
+        registry.bindingFallbacks(deferring) { CatalogRequestHandlers(host: services).bind(into: registry); laps.lap("CatalogRequestHandlers"); HandlerPlaceholders.bind(into: registry); laps.lap("HandlerPlaceholders.bind") }
         IconMenuVisibility.install(registry, context: context); laps.lap("IconMenuVisibility.install")
         SpacesMenuVisibility { [weak services] in services.map { SidebarSpaceBar.profiles($0.machines.local, window: $0.windows.active?.state.id ?? "", windows: $0.windows).count } ?? 0 }.install(in: registry); laps.lap("SpacesMenuVisibility")
         TabSelectionTitles(context: context).install(in: registry); laps.lap("TabSelectionTitles")
@@ -149,6 +131,19 @@ enum AppActions {
         ActionRouting.install(services); laps.lap("ActionRouting.install")
         ActionRouting.installUserIntentObservers(services); laps.lap("ActionRouting.installUserIntentObservers")
         WindowKeyTable.install(services); laps.lap("WindowKeyTable.install")
+    }
+
+    /// After the first frame at launch (startup-under-100ms): binders no setting, restored tab (no page provider) or first-frame view reads, and no rule amends.
+    static func bindDeferred(_ services: AppServices, laps: LaunchBinderLaps = LaunchBinderLaps()) { let registry = services.registry, context = AppActionContext(services: services)
+        HistoryHandlers.bind(into: registry, context: context); laps.lap("post_frame.HistoryHandlers"); StashHandlers.bind(into: registry, context: context); laps.lap("post_frame.StashHandlers")
+        BookmarkHandlers.bind(into: registry, context: context); laps.lap("post_frame.BookmarkHandlers"); BookmarkIconHandlers.bind(into: registry, context: context); laps.lap("post_frame.BookmarkIconHandlers")
+        ServerHandlers.bind(into: registry, context: context); laps.lap("post_frame.ServerHandlers"); VaultHandlers.bind(into: registry, context: context); laps.lap("post_frame.VaultHandlers")
+        FindInDirectoryHandlers.bind(into: registry, context: context); laps.lap("post_frame.FindInDirectoryHandlers"); GlobalSearchHandlers.bind(into: registry, context: context); laps.lap("post_frame.GlobalSearchHandlers")
+        HintHandlers.bind(into: registry, context: context); laps.lap("post_frame.HintHandlers"); MusicHandlers.bind(into: registry, context: context); laps.lap("post_frame.MusicHandlers")
+        VoiceRoomHandlers.bind(into: registry, context: context); laps.lap("post_frame.VoiceRoomHandlers"); NowPlayingCardHandlers.bind(into: registry, context: context); laps.lap("post_frame.NowPlayingCardHandlers")
+        PictureInPictureHandlers.bind(into: registry, context: context); laps.lap("post_frame.PictureInPictureHandlers"); StatsPageTab.bind(into: registry, context: context); laps.lap("post_frame.StatsPageTab")
+        AccountsHandlers.bind(into: registry, context: context); laps.lap("post_frame.AccountsHandlers"); ProfileMenuHandlers.bind(into: registry, context: context); laps.lap("post_frame.ProfileMenuHandlers")
+        TerminalHandlers.bind(into: registry, context: context); laps.lap("post_frame.TerminalHandlers") // read only by keys, menus and palette rows opened after the frame; the gate runs this before any input
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
@@ -222,7 +217,7 @@ enum AppActions {
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         ActionTargetTitles.setPaletteState("toggleFullScreen", in: registry) { services.windows.active?.window?.styleMask.contains(.fullScreen) == true }
-        registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
+        registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle(timing: services.frameTiming) }
         ActionTargetTitles.setPaletteState("toggleSidebar", in: registry) { services.windows.active?.sidebar.model.isHidden == false }
         // The workspace list takes the keyboard; a hidden sidebar shows first.
         // Keyboard focus there survives the workspace switches its arrows make.

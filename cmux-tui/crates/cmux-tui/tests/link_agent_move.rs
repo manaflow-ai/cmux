@@ -140,6 +140,8 @@ struct Source {
     restart_at: Option<&'static str>,
     /// The daemon is killed right after a begin whose answer is lost.
     restart_after_lost_begin: bool,
+    /// After a restart the tab is back in this slot (else in none that `--surface` names).
+    slot: Option<u64>,
     /// Requests left that find the daemon still restarting: lost, or (for a tab named by its
     /// public id) "not an agent tab" while its restore has not run.
     outage: u32,
@@ -165,7 +167,11 @@ impl Source {
                 Reply::Drop
             };
         }
-        if request.get("surface").is_some() && request["surface"] != json!(SURFACE) {
+        let slot = if self.restarted { self.slot } else { Some(SURFACE) };
+        if request
+            .get("surface")
+            .is_some_and(|surface| Some(surface) != slot.map(|slot| json!(slot)).as_ref())
+        {
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
         if let Some(tab) = request.get("tab") {
@@ -175,7 +181,7 @@ impl Source {
             if tab != &json!(TAB) {
                 return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
             }
-        } else if self.restarted && request.get("surface").is_some() {
+        } else if self.restarted && self.slot.is_none() && request.get("surface").is_some() {
             // The tab is restored in another slot.
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
@@ -387,6 +393,9 @@ struct Target {
     vm_kinds: Vec<Value>,
     /// Serves `agent-transfer-credentials-v1` too.
     takes_credentials: bool,
+    takes_bound_credentials: bool,
+    /// Withdraw the saved key as the frozen chat's bundle is copied.
+    turn_off_cloud: Option<PathBuf>,
     /// Every request's text, as the target read it.
     requests: Vec<String>,
     /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
@@ -412,6 +421,9 @@ impl Target {
         }
         self.requests.push(request.to_string());
         match cmd {
+            "identify" if self.takes_bound_credentials => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-vm-kind-v1", "agent-transfer-credentials-v1",
+                "agent-session-credential-withdrawal-v1"]})),
             "identify" if self.takes_credentials => Reply::Data(json!({"capabilities":
                 ["agent-transfer-v1", "agent-transfer-vm-kind-v1", "agent-transfer-credentials-v1"]})),
             "identify" if self.later => Reply::Data(json!({"capabilities":
@@ -562,6 +574,11 @@ impl Target {
             return Reply::Error("agent_transfer.unknown_receive", "no receive".into());
         };
         self.writes += 1;
+        if let Some(dir) = self.turn_off_cloud.take() {
+            let mut file = acpmux::routes::find(Some(&dir), "move-key").unwrap().file;
+            file.cloud_enabled = Some(false);
+            acpmux::routes::add(Some(&dir), "move-key", &file, true).unwrap();
+        }
         if self.fail_write_at == Some(self.writes) {
             return refused("transfer.write: disk full");
         }
@@ -635,6 +652,8 @@ struct World {
     target: Arc<Mutex<Target>>,
     target_down: Arc<AtomicBool>,
     log: Log,
+    /// The `--surface` a run names.
+    surface: std::sync::atomic::AtomicU64,
 }
 
 /// A chat bundle with a file larger than one page and an empty one.
@@ -678,6 +697,7 @@ impl World {
             target,
             target_down,
             log,
+            surface: SURFACE.into(),
             _dir: dir,
         }
     }
@@ -697,7 +717,7 @@ impl World {
         let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&self.from)
-            .args(["--surface", &SURFACE.to_string(), "--to-socket"])
+            .args(["--surface", &self.surface.load(Ordering::SeqCst).to_string(), "--to-socket"])
             .arg(&self.to)
             .args(["--cwd", &self.cwd, "--state-dir"])
             .arg(&self.state)
@@ -721,6 +741,40 @@ impl World {
         );
         assert_eq!(self.source.lock().unwrap().attached, 0, "the pump never attaches the chat");
         (output.status.code().unwrap(), serde_json::from_str(lines[0]).unwrap())
+    }
+
+    fn saved_move_key(&self, provider: &str) -> (PathBuf, Value) {
+        let dir = self._dir.path().join("routes");
+        let file = serde_json::from_value(json!({
+            "kind": "direct-api-key", "provider": provider, "secret": "env:CMUX_TEST_MOVE_KEY",
+            "cloud_enabled": true
+        }))
+        .unwrap();
+        let route = acpmux::routes::add(Some(&dir), "move-key", &file, false).unwrap();
+        let socket = self._dir.path().join("acp.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let route_path = route.path;
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            for line in BufReader::new(stream).lines() {
+                let request: Value = serde_json::from_str(&line.unwrap()).unwrap();
+                let Some(id) = request.get("id") else { continue };
+                let result = match request["method"].as_str() {
+                    Some("initialize") => json!({"protocolVersion": 1}),
+                    Some("_acpmux/route/show") => {
+                        assert_eq!(request["params"]["id"], "move-key");
+                        json!({"path": route_path})
+                    }
+                    other => panic!("unexpected method {other:?}"),
+                };
+                writeln!(writer, "{}", json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                    .unwrap();
+            }
+        });
+        let consent = json!({"socket": socket, "id": "move-key",
+                            "instance": route.file.credential_instance.unwrap()});
+        (dir, consent)
     }
 
     fn calls(&self) -> Vec<String> {
@@ -891,6 +945,90 @@ mod agent_move {
         let source = world.source.lock().unwrap();
         assert_eq!(source.committed.as_deref(), Some("xfer_1"));
         assert_eq!(source.begun, 1);
+    }
+
+    #[test]
+    fn a_rerun_by_the_tabs_new_slot_after_a_source_restart_closes_the_landed_chat() {
+        // kill-mid-move drill off-src, run 45907132927 (local-cloud after-finish, cloud-local
+        // before-finish): the chat landed, the source was powered off before its commit, and its
+        // restart restored the tab in a new surface slot (52 -> 67). The rerun by that slot found
+        // no record under the old one and began a second move: the chat stayed open in two
+        // places and its queued prompt ran on both.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"), "closed here: {answer}");
+        assert_eq!(source.begun, 1, "no second move of the landed chat");
+        assert!(source.aborted.is_empty());
+        assert_eq!(world.target.lock().unwrap().landed.len(), 1, "landed once");
+    }
+
+    #[test]
+    fn a_rerun_by_a_third_slot_after_a_rerun_by_the_old_one_finds_one_record() {
+        // The alias the tab-filed record leaves for its first slot is followed and kept whole:
+        // a rerun by the old slot (no tab answered) saves through it, and a later rerun by the
+        // tab's next slot reads that same record, not an older copy.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let files = |world: &World| {
+            let mut names: Vec<String> = std::fs::read_dir(&world.state)
+                .map(|dir| {
+                    dir.filter_map(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .filter(|name| name.ends_with(".json"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        };
+        let before = files(&world);
+        assert_eq!(before.len(), 2, "the tab's record and its slot alias: {before:?}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+        assert!(
+            std::fs::read_dir(&world.state)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| std::fs::read(entry.path()).is_err()
+                    || !entry.file_name().to_string_lossy().ends_with(".json")),
+            "the ended move leaves no record: {:?}",
+            files(&world)
+        );
     }
 
     #[test]
@@ -1157,6 +1295,70 @@ mod agent_move {
         assert_eq!(answer["error_code"], json!("agent_session.login_unreadable"), "{answer}");
         assert!(!answer.to_string().contains(TOKEN), "{answer}");
         assert_eq!(world.count("source:agent-transfer-begin"), 0, "the chat froze");
+    }
+
+    #[test]
+    fn a_bound_login_needs_guest_withdrawal_before_the_source_freezes() {
+        let token = "sk-ant-api03-bound-fixture";
+        let credentials = json!({"env":{"ANTHROPIC_API_KEY":token},
+            "connection":format!("move-key:{}", "a".repeat(64))});
+        let input = |world: &World| {
+            let mut input = credentials.clone();
+            input["consent"] = world.saved_move_key("anthropic").1;
+            input.to_string()
+        };
+        let args = ["--vm-kind", "owner", "--login-stdin"];
+        let older = World::new(Target { takes_credentials: true, ..Target::default() });
+        let (code, refused) = older.run_move_stdin(&args, input(&older).as_bytes());
+        assert_eq!(code, 1);
+        assert_eq!(refused["error_code"], "machine_outdated");
+        assert_eq!(refused["side"], "target");
+        assert_eq!(older.count("source:agent-transfer-begin"), 0);
+        assert!(!refused.to_string().contains(token));
+
+        let current = World::new(Target { takes_bound_credentials: true, ..Target::default() });
+        let (code, reply) = current.run_move_stdin(&args, input(&current).as_bytes());
+        assert_eq!(code, 0, "{reply}");
+        assert!(!reply.to_string().contains(token));
+        let target = current.target.lock().unwrap();
+        let finish = target
+            .requests
+            .iter()
+            .filter_map(|request| serde_json::from_str::<Value>(request).ok())
+            .find(|request| request["cmd"] == "agent-transfer-finish")
+            .unwrap();
+        assert_eq!(finish["credentials"], credentials);
+    }
+
+    #[test]
+    fn a_key_turned_off_during_the_copy_never_reaches_finish() {
+        for (provider, variable) in
+            [("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY")]
+        {
+            let world = World::new(Target { takes_bound_credentials: true, ..Target::default() });
+            let (dir, consent) = world.saved_move_key(provider);
+            world.target.lock().unwrap().turn_off_cloud = Some(dir);
+            let key = "sk-fixture-cloud-move";
+            let input = json!({
+                "env": {(variable): key},
+                "connection": format!("move-key:{}", "a".repeat(64)),
+                "consent": consent,
+            });
+            let (code, reply) = world.run_move_stdin(
+                &["--vm-kind", "owner", "--login-stdin"],
+                input.to_string().as_bytes(),
+            );
+            assert_eq!(code, 1, "{reply}");
+            assert_eq!(reply["error_code"], "connections.not_cloud", "{reply}");
+            assert!(world.count("target:agent-transfer-write") > 0);
+            assert_eq!(world.count("target:agent-transfer-finish"), 0);
+            assert_eq!(world.count("source:agent-transfer-abort"), 1);
+            let source = world.source.lock().unwrap();
+            assert!(source.moving.is_none() && source.committed.is_none());
+            let target = world.target.lock().unwrap();
+            assert!(target.landed.is_empty());
+            assert!(target.requests.iter().all(|request| !request.contains(key)));
+        }
     }
 
     /// `--to-pid`: the owner word belongs to the link process the caller read

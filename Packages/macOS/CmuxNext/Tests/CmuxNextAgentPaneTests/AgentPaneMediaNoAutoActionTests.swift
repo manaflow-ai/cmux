@@ -416,6 +416,35 @@ struct AgentPaneMediaNoAutoActionTests {
         #expect(AgentPaneFileOpen.showsInTab(clip) && AgentPaneFileOpen.showsInTab(shot))
     }
 
+    /// The written-HTML card's Open beside (docs/design/next-rich-output.md, plan item 5), behind
+    /// `experiments.writtenHTMLOpenBeside`: off (the default), an HTML file is refused for a tab as before;
+    /// on, it opens only on the person's click, and other page types still never do.
+    @Test func aWrittenHTMLFileOpensBesideTheChatOnlyWithTheSwitchAndAClick() async throws {
+        let pane = try Self.pane()
+        let page = pane.project.appendingPathComponent("report.html"), drawing = pane.project.appendingPathComponent("drawing.svg")
+        let feed = pane.project.appendingPathComponent("feed.xml")
+        for file in [page, drawing, feed] { try Data("<html></html>".utf8).write(to: file) }
+
+        let off = await Self.ask(pane, "file.open", ["path": page.path, "where": "tab"], click: true)
+        #expect(Self.errorCode(off) == AgentPaneTransportError.pathInvalid.rawValue, "\(off)")
+        #expect(pane.effects.seen.isEmpty)
+
+        pane.model.experiments = [AgentPaneFileOpen.writtenHTMLOpenBesideSwitch: true]
+        let unasked = await Self.ask(pane, "file.open", ["path": page.path, "where": "tab"])
+        #expect(Self.errorCode(unasked) == AgentPaneTransportError.gestureRequired.rawValue, "\(unasked)")
+        #expect(pane.effects.seen.isEmpty)
+
+        let clicked = await Self.ask(pane, "file.open", ["path": page.path, "where": "tab"], click: true)
+        #expect(Self.errorCode(clicked) == nil, "\(clicked)")
+        #expect(pane.effects.seen == ["file \(AcpmuxPathPolicy.canonical(page.path) ?? page.path)"])
+
+        for other in [drawing, feed] {
+            let refused = await Self.ask(pane, "file.open", ["path": other.path, "where": "tab"], click: true)
+            #expect(Self.errorCode(refused) == AgentPaneTransportError.pathInvalid.rawValue, "\(other.lastPathComponent): \(refused)")
+        }
+        #expect(pane.effects.seen.count == 1)
+    }
+
     /// An SVG naming every way it could act: links to app and web URLs, script, handlers, foreign
     /// content, a stylesheet instruction, animations that set a link, and `url(…)` references.
     private static let hostileSVG = """

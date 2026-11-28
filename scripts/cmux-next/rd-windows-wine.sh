@@ -23,7 +23,9 @@ features=(--no-default-features --features bench,link)
 if [[ "${1:-}" == --install ]]; then
   shift
   sudo apt-get install -y wine64 mingw-w64 xvfb xauth
-  rustup target add --toolchain "$toolchain" "$target"
+  # shellcheck source=scripts/lib/rust-targets.sh
+  source "$root/scripts/lib/rust-targets.sh"
+  ensure_rust_targets --toolchain "$toolchain" "$target"
 fi
 for tool in wine xvfb-run x86_64-w64-mingw32-gcc; do
   command -v "$tool" >/dev/null || { echo "rd-windows-wine: $tool is missing; rerun with --install" >&2; exit 2; }

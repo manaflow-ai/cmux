@@ -131,12 +131,14 @@ final class TerminalEntry {
         gate.resolve(target)
     }
 
-    func close() {
+    /// `handingOffInput`: returns the keys queued before the view went live, for its replacement (`TabContentCache`).
+    @discardableResult func close(handingOffInput: Bool = false) -> [Data] {
         gate?.cancel()
         confirmation?.cancel()
         watch.stop()
         session.close()
-        io.close()
+        let held = io.close(handingOffInput: handingOffInput)
         session.view.removeFromSuperview() // parked hidden in a pane until now
+        return held
     }
 }

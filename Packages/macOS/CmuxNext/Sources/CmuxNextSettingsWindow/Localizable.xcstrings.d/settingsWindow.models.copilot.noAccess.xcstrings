@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.copilot.noAccess" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا يملك حساب GitHub هذا صلاحية استخدام GitHub Copilot."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovaj GitHub račun nema pristup usluzi GitHub Copilot."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne GitHub-konto har ikke adgang til GitHub Copilot."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses GitHub-Konto hat keinen Zugriff auf GitHub Copilot."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This GitHub account doesn’t have access to GitHub Copilot."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta cuenta de GitHub no tiene acceso a GitHub Copilot."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce compte GitHub n’a pas accès à GitHub Copilot."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo account GitHub non ha accesso a GitHub Copilot."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このGitHubアカウントではGitHub Copilotを利用できません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គណនី GitHub នេះមិនមានសិទ្ធិប្រើ GitHub Copilot ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 GitHub 계정은 GitHub Copilot을 사용할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne GitHub-kontoen har ikke tilgang til GitHub Copilot."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To konto GitHub nie ma dostępu do GitHub Copilot."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta conta do GitHub não tem acesso ao GitHub Copilot."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У этой учётной записи GitHub нет доступа к GitHub Copilot."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "บัญชี GitHub นี้ไม่มีสิทธิ์เข้าถึง GitHub Copilot"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu GitHub hesabının GitHub Copilot erişimi yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цей обліковий запис GitHub не має доступу до GitHub Copilot."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tài khoản GitHub này không có quyền truy cập GitHub Copilot."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 GitHub 账号无权使用 GitHub Copilot。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 GitHub 帳號無權使用 GitHub Copilot。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

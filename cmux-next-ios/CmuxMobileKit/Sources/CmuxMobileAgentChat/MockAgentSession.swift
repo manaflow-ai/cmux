@@ -26,7 +26,9 @@ public final class MockAgentSession: AgentSessionSource {
     private var queued: [(id: String, text: String, attachments: [AgentAttachment])] = []
     private var currentModel = "opus-5.5"
     private var effort = "medium"
-    private var mode = "default"
+    /// `CMUX_MOBILE_DEMO_AGENT_MODE` starts the demo in another mode (`bypassPermissions` for the
+    /// composer pill's full-access look in screenshots, issue 51331).
+    private var mode = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_AGENT_MODE"] ?? "default"
     private let richFirstTurn: Bool
     /// false: a brand-new session (no earlier turns to replay).
     private let history: Bool
@@ -100,11 +102,18 @@ public final class MockAgentSession: AgentSessionSource {
         switch intent {
         case .prompt(let text, let attachments, let steer, let sentID, _):
             // The client's id comes back on the echo, as acpmux does: the store
-            // matches its send to it (`chat_send_acked`, a resend's dedupe).
+            // matches its send to it (`chat_send_acked`, a resend's dedupe) and the turn it drew as sent.
             let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
+            } else if DeveloperOptions.mockEchoDelay > .zero {
+                // DEBUG: a Mac's round trip before the prompt comes back.
+                let delay = DeveloperOptions.mockEchoDelay
+                Task { [weak self] in
+                    try? await Task.sleep(for: delay)
+                    self?.startTurn(text: text, attachments: attachments, promptID: promptID)
+                }
             } else {
                 startTurn(text: text, attachments: attachments, promptID: promptID)
             }
@@ -251,7 +260,8 @@ public final class MockAgentSession: AgentSessionSource {
         emit(.modesAvailable([
             ACPMode(id: "default", name: "Manual"), ACPMode(id: "acceptEdits", name: "Accept edits"),
             ACPMode(id: "plan", name: "Plan"), ACPMode(id: "auto", name: "Auto"),
-        ], current: mode))
+        ] + (mode == "bypassPermissions" ? [ACPMode(id: "bypassPermissions", name: "Bypass permissions")] : []),
+        current: mode))
         emit(.update(.configOptions(configOptions)))
         emit(.update(.availableCommands([
             ACPAvailableCommand(name: "review", description: "Review the current diff"),
@@ -261,6 +271,8 @@ public final class MockAgentSession: AgentSessionSource {
         ])))
         emit(.update(.usage(used: history ? 48_000 : 0, size: 200_000)))
         guard history else { return }
+        // The demo chat's title, as acpmux names a chat on attach (`AcpmuxSession.chatName`).
+        if !summary.name.isEmpty { emit(.update(.sessionInfo(title: summary.name))) }
         let start = Date().addingTimeInterval(-3600)
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))

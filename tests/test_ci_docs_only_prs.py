@@ -102,7 +102,6 @@ SCOPED: dict[str, str] = {
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
-    "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
     "web-complexity.yml": "web/**",
