@@ -658,9 +658,12 @@ pub struct Session {
 }
 
 /// A chat's inbound channel ([`Session::inbound`]).
+/// Items are boxed: tokio's channel allocates its slots 32 at a time, so a chat's first block
+/// holds 32 pointers (256 B) rather than 32 inline `Inbound`s (about 4.4 kB). At 1,000 chats that
+/// is about 4 MB of the daemon's arena (goals/infinite-items-flat).
 pub(super) struct InboundChannel {
-    pub(super) tx: mpsc::Sender<Inbound>,
-    pub(super) rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+    pub(super) tx: mpsc::Sender<Box<Inbound>>,
+    pub(super) rx: Mutex<Option<mpsc::Receiver<Box<Inbound>>>>,
 }
 
 /// How many items a chat's inbound channel holds before its producers wait.
@@ -706,12 +709,12 @@ impl Session {
     }
 
     /// The chat's own sender ([`Session::inbound_channel`]).
-    pub(super) fn inbound_tx(&self) -> &mpsc::Sender<Inbound> {
+    pub(super) fn inbound_tx(&self) -> &mpsc::Sender<Box<Inbound>> {
         &self.inbound_channel().tx
     }
 
     /// The receiver, while no inbound loop holds it ([`Session::inbound_channel`]).
-    pub(super) fn inbound_rx(&self) -> &Mutex<Option<mpsc::Receiver<Inbound>>> {
+    pub(super) fn inbound_rx(&self) -> &Mutex<Option<mpsc::Receiver<Box<Inbound>>>> {
         &self.inbound_channel().rx
     }
 

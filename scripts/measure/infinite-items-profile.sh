@@ -12,7 +12,11 @@ for arg in "$@"; do
   esac
 done
 root="$(git rev-parse --show-toplevel)"
-bash "$root/scripts/measure/infinite-items-linux.sh" build-only
+build_log="$(bash "$root/scripts/measure/infinite-items-linux.sh" build-only)"
+echo "$build_log"
+# The dhat builds below need the Zig the release build found: a runner's job-local one is only in that script's env.
+zig_line="$(sed -n 's/^INFINITE-ZIG //p' <<<"$build_log" | tail -n 1)"
+[ -z "$zig_line" ] || export "$zig_line"
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
 dhat_target="$(mktemp -d)"

@@ -670,7 +670,7 @@ impl Hub {
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            channel.tx.send(crate::agent::Inbound::Barrier(done)),
+            channel.tx.send(Box::new(crate::agent::Inbound::Barrier(done))),
         )
         .await;
         matches!(queued, Ok(Ok(())))

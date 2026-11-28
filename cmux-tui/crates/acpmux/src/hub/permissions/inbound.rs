@@ -15,7 +15,7 @@ impl Hub {
     pub(crate) async fn inbound_loop(
         self: Arc<Self>,
         session: Arc<Session>,
-        mut rx: mpsc::Receiver<Inbound>,
+        mut rx: mpsc::Receiver<Box<Inbound>>,
     ) {
         let stop = self.scope.token();
         // Its current value counts: a loop that first runs after the close sees it (#41081 F2).
@@ -53,8 +53,8 @@ impl Hub {
     async fn inbound_items(
         self: Arc<Self>,
         weak: &std::sync::Weak<Session>,
-        own: &mpsc::WeakSender<Inbound>,
-        rx: &mut mpsc::Receiver<Inbound>,
+        own: &mpsc::WeakSender<Box<Inbound>>,
+        rx: &mut mpsc::Receiver<Box<Inbound>>,
         stop: &tokio_util::sync::CancellationToken,
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
@@ -63,7 +63,7 @@ impl Hub {
             let Some(session) = weak.upgrade() else { return };
             // An agent's stream allocates without any request: its pages go back once it stops.
             cmux_tui_platform::malloc_quiet_trim::note_activity();
-            match item {
+            match *item {
                 Inbound::Notification {
                     method: m,
                     params,

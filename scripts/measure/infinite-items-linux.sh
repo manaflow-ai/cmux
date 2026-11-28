@@ -131,6 +131,8 @@ else
   bin="$target/release"
 fi
 echo "INFINITE-BUILD flavor=$([[ "$musl" == 1 ]] && echo musl || echo glibc) bin=$bin"
+# The Zig a job-local install put under RUNNER_TEMP, for a caller that builds again (infinite-items-profile.sh).
+[ -z "${CMUX_ZIG:-}" ] || echo "INFINITE-ZIG CMUX_ZIG=$CMUX_ZIG"
 # build-only: the perf cron builds in a step of its own, so the build and the run each get its 30-minute cap.
 [[ "$build_only" == 1 ]] && exit 0
 cd "$root"

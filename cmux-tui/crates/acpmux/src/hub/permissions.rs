@@ -1697,7 +1697,7 @@ mod probe_env_tests {
 
 /// Whether an agent, its reader, or anything else but the chat itself still holds a sender of
 /// the chat's inbound channel (`tx` is the chat's own, `Session::inbound_tx`).
-fn producers_live(tx: &mpsc::Sender<Inbound>) -> bool {
+fn producers_live(tx: &mpsc::Sender<Box<Inbound>>) -> bool {
     tx.strong_count() > 1
 }
 
@@ -1710,11 +1710,11 @@ const PRODUCERS_RECHECK: std::time::Duration = std::time::Duration::from_millis(
 /// closed (its current value counts, not only a change) with nothing queued and no producer
 /// left besides the chat's own sender (`own`, held weakly) (#41081 F1 F2).
 async fn next_inbound(
-    rx: &mut mpsc::Receiver<Inbound>,
+    rx: &mut mpsc::Receiver<Box<Inbound>>,
     stop: &tokio_util::sync::CancellationToken,
     closed: &mut tokio::sync::watch::Receiver<bool>,
-    own: &mpsc::WeakSender<Inbound>,
-) -> Option<Inbound> {
+    own: &mpsc::WeakSender<Box<Inbound>>,
+) -> Option<Box<Inbound>> {
     loop {
         let is_closed = *closed.borrow_and_update();
         // The chat's own sender counts as one; with the chat gone it counts none.
