@@ -99,4 +99,4 @@ jobs:
           name: stable-update-e2e-${{ github.run_id }}
           path: ${{ runner.temp }}/update-e2e.log
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
