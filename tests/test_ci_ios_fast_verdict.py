@@ -312,6 +312,13 @@ class WorkflowTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.jobs = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]
 
+    def test_the_default_on_switch_normalizes_an_unset_variable(self) -> None:
+        # GitHub coerces null and '0' to numeric zero. String normalization keeps an
+        # unset switch enabled and still lets an explicit '0' disable the verdict.
+        # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
+        self.assertEqual(self.jobs["ios-fast-runner"]["if"],
+                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
+
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]
         self.assertEqual(runner["steps"][0]["with"]["fetch-depth"], 2)
