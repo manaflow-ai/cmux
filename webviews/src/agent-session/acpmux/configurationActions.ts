@@ -22,9 +22,13 @@ export function configurationSessionMatches(expected: unknown, actual: string | 
 /// What an effort pick needs: the session's summary as acpmux last sent it, the switch that holds
 /// picks for a chat still starting (harnessSwitch.ts), and the live session's config write.
 export type EffortPickDeps = {
-  summary?: { sessionId?: string; configOptions?: readonly ConfigurationOption[] };
+  summary?: { sessionId?: string; model?: string; configOptions?: readonly ConfigurationOption[] };
   switch: {
-    pickConfig(configId: string, value: string, live?: { sessionId: string; current?: string }): boolean;
+    pickConfig(
+      configId: string,
+      value: string,
+      live?: { sessionId: string; current?: string; model?: string },
+    ): boolean;
   };
   setConfig(configId: string, value: string): Promise<unknown>;
 };
@@ -48,7 +52,9 @@ export async function pickEffort(
   // `effort` onto the session's own option once it opens, heldOptions.ts) and sends it first.
   const id = resolved?.id ?? asked ?? "effort";
   const live =
-    resolved && summary?.sessionId ? { sessionId: summary.sessionId, current: resolved.currentValue } : undefined;
+    resolved && summary?.sessionId
+      ? { sessionId: summary.sessionId, current: resolved.currentValue, model: summary.model }
+      : undefined;
   if (deps.switch.pickConfig(id, requested, live)) return;
   // l10n-allow: a refusal for the host action's caller; the picker offers no effort then.
   if (!resolved) throw new Error("the session offers no effort option");

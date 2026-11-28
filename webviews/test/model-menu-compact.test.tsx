@@ -1134,3 +1134,46 @@ test("a search that names a level checks and lights that level in the Effort col
   expect(checked?.hasAttribute("data-named")).toBe(true);
   expect(levels().filter((level) => level.hasAttribute("data-named"))).toHaveLength(1);
 });
+
+// #48444 (Austin: "it doesn't actually update the selection"): after every pick, the chip and the
+// menu opened again show exactly what the chat runs, with no pick left drawn over it.
+test("each pick shows at once in the chip and in the menu opened again", async () => {
+  await mount({ routes: [] }, { fast: true, modelResets: true });
+  const checkedLevel = () => levels().find((level) => level.getAttribute("aria-checked") === "true");
+  const checkedRows = () =>
+    modelRows(cols()!)
+      .filter((row) => row.getAttribute("aria-selected") === "true")
+      .map(nameOf);
+  await open();
+  await click(levels().find((level) => nameOf(level) === "High")!);
+  expect(chipButton().textContent).toContain("High");
+  await open();
+  expect(nameOf(checkedLevel()!)).toBe("High");
+  await click(fastSwitch()!);
+  expect(fastSwitch()!.getAttribute("aria-checked")).toBe("true");
+  await click(chipButton());
+  await settle();
+  // Another model: it is the one checked, with the chat's level and Fast kept.
+  await open();
+  const other = modelRows(cols()!).find((row) => nameOf(row).includes("Fable 5.2"))!;
+  expect(other, "Fable 5.2 row").toBeDefined();
+  await click(other);
+  await settle();
+  expect(chipButton().getAttribute("title")).toContain("Fable 5.2");
+  await open();
+  expect(checkedRows()).toEqual([nameOf(other)]);
+  expect(nameOf(checkedLevel()!)).toBe("High");
+  expect(fastSwitch()!.getAttribute("aria-checked")).toBe("true");
+  // A level on it, then back to the first model: each shows checked as it lands.
+  await click(levels().find((level) => nameOf(level) === "Low")!);
+  expect(chipButton().textContent).toContain("Low");
+  await open();
+  expect(nameOf(checkedLevel()!)).toBe("Low");
+  const first = modelRows(cols()!).find((row) => nameOf(row).includes("Opus 5.5"))!;
+  await click(first);
+  await settle();
+  await open();
+  expect(checkedRows()).toEqual([nameOf(first)]);
+  expect(nameOf(checkedLevel()!)).toBe("Low");
+  expect(fastSwitch()!.getAttribute("aria-checked")).toBe("true");
+});

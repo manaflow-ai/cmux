@@ -159,14 +159,34 @@ export type SwitchView = {
   /// as if the second were dropped). Once answered it draws only while the session still reports
   /// `from`, so a model the agent reports under another id never stays masked.
   model?: { sessionId: string; from?: string; model: string; answered?: boolean };
-  /// A config option picked in a live session, drawn until the session reports the value.
-  /// `answered` as for `model`: once the agent answered, it draws only while the session still
-  /// reports `from`, so a value set elsewhere (another window, the CLI, a peer) shows as it is.
-  config?: { sessionId: string; configId: string; from?: string; value: string; answered?: boolean };
+  /// The config options picked in a live session, one per option, each drawn until the session
+  /// reports its value. `answered` as for `model`: once the agent answered, it draws only while the
+  /// session still reports `from`, so a value set elsewhere (another window, the CLI, a peer) shows as
+  /// it is. Each pick is independent of the model pick and of the others (#48444: a Fast pick right
+  /// after a level, or a level during a model switch, wiped the pick still in flight, and the chip
+  /// showed the old value until the agent answered).
+  configs?: readonly ConfigPick[];
   /// The held picks a new chat's switch set on its session as it ended (`run`), each drawn while
   /// the session still reports the value it had before.
   settling?: Settling;
 };
+
+/// One live config option pick (`SwitchView.configs`), with the model the session ran when it was
+/// made (`modelAt`): a model change resets the level (Codex), so once the agent answered and the
+/// session reports another model, the session's own value is the one to draw.
+export type ConfigPick = {
+  sessionId: string;
+  configId: string;
+  from?: string;
+  value: string;
+  answered?: boolean;
+  modelAt?: string;
+};
+
+/// Whether an answered config pick was overtaken by a model change since it was made.
+function modelMoved(pick: ConfigPick, model: string | undefined): boolean {
+  return pick.answered === true && pick.modelAt !== undefined && model !== undefined && model !== pick.modelAt;
+}
 
 /// What a switch's held picks set on the session it opened, the agent having answered each: the
 /// model, the mode and each config option, with the value the session reported before (`from`).
@@ -291,7 +311,7 @@ function settledPicks(
 export class HarnessSwitch {
   private intent?: Intent;
   private modelPick?: SwitchView["model"];
-  private configPick?: SwitchView["config"];
+  private configPicks: readonly ConfigPick[] = [];
   private settling?: Settling;
   private port?: SwitchPort;
   private generation = 0;
@@ -335,17 +355,22 @@ export class HarnessSwitch {
   /// then the model picker state gets [messed up]").
   reconcile(snapshot: AcpmuxSnapshot): void {
     const model = this.modelPick && settledPick(snapshot, this.modelPick, snapshot.summary?.model);
-    const config =
-      this.configPick &&
-      settledPick(
-        snapshot,
-        this.configPick,
-        snapshot.summary?.configOptions?.find((item) => item.id === this.configPick?.configId)?.currentValue,
-      );
+    const configs = this.configPicks.filter(
+      (pick) =>
+        !(
+          settledPick(
+            snapshot,
+            pick,
+            snapshot.summary?.configOptions?.find((item) => item.id === pick.configId)?.currentValue,
+          ) ||
+          (snapshot.sessionId === pick.sessionId && modelMoved(pick, snapshot.summary?.model))
+        ),
+    );
+    const config = configs.length !== this.configPicks.length;
     const settling = this.settling && settledPicks(snapshot, this.settling);
     if (!model && !config && settling === this.settling) return;
     if (model) this.modelPick = undefined;
-    if (config) this.configPick = undefined;
+    if (config) this.configPicks = configs;
     this.settling = settling;
     this.changed();
   }
@@ -453,7 +478,7 @@ export class HarnessSwitch {
     if (back) intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: back } }));
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
-    this.configPick = undefined;
+    this.configPicks = [];
     this.settling = undefined;
     this.intent = intent;
     // Each held option takes its gesture ticket now, in the pick's own handler.
@@ -564,7 +589,6 @@ export class HarnessSwitch {
     if (!port || !live) return Promise.resolve(false);
     const pick: NonNullable<SwitchView["model"]> = { sessionId: live.sessionId, from: live.model, model };
     this.modelPick = pick;
-    this.configPick = undefined;
     // The person's own pick now is what the chip draws: no earlier held pick draws over it.
     this.settling = undefined;
     this.changed();
@@ -594,24 +618,35 @@ export class HarnessSwitch {
     this.changed();
     return true;
   }
-  pickConfig(configId: string, value: string, live?: { sessionId: string; current?: string }): boolean {
+  pickConfig(configId: string, value: string, live?: { sessionId: string; current?: string; model?: string }): boolean {
     if (!this.intent) {
       const port = this.port;
       if (!port || !live) return false;
-      const pick = { sessionId: live.sessionId, configId, from: live.current, value };
-      this.configPick = pick;
-      this.modelPick = undefined;
+      // A second pick of the same option replaces the first; the model's and other options' stay.
+      const earlier = this.configPicks.find((item) => item.configId === configId && item.sessionId === live.sessionId);
+      // The model this pick is made on: the one a model pick in flight draws, else the session's.
+      // Never an earlier pick's: the chat may run another model since.
+      const modelAt = this.modelPick?.sessionId === live.sessionId ? this.modelPick.model : live.model;
+      const pick: ConfigPick = {
+        sessionId: live.sessionId,
+        configId,
+        from: earlier?.from ?? live.current,
+        value,
+        ...(modelAt !== undefined && { modelAt }),
+      };
+      const others = (list: readonly ConfigPick[]) => list.filter((item) => item.configId !== configId);
+      this.configPicks = [...others(this.configPicks), pick];
       this.settling = undefined;
       this.changed();
       void port.setConfig(configId, value).then(
         () => {
-          if (this.configPick !== pick) return;
-          this.configPick = { ...pick, answered: true };
+          if (!this.configPicks.includes(pick)) return;
+          this.configPicks = [...others(this.configPicks), { ...pick, answered: true }];
           this.changed();
         },
         (error) => {
-          if (this.configPick !== pick) return;
-          this.configPick = undefined;
+          if (!this.configPicks.includes(pick)) return;
+          this.configPicks = others(this.configPicks);
           this.changed();
           this.handlers.notice?.(switchFailedText("model", value, error));
         },
@@ -744,7 +779,7 @@ export class HarnessSwitch {
       this.retire(intent, true);
     }
     this.modelPick = undefined;
-    this.configPick = undefined;
+    this.configPicks = [];
     this.settling = undefined;
     this.left = undefined;
     this.changed();
@@ -1117,7 +1152,7 @@ export class HarnessSwitch {
         },
       }),
       ...(this.modelPick && { model: this.modelPick }),
-      ...(this.configPick && { config: this.configPick }),
+      ...(this.configPicks.length > 0 && { configs: this.configPicks }),
       ...(this.settling && { settling: this.settling }),
     };
     for (const listener of this.listeners) listener();
@@ -1193,30 +1228,32 @@ export function applySwitch(
   if (!intent) {
     const base = withSettling(raw, view.settling);
     const pick = view.model;
-    const summary = base.summary;
+    let summary = base.summary;
+    if (!summary) return base;
+    // The model pick and each option pick draw together: none hides another still in flight.
     if (
       pick &&
-      summary &&
       summary.sessionId === pick.sessionId &&
       summary.model !== pick.model &&
       (summary.model === pick.from || !pick.answered)
     )
-      return { ...base, summary: { ...summary, model: pick.model, confirmedModel: summary.model } };
-    const config = view.config;
-    if (!config || !summary || summary.sessionId !== config.sessionId) return base;
-    const option = summary.configOptions?.find((item) => item.id === config.configId);
-    if (!option || option.currentValue === config.value) return base;
-    // Answered, and the session reports another value than the pick left: it is the session's.
-    if (config.answered && option.currentValue !== config.from) return base;
-    return {
-      ...base,
-      summary: {
+      summary = { ...summary, model: pick.model, confirmedModel: summary.model };
+    for (const config of view.configs ?? []) {
+      if (summary.sessionId !== config.sessionId) continue;
+      const option = summary.configOptions?.find((item) => item.id === config.configId);
+      if (!option || option.currentValue === config.value) continue;
+      // Answered, and the session reports another value than the pick left: it is the session's.
+      if (config.answered && option.currentValue !== config.from) continue;
+      // Answered, and the session runs another model since: its reset level is the session's.
+      if (modelMoved(config, summary.confirmedModel ?? summary.model)) continue;
+      summary = {
         ...summary,
         configOptions: summary.configOptions?.map((item) =>
           item.id === config.configId ? { ...item, currentValue: config.value } : item,
         ),
-      },
-    };
+      };
+    }
+    return summary === base.summary ? base : { ...base, summary };
   }
   const name = agentName(intent.harness, catalog.find((entry) => entry.id === intent.harness)?.name);
   const attached = intent.shown && intent.sessionId !== undefined && raw.sessionId === intent.sessionId;

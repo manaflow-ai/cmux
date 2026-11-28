@@ -265,7 +265,70 @@ describe("1. the model and effort shown are the session's", () => {
     const set = summaryOf("s1");
     set.configOptions![0]!.currentValue = "low";
     expect(effortOf(await drawn(snapshotOf(set), harnessSwitch))).toBe("low");
-    expect(harnessSwitch.view().config).toBeUndefined();
+    expect(harnessSwitch.view().configs).toBeUndefined();
+  });
+
+  // #48444: "it doesn't actually update the selection". The model, the level and Fast are independent
+  // picks: one picked while another is in flight never wipes it, so the chip never falls back to the
+  // old value until the agent answers.
+  test("a level during a model pick, then Fast, all draw at once and none wipes another", async () => {
+    const { harnessSwitch, answer } = await liveSwitch(() => ({ sessionId: "s1", harness: "claude" }));
+    const withFast = () => {
+      const summary = summaryOf("s1");
+      summary.configOptions = [
+        ...summary.configOptions!,
+        { id: "fast-mode", name: "Fast", currentValue: "off", options: [{ value: "off" }, { value: "on" }] },
+      ];
+      return summary;
+    };
+    void harnessSwitch.pickModel("claude-sonnet-5-5", { sessionId: "s1", model: "claude-opus-5-5" });
+    harnessSwitch.pickConfig("effort", "high", { sessionId: "s1", current: "medium" });
+    harnessSwitch.pickConfig("fast-mode", "on", { sessionId: "s1", current: "off" });
+    const now = await drawn(snapshotOf(withFast()), harnessSwitch);
+    expect(now.summary?.model).toBe("claude-sonnet-5-5");
+    expect(effortOf(now)).toBe("high");
+    expect(now.summary?.configOptions?.find((option) => option.id === "fast-mode")?.currentValue).toBe("on");
+    // The agent answers all three, and the session reports them: nothing is left drawn over it.
+    await answer();
+    const reported = withFast();
+    reported.model = "claude-sonnet-5-5";
+    reported.configOptions![0]!.currentValue = "high";
+    reported.configOptions![1]!.currentValue = "on";
+    const settled = await drawn(snapshotOf(reported), harnessSwitch);
+    expect(settled.summary?.model).toBe("claude-sonnet-5-5");
+    expect(effortOf(settled)).toBe("high");
+    expect(harnessSwitch.view().model).toBeUndefined();
+    expect(harnessSwitch.view().configs).toBeUndefined();
+  });
+
+  test("a level, then a model that resets it: once both are answered the session's level draws", async () => {
+    const { harnessSwitch, answer } = await liveSwitch(() => ({ sessionId: "s1", harness: "codex" }));
+    harnessSwitch.pickConfig("effort", "high", { sessionId: "s1", current: "medium", model: "claude-opus-5-5" });
+    void harnessSwitch.pickModel("claude-sonnet-5-5", { sessionId: "s1", model: "claude-opus-5-5" });
+    expect(effortOf(await drawn(snapshotOf(summaryOf("s1")), harnessSwitch))).toBe("high");
+    await answer();
+    // One report after both answers: the new model, its level reset to the one the pick left.
+    const reported = summaryOf("s1", { model: "claude-sonnet-5-5" });
+    const settled = await drawn(snapshotOf(reported), harnessSwitch);
+    expect(settled.summary?.model).toBe("claude-sonnet-5-5");
+    expect(effortOf(settled)).toBe("medium");
+    expect(harnessSwitch.view().configs).toBeUndefined();
+  });
+
+  test("a level picked on the model a pick just switched to keeps drawing until the session reports it", async () => {
+    const { harnessSwitch, answer } = await liveSwitch(() => ({ sessionId: "s1", harness: "claude" }));
+    void harnessSwitch.pickModel("claude-sonnet-5-5", { sessionId: "s1", model: "claude-opus-5-5" });
+    // The chip already names Sonnet; the raw summary still runs Opus.
+    harnessSwitch.pickConfig("effort", "high", { sessionId: "s1", current: "medium", model: "claude-opus-5-5" });
+    await answer();
+    // The model's report lands before the level's: the picked level still draws, no flicker.
+    const moved = await drawn(snapshotOf(summaryOf("s1", { model: "claude-sonnet-5-5" })), harnessSwitch);
+    expect(moved.summary?.model).toBe("claude-sonnet-5-5");
+    expect(effortOf(moved)).toBe("high");
+    const reported = summaryOf("s1", { model: "claude-sonnet-5-5" });
+    reported.configOptions![0]!.currentValue = "high";
+    expect(effortOf(await drawn(snapshotOf(reported), harnessSwitch))).toBe("high");
+    expect(harnessSwitch.view().configs).toBeUndefined();
   });
 
   test("an effort pick in one chat never draws on another, nor on the first again", async () => {
