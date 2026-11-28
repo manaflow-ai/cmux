@@ -3,7 +3,7 @@
 use super::*;
 
 /// The last journaled snapshot powers the single chat row even when older posts leave memory.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct Counts {
     pub(super) seq: u64,
     held: u64,

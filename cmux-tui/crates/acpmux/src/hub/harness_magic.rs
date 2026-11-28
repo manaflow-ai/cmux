@@ -6,8 +6,9 @@
 //! steering rate, time to the first useful result)".
 //!
 //! Every feature has one switch, `agents.harnessMagic.<feature>.enabled` in the settings file
-//! (`turnRules` is on unless `false`: it does nothing with no rules; context surgery and dedupe
-//! are off unless `true`, Leo 2026-11-26: "only do it for our personal fleet situation"), and a
+//! (`turnRules` and `pathRules` are on unless `false`: each does nothing with no rules; context
+//! surgery and dedupe are off unless `true`, Leo 2026-11-26: "only do it for our personal fleet
+//! situation"), and a
 //! kill switch, `ACPMUX_HM_<FEATURE>=0` in the daemon's environment
 //! (the name upper-cased, every other character `_`). A feature lists itself in [`FEATURES`]
 //! with the gate it asks before it acts, so the stamp says exactly what ran: a feature with a
@@ -36,11 +37,28 @@ pub(crate) struct Feature {
 pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
     Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
+    Feature {
+        name: crate::claude_stdio::PATH_RULES_FEATURE,
+        on: crate::claude_stdio::path_rules_enabled,
+    },
     Feature { name: "verify", on: super::verify::enabled },
+    Feature { name: crate::model_router::FEATURE, on: crate::model_router::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
+    Feature { name: super::best_of_n::FEATURE, on: super::best_of_n::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
+    Feature { name: super::sidecars::FEATURE, on: || enabled(super::sidecars::FEATURE) },
+    Feature { name: "dirRules", on: crate::claude_stdio::dir_rules_enabled },
+    Feature { name: super::idle_digest::FEATURE, on: super::idle_digest::enabled },
+    Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
+    Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
+    Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
+    Feature { name: super::turn_artifacts::FEATURE, on: super::turn_artifacts::enabled },
+    Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
+
+/// The features the shared gate reads off unless their setting is `true` (opinionated nudges).
+pub(crate) const DEFAULT_OFF: &[&str] = &[super::sidecars::FEATURE];
 
 /// The settings key of `feature`'s off switch.
 pub(crate) fn setting_key(feature: &str) -> String {
@@ -60,7 +78,7 @@ pub(crate) fn env_key(feature: &str) -> String {
 
 /// Whether `feature` is on, given the settings file (`doc`, `None` when missing or unreadable)
 /// and an environment lookup: on unless its setting is `false` or its kill switch is `0`,
-/// `false` or `off`.
+/// `false` or `off`; a [`DEFAULT_OFF`] feature is off unless its setting is `true`.
 pub(crate) fn enabled_in(
     feature: &str,
     doc: Option<&Value>,
@@ -74,7 +92,7 @@ pub(crate) fn enabled_in(
     }
     doc.and_then(|d| crate::user_settings::value(d, &setting_key(feature)))
         .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+        .unwrap_or(!DEFAULT_OFF.contains(&feature))
 }
 
 /// Whether `feature` is on now (the settings file read at each call, as every daemon setting is).
@@ -126,7 +144,6 @@ pub(crate) fn stamp(msg: &mut Value) {
 }
 
 /// Adds `n` to `harnessMagic.<feature>.<counter>` on a `turn_result` message.
-#[allow(dead_code)] // the features' own seam; the first feature to land calls it
 pub(crate) fn add_counter(msg: &mut Value, feature: &str, counter: &str, n: u64) {
     let Some(hm) = object(msg) else { return };
     let f = hm.entry(feature.to_owned()).or_insert_with(|| json!({}));

@@ -1,25 +1,19 @@
 // l10n-allow-file: test fixture tool titles and output, not shipped UI.
-// Every collapsible in the transcript opens and closes in one motion (Leo 2026-10-20): its body's
-// height and opacity over the shared fold token (`--cv-fold-duration`, the settle, `--cmux-motion-settle`),
-// easing out, the chevron turning on the same token, and at once under Reduce Motion or with the
-// pane's animation off. A body that closes stays drawn until it has slid away.
+// Every collapsible in the transcript opens and closes in one motion (Leo 2026-10-20). Its body takes
+// its height in one frame, never animated (cmuxterm-hq docs/design/transcript-motion-model.md rule 7,
+// invariant I5); an open fades its ink in over at most the micro step, a close fades it out over the
+// exit lead and then shuts, the chevron turning on the fold token, and all of it at once under Reduce
+// Motion or with the pane's animation off. A body that closes stays drawn until its ink has gone.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { MOTION_EASE_OUT } from "../src/motion/scale.generated";
+import { MOTION_EASE_OUT, MOTION_MS } from "../src/motion/scale.generated";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
-import {
-  cssTimeMs,
-  FOLD_DROP_MS,
-  FOLD_DURATION_VAR,
-  FOLD_RESTART_MAX_MS,
-  foldMotion,
-} from "../src/agent-session/acpmux/conversation/fold";
-import { exitLeadMs } from "../src/agent-session/acpmux/conversation/exitLead";
-import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
+import { cssTimeMs, FOLD_DURATION_VAR, foldMotion } from "../src/agent-session/acpmux/conversation/fold";
+import { EXIT_EASING, exitLeadMs } from "../src/agent-session/acpmux/conversation/exitLead";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRows";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
@@ -268,7 +262,7 @@ test("a press on a header that went does not turn a later click elsewhere into a
 });
 
 for (const { name, node, body } of collapsibles) {
-  test(`${name} opens and closes with the fold's height and opacity, over the shared token`, () => {
+  test(`${name} opens and closes by its ink, its height in one frame`, () => {
     render(node());
     expect(container.querySelector(body)).toBeNull();
     click();
@@ -276,32 +270,29 @@ for (const { name, node, body } of collapsibles) {
     expect(container.querySelector(`.cv-fold ${body}`)).not.toBeNull();
     expect(animations.length).toBe(1);
     const [opening] = animations;
-    expect(opening!.options.duration).toBe(token);
+    // The ink comes in over at most the micro step; the box is at its full height from the first frame.
+    expect(opening!.options.duration).toBe(Math.min(token, MOTION_MS.micro));
     expect(opening!.options.easing).toBe(MOTION_EASE_OUT);
-    expect(opening!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
-    expect(opening!.keyframes.at(-1)!.opacity).toBe(1);
+    expect(opening!.keyframes).toEqual([{ opacity: 0 }, { opacity: 1 }]);
     // The chevron turns as it opens.
     expect(toggle().querySelector(".cv-rotor")!.classList.contains("is-open")).toBe(true);
 
     click();
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
     expect(animations.length).toBe(2);
-    // Exit before move (exitLead.ts, design/chat-fold-motion.md): the text is gone over the lead while
-    // the height holds, then the height shuts on the fold's token. Leo, 2026-11-21: "we must hide text
-    // faster and sooner".
+    // Exit before move (exitLead.ts): the text is gone over the lead while the height holds, then the
+    // body shuts in one frame. Leo, 2026-11-21: "we must hide text faster and sooner".
     const closing = animations[1]!;
     const lead = exitLeadMs(token);
     expect(lead).toBeGreaterThan(0);
-    expect(closing.options.duration).toBe(lead + token);
-    expect(closing.options.easing).toBe("linear");
-    const [shown, faded, shut] = closing.keyframes;
-    expect(shown!.opacity).toBe(1);
-    expect(faded!.opacity).toBe(0);
-    expect(faded!.offset).toBeCloseTo(lead / (lead + token), 6);
-    expect(faded!.height).toBe(shown!.height);
-    expect(faded!.easing).toBe(MOTION_EASE_OUT);
-    expect(shut).toEqual({ height: "0px", opacity: 0 });
-    // Drawn while it slides away, then gone.
+    expect(closing.options.duration).toBe(lead);
+    expect(closing.options.easing).toBe(EXIT_EASING);
+    expect(closing.keyframes).toEqual([{ opacity: 1 }, { opacity: 0 }]);
+    // No keyframe of either sizes the box.
+    for (const { keyframes } of animations)
+      for (const frame of keyframes)
+        expect(Object.keys(frame).filter((key) => key !== "opacity" && key !== "offset")).toEqual([]);
+    // Drawn while its ink leaves, then gone.
     expect(container.querySelector(body)).not.toBeNull();
     animations[1]!.finish();
     expect(container.querySelector(body)).toBeNull();
@@ -334,16 +325,15 @@ test("with the pane's animation off, or a 0 ms token, a fold applies at once", (
   expect(animations).toEqual([]);
 });
 
-test("a fold turned back midway starts from where it is drawn", () => {
+test("a fold turned back midway starts from the ink it is drawn at", () => {
   render(<ToolRow item={tool("turn")} />);
   click();
   // Midway through opening, the reader closes it again.
   const card = container.querySelector<HTMLElement>(".cv-fold")!;
-  card.getBoundingClientRect = () => ({ height: 42 }) as DOMRect;
+  card.style.opacity = "0.4";
   click();
   expect(animations.length).toBe(2);
-  expect(animations[1]!.keyframes[0]!.height).toBe("42px");
-  expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px", opacity: 0 });
+  expect(animations[1]!.keyframes).toEqual([{ opacity: 0.4 }, { opacity: 0 }]);
 });
 
 test("a close holds its box shut until React removes the body, so it never flashes open", () => {
@@ -365,67 +355,6 @@ test("a close holds its box shut until React removes the body, so it never flash
     expect(box.style.overflow).toBe("hidden");
   });
   expect(container.querySelector(".cv-fold")).toBeNull();
-});
-
-/// Leo, 2026-11-06, on a recording under heavy load: "way too discontinuous". A fold whose frames
-/// come steadily plays; the second frame in a row that comes FOLD_DROP_MS after the one before it
-/// lands the fold at its end, and its frame loop stops there. One late frame alone is not load (Leo,
-/// 2026-11-07: "sometimes it doesn't play ythe animation"): the fold plays on.
-test("under load a fold lands at its end on the second dropped frame in a row, not on one late frame", () => {
-  const frames: FrameRequestCallback[] = [];
-  (dom!.window as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = (
-    callback: FrameRequestCallback,
-  ) => frames.push(callback);
-  const frame = (at: number) => act(() => frames.splice(0).forEach((callback) => callback(at)));
-  render(<ToolRow item={tool("load")} />);
-  click();
-  animations[0]!.finish();
-  // The open ended on its own: its loop stopped with it.
-  frame(0);
-  expect(frames).toEqual([]);
-  click();
-  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
-  // Steady frames: the close plays on.
-  frame(1000);
-  frame(1000 + 16.7);
-  frame(1000 + 33.4);
-  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
-  expect(frames.length).toBe(1);
-  // One frame FOLD_DROP_MS late, then a steady one: still playing.
-  frame(1000 + 33.4 + FOLD_DROP_MS);
-  frame(1000 + 50 + FOLD_DROP_MS);
-  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
-  expect(frames.length).toBe(1);
-  // Two late frames in a row: the body is shut and gone at once, and nothing asks for another frame.
-  frame(1000 + 50 + 2 * FOLD_DROP_MS);
-  frame(1000 + 50 + 3 * FOLD_DROP_MS);
-  expect(container.querySelector(".cv-tool-output-card")).toBeNull();
-  expect(frames).toEqual([]);
-});
-
-/// The gap after a fold's first frame holds the page drawing what opened (a long log at the bottom,
-/// Leo 2026-11-07: "sometimes it lags when i open it"). When it is slow the fold's clock goes back by
-/// what that frame cost, at most FOLD_RESTART_MAX_MS, so the motion is not half over when it shows.
-test("a slow first frame restarts the fold's clock instead of skipping the motion", () => {
-  const frames: FrameRequestCallback[] = [];
-  (dom!.window as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = (
-    callback: FrameRequestCallback,
-  ) => frames.push(callback);
-  const frame = (at: number) => act(() => frames.splice(0).forEach((callback) => callback(at)));
-  render(<ToolRow item={tool("slow-first")} />);
-  click();
-  const opening = animations[0]!;
-  frame(1000);
-  // The page took 90 ms to draw the opened body; the clock ran on meanwhile.
-  opening.clock.currentTime = 90;
-  frame(1090);
-  expect(opening.clock.currentTime).toBeCloseTo(1000 / 60, 0);
-  // A first frame slower still goes back by no more than FOLD_RESTART_MAX_MS.
-  expect(FOLD_RESTART_MAX_MS).toBeLessThan(FOLD_SETTLE_MS);
-  // Steady frames after it: the open plays on, nothing landed.
-  frame(1090 + 16.7);
-  expect(frames.length).toBe(1);
-  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
 });
 
 test("a motion policy cancellation finishes a closing tool call instead of leaving its body mounted", () => {
@@ -469,11 +398,9 @@ test("a fold reopened as its close ends opens from its own size, not the pinned 
   });
   expect(container.querySelector(".cv-fold")).toBe(box);
   expect(animations.length).toBe(3);
-  expect(animations[2]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
-  // Under the motion the box holds the open's start height, never the close's pin: a frame drawn
-  // before the motion applies shows it shut, not open at full height (composer-hat-fold-balance).
-  expect(box.style.height).toBe("0px");
-  expect(box.style.opacity).toBe("");
+  expect(animations[2]!.keyframes[0]).toEqual({ opacity: 0 });
+  // The box lets go of the close's pin at once: it opens at its own height in this frame.
+  expect(box.style.height).toBe("");
   animations[2]!.finish();
   expect(box.style.height).toBe("");
   expect(box.style.opacity).toBe("");

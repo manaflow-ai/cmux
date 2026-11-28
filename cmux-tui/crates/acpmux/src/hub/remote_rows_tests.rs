@@ -182,6 +182,26 @@ fn agrees(rows: &RemoteRows, model: &Model) -> Result<(), String> {
         if rows.has_peer(&peer) == want.is_empty() {
             return fail(format!("has_peer({peer})"));
         }
+        // The closed-row bound's reads, the slow way: a sort of the peer's closed rows.
+        let mut closed: Vec<(u64, String)> = model
+            .iter()
+            .filter(|(_, r)| r.peer == peer && r.summary.closed())
+            .map(|(k, r)| (r.summary.updated_ms(), k.clone()))
+            .collect();
+        closed.sort();
+        if rows.closed_of_peer(&peer) != closed.len() {
+            return fail(format!("closed_of_peer({peer}) != {}", closed.len()));
+        }
+        for kept in [0, 1, 3] {
+            let want: Vec<String> = closed
+                .iter()
+                .take(closed.len().saturating_sub(kept))
+                .map(|(_, k)| k.clone())
+                .collect();
+            if rows.closed_of_peer_past(&peer, kept) != want {
+                return fail(format!("closed_of_peer_past({peer}, {kept}) != {want:?}"));
+            }
+        }
         for m in 0..MUXES {
             let mux = format!("s{m}");
             let want = model
@@ -258,8 +278,17 @@ fn apply(rows: &mut RemoteRows, model: &mut Model, op: &Op) -> Result<(), String
         Op::MarkStale(p, seen) => {
             let peer = peer_of(p);
             let seen = seen.map(u64::from);
-            let mut got: Vec<Value> =
-                rows.mark_peer_stale(&peer, seen).iter().map(PeerRow::value).collect();
+            // Half the peers are marked as a peer's outage marks them: built from a snapshot,
+            // put in under the lock.
+            let changed = if p % 2 == 0 {
+                let snapshot = rows.clone();
+                let marks = snapshot.stale_marks(&peer, seen);
+                rows.put_stale_marks_built_from(marks)
+                    .ok_or_else(|| "marks built from a current snapshot were refused".to_owned())?
+            } else {
+                rows.mark_peer_stale(&peer, seen)
+            };
+            let mut got: Vec<Value> = changed.iter().map(PeerRow::value).collect();
             let mut want: Vec<Value> = Vec::new();
             for r in model.values_mut().filter(|r| r.peer == peer) {
                 let mut summary = r.summary.value();
@@ -424,4 +453,80 @@ fn a_bare_id_reads_only_its_own_row_at_12000_rows() {
     assert_eq!(rows.named("peer-7/coord/lane-5").len(), 1);
     assert_eq!(rows.short_named("lane-5").len(), 30, "one per peer with that short name");
     assert_eq!(rows.short_named("missing").len(), 0);
+}
+
+/// `exact_of_peer` finds every row of the peer a walk finds naming the key exactly, by its
+/// name, alias (stored or spoken), handle (set or default) in any case, a former name or an
+/// id prefix, through a rename and a removal.
+#[test]
+fn the_exact_index_finds_every_row_a_walk_names_exactly() {
+    use crate::session_handle::{matches, spoken_alias};
+    let mut rows = RemoteRows::default();
+    let row = |peer: &str, mux: &str, extra: Value| {
+        let receipt = SessionReceipt::new(peer, mux, None, 0);
+        let mut summary = json!({"sessionId": mux, "peer": peer, "status": "running"});
+        for (k, v) in extra.as_object().into_iter().flatten() {
+            summary[k] = v.clone();
+        }
+        (
+            receipt.qualified_id(),
+            RemoteSession { peer: peer.into(), summary: summary.into(), receipt },
+        )
+    };
+    let all = [
+        ("a", "0a1b-1", json!({"name": "a/lane"})),
+        ("a", "0a1b-2", json!({"name": "lane", "handle": "Fig-Lane"})),
+        ("a", "4f0e2c1a-0000-4000-8a2b-0123456789ab", json!({"name": "a/x"})),
+        ("a", "0a1b-3", json!({"name": "a/y", "tags": {"session.alias": "big+lane"}})),
+        ("a", "0a1b-4", json!({"name": "a/z", "formerNames": ["lane"]})),
+        ("b", "0a1c-1", json!({"name": "b/lane", "tags": {"session.alias": "lane"}})),
+    ];
+    for (peer, mux, extra) in all.clone() {
+        let (key, r) = row(peer, mux, extra);
+        rows.insert(key, r);
+    }
+    let mut keys: Vec<String> =
+        ["lane", "fig-lane", "FIG-LANE", "big lane", "big+lane", "0a1b", "0a1b-4", "x", "missing"]
+            .map(String::from)
+            .to_vec();
+    keys.push(
+        crate::session_handle::default_handle("4f0e2c1a-0000-4000-8a2b-0123456789ab")
+            .to_uppercase(),
+    );
+    let check = |rows: &RemoteRows| {
+        for peer in ["a", "b", "c"] {
+            for key in &keys {
+                let exact = |r: &RemoteSession| {
+                    let name = r.summary.name().unwrap_or_default();
+                    let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
+                    let alias = r.summary.alias();
+                    bare == key
+                        || alias == Some(key.as_str())
+                        || alias.map(spoken_alias).as_deref() == Some(key.as_str())
+                        || r.receipt.mux_session_id.starts_with(key.as_str())
+                        || matches(r.summary.handle(), &r.receipt.mux_session_id, key)
+                        || r.summary.has_former_name(key)
+                };
+                let mut walked: Vec<&String> =
+                    rows.of_peer(peer).filter(|(_, r)| exact(r)).map(|(k, _)| k).collect();
+                let mut found: Vec<&String> = rows
+                    .exact_of_peer(peer, key)
+                    .into_iter()
+                    .filter(|(_, r)| exact(r))
+                    .map(|(k, _)| k)
+                    .collect();
+                walked.sort();
+                found.sort();
+                assert_eq!(found, walked, "{peer}/{key}");
+            }
+        }
+    };
+    check(&rows);
+    let (key, r) = row("a", "0a1b-2", json!({"name": "renamed", "handle": "Fig-Other"}));
+    rows.insert(key, r);
+    check(&rows);
+    assert!(rows.exact_of_peer("a", "fig-lane").is_empty(), "a changed handle leaves its old one");
+    rows.take_peer("a");
+    rows.take_peer("b");
+    assert!(rows.names.is_empty(), "no name entry is left behind");
 }
