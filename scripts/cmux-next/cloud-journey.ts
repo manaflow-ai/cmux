@@ -141,6 +141,7 @@ import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
+import { allSpentDetail, claudeLoginCandidates, type LoginPick, pickClaudeLogin, probeClaudeLogin, rotationLine } from "./claude-login-pool.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -3692,6 +3693,10 @@ export type ProbeExtra = {
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
   login_path?: "receipt" | "copy" | "launch";
+  /** The Claude login pool's chosen slot (an index, never a token); null when every slot was spent. */
+  login_slot?: number | null;
+  /** Each asked pool slot's preflight answer, in order (claude-login-pool.ts). */
+  login_rotation?: { slot: number; status: string; reason: string }[];
   /** The Cloud scroll-stress probe's counts (SCROLL_PROBE_STEP), only when it measured. */
   terminal_scroll?: TerminalScroll;
   failure_facts?: FailureFacts;
@@ -5984,9 +5989,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // With the gateway and the stub, the stub's nonce reply is checked as --model stub does, but it runs on the gateway.
   const gatewayStub = Boolean(gatewayCmux) && gatewayUpstream === "stub";
   const nonce = randomBytes(6).toString("hex");
+  // A real Claude run takes the first login of its pool (claude-login-pool.ts) whose account still has quota: one
+  // tiny messages request per candidate, before any machine exists. Only the slot index and the answers are written.
+  const claudeCandidates = modelStub ? [] : claudeLoginCandidates(process.env, creds);
+  if (process.env.GITHUB_ACTIONS === "true") for (const token of claudeCandidates) console.log(`::add-mask::${token}`);
+  const claudeRotates = !modelStub && agent.split("/")[0] === "claude" && !gatewayAny && !only.has("chat") && !only.has("login")
+    && !argv.includes("--app-cli") && claudeCandidates.length > 0;
+  const claudePick: LoginPick | null = claudeRotates
+    ? await pickClaudeLogin(claudeCandidates, (token) => probeClaudeLogin(token, globalThis.fetch, process.env.CMUX_JOURNEY_LOGIN_PREFLIGHT_URL || undefined))
+    : null;
   const claudeLogin = modelStub
     ? `sk-ant-oat01-journeystub-${randomBytes(24).toString("hex")}`
-    : (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
+    : claudePick ? claudePick.login ?? "" : claudeCandidates[0] ?? "";
   // Codex's login is its auth.json (a ChatGPT sign-in), as the app copies it; CODEX_AUTH_JSON for a real run.
   const codexLogin = modelStub ? stubCodexAuth() : (process.env.CODEX_AUTH_JSON || creds.CODEX_AUTH_JSON || "").trim();
   // `claude/claude-sonnet-5-5` is the claude harness on that model (`acp ensure -m`): the same login and lifecycle legs.
@@ -6069,6 +6083,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
   const probeExtra: ProbeExtra = {};
   J.warm = () => spareTaken(probeExtra);
+  if (claudePick) {
+    probeExtra.login_slot = claudePick.slot;
+    probeExtra.login_rotation = claudePick.rotation;
+    if (claudePick.login === null) {
+      // Every slot is spent or refused: an infra row (the limit words cmuxterm-hq's agent_quota reads), not a product
+      // failure, and no machine is made for a reply that cannot come.
+      J.record({ step: loginStep, status: "fail", ms: 0, detail: allSpentDetail(claudePick) });
+      J.skip("login rotation", rotationLine(claudePick));
+      if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext, probeExtra))}\n`);
+      console.log(`\nFAIL ${allSpentDetail(claudePick)}`);
+      return 1;
+    }
+    J.skip("login rotation", rotationLine(claudePick));
+  }
   let factsRead = false;
   // --preclaim-login's warm-spare state dir, removed by the cleanup.
   let preclaimStateDir: string | null = null;

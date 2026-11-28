@@ -80,6 +80,41 @@ class GuardStepsReachedTest(unittest.TestCase):
                     self.assertNotIn(".github/workflows/**", step.inputs)
 
 
+class EgressScanGuardsTest(unittest.TestCase):
+    """A product change that adds an outbound host or egress site runs the privacy and egress registry tests on its
+    landing head (egress-scan-guards, land_gate). 11-21..11-28: 5 fix-forwards (#57217, #58104, #58409, #59244,
+    #57325) after Swift and Rust changes merged green with the ci-guards.yml `ci` group never run on their PR."""
+
+    CULPRITS = {
+        "#58409": ["cmux-tui/crates/cmux-no-checkout/src/github.rs"],
+        "#57325": ["cmux-tui/crates/cmux-autocloud/src/login.rs",
+                   "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct.rs"],
+        "#58104": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/EmailSignIn.swift"],
+        "#59244": ["Packages/Shared/CmuxEgress/Sources/CmuxEgress/EgressHosts.swift"],
+        "webviews": ["webviews/src/app.ts"],
+        "registry": ["docs/privacy.md"],
+    }
+
+    def test_each_culprit_routes_it_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("egress-scan-guards", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+                self.assertIn("egress-scan-guards", ci_steps.route(t, paths, pr_scope=True, tier="pr")["linux"])
+
+    def test_the_runner_runs_every_registry_test_through_new_red_only(self) -> None:
+        text = (ROOT / "scripts" / "ci" / "egress_scan_guards.sh").read_text()
+        self.assertIn("new_red_only.sh", text)
+        for name in ("test_outbound_hosts", "test_network_allowlist", "test_egress_gate", "test_egress_seeded"):
+            with self.subTest(test=name):
+                self.assertIn(name, text)
+                self.assertTrue((ROOT / "tests" / f"{name}.py").is_file())
+
+    def test_an_unrelated_change_does_not_route_it(self) -> None:
+        t = ci_steps.load()
+        self.assertNotIn("egress-scan-guards", ci_steps.nightly_gate_steps(t, ["docs/handbook/x.md", "ci/README.md"]))
+
+
 class RegistryRowGuardsTest(unittest.TestCase):
     """A change that adds a registry row's source without its row runs the row's guard on its landing head
     (registry-row-missing class, land_gate). 11-21 to 11-28: four selector-table reds (culprit e06d1661da88, a
@@ -437,10 +472,13 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                # A crate's Rust source also reaches the persisted-formats registry, next-state-roots and the
-                # spawn-owner ratchet (#64665) (land_gate steps on every cmux-tui/crates/*/src .rs).
+                # A crate's Rust source also reaches the persisted-formats registry and next-state-roots (land_gate
+                # steps on every cmux-tui/crates/*/src .rs). The idle daemon tests read Cargo.lock but are tier B: post-merge.
+                # The .rs also reaches the privacy and egress registries (egress-scan-guards) and the spawn-owner
+                # ratchet (next-spawn-owner-ratchet), both land_gate.
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
-                                ["persisted-formats", "next-state-roots", "next-spawn-owner-ratchet", "phone-speed-icount"],
+                                ["egress-scan-guards", "persisted-formats", "next-state-roots",
+                                 "next-spawn-owner-ratchet", "phone-speed-icount"],
                             "cmux-tui/Cargo.lock": ["rust-notices", "phone-speed-icount"]
                             }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
