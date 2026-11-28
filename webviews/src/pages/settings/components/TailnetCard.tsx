@@ -394,6 +394,7 @@ function TailnetJoinDialog({
           {t("settingsPage.tailnet.machine")}
           <input
             list="tailnet-machines"
+            aria-label={t("settingsPage.tailnet.machine")}
             data-tailnet-join-vm=""
             value={vm}
             onChange={(event) => setVM(event.target.value)}
@@ -411,6 +412,7 @@ function TailnetJoinDialog({
           {t("settingsPage.tailnet.credential")}
           <input
             type="password"
+            aria-label={t("settingsPage.tailnet.credential")}
             data-tailnet-join-key=""
             value={key}
             onChange={(event) => setKey(event.target.value)}
@@ -426,16 +428,31 @@ function TailnetJoinDialog({
         )}
         {plainHttp && (
           <label className="tailnet-join-check" data-tailnet-allow-http="">
-            <input type="checkbox" checked={allowHttp} onChange={(event) => setAllowHttp(event.target.checked)} />
+            <input
+              type="checkbox"
+              aria-label={t("settingsPage.tailnet.allowHttp", loginServer)}
+              checked={allowHttp}
+              onChange={(event) => setAllowHttp(event.target.checked)}
+            />
             <span>{t("settingsPage.tailnet.allowHttp", loginServer)}</span>
           </label>
         )}
         <label className="tailnet-join-check">
-          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />
+          <input
+            type="checkbox"
+            aria-label={t("settingsPage.tailnet.oauthMode")}
+            checked={oauth}
+            onChange={(event) => setOAuth(event.target.checked)}
+          />
           <span>{t("settingsPage.tailnet.oauthMode")}</span>
         </label>
         <label className="tailnet-join-check">
-          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />
+          <input
+            type="checkbox"
+            aria-label={t("settingsPage.tailnet.switch")}
+            checked={switchTailnet}
+            onChange={(event) => setSwitchTailnet(event.target.checked)}
+          />
           <span>{t("settingsPage.tailnet.switch")}</span>
         </label>
         {error && (
@@ -548,6 +565,7 @@ function TailnetConnectDialog({
           {t("settingsPage.tailnet.machine")}
           <input
             list="tailnet-connect-machines"
+            aria-label={t("settingsPage.tailnet.machine")}
             data-tailnet-connect-vm=""
             value={vm}
             onChange={(event) => setVM(event.target.value)}
@@ -565,6 +583,7 @@ function TailnetConnectDialog({
           {t("settingsPage.tailnet.credential")}
           <input
             type="password"
+            aria-label={t("settingsPage.tailnet.credential")}
             data-tailnet-connect-key=""
             value={key}
             onChange={(event) => setKey(event.target.value)}
@@ -574,17 +593,28 @@ function TailnetConnectDialog({
         </label>
         {plainHttp && (
           <label className="tailnet-join-check">
-            <input type="checkbox" checked={allowHttp} onChange={(event) => setAllowHttp(event.target.checked)} />
+            <input
+              type="checkbox"
+              aria-label={t("settingsPage.tailnet.allowHttp", loginServer)}
+              checked={allowHttp}
+              onChange={(event) => setAllowHttp(event.target.checked)}
+            />
             <span>{t("settingsPage.tailnet.allowHttp", loginServer)}</span>
           </label>
         )}
         <label className="tailnet-join-check">
-          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />
+          <input
+            type="checkbox"
+            aria-label={t("settingsPage.tailnet.oauthMode")}
+            checked={oauth}
+            onChange={(event) => setOAuth(event.target.checked)}
+          />
           <span>{t("settingsPage.tailnet.oauthMode")}</span>
         </label>
         <label className="tailnet-join-field">
           {t("settingsPage.tailnet.connectName")}
           <input
+            aria-label={t("settingsPage.tailnet.connectName")}
             data-tailnet-connect-name=""
             value={name}
             placeholder={t("settingsPage.tailnet.connectNameHelp")}
