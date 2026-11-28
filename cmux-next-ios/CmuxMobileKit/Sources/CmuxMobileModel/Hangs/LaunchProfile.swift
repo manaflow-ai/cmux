@@ -8,7 +8,7 @@ import QuartzCore
 /// main thread's stack every 2 ms with ``ThreadStackSampler`` (the walk that is safe at launch), for 12 s
 /// at most. ``finish(nowMs:windows:done:)`` stops it and, off the main thread, counts each function's
 /// samples in each window of the launch marks: inclusive (on the stack), self (the innermost frame), and
-/// this app's own functions, and who calls `os_log` and who waits on a lock. The report is one JSON line.
+/// this app's own functions, who calls `os_log`, who waits on a lock, and who looks up a protocol conformance. The report is one JSON line.
 ///
 /// Off, nothing runs. On, one thread and one stack (128 frames) per 2 ms, for 12 s at most.
 public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples` and `stopped` are guarded by `lock`
@@ -86,6 +86,7 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
             var own: [String: Int] = [:]
             var logCallers: [String: Int] = [:]
             var waitCallers: [String: Int] = [:]
+            var conformsCallers: [String: Int] = [:]
             for sample in inWindow {
                 let names = sample.stack.map { symbol($0).name }
                 // Who logs, and who waits: the five frames out from the outermost os_log frame, and
@@ -96,6 +97,12 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
                 if names.first?.contains("__ulock_wait") == true {
                     let past = names.firstIndex { !$0.hasPrefix("libsystem_kernel.dylib ") && !$0.hasPrefix("libsystem_platform.dylib ") } ?? names.count
                     waitCallers[names[past...].prefix(5).joined(separator: " < "), default: 0] += 1
+                }
+                // Who asks the runtime for a protocol conformance (a cold `as?` or generic lookup scans
+                // every conformance record): the five frames out past the runtime's own frames.
+                if let lookup = names.prefix(8).firstIndex(where: { $0.contains("swift_conformsToProtocol") }) {
+                    let past = names[lookup...].firstIndex { !$0.hasPrefix("libswiftCore.dylib ") } ?? names.count
+                    conformsCallers[names[past...].prefix(5).joined(separator: " < "), default: 0] += 1
                 }
                 var seen = Set<String>()
                 var seenOwn = Set<String>()
@@ -111,7 +118,8 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
             }
             out.append(["name": window.name, "from": window.from.rounded(), "to": window.to.rounded(), "n": inWindow.count,
                         "self": top(innermost, 15), "app": top(own, 45), "incl": top(inclusive, 35),
-                        "log": top(logCallers, 20), "wait": top(waitCallers, 20)])
+                        "log": top(logCallers, 20), "wait": top(waitCallers, 20),
+                        "conforms": top(conformsCallers, 25)])
         }
         let object: [String: Any] = ["interval_ms": Double(interval) / 1000, "samples": samples.count, "windows": out]
         guard let data = try? JSONSerialization.data(withJSONObject: object), let text = String(data: data, encoding: .utf8) else { return "{}" }
