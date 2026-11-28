@@ -150,6 +150,39 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def sign_in(step: dict) -> str | None:
+    """The `cmux-ci run --sign-in` profile a step needs. pair-e2e signs both apps in to the dev Cloud; with no
+    session it falls back to CMUX_UITEST_STACK_EMAIL/PASSWORD or ~/.secrets/cmuxterm-dev.env, which fleet Macs
+    do not hold, so an unsigned pair-e2e exits 1 at pairing ("DEBUG dev credential: set ...") after a
+    45-minute Mac build (#59658 attempt 7, step 9c79c4ec8782598d8441941a).
+    The session is minted on the submitting machine (cmux-ci's signin_session), so this signs in only where that
+    machine holds the agent account; elsewhere (a lane VM) the step goes unsigned as before, with a note."""
+    if step["mode"] != "pair-e2e":
+        return None
+    return "agent" if has_agent_account() else None
+
+
+AGENT_KEYS = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
+AGENT_FILES = (".secrets/cmuxterm-dev.env", ".secrets/cmux.env")  # cmux-ci signin_session.SECRET_FILES
+
+
+def has_agent_account(environ=os.environ, home: str | None = None) -> bool:
+    """Whether `cmux-ci run --sign-in agent` can mint a session here: both agent keys in the environment, or in
+    one of the secrets files it reads. Reads names only; never returns a value."""
+    if all(environ.get(k) for k in AGENT_KEYS):
+        return True
+    for rel in AGENT_FILES:
+        try:
+            text = (Path(home or Path.home()) / rel).read_text()
+        except OSError:
+            continue
+        names = {line.split("=", 1)[0].strip().removeprefix("export ").strip()
+                 for line in text.splitlines() if "=" in line and line.split("=", 1)[1].strip()}
+        if all(k in names for k in AGENT_KEYS):
+            return True
+    return False
+
+
 def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
     """Identify one simulator submission by its work, keeping its head and shard visible in fleet logs.
 
@@ -159,7 +192,10 @@ def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str 
     The digest leaves the head out (the key's full-sha head field carries it), so a newer head's step matches the older
     queued one "commits aside" and cmux-ci's supersede replaces it rather than queueing both."""
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
-    workload = json.dumps([SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    work = [SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt]
+    if sign_in(step):  # a signed-in step is new work: never reuse the unsigned step that failed on its credential
+        work.append(f"sign-in={sign_in(step)}")
+    workload = json.dumps(work, separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
     pinned = f"-{step['worker']}" if strict else ""
     return f"ios-verify-{pr}-{head}-{step['mode']}-{shard}{pinned}-{digest}"
@@ -239,6 +275,12 @@ def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "
         cmd += ["--target-worker", step["worker"]]
     if strict:
         cmd.append("--pin-strict")
+    if sign_in(step):
+        cmd += ["--sign-in", sign_in(step)]
+    elif step["mode"] == "pair-e2e":
+        print(f"ios verify: {step['name']}: no agent account on this machine, so the step goes unsigned and fails "
+              "at pairing on a fleet Mac with no dev credential; run it from a machine with "
+              "~/.secrets/cmuxterm-dev.env (CMUX_UITEST_STACK_EMAIL/_PASSWORD)", file=sys.stderr, flush=True)
     for a in step["args"]:
         cmd += ["--arg", a]
     t0 = time.monotonic()
@@ -648,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
-    selection = select_flows.select(manifest, changed)
+    selection = select_flows.select(manifest, changed, edited=select_flows.edited_flows(manifest, base_sha, head))
     steps = plan(selection, manifest["flows"], workers, a.pair_e2e)
     if a.plan:
         print(json.dumps({"head": head, "ios": selection["ios"], "flows": selection["flows"],
