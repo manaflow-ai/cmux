@@ -12,7 +12,7 @@
 // runs under its row, and every other Switch and Go Back waits (Leo 2026-11-11: "reverting the app
 // to previous nightly is really slow/doesn't work very well sometimes?/needs less shitty ui").
 import { Button } from "../../../ui/Button";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode, useLayoutEffect } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsSelector, useStore } from "../context";
@@ -73,9 +73,10 @@ function RunBar({ progress }: { progress: ChannelsProgress | null }) {
 }
 
 /** One build, a memo row: its build (a read that did not change it keeps the object), whether its
- * Switch runs (with the host's stage only then), its refusal, whether another switch runs, and one
- * stable `onStart`, so a stage of a running switch draws that row alone and a new read only the rows
- * it changed. */
+ * Switch runs (with the host's stage only then), its refusal and one stable `onStart`, so a stage of
+ * a running switch draws that row alone and a new read only the rows it changed. Whether another
+ * switch runs is not a prop: its Switch sits in a fieldset Track disables in the DOM, so a switch
+ * starting or ending draws no row but the one that runs it. */
 const BuildRow = memo(function BuildRow({
   build,
   ring,
@@ -83,7 +84,6 @@ const BuildRow = memo(function BuildRow({
   running,
   progress,
   failure,
-  waiting,
   onStart,
 }: {
   build: ChannelBuild;
@@ -92,7 +92,6 @@ const BuildRow = memo(function BuildRow({
   running: boolean;
   progress: ChannelsProgress | null;
   failure: string | null;
-  waiting: boolean;
   onStart: (target: Target) => void;
 }) {
   const target: Target = { kind: "switch", ring, build: build.build };
@@ -171,19 +170,21 @@ const BuildRow = memo(function BuildRow({
         <div className="row-control">
           {/* First, so the badges keep the card's control edge while it is hidden (it keeps its
               place, transparent) and nothing moves when it shows. While it runs it stays shown
-              (data-busy) with the host's stage, and every other one waits. */}
+              (data-busy) with the host's stage, and every other one waits: Track disables its
+              fieldset while any switch runs. */}
           {build.switch && labels.switch && (
-            <Button
-              type="button"
-              className="button channel-switch"
-              data-channel-switch-build={build.build}
-              data-busy={running ? "" : undefined}
-              aria-busy={running || undefined}
-              disabled={waiting}
-              onClick={() => onStart(target)}
-            >
-              {running ? <RunLabel progress={progress} idle={labels.switch} /> : labels.switch}
-            </Button>
+            <SwitchWaits>
+              <Button
+                type="button"
+                className="button channel-switch"
+                data-channel-switch-build={build.build}
+                data-busy={running ? "" : undefined}
+                aria-busy={running || undefined}
+                onClick={() => onStart(target)}
+              >
+                {running ? <RunLabel progress={progress} idle={labels.switch} /> : labels.switch}
+              </Button>
+            </SwitchWaits>
           )}
           {build.installed && (
             <span className="badge" data-channel-here="">
@@ -203,6 +204,17 @@ const BuildRow = memo(function BuildRow({
   );
 });
 
+/** A build row's Switch waits in this fieldset while any switch runs: Track sets its `disabled` in
+ * the DOM, so the browser disables the Switch with no row render. It holds the Switch alone (a
+ * row's links never wait), has no box (`.card-busy`, display: contents) and no role. */
+function SwitchWaits({ children }: { children: ReactNode }) {
+  return (
+    <fieldset className="card-busy" role="none" data-channel-waits="">
+      {children}
+    </fieldset>
+  );
+}
+
 /** A channel and its builds; each build gets only its own part of the card's one running switch. */
 const Track = memo(function Track({
   track,
@@ -221,8 +233,25 @@ const Track = memo(function Track({
   failure: Run["failure"];
   onStart: (target: Target) => void;
 }) {
+  // A switch starting or ending disables or enables every build's Switch at once, straight in the
+  // DOM, so only the row that runs it draws. A Switch mounts only with new builds or labels.
+  const waiting = active !== null;
+  const rows = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    for (const waits of rows.current?.querySelectorAll<HTMLFieldSetElement>("fieldset[data-channel-waits]") ?? []) {
+      waits.disabled = waiting;
+      // Chromium's accessibility tree does not refresh a control's `focusable` when only its fieldset
+      // changes, so a screen reader already running would hear a waiting Switch as focusable (and an
+      // enabled one as not). Marking the control itself refreshes it. Base UI sets no aria-disabled
+      // on an enabled native button, so React never writes this attribute.
+      for (const control of waits.querySelectorAll("button")) {
+        if (waiting) control.setAttribute("aria-disabled", "true");
+        else control.removeAttribute("aria-disabled");
+      }
+    }
+  }, [waiting, track.builds, labels]);
   return (
-    <div className="rows" data-channel={track.ring}>
+    <div className="rows" data-channel={track.ring} ref={rows}>
       <div className="row">
         <div className="row-main">
           <div className="row-label">
@@ -255,7 +284,6 @@ const Track = memo(function Track({
             running={running}
             progress={running ? progress : null}
             failure={same(failure?.target, target) ? failure!.message : null}
-            waiting={active !== null}
             onStart={onStart}
           />
         );

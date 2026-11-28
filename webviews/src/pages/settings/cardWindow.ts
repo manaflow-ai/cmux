@@ -13,15 +13,16 @@
 // as it settles.
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import {
-  createContext,
   createElement,
   useCallback,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type FocusEvent,
+  type ReactNode,
+  type RefObject,
+  useInsertionEffect,
 } from "react";
 
 const NO_KEYS: ReadonlySet<string> = new Set();
@@ -87,7 +88,8 @@ export function useCardWindow(
   // column changes size (a card above it opening), one rect each, never per row.
   const measureMargin = useCallback(() => {
     if (!node || !scroller) return;
-    const first = node.querySelector<HTMLElement>(':scope > [data-index="0"]') ?? node;
+    const first =
+      node.querySelector<HTMLElement>(':scope > [data-index="0"], :scope > .card-busy > [data-index="0"]') ?? node;
     const next = first.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
     setScrollMargin((previous) => (Math.abs(previous - next) < 0.5 ? previous : next));
   }, [node, scroller]);
@@ -202,7 +204,71 @@ export function windowGap(gap: number) {
     : null;
 }
 
-/** A change in flight in a windowed card (a revoke, a library change): every row's controls are
- * disabled until it answers. The controls read it, not the rows, so a change draws the controls
- * again and leaves each memo row's own lines be. */
-export const CardBusy = createContext(false);
+/** A change in flight in a card (a revoke, a library change): every row's controls are disabled until
+ * it answers. A disabled fieldset around the rows disables every button and switch in them natively,
+ * so a change draws the fieldset alone and no row again. It has no box (`.card-busy` is display:
+ * contents) and no role, so the rows stay the list's items. Only for rows whose every control waits
+ * for the change: a control that stays usable must sit outside it. */
+export function cardBusy(busy: boolean, rows: ReactNode) {
+  return createElement(CardBusy, { busy }, rows);
+}
+
+function CardBusy({ busy, children }: { busy: boolean; children?: ReactNode }) {
+  // The fieldset as state, not a ref object: the compiler reads a ref object handed in createElement's
+  // props as a ref read during render. Its first commit draws CardBusy once more, with the same rows.
+  const [fieldset, setFieldset] = useState<HTMLFieldSetElement | null>(null);
+  // The rows are new elements on every render of the list (a scroll step mounts rows), so a row that
+  // mounts while the change waits is marked too.
+  useWaitingControls(fieldset, "button", busy, children);
+  return createElement(
+    "fieldset",
+    { className: "card-busy", role: "none", disabled: busy, ref: setFieldset },
+    children,
+  );
+}
+
+/** While `busy`, marks every control under `root` matching `selector` (the ones a disabled fieldset
+ * holds) aria-disabled="true", straight in the DOM, and takes the mark off when it answers, so no row
+ * renders. Chromium's accessibility tree does not refresh a control's `focusable` when only its
+ * fieldset's `disabled` changes: with a screen reader already running, a waiting control stayed
+ * focusable, and the control pressed stayed unfocusable after the answer. A mark on the control
+ * itself refreshes it, as `disabled` on each control did. Runs again when `mounted` changes, so a
+ * control mounted while busy is marked; one that already says aria-disabled (React's) is left alone.
+ * A control a row mounts on its own while busy (an account's Rename back from a cancelled rename,
+ * with no new list) is marked as it lands in `root`, watched only while busy, so still no row renders. */
+export function useWaitingControls(
+  /** The element, or a ref to it. */
+  root: RefObject<HTMLElement | null> | HTMLElement | null,
+  selector: string,
+  busy: boolean,
+  mounted: unknown,
+) {
+  const marked = useRef<HTMLElement[]>([]);
+  useLayoutEffect(() => {
+    if (!busy) {
+      for (const control of marked.current) control.removeAttribute("aria-disabled");
+      marked.current = [];
+      return;
+    }
+    const mark = (control: HTMLElement) => {
+      if (control.hasAttribute("aria-disabled")) return;
+      control.setAttribute("aria-disabled", "true");
+      marked.current.push(control);
+    };
+    const node = root !== null && "current" in root ? root.current : root;
+    if (!node) return;
+    for (const control of node.querySelectorAll<HTMLElement>(selector)) mark(control);
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const added of record.addedNodes) {
+          if (!(added instanceof HTMLElement)) continue;
+          if (added.matches(selector)) mark(added);
+          for (const control of added.querySelectorAll<HTMLElement>(selector)) mark(control);
+        }
+      }
+    });
+    observer.observe(node, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [root, selector, busy, mounted]);
+}

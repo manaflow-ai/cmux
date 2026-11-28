@@ -67,6 +67,13 @@ select {
   cursor: default;
 }
 
+/* The fieldset that disables a card's row controls while a change is in flight (cardWindow.ts
+   cardBusy, ProviderAccounts' BusyControls): no box of its own, so the rows and controls in it lay
+   out as its parent's children. */
+.card-busy {
+  display: contents;
+}
+
 .icon {
   flex-shrink: 0;
 }

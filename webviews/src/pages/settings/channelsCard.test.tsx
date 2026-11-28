@@ -350,9 +350,11 @@ test("a switch's stages show on its row with a bar, every other button waits, an
   await settle();
   const element = card(page.container)!;
   const row = element.querySelector<HTMLElement>('[data-channel="nightly"] [data-channel-build="3422"]')!;
+  // A Switch waits in a disabled fieldset (ChannelsCard's SwitchWaits), which `disabled` on a button
+  // does not reflect.
   const enabled = () =>
     [...element.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build], [data-channel-go-back]")].filter(
-      (button) => !button.disabled,
+      (button) => !button.matches(":disabled"),
     );
   expect(enabled().length).toBeGreaterThan(1);
   await run(() => page.provider.setSwitchProgress({ build: "3422", label: "Downloading… 42%", fraction: 0.42 }));
@@ -410,7 +412,9 @@ test("a card opened mid-switch shows the read's progress", async () => {
   expect(running[0]!.closest<HTMLElement>("[data-channel]")?.dataset.channel).toBe("nightly");
   expect(running[0]!.querySelector("[data-channel-switch-build]")?.textContent).toBe("Restarting…");
   expect(
-    [...element.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build]")].every((button) => button.disabled),
+    [...element.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build]")].every((button) =>
+      button.matches(":disabled"),
+    ),
   ).toBe(true);
   page.unmount();
 });
@@ -435,7 +439,9 @@ test("a click shows busy at once, on the clicked row, before the host's first st
   expect(button.querySelector(".cv-spinner")).not.toBeNull();
   expect(button.textContent).toBe("Switch");
   expect(
-    [...element.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build]")].every((other) => other.disabled),
+    [...element.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build]")].every((other) =>
+      other.matches(":disabled"),
+    ),
   ).toBe(true);
   await run(() => page.provider.setSwitchProgress({ build: "3422", label: "Downloading… 7%", fraction: 0.07 }));
   expect(button.textContent).toBe("Downloading… 7%");
@@ -446,6 +452,6 @@ test("a click shows busy at once, on the clicked row, before the host's first st
   await settle();
   expect(row.dataset.running).toBeUndefined();
   expect(row.querySelector(".row-error")?.textContent).toBe("The download failed its signature check.");
-  expect(button.disabled).toBe(false);
+  expect(button.matches(":disabled")).toBe(false);
   page.unmount();
 });

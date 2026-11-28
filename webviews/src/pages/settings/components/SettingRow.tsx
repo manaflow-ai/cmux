@@ -54,9 +54,13 @@ export const SettingRow = memo(function SettingRow({
   focused = false,
   filtered = false,
   inactive = false,
+  searching = false,
 }: {
   row: SchemaRow;
+  /** Marked in the title, summary and key. */
   query?: string;
+  /** A search result: its key shows, even when `query` marks nothing in it. */
+  searching?: boolean;
   focused?: boolean;
   /** Shown but off: it applies only to a choice not made now (Change Picture without a shuffle). */
   inactive?: boolean;
@@ -91,7 +95,7 @@ export const SettingRow = memo(function SettingRow({
               <Highlight text={text(row.summary)} query={query} />
             </div>
           )}
-          {query && (
+          {(searching || query) && (
             <div className="row-key">
               <Highlight text={row.key} query={query} />
             </div>

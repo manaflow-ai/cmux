@@ -230,8 +230,11 @@
 /* The line sits on top of every row after the first, drawn as a background image so it stays off
    the card's sides and a hover fill keeps it. A collapsed row has no height and so no line. The More
    Options toggle draws none, above or below: it reads as the card's quiet last line, and the rows it
-   opens part from each other only (Lucas 2026-11-11: the lines around it "felt weird"). */
+   opens part from each other only (Lucas 2026-11-11: the lines around it "felt weird"). A row in a
+   `.card-busy` fieldset (layout.css) is after the first unless it opens a fieldset that opens the list. */
 :root[data-settings-look="refined"] .settings .rows > .row:not(:first-child),
+:root[data-settings-look="refined"] .settings .rows > :where(.card-busy) > .row:not(:first-child),
+:root[data-settings-look="refined"] .settings .rows > :where(.card-busy:not(:first-child)) > .row:first-child,
 :root[data-settings-look="refined"] .settings .more-options-rows .row:not(:first-child),
 :root[data-settings-look="refined"] .settings .rows > .collapse[data-open] ~ .collapse[data-open] .row {
   background-image: linear-gradient(var(--look-line), var(--look-line));

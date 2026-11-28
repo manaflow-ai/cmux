@@ -15,9 +15,10 @@
 // row, on a host that signs in in place; logins done right, Leo 2026-11-22: "this is simply logins,
 // done righr."): the code and the provider's page instead of a terminal tab. Without it, or with a
 // daemon that has no `_acpmux/account/sign_in`, the same gestures open the terminal tab as before.
-import { type ComponentProps, createContext, memo, useContext, useId, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState, type ReactNode, useLayoutEffect, useRef } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { useKeptItems } from "../keptItems";
+import { useWaitingControls } from "../cardWindow";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import "../paneStrings";
 import { Button } from "../../../ui/Button";
@@ -83,9 +84,18 @@ export function accountFolderText(account: ProviderAccount, shared: string | nul
   return `${folder} · ${t("settingsWindow.harnesses.accounts.shares", shared)}`;
 }
 
-/** A gesture in flight: every account's controls are disabled until it ends. The controls read it,
- * not the rows, so a gesture draws the controls again and leaves each row's own lines be. */
-const AccountsBusy = createContext(false);
+/** A gesture in flight disables an account's gesture controls (Make default, Rename, Sign in or out,
+ * Remove, the rename's Save, the routing switch) until it ends. They sit in these fieldsets, and
+ * ProviderAccounts sets `disabled` on all of them at once, so a gesture draws no row again. The
+ * rename field, its Cancel and the usage links stay usable, outside them. No box (display: contents)
+ * and no role. */
+function BusyControls({ children }: { children: ReactNode }) {
+  return (
+    <fieldset className="card-busy" role="none" data-accounts-busy="">
+      {children}
+    </fieldset>
+  );
+}
 
 /** One account, a memo row: its own account (a read that left it alone keeps the object), the folder
  * it shares (not every account) and one stable `run`, so a gesture or a new read draws only the rows
@@ -151,9 +161,11 @@ const AccountRow = memo(function AccountRow({
               onChange={(event) => setRenaming(event.target.value)}
             />
             <div className="accounts-buttons">
-              <BusyButton type="submit" className="button" disabled={!renaming.trim()}>
-                {t("settingsWindow.density.save")}
-              </BusyButton>
+              <BusyControls>
+                <Button type="submit" className="button" disabled={!renaming.trim()}>
+                  {t("settingsWindow.density.save")}
+                </Button>
+              </BusyControls>
               <Button type="button" className="button" onClick={() => setRenaming(null)}>
                 {t("settingsWindow.cancel")}
               </Button>
@@ -161,67 +173,69 @@ const AccountRow = memo(function AccountRow({
           </form>
         )}
         <div className="accounts-buttons">
-          {/* A disabled account is no default: new chats would keep running on an account turned off. */}
-          {!account.default && account.enabled && (
-            <BusyButton
-              type="button"
-              className="button"
-              data-account-action="default"
-              aria-describedby={nameId}
-              onClick={() => run({ action: "accountDefault", account: account.id })}
-            >
-              {t("settingsWindow.harnesses.accounts.makeDefault")}
-            </BusyButton>
-          )}
-          {renamable && renaming === null && (
-            <BusyButton
-              type="button"
-              className="button"
-              data-account-action="rename"
-              aria-describedby={nameId}
-              onClick={() => setRenaming(account.name)}
-            >
-              {t("settingsWindow.menus.rename")}
-            </BusyButton>
-          )}
-          {!account.key && !account.signedIn && (
-            <BusyButton
-              type="button"
-              className="button"
-              data-account-action="signIn"
-              aria-describedby={nameId}
-              onClick={() => {
-                const inTerminal = () => run({ action: "accountSignIn", account: account.id });
-                if (signIn && cardFamily(account.family)) signIn.begin(account.family, account.id, inTerminal);
-                else inTerminal();
-              }}
-            >
-              {t("settingsWindow.harnesses.signIn")}
-            </BusyButton>
-          )}
-          {!account.key && account.signedIn && (
-            <BusyButton
-              type="button"
-              className="button"
-              data-account-action="signOut"
-              aria-describedby={nameId}
-              onClick={() => run({ action: "accountSignOut", account: account.id })}
-            >
-              {t("settingsWindow.harnesses.accounts.signOut")}
-            </BusyButton>
-          )}
-          {!account.builtin && (
-            <BusyButton
-              danger
-              type="button"
-              className="button danger"
-              data-account-action="remove"
-              aria-describedby={nameId}
-              onClick={() => run({ action: "accountRemove", account: account.id })}
-            >
-              {t("settingsWindow.remove")}
-            </BusyButton>
-          )}
+          <BusyControls>
+            {/* A disabled account is no default: new chats would keep running on an account turned off. */}
+            {!account.default && account.enabled && (
+              <Button
+                type="button"
+                className="button"
+                data-account-action="default"
+                aria-describedby={nameId}
+                onClick={() => run({ action: "accountDefault", account: account.id })}
+              >
+                {t("settingsWindow.harnesses.accounts.makeDefault")}
+              </Button>
+            )}
+            {renamable && renaming === null && (
+              <Button
+                type="button"
+                className="button"
+                data-account-action="rename"
+                aria-describedby={nameId}
+                onClick={() => setRenaming(account.name)}
+              >
+                {t("settingsWindow.menus.rename")}
+              </Button>
+            )}
+            {!account.key && !account.signedIn && (
+              <Button
+                type="button"
+                className="button"
+                data-account-action="signIn"
+                aria-describedby={nameId}
+                onClick={() => {
+                  const inTerminal = () => run({ action: "accountSignIn", account: account.id });
+                  if (signIn && cardFamily(account.family)) signIn.begin(account.family, account.id, inTerminal);
+                  else inTerminal();
+                }}
+              >
+                {t("settingsWindow.harnesses.signIn")}
+              </Button>
+            )}
+            {!account.key && account.signedIn && (
+              <Button
+                type="button"
+                className="button"
+                data-account-action="signOut"
+                aria-describedby={nameId}
+                onClick={() => run({ action: "accountSignOut", account: account.id })}
+              >
+                {t("settingsWindow.harnesses.accounts.signOut")}
+              </Button>
+            )}
+            {!account.builtin && (
+              <Button
+                danger
+                type="button"
+                className="button danger"
+                data-account-action="remove"
+                aria-describedby={nameId}
+                onClick={() => run({ action: "accountRemove", account: account.id })}
+              >
+                {t("settingsWindow.remove")}
+              </Button>
+            )}
+          </BusyControls>
         </div>
         {account.usage && account.signedIn && (
           <div
@@ -241,25 +255,18 @@ const AccountRow = memo(function AccountRow({
         <span className="row-help" id={switchId}>
           {t("settingsWindow.harnesses.accounts.useForRouting")}
         </span>
-        <BusySwitch
-          checked={account.enabled}
-          labelId={`${switchId} ${nameId}`}
-          onToggle={(on) => run({ action: "accountEnable", account: account.id, on })}
-        />
+        <BusyControls>
+          <Switch
+            checked={account.enabled}
+            disabled={false}
+            labelId={`${switchId} ${nameId}`}
+            onToggle={(on) => run({ action: "accountEnable", account: account.id, on })}
+          />
+        </BusyControls>
       </div>
     </div>
   );
 });
-
-/** A row's button, disabled while a gesture is in flight (or for its own reason). */
-function BusyButton({ disabled, ...props }: ComponentProps<typeof Button>) {
-  return <Button {...props} disabled={useContext(AccountsBusy) || disabled} />;
-}
-
-/** A row's routing switch, disabled while a gesture is in flight. */
-function BusySwitch(props: Omit<ComponentProps<typeof Switch>, "disabled">) {
-  return <Switch {...props} disabled={useContext(AccountsBusy)} />;
-}
 
 /** Add account: a new login in a folder of its own (its sign-in shows in the card, else a terminal tab), or an API key
  * by its secret reference (`keychain:NAME`, `env:VAR`, `file:/path`; acpmux refuses a pasted key). */
@@ -395,20 +402,29 @@ export function ProviderAccounts({
   // A read answers every account: one that did not change keeps its object, so its memo row skips it.
   const kept = useKeptItems(accounts, (account) => account.id);
   const byId = useMemo(() => new Map(kept.map((account) => [account.id, account])), [kept]);
+  // A gesture starting or ending sets `disabled` on the rows' BusyControls straight in the DOM, so no
+  // row draws again (a row keeps its own controls usable). Rows mount only with a new list (`kept`),
+  // and a rename's Save only through Rename, itself disabled while busy.
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    for (const controls of body.current?.querySelectorAll<HTMLFieldSetElement>("fieldset[data-accounts-busy]") ?? [])
+      controls.disabled = busy;
+  }, [busy, kept]);
+  // Each waiting control also says aria-disabled itself, so a screen reader already running hears it
+  // disabled and not focusable (cardWindow.ts useWaitingControls).
+  useWaitingControls(body, "fieldset[data-accounts-busy] button", busy, kept);
   return (
-    <div className="accounts-body harness-accounts" data-harness-accounts={family}>
+    <div className="accounts-body harness-accounts" data-harness-accounts={family} ref={body}>
       <div className="row-help">{t("settingsWindow.harnesses.accounts.help")}</div>
-      <AccountsBusy.Provider value={busy}>
-        {kept.map((account) => (
-          <AccountRow
-            key={account.id}
-            account={account}
-            shared={sharedFolder(account, byId)}
-            run={onRun}
-            {...(signIn ? { signIn } : {})}
-          />
-        ))}
-      </AccountsBusy.Provider>
+      {kept.map((account) => (
+        <AccountRow
+          key={account.id}
+          account={account}
+          shared={sharedFolder(account, byId)}
+          run={onRun}
+          {...(signIn ? { signIn } : {})}
+        />
+      ))}
       {family in ADDABLE && !adding && (
         <div className="accounts-buttons">
           <Button

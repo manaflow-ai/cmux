@@ -86,22 +86,22 @@
 .ui-btn[data-variant="ghost"] {
   background: transparent;
 }
-.ui-btn[data-variant="ghost"]:hover:not([data-disabled], [data-popup-open]) {
+.ui-btn[data-variant="ghost"]:hover:not([data-disabled], :disabled, [data-popup-open]) {
   background: var(--ds-color-hover);
 }
 /* subtle (the default): a quiet fill at rest, one step stronger on hover. */
 .ui-btn[data-variant="subtle"] {
   background: var(--ds-color-hover);
 }
-.ui-btn[data-variant="subtle"]:hover:not([data-disabled], [data-popup-open]) {
+.ui-btn[data-variant="subtle"]:hover:not([data-disabled], :disabled, [data-popup-open]) {
   background: var(--ds-color-pressed);
 }
 .ui-btn:is([data-variant="ghost"], [data-variant="subtle"])[data-popup-open],
-.ui-btn[data-variant="ghost"]:active:not([data-disabled]) {
+.ui-btn[data-variant="ghost"]:active:not([data-disabled], :disabled) {
   background: var(--ds-color-pressed);
 }
 /* A held subtle button goes one step past its hover, the same distance the ghost one moves. */
-.ui-btn[data-variant="subtle"]:active:not([data-disabled]) {
+.ui-btn[data-variant="subtle"]:active:not([data-disabled], :disabled) {
   background: color-mix(in srgb, var(--ds-color-fg) 6%, var(--ds-color-pressed));
 }
 /* solid: the theme accent (the text colour unless the theme names a hue; never system blue). */
@@ -110,7 +110,7 @@
   color: var(--ds-color-on-accent);
   font-weight: var(--weight-emphasis);
 }
-.ui-btn[data-variant="solid"]:hover:not([data-disabled]),
+.ui-btn[data-variant="solid"]:hover:not([data-disabled], :disabled),
 .ui-btn[data-variant="solid"][data-popup-open] {
   background: color-mix(in srgb, var(--ds-color-accent) 88%, var(--ds-color-on-accent));
 }
@@ -129,11 +129,11 @@
   color: var(--ds-color-on-accent);
 }
 /* Keep destructive solids in the danger colour family while hovering or holding a popup open. */
-.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled]),
+.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled], :disabled),
 .ui-btn[data-danger][data-variant="solid"][data-popup-open] {
   background: color-mix(in srgb, var(--glass-hue-danger, var(--ds-color-danger)) 88%, var(--ds-color-on-accent));
 }
-.ui-btn[data-disabled] {
+.ui-btn:is([data-disabled], :disabled) {
   opacity: var(--ds-disabled-opacity, 0.6);
 }
 
@@ -156,11 +156,11 @@
   padding-inline: var(--ds-space-3) var(--ds-space-2);
   background: var(--ds-color-hover);
 }
-.ui-button.ui-btn.ui-select-button:hover:not([data-disabled]),
+.ui-button.ui-btn.ui-select-button:hover:not([data-disabled], :disabled),
 .ui-button.ui-btn.ui-select-button[data-popup-open] {
   background: var(--ds-color-pressed);
 }
-.ui-button.ui-btn.ui-select-button:active:not([data-disabled]) {
+.ui-button.ui-btn.ui-select-button:active:not([data-disabled], :disabled) {
   background: color-mix(in srgb, var(--ds-color-fg) 6%, var(--ds-color-pressed));
 }
 .ui-btn.ui-select-button:focus-visible {
@@ -241,7 +241,7 @@
 .ui-switch:dir(rtl)[data-checked] .ui-switch-thumb {
   translate: calc(var(--ui-switch-h) - var(--ui-switch-w)) 0;
 }
-.ui-switch[data-disabled] {
+.ui-switch:is([data-disabled], :disabled) {
   opacity: var(--ds-disabled-opacity, 0.6);
 }
 .ui-switch:focus-visible {

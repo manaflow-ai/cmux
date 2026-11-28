@@ -4,6 +4,7 @@ import type { CategoryGroup } from "../categories";
 import { text } from "../strings";
 import { APP_LANGUAGE_KEY, LanguageRelaunchRow } from "./LanguageRelaunchRow";
 import { SettingRow } from "./SettingRow";
+import { markingQuery } from "./Highlight";
 import { MoreOptions } from "./MoreOptions";
 import type { ArrangedGroup } from "../rowLevels";
 import { GroupHeader } from "./GroupHeader";
@@ -101,9 +102,10 @@ export function GroupList({
                   row={row}
                   open={shown.has(row.key)}
                   drawn={mounted?.has(row.key) ?? true}
-                  // A row outside the filter highlights nothing, so its props stay equal and it
-                  // skips the keystroke's render.
-                  query={shown.has(row.key) ? query : undefined}
+                  // Only the terms the row's title, summary or key show: a row outside the filter,
+                  // or one matched on its help or keywords alone, highlights nothing, so its props
+                  // stay equal and it skips the keystroke's render.
+                  query={shown.has(row.key) ? markingQuery(query ?? "", shownText(row)) : undefined}
                 />
               ) : (
                 <Fragment key={row.key}>
@@ -121,6 +123,9 @@ export function GroupList({
     );
   });
 }
+
+/** What a search result shows of its row, as SettingRow draws it: title, summary and key. */
+const shownText = (row: SchemaRow) => [text(row.title), row.summary ? text(row.summary) : "", row.key];
 
 /**
  * A row's slot in the search results: open while the row matches, collapsed in place while it does
@@ -140,7 +145,9 @@ const SearchSlot = memo(function SearchSlot({
 }) {
   return (
     <div className="collapse" data-open={open ? "" : undefined}>
-      <div className="collapse-body">{drawn && <SettingRow row={row} query={query} filtered={!open} />}</div>
+      <div className="collapse-body">
+        {drawn && <SettingRow row={row} query={query} searching={open} filtered={!open} />}
+      </div>
     </div>
   );
 });

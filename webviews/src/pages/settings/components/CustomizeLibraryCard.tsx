@@ -16,10 +16,10 @@
 // experiment serves, and the sidebar's "N experiments on" mark (native, so a broken layer cannot
 // take it down) opens this card and turns them off too.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
-import { CardBusy, useCardWindow, windowGap, type CardWindow } from "../cardWindow";
+import { useCardWindow, windowGap, type CardWindow, cardBusy } from "../cardWindow";
 import { useStore } from "../context";
 import {
   beatenByEntry,
@@ -341,11 +341,9 @@ export function LibraryList({
       </Fragment>
     );
   });
-  return (
-    <CardBusy.Provider value={busy}>
-      {layout === "cards" ? <div className="library-grid">{rows}</div> : rows}
-    </CardBusy.Provider>
-  );
+  // Every control of a row (order, remove, switch) waits for a change in flight: the fieldset
+  // disables them all, and no row draws again.
+  return layout === "cards" ? <div className="library-grid">{cardBusy(busy, rows)}</div> : cardBusy(busy, rows);
 }
 
 /** One entry: its look (swatches), its name, what asked for it and what it sets, which higher entry
@@ -405,7 +403,7 @@ export const LibraryEntryRow = memo(function LibraryEntryRow({
   // one that is on can always be turned off.
   const stuckOff = code !== null && !entry.on && !codeCanTurnOn(code);
   const toggle = (
-    <EntrySwitch
+    <Switch
       checked={entry.on}
       disabled={stuckOff}
       labelId={labelId}
@@ -547,19 +545,6 @@ function CodeLines({ code }: { code: LibraryCode }) {
   );
 }
 
-function EntrySwitch({
-  disabled,
-  ...props
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  labelId: string;
-  onToggle: (on: boolean) => void;
-}) {
-  const busy = useContext(CardBusy);
-  return <Switch {...props} disabled={busy || disabled === true} />;
-}
-
 function EntryButton({
   icon,
   iconClass,
@@ -577,7 +562,6 @@ function EntryButton({
   disabled?: boolean;
   onClick: () => void;
 }) {
-  const busy = useContext(CardBusy);
   return (
     <Button
       variant="ghost"
@@ -587,7 +571,7 @@ function EntryButton({
       className="icon-button"
       aria-label={`${action}: ${entry}`}
       title={action}
-      disabled={disabled || busy}
+      disabled={disabled}
       data-library-action={data}
       onClick={onClick}
     >
