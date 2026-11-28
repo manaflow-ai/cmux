@@ -452,6 +452,14 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
+    /// A check served from the run the daemon made of it ahead of the lane, while the tree is as
+    /// it was then, or run as asked (harness magic `speculative`, `spec_exec.rs`).
+    #[command(name = "spec-serve", hide = true)]
+    SpecServe {
+        /// The check's command line, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
