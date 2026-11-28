@@ -441,6 +441,45 @@ export default agentPaneEntry({
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
+    // Leo 2026-11-27: "on creating a new tab tapping/holding command in the new tab page when you have
+    // environments open it weirdly expands for no reason". The app reads its lists again at a page's first
+    // input (`newTab.touched`, AgentPaneNewTabLists.readAtFirstUse) and sends them as a places event: here
+    // that read brings more open tabs. A tap and a hold of Command are not input, so nothing moves.
+    "modifier-tap-hold-steady": {
+      note: "Tapping and holding Command on a fresh New Tab does not start the first-use refresh.",
+      ready: newTab({ omnibar: RELEASE_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      native: {
+        "newTab.touched": () => {
+          setTimeout(() =>
+            window.dispatchEvent(
+              new CustomEvent("acpmux-newtab-places", {
+                detail: {
+                  tabs: [
+                    ...RELEASE_OMNIBAR.tabs,
+                    ...["staging", "prod", "dev box", "gpu", "review"].map((name, index) => ({
+                      id: `tab-env-${index}`,
+                      kind: "terminal",
+                      title: `${name} environment`,
+                      detail: `~/env/${name}`,
+                    })),
+                  ],
+                  workspaces: RELEASE_OMNIBAR.workspaces,
+                },
+              }),
+            ),
+          );
+          return null;
+        },
+      },
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field"));
+        await ctx.focus({ selector: ".nt-field [contenteditable=true]" });
+        await ctx.press("Meta");
+        await ctx.press("Meta");
+        await ctx.waitFor(() => true, { capMs: 400 });
+      },
+    },
     ...Object.fromEntries(
       (["terminal", "browser", "chat"] as const).map((kind) => [
         `create-command-${kind}`,
