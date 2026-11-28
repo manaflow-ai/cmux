@@ -220,10 +220,19 @@ class WrapperTests(unittest.TestCase):
         # nightly-next's path whose gh calls ran on github.token alone carries the CI pools' own hours.
         import yaml
         jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly.yml").read_text())["jobs"]
-        for name in ("resolve-nightly-cmux-tui-client", "nightly-next-one", "published-build"):
+        for name in ("resolve-nightly-cmux-tui-client", "published-build"):
             spares = jobs[name].get("env", {}).get("GH_TOKEN_SPARES", "")
             self.assertIn("secrets.CI_POOL_TOKEN_1", spares, name)
             self.assertIn("secrets.CI_POOL_TOKEN_2", spares, name)
+        # nightly-next-one signs, so no secret sits in its job env (the keychain guard): each step whose gh
+        # runs on github.token before its App token (the leave step) carries the spares itself.
+        token_steps = [step for step in jobs["nightly-next-one"]["steps"]
+                       if step.get("name") == "Leave the push slot to a newer nightly-next push"]
+        self.assertEqual(len(token_steps), 1)
+        for step in token_steps:
+            spares = step["env"].get("GH_TOKEN_SPARES", "")
+            self.assertIn("secrets.CI_POOL_TOKEN_1", spares, step.get("name"))
+            self.assertIn("secrets.CI_POOL_TOKEN_2", spares, step.get("name"))
 
     def test_a_denied_call_on_its_own_token_still_fails_at_once(self) -> None:
         h = self.harness(refusals=0, GH_TOKEN="workflow", FAKE_FAIL="gh: Not Found (HTTP 404)")
