@@ -73,7 +73,7 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
-  (await import("../src/agent-session/acpmux/cloudAgentPick")).forgetCloudAgentPicksForTests();
+  await forgetPicks();
   (await import("../src/agent-session/acpmux/cloudModePick")).clearCloudModePick();
   act(() => root?.unmount());
   root = undefined;
@@ -163,6 +163,14 @@ const click = async (target: HTMLElement) => {
   await settle();
 };
 
+/// Nothing held, shown or remembered. Run against a base without Cloud's own state (the before run in
+/// the PR), the base's own clear stands in, so each test fails on its behaviour, not on a missing helper.
+async function forgetPicks() {
+  const picks = (await import("../src/agent-session/acpmux/cloudAgentPick")) as Record<string, unknown>;
+  const forget = (picks.forgetCloudAgentPicksForTests ?? picks.clearCloudAgentPick) as () => void;
+  forget();
+}
+
 const chatCalls = () => calls.filter((call) => call.method.startsWith("chat."));
 const menuRows = () => [...cols()!.querySelectorAll<HTMLElement>('.acpmux-cols-row[role="option"]')];
 const levelRow = (name: string) =>
@@ -223,7 +231,8 @@ async function redraw(snapshot: Snapshot) {
 async function newPage() {
   const picks = await import("../src/agent-session/acpmux/cloudAgentPick");
   const stored = dom.window.localStorage.getItem("cmux.acpmux.cloudLastPick");
-  picks.forgetCloudAgentPicksForTests();
+  void picks;
+  await forgetPicks();
   if (stored) dom.window.localStorage.setItem("cmux.acpmux.cloudLastPick", stored);
 }
 
