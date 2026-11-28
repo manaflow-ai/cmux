@@ -399,7 +399,7 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     assert!(agents_skill.contains("cmux-subsessions") && agents_skill.contains("start_session"));
     // It names the send tool before any `acpmux send`: chats ran `acpmux send` in Bash 15,810
     // times to 188 send tool calls (2026-11-09 audit, cmuxterm-hq#8104).
-    let tool = agents_skill.find("mcp__acpmux__send").expect("the skill names the send tool");
+    let tool = agents_skill.find("mcp__cmux-agent__send").expect("the skill names the send tool");
     let cli = agents_skill.find("cmux agent send").unwrap();
     assert!(
         tool < cli,
