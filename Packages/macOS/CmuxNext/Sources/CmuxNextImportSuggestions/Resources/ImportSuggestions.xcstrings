@@ -21309,7 +21309,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moved to AutoCloud: %1$@ projects. Not moved yet: %2$@. Try Again moves the rest."
+            "value" : "Moved %1$@ projects to AutoCloud. %2$@ left; Try Again moves them."
           }
         },
         "es" : {

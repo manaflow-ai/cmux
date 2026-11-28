@@ -46,7 +46,7 @@ public nonisolated struct MoveToAutoCloudStrings: Sendable {
     /// Apply ended with some projects still not moved; the card offers Try Again.
     public static func unfinished(moved: Int, left: Int) -> String {
         String(format: String(localized: "moveToAutoCloud.toast.unfinished",
-                              defaultValue: "Moved to AutoCloud: %1$@ projects. Not moved yet: %2$@. Try Again moves the rest.",
+                              defaultValue: "Moved %1$@ projects to AutoCloud. %2$@ left; Try Again moves them.",
                               table: "ImportSuggestions", bundle: .localizedModule),
                moved.formatted(.number), left.formatted(.number))
     }
