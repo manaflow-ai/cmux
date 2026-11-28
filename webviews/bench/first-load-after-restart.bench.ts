@@ -1776,20 +1776,6 @@ try {
   releases.push(["browser", () => browser.close()]);
   /// The reopen modes' warm renderer: one context with another chat page open in it for the whole run.
   let warmContext: Awaited<ReturnType<Browser["newContext"]>> | undefined;
-  if (MODES.some(isReopen)) {
-    warmContext = await browser.newContext({ viewport: VIEWPORT });
-    const other = await warmContext.newPage();
-    await other.goto(url);
-    // A chat whose last turn never ended (ROWS_ENDED) streams its last message on this page, which has no
-    // host of the bench's, so it may never draw it whole: a drawn row is enough to keep the renderer warm.
-    await other.waitForFunction(
-      ({ text, anyRow }) =>
-        (document.body.textContent?.includes(text) ?? false) ||
-        (anyRow && document.querySelector(".acpmux-row[data-row-id]") !== null),
-      { text: LATEST, anyRow: !!ROWS_ENDED },
-      { timeout: 120_000, polling: 200 },
-    );
-  }
 
   /// The app host's side of the bridge (Swift AgentPaneTransport) for `page`: `transport.open` opens a
   /// socket to the stand-in from this process and answers once it is open, or `transport.connect_failed`
@@ -1900,6 +1886,25 @@ try {
     await page.addInitScript({ content: hostScript });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
+
+  // After `prepare`: the warm page is a chat page like the others, with the bench's host. Since the bundle
+  // loads main as the app does (#60624), the host is the init script's only, and a page without it never
+  // opens its socket to the stand-in: it drew the composer alone and every reopen mode waited out 120 s.
+  if (MODES.some(isReopen)) {
+    warmContext = await browser.newContext({ viewport: VIEWPORT });
+    const other = await warmContext.newPage();
+    await prepare(other, null, 600_000);
+    await other.goto(url);
+    // A chat whose last turn never ended (ROWS_ENDED) streams its last message on this page, so it may
+    // never draw it whole: a drawn row is enough to keep the renderer warm.
+    await other.waitForFunction(
+      ({ text, anyRow }) =>
+        (document.body.textContent?.includes(text) ?? false) ||
+        (anyRow && document.querySelector(".acpmux-row[data-row-id]") !== null),
+      { text: LATEST, anyRow: !!ROWS_ENDED },
+      { timeout: 120_000, polling: 200 },
+    );
+  }
 
   /// TRACE=1: the boxes in the page's bottom band (from the composer's top down), by class, so a composer
   /// that sits elsewhere in the copy than on the live page names what stands under or over it.
