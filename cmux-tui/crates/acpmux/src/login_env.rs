@@ -1080,9 +1080,13 @@ fn extra_prefix(key: &str) -> bool {
 
 /// Login keys the daemon itself reads (routing and installation discovery), passed to a child only
 /// when the allow-list passes them.
-// fleet-only-ok: SUBROUTER_URL was already here on the base; this only drops the CodeRouter key.
-const INTERNAL: [&str; 4] =
-    ["SUBROUTER_URL", "BUN_INSTALL_GLOBAL_DIR", "BUN_INSTALL_BIN", "XDG_CONFIG_HOME"];
+const INTERNAL: [&str; 4] = [
+    // The daemon's own routing and install keys (the CodeRouter route key is gone).
+    "SUBROUTER_URL",
+    "BUN_INSTALL_GLOBAL_DIR",
+    "BUN_INSTALL_BIN",
+    "XDG_CONFIG_HOME",
+];
 
 /// Whether a login variable is kept at all (memory and cache): allowed for
 /// some family (its Bedrock, Vertex or Foundry condition aside), or read by the daemon.
