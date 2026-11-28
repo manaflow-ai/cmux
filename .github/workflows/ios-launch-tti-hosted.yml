@@ -48,6 +48,16 @@ jobs:
             ref: 9163cf44f54301fbac72a33cbbbae75de2372fda
             profile: "0"
             nomirror: "0"
+          - leg: base-duress
+            ref: 027bfff188cdbc95b13c85ca4196a77c6a8d2441
+            profile: "0"
+            nomirror: "0"
+            duress: duress
+          - leg: fix-duress
+            ref: 9163cf44f54301fbac72a33cbbbae75de2372fda
+            profile: "0"
+            nomirror: "0"
+            duress: duress
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -91,7 +101,7 @@ jobs:
           # no kperf) samples each launch's threads for 8 s from the moment the process exists.
           # No sampler this run: /usr/bin/sample at 1 ms stretched launches to 6-8 s (run 46025003942).
           S="$RUNNER_TEMP/samples"; mkdir -p "$S"; sampler=
-          st=0; bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests || st=$?  # the step shell is bash -e (run 46005665118)
+          st=0; bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests ${{ matrix.duress && format('duress={0}', matrix.duress) || '' }} || st=$?  # the step shell is bash -e (run 46005665118)
           echo "status=$st" >> "$GITHUB_OUTPUT"
           [ -z "$sampler" ] || kill "$sampler" 2>/dev/null
           ls -la "$S" | head -40
