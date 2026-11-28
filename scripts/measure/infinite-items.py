@@ -367,7 +367,8 @@ def idle_window(top, seconds, disks):
         tui_timers = "-"
     before = snapshot(top)
     log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
-    syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds)
+    syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds, every=0.02,
+                                futexes=True)
     after = snapshot(top)
     threads = thread_delta(tui_threads, thread_detail(top.get("tui")))
     pids_made = last_pid() - pid_at
@@ -445,7 +446,7 @@ def idle_window(top, seconds, disks):
             "threads": threads, "pids_made": pids_made, "timers": tui_timers}
 
 
-def busy_thread_states(pid, name, seconds, every=0.2):
+def busy_thread_states(pid, name, seconds, every=0.2, futexes=False):
     """Sleeps `seconds` (the idle window) and meanwhile reads, every `every` s, what each thread of `pid` called
     `name` is doing: its syscall number (or running) and kernel wait channel, with the WAL files' sizes at the end.
     Names what a woken syncer thread was in (a checkpoint's I/O, a condvar wait) without strace."""
@@ -462,6 +463,23 @@ def busy_thread_states(pid, name, seconds, every=0.2):
         except OSError:
             continue
         for tid in tids:
+            if futexes:
+                # Every thread's futex word and whether its wait has a deadline: two threads on one word, or a
+                # thread that moves between a condvar's word and its mutex's, name who wakes whom.
+                try:
+                    with open(f"/proc/{pid}/task/{tid}/comm") as f:
+                        comm = f.read().strip()
+                    with open(f"/proc/{pid}/task/{tid}/syscall") as f:
+                        fields = f.read().split()
+                    key = (f"{comm}/{tid}:{fields[0]}:{fields[1]}:{fields[2]}:t{int(fields[4], 16) != 0}"
+                           if fields and fields[0] == "202" and len(fields) > 4 else f"{comm}/{tid}:{fields[0] if fields else '?'}")
+                except OSError as exc:
+                    key = f"{tid}:err{exc.errno}"
+                except (IndexError, ValueError):
+                    continue
+                futex_states = states.setdefault("futex", {})
+                futex_states[key] = futex_states.get(key, 0) + 1
+                continue
             try:
                 with open(f"/proc/{pid}/task/{tid}/comm") as f:
                     if f.read().strip() not in name:
@@ -484,6 +502,8 @@ def busy_thread_states(pid, name, seconds, every=0.2):
                 continue
             key = f"{tid}:{call}:{wchan}"
             states[key] = states.get(key, 0) + 1
+    if futexes:
+        return states.get("futex", {})
     return dict(sorted(states.items(), key=lambda kv: -kv[1])[:12])
 
 
@@ -1142,12 +1162,30 @@ def report(results):
                   f"procs={t_['procs']} thr={t_.get('threads')} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
             print(f"INFINITE-COMMITS {n} day={s['day']} per_s={round(sum(s.get('commits', {}).values()) / max(1, s.get('window', 1)), 2)} "
                   f"by_thread={json.dumps(dict(sorted(s.get('commits', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
-            print(f"INFINITE-SYNCER {n} day={s['day']} states={json.dumps(s.get('syncer', {}))} "
+            print(f"INFINITE-SYNCER {n} day={s['day']} states={len(s.get('syncer', {}))} "
                   f"wal={json.dumps({k: v for k, v in s.get('files', {}).items() if k.endswith('-wal')})}", flush=True)
             print(f"INFINITE-WAKES {n} day={s['day']} terminals={s.get('wake_terminals', 0)} "
                   f"by={json.dumps(dict(sorted(s.get('wakes', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
-            print(f"INFINITE-THREADS {n} day={s['day']} pids_made={s.get('pids_made')} timers={s.get('timers')!r} "
-                  f"rows={json.dumps(s.get('threads', []))}", flush=True)
+            print(f"INFINITE-THREADS {n} day={s['day']} pids_made={s.get('pids_made')} timers={s.get('timers')!r}",
+                  flush=True)
+            woke = set()
+            for row in s.get("threads", []):
+                woke.add(row["tid"])
+                print(f"INFINITE-THREAD {n} day={s['day']} {row['name']}/{row['tid']} {json.dumps(row['delta'])} "
+                      f"blk={row.get('SigBlk')} cgt={row.get('SigCgt')} pnd={row.get('SigPnd')}/{row.get('ShdPnd')}",
+                      flush=True)
+            # The woken threads' futex states first, then the rest of the words more than one thread sleeps on.
+            fx = s.get("syncer", {})
+            for key, count in sorted(fx.items(), key=lambda kv: -kv[1]):
+                if key.split(":")[0].split("/")[-1] in woke:
+                    print(f"INFINITE-FUTEX {n} day={s['day']} {key} {count}", flush=True)
+            words = {}
+            for key in fx:
+                parts = key.split(":")
+                if len(parts) >= 4:
+                    words.setdefault(parts[2], set()).add(parts[0])
+            print(f"INFINITE-FUTEX-SHARED {n} day={s['day']} "
+                  f"{json.dumps({w: sorted(t) for w, t in words.items() if len(t) > 1})}", flush=True)
             for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
