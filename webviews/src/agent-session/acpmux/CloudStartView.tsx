@@ -577,6 +577,7 @@ function WayOnActions({
   start: CloudStartProgress;
   handlers: {
     retry?: () => void;
+    reload?: () => void;
     "pick-folder"?: () => void;
     "no-folder"?: () => void;
     "new-cloud-chat"?: () => void;
@@ -596,6 +597,9 @@ function WayOnActions({
       case "retry":
         // retry-prompt-ok: the start prompt goes again and starts a billed Cloud machine.
         return t("retry.action");
+      case "reload":
+        // The Cloud chat opened but never drew here: the tab attaches it again; no second start.
+        return t("retry.action");
       case "pick-folder":
         return t("cloudStart.pickFolder");
       case "no-folder":
@@ -614,7 +618,7 @@ function WayOnActions({
         <button
           key={id}
           type="button"
-          className={`acpmux-cloud-ask__button${id === "retry" ? " acpmux-cloud-start__retry" : ""}`}
+          className={`acpmux-cloud-ask__button${id === "retry" || id === "reload" ? " acpmux-cloud-start__retry" : ""}`}
           data-action={id}
           {...(index === 0 ? { "data-role": "default" } : {})}
           onClick={() => run()}
@@ -1082,6 +1086,7 @@ export function CloudStartView({
           runHereLabel={planLabels.runHere}
           handlers={{
             ...(onRetry ? { retry: onRetry } : {}),
+            reload: () => window.location.reload(),
             ...(onPickFolder ? { "pick-folder": onPickFolder } : {}),
             ...(onStartWithoutFolder ? { "no-folder": onStartWithoutFolder } : {}),
             ...(onOpenNewCloudChat ? { "new-cloud-chat": onOpenNewCloudChat } : {}),

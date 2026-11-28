@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "cloudStart.chatNotShown" : {
+      "comment" : "Agent pane: the Cloud chat opened on its machine but its first frame never reached this tab within a minute; Retry reloads the tab to attach it again",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The Cloud chat started but didn't open in this tab. Retry to open it again."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

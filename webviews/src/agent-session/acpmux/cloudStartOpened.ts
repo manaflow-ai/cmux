@@ -1,4 +1,5 @@
-import type { CloudStartProgress } from "./cloudStartProgress";
+import { CLOUD_CHAT_NOT_SHOWN, type CloudStartProgress } from "./cloudStartProgress";
+import { translate } from "./i18n";
 
 /// A Cloud start the host opened, until its chat shows (Austin, 2026-11-27: "the initial chat loads and then when we
 /// do a “transition” to a cloud chat it likes blinks out and then changes the chat… sometimes there is an error and
@@ -60,4 +61,46 @@ export function cloudStartWaitsForFirstPage(
   view: CloudStartOpenedView,
 ): boolean {
   return start?.opened === true && !cloudChatFirstPage(view);
+}
+
+/// How long an opened start may go without the Cloud chat's first page before the card says so, with a way on. The
+/// host answered ok only once the chat opened on its machine, so its first frame is a round trip away; a minute
+/// without it is a chat that is not coming by itself ("loads forever"). The 5-minute stall bound
+/// (`watchCloudStartStall`) stays as the backstop.
+export const CLOUD_CHAT_SHOW_MS = 60_000;
+
+/// The Cloud chat start `key` opened never drew within CLOUD_CHAT_SHOW_MS: failed, named, its prompt kept, with Retry
+/// (a tab reload, which attaches the chat again; never a second billed start) and Not now.
+export function cloudChatNotShown(
+  current: CloudStartProgress | undefined,
+  key: string,
+): CloudStartProgress | undefined {
+  if (!current || current.key !== key || !current.opened || current.state !== "starting") return current;
+  // `opened` stays: the failed card shows until a first page draws (cloudStartWaitsForFirstPage), never a blank tab.
+  const { stalled: _stalled, ...rest } = current;
+  return {
+    ...rest,
+    state: "failed",
+    code: CLOUD_CHAT_NOT_SHOWN,
+    message: translate("cloudStart.chatNotShown"),
+    retryable: false,
+  };
+}
+
+/// Arms the show timer for an opened start: `fire(key)` runs CLOUD_CHAT_SHOW_MS after the open (`advancedAt`). Any
+/// other start arms nothing. Returns the disarm; the caller re-arms on each new `start`.
+export function watchCloudChatShow(
+  start: CloudStartProgress | undefined,
+  fire: (key: string) => void,
+  ms: number = CLOUD_CHAT_SHOW_MS,
+  schedule: (run: () => void, ms: number) => () => void = (run, after) => {
+    const timer = setTimeout(run, after);
+    return () => clearTimeout(timer);
+  },
+  now: number = Date.now(),
+): () => void {
+  if (!start?.opened || start.state !== "starting") return () => undefined;
+  const key = start.key;
+  const left = start.advancedAt === undefined ? ms : Math.max(0, start.advancedAt + ms - now);
+  return schedule(() => fire(key), left);
 }
