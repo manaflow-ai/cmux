@@ -78,7 +78,7 @@ import { HEADER_ACTIONS, type ChatMenuItem, filesFolder } from "../header/chatHe
 import { ThreadTitle } from "../header/ThreadTitle";
 import { setHeaderState } from "../header/headerState";
 import { tabRowStyle, type TabRow } from "../header/tabRow";
-import { cloudStartFolder, newTabProjectPick, type CloudSignInRetry } from "../cloudRun";
+import { cloudPickExtras, cloudStartFolder, newTabProjectPick, type CloudSignInRetry } from "../cloudRun";
 import { CloudStartView } from "../CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "../header/quickActions";
 import { ChatDisplaySettings } from "../ChatDisplaySettings";
@@ -1031,6 +1031,10 @@ export function drawPaneBody({
                                   machine !== undefined,
                                 );
                               })(),
+                              // The picker's effort and account go with its model, as the chat composer's Cloud send
+                              // sends them (PaneComposer.tsx). Before, a New Tab's Cloud start dropped the effort,
+                              // so the Cloud chat ran and showed its own default reasoning, not the one picked.
+                              ...cloudPickExtras(snapshot.summary),
                             },
                             true,
                           );
