@@ -468,18 +468,65 @@ public struct CloudOutdatedMachine {
     /// first one failed with "cannot connect to …/cmux-link-….sock: No such file or directory" (capture at
     /// ff3f8c9b, 2026-11-01). So the second copy waits, up to `relink`, for `link` (the connection's handshake
     /// key) to change from what it was before the update, and reads the socket again.
+    ///
+    /// A copy that failed because the machine's daemon restarted under it (another update of the machine, its own
+    /// updater: the link's handshake is no longer the one it began on) runs once more on the new link too, under the
+    /// same key, which picks up what the first one wrote (cmux#47678: "Couldn't copy the folder to cloud-chats-12: the
+    /// machine daemon closed the connection" 79 s in, when the app's update restarted the new machine's daemon).
     @MainActor
     public static func copy<Answer>(socket: () async -> String?, link: @escaping @MainActor @Sendable () -> String?, notConnected: any Error,
                                     relink: Duration = CloudWait.relinkWait, _ copy: (String) async throws -> Answer,
                                     answer: (Answer) -> (ok: Bool, errorCode: String?, side: String?), update: () async -> Bool) async throws -> Answer {
         guard let path = await socket() else { throw notConnected }
         let before = link()
-        let first = try await copy(path)
+        let first: Answer
+        do {
+            first = try await copy(path)
+        } catch where !Task.isCancelled {
+            guard await restarted(since: before, link: link) else { throw error }
+            return try await copiedAgain(after: error, before: before, socket: socket, link: link, relink: relink, copy)
+        }
         let read = answer(first)
+        if !read.ok, Self.mayBeADrop(read.errorCode), !Task.isCancelled,
+           await restarted(since: before, link: link) {
+            do { return try await copiedAgain(after: nil, before: before, socket: socket, link: link, relink: relink, copy) }
+            catch is RelinkMissing { return first } // no new link came: the first answer says why
+        }
         guard updatesBeforeCopyingAgain(ok: read.ok, errorCode: read.errorCode, side: read.side), await update() else { return first }
         _ = await CloudWait.holds(within: relink) { CloudMoveCore().relinked(before: before, now: link(), refusedCounts: true) }
         guard let again = await socket() else { throw notConnected }
         return try await copy(again)
+    }
+
+    /// The second run of ``copy(socket:link:notConnected:relink:_:answer:update:)`` after its daemon restarted under
+    /// the first: waits up to `relink` for a new handshake, then copies on its socket. `error` (the first run's, when it
+    /// threw) is thrown when no new link came; nil throws ``RelinkMissing``.
+    @MainActor
+    static func copiedAgain<Answer>(after error: (any Error)?, before: String?, socket: () async -> String?,
+                                    link: @escaping @MainActor @Sendable () -> String?, relink: Duration,
+                                    _ copy: (String) async throws -> Answer) async throws -> Answer {
+        let relinked = await CloudWait.holds(within: relink) { CloudMoveCore().relinked(before: before, now: link(), refusedCounts: false) }
+        guard relinked, let again = await socket() else { throw error ?? RelinkMissing() }
+        return try await copy(again)
+    }
+
+    /// Whether a failed copy's answer could be its daemon closing under it: the copy CLI answers a dropped connection
+    /// as `sync_failed` (or with no code). A refusal it names (`seed_refused`, `folder_too_broad`, `ledger_failed`,
+    /// `machine_outdated`) is final, and answers at once without waiting to see the link change.
+    static func mayBeADrop(_ errorCode: String?) -> Bool { errorCode == nil || errorCode == "sync_failed" }
+
+    /// No new link came after the machine's daemon restarted under a copy.
+    struct RelinkMissing: Error {}
+
+    /// How long a failed copy waits for this Mac to notice its link dropped: the copy's own connection hears the
+    /// daemon close first, the app's link a moment later.
+    static let dropNoticeWait: Duration = .seconds(5)
+
+    /// Whether the link's handshake is no longer `before` (dropped, or a new daemon), now or within ``dropNoticeWait``.
+    @MainActor
+    static func restarted(since before: String?, link: @escaping @MainActor @Sendable () -> String?) async -> Bool {
+        if link() != before { return true }
+        return await CloudWait.holds(within: dropNoticeWait) { link() != before }
     }
 }
 
