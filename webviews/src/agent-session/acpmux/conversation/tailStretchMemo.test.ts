@@ -118,3 +118,18 @@ for (const agentFamily of ["claude", "codex", undefined])
         expect({ index, rows: clone(view.rows) }).toEqual({ index, rows: whole(step, agentFamily, held) });
       }
     });
+
+// The gallery draws every variant of an entry in one module, so kept shapes from one variant meet the
+// next one's rows, which share the opening rows' objects (BackgroundReplyEnd.gallery.ts).
+test("every background reply end variant, drawn one after another, draws what a whole shape draws", async () => {
+  const { default: entry } = await import("./BackgroundReplyEnd.gallery");
+  const variants = Object.entries(entry.variants);
+  for (const pass of [0, 1])
+    for (const [name, variant] of [...variants, ...variants.toReversed()]) {
+      const snapshot = (variant as { snapshot: { rows: AcpmuxRow[]; isWorking?: boolean } }).snapshot;
+      const opts = { now: 1e9, working: Boolean(snapshot.isWorking), agentFamily: "claude" };
+      const rows = turnView(snapshot.rows, new Set(), opts);
+      const full = withoutStretchMemo(() => turnView(clone(snapshot.rows), new Set(), opts));
+      expect({ pass, name, rows: clone(rows) }).toEqual({ pass, name, rows: full });
+    }
+});
