@@ -5,12 +5,12 @@ import QuartzCore
 
 /// Where the main thread's time goes at launch (DEBUG, `CMUX_MOBILE_LAUNCH_PROFILE=1`; `LaunchTTIUITests`
 /// passes it on from `TEST_RUNNER_CMUX_MOBILE_LAUNCH_PROFILE`). From `App.init`, a thread samples the
-/// main thread's stack every 2 ms with ``ThreadStackSampler`` (the walk that is safe at launch), for 12 s
+/// main thread's stack every 2 ms with ``ThreadStackSampler`` (the walk that is safe at launch), for 30 s
 /// at most. ``finish(nowMs:windows:done:)`` stops it and, off the main thread, counts each function's
 /// samples in each window of the launch marks: inclusive (on the stack), self (the innermost frame), and
 /// this app's own functions, who calls `os_log`, who waits on a lock, and who looks up a protocol conformance. The report is one JSON line.
 ///
-/// Off, nothing runs. On, one thread and one stack (128 frames) per 2 ms, for 12 s at most.
+/// Off, nothing runs. On, one thread and one stack (128 frames) per 2 ms, for 30 s at most.
 public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples` and `stopped` are guarded by `lock`
     public static let shared: LaunchProfile? =
         ProcessInfo.processInfo.environment["CMUX_MOBILE_LAUNCH_PROFILE"] == "1" ? LaunchProfile() : nil
@@ -18,7 +18,7 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
     /// Between samples (µs).
     static let interval: useconds_t = 2000
     /// The longest it samples (s).
-    static let bound: CFTimeInterval = 12
+    static let bound: CFTimeInterval = 30
 
     private let sampler: ThreadStackSampler
     private let lock = NSLock()
