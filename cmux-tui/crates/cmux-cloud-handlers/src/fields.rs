@@ -614,11 +614,13 @@ pub fn machine_list(list: &MachineList) -> Fields {
                     "last_active_at": m.last_active_at().map(time::iso8601),
                     "error": m.failure.as_ref().map(|f| json!({"code": f.code, "message": f.message})),
                 });
-                if let Some(f) = &m.pending_error {
-                    row["pending_error"] = json!({"code": f.code, "message": f.message});
-                }
-                if let Some(disk) = m.disk().and_then(|view| serde_json::to_value(view).ok()) {
-                    row["disk"] = disk;
+                if let Some(obj) = row.as_object_mut() {
+                    if let Some(f) = &m.pending_error {
+                        obj.insert("pending_error".into(), json!({"code": f.code, "message": f.message}));
+                    }
+                    if let Some(disk) = m.disk().and_then(|view| serde_json::to_value(view).ok()) {
+                        obj.insert("disk".into(), disk);
+                    }
                 }
                 row
             })
