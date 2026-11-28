@@ -105,8 +105,12 @@ import Testing
         rig.poll.wake()
         await rig.settle()
         #expect(rig.looks == before + 1)
-        // Not a fresh fast minute: the next look is at the backed-off cadence.
-        #expect(rig.clock.nextDeadline.map { rig.clock.now.duration(to: $0) } == MacDiscoveryPoll.idlePoll)
+        // Not a fresh fast minute: no look 4 s later, the next one 30 s after the wake's.
+        // (Counted in looks: the wait is a 4 s spacing, then the rest, two sleeps.)
+        await rig.run(for: MacDiscoveryPoll.idlePoll - .seconds(1))
+        #expect(rig.looks == before + 1)
+        await rig.run(for: .seconds(1))
+        #expect(rig.looks == before + 2)
         rig.finish()
     }
 
