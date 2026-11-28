@@ -7,19 +7,10 @@
 // A sender that only named itself draws no mark: the old question bubble is gone (Leo, 2026-11-25:
 // "get rid of this tiny icon it's been bugging me for a while"). Never words in the name either
 // (Leo, 2026-11-07: "Why does it say blah blah unauthenticated?").
-import { useT, type Translate } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { SenderProgram } from "./incomingMessage";
-
-/// The program mark's accessible name, and its tooltip's lines (the path last, when acpmux read one).
-export function programMarkText(t: Translate, program: SenderProgram): { label: string; title: string } {
-  const who = program.host
-    ? t("message.senderProgramOnHost", { name: program.name, host: program.host })
-    : program.name;
-  const label = t("message.senderProgram", { program: who });
-  const title = [label, t("message.senderProgramNotAgent"), program.path].filter(Boolean).join("\n");
-  return { label, title };
-}
+import { programMarkText } from "./programMarkText";
 
 export function UnverifiedMark({ className, program }: { className?: string; program?: SenderProgram }) {
   const t = useT();

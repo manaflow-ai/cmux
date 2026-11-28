@@ -79,12 +79,14 @@ fn timings_name_each_phase_reached() {
         bind: Some(5),
         total: Some(1815),
         agent_home: Some(240),
+        session_new_warm: Some(false),
         step: Some("bind"),
     };
     assert_eq!(
         all.wire(),
         json!({"keyed_gate": 1, "acpmux_connect": 2, "acpmux_started": true, "checks": 3,
-               "session_new": 1800, "settle": 4, "bind": 5, "total": 1815, "agent_home": 240})
+               "session_new": 1800, "settle": 4, "bind": 5, "total": 1815, "agent_home": 240,
+               "session_new_warm": false})
     );
     let gated = StartTimings { keyed_gate: Some(7), total: Some(7), ..Default::default() };
     assert_eq!(gated.wire(), json!({"keyed_gate": 7, "total": 7, "acpmux_started": false}));
@@ -243,6 +245,36 @@ fn a_bare_start_refusal_names_its_step() {
     assert_eq!(timings.refusal_data(Refusal::UntrustedFolder, None), None);
     let keyed = json!({"reason": "needs_keyed_start"});
     assert_eq!(timings.refusal_data(Refusal::NeedsKeyedStart, Some(keyed.clone())), Some(keyed));
+}
+
+/// A start that lost acpmux (`unavailable`: the link closed, or acpmux was not back within the
+/// reconnect wait) or waited it out (`timeout`) names the phase as `data.step` and as a reason
+/// code the app prints beside the refusal's code, so the 2026-11-28T11:45Z production row, which
+/// read only "refused to start the agent chat (agent_session.unavailable)", says where.
+#[test]
+fn a_start_that_lost_acpmux_names_its_step() {
+    let mut timings = super::StartTimings::default();
+    assert_eq!(timings.refusal_data(Refusal::Unavailable, None), None);
+    timings.at("catalog");
+    assert_eq!(
+        timings.refusal_data(Refusal::Unavailable, None),
+        Some(json!({"step": "catalog", "reason": "acpmux_closed.catalog"}))
+    );
+    timings.at("session_new");
+    assert_eq!(
+        timings.refusal_data(Refusal::Timeout, None),
+        Some(json!({"step": "session_new", "reason": "acpmux_timeout.session_new"}))
+    );
+    let own = json!({"reason": "route.unavailable"});
+    assert_eq!(
+        timings.refusal_data(Refusal::Unavailable, Some(own)),
+        Some(json!({"step": "session_new", "reason": "route.unavailable"}))
+    );
+    let lost = timings.refusal_data(Refusal::Timeout, None).unwrap();
+    assert_eq!(
+        super::super::refusal_text(Refusal::Timeout, &lost),
+        "acpmux did not answer in time at session_new"
+    );
 }
 
 /// An agent the machine's acpmux catalog does not have (pi on a Cloud machine, whose image
@@ -428,6 +460,20 @@ fn the_agent_home_ask_is_one_line_with_no_fields() {
     let _ = std::fs::remove_dir(&dir);
 }
 
+/// `session_new_warm` reads acpmux's `startPool`: warm or cold, and nothing for any other answer.
+#[test]
+fn session_new_warm_reads_the_pool_answer() {
+    let of = |pool: Value| {
+        super::session_new_warm(
+            &json!({"sessionId": "s", "_meta": {"acpmux": {"startPool": pool}}}),
+        )
+    };
+    assert_eq!(of(json!("warm")), Some(true));
+    assert_eq!(of(json!("cold")), Some(false));
+    assert_eq!(of(json!("unshaped")), None);
+    assert_eq!(super::session_new_warm(&json!({"sessionId": "s"})), None);
+}
+
 /// cloud-chat-replies-production, 2026-11-28 02:49Z: a chat started on a Cloud VM ran
 /// `background` (this daemon's unix socket proves no person to acpmux) and the gateway refused its
 /// turns from the interactive reserve with a 429. Every start on a Cloud machine, and a phone's,
@@ -561,7 +607,7 @@ fn an_unavailable_start_names_its_step() {
     let mut timings = super::StartTimings::default();
     timings.at("trust");
     let data = timings.refusal_data(Refusal::Unavailable, None).expect("a step");
-    assert_eq!(data, json!({"step": "trust"}));
+    assert_eq!(data, json!({"step": "trust", "reason": "acpmux_closed.trust"}));
     assert_eq!(
         super::super::refusal_text(Refusal::Unavailable, &data),
         "this daemon has no acpmux to attach to at trust"

@@ -79,6 +79,8 @@ enum AgentPaneHandshakeReply {
                 if handshake.cwd == nil { handshake.cwd = model.tabsNewTabFolder }
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
+            // A start the last page sent and never saw end: this page shows it (AgentPaneCloudStartResume).
+            if request == .ready { handshake.cloudStartResume = model.cloudStartResumeForPage() }
             handshake.linkScheme = model.linkScheme
             handshake.tab = model.tabKey()
             // A chat on another machine names that machine (its host set it), never this Mac.
