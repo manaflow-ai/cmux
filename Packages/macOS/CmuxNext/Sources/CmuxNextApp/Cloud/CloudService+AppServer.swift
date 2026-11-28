@@ -176,23 +176,22 @@ extension CloudService {
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the way the feed does, in `team` (`x-cmux-team`)
     /// when given: only to answer a G8 approval after the person's native confirmation, and for a person's own create
-    /// (``CloudPersonCreate``). The session never goes to the daemon or the relay. Every call carries this build's
-    /// space (a misconfigured dev build's call throws).
+    /// (``CloudPersonCreate``). The session never goes to the daemon or the relay: the bundled `cmux cloud install-post`
+    /// sends it (on its stdin). Every call carries this build's space (a misconfigured dev build's call throws). A create
+    /// (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
     private func sessionCall(team: String? = nil, checking check: (@MainActor @Sendable () throws -> Void)? = nil) -> CloudApprovalAnswer.Call {
-        let base = FeedService.apiBaseURL(auth: auth)
-        // A create (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
-        let auth = auth, session = team == nil ? Self.sessionTransport : Self.createTransport, timeout = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
-        let buildSpace = configuration.buildSpace
+        let base = FeedService.apiBaseURL(auth: auth), auth = auth, space = configuration.buildSpace
+        let wait = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
+        let headers = team.flatMap { $0.isEmpty ? nil : ["x-cmux-team": $0] } ?? [:]
         return { path, body in
             let bearer = try await auth.tokens().access
             try await check?()
-            var request = CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: bearer, team: team, timeout: timeout)
-            try buildSpace.apply(to: &request)
-            return try await CloudConnectHedge().data(for: request, on: session).0
+            let reply = try await InstallHTTPTransport(baseURL: base, buildSpace: space, machineIO: await auth.machineIO)
+                .send(path, json: body, bearer: bearer, headers: headers, attempt: wait)
+            if reply.resent { CloudPersonCreate.resends?.note() }
+            return reply.body
         }
     }
-
-    private static let sessionTransport = CloudPersonCreate.session(), createTransport = CloudPersonCreate.session(timeout: CloudPersonCreate.createTimeout)
 }
 
 extension CloudPresenter {

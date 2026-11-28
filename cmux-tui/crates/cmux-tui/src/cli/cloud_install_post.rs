@@ -5,6 +5,9 @@
 //! `{ok: true, status, body}` (any HTTP status, the body as text) or `{ok: false, error: {kind, message}}`
 //! when no answer came (`kind`: `invalid`, `timeout`, `connect`, `transport`).
 //!
+//! `timeout_secs` (optional, at most 60) bounds one attempt; `resent: true` in the answer says a
+//! second attempt started.
+//!
 //! ```json
 //! {"api": "https://…", "path": "v1/ops", "body": "{…}", "bearer": "…"|null, "headers": {"x-cmux-team": "…"}}
 //! ```
@@ -26,6 +29,7 @@ use serde_json::{Value, json};
 const TIMEOUT: Duration = Duration::from_secs(15);
 // short-gate: a hedge, not a give-up; each attempt keeps its own TIMEOUT.
 const STAGGER: Duration = Duration::from_secs(1);
+const MAX_TIMEOUT_SECS: u64 = 60;
 const MAX_ATTEMPTS: usize = 3;
 
 /// `Some(exit code)` when `args` is `cloud install-post`.
@@ -107,6 +111,7 @@ struct Request {
     body: String,
     bearer: Option<String>,
     headers: BTreeMap<String, String>,
+    timeout: Duration,
 }
 
 fn request(input: &[u8]) -> Result<Request, String> {
@@ -129,7 +134,12 @@ fn request(input: &[u8]) -> Result<Request, String> {
             headers.insert(name.clone(), value.to_owned());
         }
     }
-    Ok(Request { url: target(api, path)?, path: path.to_owned(), body, bearer, headers })
+    // timeout: a create waits for the provider to make the machine (the app's old 40 s); capped, never unbounded.
+    let timeout = envelope
+        .get("timeout_secs")
+        .and_then(Value::as_u64)
+        .map_or(TIMEOUT, |secs| Duration::from_secs(secs.clamp(1, MAX_TIMEOUT_SECS)));
+    Ok(Request { url: target(api, path)?, path: path.to_owned(), body, bearer, headers, timeout })
 }
 
 /// Why an attempt got no answer.
@@ -148,9 +158,14 @@ impl Failed {
 /// One attempt on a fresh client (its own pool, so a new socket).
 async fn attempt(request: &Request) -> Result<(u16, String), Failed> {
     let user_agent = concat!("cmux/", env!("CARGO_PKG_VERSION"));
-    let (_base, http) =
-        cmux_cloud_client::http(&request.url, request.bearer.as_deref(), None, user_agent, TIMEOUT)
-            .map_err(|error| Failed { kind: "invalid", message: error.to_string() })?;
+    let (_base, http) = cmux_cloud_client::http(
+        &request.url,
+        request.bearer.as_deref(),
+        None,
+        user_agent,
+        request.timeout,
+    )
+    .map_err(|error| Failed { kind: "invalid", message: error.to_string() })?;
     let mut builder = http
         .post(&request.url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -237,10 +252,22 @@ pub(super) async fn post(input: &[u8]) -> Value {
         Err(message) => return failure("invalid", &message),
     };
     let replay = replay(&request.path, &request.body);
-    match send(replay, STAGGER, MAX_ATTEMPTS, || attempt(&request)).await {
+    let started = std::sync::atomic::AtomicUsize::new(0);
+    let sent = send(replay, STAGGER, MAX_ATTEMPTS, || {
+        started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        attempt(&request)
+    })
+    .await;
+    // resent: an attempt after the first started, so the op may have run before a refusal answered to a later one.
+    let resent = started.load(std::sync::atomic::Ordering::Relaxed) > 1;
+    let mut answer = match sent {
         Ok((status, body)) => json!({"ok": true, "status": status, "body": body}),
         Err(failed) => failure(failed.kind, &failed.message),
+    };
+    if resent {
+        answer["resent"] = Value::Bool(true);
     }
+    answer
 }
 
 #[cfg(test)]

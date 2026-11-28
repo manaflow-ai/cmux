@@ -5393,7 +5393,6 @@ CmuxNextCloud	class	CloudVmHostStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextCloud	class	HandPresencePrompt	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	from enum HandPresenceError:8: Secure Enclave presence proof for level raise
 CmuxNextCloud	class	HandsEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsEngine.swift	process glue of cmux cloud hands (JSON lines over stdin/stdout)
 CmuxNextCloud	class	HandsService	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsService.swift	observed hands state fed by the hands engine; install-key and Secure Enclave signing glue
-CmuxNextCloud	class	HedgeRefusesRedirects	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudConnectHedge.swift	class HedgeRefusesRedirects: holds state or decides/maps/formats in CmuxNextCloud, not OS glue
 CmuxNextCloud	class	LineSplitter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Process/ChildProcess.swift	from class ChildProcess:9: child Process supervision, stdout lines, exit-with-parent
 CmuxNextCloud	class	MemoryAuthKeyValueStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/MemoryAuthKeyValueStore.swift	class MemoryAuthKeyValueStore: holds state or decides/maps/formats in CmuxNextCloud, not OS glue
 CmuxNextCloud	class	PersonalGateway	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Gateway/PersonalGateway.swift	class PersonalGateway: holds state or decides/maps/formats in CmuxNextCloud, not OS glue
@@ -5429,7 +5428,6 @@ CmuxNextCloud	enum	HandLevel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/Cmux
 CmuxNextCloud	enum	HandPresenceError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	Secure Enclave presence proof for level raise
 CmuxNextCloud	enum	HandPresenceKey	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	from enum HandPresenceError:8: Secure Enclave presence proof for level raise
 CmuxNextCloud	enum	HandProfile	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandModels.swift	mirror of the hands engine's answers (rules in cmux_cloud_wire::hands)
-CmuxNextCloud	enum	HedgeEvent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudConnectHedge.swift	enum HedgeEvent: holds state or decides/maps/formats in CmuxNextCloud, not OS glue
 CmuxNextCloud	enum	OwnerOnlyFile	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallStore.swift	from struct MacInstallStore:16: Keychain/Secure Enclave install key blob and 0600 record store
 CmuxNextCloud	extension	ActiveTeam	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/ActiveTeam+Rows.swift	extension ActiveTeam: holds state or decides/maps/formats in CmuxNextCloud, not OS glue
 CmuxNextCloud	extension	AuthCoordinator	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/ActiveTeam.swift	from protocol ActiveTeamSource:9: seam protocol to AuthCoordinator
@@ -5527,7 +5525,6 @@ CmuxNextCloud	struct	CloudCarrierDial	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sour
 CmuxNextCloud	struct	CloudCarrierResolver	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudCarrierResolver.swift	struct CloudCarrierResolver: holds state or decides/maps/formats in CmuxNextCloud, not OS glue
 CmuxNextCloud	struct	CloudChatGrant	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient+ChatGrants.swift	Decodable copy of chat-grants wire row from the cloud API
 CmuxNextCloud	struct	CloudConfiguration	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	cloud configuration: backend choice, owner API base URL per environment
-CmuxNextCloud	struct	CloudConnectHedge	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudConnectHedge.swift	struct CloudConnectHedge: holds state or decides/maps/formats in CmuxNextCloud, not OS glue
 CmuxNextCloud	struct	CloudDaemon	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift	struct CloudDaemon: holds state or decides/maps/formats in CmuxNextCloud, not OS glue
 CmuxNextCloud	struct	CloudDomain	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudPublicationModels.swift	custom domain wire type
 CmuxNextCloud	struct	CloudDomainPublication	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudPublicationModels.swift	from struct CloudDomain:4: custom domain wire type
