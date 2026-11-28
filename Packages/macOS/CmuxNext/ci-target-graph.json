@@ -2798,6 +2798,12 @@
       "path": "Packages/macOS/CmuxNext/Plugins/StringCatalogsPlugin",
       "targets": [],
       "packages": []
+    },
+    "WindowRulesWireTypesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/WindowRulesWireTypesPlugin",
+      "targets": [],
+      "packages": []
     }
   }
 }

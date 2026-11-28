@@ -107,6 +107,9 @@ tmux-*.log
 # from art/manifest.json (generate_backdrop_art.py --entries-out); a copy here would compile twice.
 /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift
 /Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**/*.generated.swift
+# The CmuxNextWindowRules FFI wire types: WindowRulesWireTypesPlugin writes them into its work directory from
+# cmux-tui/crates/cmux-window-rules (cmux-tui/bindings/codegen/swift_ffi/generate.py); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/*.generated.swift
 # The Swift design scale: the DesignScalePlugin build-tool plugin writes it into its work directory from
 # schemas/design-scale (gen-design-scale-swift.py --swift-out); a copy here would compile twice.
 /Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignScale.generated.swift

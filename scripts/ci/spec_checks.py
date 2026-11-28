@@ -91,6 +91,9 @@ INPUTS: tuple[str, ...] = (
     # The Swift clients of the daemon protocol the boundary check reads, and the phone lane allowlist.
     "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/**",
+    # The app FFI wire types (codegen/swift_ffi): the Rust rule crate they read and the hand Swift they check.
+    "cmux-tui/crates/cmux-window-rules/src/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/**",
     "webviews/src/pages/shared/generated/pageRouter.ts",
     "scripts/cmux-next/gen-phone-lane-fields.py",
     # This job.

@@ -1,20 +1,6 @@
 /// Which saved windows a launch makes before its front window is live (cmux-window-rules `restore`;
 /// cmuxterm-hq docs/design/launch-shell-first.md, stage 1: only what is visible).
 extension WindowRules {
-    /// One saved window, in the registry's recency order (front first).
-    public nonisolated struct SavedWindow: Encodable, Equatable, Sendable {
-        var id: String
-        var open: Bool
-        var made: Bool
-
-        /// `open`: open in the saved registry; `made`: it already has its window (the launch window took its id).
-        public init(id: String, open: Bool, made: Bool) {
-            self.id = id
-            self.open = open
-            self.made = made
-        }
-    }
-
     /// The saved windows the launch makes after its front window, front to back: every open one without a window but
     /// the front (`adopted`, the window the launch window became, else the front open one). None when the FFI does
     /// not answer: then every window is made with the restore, as before.

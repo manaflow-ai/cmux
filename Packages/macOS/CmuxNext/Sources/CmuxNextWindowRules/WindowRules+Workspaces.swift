@@ -2,17 +2,6 @@
 /// their question, the question each destructive action asks, description and status writes, a
 /// workspace's directory, going to a group, a group's chain, screen closes and moves.
 extension WindowRules {
-    /// One bulk close of workspaces: how it finds what closes (`plan`: windowWorkspaces, allWindows,
-    /// section, otherGroups, othersInGroup, aroundSelection), what it says when that is nothing, and
-    /// whether it closes group by group.
-    public nonisolated struct BulkClose: Decodable, Equatable, Sendable {
-        public var id: String
-        public var plan: String
-        /// noOtherWorkspaces, noWorkspacesBelow, noWorkspacesAbove, noOtherWorkspacesInGroup; nil: runs.
-        public var nothingToClose: String?
-        public var byGroup: Bool
-    }
-
     /// The bulk close `id` names, nil for any other action.
     public func bulkClose(_ id: String) -> BulkClose? {
         struct Request: Encodable { var id: String }
@@ -41,67 +30,6 @@ extension WindowRules {
         struct Reply: Decodable { var spans: Bool, window: String? }
         guard let reply = call("window_workspace_rows_window", Request(owners: owners), as: Reply.self) else { return (true, nil) }
         return (reply.spans, reply.window)
-    }
-
-    /// The facts of a workspace close's question.
-    public nonisolated struct CloseFacts: Encodable, Equatable, Sendable {
-        public var count: Int
-        /// The foreground programs the closing terminals run.
-        public var programs: [String]
-        /// No window stays open to show the undo toast.
-        public var askWithoutUndo: Bool
-        public var incognito: Bool
-        /// The caller gives its own title.
-        public var titled: Bool
-
-        public init(count: Int, programs: [String], askWithoutUndo: Bool, incognito: Bool, titled: Bool) {
-            self.count = count
-            self.programs = programs
-            self.askWithoutUndo = askWithoutUndo
-            self.incognito = incognito
-            self.titled = titled
-        }
-    }
-
-    /// A workspace close's question.
-    public nonisolated struct ClosePrompt: Decodable, Equatable, Sendable {
-        public nonisolated enum Title: Decodable, Equatable, Sendable {
-            case given, one, count(Int)
-
-            private enum CodingKeys: String, CodingKey { case kind, count }
-
-            public init(from decoder: any Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                switch try container.decode(String.self, forKey: .kind) {
-                case "given": self = .given
-                case "one": self = .one
-                default: self = .count(try container.decode(Int.self, forKey: .count))
-                }
-            }
-        }
-
-        public nonisolated enum Body: Decodable, Equatable, Sendable {
-            /// The programs still running, unique and sorted.
-            case running([String])
-            /// No window stays to undo it.
-            case noUndo(incognito: Bool)
-
-            private enum CodingKeys: String, CodingKey { case kind, programs, incognito }
-
-            public init(from decoder: any Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                if try container.decode(String.self, forKey: .kind) == "running" {
-                    self = .running(try container.decode([String].self, forKey: .programs))
-                } else {
-                    self = .noUndo(incognito: try container.decode(Bool.self, forKey: .incognito))
-                }
-            }
-        }
-
-        public var title: Title
-        public var body: Body
-        /// "Don't ask again" turns `app.warnBeforeClosingTab` off.
-        public var suppressesWarning: Bool
     }
 
     /// The question before a workspace close, or nil to close at once.
@@ -141,18 +69,6 @@ extension WindowRules {
         }
     }
 
-    /// A description or status action's run.
-    public nonisolated enum NotesVerb: Sendable {
-        case describe(String?), clearDescription, markDone, cycleStatus(current: String?), setStatus(String?)
-    }
-
-    /// What a description or status action writes, and the capabilities its fields need.
-    public nonisolated struct NotesUpdate: Decodable, Equatable, Sendable {
-        public var description: FieldChange
-        public var taskStatus: FieldChange
-        public var capabilities: [String]
-    }
-
     /// The write of `verb`, or the status choices when its status is none of them (nil: the FFI does not answer).
     public func notes(_ verb: NotesVerb) -> Result<NotesUpdate, NotesChoices>? {
         struct Request: Encodable { var verb: String, text: String?, current: String?, status: String? }
@@ -176,41 +92,12 @@ extension WindowRules {
         public init(choices: [String]) { self.choices = choices }
     }
 
-    /// One tab, as a workspace's directory reads it.
-    public nonisolated struct DirectoryTab: Encodable, Equatable, Sendable {
-        public var id: String
-        public var cwd: String?
-        public var terminal: Bool
-
-        public init(id: String, cwd: String?, terminal: Bool) {
-            self.id = id
-            self.cwd = cwd
-            self.terminal = terminal
-        }
-    }
-
     /// A workspace's directory: the selected tab's while a window shows it, else its first tab's
     /// that reports one (`terminalsOnly`: terminal tabs only).
     public func directory(_ tabs: [DirectoryTab], selected: String?, terminalsOnly: Bool) -> String? {
         struct Request: Encodable { var tabs: [DirectoryTab], selected: String?, terminalsOnly: Bool }
         struct Reply: Decodable { var cwd: String? }
         return call("window_workspace_directory", Request(tabs: tabs, selected: selected, terminalsOnly: terminalsOnly), as: Reply.self)?.cwd
-    }
-
-    /// What going to a sidebar group does.
-    public nonisolated struct FocusPlan: Decodable, Equatable, Sendable {
-        /// The group is collapsed and opens.
-        public var expands: Bool
-        /// The workspace to show: its first not still being created.
-        public var workspace: String?
-        /// An empty saved group reopens.
-        public var reopens: Bool
-
-        public init(expands: Bool, workspace: String?, reopens: Bool) {
-            self.expands = expands
-            self.workspace = workspace
-            self.reopens = reopens
-        }
     }
 
     /// Going to a group of `workspaces` (id, still being created) with `items` other items.
@@ -226,11 +113,6 @@ extension WindowRules {
         struct Request: Encodable { var start: String?, parents: [String: String?] }
         struct Reply: Decodable { var chain: [String] }
         return call("window_workspace_group_chain", Request(start: start, parents: parents), as: Reply.self)?.chain ?? []
-    }
-
-    /// Which screens a screen close verb takes.
-    public nonisolated enum ScreenClose: String, Encodable, Sendable {
-        case others, toRight, toLeft
     }
 
     /// The screens (indices) `verb` closes around screen `index`, by which are `pinned`.
@@ -252,5 +134,39 @@ extension WindowRules {
         struct Request: Encodable { var group: String, forward: Bool, screens: [Screen] }
         let request = Request(group: group, forward: forward, screens: screens.map { Screen(group: $0.group, pinned: $0.pinned) })
         return call("window_workspace_screen_group_move", request, as: Index.self)?.index
+    }
+}
+
+extension WindowRules.ClosePrompt {
+    public nonisolated enum Title: Decodable, Equatable, Sendable {
+        case given, one, count(Int)
+
+        private enum CodingKeys: String, CodingKey { case kind, count }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            switch try container.decode(String.self, forKey: .kind) {
+            case "given": self = .given
+            case "one": self = .one
+            default: self = .count(try container.decode(Int.self, forKey: .count))
+            }
+        }
+    }
+    public nonisolated enum Body: Decodable, Equatable, Sendable {
+        /// The programs still running, unique and sorted.
+        case running([String])
+        /// No window stays to undo it.
+        case noUndo(incognito: Bool)
+
+        private enum CodingKeys: String, CodingKey { case kind, programs, incognito }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if try container.decode(String.self, forKey: .kind) == "running" {
+                self = .running(try container.decode([String].self, forKey: .programs))
+            } else {
+                self = .noUndo(incognito: try container.decode(Bool.self, forKey: .incognito))
+            }
+        }
     }
 }
