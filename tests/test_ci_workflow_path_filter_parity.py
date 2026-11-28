@@ -40,6 +40,9 @@ EXEMPTIONS: dict[str, str] = {
     # requests take no paths filter; its `changes` job reads the push list to decide what runs.
     "cmux-tui-spec.yml": "pull requests take no paths filter: the required clippy check must report on every pull "
     "request, and the changes job routes by the push list",
+    # #63833: the push on its own file only checks the workflow starts; pull requests route by the iOS inputs.
+    "cmux-next-ios-verify-auto.yml": "push runs only on its own file to check the workflow starts; pull requests "
+    "filter by the iOS compile and flow inputs",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
