@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46099659860",
+  "recorded_at": "2026-11-28T03:04:25Z",
+  "reason": "image inputs changed in 673ea3fe476956e44836c028964dc24affc4d04c..ce52aeb334a719e2ca1b898d54f0e6f84b39f501; cmux-tui be9d51358788, the newest build published on HEAD (pinned 589544f1e56b; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "be9d51358788adad513ead636888afe47ca04a5c",
+  "fixes": [
+    {
+      "sha": "ce52aeb334a719e2ca1b898d54f0e6f84b39f501",
+      "mergedAt": "2026-11-28T02:45:51Z",
+      "subject": "image roll: grow the inventory builder to 4 vCPU / 8 GiB before the SBOM scan (#63766)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T03:04:25Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
