@@ -750,7 +750,7 @@ async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
             for ((incarnation, bytes), whole) in incarnations.iter().zip(saved).zip(&whole) {
                 let _ = std::fs::remove_file(&file);
                 if let Some(bytes) = bytes {
-                    hub.store.save_adoption_checkpoint("chat0", &bytes).unwrap();
+                    hub.store.save_adoption_checkpoint("chat0", bytes.clone()).unwrap();
                     let inputs = hub.fold_inputs(&session);
                     assert!(
                         hub.adoption_checkpoint(&session, incarnation, &inputs).is_some(),
@@ -855,7 +855,7 @@ async fn a_new_hosts_adoption_resumed_from_the_unstarted_folds_matches_a_whole_r
                         continue;
                     }
                     let _ = std::fs::remove_file(&file);
-                    hub.store.save_adoption_checkpoint("chat0", bytes).unwrap();
+                    hub.store.save_adoption_checkpoint("chat0", bytes.clone()).unwrap();
                     let inputs = hub.fold_inputs(&session);
                     let used = hub.adoption_checkpoint(&session, incarnation, &inputs).is_some();
                     // Its own start among the records folded: never resumed from.
@@ -911,7 +911,7 @@ async fn a_checkpoint_saved_with_no_host_serves_the_hosts_started_after_it() {
             }
             session.seq.store(log.records.len() as u64, Ordering::SeqCst);
             for (incarnation, whole) in incarnations.iter().zip(&whole) {
-                hub.store.save_adoption_checkpoint("chat0", &bytes).unwrap();
+                hub.store.save_adoption_checkpoint("chat0", bytes.clone()).unwrap();
                 let inputs = hub.fold_inputs(&session);
                 let started_after = log.records.iter().any(|r| {
                     r.kind == "host_started"

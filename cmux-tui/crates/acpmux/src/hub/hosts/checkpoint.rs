@@ -279,7 +279,7 @@ impl Hub {
                 return;
             }
             let Ok(bytes) = serde_json::to_vec(&*point) else { return };
-            if let Err(error) = self.store.save_adoption_checkpoint(&session.id, &bytes) {
+            if let Err(error) = self.store.save_adoption_checkpoint(&session.id, bytes) {
                 tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
             }
         };
