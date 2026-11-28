@@ -215,7 +215,7 @@ public final class IPhoneHostService {
     @ObservationIgnored private var following: Task<Void, Never>?
     @ObservationIgnored private var followingAccount: Task<Void, Never>?
     /// Follows the person's site-data hand-off setting; cancelled when the app stops.
-    @ObservationIgnored private var followingSiteDataHandoff: Task<Void, Never>?
+    @ObservationIgnored var followingSiteDataHandoff: Task<Void, Never>?
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
     /// Counts the starts ``reconcile()`` makes: a start lets the Mac sleep only while no newer one has
