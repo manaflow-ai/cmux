@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.workspaceRow.unreadDot.help" : {
+      "comment" : "Settings > Sidebar > Workspace Rows > Unread Dot: help text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The color of the dot a row shows when its work finished unseen: the status blue, or a quiet gray in the theme's secondary text color."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لون النقطة التي يعرضها الصف عند انتهاء عمله دون أن يُرى: الأزرق المعتاد، أو رمادي هادئ بلون النص الثانوي للسمة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boja tačke koju red prikazuje kada mu se posao završi neviđen: plava statusna ili tiha siva u sekundarnoj boji teksta teme."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Farven på prikken en række viser, når dens arbejde blev færdigt uset: statusblå eller en dæmpet grå i temaets sekundære tekstfarve."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Farbe des Punkts, den eine Zeile zeigt, wenn ihre Arbeit ungesehen fertig wurde: das Status-Blau oder ein ruhiges Grau in der sekundären Textfarbe des Themes."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El color del punto que muestra una fila cuando su trabajo terminó sin verse: el azul de estado o un gris discreto con el color de texto secundario del tema."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La couleur du point qu'une ligne affiche quand son travail s'est terminé sans être vu : le bleu d'état, ou un gris discret dans la couleur de texte secondaire du thème."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il colore del punto che una riga mostra quando il suo lavoro è finito senza essere visto: il blu di stato o un grigio discreto nel colore del testo secondario del tema."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作業が見られないまま終わったときに行に表示されるドットの色：ステータスの青、またはテーマのセカンダリテキスト色の控えめなグレー。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពណ៌នៃចំណុចដែលជួរបង្ហាញ នៅពេលការងាររបស់វាបានបញ្ចប់ដោយមិនទាន់មើល៖ ពណ៌ខៀវស្ថានភាព ឬពណ៌ប្រផេះស្ងាត់តាមពណ៌អត្ថបទបន្ទាប់បន្សំនៃស្បែក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "작업이 보지 않은 채 끝났을 때 행에 표시되는 점의 색: 상태 파란색 또는 테마의 보조 텍스트 색상인 차분한 회색."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fargen på prikken en rad viser når arbeidet ble ferdig usett: statusblå, eller en dempet grå i temaets sekundære tekstfarge."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kolor kropki, którą wiersz pokazuje, gdy jego praca zakończyła się niezauważona: niebieski statusu lub stonowany szary w kolorze tekstu pomocniczego motywu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A cor do ponto que uma linha mostra quando seu trabalho terminou sem ser visto: o azul de status ou um cinza discreto na cor de texto secundária do tema."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет точки, которую строка показывает, когда её работа завершилась незамеченной: синий цвет статуса или спокойный серый во вторичном цвете текста темы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สีของจุดที่แถวแสดงเมื่องานเสร็จโดยยังไม่ได้ดู: สีน้ำเงินของสถานะ หรือสีเทาเรียบตามสีข้อความรองของธีม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir satırın işi görülmeden bittiğinde gösterdiği noktanın rengi: durum mavisi veya temanın ikincil metin renginde sakin bir gri."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Колір крапки, яку рядок показує, коли його робота завершилася непоміченою: синій колір статусу або спокійний сірий у вторинному кольорі тексту теми."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Màu của chấm mà một hàng hiển thị khi công việc của nó xong mà chưa được xem: xanh trạng thái, hoặc xám nhẹ theo màu chữ phụ của chủ đề."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行的工作在未查看时完成后显示的圆点颜色：状态蓝色，或主题次要文字颜色的柔和灰色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "列的工作在未檢視時完成後顯示的圓點顏色：狀態藍色，或主題次要文字顏色的柔和灰色。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -7,6 +7,7 @@
 // - Sessions under their project, one plain heading per project folder.
 // - Plain headings: quiet ink, no fill, no count.
 // - A row is the title alone: no icon, no color, no time. A small dot marks a working row.
+// - A finished, unseen row's dot is gray, not blue.
 // - No spaces strip.
 // The look never sets row height, sidebar width, the trailing column or motion: those stay on
 // cmux's shared grid (`sidebar.density`, `appearance.metrics.*`), so switching looks moves no pane.
@@ -25,6 +26,7 @@
   "sidebar.showTimestamps": false,
   "sidebar.detailedStatusIcons": false,
   "appearance.statusIndicator.style": "dot",
+  "sidebar.workspaceRow.unreadDot": "neutral",
 
   "sidebar.showSpaces": false
 }

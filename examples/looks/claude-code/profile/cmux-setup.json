@@ -26,6 +26,7 @@
     // The app's session rows carry no tab count.
     "sidebar.workspaceRow.tabCount": false,
     "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.unreadDot": "neutral",
     "sidebar.showColors": false,
     "sidebar.showTimestamps": false,
     "sidebar.detailedStatusIcons": false,

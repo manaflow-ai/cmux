@@ -44,6 +44,12 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         didSet { if spinnerColor != oldValue { needsDisplay = true } }
     }
 
+    /// Optional unread (done) dot ink: the sidebar's `sidebar.workspaceRow.unreadDot` `neutral` gray.
+    /// Changes only the unread dot, never the other status colours.
+    public var unreadColor: NSColor? {
+        didSet { if unreadColor != oldValue { needsDisplay = true } }
+    }
+
     /// The diameter a dot glyph paints, centered in the view whatever its size
     /// (``StatusIndicatorLayer/dotDiameter``); nil paints it at its share of the view.
     public var dotDiameter: CGFloat? {
@@ -219,6 +225,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
             let loading = StatusIndicatorAppearance.shared.config.settings.color
             var colors: StatusIndicatorLayer.Colors = usesStatusColors ? .status(loading: loading) : .current(loading: loading)
             if let spinnerColor { colors.spinner = spinnerColor.cgColor }
+            if let unreadColor { colors.unread = unreadColor.cgColor }
             indicator.colors = colors
         }
     }

@@ -56,13 +56,17 @@ public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
     public var overrides: [WorkspaceRowKind: WorkspaceRowOverride]
     /// `sidebar.workspaceRow.statusPlacement`: one value for every kind.
     public var statusPlacement: WorkspaceRowStatusPlacement
+    /// `sidebar.workspaceRow.unreadDot`: the unread dot's color, one value for every kind.
+    public var unreadDot: WorkspaceRowUnreadDot
     public var layouts: WorkspaceRowLayouts
 
     public init(base: WorkspaceRowElements = .standard, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:],
-                statusPlacement: WorkspaceRowStatusPlacement = .trailing, layouts: WorkspaceRowLayouts = WorkspaceRowLayouts()) {
+                statusPlacement: WorkspaceRowStatusPlacement = .trailing, unreadDot: WorkspaceRowUnreadDot = .blue,
+                layouts: WorkspaceRowLayouts = WorkspaceRowLayouts()) {
         self.base = base
         self.overrides = overrides
         self.statusPlacement = statusPlacement
+        self.unreadDot = unreadDot
         self.layouts = layouts
     }
 

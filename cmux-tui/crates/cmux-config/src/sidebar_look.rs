@@ -39,7 +39,7 @@ pub const FOLDER_NAME: &str = "sidebar-looks";
 /// Keys a look may set: none of them changes a row's height, the sidebar's
 /// width, the trailing column or motion (the shared grid,
 /// docs/cmux-next/sidebar-customization.md "No shift").
-pub const GRID_KEYS: [&str; 13] = [
+pub const GRID_KEYS: [&str; 14] = [
     "sidebar.groupBy",
     GROUP_BACKGROUND,
     "sidebar.groupHeader.memberCount",
@@ -53,6 +53,8 @@ pub const GRID_KEYS: [&str; 13] = [
     "appearance.statusIndicator.style",
     // Where the status mark draws: the row keeps its leading slot while idle, so the name never moves.
     "sidebar.workspaceRow.statusPlacement",
+    // The unread dot's color: blue or the theme's gray, the same dot in the same place.
+    "sidebar.workspaceRow.unreadDot",
     "sidebar.showSpaces",
 ];
 

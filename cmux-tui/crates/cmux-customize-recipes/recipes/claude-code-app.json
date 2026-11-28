@@ -11,6 +11,7 @@
     "sidebar.groupHeader.unreadCount": false,
     "sidebar.workspaceRow.tabCount": false,
     "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.unreadDot": "neutral",
     "sidebar.showColors": false,
     "sidebar.showTimestamps": false,
     "sidebar.detailedStatusIcons": false,
