@@ -518,8 +518,7 @@ fn a_pass_split_across_cores_finds_what_one_thread_finds() {
     let words = needle("DEPLOY fail");
     let matcher = Matcher::new(&words);
     let search = |key: &String, doc: &Arc<Doc>| {
-        let matched = doc.find(&words, &matcher)?;
-        Some((key.clone(), Found { doc: doc.clone(), matched }))
+        doc.holds(&words, &matcher).then(|| (key.clone(), Found { doc: doc.clone() }))
     };
     let one: HashMap<String, Found> =
         docs.iter().filter_map(|(key, doc)| search(key, doc)).collect();
@@ -533,7 +532,7 @@ fn a_pass_split_across_cores_finds_what_one_thread_finds() {
     assert_eq!(keys, want);
     assert_eq!(keys.len(), 11);
     for (key, found) in &split {
-        assert_eq!(found.matched, one[key].matched);
+        assert_eq!(found.doc.find(&words, &matcher), one[key].doc.find(&words, &matcher));
     }
     // Under the bound, or one chat: one thread, the same answer.
     assert_eq!(par_filter_map(&refs[..1], |&(key, doc)| search(key, doc)).len(), 1);
