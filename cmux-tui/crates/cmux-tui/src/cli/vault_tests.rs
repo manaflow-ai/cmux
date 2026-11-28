@@ -17,8 +17,7 @@ fn seeded_token_and_team_ride_only_in_their_headers() {
     let _ = http.send("POST", "/v1/vault/seeded", &[], Some(&json!({"sealed": "b64"})));
     let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
     assert!(sent.iter().any(|r| r.target == "/v1/vault/seeded"), "{sent:?}");
-    for (secret, place) in [(bearer, ": header authorization"), (team, ": header x-cmux-team")]
-    {
+    for (secret, place) in [(bearer, ": header authorization"), (team, ": header x-cmux-team")] {
         let places = cmux_egress::capture::leaks(secret);
         assert!(!places.is_empty(), "{secret}: {sent:?}");
         assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
@@ -32,17 +31,11 @@ fn words(s: &str) -> Vec<String> {
 #[test]
 fn parses_every_verb() {
     assert_eq!(parse(&words("status")).unwrap().0, Verb::Status);
-    assert_eq!(
-        parse(&words("approve 1234 5678")).unwrap().0,
-        Verb::Approve("1234 5678".into())
-    );
+    assert_eq!(parse(&words("approve 1234 5678")).unwrap().0, Verb::Approve("1234 5678".into()));
     assert!(parse(&words("approve 123")).is_err());
     assert_eq!(
         parse(&words("set OPENAI_API_KEY --repo Manaflow-AI/cmux")).unwrap().0,
-        Verb::Set {
-            name: "OPENAI_API_KEY".into(),
-            scope: Scope::Repo("manaflow-ai/cmux".into())
-        }
+        Verb::Set { name: "OPENAI_API_KEY".into(), scope: Scope::Repo("manaflow-ai/cmux".into()) }
     );
     assert!(parse(&words("set PATH")).is_err());
     assert!(parse(&words("set A --repo a/b --machine vm_abcdefghij0123456789")).is_err());

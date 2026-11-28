@@ -80,9 +80,8 @@ fn sideband_pack_only_when_a_multiplexed_pack_follows() {
     let v2_negotiating =
         format!("{}0001{}0000", encode("command=fetch\n"), encode(&format!("want {A}\n")));
     assert!(!sideband_pack(v2_negotiating.as_bytes(), true));
-    let v0 = |caps: &str| {
-        format!("{}0000{}", encode(&format!("want {A} {caps}\n")), encode("done\n"))
-    };
+    let v0 =
+        |caps: &str| format!("{}0000{}", encode(&format!("want {A} {caps}\n")), encode("done\n"));
     assert!(sideband_pack(v0("multi_ack side-band-64k ofs-delta").as_bytes(), false));
     assert!(sideband_pack(v0("side-band").as_bytes(), false));
     assert!(!sideband_pack(v0("multi_ack ofs-delta").as_bytes(), false));
