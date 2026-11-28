@@ -400,19 +400,39 @@ pub(crate) fn vm_error(status: u16, body: &[u8], header_code: Option<&str>) -> F
     }
 }
 
-/// Worker and platform refusals: nested `{error: {...}}` or a flat error object.
+/// A Worker refusal: the one platform parser ([`super::turns::refusal_with`]), so the flat
+/// `{_tag, code, message, retryable}` a 503 can answer with keeps its code, message and
+/// `retryable` like the nested `{error: {code, message}}`.
 pub(crate) fn worker_error(status: u16, body: Option<&Value>) -> Failure {
-    let error = body.map(|b| b.get("error").filter(|e| e.is_object()).unwrap_or(b));
-    let text =
-        |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str).map(str::to_owned);
-    Failure::Http {
-        status,
-        code: text("code"),
-        message: text("message"),
-        action: text("action"),
-        trace_id: text("trace_id"),
-        retryable: error.and_then(|e| e.get("retryable")).and_then(Value::as_bool),
-        retry_after_s: error.and_then(|e| e.get("retryAfterSeconds")).and_then(Value::as_u64),
+    super::turns::refusal_with(status, body, None)
+}
+
+#[cfg(test)]
+mod worker_error_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn parts(f: Failure) -> (Option<String>, Option<String>, Option<bool>) {
+        match f {
+            Failure::Http { code, message, retryable, .. } => (code, message, retryable),
+            other => panic!("not http: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nested_and_flat_refusals_both_name_code_and_message() {
+        let nested = json!({"ok": false, "error": {"code": "a.b", "message": "nested"}});
+        assert_eq!(
+            parts(worker_error(400, Some(&nested))),
+            (Some("a.b".into()), Some("nested".into()), None)
+        );
+        let flat = json!({"_tag": "Unavailable", "code": "do.reset", "message": "cpu limit", "retryable": true});
+        assert_eq!(
+            parts(worker_error(503, Some(&flat))),
+            (Some("do.reset".into()), Some("cpu limit".into()), Some(true))
+        );
+        assert_eq!(parts(worker_error(500, Some(&json!({"x": 1})))), (None, None, None));
+        assert_eq!(parts(worker_error(500, None)), (None, None, None));
     }
 }
 

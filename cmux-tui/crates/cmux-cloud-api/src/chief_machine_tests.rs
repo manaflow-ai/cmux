@@ -215,6 +215,43 @@ async fn a_create_whose_answer_is_lost_is_sent_again_under_its_key() {
     assert_eq!(fake.machines.borrow().len(), 1);
 }
 
+/// Staging's 503 when a Durable Object resets for its CPU limit (cloud-chief-start run
+/// 46146310295, attempts 1 and 2): the flat tagged body says to send it again.
+fn do_reset() -> Failure {
+    worker_error(
+        503,
+        Some(&json!({ "_tag": "Unavailable", "code": "cloud.unavailable",
+                       "message": "durable object reset: exceeded CPU time limit",
+                       "retryable": true })),
+    )
+}
+
+#[tokio::test]
+async fn a_machine_read_the_cloud_says_to_retry_is_polled_again() {
+    let fake = Fake::default();
+    fake.probes(vec![done()]);
+    *fake.read_failures.borrow_mut() = vec![do_reset(), do_reset()].into();
+    let answer = run(&fake, &start(false)).await.unwrap();
+    assert_eq!(answer["stage"], "done");
+    assert!(fake.count("cloud.machine.get") >= 3);
+    assert_eq!(fake.machines.borrow().len(), 1);
+}
+
+#[tokio::test]
+async fn a_final_machine_read_refusal_still_fails_the_start() {
+    let fake = Fake::default();
+    fake.probes(vec![done()]);
+    let final_503 = worker_error(
+        503,
+        Some(&json!({ "_tag": "Unavailable", "code": "cloud.unavailable",
+                       "message": "gone for good", "retryable": false })),
+    );
+    *fake.read_failures.borrow_mut() = vec![final_503].into();
+    let failure = run(&fake, &start(false)).await.unwrap_err();
+    assert!(failure.to_string().contains("gone for good"), "{failure}");
+    assert_eq!(fake.count("cloud.machine.get"), 1);
+}
+
 #[tokio::test]
 async fn keep_awake_sets_no_idle_pause() {
     let fake = Fake::default();
@@ -764,4 +801,33 @@ async fn machine_reads_charge_request_latency_to_the_budget() {
     assert_eq!(run(&fake, &start(true)).await.unwrap_err(), error);
     assert_eq!(fake.count("cloud.machine.get"), 7);
     assert_eq!(fake.count("cloud.machine.create"), 1);
+}
+
+#[tokio::test]
+async fn machine_reads_respect_http_retry_after_and_the_remaining_budget() {
+    for (header, body, expected) in [
+        ("120", json!({"retryable": true}), 120),
+        ("120", json!({"error": {"retryable": true, "retryAfterSeconds": 9}}), 9),
+        ("600", json!({"retryable": true}), 600),
+    ] {
+        let reply = super::super::http::Reply {
+            status: 429,
+            header_code: None,
+            retry_after: Some(header.into()),
+            body: serde_json::to_vec(&body).unwrap(),
+        };
+        let error = chief_reply(&reply, "/v1/read").unwrap_err();
+        assert_eq!(machine_read_retry(&error), Some(Duration::from_secs(expected)));
+        let fake = Fake::default();
+        fake.read_failures.borrow_mut().push_back(error.clone());
+        let answer = run(&fake, &start(true)).await;
+        if expected > MACHINE_WAIT.as_secs() {
+            assert_eq!(answer.unwrap_err(), error);
+            assert!(fake.pauses.borrow().is_empty());
+            assert_eq!(fake.count("cloud.machine.get"), 1);
+        } else {
+            assert!(answer.is_ok());
+            assert_eq!(*fake.pauses.borrow(), [Duration::from_secs(expected)]);
+        }
+    }
 }

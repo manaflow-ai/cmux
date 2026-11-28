@@ -783,21 +783,30 @@ impl Session<'_> {
                 &path,
             )
             .await?;
-        let object = reply.json();
-        // `/v1/ops` answers `{ok: true, value}`; `/v1/read` answers `{value}` and says `ok` only when false.
-        match object.as_ref().filter(|_| reply.ok()) {
-            Some(o) if o.get("ok") != Some(&Value::Bool(false)) && o.get("value").is_some() => {
-                Ok(o["value"].clone())
+        chief_reply(&reply, &path)
+    }
+}
+
+fn chief_reply(reply: &super::http::Reply, path: &str) -> Result<Value, Failure> {
+    let object = reply.json();
+    // `/v1/ops` answers `{ok: true, value}`; `/v1/read` answers `{value}`.
+    match object.as_ref().filter(|_| reply.ok()) {
+        Some(o) if o.get("ok") != Some(&Value::Bool(false)) && o.get("value").is_some() => {
+            Ok(o["value"].clone())
+        }
+        _ => {
+            let mut error = super::turns::refusal_with(
+                reply.status,
+                object.as_ref(),
+                reply.retry_after.as_deref(),
+            );
+            // Add context without losing retry facts for a header-only refusal.
+            if let Failure::Http { code: None, message, .. } = &mut error {
+                if message.is_none() {
+                    *message = Some(format!("{path}: {}", body_summary(object.as_ref())));
+                }
             }
-            _ => Err(match worker_error(reply.status, object.as_ref()) {
-                // Name the request when the answer says nothing itself.
-                Failure::Http { status, code: None, message: None, .. } => Failure::http(
-                    status,
-                    None,
-                    Some(format!("{path}: {}", body_summary(object.as_ref()))),
-                ),
-                other => other,
-            }),
+            Err(error)
         }
     }
 }
