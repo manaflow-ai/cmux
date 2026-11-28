@@ -29,6 +29,7 @@ def env(**overrides: str) -> dict[str, str]:
     base = {
         "CMUX_CI_RUNNER_VARIABLES": GOOD_RUNNERS,
         "CI_OWNED_POOL_SLOTS": GOOD_SLOTS,
+        "CI_OWNED_POOL_RESCUE_SECONDS": "30",
         "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode_26.6.app",
     }
     base.update(overrides)
@@ -50,7 +51,15 @@ class Values(unittest.TestCase):
             with self.subTest(value=value):
                 found = check.problems(env(CI_OWNED_POOL_SLOTS=value))
                 self.assertTrue(found)
-                self.assertIn("set-owned-slots.sh", found[0])
+                self.assertIn("cmux-variables.py --apply", found[0])
+
+    def test_rescue_budget_the_rescue_ignores_fails(self) -> None:
+        for value in ("", "abc", "10", "601"):
+            with self.subTest(value=value):
+                found = check.problems(env(CI_OWNED_POOL_RESCUE_SECONDS=value))
+                self.assertEqual(len(found), 1)
+                self.assertIn("CI_OWNED_POOL_RESCUE_SECONDS", found[0])
+                self.assertIn("cmux-variables.py --apply", found[0])
 
     def test_runner_labels_the_guard_refuses_fail(self) -> None:
         for label in ("warp-macos-26-arm64-12x", "glaeda-std-xcode-26.6"):
@@ -81,6 +90,7 @@ class Wiring(unittest.TestCase):
         text = (WORKFLOWS / "ci-repo-variables.yml").read_text(encoding="utf-8")
         self.assertIn("schedule:", text)
         self.assertIn("CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}", text)
+        self.assertIn("CI_OWNED_POOL_RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}", text)
         self.assertIn("run: python3 scripts/ci/check_repo_variables.py", text)
 
 

@@ -147,6 +147,7 @@ def run_main(api, clock, *, env_extra=None, payload=None):
         # covers the default, where the picker may queue on purpose.
         env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_EVENT_PATH": str(path),
                "GITHUB_STEP_SUMMARY": str(summary), "POOL_OWNED": "1", "QUEUE_ROUNDS": "0",
+               "RESCUE_SECONDS": "90",
                **(env_extra or {})}
         with unittest.mock.patch("sys.stdout", io.StringIO()):
             code = rescue.main([], env, api=api, now=clock.now, sleep=clock.sleep)
@@ -446,16 +447,20 @@ class Scope(unittest.TestCase):
             self.assertIn("owned pools are off", summary)
 
     def test_invalid_budget_watches_nothing(self):
-        for value in ("abc", "10", "601"):
+        for value in ("", "abc", "10", "601"):
             clock = Clock()
             api = FakeAPI(clock, persistent_run())
             code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": value})
             self.assertEqual((code, api.calls), (0, []), value)
             self.assertIn("must be 30 to 600", summary)
 
-    def test_budget_defaults_to_90(self):
-        self.assertEqual(rescue.budget(""), 90)
+    def test_budget_has_no_default_of_its_own(self):
+        # The budget's one copy is cmuxterm-hq mini-fleet.json policy.owned_pool.rescue_seconds,
+        # published as CI_OWNED_POOL_RESCUE_SECONDS; an unset variable is not a second copy.
+        self.assertIsNone(rescue.budget(""))
+        self.assertIsNone(rescue.budget(None))
         self.assertEqual(rescue.budget(" 120 "), 120)
+        self.assertFalse(hasattr(rescue, "DEFAULT_BUDGET_SECONDS"))
 
     def test_only_attempt_1_of_a_same_repository_ci_pull_request(self):
         cases = {

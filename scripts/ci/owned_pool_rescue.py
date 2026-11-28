@@ -18,7 +18,7 @@ picker chose a persistent pool, that job uploads a marker artifact
 for the janitor's count); no marker means the run is on an
 ephemeral pool and the watch ends. Otherwise it watches the run's jobs until the
 run finishes. If a job on the persistent pool is still queued with no runner
-after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
+after the budget (CI_OWNED_POOL_RESCUE_SECONDS), it confirms the
 pull request head has not moved, cancels the run, waits for it to finish, and
 re-runs it. The re-run is attempt 2, which runs `changes` again: the picker
 places it like attempt 1 without queueing (pr_runner_pool.LAST_OWNED_ATTEMPT),
@@ -323,9 +323,11 @@ TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
 E2E_PICKER_JOB = "runner"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
 PICKER_JOB = "changes"
-DEFAULT_BUDGET_SECONDS = 90
+# The CI rescue budget has no default here: CI_OWNED_POOL_RESCUE_SECONDS is written from
+# cmuxterm-hq build-fleet/mini-fleet.json policy.owned_pool.rescue_seconds (mini-ops/cmux-variables.py),
+# and an unset variable watches nothing rather than run on a second copy of the number.
 # Side lanes deliberately queue on the owned label while minis drain. Their
-# overflow is a measured queue decision, not the 90-second CI rescue budget.
+# overflow is a measured queue decision, not the CI rescue budget.
 SIDE_DEFAULT_BUDGET_SECONDS = 600
 MIN_BUDGET_SECONDS = 30
 MAX_BUDGET_SECONDS = 600
@@ -427,10 +429,8 @@ API = "https://api.github.com"
 
 
 def budget(value: str | None) -> int | None:
-    """The queued-seconds budget from the variable, or None when it is invalid."""
+    """The queued-seconds budget from the variable, or None when it is unset or invalid."""
     raw = (value or "").strip()
-    if not raw:
-        return DEFAULT_BUDGET_SECONDS
     try:
         seconds = int(raw)
     except ValueError:
@@ -1341,8 +1341,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         return finish("owned pools are off (CI_PR_POOL_OWNED is not 1); nothing to watch")
     seconds = budget(env.get("RESCUE_SECONDS"))
     if seconds is None:
-        return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
-                      "nothing to watch")
+        return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS} "
+                      f"(it is {env.get('RESCUE_SECONDS')!r}; cmuxterm-hq build-fleet/mini-ops/cmux-variables.py "
+                      "--apply writes it from mini-fleet.json); nothing to watch")
     side_seconds = side_budget(env.get("SIDE_RESCUE_SECONDS"))
     if side_seconds is None:
         return finish(f"SIDE_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "

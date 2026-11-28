@@ -12,6 +12,7 @@ a bad value into a red run with an error annotation that names the fix.
 Inputs, from the workflow's expression context (no token can read variables):
   CMUX_CI_RUNNER_VARIABLES  NAME=value per line, the runner-label variables
   CI_OWNED_POOL_SLOTS       the owned pool sizes pr_runner_pool.py reads
+  CI_OWNED_POOL_RESCUE_SECONDS  the owned-pool rescue budget owned_pool_rescue.py reads
   CMUX_CI_XCODE_APP_PR      pairs a class entry in the slots with an Xcode
   CI_CLOUD_OVERFLOW_SAVED   the cloud overflow switch's record, present while
                             Blacksmith overflow is off (cloud_overflow_switch.py)
@@ -32,6 +33,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import PR_XCODE_VARIABLE, SLOTS_VARIABLE, slot_problems  # noqa: E402
 from runner_label_policy import PolicyUnreadable, drifted_runner_variables  # noqa: E402
 from cloud_overflow_switch import RECORD_VARIABLE, parse_record  # noqa: E402
+from owned_pool_rescue import MAX_BUDGET_SECONDS, MIN_BUDGET_SECONDS, budget  # noqa: E402
+
+# Both owned-pool variables are written from cmuxterm-hq build-fleet/mini-fleet.json, never by hand.
+GENERATOR_FIX = "Fix: build-fleet/mini-ops/cmux-variables.py --apply in cmuxterm-hq (writes it from mini-fleet.json)"
+RESCUE_VARIABLE = "CI_OWNED_POOL_RESCUE_SECONDS"
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
 
@@ -74,9 +80,11 @@ def problems(env: dict[str, str]) -> list[str]:
             found.append(str(error))
     for problem in slot_problems(env.get(SLOTS_VARIABLE), env.get(PR_XCODE_VARIABLE)):
         found.append(
-            f"{problem}. The picker counts that as no owned machines. "
-            "Fix: build-fleet/mini-ops/set-owned-slots.sh in cmuxterm-hq"
+            f"{problem}. The picker counts that as no owned machines. {GENERATOR_FIX}"
         )
+    if budget(env.get(RESCUE_VARIABLE)) is None:
+        found.append(f"{RESCUE_VARIABLE}={env.get(RESCUE_VARIABLE)!r} is not {MIN_BUDGET_SECONDS} to "
+                     f"{MAX_BUDGET_SECONDS} seconds, so the owned-pool rescue watches nothing. {GENERATOR_FIX}")
     return found
 
 
