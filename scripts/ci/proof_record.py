@@ -87,14 +87,35 @@ def problems(record: object) -> list[str]:
     return out
 
 
+# The longest comment render returns: the lane-gh broker refuses a body past 32768, GitHub one past 65536.
+COMMENT_BUDGET = 32000
+
+
 def render(record: dict, summary_md: str = "") -> str:
     """The PR comment for RECORD: the marker, a short human summary, and the record itself."""
     bad = problems(record)
     if bad:
         raise ValueError("not a proof record: " + "; ".join(bad))
     head = f"<!-- {KIND} {record['suite']} {record['head_sha']} -->"
-    body = json.dumps(record, indent=1, sort_keys=True)
-    return f"{head}\n{summary_md.strip()}\n\n<details><summary>Proof record</summary>\n\n```json\n{body}\n```\n</details>\n"
+    summary = summary_md.strip()
+
+    def comment(body: str) -> str:
+        return f"{head}\n{summary}\n\n<details><summary>Proof record</summary>\n\n```json\n{body}\n```\n</details>\n"
+
+    # A comment past COMMENT_BUDGET is refused (the lane-gh broker caps a body at 32768), so the proof never posts
+    # and the gate waits forever (cmux#38466: 201 screens rendered 38365). Tighter forms keep every field the gate
+    # and ui_proof_verdict read; a capture's hash shortens to 12 hex, still naming its picture.
+    short = {**record, "captures": [{**c, "sha256": c["sha256"][:12]} if isinstance(c, dict) and
+                                    isinstance(c.get("sha256"), str) else c for c in record.get("captures") or []]}
+    forms = (json.dumps(record, indent=1, sort_keys=True), json.dumps(record, separators=(",", ":"), sort_keys=True),
+             json.dumps(short, separators=(",", ":"), sort_keys=True))
+    out = comment(forms[-1])
+    for form in forms:
+        if len(comment(form)) <= COMMENT_BUDGET:
+            return comment(form)
+    if len(out) > COMMENT_BUDGET:
+        raise ValueError(f"proof record comment is {len(out)} characters, past {COMMENT_BUDGET}")
+    return out
 
 
 def parse(comment_body: str) -> dict | None:
