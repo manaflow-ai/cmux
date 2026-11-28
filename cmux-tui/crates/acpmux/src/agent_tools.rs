@@ -1746,7 +1746,9 @@ impl AgentTools {
     pub fn without_off(mut self, env: &BTreeMap<String, String>) -> Self {
         if let Some(off) = env.get(OFF_ENV) {
             let off: Vec<&str> = off.split(',').map(str::trim).collect();
-            self.servers.retain(|s| !off.contains(&s.name.as_str()));
+            self.servers.retain(|s| {
+                !off.iter().any(|name| crate::acpmux_mcp_names::same_server(name, &s.name))
+            });
         }
         self
     }
