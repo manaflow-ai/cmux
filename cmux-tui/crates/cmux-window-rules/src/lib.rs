@@ -102,4 +102,5 @@ pub mod subagent_panes;
 pub mod tabs;
 pub mod targets;
 pub mod update_idle;
+pub mod walk_split;
 pub mod workspaces;
