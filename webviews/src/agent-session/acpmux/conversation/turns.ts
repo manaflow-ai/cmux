@@ -2338,7 +2338,7 @@ function shapeTurn(
         return line ? [...body, line] : body;
       };
       // The pane's bypass compares what it drew with this pass's shape (`notedLiveShape`).
-      return live ? notedLiveShape(user, turn, concluding, drawnTurn(expanded, live), "concluding") : concluding(turn);
+      return live ? notedLiveShape(user, turn, concluding, drawnTurn(expanded, live)) : concluding(turn);
     }
   }
   // A turn still running shows its work as it happens, under its live status; one without a
@@ -2388,7 +2388,6 @@ function shapeTurn(
           true,
         ),
       drawnTurn(expanded, live),
-      "tail",
     );
   const summary = turn[end]!;
   // The agent's own wrap-up call (wrapUp.ts) is the card, not a row of its work.
@@ -3606,8 +3605,6 @@ export type LiveTurnShape = {
   readonly shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[];
   readonly shaped: readonly AcpmuxRow[];
   readonly stamp: number;
-  readonly via?: string; // DEBUG
-  readonly final?: number; // DEBUG
 };
 
 let liveShape: LiveTurnShape | undefined;
@@ -3620,7 +3617,7 @@ function shapedLiveTurn(
   args: LiveTurnArgs,
   drawnOf: (shaped: AcpmuxRow[]) => AcpmuxRow[],
 ): AcpmuxRow[] {
-  return notedLiveShape(user, turn, (rows) => liveTurn(user, rows, ...args), drawnOf, "live");
+  return notedLiveShape(user, turn, (rows) => liveTurn(user, rows, ...args), drawnOf);
 }
 
 /// The running turn's pass as the transcript draws it: its caller folds its runs of messages and of
@@ -3650,7 +3647,6 @@ function notedLiveShape(
   turn: AcpmuxRow[],
   shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[],
   drawnOf: (shaped: AcpmuxRow[]) => AcpmuxRow[],
-  via = "",
 ): AcpmuxRow[] {
   const shaped = shapeOf(turn);
   liveShape = {
@@ -3659,8 +3655,6 @@ function notedLiveShape(
     shapeOf: (rows) => drawnOf(shapeOf(rows)),
     shaped: drawnOf(shaped),
     stamp: liveStamp,
-    via,
-    final: turn.filter(isFinalAnswer).length,
   };
   return shaped;
 }
