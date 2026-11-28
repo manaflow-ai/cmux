@@ -150,10 +150,12 @@ pub fn claim_preamble(nonce: u64) -> [u8; CLAIM_LEN] {
 
 /// The nonce of a preamble, or None for anything else.
 pub fn claim_nonce(bytes: &[u8]) -> Option<u64> {
-    if bytes.len() < CLAIM_LEN || bytes[..4] != CLAIM_MAGIC {
+    let (magic, rest) = bytes.split_first_chunk::<4>()?;
+    if *magic != CLAIM_MAGIC {
         return None;
     }
-    Some(u64::from_be_bytes(bytes[4..CLAIM_LEN].try_into().ok()?))
+    let (nonce, _) = rest.split_first_chunk::<8>()?;
+    Some(u64::from_be_bytes(*nonce))
 }
 
 /// A punch nonce: random, never 0.
@@ -874,7 +876,8 @@ pub async fn preamble_accepted(tcp: &TcpStream) -> Option<u64> {
         let mut buf = [0u8; CLAIM_LEN];
         loop {
             let n = tcp.peek(&mut buf).await.ok()?;
-            if n == 0 || buf[..n.min(4)] != CLAIM_MAGIC[..n.min(4)] {
+            let head = n.min(CLAIM_MAGIC.len());
+            if n == 0 || buf.get(..head) != CLAIM_MAGIC.get(..head) {
                 return None;
             }
             if n >= CLAIM_LEN {
@@ -888,7 +891,8 @@ pub async fn preamble_accepted(tcp: &TcpStream) -> Option<u64> {
     let mut got = 0;
     while got < CLAIM_LEN {
         tcp.readable().await.ok()?;
-        match tcp.try_read(&mut sink[got..]) {
+        let rest = sink.get_mut(got..)?;
+        match tcp.try_read(rest) {
             Ok(0) => return None,
             Ok(n) => got += n,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
