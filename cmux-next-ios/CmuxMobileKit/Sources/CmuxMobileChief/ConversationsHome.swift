@@ -92,17 +92,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Home's list is not live (``connectionStatus``): the read failed or the Mac is offline.
     private var showsHomeProblem: Bool { connectionStatus != nil }
 
-    private var homeIsOffline: Bool {
-        guard store.tracksMacData, let homeMacID else { return false }
-        return store.macConnection[homeMacID] != .connected && store.macConnection[homeMacID] != .connecting
-    }
+    /// The Home Mac's link is down: the shared ``MacPresence`` (``AppStore/macPresence(_:)``).
+    private var homeIsOffline: Bool { store.macPresence(homeMacID).isDown }
 
     /// What Home says while its list is not live (``HomeConnectionStatus``): Workspaces' subtitle
-    /// over the kept rows, or its empty state when none are kept.
+    /// over the kept rows, or its empty state when none are kept. Whether the Mac is there is the
+    /// shared ``MacPresence``, never a copy of Home's own.
     private var connectionStatus: HomeConnectionStatus? {
-        let mac = homeMacID.flatMap { id in store.activeTeam?.macs.first { $0.id == id } }
-        return HomeConnectionStatus.make(linkDown: homeIsOffline, macOnline: mac?.isOnline, failed: feed.problem != nil,
-                                         retrying: false, macName: macTag)
+        HomeConnectionStatus.make(presence: store.macPresence(homeMacID), failed: feed.problem != nil,
+                                  retrying: false, macName: macTag)
     }
 
     /// The connection chip over kept rows, the states Workspaces' banner uses

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxConversationCore
 import CmuxMobileDesign
+import CmuxMobileModel
 import CmuxSpinner
 import OSLog
 import SwiftUI
@@ -234,6 +235,8 @@ public struct ChiefSettingsView: View {
         if linkDown {
             guard linkQuiet.isShown else { return nil }
             if session.runsInCloud { return session.unavailableReason ?? String(localized: "Connecting to cmux Cloud") }
+            // The Mac's link up (the shared ``MacPresence``): it is Chief, not the Mac, that is missing.
+            if session.macPresence.isUp { return session.unavailableReason ?? String(localized: "Chief isn't answering on your Mac") }
             return session.unavailableReason ?? String(localized: "Not connected to your Mac")
         }
         if session.runsInCloud {

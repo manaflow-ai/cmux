@@ -299,12 +299,20 @@ public struct HomeConnectionStatus: Equatable, Sendable {
     /// `failed`: the last read failed. `retrying`: a retry runs.
     public static func make(linkDown: Bool, macOnline: Bool?, failed: Bool, retrying: Bool,
                             macName: String?) -> HomeConnectionStatus? {
+        make(presence: linkDown ? .down(listedOnline: macOnline) : .up, failed: failed, retrying: retrying,
+             macName: macName)
+    }
+
+    /// Home's status from the Mac's shared ``MacPresence`` (``AppStore/macPresence(_:)``), the one
+    /// answer every screen reads: "offline" only where that says the Mac is offline.
+    public static func make(presence: MacPresence, failed: Bool, retrying: Bool,
+                            macName: String?) -> HomeConnectionStatus? {
         // The Mac's name, or "your Mac" ("Your Mac" where it starts a sentence).
         let mac = macName ?? String(localized: "your Mac")
         let macAtStart = macName ?? String(localized: "Your Mac")
         let kind: Kind
-        if linkDown {
-            kind = macOnline == false ? .macOffline : .unreachable
+        if presence.isDown {
+            kind = presence.isMacOffline ? .macOffline : .unreachable
         } else if failed {
             kind = .failed
         } else if retrying {
