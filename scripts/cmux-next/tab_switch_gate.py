@@ -88,7 +88,7 @@ SCOPE: tuple[str, ...] = (
     # Rust: the daemon's tab and pane store ops.
     "cmux-tui/crates/cmux-tui-core/src/server/cmd_tabs.rs",
     "cmux-tui/crates/cmux-tui-core/src/server/cmd_panes.rs",
-    "cmux-tui/crates/cmux-tui-core/src/server/raw_tab.rs",
+    "cmux-tui/crates/cmux-tui-core/src/tree_wire/raw_tab.rs",
     "cmux-tui/crates/cmux-tui-core/src/state/tabs.rs",
     "cmux-tui/crates/cmux-tui-core/src/state/conversation_tabs.rs",
     "cmux-tui/crates/cmux-tui-core/src/state/kept_tabs.rs",
