@@ -1,4 +1,7 @@
 import CmuxConnectivityTelemetry
+#if canImport(CmuxMobileLinkFFI)
+import func CmuxMobileLinkFFI.setAppBackgrounded
+#endif
 import class CmuxMobileModel.ConnectTimeline
 import enum CmuxMobileModel.DeveloperOptions
 import enum CmuxMobileModel.UserFacingError
@@ -667,6 +670,10 @@ public final class LinkController {
 
     private func applyForegroundProbe() {
         link?.setForegroundProbe(onScreen && !machine.isBackgrounded)
+        #if canImport(CmuxMobileLinkFFI)
+        // Rust stops the 750 ms direct re-probe while backgrounded (`set_app_backgrounded`).
+        setAppBackgrounded(backgrounded: machine.isBackgrounded)
+        #endif
     }
 
     /// The keyboard is coming up over this link's terminal or chat: the
