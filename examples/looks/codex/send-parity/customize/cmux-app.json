@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Reference send" },
   "version": "1.0.0",
-  "description": "The builder new-chat page: one quiet centered line, \"What should we build in {project}?\", the project a picker, the chats that need you under it, and the field at the foot.",
+  "description": "Quiet new-chat page with a project picker.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "runtime": { "main": "main.js" },

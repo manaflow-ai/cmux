@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Material sidebar" },
   "version": "1.0.0",
-  "description": "Material's hover card and drawer rows: an M3 rich tooltip for each thread, Label Large rows and the circular progress indicator while work runs.",
+  "description": "Material-style hover card and drawer rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

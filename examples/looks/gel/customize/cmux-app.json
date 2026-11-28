@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Gel sidebar" },
   "version": "1.0.0",
-  "description": "Gel's hover card and sidebar rows: a headline, a tonal status chip on glass, the task, and the branch as chips.",
+  "description": "Glass hover card with tonal chips.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Docket sidebar" },
   "version": "1.0.0",
-  "description": "Docket's sidebar: an inbox-row hover card, rows with the thin arc while work runs, an Inbox at the top with only the chats that want you, and the chat's folder, branch and agent as Properties in Session Info.",
+  "description": "An inbox of chats that need you.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

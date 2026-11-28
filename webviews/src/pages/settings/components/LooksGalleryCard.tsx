@@ -13,9 +13,10 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { focusRoute } from "../../../ui/focusRoute";
 import { useColorScheme } from "../colorScheme";
-import { useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
+import { lookDescriptionsOf, traitLine, type LookDescriptions } from "../lookDescriptions";
 import { consentLines, moveOrder, pinnedReference, shortCommit } from "../looksGallery";
 import type { Look, LookConsentCard, LookLayer, LooksGallery, LooksRun } from "../ops";
 import { LOOKS_KEY, lookPreviewQuery, looksQuery, storePreviewLoader, type LookPreviewLoader } from "../sectionQueries";
@@ -41,6 +42,7 @@ export function LooksGalleryCard({ reveal = false }: { reveal?: boolean }) {
   const queryClient = useQueryClient();
   const query = useQuery(looksQuery(store));
   const scheme = useColorScheme();
+  const descriptions = useSettingsSelector(lookDescriptionsOf);
   const [loadPreview] = useState(() => storePreviewLoader(store));
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -96,6 +98,7 @@ export function LooksGalleryCard({ reveal = false }: { reveal?: boolean }) {
       consent={consent}
       removing={removing}
       reveal={reveal}
+      descriptions={descriptions}
       scheme={scheme}
       loadPreview={loadPreview}
       actions={actions}
@@ -120,6 +123,7 @@ export function LooksGalleryView({
   removing = null,
   reveal = false,
   layout = "grid",
+  descriptions = "phrase",
   scheme,
   loadPreview,
   actions,
@@ -140,6 +144,8 @@ export function LooksGalleryView({
   /** The route opens the page on this card: it scrolls to the card once drawn. */
   reveal?: boolean;
   layout?: LooksLayout;
+  /** How each tile describes its look (`experiments.lookDescriptions`). */
+  descriptions?: LookDescriptions;
   scheme: "light" | "dark";
   loadPreview: LookPreviewLoader;
   actions: LooksActions;
@@ -174,6 +180,7 @@ export function LooksGalleryView({
             <LooksCatalog
               looks={looks}
               layout={layout}
+              descriptions={descriptions}
               busy={busy}
               scheme={scheme}
               loadPreview={loadPreview}
@@ -198,6 +205,7 @@ export function LooksGalleryView({
 export function LooksCatalog({
   looks,
   layout,
+  descriptions = "phrase",
   busy,
   scheme,
   loadPreview,
@@ -205,6 +213,7 @@ export function LooksCatalog({
 }: {
   looks: readonly Look[];
   layout: LooksLayout;
+  descriptions?: LookDescriptions;
   busy: string | null;
   scheme: "light" | "dark";
   loadPreview: LookPreviewLoader;
@@ -215,6 +224,7 @@ export function LooksCatalog({
       key={look.id}
       look={look}
       size={size}
+      descriptions={descriptions}
       busy={busy}
       scheme={scheme}
       loadPreview={loadPreview}
@@ -234,10 +244,12 @@ export function LooksCatalog({
   return <div className="looks-grid">{looks.map((look) => tile(look, "tile"))}</div>;
 }
 
-/** One look: its golden sample, name, tagline, and Install, or its switch and Uninstall. */
+/** One look: its golden sample, name, tagline (as `descriptions` says), and Install, or its switch
+ * and Uninstall. */
 export function LookTile({
   look,
   size,
+  descriptions = "phrase",
   busy,
   scheme,
   loadPreview,
@@ -245,6 +257,7 @@ export function LookTile({
 }: {
   look: Look;
   size: "large" | "tile" | "row";
+  descriptions?: LookDescriptions;
   busy: string | null;
   scheme: "light" | "dark";
   loadPreview: LookPreviewLoader;
@@ -252,6 +265,7 @@ export function LookTile({
 }) {
   const labelId = useId();
   const installed = look.installed;
+  const traits = descriptions === "tagged" ? traitLine(look.traits) : null;
   const controls = installed ? (
     <span className="looks-controls">
       <span className="looks-switch">
@@ -293,6 +307,7 @@ export function LookTile({
     <div
       className="looks-tile"
       data-size={size}
+      data-descriptions={descriptions}
       data-look={look.id}
       data-installed={installed ? "" : undefined}
       data-on={installed?.on ? "" : undefined}
@@ -303,7 +318,8 @@ export function LookTile({
           <span className="row-title" id={labelId}>
             {look.name}
           </span>
-          <span className="row-help looks-tagline">{look.tagline}</span>
+          {descriptions !== "name" && <span className="row-help looks-tagline">{look.tagline}</span>}
+          {traits && <span className="row-help looks-traits">{traits}</span>}
         </div>
         {controls}
       </div>

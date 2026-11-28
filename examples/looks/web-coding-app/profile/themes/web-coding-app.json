@@ -2,7 +2,7 @@
 // neutral gray accent. Picked by eye, not measured.
 {
   "name": "Web coding app",
-  "description": "A white page in a light-gray frame, near-black ink and a neutral accent.",
+  "description": "White page, light-gray frame, dark ink.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

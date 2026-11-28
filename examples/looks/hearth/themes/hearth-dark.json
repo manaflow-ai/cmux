@@ -2,7 +2,7 @@
 // darker (#191714), warm off-white ink (#ece6dc) and the terracotta lifted (#e08a63) to read on it.
 {
   "name": "Hearth Dark",
-  "description": "Dark: warm brown-black and a terracotta accent.",
+  "description": "Warm brown-black, terracotta accent.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

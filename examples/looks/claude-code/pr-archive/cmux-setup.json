@@ -3,7 +3,7 @@
   "cmuxProfile": 1,
   "id": "manaflow-ai/claude-code-pr-archive",
   "name": "Archive chats after pull requests finish",
-  "description": "Add two commands for enabling chat archival after pull requests merge or close. Each opens the corresponding cmux settings confirmation.",
+  "description": "Archive chats once their pull request closes.",
   "actions": {
     "pr-archive-on-merge": {
       "type": "command",

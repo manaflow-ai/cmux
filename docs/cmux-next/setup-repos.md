@@ -99,10 +99,11 @@ sections, panels and pages.
 Settings > Appearance lists public look repos by name, each shown on the golden sample, with an
 Install button. Installing one is the same `cmux setup install` with its card; the gallery itself
 changes nothing. The list is `cmux-tui/crates/cmux-customize/src/setup/looks.json`, built into
-cmux and changed only by a reviewed PR: Studio, Paper, Cards New Tab and Threads New Tab, then the
-ten look packs in `examples/looks` (Tachyon, Kerf, Prism, Hush, Basalt, Linen, Docket, Ember,
-Folio, Tandem). A catalog look names its repo as `HOST/OWNER/REPO[/PATH][@BRANCH]`: the packs are
-folders of cmux on `feat-cmux-next`, which carries them, so they name that branch. A catalog look
+cmux and changed only by a reviewed PR. It lists four looks: Codex, Claude Code, Studio and Paper.
+Each says what it looks like in one short phrase and carries two or three `traits` ("Dark",
+"Compact"). Every other look stays installable by its repo. A catalog look names its repo as
+`HOST/OWNER/REPO[/PATH][@BRANCH]`. Codex and Claude Code are folders of cmux on `feat-cmux-next`,
+which carries them, so they name that branch. A catalog look
 never names a commit; the card shows the commit the branch is at now, and Install pins that commit.
 
 ```sh
@@ -111,7 +112,7 @@ cmux --json setup preview manaflow-ai/paper-look --scheme light
 ```
 
 - `gallery` reads only that list and the receipts (no network) and prints
-  `{"looks": [{"id", "name", "tagline", "repo", "tags", "installed"}], "stack": [{"id", "name",
+  `{"looks": [{"id", "name", "tagline", "traits", "repo", "tags", "installed"}], "stack": [{"id", "name",
   "on", "position", "source", "commit", "catalog"}]}`. A look's `installed` is `null` or its row
   of `stack`. `stack` is every installed setup, top layer first (`position` 1), with `catalog: false`
   for one the list does not name.

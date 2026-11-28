@@ -527,32 +527,32 @@ export interface WalkBundle {
 
 /** The five bundles the walk's look step offers (House is the control: today's defaults). */
 export const WALK_BUNDLES: readonly WalkBundle[] = [
-  { id: "house", name: "House", line: "Today's cmux, as it ships.", sets: [], traits: {} },
+  { id: "house", name: "House", line: "cmux as it ships.", sets: [], traits: {} },
   {
     id: "glasshouse",
     name: "Glasshouse",
-    line: "Glass panes over a painting that shows through.",
+    line: "Clear glass over your desktop.",
     sets: ["appearance.backgroundImage", "appearance.backgroundBlur: glass", "appearance.backgroundOpacity: 60%"],
     traits: { glass: true },
   },
   {
     id: "twoToneStudio",
     name: "Two-Tone Studio",
-    line: "Sidebar and tab bar in a second color from your theme.",
+    line: "Sidebar in a second color.",
     sets: ["appearance.twoTone: auto"],
     traits: { twoTone: true },
   },
   {
     id: "quietSolid",
     name: "Quiet Solid",
-    line: "Opaque, no picture and no glass: the calmest window.",
+    line: "Opaque and calm.",
     sets: ["appearance.backgroundImage: none", "appearance.backgroundBlur: none"],
     traits: { solid: true },
   },
   {
     id: "denseOperator",
     name: "Dense Operator",
-    line: "Compact rows, so many sessions fit at once.",
+    line: "Compact rows.",
     sets: ["appearance.density: compact"],
     traits: { dense: true },
   },

@@ -274,3 +274,92 @@ fn every_look_installed_over_the_others_puts_its_theme_on() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Leo, 2026-11-27: "im not a fan of the descriptions on our themes and whatnot". What the Settings
+/// gallery, the Customize checklist and a look's install card show of a look (its tagline and
+/// description) and of each theme it carries (the theme file's description) is one short plain
+/// phrase a person reads at a glance: at most seven words, no "A look: x, y, z".
+#[test]
+fn every_look_and_theme_says_what_it_looks_like_in_a_few_plain_words() {
+    let mut checked = 0;
+    // A look's own folder, and each folder of this repo the gallery lists (the app profiles).
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let listed = setup::looks::catalog()
+        .unwrap()
+        .looks
+        .into_iter()
+        .filter_map(|look| look.reference())
+        .filter(|reference| reference.owner == "manaflow-ai" && reference.repo == "cmux")
+        .map(|reference| root.join(&reference.path));
+    let dirs = fs::read_dir(looks()).unwrap().map(|entry| entry.unwrap().path()).chain(listed);
+    for dir in dirs {
+        if !dir.join(setup::SETUP_FILE).is_file() {
+            continue;
+        }
+        let read = setup::read_dir(&dir).unwrap_or_else(|error| panic!("{dir:?}: {error}"));
+        let manifest = &read.manifest;
+        for words in manifest.tagline.iter().chain([&manifest.description]) {
+            assert!(setup::looks::plain_phrase(words), "{dir:?}: {words:?}");
+            checked += 1;
+        }
+        let Ok(themes) = fs::read_dir(dir.join("themes")) else { continue };
+        for theme in themes {
+            let path = theme.unwrap().path();
+            if path.extension().is_none_or(|e| e != "json") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).unwrap();
+            let value = cmux_config::jsonc::parse(&text)
+                .unwrap_or_else(|error| panic!("{path:?}: {error}"));
+            if let Some(words) = value["description"].as_str() {
+                assert!(setup::looks::plain_phrase(words), "{path:?}: {words:?}");
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 100, "checked only {checked} phrases");
+}
+
+/// The same rule for every file under `examples/looks`, at any depth: each part setup
+/// (`claude-code/cli`, `codex/sidebar`, ...) and the preview profile beside it, a look's
+/// `customize/cmux-app.json` (the Apps list and the install card say its description), and every
+/// theme file (the theme picker says its description). The walk above reads only the top folders.
+#[test]
+fn every_file_under_examples_looks_says_it_in_a_few_plain_words() {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "json") {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&looks(), &mut files);
+    files.sort();
+    let (mut checked, mut failures) = (0, Vec::new());
+    for path in files {
+        let name = path.file_name().unwrap().to_str().unwrap();
+        let parent = path.parent().and_then(Path::file_name).and_then(|n| n.to_str());
+        let said = matches!(name, "cmux-setup.json" | "profile.json" | "preview.json")
+            || (name == "cmux-app.json" && parent == Some("customize"))
+            || parent == Some("themes");
+        if !said {
+            continue;
+        }
+        let text = fs::read_to_string(&path).unwrap();
+        let value =
+            cmux_config::jsonc::parse(&text).unwrap_or_else(|error| panic!("{path:?}: {error}"));
+        for key in ["tagline", "description"] {
+            let Some(words) = value[key].as_str() else { continue };
+            checked += 1;
+            if !setup::looks::plain_phrase(words) {
+                failures.push(format!("{}: {key} {words:?}", path.display()));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "not one short plain phrase:\n{}", failures.join("\n"));
+    assert!(checked >= 300, "checked only {checked} phrases");
+}

@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": "Claude",
   "version": "1.0.0",
-  "description": "Claude's home on every New Tab, Claude's usage left in the sidebar, a Claude Code status line in each chat's Session Info, the Claude Code app's / button beside the composer's +, its searchable model picker with effort apart, and review, PR and test prompts in the / menu.",
+  "description": "Claude's home, usage and model picker.",
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "main.js" },
   "implements": {

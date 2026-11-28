@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Nature hover card" },
   "version": "1.0.0",
-  "description": "Nature's hover card: the title, its status on a small chip of the app's glass, what the agent is doing, and where.",
+  "description": "Glass hover card with a status chip.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

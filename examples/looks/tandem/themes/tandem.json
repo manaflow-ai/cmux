@@ -7,7 +7,7 @@
 // (darkened here to read at 3:1 as a control), the near-black #171717 of the composer's buttons.
 {
   "name": "Tandem",
-  "description": "Light: a gray card, a frosted sidebar, an orange accent.",
+  "description": "Light gray, orange accent.",
 
   // The terminal follows the workspace; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Light",

@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Apple sidebar" },
   "version": "1.0.0",
-  "description": "Apple's hover card and sidebar rows: a macOS popover (bold title, gray secondary lines) and source-list rows with the system spinner.",
+  "description": "Mac-style hover card and sidebar rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

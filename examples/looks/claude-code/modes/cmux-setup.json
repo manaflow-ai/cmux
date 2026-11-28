@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-modes",
   "name": "Claude Code modes",
-  "description": "Choose access or toggle Plan in a chat. The palette can also start the CLI in Plan mode.",
+  "description": "Choose access or turn on Plan mode.",
   "version": "1.0.0",
   "license": "MIT",
   "cmuxProfile": 1,

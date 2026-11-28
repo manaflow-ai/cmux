@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-whole",
   "name": "Claude Code",
-  "description": "The Code tab’s project sidebar, transcript and prompt field, with the Claude demo’s New Tab, usage section and session status line.",
+  "description": "The whole Claude Code app look.",
   "version": "1.0.0",
   "screenshots": [
     "screenshots/source.png"

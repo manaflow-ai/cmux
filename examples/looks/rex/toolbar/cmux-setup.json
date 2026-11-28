@@ -4,7 +4,7 @@
   "id": "manaflow-ai/rex-toolbar",
   "name": "Rex Toolbar",
   "version": "1.0.0",
-  "description": "Opt-in inset pane chrome with top tabs and native split and zoom controls.",
+  "description": "Inset panes with top tabs.",
   "settings": {
     "appearance.chromeStyle": "panes",
     "appearance.borders": "default",

@@ -5,7 +5,7 @@
 // large soft corners, quick spring motion.
 {
   "name": "Ember",
-  "description": "Dark: dark glass, compact rows, one coral accent.",
+  "description": "Dark glass with a coral accent.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

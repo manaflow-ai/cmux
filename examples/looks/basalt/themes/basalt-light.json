@@ -4,7 +4,7 @@
 // pills, proportions and motion as the dark theme.
 {
   "name": "Basalt Light",
-  "description": "Light: soft off-white, a framed prompt, a steel-blue accent.",
+  "description": "Light gray with a blue button.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

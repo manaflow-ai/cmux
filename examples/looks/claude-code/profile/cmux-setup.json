@@ -1,8 +1,8 @@
 {
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-profile",
-  "name": "Claude Code app profile",
-  "description": "The whole Claude Code app in one install: its look (the whole look) with every Claude Code feature look's settings, actions and keys, Claude's slash commands in the composer, and the app's send pop.",
+  "name": "Claude Code",
+  "description": "Like Claude Code.",
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux",

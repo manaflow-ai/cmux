@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Folio sidebar" },
   "version": "1.0.0",
-  "description": "Folio's hover card and sidebar rows: a page preview (the title as a heading, an edited line, the page's text, then its properties) and page rows in regular weight with a quiet dot while work runs, and the chat's page properties (agent, folder, branch) in Session Info.",
+  "description": "Page-preview hover card and page-style rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

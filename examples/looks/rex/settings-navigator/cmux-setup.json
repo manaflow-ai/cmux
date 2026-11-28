@@ -4,7 +4,7 @@
   "id": "manaflow-ai/rex-settings-navigator",
   "name": "Rex Settings",
   "version": "1.0.0",
-  "description": "Opt-in New Tab page listing Rex's 85 preference actions, each opening the matching cmux setting.",
+  "description": "A New Tab page of preference shortcuts.",
   "settings": {
     "tabs.newTabApp": "local/customize",
     "tabs.nativeNewTabPage": false
