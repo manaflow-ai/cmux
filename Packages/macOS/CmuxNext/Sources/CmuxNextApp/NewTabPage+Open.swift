@@ -13,7 +13,7 @@ import Foundation
 import enum CmuxNextLayout.ChatColumnPlacement
 import struct CmuxNextLayout.MainPaneLayout
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     /// The native New Tab page (`tabs.nativeNewTabPage`, ``NativeNewTabView``).
     static let nativeNewTab = InternalPageID(rawValue: "native-new-tab")
 }
