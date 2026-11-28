@@ -40,7 +40,7 @@ fn stamp(mux: &Mux, client: u64, fields: &Map<String, Value>) -> Result<(), &'st
     if !matches!(record.transport, ClientTransport::Unix) {
         return Err("carrier_role.not_unix");
     }
-    if record.native_vm_kind.is_some() {
+    if record.native_vm_kind.is_some() || record.owner_phone.is_some() {
         return Err("carrier_role.already_stamped");
     }
     record.native_vm_kind = Some(role);
