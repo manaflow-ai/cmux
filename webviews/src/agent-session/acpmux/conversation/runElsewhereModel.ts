@@ -6,7 +6,8 @@
 // a run's change re-renders only its own row.
 import { createContext, useSyncExternalStore } from "react";
 
-/** How long a command runs before the chip offers to move it. */
+/** How long a command runs before the chip offers to move it; a big fetch acpmux says to offer at
+ * once (`offerNow`, acpmux `run_elsewhere::offer_now`) gets it from its start. */
 export const RUN_ELSEWHERE_AFTER_MS = 20_000;
 
 /** One machine acpmux knows: connected and reached by ssh (`ok`), or why not. */
@@ -30,6 +31,8 @@ export interface RunPlan {
   machines: RunMachine[];
   /** What the command downloads, when it is a big fetch (acpmux `run_elsewhere::fetch_kind`). */
   fetch?: "npm" | "pip" | "cargo" | "docker" | "model";
+  /** Offer the run from the command's start: a big fetch and a machine that can take it now. */
+  offerNow?: boolean;
   tree?: {
     /** The repository the other machine fetches, without a login. */
     origin: string;
@@ -56,6 +59,9 @@ export interface RunOutput {
 /** The daemon calls a run makes; App.tsx binds them to the pane's client and chat. */
 export interface RunElsewhereClient {
   plan(command: string): Promise<RunPlan>;
+  /** Whether to offer `command` at once (`_acpmux/run_elsewhere/plan` with `peek`, which reads no
+   * tree). Absent: every command waits {@link RUN_ELSEWHERE_AFTER_MS}. */
+  offerNow?(command: string): Promise<boolean>;
   start(command: string, machine: string, digest: string, sendSecrets: string[]): Promise<{ id: string }>;
   output(taskId: string, fromByte: number): Promise<RunOutput>;
   stop(taskId: string): Promise<unknown>;
@@ -93,6 +99,16 @@ export class RunElsewhereStore {
   private relayListeners = new Set<() => void>();
   /** A chat opened after the host refused starts knowing it. */
   private relaying = hostRelays;
+  /** Each tool call's `offerNow` answer, asked once per row. */
+  private offers = new Map<string, boolean>();
+
+  offerNow(toolCallId: string): boolean | undefined {
+    return this.offers.get(toolCallId);
+  }
+
+  setOfferNow(toolCallId: string, offer: boolean) {
+    this.offers.set(toolCallId, offer);
+  }
 
   /** False once the pane's host refused to relay a plan: the chip shows on no row after that. */
   relays(): boolean {
@@ -170,14 +186,15 @@ export function inBackground(tool: { background?: unknown; inputSummary?: string
 }
 
 /** When the chip shows: a shell call with a command line, still running in the foreground, from
- * `startedAt` + {@link RUN_ELSEWHERE_AFTER_MS}. Undefined when it never does (not a shell, ended,
- * in the background, no start). */
+ * `startedAt` + {@link RUN_ELSEWHERE_AFTER_MS}, or from `startedAt` when acpmux said to offer it at
+ * once (`offerNow`). Undefined when it never does (not a shell, ended, in the background, no start). */
 export function chipDueAt(tool: {
   kind?: string;
   command?: string;
   startedAt?: number;
   running: boolean;
   background?: boolean;
+  offerNow?: boolean;
 }): number | undefined {
   if (
     tool.kind !== "execute" ||
@@ -187,7 +204,7 @@ export function chipDueAt(tool: {
     tool.startedAt === undefined
   )
     return undefined;
-  return tool.startedAt + RUN_ELSEWHERE_AFTER_MS;
+  return tool.offerNow ? tool.startedAt : tool.startedAt + RUN_ELSEWHERE_AFTER_MS;
 }
 
 /** The machine a panel picks first: the one chosen last time if it can still take the run, else

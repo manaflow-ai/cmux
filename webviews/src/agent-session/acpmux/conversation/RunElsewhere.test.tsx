@@ -174,6 +174,40 @@ test("the chip is due 20 s into a running shell command and never otherwise", ()
   expect(chipDueAt({ ...base, startedAt: undefined })).toBeUndefined();
 });
 
+test("a fetch acpmux says to offer at once is due from its start; any other waits 20 s", () => {
+  const base = { kind: "execute", command: "npm ci", startedAt: 1000, running: true };
+  expect(chipDueAt({ ...base, offerNow: true })).toBe(1000);
+  expect(chipDueAt({ ...base, offerNow: false })).toBe(1000 + RUN_ELSEWHERE_AFTER_MS);
+  expect(chipDueAt({ ...base, offerNow: true, running: false })).toBeUndefined();
+  expect(chipDueAt({ ...base, offerNow: true, background: true })).toBeUndefined();
+});
+
+test("an install acpmux offers at once shows the chip under 20 s, asked once per row", async () => {
+  const { runs } = harness();
+  const asked: string[] = [];
+  runs.client.offerNow = async (command) => {
+    asked.push(command);
+    return true;
+  };
+  const host = await render(call("in_progress", Date.now() - 2_000), runs);
+  await flush();
+  expect(host.querySelector(".cv-run-elsewhere-chip")?.textContent).toBe(translate("runElsewhere.chip"));
+  expect(asked).toEqual(["cargo test"]);
+  expect(runs.store.offerNow("t1")).toBe(true);
+});
+
+test("a command acpmux does not offer at once, or a failed ask, keeps the 20 s wait", async () => {
+  for (const offerNow of [async () => false, async () => Promise.reject(new Error("gone"))]) {
+    const { runs } = harness();
+    runs.client.offerNow = offerNow;
+    const host = await render(call("in_progress", Date.now() - 2_000), runs);
+    await flush();
+    expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+    await act(async () => root!.unmount());
+    root = undefined;
+  }
+});
+
 test("a machine that can take the run is picked first, the last one used before others", () => {
   const machines = [
     { name: "a", ok: false },

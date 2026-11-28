@@ -152,6 +152,15 @@ pub fn fetch_kind(command: &str) -> Option<&'static str> {
     None
 }
 
+/// Whether the chip offers to move `command` as soon as it starts, not after the usual slow-command
+/// delay: a big fetch (`fetch_kind`) that may run elsewhere (`command_refusal` lets it go). An
+/// install's download is the part a datacenter link and a warm cache save most on, so waiting 20 s
+/// first wastes the part that matters (download bridge, Leo-Ask-Trace: ask-4774198626). The server
+/// adds the other half: a machine that can take it now.
+pub fn offer_now(command: &str) -> bool {
+    fetch_kind(command).is_some() && command_refusal(command).is_none()
+}
+
 /// The program each simple command of a pipeline or list starts with, past `VAR=value`
 /// assignments, `env`, `time`, `nice` and `exec`, without a leading path (`/usr/bin/vim`: `vim`).
 fn programs(command: &str) -> Vec<String> {
