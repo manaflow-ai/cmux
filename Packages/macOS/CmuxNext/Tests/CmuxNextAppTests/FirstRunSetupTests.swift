@@ -337,6 +337,36 @@ import Testing
         #expect(setup.needsChiefAgent, "signed out still needs the card")
     }
 
+    /// The signed-out reply's Sign In (N5) runs Claude Code's login even when acpmux reads it as signed in (the turn
+    /// just failed on its sign-in: an expired token acpmux cannot see), and a Sign In asked while an install runs never
+    /// opens a second login after the install's own.
+    @Test func aRepliesSignInAlwaysOpensOneLogin() async throws {
+        let setup = FirstRunSetup(defaults: try defaults(), skipsOnboarding: true)
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)])
+        let model = setup.agents(source: source)
+        model.installFolders = []
+        defer { model.stop() }
+        let signIn = try #require(setup.checkChiefAgent(source: source))
+        #expect(setup.checkChiefAgent(source: source, here: false) == nil, "a Chief on its paired server gets no Sign In here")
+        await until { model.loaded }
+        signIn()
+        await until { source.signIns == ["claude"] }
+        #expect(source.signIns == ["claude"], "a signed-in read does not swallow the press")
+
+        source.agents = [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)]
+        model.refresh(recheck: true)
+        await until { !model.loading && model.installable.contains { $0.id == "claude" } }
+        source.holdNextRead = true
+        signIn()
+        model.install("claude")
+        await until { source.signIns.count == 2 }
+        source.heldRead?.resume()
+        model.cameBack()
+        model.refresh(recheck: true)
+        await until { !model.loading }
+        #expect(source.signIns == ["claude", "claude"], "the install's Sign In only, no second tab from the earlier press")
+    }
+
     /// Classic stable's save (no workspaces), as the launch's migration asks it: the app reads the daemon's preview
     /// into this offer (`AppOnboardingServices.classicOffer`), so the test's preview is the offer itself.
     private static let plan = FirstRunSetup.ClassicOffer(workspaces: 0, app: "cmux", savedAt: 1_793_000_000, running: false)

@@ -40,17 +40,21 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
   const [draftKey, setDraftKey] = useState("");
   const [draftValue, setDraftValue] = useState(choices?.[0]?.value ?? "");
   const [invalid, setInvalid] = useState(false);
+  const [emptyValue, setEmptyValue] = useState(false);
   const write = (next: Record<string, string>) => void store.set(row.key, next);
   const add = () => {
     const key = draftKey.trim();
     if (key === "") return;
-    if (!isMapKey(key) || draftValue === "") return setInvalid(true);
+    if (!isMapKey(key)) return setInvalid(true);
+    // An empty value marks its own field (Saved Prompts' prompt), not the name, which is fine.
+    if (draftValue === "") return setEmptyValue(true);
     setInvalid(false);
+    setEmptyValue(false);
     setDraftKey("");
     write({ ...map, [key]: draftValue });
   };
   const placeholder = mapPlaceholders(row.key);
-  const valueControl = (current: string, onChange: (next: string) => void, hint?: string) =>
+  const valueControl = (current: string, onChange: (next: string) => void, hint?: string, missing = false) =>
     choices ? (
       <Select value={current} disabled={disabled} labelId={labelId} onChange={onChange}>
         {choices.map((choice) => (
@@ -68,6 +72,7 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
         placeholder={hint}
         disabled={disabled}
         aria-labelledby={labelId}
+        aria-invalid={missing || undefined}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
     );
@@ -116,7 +121,17 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
             if (invalid) setInvalid(false);
           }}
         />
-        <span data-map-new-value="">{valueControl(draftValue, setDraftValue, placeholder.value)}</span>
+        <span data-map-new-value="">
+          {valueControl(
+            draftValue,
+            (next) => {
+              setDraftValue(next);
+              if (emptyValue) setEmptyValue(false);
+            },
+            placeholder.value,
+            emptyValue,
+          )}
+        </span>
         <Button type="submit" className="button" data-map-add="" disabled={disabled}>
           {t("settingsPage.add")}
         </Button>

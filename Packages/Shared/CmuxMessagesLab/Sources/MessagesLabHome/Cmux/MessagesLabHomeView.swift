@@ -239,7 +239,7 @@ public final class MessagesLabHomeView: NSView {
         set { projection.onChiefRetry = newValue }
     }
     /// A signed-out Chief turn's card's Sign In; nil offers none.
-    public var onChiefSignIn: (() -> Void)? {
+    public var onChiefSignIn: (@MainActor @Sendable () -> Void)? {
         get { projection.onChiefSignIn }
         set { projection.onChiefSignIn = newValue; projection.refreshTurnFailureStates() }
     }

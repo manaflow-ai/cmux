@@ -119,6 +119,13 @@ class HqToolTests(unittest.TestCase):
         self.assertEqual(argv, [sys.executable, "-I", "-B", str(hq / "scripts" / "lib" / "hq_installed.py"), "exec",
                                 "scripts/cmux-next-receipts.py", str(hq), "plan", "--root", "x"])
 
+    def test_a_release_path_in_a_step_names_the_current_link(self) -> None:
+        # Pruning deletes old releases; a step names `current`, which always exists.
+        line = "& /u/.local/share/cmux/hq-tools/versions/" + "c5" * 20 + "/build-fleet/rust-builder/rbx --lane x -- cargo test"
+        self.assertEqual(gate_plan.stable_release_paths(line),
+                         "& /u/.local/share/cmux/hq-tools/current/build-fleet/rust-builder/rbx --lane x -- cargo test")
+        self.assertEqual(gate_plan.stable_release_paths("cmux-ci run --ref " + "ab" * 20), "cmux-ci run --ref " + "ab" * 20)
+
     def test_checkout_code_on_request_or_outside_a_checkout_runs_the_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             hq = self.checkout(Path(tmp))
