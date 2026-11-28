@@ -44,6 +44,8 @@ async fn a_query_the_host_never_answers_times_out() {
         claude_translator: false,
         host_level: 0,
         holder: None,
+        local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     };
     // A fake host: answers hello, then reads every frame and answers none.
     tokio::spawn(async move {
@@ -55,6 +57,7 @@ async fn a_query_the_host_never_answers_times_out() {
             host_build: "fake".into(),
             incarnation: "inc".into(),
             harness_pid: None,
+            harness_start: None,
             last_h: 0,
             acked_h: 0,
             max_out_id: 0,

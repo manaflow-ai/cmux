@@ -7,14 +7,18 @@
    holds the base: a merge-combination break (iOS regressions rows 4, 5, 7) fails here, not after landing.
    --no-merge-base skips it. A conflict stops with the files to resolve.
 2. Select. cmux-next-ios/FlowSuite/select_flows.py picks the flows the diff can affect (flows.json).
-3. Run, in parallel, on the warm pool (env CMUX_IOS_VERIFY_WORKERS, default cmux22,cmux23; never cosmic-gray or
-   air-blue): one `cmux-ci run --class simulator` per shard of `test only=KIT ui=UI video` against
-   scripts/ci/cmux-next-ios-sim.sh, pinned (--target-worker) so each worker's cached DerivedData, FFI/cargo cache and
-   booted slim simulator (--sim-features none) are reused; `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
+3. Run, in parallel, on the simulator fleet: two shards by default, placed by the controller. Explicit --workers
+   (or env CMUX_IOS_VERIFY_WORKERS; never cosmic-gray or air-blue) selects worker hints, one shard per worker.
+   Each `cmux-ci run --class simulator` runs `test only=KIT ui=UI video` against scripts/ci/cmux-next-ios-sim.sh,
+   reusing cached DerivedData, FFI/cargo cache and a slim simulator (--sim-features none); `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
    reconnects) when a selected flow has "pair_e2e": true; the flows' `scripts` here. A flow's macOS `swift` tests
    are named as delegated to pr-pipeline's mac job, which runs them on the same head.
 4. Compare. Each screenshot is diffed against the newest passing ios-flows proof on a PR merged into the base (the
-   last green build's captures); a change is evidence, not a failure. No baseline yet is said as such.
+   last green build's captures). A screen whose changed pixels pass 1% (channel tolerance 16, ios_gate_screen_diff.py's
+   threshold) fails the proof unless a `Visual-change: <screen or family/screen or *>: <why>` line in the PR body (its
+   grammar) says it is wanted (Leo, 2026-11-27: "i think even y'all didnt even look at sceenshots for those do we have
+   that kinda loop?"). Smaller changes, new and missing screens stay evidence. No baseline yet, a size change or an
+   unreadable screen judges nothing: missing screenshots never block.
 5. Post. The proof record (scripts/ci/proof_record.py, ci/proof-record/) goes on the PR keyed to the head, and the
    PR's `cmux/ios-fast` gate job is rerun so it reads it: the gate needs a passing proof at the current head.
 
@@ -43,13 +47,24 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO_ROOT / "cmux-next-ios" / "FlowSuite"))
+import ios_gate_screen_diff  # noqa: E402
 import proof_record  # noqa: E402
 import select_flows  # noqa: E402
+
+# The loop runs from the PR's checkout, so a head older than a fix to the loop runs the old loop. Merging the base
+# into the head (merge_base_first) brings the fix, but only onto disk; the old code is still the one running and
+# posting. cmux#57582's head predated #62103, so its proof named a fleet host and public-body-guard refused it.
+# TOOL holds the loop's files as this process loaded them; when the merge changes one, main() re-executes the merged
+# loop, which then verifies and posts.
+TOOL = (HERE / "ios_verify.py", HERE / "proof_record.py", Path(select_flows.__file__).resolve())
+TOOL_LOADED = {f: f.read_bytes() for f in TOOL}
+REEXEC_HEAD = "CMUX_IOS_VERIFY_MERGED_HEAD"
 
 SUITE = "ios-flows"
 SIM_SCRIPT = "scripts/ci/cmux-next-ios-sim.sh"
 ARTIFACT = "artifacts/ios-sim/evidence.zip"
-DEFAULT_WORKERS = "cmux22,cmux23"
+DEFAULT_SHARDS = 2
+LEGACY_WORKERS = ("cmux22", "cmux23")  # Scrub old worker names from public proof text too.
 FORBIDDEN_WORKERS = {"cosmic-gray", "air-blue"}
 GATE_JOB = "ios fast verdict status"
 BROKER_ID = re.compile(r"through the broker as (\S+)")
@@ -69,6 +84,8 @@ def xcode_label(pins: Path = XCODE_PINS) -> str | None:
         if len(parts) == 2 and parts[0].isdigit():
             rows.append((int(parts[0]), parts[1]))
     return f"xcode-{max(rows)[1]}" if rows else None
+# Above this a changed screen needs a Visual-change line (ios_gate_screen_diff.CHANGED_RATIO).
+FAIL_RATIO = ios_gate_screen_diff.CHANGED_RATIO
 
 
 def now() -> str:
@@ -95,26 +112,30 @@ def workers_from(spec: str) -> list[str]:
     bad = [w for w in out if w.split(".")[0] in FORBIDDEN_WORKERS]
     if bad:
         raise SystemExit(f"ios verify: {', '.join(bad)} take no builds (Leo's GUI Macs); pick fleet minis")
-    return out or [w for w in DEFAULT_WORKERS.split(",")]
+    return out
 
 
 # ---------- plan ----------
 
 def plan(selection: dict, flows: list[dict], workers: list[str], pair: str) -> list[dict]:
-    """The cmux-ci simulator runs for SELECTION, one per worker shard, plus pair-e2e when it applies."""
+    """Plan automatic fleet shards, or one shard per explicit worker, plus pair-e2e when it applies."""
     steps = []
-    lines = select_flows.sim_args(selection, len(workers)) if selection["ios"] else []
+    placements = workers or [None] * DEFAULT_SHARDS
+    lines = select_flows.sim_args(selection, len(placements)) if selection["ios"] else []
     for i, line in enumerate(lines):
         words = line.split()
         if words[0] == "test":
             words.append("video")
         steps.append({"name": f"sim {i + 1}/{len(lines)}: {line}", "mode": words[0], "args": words,
-                      "worker": workers[i % len(workers)]})
+                      "worker": placements[i % len(placements)]})
+    if pair == "never":
+        steps = [s for s in steps if s["mode"] != "pair-e2e"]
     chosen = {f["id"] for f in flows if f["id"] in selection["flows"]}
     wants_pair = any(f.get("pair_e2e") for f in flows if f["id"] in chosen)
-    if selection["ios"] and (pair == "always" or (pair == "auto" and wants_pair)):
+    has_pair = any(s["mode"] == "pair-e2e" for s in steps)  # sim_args already names it (with its words)
+    if selection["ios"] and not has_pair and (pair == "always" or (pair == "auto" and wants_pair)):
         steps.append({"name": "pair-e2e: tagged Mac pairs, drops, reconnects", "mode": "pair-e2e",
-                      "args": ["pair-e2e"], "worker": workers[len(steps) % len(workers)]})
+                      "args": ["pair-e2e"], "worker": placements[len(steps) % len(placements)]})
     return steps
 
 
@@ -130,7 +151,7 @@ def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str 
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
     workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}-{digest}"
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker'] or 'auto'}-{digest}"
 
 
 def stream(cmd: list[str], tag: str) -> tuple[int, str]:
@@ -147,12 +168,14 @@ def stream(cmd: list[str], tag: str) -> tuple[int, str]:
 
 def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", step_key(step, head, pr, strict, attempt), "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr, strict, attempt),
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     label = xcode_label()
     if label:
         cmd += ["--label", label]
+    if step["worker"]:
+        cmd += ["--target-worker", step["worker"]]
     if strict:
         cmd.append("--pin-strict")
     for a in step["args"]:
@@ -193,15 +216,20 @@ def diff_ratio(a: Path, b: Path) -> float | None:
     try:
         from PIL import Image, ImageChops
     except ImportError:
-        return None
+        # No Pillow: the gate's stdlib decoder; a size change or an unreadable file is not judged.
+        d = ios_gate_screen_diff.diff_images(a.read_bytes(), b.read_bytes())
+        return None if d.note else round(d.ratio, 4)
     with Image.open(a) as x, Image.open(b) as y:
         if x.size != y.size:
-            return 1.0
+            return None  # another device or scale: not comparable, so not judged
         d = ImageChops.difference(x.convert("RGB"), y.convert("RGB")).convert("L").point(lambda v: 255 if v > 16 else 0)
         return round(sum(1 for v in d.getdata() if v) / (x.size[0] * x.size[1]), 4)
 
 
-def compare(shots: list[Path], base: dict[str, Path]) -> list[dict]:
+def compare(shots: list[Path], base: dict[str, Path], body: str = "") -> list[dict]:
+    """Each screen's verdict against BASE. A changed screen over FAIL_RATIO is marked `unjustified` unless a
+    Visual-change line in BODY covers it (then it carries the `why`); its family is the folder it was captured in."""
+    lines = ios_gate_screen_diff.justifications(body)
     out = []
     for s in shots:
         rec = {"name": s.name, "sha256": hashlib.sha256(s.read_bytes()).hexdigest()}
@@ -214,6 +242,12 @@ def compare(shots: list[Path], base: dict[str, Path]) -> list[dict]:
             r = diff_ratio(s, b)
             rec["diff_ratio"] = r
             rec["verdict"] = "same" if r is not None and r <= SAME_RATIO else "changed"
+            if r is not None and r > FAIL_RATIO:
+                why = ios_gate_screen_diff.justify(s.parent.name, s.name, lines)
+                if why:
+                    rec["why"] = why
+                else:
+                    rec["unjustified"] = True
         out.append(rec)
     for name in sorted(set(base) - {s.name for s in shots}):
         out.append({"name": name, "verdict": "missing"})
@@ -292,14 +326,26 @@ def visual(captures: list[dict], base_meta: dict | None, video: str | None) -> d
     changed = [c["name"] for c in captures if c["verdict"] in ("changed", "new", "missing")]
     return {"screens": sum(1 for c in captures if c["verdict"] != "missing"), "baselined": base_meta is not None,
             "baseline_source": (base_meta or {}).get("source", "none"),
-            "changed": changed, "video": bool(video), "diffed": base_meta is not None and bool(captures)}
+            "changed": changed, "unjustified": unjustified(captures),
+            "video": bool(video), "diffed": base_meta is not None and bool(captures)}
+
+
+def unjustified(captures: list[dict]) -> list[str]:
+    return [c["name"] for c in captures if c.get("unjustified")]
+
+
+def verdict(runs: list[dict], captures: list[dict]) -> str:
+    """fail when a run failed or a screen changed past FAIL_RATIO with no Visual-change line; else pass."""
+    if any(r["result"] in ("fail", "error") for r in runs) or unjustified(captures):
+        return "fail"
+    return "pass"
 
 
 # ---------- PR ----------
 
 def pr_view(pr: str | None, repo: str | None) -> dict:
     args = ["pr", "view"] + ([pr] if pr else []) + ["--json",
-            "number,headRefName,headRefOid,baseRefName,url,isCrossRepository"]
+            "number,headRefName,headRefOid,baseRefName,url,isCrossRepository,body"]
     if repo:
         args += ["--repo", repo]
     return gh_json(*args)
@@ -355,6 +401,16 @@ def public_runs(runs: list[dict]) -> list[dict]:
     return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
 
 
+def scrub_hosts(body: str, hosts: list[str]) -> str:
+    """BODY with every fleet host in HOSTS (and its short name) said as `a fleet worker`. The posted proof is PR text,
+    and a public repo's PR text names no fleet host (public-body-guard refused it on cmux#61688, #57488, #57672): this
+    covers any field a host reaches, not only the run worker public_runs drops. The gate reads no host."""
+    names = {n for h in hosts if h for n in (h, h.split(".")[0]) if len(n) >= 3}
+    for n in sorted(names, key=len, reverse=True):
+        body = re.sub(rf"(?<![\w.-]){re.escape(n)}(?![\w-])", "a fleet worker", body)
+    return body
+
+
 def summary_md(record: dict) -> str:
     t = record["timing"]
     lines = [f"**`cmux ios verify`** at `{record['head_sha'][:10]}`: **{record['verdict']}**"
@@ -367,9 +423,25 @@ def summary_md(record: dict) -> str:
     lines += ["", f"Screens: {len(record.get('captures', []))}, " +
               (f"vs #{b['pr']} at `{b['sha'][:10]}`: {len(changed)} differ" + (f" ({', '.join(changed[:8])})" if changed else "")
                if b else "no baseline yet (no passing proof merged into the base)")]
+    bad = unjustified(record.get("captures", []))
+    if bad:
+        lines.append(f"**{len(bad)} screens changed over {FAIL_RATIO:.0%} with no `Visual-change:` line** "
+                     f"({', '.join(bad[:8])}): fix them, or add `Visual-change: <screen>: <why>` to the PR body and rerun.")
     if record.get("merged_base"):
         lines.append(f"The base was merged into the head first ({record['base_sha'][:10]}).")
     return "\n".join(lines)
+
+
+def tool_changed() -> bool:
+    """Whether the loop's files on disk differ from the ones this process loaded."""
+    return any(not f.exists() or f.read_bytes() != TOOL_LOADED[f] for f in TOOL)
+
+
+def reexec(head: str, argv: list[str]) -> None:
+    """Run the merged loop in place of this one, at HEAD (already merged and pushed), so the merged code posts."""
+    print(f"ios verify: merging the base changed the loop; running the merged loop at {head[:10]}", file=sys.stderr)
+    os.execve(sys.executable, [sys.executable, "-I", str(HERE / "ios_verify.py"), *argv],
+              {**os.environ, REEXEC_HEAD: head})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -377,7 +449,8 @@ def main(argv: list[str] | None = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pr")
     ap.add_argument("--repo")
-    ap.add_argument("--workers", default=os.environ.get("CMUX_IOS_VERIFY_WORKERS", DEFAULT_WORKERS))
+    ap.add_argument("--workers", default=os.environ.get("CMUX_IOS_VERIFY_WORKERS", ""),
+                    help="comma-separated worker hints; by default the fleet places two shards")
     ap.add_argument("--pair-e2e", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
@@ -388,14 +461,20 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     t_start = time.monotonic()
     workers = workers_from(a.workers)
+    if a.pin_strict and not workers:
+        ap.error("--pin-strict requires --workers or CMUX_IOS_VERIFY_WORKERS")
     view = pr_view(a.pr, a.repo)
     repo = a.repo or view["url"].split("github.com/")[1].rsplit("/pull/", 1)[0]
     merged = False
-    if a.no_merge_base or a.plan:
+    if os.environ.get(REEXEC_HEAD):
+        head, merged = os.environ[REEXEC_HEAD], True
+    elif a.no_merge_base or a.plan:
         git("fetch", "-q", "origin", view["baseRefName"], check=False)
         head = view["headRefOid"]
     else:
         head, merged = merge_base_first(view)
+        if merged and tool_changed():
+            reexec(head, sys.argv[1:] if argv is None else argv)
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
@@ -420,7 +499,7 @@ def main(argv: list[str] | None = None) -> int:
             shots += [p for p in got if p.suffix == ".png"]
             video = video or next((str(p.relative_to(work)) for p in got if p.name == "ui-video-small.mp4"), None)
     base_meta, base_shots = baseline(repo, view["baseRefName"], work)
-    captures = compare(shots, base_shots)
+    captures = compare(shots, base_shots, view.get("body") or "")
     proof_at = now()
     pushed = pushed_at(repo, head)
     p2p = int((dt.datetime.fromisoformat(proof_at.replace("Z", "+00:00"))
@@ -433,15 +512,19 @@ def main(argv: list[str] | None = None) -> int:
         "runs": public_runs(runs),
         "captures": captures, "baseline": base_meta, "video": video,
         "visual": visual(captures, base_meta, video),
-        "verdict": "fail" if any(r["result"] in ("fail", "error") for r in runs) else "pass",
+        "verdict": verdict(runs, captures),
         "timing": {"pushed_at": pushed, "proof_at": proof_at, "push_to_proof_s": p2p,
                    "verify_s": round(time.monotonic() - t_start)},
         "tool": "scripts/ci/ios_verify.py@" + git("rev-parse", "--short=12", "HEAD", check=False),
     }
+    for name in unjustified(captures):
+        print(f"FAIL {name}: changed over {FAIL_RATIO:.0%} of pixels vs the baseline, no Visual-change line", file=sys.stderr)
     for r in runs:
         if r["result"] in ("fail", "error"):
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
-    body = proof_record.render(record, summary_md(record))
+    body = scrub_hosts(proof_record.render(record, summary_md(record)),
+                       [*workers, *LEGACY_WORKERS, *FORBIDDEN_WORKERS, os.uname().nodename,
+                        *(r.get("worker", "") for r in runs)])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:
