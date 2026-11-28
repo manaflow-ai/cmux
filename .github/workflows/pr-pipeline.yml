@@ -386,6 +386,10 @@ jobs:
             && CI_PATHS_FILE="$lines" python3 -I scripts/ci/web_subareas.py has agent_pane; then
             echo "routed=true" >> "$GITHUB_OUTPUT"
           fi
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        if: ${{ steps.acpmux.outputs.routed == 'true' }}
+        uses: ./.github/actions/runner-cargo-home
       - name: Restore the agent pane's acpmux cargo build
         if: ${{ steps.acpmux.outputs.routed == 'true' }}
         continue-on-error: true

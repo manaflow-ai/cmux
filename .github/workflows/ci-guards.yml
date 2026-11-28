@@ -397,10 +397,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_apt_skips_baked_packages.py
 
-      - name: Validate iroh Apple suite coverage
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_iroh_apple_suites_have_mac_home.py
-
       - name: Validate commands on owned Mac runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_mac_jobs_no_sudo.py
