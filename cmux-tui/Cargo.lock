@@ -3571,6 +3571,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-transcript-view"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
