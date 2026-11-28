@@ -239,9 +239,10 @@ impl Client {
         // Whether it runs in an acpmux session's environment, said positively: only a terminal
         // declaration may be the owner's own send (`cli_caller.rs`).
         crate::cli_caller::declare(&mut meta, caller);
-        // The ABI range this client speaks (`protocol/range.rs`): a daemon that shares none with
-        // it refuses the hello typed, and one from before the check ignores the keys.
-        meta.insert("abi".to_owned(), json!(crate::protocol::ABI));
+        // The ABI hello (`abi_hello.rs`): this build's revision and build id; with the oldest
+        // revision it speaks (`protocol/range.rs`), a daemon that shares none with it refuses the
+        // hello typed, and one from before the check ignores the keys.
+        crate::abi_hello::stamp(&mut meta);
         meta.insert(
             crate::protocol::range::ABI_MIN_FIELD.to_owned(),
             json!(crate::protocol::range::ABI_MIN),

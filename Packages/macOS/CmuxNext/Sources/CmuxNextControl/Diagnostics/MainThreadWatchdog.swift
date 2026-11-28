@@ -122,9 +122,10 @@ public final class MainThreadWatchdog: Sendable {
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
     let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64, cpuNanos: UInt64)]>([])
     /// The process's fault counters and the host's memory when the watchdog first sampled the
-    /// stall of `beat`: the base of its hang file's page-ins and memory line (+Episodes).
-    /// Watchdog thread only (uncontended).
-    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?, memory: HostMemory?)?>(nil)
+    /// stall of `beat`: the base of its hang file's page-ins and memory line (+Episodes), and the
+    /// highest host load read since (``stallHost(beat:)``). The watchdog thread, and the main
+    /// thread once as the stall ends.
+    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?, memory: HostMemory?, host: HostLoad?)?>(nil)
     let hangNanos: UInt64
     let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -387,6 +388,10 @@ public final class MainThreadWatchdog: Sendable {
         var cpuNanos: UInt64
         var addresses: [UInt]
         var details: [String: JSONValue]
+        /// The highest host load read while the stall ran (``stallHost(beat:)``).
+        var host: HostLoad?
+        /// This process's CPU in cores since the watchdog sampled the stall (``stallProcessCores(beat:)``).
+        var processCores: Double?
     }
 
     /// The part of a stall's record that must be read before the next heartbeat is published: the
@@ -414,7 +419,8 @@ public final class MainThreadWatchdog: Sendable {
             lastHangUptime.store(start &+ nanos, ordering: .releasing)
             hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } }
         }
-        return EndedStall(start: start, nanos: nanos, cpuNanos: cpuNanos, addresses: addresses, details: details)
+        return EndedStall(start: start, nanos: nanos, cpuNanos: cpuNanos, addresses: addresses, details: details,
+                          host: stallHost(beat: beat), processCores: stallProcessCores(beat: beat))
     }
 
     /// The rest of a stall's record, once the next heartbeat is published: its verdict, the log
@@ -422,11 +428,15 @@ public final class MainThreadWatchdog: Sendable {
     private func finishStall(_ stall: EndedStall) {
         let (start, nanos, cpuNanos, addresses) = (stall.start, stall.nanos, stall.cpuNanos, stall.addresses)
         var details = stall.details
-        // Our code, or the Mac (StallVerdict): main-thread CPU against wall time, and the host load.
-        let host = HostLoad.current()
+        // Our code, or the Mac (StallVerdict): main-thread CPU against wall time, and the most host load seen meanwhile.
+        let host = stall.host
         let verdict = StallVerdict.classify(wall: .nanoseconds(Int64(clamping: nanos)), mainThreadCPU: .nanoseconds(Int64(clamping: cpuNanos)),
                                             host: host)
         details["verdict"] = .string(verdict.rawValue)
+        let cause = StallCause.classify(verdict: verdict, wall: .nanoseconds(Int64(clamping: nanos)),
+                                        mainThreadCPU: .nanoseconds(Int64(clamping: cpuNanos)), processCores: stall.processCores, host: host)
+        if let cause { details["cause"] = .string(cause.rawValue) }
+        if let cores = stall.processCores { details["process_cores"] = .number(cores) }
         if let host {
             details["host_load_1m"] = .number(host.one)
             details["host_cores"] = .number(Double(host.cores))
@@ -435,7 +445,7 @@ public final class MainThreadWatchdog: Sendable {
                                 cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses, details: details)
         if configuration.logStalls {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
-            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms, \(verdict.rawValue, privacy: .public): main thread cpu \(record.cpu.fractionalMilliseconds, format: .fixed(precision: 1)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
+            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms, \(verdict.rawValue, privacy: .public) (\(cause?.rawValue ?? "unknown", privacy: .public)): main thread cpu \(record.cpu.fractionalMilliseconds, format: .fixed(precision: 1)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
         stallSink.load()?(record)
     }
@@ -473,7 +483,7 @@ public final class MainThreadWatchdog: Sendable {
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
                 // A few syscalls per sampled stall: the base of a hang's page-in count and memory line.
-                stallEvents.withLock { $0 = (beat, TaskEventCounts.current(), HostMemory.current()) }
+                stallEvents.withLock { $0 = (beat, TaskEventCounts.current(), HostMemory.current(), HostLoad.current()) }
                 if let sampler {
                     let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.

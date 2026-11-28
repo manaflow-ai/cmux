@@ -23,6 +23,36 @@ import Testing
         daemon.recorded.filter { $0["cmd"] as? String == cmd }
     }
 
+    @Test func passiveMacGridSurvivesLayoutForegroundAndReconnectWithoutSizeClaims() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        let channels = ChannelLog()
+        let session = session(daemon, channels: channels)
+        session.setPreservesHostGrid(true)
+        session.resize(columns: 54, rows: 42)
+        var seen: [TerminalSessionEvent] = []
+        session.start { seen.append($0) }
+        defer { session.stop() }
+        try await waitUntil { session.isAttached }
+        session.setClaimsSize(true)
+        session.setClaimsSize(false)
+        session.resize(columns: 42, rows: 20)
+        session.setClaimsSize(true)
+        session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 120, "rows": 40,
+                                                "data": Data("Mac width".utf8).base64EncodedString()]))
+        let grid = try #require(seen.lastIndex(of: .hostGrid(columns: 120, rows: 40)))
+        let output = try #require(seen.lastIndex(of: .output(Data("Mac width".utf8))))
+        #expect(grid < output, "passive terminals must deliver the Mac grid before its bytes without a reclaim hold")
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        try await settle()
+        #expect(commands(daemon, "attach-surface").count >= 2)
+        #expect(commands(daemon, "attach-surface").allSatisfy { $0["cols"] == nil && $0["rows"] == nil })
+        #expect(commands(daemon, "resize-surface").isEmpty)
+    }
+
     @Test func aHiddenTerminalReleasesItsSize() async throws {
         let daemon = FakeTerminalDaemon()
         let session = session(daemon)

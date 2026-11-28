@@ -16,7 +16,13 @@
  * Slots are written through to storage, since the object may be evicted while a create holds one, and each slot is a
  * lease: a Worker that dies mid-create gives its slot back once `leaseMs` passes. Waiters live in memory only; a
  * waiter's call is pending, which keeps the object alive, and a lost waiter (the object restarted) fails its RPC,
- * which the caller treats as "admission unavailable" and sends anyway.
+ * which the caller treats as a retryable admission failure.
+ *
+ * A background create (a spare the platform makes ahead of anyone asking, `x-cmux-create-priority: background`) waits
+ * behind every person's create: it joins the queue after them, and background creates hold at most `cap - 1` slots, so
+ * one slot is always left for a person. Staging, 2026-11-27 14:00-15:00Z: the platform's spare fills made 123 VMs
+ * while 341 creates were admitted and 1089 of 1430 attempts were refused (queue_full or wait_expired); a person's or a
+ * journey's create was refused behind spares no one was waiting on.
  */
 import { Schema } from "effect";
 import type { LedgerStorage } from "./storage.ts";
@@ -38,8 +44,43 @@ export const DEFAULT_CREATE_CONCURRENCY = 3;
  */
 export const DEFAULT_CREATE_QUEUE_WAIT_MS = 25_000;
 
-/** A slot outlives the provider create's own 120 s timeout plus its recovery read, then frees itself. */
-export const CREATE_SLOT_LEASE_MS = 130_000;
+/**
+ * What a create needs after its slot comes: the provider create at its staging median (14.4 s at 1 to 3 in flight),
+ * reads and records, and the platform's attach after it. A create that names its deadline (`x-cmux-create-deadline`)
+ * waits for a slot until this long before it, so an admitted create still has time to finish.
+ */
+export const CREATE_DEADLINE_MARGIN_MS = 30_000;
+
+/**
+ * The longest a create that names its deadline waits for a slot: under the platform's 270 s call (CloudProvider
+ * CREATE_TIMEOUT_MS) less the margin above.
+ */
+export const CREATE_QUEUE_WAIT_CEILING_MS = 240_000;
+
+/**
+ * How long this create may wait for a slot. With no deadline: the configured wait. With one: the time left before it
+ * less the margin, at most the ceiling; negative when even an admitted create could not finish in time, which the
+ * queue refuses at once. Staging 2026-11-28 01:13Z (cmux-platform#2217, synthetic-probes run 46090609354): with a
+ * fixed 25 s per try, 3 slots held up to 250 s refused all 4 tries of a person's create until create_overdue at 300 s.
+ */
+export const queueWaitFor = (settings: CreateAdmissionSettings, deadlineAt: number | undefined, now: number): number =>
+  deadlineAt === undefined || !Number.isFinite(deadlineAt)
+    ? settings.queueWaitMs
+    : Math.min(CREATE_QUEUE_WAIT_CEILING_MS, Math.floor(deadlineAt - now - CREATE_DEADLINE_MARGIN_MS));
+
+/**
+ * How long a create's provider call may run, its background polls included (upstream/live-create.ts): under the 300 s
+ * a caller's create waits. The slot is held for all of it, so the lease derives from it. 45 s, not 240 s: a create the
+ * provider holds gives its slot back sooner (CREATE_SEND_TIMEOUT_MS has the staging data; a patch, not the cause).
+ */
+export const PROVIDER_CREATE_BUDGET_MS = 45_000;
+
+/**
+ * A slot outlives the longest provider call it covers, then frees itself (a Worker that died mid-create). It was a
+ * fixed 130 s, sized for the old 120 s cut; once a slow create became a background request polled for up to
+ * PROVIDER_CREATE_BUDGET_MS (cmux#61044), a 130 s lease freed a slot still in use and let a fourth create in.
+ */
+export const CREATE_SLOT_LEASE_MS = PROVIDER_CREATE_BUDGET_MS + 10_000;
 
 /** The first hold estimate: the median staging create at 1 to 3 in flight (14.4 s). Learned from releases after. */
 export const INITIAL_HOLD_MS = 14_000;
@@ -69,7 +110,7 @@ export const CreateRefused = Schema.Struct({
 export const CreateAdmission = Schema.Union(CreateAdmitted, CreateRefused);
 export type CreateAdmission = typeof CreateAdmission.Type;
 
-const Slot = Schema.Struct({ startedMs: Schema.Number, untilMs: Schema.Number });
+const Slot = Schema.Struct({ startedMs: Schema.Number, untilMs: Schema.Number, background: Schema.optional(Schema.Boolean), tenant: Schema.optional(Schema.String) });
 const isSlot = Schema.is(Slot);
 type Slot = typeof Slot.Type;
 const PREFIX = "create-slot:";
@@ -93,6 +134,8 @@ const quietly = (write: Promise<unknown>) => { write.catch(() => undefined); };
 
 interface Waiter {
   readonly holder: string;
+  readonly background: boolean;
+  readonly tenant: string | undefined;
   readonly arrivedMs: number;
   readonly settings: CreateAdmissionSettings;
   readonly answer: (outcome: CreateAdmission) => void;
@@ -118,28 +161,37 @@ export class CreateAdmissionQueue {
 
   /**
    * A slot for `holder`, now or after a first-come wait, or a refusal: at once when the wait ahead is already past
-   * `queueWaitMs`, else when that much time passes without a slot. A holder that already has a slot keeps it.
+   * `queueWaitMs`, else when that much time passes without a slot. A holder that already has a slot keeps it. A
+   * `background` create waits behind every person's create and holds at most `cap - 1` slots with the other background
+   * creates (`backgroundCap`).
    */
-  async admit(holder: string, settings: CreateAdmissionSettings): Promise<CreateAdmission> {
+  async admit(holder: string, settings: CreateAdmissionSettings, background = false, tenant?: string): Promise<CreateAdmission> {
     const slots = await this.load();
     // From here to the end of this step nothing awaits: the check and the take see the same slots.
     const now = this.clock.now();
     this.expire(slots, now);
     const held = slots.get(holder);
     if (held !== undefined) {
-      this.take(slots, holder, held.startedMs, now, settings);
+      this.take(slots, holder, held.startedMs, now, settings, held.background === true, held.tenant);
       return { admitted: true, waitedMs: 0, inFlight: slots.size, queued: this.waiters.length };
     }
-    if (this.waiters.length === 0 && slots.size < settings.cap) {
-      this.take(slots, holder, now, now, settings);
-      return { admitted: true, waitedMs: 0, inFlight: slots.size, queued: 0 };
+    // Past its deadline (less the margin, queueWaitFor): no create sent now could finish, so nothing is sent.
+    if (settings.queueWaitMs < 0) {
+      return { admitted: false, reason: "queue_full", waitedMs: 0, inFlight: slots.size, queued: this.waiters.length, retryAfterMs: 0 };
     }
-    const estimate = this.estimateMs(this.waiters.length + 1, slots, now, settings);
+    // Serve eligible older waiters first. A tenant at its share cannot block other tenants.
+    this.pump(slots, now);
+    const ahead = background ? this.waiters.length : this.foregroundWaiting();
+    if (this.canTake(slots, settings, background, tenant)) {
+      this.take(slots, holder, now, now, settings, background, tenant);
+      return { admitted: true, waitedMs: 0, inFlight: slots.size, queued: this.waiters.length };
+    }
+    const estimate = this.estimateMs(ahead + 1, slots, now, settings);
     if (estimate > settings.queueWaitMs) {
       return { admitted: false, reason: "queue_full", waitedMs: 0, inFlight: slots.size, queued: this.waiters.length, retryAfterMs: estimate };
     }
     return new Promise<CreateAdmission>((answer) => {
-      const waiter: Waiter = { holder, arrivedMs: now, settings, answer, cancel: () => {} };
+      const waiter: Waiter = { holder, background, tenant, arrivedMs: now, settings, answer, cancel: () => {} };
       waiter.cancel = this.clock.after(settings.queueWaitMs, () => {
         const index = this.waiters.indexOf(waiter);
         if (index < 0) return;
@@ -150,7 +202,8 @@ export class CreateAdmissionQueue {
           retryAfterMs: this.estimateMs(this.waiters.length + 1, slots, at, settings),
         });
       });
-      this.waiters.push(waiter);
+      // A person's create goes after the people already waiting and before every background create.
+      this.waiters.splice(background ? this.waiters.length : this.foregroundWaiting(), 0, waiter);
       this.armLeaseTimer(slots);
     });
   }
@@ -179,8 +232,23 @@ export class CreateAdmissionQueue {
     return this.loading;
   }
 
-  private take(slots: Map<string, Slot>, holder: string, startedMs: number, now: number, settings: CreateAdmissionSettings) {
-    const slot = { startedMs, untilMs: now + settings.leaseMs };
+  /** The people's creates waiting: they are always the front of the queue. */
+  private foregroundWaiting(): number {
+    const first = this.waiters.findIndex((waiter) => waiter.background);
+    return first < 0 ? this.waiters.length : first;
+  }
+
+  /** Protect the same lane from both speculative work and a single tenant's burst. This is a transient
+   * provider-operation limit, independent of how many running machines a team is entitled to hold. */
+  private canTake(slots: Map<string, Slot>, settings: CreateAdmissionSettings, background: boolean, tenant?: string): boolean {
+    if (slots.size >= settings.cap) return false;
+    if (background && backgroundHeld(slots) >= backgroundCap(settings.cap)) return false;
+    if (tenant !== undefined && [...slots.values()].filter((slot) => slot.tenant === tenant).length >= backgroundCap(settings.cap)) return false;
+    return true;
+  }
+
+  private take(slots: Map<string, Slot>, holder: string, startedMs: number, now: number, settings: CreateAdmissionSettings, background = false, tenant?: string) {
+    const slot: Slot = { startedMs, untilMs: now + settings.leaseMs, ...(background ? { background: true } : {}), ...(tenant === undefined ? {} : { tenant }) };
     slots.set(holder, slot);
     quietly(this.storage.put(`${PREFIX}${holder}`, slot));
   }
@@ -193,14 +261,19 @@ export class CreateAdmissionQueue {
     }
   }
 
-  /** Free slots go to the waiters in arrival order; each one's own cap is the cap it asked under. */
+  /**
+   * Free slots go to the waiters in queue order (people first, then background creates, each in arrival order); each
+   * one's own cap is the cap it asked under, and a background create also its `backgroundCap`.
+   */
   private pump(slots: Map<string, Slot>, now: number) {
     this.expire(slots, now);
-    while (this.waiters.length > 0 && slots.size < (this.waiters[0]?.settings.cap ?? 0)) {
-      const waiter = this.waiters.shift();
+    for (;;) {
+      const index = this.waiters.findIndex((next) => this.canTake(slots, next.settings, next.background, next.tenant));
+      if (index < 0) break;
+      const [waiter] = this.waiters.splice(index, 1);
       if (waiter === undefined) break;
       waiter.cancel();
-      this.take(slots, waiter.holder, now, now, waiter.settings);
+      this.take(slots, waiter.holder, now, now, waiter.settings, waiter.background, waiter.tenant);
       waiter.answer({ admitted: true, waitedMs: now - waiter.arrivedMs, inFlight: slots.size, queued: this.waiters.length });
     }
     this.armLeaseTimer(slots);
@@ -235,26 +308,39 @@ export class CreateAdmissionQueue {
   }
 }
 
+/** The slots background creates may hold together: all but one, so a person's create always has one (a cap of 1: it). */
+export const backgroundCap = (cap: number) => Math.max(1, cap - 1);
+
+const backgroundHeld = (slots: Map<string, Slot>) => {
+  let held = 0;
+  for (const slot of slots.values()) if (slot.background === true) held++;
+  return held;
+};
+
 /** What a provider create asks before it sends (live-create.ts); null in UpstreamConfig means no queue. */
 export interface CreateAdmissionClient {
-  readonly admit: (holder: string) => Promise<CreateAdmission>;
+  /** `tenant`: whose share the slot counts against. `deadlineAt` (epoch ms): when the caller stops waiting for this create; the wait for a slot spans it (queueWaitFor). */
+  readonly admit: (holder: string, background?: boolean, tenant?: string, deadlineAt?: number) => Promise<CreateAdmission>;
   readonly release: (holder: string) => Promise<void>;
 }
 
 /** A queue in this isolate (tests, and any host with one process). */
 export const localCreateAdmission = (queue: CreateAdmissionQueue, settings: CreateAdmissionSettings): CreateAdmissionClient => ({
-  admit: (holder) => queue.admit(holder, settings),
+  admit: (holder, background, tenant, deadlineAt) =>
+    queue.admit(holder, { ...settings, queueWaitMs: queueWaitFor(settings, deadlineAt, Date.now()) }, background === true, tenant),
   release: (holder) => queue.release(holder),
 });
 
 interface CreateQueueStub {
-  admitCreate(holder: string, cap: number, queueWaitMs: number, leaseMs: number): Promise<unknown>;
+  admitCreate(holder: string, cap: number, queueWaitMs: number, leaseMs: number, background?: boolean, tenant?: string): Promise<unknown>;
   releaseCreate(holder: string): Promise<unknown>;
 }
 
 /** Live: the environment's one queue object. The answer crosses an RPC boundary, so it is decoded. */
 export const durableObjectCreateAdmission = (stubOf: () => CreateQueueStub, settings: CreateAdmissionSettings): CreateAdmissionClient => ({
-  admit: async (holder) => Schema.decodeUnknownSync(CreateAdmission)(await stubOf().admitCreate(holder, settings.cap, settings.queueWaitMs, settings.leaseMs)),
+  admit: async (holder, background, tenant, deadlineAt) => Schema.decodeUnknownSync(CreateAdmission)(
+    await stubOf().admitCreate(holder, settings.cap, queueWaitFor(settings, deadlineAt, Date.now()), settings.leaseMs, background === true, tenant),
+  ),
   release: async (holder) => { await stubOf().releaseCreate(holder); },
 });
 

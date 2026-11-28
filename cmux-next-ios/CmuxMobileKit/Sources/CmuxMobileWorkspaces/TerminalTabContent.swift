@@ -78,6 +78,13 @@ public protocol TerminalTabContent: AnyObject {
     /// New Tab from Text's `!command`: the command waits in the terminal's composer, typed and
     /// not run (the Mac's `newTab.submit` types it into the new terminal), with the keyboard up.
     func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace)
+    /// A prompt sent from the tab's Chat face (Toggle Terminal and Chat): typed into the terminal
+    /// with Return, since the terminal runs the session and its View Only chat takes no prompt.
+    /// False when the terminal cannot take it now.
+    func sendPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) -> Bool
+    /// Stop on the tab's Chat face: interrupts the agent's turn in the terminal (Esc). False when
+    /// the terminal cannot take it now.
+    func interruptAgent(for tab: WorkspaceTab, in workspace: Workspace) -> Bool
     /// Replaces the title pill's subtitle (the working directory) while the
     /// tab's state matters more, e.g. "Reattaching…" after a slow reattach
     /// (design/terminal P5). Nil keeps the directory. Read during view
@@ -117,6 +124,8 @@ extension TerminalTabContent {
     public func overviewScrollingChanged(_ scrolling: Bool) {}
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {}
+    public func sendPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) -> Bool { false }
+    public func interruptAgent(for tab: WorkspaceTab, in workspace: Workspace) -> Bool { false }
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
     public func sceneActiveChanged(_ active: Bool) {}
     public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}

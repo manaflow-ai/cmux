@@ -1,0 +1,45 @@
+name: Download an artifact from the fleet store
+description: >-
+  actions/download-artifact's inputs for artifacts that r2-artifact/upload kept in the fleet store
+  (R2). The job needs `permissions: id-token: write`. See ../artifact.py.
+inputs:
+  name:
+    description: The artifact's name; empty with no pattern downloads every artifact of the run.
+    default: ""
+  pattern:
+    description: A glob over artifact names; each match goes to path/<name> unless merge-multiple.
+    default: ""
+  path:
+    description: Where to put the files.
+    default: "."
+  merge-multiple:
+    description: Put every matched artifact's files straight into path.
+    default: "false"
+  run-id:
+    description: The run that uploaded it (any run of this repository); default this run.
+    default: ""
+  github-token:
+    description: Accepted for download-artifact's sake; the store signs with the job's OIDC token.
+    default: ""
+  repository:
+    description: Accepted for download-artifact's sake; only this repository's artifacts are readable.
+    default: ""
+outputs:
+  download-path:
+    description: The directory the files went to.
+    value: ${{ steps.download.outputs.download-path }}
+runs:
+  using: composite
+  steps:
+    - name: Download from the fleet store
+      id: download
+      shell: bash
+      env:
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_PATTERN: ${{ inputs.pattern }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_MERGE_MULTIPLE: ${{ inputs.merge-multiple }}
+        INPUT_RUN_ID: ${{ inputs.run-id }}
+      run: |
+        if [ "$RUNNER_OS" = Windows ]; then py=python; else py="$(command -v python3 || command -v python)"; fi
+        "$py" -I "$GITHUB_ACTION_PATH/../artifact.py" download

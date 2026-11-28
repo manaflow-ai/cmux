@@ -216,6 +216,15 @@ pub fn forget_command() -> String {
     format!("{ROOT}; root rm -f {STATE_FILE} {RUN_DIR}/node.state && echo cmux-tailnet-forgot")
 }
 
+/// One exec on a VM that resumed from a snapshot still running the node after the vault's lease
+/// moved to another VM: stop `tailscaled` and delete its copy of the state, so two machines never
+/// run one node. Not `leave`: that would sign out the node the new holder runs.
+pub fn stand_down_command() -> String {
+    format!(
+        "{ROOT}; {STOP}; root rm -f {STATE_FILE} {RUN_DIR}/node.state && echo cmux-tailnet-stood-down"
+    )
+}
+
 /// One exec on the old holder when the move failed: start `tailscaled` again on the state it
 /// kept, so the node is back where it was.
 pub fn restore_command() -> String {

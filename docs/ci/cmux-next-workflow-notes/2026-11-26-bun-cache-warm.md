@@ -10,3 +10,8 @@ fetches only what that cache lacks. A runner with an empty cache restores as bef
 and Freestyle runners, 12 spent 400-1,096 s in the Bun cache step. Job 137529287983 downloaded its 677 MB
 archive in 3 s and then spent 612 s in `tar -xf` before its gates ran. The repository variable
 `CI_BUN_CACHE_RESTORE_WARM=1` restores on every runner again.
+
+2026-11-27: every pool-runner job that restores the Bun cache now runs the same check (24 restores in 13
+workflows, cmux#61740 and the PR after it). `tests/test_ci_bun_cache_warm.py` is the detector: it fails on a
+pool-runner job (`cmux-linux`, the react shard runner) whose restore-only Bun cache step has no earlier `bun-warm`
+step or no `steps.bun-warm.outputs.warm != 'true'` guard.

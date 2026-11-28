@@ -7,13 +7,16 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, type ComponentProps } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { Composer as ComposerView, ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { setComposerSettings, type AttachmentView } from "../src/agent-session/acpmux/composerSettings";
+import type { AttachmentView } from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { setComposerSettings } = await importWithDom(() => import("../src/agent-session/acpmux/composerSettings"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

@@ -202,6 +202,10 @@ fn matches(pattern: &str, folder: &str) -> bool {
 
 /// POSIX `fnmatch(pattern, string, 0)`: `*`, `?`, `[set]` (`!` or `^` negates, ranges) and `\` escapes;
 /// `/` and a leading `.` are ordinary characters.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn fnmatch(pattern: &[char], text: &[char]) -> bool {
     let Some((&first, rest)) = pattern.split_first() else { return text.is_empty() };
     match first {
@@ -222,6 +226,10 @@ fn fnmatch(pattern: &[char], text: &[char]) -> bool {
 }
 
 /// Whether `c` is in the set that starts `pattern` (after the `[`), and what follows the `]`.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn class(pattern: &[char], c: char) -> Option<(bool, &[char])> {
     let mut i = 0;
     let negate = matches!(pattern.first(), Some('!' | '^'));

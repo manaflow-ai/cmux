@@ -6,7 +6,7 @@
 // appearance. Under Reduce Transparency the app paints the theme background opaque instead.
 {
   "name": "Nature",
-  "description": "Your wallpaper through the clearest glass, moss and bark colors, a leaf-green accent.",
+  "description": "Your wallpaper through clear glass, moss and bark colors, a leaf-green accent.",
 
   "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
   "appearance.appTheme": "followTerminal",

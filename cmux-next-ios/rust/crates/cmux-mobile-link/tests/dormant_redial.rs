@@ -36,6 +36,11 @@ struct Pair {
 /// A Mac that answers every session (a dialed one or a resumed one) with an
 /// echo service, and a phone, on one fake signaling server.
 async fn pair() -> Pair {
+    pair_with(options()).await
+}
+
+/// [`pair`] with the Mac answering on `mac_options`.
+async fn pair_with(mac_options: DialOptions) -> Pair {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -52,9 +57,10 @@ async fn pair() -> Pair {
                 session: session.events,
             };
             let mac = mac.clone();
+            let mac_options = mac_options.clone();
             tokio::spawn(async move {
                 let Ok(connected) =
-                    dial::answer(&mac, session.first, events, &options(), LinkConfig::default()).await
+                    dial::answer(&mac, session.first, events, &mac_options, LinkConfig::default()).await
                 else {
                     return;
                 };
@@ -91,10 +97,20 @@ async fn wait_until(what: &str, within: Duration, mut done: impl FnMut() -> bool
 /// Dial, echo once, then end the link as a keepalive timeout does: both
 /// tunnels go dormant.
 async fn linked_then_lost(pair: &Pair) {
-    let connected =
-        dial::connect(&pair.phone, &pair.mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
-            .await
-            .expect("first dial");
+    linked_then_lost_with(pair, &options()).await;
+}
+
+/// [`linked_then_lost`] with the phone dialing on `phone_options`.
+async fn linked_then_lost_with(pair: &Pair, phone_options: &DialOptions) {
+    let connected = dial::connect(
+        &pair.phone,
+        &pair.mac_id,
+        TransportKind::WireGuard,
+        phone_options,
+        LinkConfig::default(),
+    )
+    .await
+    .expect("first dial");
     echo(&connected.link).await;
     connected.link.close("keepalive timed out");
     drop(connected);
@@ -151,6 +167,43 @@ async fn a_redial_within_the_bound_links_with_no_signaling() {
     echo(&connected.link).await;
     assert_eq!(pair.resumed.load(Ordering::Relaxed), 2);
     connected.link.close("done");
+}
+
+/// A reliable link run on a dormant tunnel outlives its input lane: the
+/// phone opens the lane right after the resumed link's stream, and the Mac
+/// takes it as that link's lane, not as one more resumed link that ends the
+/// one it just answered (2026-11-26: the Mac dropped the lane's receiver on
+/// a reliable link, so its listener served the lane as a resume).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reliable_link_resumed_on_a_dormant_tunnel_outlives_its_input_lane() {
+    let _serial = SERIAL.lock().await;
+    dormant::set_hold_for_tests(None);
+    let registry = Arc::new(cmux_mobile_link::ResumeRegistry::default());
+    let mac_options = DialOptions { reliable: true, resume_registry: Some(registry), ..options() };
+    assert!(mac_options.input_lane, "both sides list the input lane");
+    let pair = pair_with(mac_options).await;
+    let phone_options = DialOptions { reliable: true, ..options() };
+    linked_then_lost_with(&pair, &phone_options).await;
+    for round in 1..=4 {
+        let ticket = dormant::ticket(&pair.mac_id).expect("a dormant tunnel");
+        let connected = dormant::try_resume(&ticket, LinkConfig::default(), &Timeline::new())
+            .await
+            .unwrap_or_else(|error| panic!("round {round}: resume: {error}"));
+        let link = connected.link.clone();
+        assert!(link.reliable_stats().is_some(), "round {round}: the resumed link is reliable");
+        echo(&link).await;
+        // The lane's connection lands within moments of the link's stream.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(!link.is_closed(), "round {round}: the link closed once its lane opened");
+        echo(&link).await;
+        assert_eq!(pair.resumed.load(Ordering::Relaxed), round, "round {round}: one resume per round");
+        link.close("keepalive timed out");
+        drop(connected);
+        wait_until("dormant again", Duration::from_secs(5), || {
+            dormant::ticket(&pair.mac_id).is_some() && dormant::keeps(&pair.phone_id)
+        })
+        .await;
+    }
 }
 
 /// A dormant tunnel whose Mac end is gone (dark, as a Mac that slept or lost

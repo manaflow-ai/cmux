@@ -153,7 +153,12 @@ impl ChunkDeltas {
 
 /// `shape == shape_of(params)`, without building `shape_of(params)`.
 fn same_shape(shape: &Value, params: &Value) -> bool {
-    same_less(shape, params, &["seq", "at", "chunkRef", "prev"], &["msg", "params", "update", "content"])
+    same_less(
+        shape,
+        params,
+        &["seq", "at", "chunkRef", "prev"],
+        &["msg", "params", "update", "content"],
+    )
 }
 
 /// `shape` equals `value` less its keys `skip`, and less the `text` at `path` below it, as

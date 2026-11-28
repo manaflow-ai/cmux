@@ -116,6 +116,15 @@ impl Provider {
         }
     }
 
+    /// The native CLI key owned by a saved Google or xAI API-key route.
+    pub(crate) fn api_key(self) -> &'static str {
+        self.key_vars()[0]
+    }
+
+    pub(crate) fn direct_env(self) -> impl Iterator<Item = &'static str> {
+        self.key_vars().iter().chain(self.endpoint_vars()).copied()
+    }
+
     /// The env names whose value is a key of the person's own.
     fn key_vars(self) -> &'static [&'static str] {
         match self {
@@ -127,7 +136,18 @@ impl Provider {
     /// The env names that point the agent somewhere of the person's choosing.
     fn endpoint_vars(self) -> &'static [&'static str] {
         match self {
-            Provider::Gemini | Provider::Antigravity => &["GOOGLE_GEMINI_BASE_URL"],
+            Provider::Gemini => &[
+                "GOOGLE_GEMINI_BASE_URL",
+                "GOOGLE_GENAI_USE_VERTEXAI",
+                "GOOGLE_GENAI_USE_GCA",
+                "GEMINI_CLI_AUTH_OVERRIDE",
+                "GOOGLE_VERTEX_BASE_URL",
+                "GOOGLE_CLOUD_PROJECT",
+                "GOOGLE_CLOUD_PROJECT_ID",
+                "GOOGLE_CLOUD_LOCATION",
+                "GEMINI_CLI_TRUST_WORKSPACE",
+            ],
+            Provider::Antigravity => &["GOOGLE_GEMINI_BASE_URL"],
             Provider::Grok => {
                 &["GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL", "GROK_XAI_API_BASE_URL"]
             }
@@ -171,6 +191,27 @@ impl Provider {
 fn own_key(value: &str) -> bool {
     let v = value.trim();
     !v.is_empty() && v != PLACEHOLDER_KEY && !v.starts_with("cmux-secret://")
+}
+
+pub(crate) fn gemini_key_env(vertex: bool) -> [(&'static str, &'static str); 8] {
+    let endpoint = if vertex {
+        ("GOOGLE_VERTEX_BASE_URL", "https://aiplatform.googleapis.com")
+    } else {
+        ("GOOGLE_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com")
+    };
+    [
+        endpoint,
+        ("GOOGLE_GENAI_USE_VERTEXAI", if vertex { "true" } else { "false" }),
+        ("GOOGLE_GENAI_USE_GCA", "false"),
+        // Gemini's relaunch setting chooses auth for this process and keeps system policy.
+        ("GEMINI_CLI_AUTH_OVERRIDE", if vertex { "vertex-ai" } else { "gemini-api-key" }),
+        // Workspace settings have higher precedence than Gemini's auth override.
+        ("GEMINI_CLI_TRUST_WORKSPACE", "false"),
+        // Empty values also keep project dotenv files from supplying these.
+        ("GOOGLE_CLOUD_PROJECT", ""),
+        ("GOOGLE_CLOUD_PROJECT_ID", ""),
+        ("GOOGLE_CLOUD_LOCATION", ""),
+    ]
 }
 
 /// Gemini's recorded auth choice (`settings.json` `security.auth.selectedType`, or the older
