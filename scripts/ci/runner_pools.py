@@ -178,8 +178,9 @@ SLOW_KEY = "_slow"
 # wait is under half of this, and keeps it there while that wait stays under all of it: Blacksmith's macOS vCPUs are
 # one pool shared by every size, so a spill onto a busy 6 vCPU macOS 26 starves blacksmith-12vcpu-macos-26 too.
 # The mark clears (the pool moves back) once the label's oldest wait is under half of this again. Replayed over the
-# same 29 snapshots (cmux PR body), 10, 15, 20 and 30 all bring the macos_15 pool's median wait from 21 to 3 min
-# (the swift-check target is a 10 min median); 30 cuts the mean further (8 against 15 min) only by staying on macOS
+# same 29 snapshots (tests/fixtures/macos-pool-load-replay.json, `scripts/ci/macos_pool_replay.py replay`), 10,
+# 15, 20 and 30 all bring the macos_15 pool's median wait from 21 to 3 min (the swift-check target is a 10 min
+# median); 30 cuts the mean further (8 against 15 min) only by staying on macOS
 # 26 while its own oldest wait is 27-29 min, where 12 vCPU starves. 20 moves only onto a macOS 26 under 10 min.
 SLOW_SPILL_MINUTES = 20.0
 SLOW_SPILL = re.compile(r"^blacksmith-\d+vcpu-macos-[a-z0-9.-]+$")
