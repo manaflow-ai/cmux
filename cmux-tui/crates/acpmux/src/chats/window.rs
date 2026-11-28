@@ -278,51 +278,80 @@ fn rank_request(
     }
 }
 
-/// Each query window's palette ranker with its chats installed. A keystroke over the same chats
-/// reuses it, so the ranker prepares the chats once rather than on every key, and a query that
-/// extends the last one scores only the rows that one could still lead to
-/// ([`cmux_palette_ranker::Ranker`]). The answer is the one [`ranked`] gives.
+/// The palette ranker with the last keystroke's entries installed, so the next keystroke ranks
+/// without folding every title again and, when it extends the query, scores only the chats the
+/// shorter query could still lead to (`cmux_palette_ranker::Ranker`). A keystroke that finds
+/// other entries (a chat renamed, added, filtered differently) installs them first. Each query
+/// window keeps its own (keyed by `spec.window`), so two windows open at once (the sidebar and the
+/// palette) do not install over each other on every update; past [`TITLE_RANKER_WINDOWS`] windows
+/// it starts over.
 #[derive(Default)]
-pub struct RankCache(
-    std::sync::Mutex<
-        HashMap<String, (Vec<cmux_palette_ranker::Entry>, cmux_palette_ranker::Ranker)>,
-    >,
-);
+pub struct TitleRanker {
+    held: std::sync::Mutex<HashMap<String, Held>>,
+}
 
-/// The windows a [`RankCache`] keeps rankers for; past it, the cache starts over.
-const RANK_CACHE_WINDOWS: usize = 8;
+/// The windows a [`TitleRanker`] keeps a ranker for; a new window past it clears the rest.
+pub(crate) const TITLE_RANKER_WINDOWS: usize = 8;
 
-impl RankCache {
-    /// [`ranked`], through `window`'s kept ranker, installed again only when `entries` differ
-    /// from the ones it holds.
-    pub fn ranked(
+struct Held {
+    version: i64,
+    entries: Vec<cmux_palette_ranker::Entry>,
+    ranker: cmux_palette_ranker::Ranker,
+}
+
+fn same_entries(a: &[cmux_palette_ranker::Entry], b: &[cmux_palette_ranker::Entry]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(a, b)| {
+            a.title == b.title
+                && a.keywords == b.keywords
+                && a.subtitle == b.subtitle
+                && a.frecency_key == b.frecency_key
+        })
+}
+
+impl TitleRanker {
+    /// [`ranked`], reusing what `window`'s last call installed when `entries` are the same.
+    pub fn rank(
         &self,
         window: &str,
         query: &str,
         entries: Vec<cmux_palette_ranker::Entry>,
         history: Option<(f64, cmux_palette_ranker::Frecency)>,
     ) -> Vec<usize> {
-        let mut windows = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !windows.contains_key(window) && windows.len() >= RANK_CACHE_WINDOWS {
+        let mut windows = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !windows.contains_key(window) && windows.len() >= TITLE_RANKER_WINDOWS {
             windows.clear();
         }
-        let (kept, ranker) = windows.entry(window.to_owned()).or_default();
-        if *kept != entries {
-            ranker.install(0, entries.clone());
-            *kept = entries;
-        }
-        let count = i64::try_from(kept.len()).unwrap_or(i64::MAX);
-        let request = cmux_palette_ranker::RankRequest {
-            version: Some(0),
-            ..rank_request(query, None, count, history.clone())
-        };
-        match ranker.rank(&request) {
-            Ok(sections) => {
-                sections.into_iter().flat_map(|section| section.rows).map(|row| row.index).collect()
+        let held = windows.get(window);
+        let version = match held {
+            Some(h) if same_entries(&h.entries, &entries) => h.version,
+            other => {
+                let version = other.map_or(0, |h| h.version + 1);
+                let mut ranker = cmux_palette_ranker::Ranker::new();
+                ranker.install(version, entries.clone());
+                windows.insert(window.to_owned(), Held { version, entries, ranker });
+                version
             }
-            // Installed above, so not reached; rank in full rather than show nothing.
-            Err(_) => ranked(query, kept.clone(), history),
+        };
+        let Some(h) = windows.get(window) else { return Vec::new() };
+        let count = i64::try_from(h.entries.len()).unwrap_or(i64::MAX);
+        let (now, frecency) =
+            history.map_or((None, None), |(now, frecency)| (Some(now), Some(frecency)));
+        let request = cmux_palette_ranker::RankRequest {
+            operation: "rank".to_owned(),
+            version: Some(version),
+            query: Some(query.to_owned()),
+            frecency,
+            now,
+            row_limit: Some(count),
+            highlight_limit: Some(0),
+            ..Default::default()
+        };
+        let mut rows: Vec<(i64, usize)> = Vec::new();
+        for section in h.ranker.rank(&request).unwrap_or_default() {
+            rows.extend(section.rows.into_iter().map(|row| (row.score, row.index)));
         }
+        rows.into_iter().map(|(_, index)| index).collect()
     }
 }
 
@@ -334,7 +363,6 @@ pub fn rows(
     index: &ChatIndex,
     activity: &ChatActivity,
     text: Option<&ChatText>,
-    ranks: Option<&RankCache>,
 ) -> WindowRows {
     let decorated = |chat: &IndexedChat| row_value(chat, activity);
     if let Some(keys) = &spec.keys {
@@ -348,7 +376,7 @@ pub fn rows(
         return WindowRows { rows, ..WindowRows::default() };
     }
     if let Some(query) = &spec.query {
-        return ranked_rows(spec, query, index, activity, text, ranks);
+        return ranked_rows(spec, query, index, activity, text);
     }
     let mut window = WindowRows::default();
     // The index's kept order: a window that stops at its page reads the page, not every chat.
@@ -396,7 +424,6 @@ fn ranked_rows(
     index: &ChatIndex,
     activity: &ChatActivity,
     text: Option<&ChatText>,
-    ranks: Option<&RankCache>,
 ) -> WindowRows {
     let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
     let mut candidates: Vec<(String, &IndexedChat)> = Vec::new();
@@ -427,8 +454,8 @@ fn ranked_rows(
         candidates.push((key, chat));
     }
     let history = spec.history.as_ref().map(|h| (h.now, h.frecency.clone()));
-    let order = match ranks {
-        Some(ranks) => ranks.ranked(&spec.window, query, entries, history),
+    let order = match text {
+        Some(text) => text.titles().rank(&spec.window, query, entries, history),
         None => ranked(query, entries, history),
     };
     let mut total = order.len();

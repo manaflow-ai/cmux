@@ -244,24 +244,71 @@ fn a_kept_ranker_ranks_every_keystroke_like_a_fresh_one() {
         "halfLife": 259_200.0
     }))
     .unwrap();
-    let cache = RankCache::default();
+    let cache = TitleRanker::default();
     let typed = ["f", "fi", "fix", "fix ", "fix b", "fix bu", "fix build", "fix", "p", "pa", "par"];
     for (entries, history) in [(&base, None), (&renamed, None), (&base, Some((1_000.0, frecency)))]
     {
         for query in typed.iter().chain(["", "codex", "repo3", "zzz"].iter()) {
             assert_eq!(
-                cache.ranked("all", query, entries.clone(), history.clone()),
+                cache.rank("all", query, entries.clone(), history.clone()),
                 ranked(query, entries.clone(), history.clone()),
                 "query {query:?}"
             );
         }
     }
-    for window in 0..=RANK_CACHE_WINDOWS {
+    for window in 0..=TITLE_RANKER_WINDOWS {
         let query = typed[window % typed.len()];
         assert_eq!(
-            cache.ranked(&format!("w{window}"), query, base.clone(), None),
+            cache.rank(&format!("w{window}"), query, base.clone(), None),
             ranked(query, base.clone(), None),
             "past the window bound, window {window}"
         );
     }
+}
+
+/// The title ranker that keeps its work across keystrokes ranks as the one-shot `ranked` does,
+/// when a query grows, shrinks, jumps or the entries change.
+#[test]
+fn the_kept_title_ranker_ranks_as_a_fresh_one_does() {
+    let mut entries: Vec<_> = (0..60)
+        .map(|i| entry(&format!("chat {i} about parser {}", i % 7), "/Users/me/cmux", "codex"))
+        .collect();
+    let kept = TitleRanker::default();
+    for query in ["p", "pa", "par", "pars", "par", "chat 1", "chat 12", "zzz", "p"] {
+        assert_eq!(
+            kept.rank("all", query, entries.clone(), None),
+            ranked(query, entries.clone(), None)
+        );
+    }
+    entries.push(entry("a new parser chat", "/Users/me/site", "claude-code"));
+    for query in ["pa", "par", "parser n"] {
+        assert_eq!(
+            kept.rank("all", query, entries.clone(), None),
+            ranked(query, entries.clone(), None)
+        );
+    }
+}
+
+/// Two query windows open at once (the sidebar and the palette) each keep their own installed
+/// ranker: alternating keystrokes between them over the same chats installs each once.
+#[test]
+fn two_windows_alternating_keep_their_own_installed_ranker() {
+    let one: Vec<_> =
+        (0..40).map(|i| entry(&format!("parser chat {i}"), "/Users/me/cmux", "codex")).collect();
+    let mut two = one.clone();
+    two.truncate(20);
+    let kept = TitleRanker::default();
+    for query in ["p", "pa", "par", "pars"] {
+        assert_eq!(
+            kept.rank("sidebar", query, one.clone(), None),
+            ranked(query, one.clone(), None)
+        );
+        assert_eq!(
+            kept.rank("palette", query, two.clone(), None),
+            ranked(query, two.clone(), None)
+        );
+    }
+    let held = kept.held.lock().unwrap();
+    assert_eq!(held["sidebar"].version, 0, "the sidebar's ranker was installed once");
+    assert_eq!(held["palette"].version, 0, "the palette's ranker was installed once");
 }

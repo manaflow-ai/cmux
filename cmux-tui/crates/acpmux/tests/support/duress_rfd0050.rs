@@ -27,6 +27,8 @@ pub(super) const BROKER_SECS: u64 = 100;
 const HOLD_PCT: u64 = 90;
 /// The window at least: long enough that answers held [`BROKER_SECS`] come back inside it.
 pub(super) const WINDOW_MIN: Duration = Duration::from_secs(BROKER_SECS + 40);
+/// How many extra hogs, each re-sized from what is used then, top the first one up.
+pub(super) const TOP_UPS: u64 = 4;
 /// What the RAM hog leaves of `MemAvailable` whatever the target.
 const RAM_HEADROOM: u64 = 512 << 20;
 

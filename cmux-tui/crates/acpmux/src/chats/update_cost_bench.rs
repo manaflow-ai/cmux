@@ -54,7 +54,7 @@ fn update_cost_chat_window_recompute() {
         let rounds = 200;
         let started = Instant::now();
         for _ in 0..rounds {
-            std::hint::black_box(window::rows(&spec, &index, &activity, None, None));
+            std::hint::black_box(window::rows(&spec, &index, &activity, None));
         }
         let per = started.elapsed().as_secs_f64() * 1e6 / rounds as f64;
         eprintln!("UPDATE-COST chat_window_recompute n={n} per_event_us={per:.1}");

@@ -97,7 +97,7 @@ fn keystrokes(chats: usize, typed: &str) -> (Costs, Vec<String>) {
                 "limit": LIMIT, "content": true, "untitled": "New chat"}))
             .unwrap();
             let (values, scanned) = (values_built(), text.scanned());
-            let window = rows(&spec, &index, &activity, Some(&text), None);
+            let window = rows(&spec, &index, &activity, Some(&text));
             let keys = window.rows.into_iter().map(|(key, _)| key).collect();
             (values_built() - values, text.scanned() - scanned, keys)
         })

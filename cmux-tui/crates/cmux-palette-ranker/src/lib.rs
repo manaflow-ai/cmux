@@ -38,7 +38,7 @@ where
 }
 
 /// One palette row as the ranker reads it (`PaletteRankEntry`).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
     pub title: String,
