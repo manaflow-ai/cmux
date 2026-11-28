@@ -68,9 +68,17 @@ def host_npm_target() -> str:
     raise RuntimeError(f"unsupported test host: {system}-{machine}")
 
 
+# What the real cmux binary prints for `autocloud --help` (RFD 0139): the validator requires these words.
+AUTOCLOUD_HELP = "An agent chat on any machine. Usage: cmux autocloud [login]"
+
+
 def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
+    path.write_text(
+        "#!/bin/sh\n"
+        f"if [ \"$1\" = autocloud ]; then printf '%s\\n' '{AUTOCLOUD_HELP}'; exit 0; fi\n"
+        f"printf '%s\\n' '{output}'\n"
+    )
     path.chmod(0o755)
 
 
