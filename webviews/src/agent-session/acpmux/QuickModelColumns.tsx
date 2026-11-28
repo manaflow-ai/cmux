@@ -455,16 +455,17 @@ function Columns({
     const next = card ? card.scrollHeight + (card.nextElementSibling?.getBoundingClientRect().height ?? 0) : 0;
     if (next !== cardHeight) setCardHeight(next);
   });
-  // The card opening, growing as its accounts load, or closing pushes the rail and the models straight
-  // down (or lets them back up) by design: an expand on the strips that hold it, so the motion judge
-  // and the gallery's shift score relate those moves to it (cmux#63232 moved the card into the flow).
-  const strips = useRef<HTMLDivElement | null>(null);
+  // The card opening, growing as its accounts load, or closing grows or shrinks the whole menu by
+  // design: the rail and the models move down with its grips and the effort foot (or back up). An
+  // expand on the menu, so the motion judge and the gallery's shift score relate those moves to it
+  // (cmux#63232 moved the card into the flow).
   const cardShown = useRef({ open: profileOpen, height: cardHeight });
   useLayoutEffect(() => {
     const was = cardShown.current;
     cardShown.current = { open: profileOpen, height: cardHeight };
-    if ((was.open === profileOpen && was.height === cardHeight) || !strips.current) return;
-    declareMove({ event: "expand", scope: "targets", targets: [strips.current], by: "account card" }, { ms: 500 });
+    const menu = popupRef.current;
+    if ((was.open === profileOpen && was.height === cardHeight) || !menu) return;
+    declareMove({ event: "expand", scope: "targets", targets: [menu], by: "account card" }, { ms: 500 });
   }, [profileOpen, cardHeight]);
   // With the card open, the highlighted model (else the checked one) is scrolled back into the list's
   // view if the shorter list hid it, within the list alone: nothing around the menu scrolls.
@@ -1784,7 +1785,7 @@ function Columns({
                 }}
               />
             </div>
-            <div ref={strips} className="acpmux-cols-strips">
+            <div className="acpmux-cols-strips">
               <hr className="acpmux-cols-sep" />
               {/* The account card opens here, in the flow over the rail and the models: they move down
                   and stay whole, never under it (cmux#63167: drawn over the list, it hid the checked
