@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { caseScore, judgeShift, least, limit, lowered, most, shiftScores, shiftSummary } from "./shift-baseline";
+import { caseMoves, caseScore, judgeShift, least, limit, lowered, most, shiftScores, shiftSummary } from "./shift-baseline";
 
 const result = (entry: string, variant: string, load: number, steps: number[] = [], ready = "1") => ({
   params: { entry, variant },
@@ -45,4 +45,22 @@ test("rows are written from the worst run, so a state that shifts in some runs n
   const scores = new Map([...worst].map(([state, { score }]) => [state, score]));
   expect(lowered({ states: {} }, scores, true).states["a#x"]).toBe(0.02);
   expect(lowered({ states: { "a#x": 0.05 } }, scores).states["a#x"]).toBe(0.02);
+});
+
+test("a phase the browser's layout-shift entries scored alone names their nodes", () => {
+  const typed = {
+    step: 'type "hey @proje"',
+    layoutShift: 0.0186,
+    boxShift: 0,
+    boxMoves: [],
+    shifts: [
+      { value: 0.002, sources: ["div.acpmux-slash-menu"] },
+      { value: 0.0166, sources: ["div.acpmux-mention-rows", "div.acpmux-slash-menu"] },
+    ],
+  };
+  expect(caseMoves({ play: { steps: [typed] } })).toEqual([
+    'type "hey @proje": 0.0186 (div.acpmux-mention-rows, div.acpmux-slash-menu)',
+  ]);
+  const boxed = { step: "click", layoutShift: 0.01, boxShift: 0.02, boxMoves: [{ label: "row", dx: 0, dy: -4 }], shifts: typed.shifts };
+  expect(caseMoves({ play: { steps: [boxed] } })).toEqual(["click: 0.0200 (row [0 -4])"]);
 });

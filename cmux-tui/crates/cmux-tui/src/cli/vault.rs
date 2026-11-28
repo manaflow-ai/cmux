@@ -702,6 +702,31 @@ fn pick(
 mod tests {
     use super::*;
 
+    /// The vault transport sends the cmux token only as the bearer and the team only as `x-cmux-team`; a call's
+    /// body (sealed by the vault client before it gets here) goes as given and carries neither.
+    #[test]
+    fn seeded_token_and_team_ride_only_in_their_headers() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        cmux_egress::capture::install().unwrap();
+        let bearer = "SEEDvaultBearer-1f8d";
+        let team = "SEEDvaultTeam-a6c3";
+        let http = Transport::new(
+            cmux_cloud_environment::PRODUCTION_API.to_owned(),
+            Zeroizing::new(bearer.to_owned()),
+            Some(team.to_owned()),
+        )
+        .unwrap();
+        let _ = http.send("POST", "/v1/vault/seeded", &[], Some(&json!({"sealed": "b64"})));
+        let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+        assert!(sent.iter().any(|r| r.target == "/v1/vault/seeded"), "{sent:?}");
+        for (secret, place) in [(bearer, ": header authorization"), (team, ": header x-cmux-team")]
+        {
+            let places = cmux_egress::capture::leaks(secret);
+            assert!(!places.is_empty(), "{secret}: {sent:?}");
+            assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+        }
+    }
+
     fn words(s: &str) -> Vec<String> {
         s.split_whitespace().map(str::to_owned).collect()
     }
@@ -736,37 +761,5 @@ mod tests {
         assert_eq!((verb, opts.team.as_deref()), (Verb::Ls, Some("team_abc")));
         assert!(parse(&words("ls --team nope")).is_err());
         assert_eq!(parse(&[]).unwrap().0, Verb::Help);
-    }
-
-    /// The vault's one client: the bearer goes out in `authorization` and nowhere else (not the
-    /// path, not the team header, not the body), checked on the wire by cmux-egress's capture.
-    #[test]
-    fn seeded_bearer_rides_only_in_authorization() {
-        cmux_egress::capture::install().unwrap();
-        let origin = "https://vault-api.seeded-person.example.org";
-        cmux_egress::allow_named(origin);
-        let bearer = Zeroizing::new("SEEDvaultBearer-7c1e9a".to_owned());
-        let transport =
-            Transport::new(origin.to_owned(), bearer, Some("team_SEEDteam".into())).unwrap();
-        let body =
-            serde_json::json!({ "name": "OPENAI_API_KEY", "ciphertext": "c2VlZGVkLWNpcGhlcg" });
-        let _ = transport.send(
-            "PUT",
-            "/v1/vault/secrets",
-            &[("x-cmux-device", "dev_SEED")],
-            Some(&body),
-        );
-
-        assert_eq!(
-            cmux_egress::capture::requests_to("vault-api.seeded-person.example.org").len(),
-            1
-        );
-        assert_eq!(
-            cmux_egress::capture::leaks("SEEDvaultBearer-7c1e9a"),
-            vec![
-                "vault-api.seeded-person.example.org PUT /v1/vault/secrets: header authorization"
-                    .to_owned()
-            ]
-        );
     }
 }

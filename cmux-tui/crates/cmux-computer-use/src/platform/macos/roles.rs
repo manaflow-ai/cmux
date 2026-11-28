@@ -1180,6 +1180,70 @@ pub fn same_item(before: Option<&str>, now: Option<&str>) -> Result<(), &'static
     }
 }
 
+/// Refusal for a menu item its app retitled while validating it, when the
+/// new title reaches a denied or protected app.
+pub const REFUSE_RETITLED_BLOCKED: &str = "the menu item changed its title while it was being made available, and the new title would reach an app on the Computer Use deny list, so nothing was pressed";
+
+/// The refusal for a new title [`menu_item_check`] did not allow: names still
+/// loading and an unplaced item keep their honest refusals.
+fn retitle_refusal(check: ItemCheck) -> &'static str {
+    match check {
+        ItemCheck::Unknown => crate::menus::APP_NAMES_LOADING,
+        ItemCheck::Unplaced => crate::menus::UNREADABLE_ITEM_REFUSAL,
+        _ => REFUSE_RETITLED_BLOCKED,
+    }
+}
+
+/// [`same_item`] for an item whose app retitles it as it validates (TextEdit's
+/// Format > "Make Rich Text" reads "Make Plain Text" once its window is key):
+/// a new, readable title is held to the deny list and the protected apps
+/// (`check`, with the item's place read before the scope) and pressed when
+/// allowed. An unreadable title, either side, is still refused. Pure.
+pub fn same_or_allowed(
+    before: Option<&str>,
+    now: Option<&str>,
+    check: impl FnOnce(&str) -> ItemCheck,
+) -> Result<(), &'static str> {
+    match (before, now) {
+        (Some(b), Some(n)) if b == n => Ok(()),
+        (Some(_), Some(n)) => match check(n) {
+            ItemCheck::Allowed => Ok(()),
+            other => Err(retitle_refusal(other)),
+        },
+        _ => same_item(before, now),
+    }
+}
+
+/// A key-equivalent match read again after its app validated it: a changed,
+/// readable title is held to the deny list (`check`) and the match takes the
+/// new title; it stays blocked if it was blocked before (a retitle never
+/// unblocks). An unreadable title is blocked, and says so (not "the deny
+/// list"). Pure.
+pub fn retitled_match(
+    m0: &ShortcutMatch,
+    now: Option<&str>,
+    check: impl FnOnce(&str) -> ItemCheck,
+) -> ShortcutMatch {
+    let mut m = m0.clone();
+    match now {
+        Some(n) if n == m0.title => {}
+        Some(n) => {
+            let c = check(n);
+            m.title = n.to_string();
+            if c != ItemCheck::Allowed {
+                m.blocked = true;
+                m.unknown = m0.unknown || c == ItemCheck::Unknown;
+                m.unplaced = m0.unplaced || c == ItemCheck::Unplaced;
+            }
+        }
+        None => {
+            m.blocked = true;
+            m.unplaced = true;
+        }
+    }
+    m
+}
+
 /// What a click may do inside a key-in-app scope (pure, for tests): only
 /// the item's own press. Without a press action read (it may have timed
 /// out) nothing happens: no row select, no click at its center.

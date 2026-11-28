@@ -176,11 +176,13 @@ public final class WebUpdater {
             let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
             self?.state = state
             self?.launchVersion = tree == nil ? nil : state.active
-            if tree == nil {
-                // Every page's first request waits for this answer, not for the removal: after an
-                // app update that shipped newer web it is the kept trees, about 900 files each.
-                // task-owner: the launch prune, kept so checks and channel changes await it
-                self?.launchPrune = Task { await Self.prune(store, keeping: state.keptKeys) }
+            // Every page's first request waits for this answer, not for the removal: after an
+            // app update that shipped newer web it is the kept trees, about 900 files each.
+            // Served or not, every `staging-*` folder is a leftover of a fetch or unpack a quit cut
+            // short (a cas/1 chunk store can be most of a pack): no check runs before this prune.
+            // task-owner: the launch prune, kept so checks and channel changes await it
+            self?.launchPrune = Task {
+                if tree == nil { await Self.prune(store, keeping: state.keptKeys) } else { await Self.removeLeftoverStaging(store) }
             }
             return tree
         }
@@ -452,6 +454,10 @@ public final class WebUpdater {
 
     @concurrent nonisolated static func prune(_ store: WebUpdateStore, keeping keys: Set<String>) async {
         store.prune(keeping: keys)
+    }
+
+    @concurrent nonisolated static func removeLeftoverStaging(_ store: WebUpdateStore) async {
+        store.removeLeftoverStaging()
     }
 
     /// One `cas/1` fetch: the pointer's manifest and pack under `base`, the trees already on disk

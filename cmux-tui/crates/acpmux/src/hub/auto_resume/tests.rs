@@ -93,6 +93,274 @@ fn retry_chat() -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
+async fn live_retry_chat() -> (Arc<Hub>, Arc<Session>) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut config: crate::config::Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    config.store.mode = crate::config::StoreMode::Memory;
+    config.profile_sources = crate::config::ProfileSources::none();
+    let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+    let hub = Hub::new(config, store);
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..crate::hub::NewRequest::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&session, vec![json!({"type": "text", "text": "hello"})], "test", false)
+        .await
+        .unwrap();
+    (hub, session)
+}
+
+#[tokio::test]
+async fn a_continuation_overtaken_during_admission_never_joins_the_queue() {
+    for during_probe in [true, false] {
+        let (hub, session) = live_retry_chat().await;
+        session.meta.lock().unwrap().last_turn = Some(json!({
+            "turnId": "cut", "promptId": "original", "status": "failed",
+        }));
+        hub.set_waiting_for_test(&session, "cut", RetryReason::Transport);
+        let fired = hub.fire_pending(&session, "cut").unwrap();
+        let turn_lock = session.turn_lock.lock().await;
+        let child_lock = if during_probe { Some(session.child.lock().await) } else { None };
+        let (accepted, mut receipt) = tokio::sync::oneshot::channel();
+        let mut continuation = Box::pin(hub.run_prompt(
+            &session,
+            vec![json!({"type": "text", "text": "continue"})],
+            "test",
+            false,
+            crate::hub::PromptOptions {
+                after_turn: Some("cut".into()),
+                fired: Some(fired),
+                prompt_id: Some("late-continuation".into()),
+                on_accepted: Some(Box::new(move |v| {
+                    let _ = accepted.send(v);
+                })),
+                ..Default::default()
+            },
+        ));
+        let config_lock = if during_probe {
+            assert!(futures::poll!(&mut continuation).is_pending());
+            assert_eq!(session.queued(), 0);
+            // Admission must recheck the cut before it enters queue_slot, whose first step
+            // needs a config read. Keep that read blocked until the continuation refuses.
+            Some(hub.config.write().await)
+        } else {
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    assert!(futures::poll!(&mut continuation).is_pending());
+                    if session.queued() == 1 {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("the continuation never reserved its queue slot");
+            None
+        };
+
+        let newer = TurnInfo::prompted("test", "person", "newer", "newer-prompt", Control::Local);
+        hub.start_turn(&session, None, None, false, false, newer).unwrap();
+        drop(child_lock);
+        drop(turn_lock);
+
+        let error = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::select! {
+                biased;
+                receipt = &mut receipt => {
+                    match receipt {
+                        Ok(receipt) => panic!("the stale continuation was accepted: {receipt}"),
+                        Err(_) => continuation.await.unwrap_err(),
+                    }
+                },
+                result = &mut continuation => {
+                    assert!(receipt.try_recv().is_err(), "the stale continuation was accepted");
+                    result.unwrap_err()
+                },
+            }
+        })
+        .await
+        .expect("the stale continuation waited behind the newer turn");
+        drop(config_lock);
+        assert_eq!(error.data.as_ref().unwrap()["reason"], "auto_resume.superseded");
+        assert_eq!(session.queued(), 0);
+        assert!(
+            hub.events(&session.id, 0, 10_000)
+                .unwrap()
+                .iter()
+                .all(|r| r.kind != "queued" || r.msg["promptId"] != "late-continuation")
+        );
+        hub.take_turn(&session, "newer", None);
+        hub.clear_fired(&session, "cut", fired);
+        hub.shutdown_all().await;
+    }
+}
+
+#[tokio::test]
+async fn automatic_restart_retry_waits_for_background_work_before_hibernating_the_old_route() {
+    let (hub, session) = live_retry_chat().await;
+    let old = session.child.lock().await.clone().expect("live fake child");
+    hub.respawn_when_quiet_required(&session);
+    session.meta.lock().unwrap().last_turn = Some(json!({
+        "turnId": "retry-turn",
+        "promptId": "retry-root",
+        "status": "failed",
+        "errorText": "HTTP 503",
+    }));
+    *session.work_below_since.lock().unwrap() = 1;
+    let waiting_hub = hub.clone();
+    let waiting_session = session.clone();
+    let fired_gen = session.auto_resume.next_generation();
+    session.auto_resume.lock().replace(Mark::Firing("retry-turn".into(), fired_gen));
+    let waiting = tokio::spawn(async move {
+        waiting_hub.prepare_retry_handoff(&waiting_session, "retry-turn", false, fired_gen).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert!(
+        std::sync::Arc::ptr_eq(&old, session.child.lock().await.as_ref().unwrap()),
+        "marked retry ended the old route while background work was still recorded"
+    );
+    *session.work_below_since.lock().unwrap() = 0;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(10), waiting).await.unwrap().unwrap(),
+        "handoff did not complete after background work ended"
+    );
+    assert!(session.child.lock().await.is_none(), "old route was not hibernated before retry");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn automatic_restart_retry_does_not_wait_for_opportunistic_stale_work() {
+    let (hub, session) = live_retry_chat().await;
+    let old = session.child.lock().await.clone().expect("live fake child");
+    // A stale binary/profile refresh is safe to defer: a transport continuation can still use
+    // the current child, while the quiet reaper preserves the eventual replacement.
+    hub.respawn_when_quiet(&session);
+    session.meta.lock().unwrap().last_turn = Some(json!({
+        "turnId": "retry-turn", "promptId": "retry-root", "status": "failed",
+        "errorText": "HTTP 503",
+    }));
+    *session.work_below_since.lock().unwrap() = 1;
+    let generation = session.auto_resume.next_generation();
+    session.auto_resume.lock().replace(Mark::Firing("retry-turn".into(), generation));
+    assert!(hub.prepare_retry_handoff(&session, "retry-turn", false, generation).await);
+    assert!(Arc::ptr_eq(&old, session.child.lock().await.as_ref().unwrap()));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn automatic_restart_retry_stop_retains_the_old_child() {
+    for stop_before_wait in [true, false] {
+        let (hub, session) = live_retry_chat().await;
+        let old = session.child.lock().await.clone().unwrap();
+        hub.respawn_when_quiet_required(&session);
+        session.meta.lock().unwrap().last_turn = Some(json!({
+            "turnId":"retry-turn", "promptId":"retry-root", "status":"failed",
+            "errorText":"HTTP 503"
+        }));
+        *session.work_below_since.lock().unwrap() = 1;
+        let generation = session.auto_resume.next_generation();
+        session.auto_resume.lock().replace(Mark::Firing("retry-turn".into(), generation));
+        if stop_before_wait {
+            hub.stop_auto_resume(&session);
+        }
+        let waiting_hub = hub.clone();
+        let waiting_session = session.clone();
+        let waiting = tokio::spawn(async move {
+            waiting_hub
+                .prepare_retry_handoff(&waiting_session, "retry-turn", false, generation)
+                .await
+        });
+        if !stop_before_wait {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            hub.stop_auto_resume(&session);
+        }
+        assert!(!tokio::time::timeout(Duration::from_secs(2), waiting).await.unwrap().unwrap());
+        *session.work_below_since.lock().unwrap() = 0;
+        assert!(
+            !hub.end_marked_restart_before_retry(&session, generation).await,
+            "a cancelled generation must not tear down even after work finishes"
+        );
+        assert!(Arc::ptr_eq(&old, session.child.lock().await.as_ref().unwrap()));
+        hub.shutdown_all().await;
+    }
+}
+
+#[tokio::test]
+async fn automatic_restart_retry_shutdown_preserves_the_durable_schedule() {
+    let (hub, session) = live_retry_chat().await;
+    let old = session.child.lock().await.clone().unwrap();
+    hub.respawn_when_quiet_required(&session);
+    session.meta.lock().unwrap().last_turn = Some(json!({
+        "turnId":"retry-turn", "promptId":"retry-root", "status":"failed",
+        "errorText":"HTTP 503"
+    }));
+    *session.work_below_since.lock().unwrap() = 1;
+    session.auto_resume.lock().replace(Mark::Waiting {
+        turn: "retry-turn".into(),
+        retry: Some(retry("retry-turn")),
+        _wake: Wake(Arc::new(Notify::new())),
+    });
+    hub.append(
+        &session,
+        "mux",
+        "auto_resume_scheduled",
+        json!({
+            "turnId":"retry-turn", "promptId":"retry-root", "attempt":1,
+            "at":crate::store::now_ms(), "reason":"transport"
+        }),
+    );
+    let waiting_hub = hub.clone();
+    let waiting_session = session.clone();
+    let waiting = tokio::spawn(async move {
+        waiting_hub
+            .auto_resume(
+                &waiting_session,
+                CutTurn {
+                    from: None,
+                    prompt_id: "retry-root",
+                    turn_id: "retry-turn",
+                    control: Control::Local,
+                    trust_gate: false,
+                    error: "HTTP 503",
+                    not_before: None,
+                    slash: None,
+                },
+                1,
+                None,
+            )
+            .await;
+    });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if matches!(session.auto_resume.lock().as_ref(), Some(Mark::Firing(..))) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+    hub.begin_shutdown();
+    tokio::time::timeout(Duration::from_secs(6), waiting).await.unwrap().unwrap();
+    assert!(Arc::ptr_eq(&old, session.child.lock().await.as_ref().unwrap()));
+    assert!(matches!(session.auto_resume.lock().as_ref(), Some(Mark::Firing(..))));
+    let events = hub.events(&session.id, 0, 1000).unwrap();
+    assert!(events.iter().any(|event| event.kind == "auto_resume_scheduled"));
+    assert!(
+        !events.iter().any(|event| event.kind == "auto_resume_skipped"),
+        "shutdown replaced the durable retry with a terminal skip"
+    );
+    hub.shutdown_all().await;
+}
+
 #[tokio::test]
 async fn exact_prompt_stop_fences_waiting_and_late_retry_without_touching_person() {
     let (hub, session) = retry_chat();

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
+inline constexpr std::string_view kProtocolIrSha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -51,6 +51,10 @@ enum class CloseReason;
 struct CloseTerminalResult;
 struct CloudConversationPresenceParticipant;
 struct ColorHex;
+struct ColumnDock;
+enum class ColumnDockEdge;
+enum class ColumnDockMode;
+enum class ColumnDockRole;
 enum class ColumnMoveDirection;
 struct ColumnPin;
 enum class ColumnSide;
@@ -80,6 +84,7 @@ enum class DetachReason;
 struct EmptyResult;
 struct ExportLayoutResult;
 struct ExportedPane;
+struct FloatingPane;
 struct FocusDirectionResult;
 enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
@@ -533,6 +538,7 @@ struct QuickTerminalRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
 struct ReattachViewRequest;
+struct RecordNotificationDeliveryRequest;
 struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
@@ -1669,6 +1675,7 @@ enum class ClientTransport {
 
 struct ClientInfo {
     std::vector<Id> attached{};
+    std::optional<std::vector<std::string>> capabilities{};
     std::uint64_t client{};
     std::uint64_t connected_seconds{};
     std::optional<std::string> kind{};
@@ -2168,6 +2175,33 @@ struct ColorsChangedEvent {
     std::optional<ColorHex> selection_fg{};
     std::optional<Id> surface{};
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
+};
+
+enum class ColumnDockEdge {
+    left,
+    right,
+    top,
+    bottom,
+};
+
+enum class ColumnDockMode {
+    docked,
+    overlay,
+};
+
+enum class ColumnDockRole {
+    agent_chat,
+};
+
+struct ColumnDock {
+    std::optional<bool> allow_tabs{};
+    ColumnDockEdge edge{};
+    ColumnDockMode mode{};
+    std::optional<bool> permanent{};
+    std::optional<bool> pinned{};
+    std::optional<ColumnDockRole> role{};
+    Json::Object additional_properties{};
+    friend bool operator==(const ColumnDock&, const ColumnDock&) = default;
 };
 
 enum class ColumnMoveDirection {
@@ -3190,6 +3224,15 @@ struct FloatPaneRequest {
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
 };
 
+struct FloatingPane {
+    double h{};
+    Id pane{};
+    double w{};
+    double x{};
+    double y{};
+    friend bool operator==(const FloatingPane&, const FloatingPane&) = default;
+};
+
 struct FlushLaunchSnapshotRequest {
     friend bool operator==(const FlushLaunchSnapshotRequest&, const FlushLaunchSnapshotRequest&) = default;
 };
@@ -3757,7 +3800,7 @@ struct LayoutRowNode {
 };
 
 struct LayoutColumnNode {
-    std::optional<JsonValue> dock{};
+    std::optional<ColumnDock> dock{};
     Id id{};
     Layout layout{};
     std::optional<std::vector<LayoutRowNode>> rows{};
@@ -4914,6 +4957,13 @@ struct ReattachViewResult {
     friend bool operator==(const ReattachViewResult&, const ReattachViewResult&) = default;
 };
 
+struct RecordNotificationDeliveryRequest {
+    std::string desktop{};
+    std::uint64_t notification{};
+    Field<std::string> reason{};
+    friend bool operator==(const RecordNotificationDeliveryRequest&, const RecordNotificationDeliveryRequest&) = default;
+};
+
 struct RegisterBrowserProviderRequest {
     BrowserProviderAuthentication authentication{};
     Field<std::string> bearer_token{};
@@ -5328,7 +5378,7 @@ struct Screen {
     Id active_pane{};
     Field<std::string> color{};
     std::optional<std::vector<LayoutColumnNode>> columns{};
-    std::optional<JsonValue> floating{};
+    std::optional<std::vector<FloatingPane>> floating{};
     Field<std::string> group{};
     std::optional<std::vector<Id>> hidden_dividers{};
     Field<std::string> icon{};
@@ -7248,6 +7298,30 @@ struct Codec<ColorHex> {
 };
 
 template <>
+struct Codec<ColumnDock> {
+    static Result<Json> encode(const ColumnDock& value);
+    static Result<ColumnDock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockEdge> {
+    static Result<Json> encode(const ColumnDockEdge& value);
+    static Result<ColumnDockEdge> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockMode> {
+    static Result<Json> encode(const ColumnDockMode& value);
+    static Result<ColumnDockMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockRole> {
+    static Result<Json> encode(const ColumnDockRole& value);
+    static Result<ColumnDockRole> decode(const Json& value);
+};
+
+template <>
 struct Codec<ColumnMoveDirection> {
     static Result<Json> encode(const ColumnMoveDirection& value);
     static Result<ColumnMoveDirection> decode(const Json& value);
@@ -7419,6 +7493,12 @@ template <>
 struct Codec<ExportedPane> {
     static Result<Json> encode(const ExportedPane& value);
     static Result<ExportedPane> decode(const Json& value);
+};
+
+template <>
+struct Codec<FloatingPane> {
+    static Result<Json> encode(const FloatingPane& value);
+    static Result<FloatingPane> decode(const Json& value);
 };
 
 template <>
@@ -10137,6 +10217,12 @@ template <>
 struct Codec<ReattachViewRequest> {
     static Result<Json> encode(const ReattachViewRequest& value);
     static Result<ReattachViewRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RecordNotificationDeliveryRequest> {
+    static Result<Json> encode(const RecordNotificationDeliveryRequest& value);
+    static Result<RecordNotificationDeliveryRequest> decode(const Json& value);
 };
 
 template <>
