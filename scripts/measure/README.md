@@ -65,6 +65,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | local-chat | `local-chat-first-reply.sh` (`local_chat_first_reply.py`) on a fleet Mac, a bench build at this checkout or `build=SHA`, real model through SR2 | Local chat select to first reply the way a person starts one (New chat, the composer's Send, a ready spare after a daemon restart), the hq `local-chat` probe's timed chat on a commit instead of the NIGHTLY: p50 of select_to_first_text_ms, its stages (before turn, turn, after turn) and turn marks (agent ready, to agent, first model). |
 | autocloud-repo-ready | `autocloud-repo-ready.sh` on any host with network (`--host anywhere`) | AutoCloud start's repo-ready time: a full `git clone` against the warm blobless mirror + alternates acpmux uses now (cmux#55715), cold and warm: seconds, MB from GitHub, speedup. |
 | machine-channel-exact-tree | `machine-channel-exact-tree.py` in a cmux checkout (git only, no GitHub calls) | Whether a build made before a merge can be that merge's machine channel build (goal cloud-fix-to-machine): over the newest N feat-cmux-next merges, which moved the v2 tree key, how far each such PR head was behind with how many key moves on base, whether its key matched the merge's, key moves per minute, and the chance a pre-merge build of B minutes sees none. |
+| acpmux-zthreads | `acpmux-zthreads.sh BASE HEAD [N ...]` on Linux CI (`cmux-ci test --setup rust`) or any Linux host with more than 24 GiB | rustc's parallel front end (`-Zthreads=N`) on acpmux's incremental release rebuild from BASE to HEAD, built as the machine channel's thin leg builds it (goal cloud-fix-to-machine): HEAD wall, peak rustc RSS, rlib sha256 per N. |
 
 
 ## Dev loop
@@ -409,3 +410,5 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `export-action-catalog-dump.sh`, `export-action-surfaces.sh`, `export-settings-artifacts.sh`: generators, not measurements; they fit better in a generators directory.
 - `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`: correctness checks that run on the fleet, not measurements.
 - `ci140-input-hash-repeats`: CI minutes spent on job runs whose declared inputs (router/step-table/workflow `paths`, else whole tree) hash the same as an earlier green run of the same job; read-only, needs the hq meter's `--save` records (goal ci-min-per-pr-140).
+
+Phone terminal deterministic work: `cmux-bench phone-speed` wraps the `phone-speed-icount` Linux PR gate; `--import LOG` records its six Callgrind instruction counts. Calibration and scope: [phone-speed](../bench/phone-speed/README.md).

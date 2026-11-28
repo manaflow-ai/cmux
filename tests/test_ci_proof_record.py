@@ -7,6 +7,7 @@ import json
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -57,6 +58,22 @@ class Record(unittest.TestCase):
         body = pr.render(RECORD, "summary")
         self.assertTrue(body.startswith(f"<!-- cmux-proof-record ios-flows {HEAD} -->"))
         self.assertEqual(pr.parse(body), RECORD)
+
+    def test_a_big_record_still_fits_one_comment(self):
+        # cmux#38466: 201 screens rendered 38365 characters, the broker refused it and the gate never saw the proof.
+        big = copy.deepcopy(RECORD)
+        big["captures"] = [{"name": f"{i:08X}-4C8B-4892-AAAB-66BEE93F5ACA.png", "sha256": f"{i:064x}",
+                            "diff_ratio": 0.0008, "verdict": "same"} for i in range(201)]
+        big["visual"] = {"screens": 201, "changed": [c["name"] for c in big["captures"][:100]]}
+        self.assertGreater(len(json.dumps(big, indent=1)), pr.COMMENT_BUDGET)
+        body = pr.render(big, "summary")
+        self.assertLessEqual(len(body), pr.COMMENT_BUDGET)
+        back = pr.parse(body)
+        self.assertEqual(back["verdict"], "pass")
+        self.assertEqual(len(back["captures"]), 201)
+        self.assertEqual(pr.gate(back, "ios-flows")[0], "success")
+        self.assertEqual(back["captures"][0]["sha256"], f"{0:012x}")
+        self.assertIn('\n "kind"', pr.render(RECORD))  # a small record keeps the readable indented form
 
     def test_problems(self):
         self.assertEqual(pr.problems(RECORD), [])
@@ -136,8 +153,7 @@ class Plan(unittest.TestCase):
         step = {"name": "pair", "mode": "pair-e2e", "worker": "cmux22", "args": ["pair-e2e"]}
 
         def dispatch(head=HEAD, strict=False, attempt="1", **changes):
-            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
-            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
                 ios_verify.run_step({**step, **changes}, head, 7, strict, attempt)
             cmd = run.call_args.args[0]
             return cmd[cmd.index("--key") + 1]
@@ -148,7 +164,9 @@ class Plan(unittest.TestCase):
             self.assertEqual(key, dispatch())
         self.assertNotEqual(key, dispatch(head=HEAD[:-1] + "b"))
         self.assertNotEqual(key, dispatch(args=["pair-e2e", "reconnect-drops=10,60"]))
-        self.assertNotEqual(key, dispatch(worker="cmux23"))
+        # The same work on another worker is one step (dedupes in the queue) unless the run is pinned strict.
+        self.assertEqual(key, dispatch(worker="aws-m4pro-4"))
+        self.assertNotEqual(dispatch(strict=True), dispatch(strict=True, worker="cmux23"))
         self.assertNotEqual(key, dispatch(strict=True))
         self.assertNotEqual(key, dispatch(attempt="2"))
         self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
@@ -166,6 +184,9 @@ class Plan(unittest.TestCase):
         moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
         self.assertFalse(set(keys) & set(moved))
         self.assertTrue(all(HEAD[:12] in k for k in keys))
+        # A newer head's key differs only in its head field, so cmux-ci's supersede (commits aside) replaces
+        # the older queued step instead of queueing both.
+        self.assertEqual([k.replace(HEAD, "") for k in keys], [k.replace(OTHER, "") for k in moved])
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
@@ -183,8 +204,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(len(steps), 3)
         keys = []
         for step in steps:
-            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="step abc12345", stderr="")
-            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "step abc12345")) as run:
                 receipt = ios_verify.run_step(step, HEAD, 7, False)
             cmd = run.call_args.args[0]
             self.assertNotIn("--target-worker", cmd)
@@ -200,8 +220,7 @@ class Plan(unittest.TestCase):
         step = {"name": "sim 1/1", "mode": "test", "args": ["test"], "worker": "cmux23"}
         for strict in (False, True):
             with self.subTest(strict=strict):
-                result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
-                with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
                     ios_verify.run_step(step, HEAD, 7, strict)
                 cmd = run.call_args.args[0]
                 self.assertEqual(cmd[cmd.index("--target-worker") + 1], "cmux23")
@@ -447,6 +466,54 @@ class TokenFallbackTest(unittest.TestCase):
             self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
         with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
             self.assertEqual(pr.read_tokens(), [])
+
+
+class SimStepRoutingTest(unittest.TestCase):
+    """cmux#38805, 11-27: a step pinned to cmux22 moved to a simulator host with no Xcode 27.2 (exit 3), and the
+    strict rerun at the same head was refused, its key already naming that step (HTTP 409)."""
+
+    def test_label_is_newest_macos_pin(self):
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "xcode-pins.txt"
+        tmp.write_text("# macOS  Xcode\n15       26.3\n26       27.2\n27       27.3  # newest\n")
+        self.assertEqual(ios_verify.xcode_label(tmp), "xcode-27.3")
+        self.assertIsNone(ios_verify.xcode_label(tmp.with_name("missing.txt")))
+        self.assertRegex(ios_verify.xcode_label() or "", r"^xcode-\d+\.\d+$")
+
+    def test_run_step_asks_for_the_xcode_label(self):
+        seen = {}
+
+        def fake_stream(cmd, tag):
+            seen["cmd"] = cmd
+            return 0, "step: abcdef123456"
+
+        real = ios_verify.stream
+        ios_verify.stream = fake_stream
+        try:
+            ios_verify.run_step({"name": "sim 1/1", "mode": "test", "worker": "cmux22", "args": ["test"]}, HEAD, 7, True)
+        finally:
+            ios_verify.stream = real
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[cmd.index("--label") + 1], ios_verify.xcode_label())
+        self.assertIn("--pin-strict", cmd)
+
+    def test_stream_echoes_lines_and_returns_output(self):
+        import io
+        err, real = io.StringIO(), ios_verify.sys.stderr
+        ios_verify.sys.stderr = err
+        try:
+            code, text = ios_verify.stream([sys.executable, "-c", "print('queued'); print('step: abc'); raise SystemExit(3)"], "sim 1/1")
+        finally:
+            ios_verify.sys.stderr = real
+        self.assertEqual(code, 3)
+        self.assertEqual(text, "queued\nstep: abc\n")
+        self.assertIn("[sim 1/1] queued\n", err.getvalue())
+
+    def test_key_names_head_and_pin_mode(self):
+        step = {"mode": "test", "worker": "cmux22", "name": "sim 1/1: test", "args": ["test"]}
+        loose, strict = ios_verify.step_key(step, HEAD, 7, False), ios_verify.step_key(step, HEAD, 7, True)
+        self.assertNotEqual(loose, strict)
+        self.assertNotEqual(loose, ios_verify.step_key(step, OTHER, 7, False))
+        self.assertIn(HEAD[:12], loose)
 
 
 class SeededRegression(unittest.TestCase):

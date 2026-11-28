@@ -180,7 +180,11 @@ class Index:
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
         self.situation_by_name: dict[str, list[Rule]] = {}
+        # Every rule of one (kind, name): plan() merges an area filed twice into one entry (_area_entry), read here
+        # once per index rather than by a scan of every rule per matched area (the Bench tooling bench, 0.096 s).
+        self.by_name: dict[tuple[str, str], list[Rule]] = {}
         for rule in rules:
+            self.by_name.setdefault((rule.kind, rule.name), []).append(rule)
             for glob in rule.globs:
                 prefix = literal_prefix(glob).rstrip("/")
                 # Specificity: literal characters before the first wildcard, so `a/b/c.swift` beats `a/b/**`.
@@ -275,6 +279,20 @@ def load(path: Path = MAP, steps: Path | None = STEPS) -> Index:
 
 # ---- what a set of paths needs -------------------------------------------------------------------------------
 
+def _area_entry(same: list[Rule]) -> dict:
+    """One plan entry for every [[area]] of one name: a name filed twice (docs/benches/coverage-map.md's row and a
+    hand-tuned one) is one area, so a path matching either gets both entries' benches, tests and `run` commands, under
+    the tightest budget_s. The first entry alone dropped the second's `run` (Model picker search ran no bench)."""
+    first = same[0]
+    budgets = [r.budget_s for r in same if r.budget_s is not None]
+    return {"name": first.name, "kind": first.kind,
+            "benches": list(dict.fromkeys(b for r in same for b in r.benches)),
+            "tests": list(dict.fromkeys(t for r in same for t in r.tests)),
+            "budget": next((r.budget for r in same if r.budget), ""),
+            "run": list(dict.fromkeys(c for r in same for c in r.run)),
+            "budget_s": min(budgets) if budgets else None, "paths": []}
+
+
 def plan(index: Index, paths: list[str]) -> dict:
     """The benches, tests and templates a change's paths need, and the paths only a default covers."""
     hits = [index.match(p) for p in paths]
@@ -288,9 +306,9 @@ def plan(index: Index, paths: list[str]) -> dict:
         for rule in (h.area, h.unit):
             if rule is None:
                 continue
-            a = areas.setdefault(rule.name, {"name": rule.name, "kind": rule.kind, "benches": list(rule.benches),
-                                             "tests": list(rule.tests), "budget": rule.budget,
-                                             "run": list(rule.run), "budget_s": rule.budget_s, "paths": []})
+            a = areas.get(rule.name)
+            if a is None:
+                a = areas[rule.name] = _area_entry(index.by_name.get((rule.kind, rule.name)) or [rule])
             a["paths"].append(h.path)
         sit_rules = list(h.situations)
         for name in (h.area.situations if h.area else ()):

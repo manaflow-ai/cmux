@@ -97,6 +97,7 @@ impl Hub {
                         report: e.msg.get("report") == Some(&Value::Bool(true)),
                         waited: e.msg.get(crate::prompt_provenance::WAITED)
                             == Some(&Value::Bool(true)),
+                        gather: super::super::cold_wake::requested(provenance.as_ref()),
                         at: e.at,
                         within: crate::prompt_provenance::within(provenance.as_ref()),
                         text: field("text").to_owned(),

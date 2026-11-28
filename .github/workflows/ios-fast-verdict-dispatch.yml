@@ -81,6 +81,8 @@ jobs:
       contents: read
       actions: read
       id-token: write
+      # The ios fast verdict's plan reads the head's earlier cmux/ios-fast statuses (pr-pipeline.yml).
+      statuses: read
 
   ios-fast-status:
     name: ios fast verdict status
@@ -124,7 +126,8 @@ jobs:
           if [ "$PIPELINE" = skipped ]; then
             state=error; desc="No verdict: the pr pipeline did not start on this head (fast gates red, or skipped); rerun it"
           elif [ "$RUN" = false ]; then
-            state=success; desc="The plan builds nothing on this head"
+            # A head that already passed on the same iOS inputs (scripts/ci/ios_fast_verdict.py reuse) says so.
+            state=success; case "$SUMMARY" in Reused*) desc="$SUMMARY" ;; *) desc="The plan builds nothing on this head" ;; esac
           elif [ "$VERDICT" = success ]; then
             state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
           elif [ "$VERDICT" = failure ]; then

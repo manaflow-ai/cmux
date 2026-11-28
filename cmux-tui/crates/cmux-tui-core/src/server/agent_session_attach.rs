@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 pub(super) mod agent_session_children;
 #[path = "agent_session_folders.rs"]
 mod agent_session_folders;
+#[path = "agent_session_home_pull.rs"]
+pub(super) mod agent_session_home_pull;
 #[cfg(all(test, unix))]
 #[path = "agent_session_kin_parity_tests.rs"]
 mod agent_session_kin_parity_tests;

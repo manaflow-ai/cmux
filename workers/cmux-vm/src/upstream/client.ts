@@ -103,6 +103,8 @@ export interface CreateVmSpec {
   readonly withoutReads?: boolean;
   /** A create no one is waiting on (a spare): its provider create slot is taken behind everyone else's. */
   readonly background?: boolean;
+  /** `x-cmux-create-deadline` (epoch ms): the caller's own deadline; the wait for a create slot spans it. */
+  readonly deadlineAt?: number;
   /**
    * Filled as the create runs, for the handler's vm_create line: recoverMs, verifyImageMs, createMs, recoverAfterMs,
    * resizeMs (each only when that provider call was made), `recovered`, `imageVariant` for an approved image, and the

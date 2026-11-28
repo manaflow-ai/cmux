@@ -1478,5 +1478,63 @@ class ClipboardLeg(unittest.TestCase):
         self.assertEqual(vs.bench_input("clipboard", 30, (10, 20)), "--input clipboard --samples 30")
 
 
+class PeerServeFirstContact(unittest.TestCase):
+    """2026-11-27: six pair halves served `peer-serve: listening ... for 3600 s`, no host ever dialed, and each
+    held an exclusive Mac until the controller's 45 min silent limit. peer-serve now gives up (exit 3) when no
+    accepted request arrives in --first-contact-s, and a contacted serve keeps its hold."""
+
+    def serve(self, first_contact_s, poke=None):
+        token = "ab" * 32
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "token")
+            with open(path, "w") as f:
+                f.write(token + "\n")
+            s = socket.socket()
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+            s.close()
+            args = argparse.Namespace(bind="127.0.0.1", port=port, token_file=path, hold_s=30,
+                                      first_contact_s=first_contact_s)
+            if poke:
+                threading.Thread(target=poke, args=(port, token), daemon=True).start()
+            orig = vs.localnet_probe
+            vs.localnet_probe = lambda *a, **k: {}
+            try:
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    try:
+                        vs.cmd_peer_serve(args)
+                        code = 0
+                    except SystemExit as e:
+                        code = e.code
+            finally:
+                vs.localnet_probe = orig
+            return code, out.getvalue()
+
+    def test_no_contact_gives_up(self):
+        code, out = self.serve(1)
+        self.assertEqual(code, 3)
+        self.assertIn("no peer connected in 1 s", out)
+
+    def test_contact_keeps_serving_until_done(self):
+        import time
+        import urllib.request
+
+        def poke(port, token):
+            url = f"http://127.0.0.1:{port}"
+            for _ in range(50):
+                try:
+                    urllib.request.urlopen(urllib.request.Request(url + "/run", method="POST",
+                        headers={"X-Eval-Token": token}, data=json.dumps({"cmd": "true"}).encode()), timeout=5)
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            time.sleep(2.5)  # past the 1 s first-contact bound: contacted, so it keeps serving
+            urllib.request.urlopen(urllib.request.Request(url + "/done", method="POST",
+                headers={"X-Eval-Token": token}, data=b"{}"), timeout=5)
+        code, out = self.serve(1, poke)
+        self.assertEqual(code, 0)
+        self.assertIn("peer-serve: done from 127.0.0.1", out)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -71,6 +71,28 @@ class Verdict(unittest.TestCase):
         self.assertFalse(found["eligible"])
         self.assertIn("needs a build", found["reason"])
 
+    def test_a_swift_change_is_an_app_look(self) -> None:
+        # cmux#61533 (2026-11-27): rust beside two Swift files planned needs_build and got no request for 9 h.
+        plan = {"layers": ["rust"], "needs_build": True,
+                "build": {"Swift": ["Sources/WindowRules+UpdateIdle.swift"],
+                          "Swift, resources or manifests": ["Sources/UpdateIdleGate.swift"]}}
+        found = hv.verdict(json.dumps(plan))
+        self.assertEqual(found["layers"], ["app", "rust"])
+        self.assertTrue(found["eligible"])
+        self.assertTrue(found["needs_build"])
+        self.assertIn("fleet app build", found["reason"])
+        only = hv.verdict(json.dumps({"layers": [], "needs_build": True,
+                                      "build": {"Swift": ["A.swift"], "strings": ["Localizable.xcstrings"]}}))
+        self.assertEqual((only["eligible"], only["layers"]), (True, ["app"]))
+
+    def test_other_builds_stay_build_required(self) -> None:
+        for build in ({"Swift": ["Package.swift"]}, {"Swift": ["A.swift"], "web ABI": ["x"]},
+                      {"strings": ["A.swift"]}, {}, {"Swift": []}):
+            with self.subTest(build=build):
+                found = hv.verdict(json.dumps({"layers": ["web"], "needs_build": True, "build": build}))
+                self.assertFalse(found["eligible"])
+                self.assertNotIn("app", found["layers"])
+
     def test_no_layer_is_not_eligible(self) -> None:
         found = hv.verdict(json.dumps({"layers": [], "needs_build": False}))
         self.assertFalse(found["eligible"])
@@ -246,6 +268,22 @@ class Result(unittest.TestCase):
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
         self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
+                         {"needs_build": True, "staged": [], "withheld": []})
+
+    def test_an_app_look_is_staged(self) -> None:
+        # The look built the head's app: its plan says needs_build, its marker names layer app, and it is published.
+        files = look_files(marker=f"<!-- cmux-hot-verify sha={HEAD} app={APP} layers=app,rust source=pr -->")
+        receipt = json.loads(files["out/receipt.json"])
+        receipt["plan"] = {"needs_build": True, "build": {"Swift": ["A.swift"]}}
+        files["out/receipt.json"] = json.dumps(receipt).encode()
+        plan = hv.stage(self.unpacked(files), 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
+        self.assertFalse(plan["needs_build"])
+        self.assertTrue(plan["staged"])
+        receipt["marker"] = MARKER
+        files["out/receipt.json"] = json.dumps(receipt).encode()
+        write_tar(self.tmp / "b.tar", files)
+        plain = hv.unpack(self.tmp / "b.tar", self.tmp / "b")
+        self.assertEqual(hv.stage(plain, 43000, HEAD, self.tmp / "m2", self.tmp / "t2.txt"),
                          {"needs_build": True, "staged": [], "withheld": []})
 
     def test_a_look_with_nothing_to_look_at_stages_nothing(self) -> None:

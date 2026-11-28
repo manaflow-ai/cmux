@@ -395,6 +395,9 @@ impl Hub {
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
                         self.continue_goal(session, spent);
+                        // A task's diff, read once by a reviewer with none of this context
+                        // (`fresh_review.rs`, off by default).
+                        self.fresh_review_turn_end(session, turn_id);
                     }
                     // A Codex chat's open goal left idle is nudged, then told (`goal_watch.rs`).
                     self.goal_turn_ended(session, prompt_id, status == "completed");
@@ -676,6 +679,8 @@ impl Hub {
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(in crate::hub) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
         let last = last_turn_of(turn_result, now_ms());
+        // Its next gap starts (`residency.rs`).
+        self.rhythm_turn_ended(session);
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
             let mut meta = session.meta.lock().unwrap();

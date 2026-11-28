@@ -1,0 +1,57 @@
+name: UI proof stale sweep
+
+# The bound behind cmux/ui-proof: a head's `pending` that no look answered turns `failure` with its reason, never an
+# endless pending. The result run posts the failure itself for a look that could not run
+# (cmux-next-hot-verify.yml, "Post cmux/ui-proof for a look that could not run"); this sweep covers a look whose
+# result run never came (the controller never answered, the dispatch was lost). 2026-11-27: cmux#61289, #61543 and
+# #61546 sat pending 4 h+ with no screenshots while their looks were cancelled ("no fleet Mac took the look within
+# 3h0m0s"). Leo, 2026-11-27: "we need to be fixing reds as they come instead of just waving them off".
+# A schedule runs the default branch's copy: main carries this same file (its Main-Twin), and both check out
+# feat-cmux-next's scripts, where the sweep lives.
+# 6 h is two looks at the controller's bounds (3 h queue + 45 m run, once more); scripts/ci/ui_proof_verdict.py sweep.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Pending older than this many hours turns failure"
+        required: false
+        default: "6"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: ui-proof-stale-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: sweep stale cmux/ui-proof pending
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    runs-on: cmux-linux
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          sparse-checkout: |
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Turn stale pending into failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HOURS: ${{ inputs.hours || '6' }}
+        run: python3 -I scripts/ci/ui_proof_verdict.py sweep --hours "$HOURS" | tee -a "$GITHUB_STEP_SUMMARY"

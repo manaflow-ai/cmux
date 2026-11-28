@@ -371,6 +371,13 @@ jobs:
           sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
             XDG_RUNTIME_DIR="/run/user/$JOIN_UID" \
             systemctl --user is-system-running || true
+          # What the joined user's services inherit, by name only (no values: they can be secret), and
+          # the machine-wide sources of it: a variable there that names another user's paths is what
+          # the host unit's config-dir drop-in guards against.
+          echo "user manager environment (names): $(sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
+            XDG_RUNTIME_DIR="/run/user/$JOIN_UID" systemctl --user show-environment 2>&1 | cut -d= -f1 | tr '\n' ' ')"
+          echo "/etc/environment (names): $(sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)=.*/\2/p' /etc/environment 2>/dev/null | tr '\n' ' ')"
+          echo "environment.d: $(ls /etc/environment.d /usr/lib/environment.d /usr/local/lib/environment.d 2>/dev/null | tr '\n' ' ')"
 
       # With bench=deps: cmux-tui's sources and the webviews manifest copied for the disposable user, the
       # toolchain root-owned beside acpmux, and scripts/cmux-next/deps-bench.sh (root-owned) to run while

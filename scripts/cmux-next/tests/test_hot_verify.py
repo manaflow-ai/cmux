@@ -31,6 +31,8 @@ _spec = importlib.util.spec_from_file_location("hot_verify", ENGINE)
 hv = importlib.util.module_from_spec(_spec)
 sys.modules["hot_verify"] = hv
 _spec.loader.exec_module(hv)
+# The real reader, kept before PlanTest.setUp replaces it so no test reads the live controller.
+REAL_POOL_METRICS = hv._linux_pool_metrics
 
 # cmuxterm-hq build-fleet/hot-verify MARKER, copied: the line the PR comment and the NOW metric read.
 HQ_MARKER = r"<!-- cmux-hot-verify sha=([0-9a-f]{40}) app=(\S+) layers=([a-z,]+) source=(worktree|pr) -->"
@@ -93,6 +95,10 @@ class PlanTest(unittest.TestCase):
         self.saved = (h.tree_key, h.published)
         h.tree_key = lambda repo, sha: self.fx.git("rev-parse", f"{sha}:cmux-tui", cwd=Path(repo))
         h.published = lambda key: True
+        # No test reads the live controller: the app build's wait reads no pool metrics unless a test gives some.
+        metrics = unittest.mock.patch.object(hv, "_linux_pool_metrics", return_value=None)
+        metrics.start()
+        self.addCleanup(metrics.stop)
 
     def tearDown(self):
         h = hv.hot()
@@ -686,7 +692,70 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(calls[0][0], [ci, "build", "cmux", "--builder", "linux", "--backend-mode", "local",
                                       "--tag", f"app-try-{head[:12]}", "--ref", head, "--workspace", f"app-try:{head}"])
         self.assertEqual(calls[0][1]["cwd"], self.fx.repo)
-        self.assertEqual(calls[1][0], [ci, "wait", "--timeout", str(hv.APPLY_SECONDS), "job-1"])
+        self.assertEqual(calls[1][0], [ci, "wait", "--timeout", str(hv.APP_BUILD_UNREAD), "job-1"])
+
+    def test_the_app_builds_wait_follows_the_pools_measured_p90_queue_and_run(self):
+        # 2026-11-27 from 12Z: the pool's cmux builds ran 2672 s at p90 after a 593 s p90 queue, past the old fixed
+        # 900 s wait (APPLY_SECONDS), so every Swift look stopped waiting mid-build.
+        today = {"done": 160, "queue_p90": 593.0, "run_p90": 2672.0}
+        self.assertEqual(hv.app_build_seconds(today), 4082)  # (593 + 2672) * 1.25, rounded up
+        self.assertGreater(hv.app_build_seconds(today), 593 + 3331)  # past that day's slowest build after a p90 queue
+        self.assertEqual(hv.app_build_seconds({"done": 9, "queue_p90": 10.0, "run_p90": 300.0}), hv.APP_BUILD_FLOOR)
+        self.assertEqual(hv.app_build_seconds({"done": 9, "queue_p90": 9000.0, "run_p90": 9000.0}), hv.APP_BUILD_CAP)
+        for unread in (None, {}, {"done": 0, "queue_p90": 0, "run_p90": 0}, {"done": 3, "queue_p90": "x"},
+                       {"done": 3, "queue_p90": float("nan"), "run_p90": 1.0}, {"done": 3, "run_p90": 2000.0}):
+            with self.subTest(metrics=unread):
+                self.assertEqual(hv.app_build_seconds(unread), hv.APP_BUILD_UNREAD)
+        self.assertEqual(hv.app_build_seconds({"done": 3, "queue_p90": float("inf"), "run_p90": 1.0}), hv.APP_BUILD_CAP)
+        self.assertGreaterEqual(hv.APP_BUILD_UNREAD, 593 + 2672)
+
+        scratch = Path(self.tmp.name) / "scratch"
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"job-p90"}\n', "")
+            if argv[1] == "wait":
+                return subprocess.CompletedProcess(argv, 0, "done\n", "")
+            app = Path(argv[3]) / "cmux DEV.app/Contents"
+            app.mkdir(parents=True)
+            (app / "Info.plist").write_bytes(b"plist")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv, "_linux_pool_metrics", return_value=today), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+        wait = next((argv, kwargs) for argv, kwargs in calls if argv[1] == "wait")
+        self.assertEqual(wait[0], ["/fake/cmux-ci", "wait", "--timeout", "4082", "job-p90"])
+        self.assertEqual(wait[1]["timeout"], 4082 + 30)
+
+    def test_the_pool_metrics_come_from_the_configured_controller(self):
+        seen = []
+
+        class Answer(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append((request.full_url, timeout))
+            return Answer(json.dumps({"metrics_24h": {"done": 4, "queue_p90": 1.0, "run_p90": 2.0}}).encode())
+
+        config = Path(self.tmp.name) / "client.json"
+        config.write_text(json.dumps({"controller": "http://controller.test:1/"}))
+        with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CONTROLLER": ""}), \
+                unittest.mock.patch.object(hv, "FLEET_CLIENT_CONFIG", config), \
+                unittest.mock.patch.object(hv.urllib.request, "urlopen", side_effect=urlopen):
+            got = REAL_POOL_METRICS()
+        self.assertEqual(got, {"done": 4, "queue_p90": 1.0, "run_p90": 2.0})
+        self.assertEqual(seen, [("http://controller.test:1/v1/linux-pool", 10)])
+        with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CONTROLLER": "http://env.test:2"}), \
+                unittest.mock.patch.object(hv.urllib.request, "urlopen", side_effect=OSError("down")):
+            self.assertIsNone(REAL_POOL_METRICS())
 
     def test_swift_app_fallback_uses_the_exact_dirty_working_tree(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 5 }\n"})

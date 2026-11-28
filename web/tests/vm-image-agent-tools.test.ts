@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, RECORD_TRIES, recorderScript, recordSteps, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, DAEMON_TERMINAL_TRIES, workspaceEnsureCommand, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, RECORD_TRIES, recorderScript, recordSteps, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -1084,5 +1084,13 @@ describe("image tools (bc, browser on PATH)", () => {
     for (const l of m.BROWSER_LINKS) expect(cmd).toContain(l);
     expect(cmd).toContain("--headless=new");
     expect(m.imageToolsSmokeCommand()).toContain("bc");
+  });
+});
+
+describe("the probe asks a slow clone's daemon for its workspace again (roll 46100096471)", () => {
+  test("the workspace ask is show-or-create, so a second try is safe", () => {
+    expect(DAEMON_TERMINAL_TRIES).toBe(2);
+    const cmd = workspaceEnsureCommand("/x/cmux-tui --session cloud");
+    expect(cmd).toMatch(/^\/x\/cmux-tui --session cloud workspace name:\S+ show >\/dev\/null 2>&1 \|\| \/x\/cmux-tui --session cloud workspace create --name \S+ >\/dev\/null && echo ok$/);
   });
 });

@@ -2425,11 +2425,14 @@ def read_peer_token(path):
 
 def cmd_peer_serve(args):
     """The other Mac's half of a pair job: run what the orchestrating Mac posts, as this step's
-    user, in this process's tree (so a launcher app's grants reach the rig), until /done or --hold-s."""
+    user, in this process's tree (so a launcher app's grants reach the rig), until /done or --hold-s.
+    With no accepted request in --first-contact-s it exits 3: the other half never dialed in (2026-11-27,
+    six pair jobs on cmux22 and cmux20-bench served "listening ... for 3600 s" with no host contact
+    until the controller's 45 min silent limit killed them, each holding an exclusive Mac)."""
     import hmac
     import http.server
     token = read_peer_token(args.token_file)
-    state = {"pinned": None, "last": time.time()}
+    state = {"pinned": None, "last": time.time(), "contacted": False}
     stop = threading.Event()
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -2450,7 +2453,7 @@ def cmd_peer_serve(args):
                     not hmac.compare_digest(self.headers.get("X-Eval-Token", ""), token):
                 self.reply(403)
                 return
-            state["pinned"], state["last"] = client, time.time()
+            state["pinned"], state["last"], state["contacted"] = client, time.time(), True
             n = int(self.headers.get("Content-Length") or 0)
             req = json.loads(self.rfile.read(n) or b"{}")
             if self.path == "/done":
@@ -2477,11 +2480,20 @@ def cmd_peer_serve(args):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"peer-serve: listening on {args.bind}:{args.port} for {args.hold_s} s", flush=True)
     print("peer-serve: localnet " + json.dumps(localnet_probe()), flush=True)
-    deadline = time.time() + args.hold_s
+    started = time.time()
+    deadline = started + args.hold_s
+    first_contact = args.first_contact_s
     while not stop.wait(1):
         if time.time() > deadline:
             print("peer-serve: hold ended", flush=True)
             break
+        if first_contact > 0 and not state["contacted"] and time.time() - started > first_contact:
+            print(f"peer-serve: no peer connected in {first_contact} s (the other half never dialed "
+                  f"{args.bind}:{args.port}; CMUX_PEER_FIRST_CONTACT_S or --first-contact-s sets the bound, "
+                  "0 turns it off); giving up so this Mac frees", flush=True)
+            server.shutdown()
+            server.server_close()
+            sys.exit(3)
     else:
         print(f"peer-serve: done from {state['pinned']}", flush=True)
     server.shutdown()
@@ -3913,6 +3925,9 @@ def build_parser():
     ps.add_argument("--port", type=int, default=4181)
     ps.add_argument("--token-file", required=True)
     ps.add_argument("--hold-s", type=int, default=7200)
+    ps.add_argument("--first-contact-s", type=int,
+                    default=int(os.environ.get("CMUX_PEER_FIRST_CONTACT_S") or 600),
+                    help="exit 3 when no accepted request arrives in this many seconds (0: off)")
     ps.set_defaults(fn=cmd_peer_serve)
     ln = sub.add_parser("localnet-probe", help="whether this process may send UDP to a LAN address (JSON)")
     ln.add_argument("--to", help="the LAN address (default: the gateway)")

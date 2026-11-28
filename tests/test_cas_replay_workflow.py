@@ -22,6 +22,7 @@ R2_UPLOAD = "./.github/actions/r2-artifact/upload"
 R2_DOWNLOAD = "./.github/actions/r2-artifact/download"
 CAS_PATHS = [
     "cmux-tui/crates/cmux-cas/**",
+    "cmux-tui/crates/cmux-signed-envelope/**",  # cmux-cas depends on it (a85833e329d / #60110)
     "scripts/cas/**",
     "scripts/cmux-next/web-bundle-archive.py",
     ".github/workflows/cas-replay.yml",

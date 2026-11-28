@@ -626,6 +626,22 @@ impl Hub {
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
         }
+        // An Auto chat changes machine only as a holder change in the Cloud store
+        // (`move_authority.rs`, RFD 0172): a bundle moved here would run it on another host
+        // while the store still names this machine its holder.
+        if let super::move_authority::Authority::Store { .. } = self.move_authority(session) {
+            let name = session.read_meta(|m| m.name.clone());
+            let to_cloud =
+                crate::chat_place::person_command(&name, crate::chat_place::Place::Cloud);
+            return Err(transfer_error(
+                "auto",
+                format!(
+                    "this is an Auto chat, so the Cloud store moves it, not a session move; \
+                     `{to_cloud}` sends it to the Cloud and `--on local` brings it home"
+                ),
+            )
+            .with_data(json!({"reason": "auto_chat"})));
+        }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
         // The lock alone is not the turn: a turn an agent host runs (a chat whose host is

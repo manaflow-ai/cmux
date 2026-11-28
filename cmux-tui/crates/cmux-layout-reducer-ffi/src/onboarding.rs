@@ -3,7 +3,7 @@
 //! Browser's selection rules. The app keeps the window, the detection, the
 //! Keychain and the Touch ID sheet, sends the facts and runs the answer.
 
-use cmux_window_rules::onboarding;
+use cmux_window_rules::{onboarding, walk_split};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -34,6 +34,21 @@ struct Browsers {
     browsers: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallKey {
+    install_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WalkEnd {
+    bundle: String,
+    ending: walk_split::Ending,
+    #[serde(default)]
+    screen: u32,
+}
+
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
         // The tool window's footer: the primary button, Skip, Back.
@@ -62,6 +77,22 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         // The detected browsers in list order (indices): Edge first.
         b"onboarding_edge_first" => {
             json!({ "order": onboarding::edge_first(&read::<Browsers>(request)?.browsers) })
+        }
+        // Make cmux Yours' bundle for this install (an arm per contested screen).
+        b"onboarding_walk_bundle" => {
+            let request: InstallKey = read(request)?;
+            serde_json::to_value(walk_split::bundle(&request.install_key))
+                .map_err(|_| ERR_INVALID)?
+        }
+        // The record the app logs when a walk starts or ends.
+        b"onboarding_walk_outcome" => {
+            let request: WalkEnd = read(request)?;
+            serde_json::to_value(walk_split::outcome(
+                &request.bundle,
+                request.ending,
+                request.screen,
+            ))
+            .map_err(|_| ERR_INVALID)?
         }
         _ => return Err(ERR_INVALID),
     };
