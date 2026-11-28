@@ -58,6 +58,7 @@ jobs:
           persist-credentials: false
           filter: blob:none
           sparse-checkout: |
+            .github/workflows
             scripts/cmux-next
             tests
       - name: The scale fixture's verdict and config (tests/test_scale_fixture_bench.py)
