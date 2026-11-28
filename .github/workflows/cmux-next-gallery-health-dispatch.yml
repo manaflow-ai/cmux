@@ -1,0 +1,50 @@
+name: cmux NEXT gallery health dispatcher
+
+# From the 2026-11-05 CI baggage audit: gallery-health runs only when gallery or webviews UI paths
+# change, plus a nightly run on the base. feat-cmux-next's
+# gallery-health.yml renders every gallery entry at the dispatched ref when it is started by
+# workflow_dispatch (#36741), but a schedule there never fires: scheduled workflows run only from the
+# default branch. Once a day this file on main starts it on feat-cmux-next, unless a run is already
+# pending. Once this nightly runs, the per-push renders on feat-cmux-next can go.
+on:
+  schedule:
+    - cron: "41 8 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-gallery-health-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Start the full gallery render on feat-cmux-next unless one is pending
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const workflow = 'gallery-health.yml';
+            for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: workflow, branch: source, event: 'workflow_dispatch', status, per_page: 5,
+              });
+              if (data.total_count > 0) {
+                core.notice(`A nightly gallery render is already ${status} (run ${data.workflow_runs[0].id}); nothing to start`);
+                return;
+              }
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner, repo, workflow_id: workflow,
+              // Fully qualified: a tag named feat-cmux-next must never be picked.
+              ref: `refs/heads/${source}`,
+            });
+            core.notice(`Started the full gallery render on ${source}`);
