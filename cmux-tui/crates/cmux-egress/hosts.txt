@@ -204,6 +204,21 @@ app.notion.com
 # when: only when an agent uses that integration in your signed-in browser
 # off: don't give an agent the integration, or sign out of the site in cmux's browser
 app.slack.com
+# Kimi's sign-in server (global), when you sign Kimi in with your Kimi account
+# sends: the sign-in code and your Kimi refresh token, to get a new access token
+# when: when you sign Kimi in, and when its access token is renewed
+# off: sign Kimi out
+auth.kimi.ai
+# Kimi's sign-in server (China), when you sign Kimi in with your Kimi account
+# sends: the sign-in code and your Kimi refresh token, to get a new access token
+# when: when you sign Kimi in, and when its access token is renewed
+# off: sign Kimi out
+auth.kimi.com
+# xAI's sign-in server, when you sign Grok in with your xAI account
+# sends: the sign-in code and your xAI refresh token, to renew or revoke the access token
+# when: when you sign Grok in or out, and when its access token is renewed
+# off: sign Grok out
+auth.x.ai
 # images in GitHub pages and agent replies
 # sends: an image request (your IP address and the image's URL)
 # when: when a GitHub page or agent reply you open shows an image
@@ -539,6 +554,11 @@ openaccess-cdn.clevelandart.org
 # when: when you install OpenCode
 # off: don't install OpenCode
 opencode.ai
+# OpenRouter, when you sign it in from Settings: the app trades the sign-in code for an API key
+# sends: the one-time sign-in code and its verifier
+# when: once, when you sign OpenRouter in
+# off: don't sign OpenRouter in (paste a key instead)
+openrouter.ai
 # update channel push: tells the app a new build is out
 # sends: an update-channel subscription, no account data
 # when: while the app runs, to learn a new build is out
