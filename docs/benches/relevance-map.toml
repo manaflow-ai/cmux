@@ -3481,6 +3481,12 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-braid-session",
 dependents = ["cmux-remote"]
 
 [[unit]]
+name = "rust:cmux-browser-grants"
+paths = ["cmux-tui/crates/cmux-browser-grants/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-browser-grants", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-browser-host -p cmux-tui-core"]
+dependents = ["cmux-browser-host", "cmux-tui-core"]
+
+[[unit]]
 name = "rust:cmux-browser-host"
 paths = ["cmux-tui/crates/cmux-browser-host/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-browser-host", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
@@ -3776,6 +3782,12 @@ name = "rust:cmux-feed-core"
 paths = ["cmux-tui/crates/cmux-feed-core/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-feed-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui-core"]
 dependents = ["cmux-tui-core"]
+
+[[unit]]
+name = "rust:cmux-feed-push-core"
+paths = ["cmux-tui/crates/cmux-feed-push-core/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-feed-push-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-ffi"]
+dependents = ["cmux-layout-reducer-ffi", "cmux-mobile-ffi"]
 
 [[unit]]
 name = "rust:cmux-felt"
@@ -4718,6 +4730,10 @@ paths = ["cmux-tui/relays/cloudflare-do/**"]
 tests = ["cargo test --manifest-path cmux-tui/relays/cloudflare-do/Cargo.toml"]
 
 [[unit]]
+name = "cmux-tui:rings"
+paths = ["cmux-tui/rings/**"]
+
+[[unit]]
 name = "cmux-tui:scripts"
 paths = ["cmux-tui/scripts/**"]
 
@@ -5324,6 +5340,10 @@ name = "schemas:focus-ui-guards"
 paths = ["schemas/focus-ui-guards/**"]
 
 [[unit]]
+name = "schemas:focus-ui-input"
+paths = ["schemas/focus-ui-input/**"]
+
+[[unit]]
 name = "schemas:focus-ui-keys"
 paths = ["schemas/focus-ui-keys/**"]
 
@@ -5442,6 +5462,10 @@ paths = ["schemas/sidebar-item-info/**"]
 [[unit]]
 name = "schemas:sidebar-item-order"
 paths = ["schemas/sidebar-item-order/**"]
+
+[[unit]]
+name = "schemas:sidebar-layout-engine"
+paths = ["schemas/sidebar-layout-engine/**"]
 
 [[unit]]
 name = "schemas:sidebar-list-rules"
@@ -6312,3 +6336,407 @@ paths = ["ci/*"]
 [[unit]]
 name = "persisted-formats:(top level)"
 paths = ["persisted-formats/*"]
+
+[[unit]]
+name = "agents:(top level)"
+paths = [".agents/*"]
+
+[[unit]]
+name = "asc:(top level)"
+paths = [".asc/*"]
+
+[[unit]]
+name = "cargo:(top level)"
+paths = [".cargo/*"]
+
+[[unit]]
+name = "claude:commands"
+paths = [".claude/commands/**"]
+
+[[unit]]
+name = "claude:skills"
+paths = [".claude/skills/**"]
+
+[[unit]]
+name = "claude:workflows"
+paths = [".claude/workflows/**"]
+
+[[unit]]
+name = "claude:(top level)"
+paths = [".claude/*"]
+
+[[unit]]
+name = "cmux:(top level)"
+paths = [".cmux/*"]
+
+[[unit]]
+name = "codex:(top level)"
+paths = [".codex/*"]
+
+[[unit]]
+name = "greptile:(top level)"
+paths = [".greptile/*"]
+
+[[unit]]
+name = "lane-notes:(top level)"
+paths = [".lane-notes/*"]
+
+[[unit]]
+name = "App:(top level)"
+paths = ["App/*"]
+
+[[unit]]
+name = "AppIcon.icon:Assets"
+paths = ["AppIcon.icon/Assets/**"]
+
+[[unit]]
+name = "AppIcon.icon:(top level)"
+paths = ["AppIcon.icon/*"]
+
+[[unit]]
+name = "Assets.xcassets:AppIcon-Debug.appiconset"
+paths = ["Assets.xcassets/AppIcon-Debug.appiconset/**"]
+
+[[unit]]
+name = "Assets.xcassets:AppIcon-Nightly.appiconset"
+paths = ["Assets.xcassets/AppIcon-Nightly.appiconset/**"]
+
+[[unit]]
+name = "Assets.xcassets:AppIcon-RC.appiconset"
+paths = ["Assets.xcassets/AppIcon-RC.appiconset/**"]
+
+[[unit]]
+name = "Assets.xcassets:AppIcon.appiconset"
+paths = ["Assets.xcassets/AppIcon.appiconset/**"]
+
+[[unit]]
+name = "Assets.xcassets:AppIconDark.imageset"
+paths = ["Assets.xcassets/AppIconDark.imageset/**"]
+
+[[unit]]
+name = "Assets.xcassets:AppIconLight.imageset"
+paths = ["Assets.xcassets/AppIconLight.imageset/**"]
+
+[[unit]]
+name = "Assets.xcassets:(top level)"
+paths = ["Assets.xcassets/*"]
+
+[[unit]]
+name = "Resources:CmuxRemote.icon"
+paths = ["Resources/CmuxRemote.icon/**"]
+
+[[unit]]
+name = "Resources:bin"
+paths = ["Resources/bin/**"]
+
+[[unit]]
+name = "Resources:cmux-cli-path"
+paths = ["Resources/cmux-cli-path/**"]
+
+[[unit]]
+name = "Resources:cmux-themes"
+paths = ["Resources/cmux-themes/**"]
+
+[[unit]]
+name = "Resources:feed-tui"
+paths = ["Resources/feed-tui/**"]
+
+[[unit]]
+name = "Resources:ghostty"
+paths = ["Resources/ghostty/**"]
+
+[[unit]]
+name = "Resources:markdown-viewer"
+paths = ["Resources/markdown-viewer/**"]
+
+[[unit]]
+name = "Resources:shell-integration"
+paths = ["Resources/shell-integration/**"]
+
+[[unit]]
+name = "Resources:sidebar-looks"
+paths = ["Resources/sidebar-looks/**"]
+
+[[unit]]
+name = "Resources:terminfo-overlay"
+paths = ["Resources/terminfo-overlay/**"]
+
+[[unit]]
+name = "Resources:theme-files"
+paths = ["Resources/theme-files/**"]
+
+[[unit]]
+name = "Resources:(top level)"
+paths = ["Resources/*"]
+
+[[unit]]
+name = "agent-chat:adapters"
+paths = ["agent-chat/adapters/**"]
+
+[[unit]]
+name = "agent-chat:experiments"
+paths = ["agent-chat/experiments/**"]
+
+[[unit]]
+name = "agent-chat:mail"
+paths = ["agent-chat/mail/**"]
+
+[[unit]]
+name = "agent-chat:public"
+paths = ["agent-chat/public/**"]
+
+[[unit]]
+name = "agent-chat:scratch"
+paths = ["agent-chat/scratch/**"]
+
+[[unit]]
+name = "agent-chat:src"
+paths = ["agent-chat/src/**"]
+
+[[unit]]
+name = "agent-chat:test"
+paths = ["agent-chat/test/**"]
+
+[[unit]]
+name = "agent-chat:(top level)"
+paths = ["agent-chat/*"]
+
+[[unit]]
+name = "art:full"
+paths = ["art/full/**"]
+
+[[unit]]
+name = "art:(top level)"
+paths = ["art/*"]
+
+[[unit]]
+name = "capture-scratch:replay"
+paths = ["capture-scratch/replay/**"]
+
+[[unit]]
+name = "clients:ts"
+paths = ["clients/ts/**"]
+
+[[unit]]
+name = "cmux-browser:overlay"
+paths = ["cmux-browser/overlay/**"]
+
+[[unit]]
+name = "cmux-browser:scripts"
+paths = ["cmux-browser/scripts/**"]
+
+[[unit]]
+name = "cmux-browser:(top level)"
+paths = ["cmux-browser/*"]
+
+[[unit]]
+name = "cmux-next-android:app"
+paths = ["cmux-next-android/app/**"]
+
+[[unit]]
+name = "cmux-next-android:gradle"
+paths = ["cmux-next-android/gradle/**"]
+
+[[unit]]
+name = "cmux-next-android:(top level)"
+paths = ["cmux-next-android/*"]
+
+[[unit]]
+name = "cmux-next-exact:(top level)"
+paths = ["cmux-next-exact/*"]
+
+[[unit]]
+name = "cmux-next-ios:App"
+paths = ["cmux-next-ios/App/**"]
+
+[[unit]]
+name = "cmux-next-ios:AppStoreReview"
+paths = ["cmux-next-ios/AppStoreReview/**"]
+
+[[unit]]
+name = "cmux-next-ios:FlowSuite"
+paths = ["cmux-next-ios/FlowSuite/**"]
+
+[[unit]]
+name = "cmux-next-ios:NotificationContent"
+paths = ["cmux-next-ios/NotificationContent/**"]
+
+[[unit]]
+name = "cmux-next-ios:NotificationService"
+paths = ["cmux-next-ios/NotificationService/**"]
+
+[[unit]]
+name = "cmux-next-ios:UITests"
+paths = ["cmux-next-ios/UITests/**"]
+
+[[unit]]
+name = "cmux-next-ios:contract"
+paths = ["cmux-next-ios/contract/**"]
+
+[[unit]]
+name = "cmux-next-ios:design"
+paths = ["cmux-next-ios/design/**"]
+
+[[unit]]
+name = "cmux-next-ios:reliability-matrix"
+paths = ["cmux-next-ios/reliability-matrix/**"]
+
+[[unit]]
+name = "cmux-next-ios:scripts"
+paths = ["cmux-next-ios/scripts/**"]
+
+[[unit]]
+name = "cmux-next-ios:verify"
+paths = ["cmux-next-ios/verify/**"]
+
+[[unit]]
+name = "cmux-next-ios:(top level)"
+paths = ["cmux-next-ios/*"]
+
+[[unit]]
+name = "cmux-screen:crates"
+paths = ["cmux-screen/crates/**"]
+
+[[unit]]
+name = "cmux-screen:(top level)"
+paths = ["cmux-screen/*"]
+
+[[unit]]
+name = "cmux.xcodeproj:project.xcworkspace"
+paths = ["cmux.xcodeproj/project.xcworkspace/**"]
+
+[[unit]]
+name = "cmux.xcodeproj:xcshareddata"
+paths = ["cmux.xcodeproj/xcshareddata/**"]
+
+[[unit]]
+name = "cmux.xcodeproj:(top level)"
+paths = ["cmux.xcodeproj/*"]
+
+[[unit]]
+name = "cmux.xcworkspace:(top level)"
+paths = ["cmux.xcworkspace/*"]
+
+[[unit]]
+name = "config:iroh"
+paths = ["config/iroh/**"]
+
+[[unit]]
+name = "config:network"
+paths = ["config/network/**"]
+
+[[unit]]
+name = "config:vite-plus"
+paths = ["config/vite-plus/**"]
+
+[[unit]]
+name = "config:(top level)"
+paths = ["config/*"]
+
+[[unit]]
+name = "deploy:helm"
+paths = ["deploy/helm/**"]
+
+[[unit]]
+name = "images:cmux-vm"
+paths = ["images/cmux-vm/**"]
+
+[[unit]]
+name = "ios:AppStoreReview"
+paths = ["ios/AppStoreReview/**"]
+
+[[unit]]
+name = "ios:Config"
+paths = ["ios/Config/**"]
+
+[[unit]]
+name = "ios:NotificationService"
+paths = ["ios/NotificationService/**"]
+
+[[unit]]
+name = "ios:cmux"
+paths = ["ios/cmux/**"]
+
+[[unit]]
+name = "ios:cmux-ios.xcodeproj"
+paths = ["ios/cmux-ios.xcodeproj/**"]
+
+[[unit]]
+name = "ios:cmux.xcworkspace"
+paths = ["ios/cmux.xcworkspace/**"]
+
+[[unit]]
+name = "ios:cmuxUITests"
+paths = ["ios/cmuxUITests/**"]
+
+[[unit]]
+name = "ios:fastlane"
+paths = ["ios/fastlane/**"]
+
+[[unit]]
+name = "ios:scripts"
+paths = ["ios/scripts/**"]
+
+[[unit]]
+name = "ios:tests"
+paths = ["ios/tests/**"]
+
+[[unit]]
+name = "ios:(top level)"
+paths = ["ios/*"]
+
+[[unit]]
+name = "libs:vm-instance-identity"
+paths = ["libs/vm-instance-identity/**"]
+
+[[unit]]
+name = "markdown-obsidian-parity:screenshots"
+paths = ["markdown-obsidian-parity/screenshots/**"]
+
+[[unit]]
+name = "mux:host"
+paths = ["mux/host/**"]
+
+[[unit]]
+name = "mux:packages"
+paths = ["mux/packages/**"]
+
+[[unit]]
+name = "mux:(top level)"
+paths = ["mux/*"]
+
+[[unit]]
+name = "samples:apps"
+paths = ["samples/apps/**"]
+
+[[unit]]
+name = "server:prototype"
+paths = ["server/prototype/**"]
+
+[[unit]]
+name = "services:conversation-sim"
+paths = ["services/conversation-sim/**"]
+
+[[unit]]
+name = "tests_v2:(top level)"
+paths = ["tests_v2/*"]
+
+[[unit]]
+name = "vault:cmd"
+paths = ["vault/cmd/**"]
+
+[[unit]]
+name = "vault:internal"
+paths = ["vault/internal/**"]
+
+[[unit]]
+name = "vault:(top level)"
+paths = ["vault/*"]
+
+[[unit]]
+name = "vendor:mediaremote-adapter"
+paths = ["vendor/mediaremote-adapter/**"]
+
+[[unit]]
+name = "(repo root)"
+paths = ["*"]
