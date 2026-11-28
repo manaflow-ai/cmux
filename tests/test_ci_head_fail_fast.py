@@ -156,6 +156,9 @@ class CheapGateTests(unittest.TestCase):
         gate = gate.replace("!cancelled()", "True").replace("needs.route.result", "'success'")
         gate = gate.replace("needs.fast-gates.result", repr(fast_gates)).replace("github.event_name", repr(event))
         gate = gate.replace("github.event.pull_request.head.repo.full_name != github.repository", repr(fork))
+        # full-ci is one-shot on feat-cmux-next (CI_FULL_CI_ONE_SHOT): it escapes on the labelling event, modelled here.
+        gate = gate.replace("(github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' "
+                            "&& github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')", "True")
         gate = gate.replace("contains(github.event.pull_request.labels.*.name, 'full-ci')", repr("full-ci" in labels))
         gate = gate.replace("format('{0}', vars.CI_HEAD_FAIL_FAST)", repr(switch))
         gate = gate.replace("&&", " and ").replace("||", " or ")
@@ -191,7 +194,10 @@ class CheapGateTests(unittest.TestCase):
         text = self.read("pr-router.yml")
         for job in self.ROUTER_UNGATED + ("fast-gates",):
             with self.subTest(job=job):
-                self.assertIn("    needs: route\n", _job(text, job))
+                # Never waits on fast-gates; size-budget also reads compile-preflight's web bundle outputs.
+                needs = re.search(r"^    needs: \[?(.*?)\]?$", _job(text, job), re.M).group(1).split(", ")
+                self.assertIn("route", needs)
+                self.assertNotIn("fast-gates", needs)
 
     def test_cmux_next_release_compiles_wait_for_cargo(self):
         text = self.read("cmux-next.yml")
