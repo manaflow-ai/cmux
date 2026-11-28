@@ -134,6 +134,24 @@ class Jobs(unittest.TestCase):
         self.assertTrue(any("SIGKILL" in line for line in out))
         self.assertTrue(all(len(line) <= lab.LOG_LINE for line in out if line.startswith("LAB-FAIL")))
 
+    def test_cargo_jobs_fit_the_slots_memory_not_its_core_count(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "cg"
+            (root / "runner.slice" / "slot.scope").mkdir(parents=True)
+            (root / "runner.slice" / "memory.max").write_text(str(24 * lab.GIB))
+            (root / "runner.slice" / "slot.scope" / "memory.max").write_text("max")
+            proc = Path(d) / "cgroup"
+            proc.write_text("0::/runner.slice/slot.scope\n")
+            meminfo = Path(d) / "meminfo"
+            meminfo.write_text(f"MemTotal: {64 * 1024 * 1024} kB\n")
+            self.assertEqual(lab.memory_gib(str(root), str(proc), str(meminfo)), 24)
+            proc.write_text("0::/\n")
+            self.assertEqual(lab.memory_gib(str(root), str(proc), str(meminfo)), 64)
+        self.assertEqual(lab.build_jobs(16, 24), 8)
+        self.assertEqual(lab.build_jobs(16, 2), 1)
+        self.assertEqual(lab.build_jobs(4, 64), 4)
+        self.assertEqual(lab.build_jobs(16, None), 16)
+
     def test_the_plan_is_one_job_per_part_scale_and_load(self):
         jobs = lab.plan(lab.PRESETS["nightly"])
         names = [j["name"] for j in jobs]
