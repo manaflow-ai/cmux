@@ -163,7 +163,7 @@ pub fn word(part: &str) -> String {
 }
 
 /// A harness id as a name: the official engine or acpmux built-in it starts with, then the rest in
-/// brackets (`claude-sr2-pipe` → "Claude (SR2 Pipe)", `gemini` → "Antigravity"). A blank id comes back
+/// brackets (`claude-work` → "Claude (Work)", `gemini` → "Antigravity"). A blank id comes back
 /// as it is.
 pub fn harness_name(id: &str, strings: &Strings) -> String {
     let parts = tokens(id);
