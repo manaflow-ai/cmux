@@ -9,6 +9,7 @@ import { useBlockWrap, type BlockKind } from "./blockWrap";
 import { WrapLines } from "./icons";
 import { lineCount, OUTPUT_LINE_WINDOW } from "./blockPartsModel";
 import { WINDOW_CHUNK, type LineWindow } from "./lineWindow";
+import { Tooltip } from "../../../ui/Tooltip";
 /// The header's Wrap lines toggle for a block of `kind` (every block of the kind follows it). `shaped`
 /// is the block's own state until the viewer picks (blockWrap.ts `outputWraps`), so the button shows it.
 export function WrapButton({
@@ -23,16 +24,18 @@ export function WrapButton({
   const t = useT();
   const [wrap, toggle] = useBlockWrap(kind, shaped);
   return (
-    <button
-      type="button"
-      className={className}
-      aria-pressed={wrap}
-      data-fold-toggle=""
-      aria-label={t("changes.wrapLines")}
-      onClick={toggle}
-    >
-      <WrapLines />
-    </button>
+    <Tooltip label={t("changes.wrapLines")}>
+      <button
+        type="button"
+        className={className}
+        aria-pressed={wrap}
+        data-fold-toggle=""
+        aria-label={t("changes.wrapLines")}
+        onClick={toggle}
+      >
+        <WrapLines />
+      </button>
+    </Tooltip>
   );
 }
 

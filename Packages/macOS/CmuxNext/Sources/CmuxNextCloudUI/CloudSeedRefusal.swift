@@ -26,6 +26,9 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     /// `.git`, or only its first pass past the copy's limits (no `.git`, at most 256 MiB), never the whole tree a first
     /// pass leaves on this Mac. Nil when cmux-tui could not read the folder's size.
     public let copyBytes: Int64?
+    /// The plan's largest size when even its largest disk can't hold the copy (``Growth/pastPlan(_:)``): the start ends
+    /// saying so, never growing the machine past what the plan gives.
+    public var pastPlan: CloudChatSize?
     /// The disk a machine whose size is not known is taken to have (the smallest size's).
     public static let assumedDiskMb = 16_384
     /// What a machine's image and its own work keep of the disk: a copy may fill the rest.
@@ -64,9 +67,14 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     /// Why a copy that does not fit is not made, for the chat: the folder's size and the machine's name, and connecting
     /// GitHub only when that helps (``gitHubHelps``).
     public var tooLarge: String {
+        if let pastPlan {
+            let words = String(localized: "cloud.seedRefused.pastPlan", defaultValue: "This folder is %1$@, more than the largest machine your plan gives (%2$@) has room for. Choose a smaller folder.", table: "Cloud", bundle: .localizedModule)
+            let disk = ByteCountFormatter.string(fromByteCount: CloudChatSize.largestDiskBytes(planMax: pastPlan), countStyle: .file)
+            return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), disk)
+        }
         let words = gitHubHelps
-            ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .module)
-            : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .module)
+            ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .localizedModule)
+            : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .localizedModule)
         return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
     }
 
@@ -78,15 +86,38 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
         return CloudMoveFailure(message: refusal.tooLarge, code: refusal.pageCode)
     }
 
+    /// What growing the machine's disk for a copy that does not fit came to (``copying(machine:diskMb:grow:declined:_:)``).
+    public enum Growth: Equatable, Sendable {
+        /// The disk was grown: the machine's disk is now this many MiB.
+        case grown(diskMb: Int)
+        /// No disk the plan gives holds the copy: the plan's largest size.
+        case pastPlan(CloudChatSize)
+        /// Not grown (no way to, or the resize failed): the copy is not made, as before.
+        case notGrown
+    }
+
     /// `copy` seeding first (`.ask`); a refused seed copies the folder (`.copy`) with no question. A copy that
-    /// does not fit the machine's `diskMb` disk is not made: `declined(refusal)` is thrown (its ``tooLarge`` and ``pageCode``).
-    @MainActor public static func copying<Copied>(machine: String, diskMb: Int?, declined: (CloudSeedRefusal) -> any Error,
+    /// does not fit the machine's `diskMb` disk first grows the disk (`grow`, up to what the plan gives: 2026-11-18, "a 22 GB
+    /// folder must just work on Cloud", "grow the Cloud machine only up to the max size the team's plan allows"); only a
+    /// copy no grown disk holds is not made: `declined(refusal)` is thrown (its ``tooLarge`` and ``pageCode``).
+    @MainActor public static func copying<Copied>(machine: String, diskMb: Int?,
+                                                  grow: ((CloudSeedRefusal) async -> Growth)? = nil,
+                                                  declined: (CloudSeedRefusal) -> any Error,
                                                   _ copy: (CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, Copied)) async throws -> (CloudMoveCLI.Answer, Copied) {
         let first = try await copy(.ask)
-        guard let refused = CloudSeedRefusal(first.0, machine: machine) else { return first }
-        Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info(
-            "cloud seed refused on \(machine, privacy: .public): \(refused.fallbackCode ?? "unknown", privacy: .public); copy fits: \(refused.fits(diskMb: diskMb), privacy: .public)")
-        guard refused.fits(diskMb: diskMb) else { throw declined(refused) }
-        return try await copy(.copy)
+        guard var refused = CloudSeedRefusal(first.0, machine: machine) else { return first }
+        let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud")
+        log.info("cloud seed refused on \(machine, privacy: .public): \(refused.fallbackCode ?? "unknown", privacy: .public); copy fits: \(refused.fits(diskMb: diskMb), privacy: .public)")
+        if refused.fits(diskMb: diskMb) { return try await copy(.copy) }
+        switch await grow?(refused) ?? .notGrown {
+        case .grown(let grownMb) where refused.fits(diskMb: grownMb):
+            log.info("cloud disk of \(machine, privacy: .public) grown to \(grownMb, privacy: .public) MiB for the copy")
+            return try await copy(.copy)
+        case .pastPlan(let planMax):
+            refused.pastPlan = planMax
+            throw declined(refused)
+        case .grown, .notGrown:
+            throw declined(refused)
+        }
     }
 }

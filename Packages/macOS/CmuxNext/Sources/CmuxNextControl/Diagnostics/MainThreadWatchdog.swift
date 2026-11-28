@@ -34,14 +34,17 @@ public final class MainThreadWatchdog: Sendable {
         /// reported (2026-10-30: at 5 min, three hangs in 30 s reached Sentry as
         /// one); the app's sink budgets a flood (`MainThreadHangReporter`).
         public var hangReportInterval: Duration
-        /// Debug builds: a hang still running this long fails an assertion
-        /// (default 10 s; nil in release builds), if the main thread used
-        /// CPU for at least half of it (``hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
+        /// Debug builds: a hang still running this long is logged as a busy-hang fault, once per
+        /// stall (default 10 s; nil in release builds), if the main thread used CPU for at least
+        /// half of it (``hangIsBusy(elapsedNanos:mainThreadCPUNanos:assertNanos:)``). It never
+        /// traps: the watchdog observes the app and must not end it. An assertion here ended DEV
+        /// builds on loaded Macs over stalls that were blocked or already over
+        /// (https://github.com/manaflow-ai/cmux/issues/50992); the hang file and ``onHang`` carry the evidence.
         public var hangAssertThreshold: Duration?
         /// How often a watchdog timer checks the host load; while it is above the core count, each
         /// check sends the main queue one block and times its answer, so an idle main thread the
         /// Mac starves of CPU (which the heartbeat reads as asleep) still gets a `starved` record
-        /// (``MainThreadWatchdog/noteProbeAnswered(sentAt:delayNanos:cpuNanos:host:)``). Nil (the
+        /// (``MainThreadWatchdog/noteProbeAnswered(sentAt:delayNanos:cpuNanos:memoryAt:observedAt:host:)``). Nil (the
         /// default): no probe. The app sets 5 s; an unloaded Mac never wakes the main thread for it.
         public var starvationProbeInterval: Duration?
 
@@ -53,9 +56,9 @@ public final class MainThreadWatchdog: Sendable {
             return .milliseconds(min(max(raw, 4), 1_000))
         }
 
-        /// The debug assertion is useful for interactive launches, but a
-        /// `CMUX_NEXT_NO_ACTIVATE=1` diagnostic launch must stay alive long
-        /// enough to preserve its watchdog evidence after reporting a hang.
+        /// The debug busy-hang fault is for interactive launches; a
+        /// `CMUX_NEXT_NO_ACTIVATE=1` diagnostic launch keeps only the
+        /// hang reports (its log stays free of the extra faults).
         public static var defaultHangAssertThreshold: Duration? {
             hangAssertThreshold(debugBuild: ControlService.isDebugBuild,
                                 noActivate: ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
@@ -92,6 +95,9 @@ public final class MainThreadWatchdog: Sendable {
         /// that waits on a lock or a reply shows only the wait, and the holder is in here
         /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
         public var otherThreads: [ThreadSample] = []
+        /// The checked blocking call the main thread was inside when sampled (``BlockingOpenCall/summary``),
+        /// Chrome's `HangWatcher` naming the `ScopedBlockingCall`; nil when none was open.
+        public var blockingCall: String?
     }
 
     public let configuration: Configuration
@@ -115,9 +121,11 @@ public final class MainThreadWatchdog: Sendable {
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
     let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64, cpuNanos: UInt64)]>([])
-    /// The process's fault counters when the watchdog first sampled the stall of `beat`: the
-    /// base of its hang file's page-ins (+Episodes). Watchdog thread only (uncontended).
-    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?)?>(nil)
+    /// The process's fault counters and the host's memory when the watchdog first sampled the
+    /// stall of `beat`: the base of its hang file's page-ins and memory line (+Episodes), and the
+    /// highest host load read since (``stallHost(beat:)``). The watchdog thread, and the main
+    /// thread once as the stall ends.
+    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?, memory: HostMemory?, host: HostLoad?)?>(nil)
     let hangNanos: UInt64
     let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -171,6 +179,10 @@ public final class MainThreadWatchdog: Sendable {
     private let publishedTaskPacked = Atomic<UInt64>(0)
     private let publishedTaskStart = Atomic<UInt64>(0)
     private let publishedTaskBudget = Atomic<UInt64>(0)
+    /// The checked blocking call open on the main thread in that sample (``BlockingOpenCall``), so the stall
+    /// record names it: its two words, written while the main thread is suspended (atomics only).
+    private let publishedOpenFileID = Atomic<UInt>(0)
+    private let publishedOpenPacked = Atomic<UInt64>(0)
     /// The main-thread scheduler's board (``attach(board:)``).
     let boardSink = Mutex<MainTaskBoard?>(nil)
     /// Stacks sampled while a scheduled task ran past its class budget, by packed task identity
@@ -199,13 +211,18 @@ public final class MainThreadWatchdog: Sendable {
     var currentBeat: UInt64 { beatSequence.load(ordering: .acquiring) }
     /// Times the watchdog thread returned from a wait (tests count its idle wakeups).
     let watchdogWakes = Atomic<UInt64>(0)
+    /// Busy hangs logged past `hangAssertThreshold` (tests read the count).
+    let busyHangFaults = Atomic<UInt64>(0)
     #endif
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
     /// `uptime()` when a hang (a stall past `hangThreshold`, or a parked nested run) was last
     /// reported: a starvation probe that overlaps one adds no second record (+Starvation).
     let lastHangUptime = Atomic<UInt64>(0)
-    /// The starvation probe's chain of checks (+Starvation), and whether its block is still on the main queue.
-    let probeTimer = DemandTimer(owner: "MainThreadWatchdog.starvationProbe")
+    /// The starvation probe's chain of checks (+Starvation), and whether an answer or its report is outstanding.
+    /// A check may run up to 2.5 s early on a wake that already happened (``WakeCoalescer``): at idle it costs no wake
+    /// of its own (0.20/s on cmux20-bench, 2026-11-25).
+    let probeTimer = DemandTimer(owner: "MainThreadWatchdog.starvationProbe", early: .milliseconds(2_500))
+    let probeReportQueue = DispatchQueue(label: "cmux-next.starvation-reports", qos: .utility)
     let probeOutstanding = Atomic<Bool>(false)
     /// Starvation records so far: their hang files' keys (+Starvation).
     let probeSequence = Atomic<UInt64>(0)
@@ -245,7 +262,7 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     /// A decided quit is ending: from now on a hang is still reported, but
-    /// never fails the debug assertion. The quit's own deadline bounds it
+    /// never logged as a debug busy hang. The quit's own deadline bounds it
     /// (`QuitDeadline`), so a debug build ends as a release one does.
     public func endHangAssertions() {
         assertionsEnded.store(true, ordering: .releasing)
@@ -333,18 +350,30 @@ public final class MainThreadWatchdog: Sendable {
                 Self.raise(longFrameMaxNanos, to: gap)
             }
         }
+        // A stall ended: what the watchdog published for it is taken while its heartbeat still stands
+        // (the stall sample, its exact end for the hang file), and everything else after the next
+        // heartbeat is published (finishStall): the watchdog thread then sees the stall as over while
+        // this thread logs it, and never measures the log's own work as more of the same stall
+        // (https://github.com/manaflow-ai/cmux/issues/50992).
+        var stall: EndedStall?
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
             let previousCPU = beatCPUNanos.load(ordering: .acquiring)
-            recordStall(start: previous, nanos: now - previous, cpuNanos: cpu > previousCPU ? cpu - previousCPU : 0, beat: beat)
+            stall = endStall(start: previous, nanos: now - previous, cpuNanos: cpu > previousCPU ? cpu - previousCPU : 0, beat: beat)
         }
         beatCPUNanos.store(cpu, ordering: .releasing)
         beatNanos.store(now, ordering: .releasing)
         beatSequence.store(beat &+ 1, ordering: .releasing)
+        // The stall's log work runs on the new beat while the loop still reads as awake (a stall
+        // exists only when it was awake): the watchdog watches that work as a turn of its own, and
+        // a slow sink there is still a hang it reports, not time it takes for sleep.
+        if let stall { finishStall(stall) }
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
         if wasAsleep, !asleep {
             mainWakeCount.add(1, ordering: .relaxed)
             busy.noteAwake()
+            // The deadlines that may run early run on this wake instead of waking the app again.
+            WakeupLedger.shared.coalescer.wake()
             // The watchdog thread wakes only if this turn is still running when it is due to sample.
             alarm.arm(afterNanos: sampleAfterNanos)
         } else if asleep, !wasAsleep {
@@ -352,7 +381,21 @@ public final class MainThreadWatchdog: Sendable {
         }
     }
 
-    private func recordStall(start: UInt64, nanos: UInt64, cpuNanos: UInt64, beat: UInt64) {
+    /// A finished stall between ``endStall(start:nanos:cpuNanos:beat:)`` and ``finishStall(_:)``.
+    private struct EndedStall {
+        var start: UInt64
+        var nanos: UInt64
+        var cpuNanos: UInt64
+        var addresses: [UInt]
+        var details: [String: JSONValue]
+        /// The highest host load read while the stall ran (``stallHost(beat:)``).
+        var host: HostLoad?
+    }
+
+    /// The part of a stall's record that must be read before the next heartbeat is published: the
+    /// watchdog's sample of this beat, the task it caught, and the stall's exact end for its hang
+    /// file (the watchdog closes the episode once it sees the beat move). Main thread.
+    private func endStall(start: UInt64, nanos: UInt64, cpuNanos: UInt64, beat: UInt64) -> EndedStall {
         var addresses: [UInt] = []
         var details: [String: JSONValue] = [:]
         if publishedSampleBeat.load(ordering: .acquiring) == beat, let sampler = sampler.withLock({ $0 }) {
@@ -365,9 +408,26 @@ public final class MainThreadWatchdog: Sendable {
                 details = Self.details(of: task)
                 details["task_started_ms"] = .number((Double(task.startNanos) - Double(start)) / 1_000_000)
             }
+            // The checked blocking call the sample caught (none: the stall was not in a seam).
+            let open = BlockingOpenCall(fileID: publishedOpenFileID.load(ordering: .relaxed),
+                                        packed: publishedOpenPacked.load(ordering: .relaxed))
+            if let call = open.summary { details["blocking_call"] = .string(call) }
         }
-        // Our code, or the Mac (StallVerdict): main-thread CPU against wall time, and the host load.
-        let host = HostLoad.current()
+        if nanos >= hangNanos {
+            lastHangUptime.store(start &+ nanos, ordering: .releasing)
+            hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } }
+        }
+        return EndedStall(start: start, nanos: nanos, cpuNanos: cpuNanos, addresses: addresses, details: details,
+                          host: stallHost(beat: beat))
+    }
+
+    /// The rest of a stall's record, once the next heartbeat is published: its verdict, the log
+    /// entry, the log line and ``onStall``. Main thread.
+    private func finishStall(_ stall: EndedStall) {
+        let (start, nanos, cpuNanos, addresses) = (stall.start, stall.nanos, stall.cpuNanos, stall.addresses)
+        var details = stall.details
+        // Our code, or the Mac (StallVerdict): main-thread CPU against wall time, and the most host load seen meanwhile.
+        let host = stall.host
         let verdict = StallVerdict.classify(wall: .nanoseconds(Int64(clamping: nanos)), mainThreadCPU: .nanoseconds(Int64(clamping: cpuNanos)),
                                             host: host)
         details["verdict"] = .string(verdict.rawValue)
@@ -380,10 +440,6 @@ public final class MainThreadWatchdog: Sendable {
         if configuration.logStalls {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms, \(verdict.rawValue, privacy: .public): main thread cpu \(record.cpu.fractionalMilliseconds, format: .fixed(precision: 1)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
-        }
-        if nanos >= hangNanos {
-            lastHangUptime.store(start &+ nanos, ordering: .releasing)
-            hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } }
         }
         stallSink.load()?(record)
     }
@@ -420,8 +476,8 @@ public final class MainThreadWatchdog: Sendable {
             // The heartbeat is old enough that the main thread may be stalling.
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
-                // One syscall per sampled stall: the base of a hang's page-in count.
-                stallEvents.withLock { $0 = (beat, TaskEventCounts.current()) }
+                // A few syscalls per sampled stall: the base of a hang's page-in count and memory line.
+                stallEvents.withLock { $0 = (beat, TaskEventCounts.current(), HostMemory.current(), HostLoad.current()) }
                 if let sampler {
                     let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.
@@ -440,13 +496,16 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     /// Publishes one sample for the main thread to read when its stall ends: the running task, the frame count
-    /// and the beat (``recordStall``). It runs while the main thread is suspended, so atomics only, and no first
+    /// and the beat (``endStall(start:nanos:cpuNanos:beat:)``). It runs while the main thread is suspended, so atomics only, and no first
     /// use of anything (``ThreadStackSampler`` says why). Watchdog thread only.
     private func publishSample(board: MainTaskBoard?, count: Int, beat: UInt64) {
         let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
         publishedTaskPacked.store(task.packed, ordering: .relaxed)
         publishedTaskStart.store(task.startNanos, ordering: .relaxed)
         publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
+        let open = BlockingOpenCall.current()
+        publishedOpenFileID.store(open.fileID, ordering: .relaxed)
+        publishedOpenPacked.store(open.packed, ordering: .relaxed)
         publishedSampleCount.store(count, ordering: .relaxed)
         publishedSampleBeat.store(beat, ordering: .releasing)
     }
@@ -489,10 +548,14 @@ public final class MainThreadWatchdog: Sendable {
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,
            !assertionsEnded.load(ordering: .acquiring),
-           Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(sinceBeat: beat),
-                                   assertNanos: hangAssertNanos) {
+           runningHangIsBusy(beat: beat, elapsedNanos: elapsed, assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
-            assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
+            // A fault, never a trap: the watchdog must not end the app it watches (https://github.com/manaflow-ai/cmux/issues/50992).
+            let thresholdMilliseconds = Double(hangAssertNanos) / 1_000_000
+            logger.fault("main thread busy hang: over \(thresholdMilliseconds, format: .fixed(precision: 0)) ms of main-thread work; see debug.hangs and the hang file")
+            #if DEBUG
+            busyHangFaults.add(1, ordering: .relaxed)
+            #endif
         }
     }
 

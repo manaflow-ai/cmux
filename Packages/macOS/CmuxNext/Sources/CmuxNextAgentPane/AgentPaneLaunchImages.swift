@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextHibernation
+import ImageIO
 public import CmuxNextDesign
 public import CmuxNextWakeups
 
@@ -26,14 +28,27 @@ public final class AgentPaneLaunchImages {
     /// The most saved pages one launch reads (one per pane on screen at the last quit).
     nonisolated static let maximumFiles = 64
 
-    let directory: URL?
+    nonisolated let directory: URL?
+    /// Saves the pages while the app runs (``AgentLaunchPictures``), so a launch after a crash or a kill has them too.
+    public var pictures: AgentLaunchPictures?
+    /// Whether the last quit saved any page: a directory listing, for a lane thread (``CEFLaunchPrefetch``: a page on
+    /// screen at the quit is a Chromium page by default, so its framework is read before the first window).
+    public nonisolated var savedPagesExist: @Sendable () -> Bool {
+        let directory = directory
+        return { directory.map { !((try? FileManager.checked.contentsOfDirectory(atPath: $0.path)) ?? []).isEmpty } ?? false }
+    }
     /// Reads the saved pages.
     private let reader: LaunchFileReader
     /// Drops the read's pages after ``prefetch(on:keep:mark:)``'s `keep`.
     private let discard: DemandTimer
-    /// Released pages' last frames (AgentPageHibernation), in memory as encoded images: a page built
-    /// again draws its old frame until it paints, as at launch.
-    private var held: [String: (data: Data, size: NSSize, appearance: NSAppearance.Name?)] = [:]
+    /// Released pages' dormant records (AgentPageHibernation): a page built again draws its old frame until
+    /// it paints, as at launch. The record is the row; its frame's encoded bytes are a file of `heldFrames`,
+    /// so a hidden chat costs app memory a record, not its picture (100 hidden chats held 50 to 200 MB of PNGs).
+    private var held: [String: DormantRecord] = [:]
+    /// The held frames' files (a temporary directory of this launch, under its disk budget, oldest out first).
+    private lazy var heldFrames = HibernationSnapshots(capacityBytes: Self.heldFramesCapacity)
+    /// The held frames' disk budget: 256 MB is 130 to 500 chat frames at 2x.
+    nonisolated static let heldFramesCapacity = 256 << 20
     /// This Mac's machine id: its tabs keep the bare tab id as their key here (``slot(_:machine:)``).
     public var localMachine: () -> String? = { nil }
     /// The launch read of the saved pages, decoded, by tab key (``prefetch(on:keep:mark:)``); nil before it
@@ -136,12 +151,14 @@ public final class AgentPaneLaunchImages {
     /// last quit saved, once, if the launch read has ended; before then nil (the pane shows its loading
     /// state, as with no saved page).
     public func take(_ key: String, size: NSSize = .zero, appearance: NSAppearance.Name? = nil) -> NSImage? {
-        if let frame = held.removeValue(forKey: key), frame.appearance == appearance, size == .zero || size == frame.size,
-           let rep = NSBitmapImageRep(data: frame.data) {
-            let image = NSImage(size: frame.size)
-            rep.size = frame.size
-            image.addRepresentation(rep)
-            return image
+        if let record = held.removeValue(forKey: key) {
+            // Read before the file goes: the image stays drawable once the store deleted it.
+            let frame = heldFrames.image(for: key)
+            heldFrames.remove(key)
+            let frameSize = NSSize(width: record.width, height: record.height)
+            if let frame, record.appearance == appearance?.rawValue, size == .zero || size == frameSize {
+                return NSImage(cgImage: frame, size: frameSize)
+            }
         }
         guard let read else { return nil }
         guard let pages = delivered ?? read.value else {
@@ -152,22 +169,55 @@ public final class AgentPaneLaunchImages {
         return NSImage(cgImage: page.image, size: page.size)
     }
 
+    /// `key`'s last page without handing it out: a released page's held frame, else the page the last quit saved
+    /// while the launch read keeps it. The hover card's miniature shows it for a chat not on screen since (#51768).
+    /// A held frame taken in the other light or dark look than `appearance` is skipped, as ``take(_:size:appearance:)`` does.
+    public func lastPage(_ key: String, appearance: NSAppearance.Name? = nil) -> CGImage? {
+        if let record = held[key], appearance == nil || record.appearance == nil || record.appearance == appearance?.rawValue {
+            if let frame = heldFrames.image(for: key) { return frame }
+            held[key] = nil // the store's budget let it go
+        }
+        return (delivered ?? read?.value)?[key]?.image
+    }
+
     /// Holds `image` as tab `key`'s frame until ``take(_:size:appearance:)`` or ``drop(_:)``.
     @discardableResult
     public func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async -> Bool {
         guard size.width > 0, size.height > 0 else { return false }
         let data = await Task.detached(priority: .utility) { frame.pageImageData() }.value
-        held[key] = data.map { ($0, size, appearance) }
-        return data != nil
+        guard let data else {
+            drop(key)
+            return false
+        }
+        heldFrames.insert(HibernationSnapshots.Picture(data: data, image: frame), for: key)
+        held[key] = DormantRecord(kind: .agentChat, key: key, width: size.width, height: size.height,
+                                  appearance: appearance?.rawValue, frameBytes: data.count)
+        return true
     }
 
     /// The tab closed or showed its live page: its held frame goes.
     public func drop(_ key: String) {
         held[key] = nil
+        heldFrames.remove(key)
     }
 
-    /// Replaces the saved pages with `images` (by tab key).
-    public func save(_ images: [String: NSImage]) async {
+    /// The held frames' count and bytes (on disk, and in memory while their files are written), for diagnostics and tests.
+    public var heldFrameCounts: (count: Int, bytes: Int, memoryBytes: Int) {
+        (held.count, heldFrames.totalBytes, heldFrames.memoryBytes)
+    }
+
+    /// Returns once every held frame's file write and deletion started so far is done (tests).
+    func heldFramesSettled() async { await heldFrames.settled() }
+
+    /// The save under way (``save(_:keeping:)``): the next one writes after it, so two saves never
+    /// interleave their writes and removals.
+    private var writing: Task<Void, Never>?
+
+    /// Replaces the saved pages with `images` (by tab key), keeping the saved page of each key in `keeping`
+    /// that `images` lacks: a pane on screen whose page has not painted yet keeps its last picture rather
+    /// than losing it to a save that could not take a new one. Every other saved page goes, so the set stays
+    /// the pages on screen (one per pane, at most ``maximumFiles`` read at launch).
+    public func save(_ images: [String: NSImage], keeping: Set<String> = []) async {
         guard let directory else { return }
         // NSImage stays on the main actor; the encode and the writes run detached.
         var frames: [String: CGImage] = [:]
@@ -176,7 +226,13 @@ public final class AgentPaneLaunchImages {
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
             frames[Self.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
-        await Task.detached(priority: .utility) { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
+        let kept = keeping.subtracting(images.keys), previous = writing
+        let write = Task.detached(priority: .utility) {
+            await previous?.value
+            Self.write(frames.compactMapValues { $0.pageImageData() }, keeping: kept, to: directory)
+        }
+        writing = write
+        await write.value
     }
 
     /// Every saved page in `directory`, decoded, with its point size, by tab key: for each key the first
@@ -196,10 +252,10 @@ public final class AgentPaneLaunchImages {
         return pages
     }
 
-    private nonisolated static func write(_ files: [String: Data], to directory: URL) {
+    private nonisolated static func write(_ files: [String: Data], keeping: Set<String>, to directory: URL) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil && !keeping.contains(key(ofFile: old)) {
             try? manager.removeItem(at: directory.appending(path: old))
         }
         for (name, data) in files {
@@ -210,6 +266,9 @@ public final class AgentPaneLaunchImages {
     }
 
     private nonisolated static func fileName(_ key: String, scale: Int, ext: String) -> String { "\(key)@\(scale)x.\(ext)" }
+
+    /// The tab key a saved page's file name holds (``fileName(_:scale:ext:)``; a file-safe key has no `@`).
+    public nonisolated static func key(ofFile name: String) -> String { String(name.prefix { $0 != "@" }) }
 
     /// Where tab `key` of `machine` keeps its frame and saved page: the bare id on this Mac (the files a
     /// save before tabs had a machine wrote), else the id and a digest of the machine, so two machines'

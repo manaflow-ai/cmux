@@ -198,6 +198,24 @@ describe("vars --base-config: a var change made in the pushed commits deploys", 
     expect(r.errors.join("\n")).not.toContain("img-hand-set")
   })
 
+  it("a committed var the Worker lacks (its deploys red past the base window) is not drift: passes and names it", async () => {
+    // INTEGRATIONS_CALLBACK_ORIGIN, Nov 2026: committed 525 commits back, every development deploy since was red.
+    writeFileSync(before, withSnapshot("img-a", ', "NEW_FLAG": "1"'))
+    const r = await run(argsWith(before), { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(r.errors).toEqual([])
+    expect(r.code).toBe(0)
+    expect(r.logs.join("\n")).toContain("not yet deployed: NEW_FLAG")
+    expect(r.logs.join("\n")).not.toContain("vars unchanged")
+  })
+
+  it("a var on the Worker that no committed config has is still out of band: refused", async () => {
+    writeFileSync(before, readFileSync(config, "utf8"))
+    const r = await run(argsWith(config), { STATUS_JSON: serving, VERSION_JSON: version([...same, { type: "plain_text", name: "HAND_SET", text: "x" }]) })
+    expect(r.code).toBe(1)
+    expect(r.errors.join("\n")).toContain("removed: HAND_SET")
+    expect(r.errors.join("\n")).toContain("deploy refused")
+  })
+
   it("a base config that cannot be read refuses", async () => {
     const r = await run(["vars", "--worker", "cmux-api-development", "--config", config, "--base-config", join(dir, "missing.jsonc"), "--env", "development", "--wrangler", wrangler], { STATUS_JSON: serving, VERSION_JSON: version(same) })
     expect(r.code).toBe(1)

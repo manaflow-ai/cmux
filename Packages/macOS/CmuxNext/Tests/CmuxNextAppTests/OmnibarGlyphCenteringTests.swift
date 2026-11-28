@@ -29,7 +29,7 @@ import Testing
         defer { design.densityTokens = saved }
         design.densityTokens = preset.tokens
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
@@ -41,14 +41,10 @@ import Testing
         bar.starButton.state = .off
         let puzzle = chrome.extensionToolbar.puzzle
         if puzzle.superview == nil { chrome.addSubview(puzzle) }
-        let pane = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 600, height: Metrics.tabStripHeight))
-        pane.show(more: true, lit: false)
-        window.contentView?.addSubview(pane)
         chrome.layoutSubtreeIfNeeded()
-        pane.layoutSubtreeIfNeeded()
         let boxes: [(String, NSView)] = [("back", chrome.backButton), ("forward", chrome.forwardButton), ("reload", chrome.reloadButton),
                                          ("puzzle", puzzle), ("more", try #require(chrome.toolbarButtons.anchor(for: .overflow))),
-                                         ("star", bar.starButton), ("tab bar more", pane.moreButton)]
+                                         ("star", bar.starButton)]
         for (name, box) in boxes {
             let m = try Self.margins(box)
             #expect(m.top == (m.top + m.bottom) / 2 && m.left == (m.left + m.right) / 2,

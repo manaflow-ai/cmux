@@ -41,15 +41,7 @@ public nonisolated struct DevToolsMessageHead: Sendable {
     ///   - needle: The text to look for.
     /// - Returns: True when `needle`'s UTF-8 bytes occur in `json`'s.
     public static func bytes(_ json: String, contain needle: String) -> Bool {
-        var haystack = json
-        var pattern = needle
-        return haystack.withUTF8 { text in
-            pattern.withUTF8 { wanted in
-                guard !wanted.isEmpty else { return true }
-                guard wanted.count <= text.count, let base = text.baseAddress, let target = wanted.baseAddress else { return false }
-                return memmem(base, text.count, target, wanted.count) != nil
-            }
-        }
+        json.utf8Contains(needle)
     }
 
     private static let eventPrefix = Array(#"{"method":""#.utf8)

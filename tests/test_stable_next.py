@@ -9,6 +9,8 @@ import re
 import tempfile
 import textwrap
 import unittest
+import xml.etree.ElementTree as ET
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +91,42 @@ class Pick(unittest.TestCase):
         with self.assertRaises(stable_next.Refused):
             stable_next.pick(feed(item(300)), None, set(), lambda b: None, None, {300})
 
+    def test_takes_the_newest_build_whose_release_notes_are_published(self):
+        """notes/4424316677601.json was never published: plan failed on every tick of 2026-11-17's night."""
+        has = {300: False, 200: True, 100: True}.get
+        result = stable_next.pick(feed(item(300), item(200), item(100)), None, set(), lambda b: None, None, has_notes=has)
+        self.assertEqual(result["build"], "200")
+        self.assertEqual(result["passed_without_notes"], "300")
+        self.assertEqual(stable_next.pick(feed(item(300)), None, set(), lambda b: None, None)["passed_without_notes"], "")
+        with self.assertRaises(stable_next.Refused):
+            stable_next.pick(feed(item(300)), None, set(), lambda b: None, None, has_notes=lambda b: False)
+        with self.assertRaises(stable_next.Refused):
+            stable_next.pick(feed(item(300), item(200)), None, set(), lambda b: None, 300, has_notes=has)
+
+    def test_notes_published_reads_a_folder_and_stops_at_the_first_build_with_notes(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "200.json").write_text("{}")
+            self.assertTrue(stable_next.notes_published(folder, 200))
+            self.assertFalse(stable_next.notes_published(folder, 300))
+        asked = []
+        has = lambda b: asked.append(b) or b <= 200  # noqa: E731
+        stable_next.pick(feed(item(300), item(200), item(100)), None, set(), lambda b: None, None, has_notes=has)
+        self.assertEqual(asked, [300, 200])
+
+    def test_an_unreadable_notes_url_is_a_refusal_not_a_crash(self):
+        import urllib.error
+        from unittest import mock
+        boom = urllib.error.HTTPError("u", 503, "unavailable", {}, None)
+        with mock.patch.object(stable_next.deadline_http, "request", side_effect=boom), \
+             mock.patch.object(stable_next.time, "sleep"):
+            with self.assertRaises(stable_next.Refused):
+                stable_next.notes_published("https://files-next.cmux.com/nightly-next/notes", 1)
+        forbidden = urllib.error.HTTPError("u", 403, "forbidden", {}, None)
+        with mock.patch.object(stable_next.deadline_http, "request", side_effect=forbidden):
+            with self.assertRaises(stable_next.Refused):
+                stable_next.notes_published("https://files-next.cmux.com/nightly-next/notes", 1)
+
     def test_an_explicit_build_must_be_on_the_feed(self):
         self.assertEqual(stable_next.pick(feed(item(200), item(100)), None, set(), lambda b: None, 100)["build"], "100")
         with self.assertRaises(stable_next.Refused):
@@ -129,6 +167,26 @@ class MergeAndRollback(unittest.TestCase):
     def test_merge_adds_a_channel_to_an_untagged_item_and_starts_a_feed(self):
         merged = stable_next.merge_feed(feed(item(40, None)), None)
         self.assertEqual(stable_next.channel_of(stable_next.items(merged)[0][0].group(0)), "cmux-next-stable")
+
+    def test_merge_stamps_the_source_commit_on_the_new_item_only(self):
+        live = feed(item(30, "cmux-next-stable"))
+        merged = stable_next.merge_feed(feed(item(40)), live, source="a" * 40)
+        (new, _), (old, _) = stable_next.items(merged)
+        self.assertIn('<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">' + "a" * 40, new.group(0))
+        self.assertNotIn("sourceCommit", old.group(0))
+        root = ET.fromstring(merged)
+        self.assertEqual(root.find(".//{https://cmux.com/xml-namespaces/cmux}sourceCommit").text, "a" * 40)
+        restamped = stable_next.merge_feed(merged.replace("<sparkle:version>40", "<sparkle:version>50", 1)
+                                           .replace(old.group(0), ""), None, source="b" * 40)
+        self.assertEqual(restamped.count("sourceCommit>"), 1)
+        self.assertIn("b" * 40, restamped)
+        for bad in ("A" * 40, "abc1234", ""):
+            with self.subTest(bad=bad), self.assertRaises(stable_next.Refused):
+                stable_next.merge_feed(feed(item(40)), None, source=bad)
+
+    def test_merge_feed_cli_requires_the_source(self):
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            stable_next.main(["merge-feed", "--new", "n.xml", "--out", "o.xml"])
 
     def test_merge_refuses_a_build_the_feed_already_has(self):
         with self.assertRaises(stable_next.Refused):

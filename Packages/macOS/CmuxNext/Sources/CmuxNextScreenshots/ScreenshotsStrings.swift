@@ -4,7 +4,7 @@ import Foundation
 /// Strings of the Screenshots pane (Resources/Localizable.xcstrings).
 nonisolated struct ScreenshotsStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var title: String { t("screenshots.title", "Screenshots") }
@@ -75,10 +75,12 @@ nonisolated struct ScreenshotsStrings {
         }
     }
 
+    // retry-prompt-ok: the person frees disk space; a capture writes a file
     static var reasonNoSpace: String { t("screenshots.error.noSpace", "The disk is full. Free some space, then try again.") }
     static var reasonPermission: String { t("screenshots.error.permission", "cmux doesn’t have permission to change that folder.") }
     static var reasonReadOnly: String { t("screenshots.error.readOnly", "That folder is on a read-only disk.") }
     static var reasonMissing: String { t("screenshots.error.missing", "The file isn’t there anymore.") }
+    // retry-prompt-ok: re-running a capture the person started writes a new file
     static var reasonGeneric: String { t("screenshots.error.generic", "Something went wrong. Try again.") }
 
     static func history(of tool: String) -> String {

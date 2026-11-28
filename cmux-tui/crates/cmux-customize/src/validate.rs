@@ -4,7 +4,10 @@
 //!
 //! A problem never stops a preview: each surface already keeps its last good
 //! version on screen when a save does not load. It stops an apply, so a
-//! generation is always a setup that loads.
+//! generation is always a setup that loads. One kind never stops a change
+//! that leaves it alone: a settings value the person's file already held
+//! that the schema refuses (the app reads that key as its default), see
+//! [`introduced`].
 
 use std::collections::BTreeMap;
 
@@ -25,6 +28,17 @@ pub struct Problem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u32>,
     pub message: String,
+    /// For a settings value the schema refuses: its key and a digest of the
+    /// value as written, so [`introduced`] can tell a value the person's
+    /// file already held from one a change brings. Never shown: the value
+    /// may be a credential typed under the wrong key.
+    #[serde(skip)]
+    setting: Option<(String, u64)>,
+    /// For a stylesheet that would load something by address: a digest of
+    /// the file as written, so [`introduced`] can tell a sheet the person
+    /// already had from one a change brings. The pane refuses it either way.
+    #[serde(skip)]
+    held: Option<u64>,
 }
 
 impl Problem {
@@ -40,7 +54,15 @@ impl Problem {
             line,
             column,
             message: message.into(),
+            setting: None,
+            held: None,
         }
+    }
+
+    /// The dotted key of a settings value the schema refuses, when that is
+    /// what this problem is.
+    pub(crate) fn refused_setting(&self) -> Option<&str> {
+        self.setting.as_ref().map(|(key, _)| key.as_str())
     }
 
     /// `themes/night.json:14:9: message`, the shape a compiler prints.
@@ -88,7 +110,23 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
                 json_object(path, text, &mut found);
             }
             Part::Views => view(path, text, files, &mut found),
-            Part::Styles => {}
+            // cmux.stylesheetGuard/1 (schemas/agent-pane/stylesheet-guard.json): a stylesheet is
+            // any CSS, but the surface refuses one that loads something by address, so a draft
+            // that would be refused there never passes here.
+            Part::Styles => {
+                if let Some(why) = crate::community::fetches(text) {
+                    let mut problem = Problem::at(
+                        path,
+                        None,
+                        None,
+                        format!(
+                            "{why}; a stylesheet loads nothing by address (inline images as data: URLs)"
+                        ),
+                    );
+                    problem.held = Some(digest(&Value::String(text.to_owned())));
+                    found.push(problem);
+                }
+            }
         }
     }
     // Whatever a validator quoted from a file goes through the same masking
@@ -120,19 +158,74 @@ fn settings(path: &str, text: &str, found: &mut Vec<Problem>) {
         Default::default(),
         0,
     );
+    let document = jsonc::parse(text).ok();
     for diagnostic in state.snapshot().diagnostics {
         let (line, column) = line_of_key(text, &diagnostic.path).unzip();
         // The owner's message quotes the refused value, and a value may be
         // a credential typed under the wrong key. The key and its line say
         // where to look; the value stays in the file.
-        let message = match diagnostic.kind {
+        let (message, setting) = match diagnostic.kind {
             cmux_config::diagnostics::DiagnosticKind::InvalidValue => {
-                format!("{} has a value this setting does not accept", diagnostic.path)
+                let written = document
+                    .as_ref()
+                    .filter(|_| !diagnostic.path.is_empty())
+                    .and_then(|document| written_at(document, &diagnostic.path));
+                (
+                    if diagnostic.path == "workspaceColors.indicatorStyle" {
+                        "workspaceColors.indicatorStyle has an unsupported value; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                    } else {
+                        format!("{} has a value this setting does not accept", diagnostic.path)
+                    },
+                    written.map(|value| (diagnostic.path.clone(), digest(value))),
+                )
             }
-            _ => diagnostic.message,
+            _ => (diagnostic.message, None),
         };
-        found.push(Problem::at(path, line, column, message));
+        let mut problem = Problem::at(path, line, column, message);
+        problem.setting = setting;
+        found.push(problem);
     }
+}
+
+/// The problems in `after` that `before` does not already have.
+///
+/// A settings value the schema refuses that `before` held at the same key,
+/// unchanged, is the person's own: the app reads that one key as its
+/// default and says so on its Settings row, and status still lists it. It
+/// never stops a change that leaves it alone (a person's file held a value
+/// an older build wrote, `"workspaceColors.indicatorStyle": "solidFill"`,
+/// and every `cmux customize use` of any profile was refused,
+/// ask-180d77061a). The file keeps it as written: nothing here rewrites it.
+/// A stylesheet that would load something by address, held unchanged, is
+/// the person's own the same way: the pane refuses it and status lists it,
+/// but it never stops a change that leaves it alone.
+/// Every other problem counts, a refused value a change writes too.
+pub(crate) fn introduced(after: Vec<Problem>, before: &[Problem]) -> Vec<Problem> {
+    after
+        .into_iter()
+        .filter(|problem| {
+            let held = |had: &Problem| {
+                had.path == problem.path
+                    && ((problem.setting.is_some() && had.setting == problem.setting)
+                        || (problem.held.is_some() && had.held == problem.held))
+            };
+            (problem.setting.is_none() && problem.held.is_none()) || !before.iter().any(held)
+        })
+        .collect()
+}
+
+/// The value written under a dotted key, found the way the settings reader
+/// finds it (its key path).
+fn written_at<'a>(document: &'a Value, dotted: &str) -> Option<&'a Value> {
+    cmux_config::value::value_at(document, &cmux_config::keypath::key_path(dotted))
+}
+
+/// Tells two written values apart without keeping either.
+fn digest(value: &Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.to_string().hash(&mut hasher);
+    hasher.finish()
 }
 
 /// The shortcuts file by its own reader (`cmux_config::keybindings`): a
@@ -266,102 +359,5 @@ fn line_of_key(text: &str, dotted: &str) -> Option<(u32, u32)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tree::SETTINGS;
-
-    fn check(path: &str, text: &str) -> Vec<String> {
-        let files = BTreeMap::from([(path.to_owned(), text.as_bytes().to_vec())]);
-        problems(&files).iter().map(Problem::line).collect()
-    }
-
-    #[test]
-    fn a_json_mistake_names_its_line_and_column() {
-        let lines = check("themes/night.json", "{\n  \"name\": \"night\",\n  \"look\": }\n}\n");
-        assert_eq!(lines.len(), 1, "{lines:?}");
-        assert!(lines[0].starts_with("themes/night.json:3:"), "{lines:?}");
-    }
-
-    #[test]
-    fn a_shortcuts_file_is_an_array_and_only_an_unreadable_one_is_a_problem() {
-        let valid = "// mine\n[\n  { \"key\": \"cmd+k\", \"command\": \"palette.open\" },\n]\n";
-        assert_eq!(check("keybindings.json", valid), Vec::<String>::new());
-        assert_eq!(check("keybindings.json", ""), Vec::<String>::new());
-        assert_eq!(check("keybindings.json", "// nothing yet\n"), Vec::<String>::new());
-        // One entry the app skips does not stop an apply of something else.
-        assert_eq!(check("keybindings.json", "[ { \"key\": \"cmd+k\" } ]"), Vec::<String>::new());
-        let object = check("keybindings.json", "{ \"cmd+k\": \"palette.open\" }");
-        assert_eq!(object.len(), 1, "{object:?}");
-        assert!(object[0].contains("must be a JSON array of bindings"), "{object:?}");
-        let broken = check("keybindings.json", "[\n  { \"key\": }\n]\n");
-        assert_eq!(broken.len(), 1, "{broken:?}");
-        assert!(broken[0].starts_with("keybindings.json:2:"), "{broken:?}");
-    }
-
-    #[test]
-    fn a_settings_value_the_schema_refuses_names_its_key_line() {
-        let lines =
-            check(SETTINGS, "{\n  // mine\n  \"appearance\": {\n    \"density\": 42\n  }\n}\n");
-        assert_eq!(lines.len(), 1, "{lines:?}");
-        assert!(lines[0].starts_with("settings.json:4:5: "), "{lines:?}");
-    }
-
-    #[test]
-    fn a_problem_never_quotes_the_value_it_refuses() {
-        let lines = check(
-            SETTINGS,
-            "{\n  \"appearance\": { \"density\": { \"apiKey\": \"private-value\" } },\n  \"updates\": { \"channel\": \"my-private-ring\" }\n}\n",
-        );
-        assert_eq!(lines.len(), 2, "{lines:?}");
-        let said = lines.join("\n");
-        assert!(!said.contains("private"), "{said}");
-        assert!(
-            said.contains("appearance.density has a value this setting does not accept"),
-            "{said}"
-        );
-        assert!(said.contains("settings.json:3:"), "{said}");
-    }
-
-    #[test]
-    fn valid_files_have_no_problems() {
-        assert_eq!(check(SETTINGS, ""), Vec::<String>::new());
-        assert_eq!(
-            check(SETTINGS, "{ /* c */ \"appearance\": { \"density\": \"compact\" }, }"),
-            Vec::<String>::new()
-        );
-        assert_eq!(
-            check("agent-pane/theme.css", ":root { --agent-gap: 4px }"),
-            Vec::<String>::new()
-        );
-    }
-
-    #[test]
-    fn a_hidden_direction_mark_is_refused_with_its_position() {
-        let lines = check("customize/main.js", "let a = 1;\nlet b = \"\u{202E}x\";\n");
-        assert_eq!(lines.len(), 1);
-        assert!(lines[0].starts_with("customize/main.js:2:10: "), "{lines:?}");
-        assert!(lines[0].contains("U+202E"));
-    }
-
-    #[test]
-    fn the_views_manifest_must_name_a_script_that_is_there() {
-        let manifest = r#"{
-  "manifestVersion": 2,
-  "id": "local/customize",
-  "name": "My views",
-  "version": "1.0.0",
-  "engines": { "cmux": "^2.0" },
-  "runtime": { "main": "main.js" },
-  "implements": { "cmux.section/1": { "export": "renderSection", "title": "Mine", "symbol": "sparkles" } },
-  "description": "My own views"
-}"#;
-        let lines = check("customize/cmux-app.json", manifest);
-        assert_eq!(lines.len(), 1, "{lines:?}");
-        assert!(lines[0].starts_with("customize/cmux-app.json:7:16: runtime.main"), "{lines:?}");
-        let files = BTreeMap::from([
-            ("customize/cmux-app.json".to_owned(), manifest.as_bytes().to_vec()),
-            ("customize/main.js".to_owned(), b"export function renderSection() {}".to_vec()),
-        ]);
-        assert_eq!(problems(&files), Vec::new());
-    }
-}
+#[path = "validate_tests.rs"]
+mod tests;

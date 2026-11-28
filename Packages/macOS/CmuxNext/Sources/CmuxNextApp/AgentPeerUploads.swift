@@ -11,7 +11,10 @@ import Foundation
 /// (`_acpmux/file_put`), which saves it owner-only on that machine and answers where. The composer
 /// puts those paths in the prompt and the agent opens them there. An acpmux from before that
 /// method, here or on the peer, answers `unsupported`, so the composer keeps its own note. A chat
-/// of this Mac's acpmux goes there too (``localTarget(tab:services:)``), which stores each file once.
+/// of this Mac's own acpmux never comes here: its files are already on this disk, so they are kept
+/// where the composer staged them (``AgentChatUploads``), never streamed again through the acpmux
+/// socket (Leo, 2026-11-22: "IT'S ON FUCKING DISK WE DONT NEED TO MOVE AND RE-RENDER A FUCKING
+/// SCREENSHARED VIDEO IT SHOULD ALL BE INSTANT"; a 188 MB recording took 128 s that way).
 @MainActor
 struct AgentPeerUploads {
     /// The peer chat tab `tab` shows: its session, the peer's name and the pane's acpmux.
@@ -23,7 +26,7 @@ struct AgentPeerUploads {
 
     /// The upload for chat tab `tab`, nil unless it is a peer's chat (``target(tab:services:)``).
     static func uploader(tab: String, services: AppServices) -> AgentPaneUploader? {
-        guard let target = target(tab: tab, services: services) ?? localTarget(tab: tab, services: services) else { return nil }
+        guard let target = target(tab: tab, services: services) else { return nil }
         return { files in
             await upload(files, machine: target.machine) { name, data in
                 try await target.host.putFile(sessionId: target.session, name: name, data: data)
@@ -32,13 +35,11 @@ struct AgentPeerUploads {
     }
 
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
-        guard let target = target(tab: tab, services: services) ?? localTarget(tab: tab, services: services) else { return nil }
+        guard let target = target(tab: tab, services: services) else { return nil }
         // Files of any size, staged on this Mac until the peer takes them.
         let stages = services.cloud.peerUploads
         return { request, session in
             let failed = AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine))
-            // A file begun before this local chat had a session ends where it began (#28647).
-            if target.machine.isEmpty, AgentChatUploads.owns(request), let here = AgentChatUploads.stager(tab: tab, services: services) { return await here(request, session) }
             guard session == target.session else { return failed }
             await stages.purge(work: services.work)
             let owns = { (staged: Target) in staged.session == target.session }
@@ -49,17 +50,16 @@ struct AgentPeerUploads {
                 if let batchToken {
                     guard let batch = stages.batchTarget(batchToken, name: name, size: size), owns(batch) else { return failed }
                 }
-                let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { token in
-                    let file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
-                    guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return nil }
-                    return (file, file)
-                }
+                let file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + UUID().uuidString.lowercased() + "-" + name)
+                guard await AgentPaneStageFiles.make(file, in: nil, work: services.work) else { return failed }
+                let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { _ in (file, file) }
+                if begun == nil { await AgentPaneStageFiles.remove(file, work: services.work) }
                 guard let begun else { return failed }
                 var reply: [String: Any] = ["token": begun.token, "size": size, "chunkSize": AgentPaneStagedUploads<Target>.chunkBytes]
                 if let batch = begun.batchToken { reply["batchToken"] = batch }
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
-                guard let received = stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
+                guard let received = await stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
                 return AgentPaneReply.success(["offset": received])
             case .finish(let token):
                 let result = await stages.finish(token, owns: owns, work: services.work) { staged -> Result<String, AgentPaneFilePutFailure> in
@@ -88,14 +88,6 @@ struct AgentPeerUploads {
               let machine = peer(of: session, lanes: AgentLaneStore.shared) else { return nil }
         // The pane's own acpmux (`AgentTabStore.view(for:)`).
         return Target(session: session, machine: machine, host: tabs.localSessionHost ?? tabs.host)
-    }
-
-    /// Tab `tab`'s chat of this Mac's own acpmux, once it has a session: no machine name.
-    static func localTarget(tab: String, services: AppServices) -> Target? {
-        let tabs = services.agentTabs
-        guard tabs.gitLink?(tab)?.isLocal == true, let session = tabs.session(of: tab), ChatUploadFolders.isSessionName(session),
-              peer(of: session, lanes: AgentLaneStore.shared) == nil else { return nil }
-        return Target(session: session, machine: "", host: tabs.localSessionHost ?? tabs.host)
     }
 
     /// The acpmux peer that runs `session`, nil for a chat of this Mac's acpmux (or one it does
@@ -134,9 +126,9 @@ struct AgentPeerUploads {
 /// beside the Cloud and local chat uploads'.
 enum AgentPeerUploadStrings {
     static func failed(_ machine: String) -> String {
-        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerFailed", defaultValue: "Couldn't send the file to \(machine).", table: "Cloud", bundle: .module)
+        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerFailed", defaultValue: "Couldn't send the file to \(machine).", table: "Cloud", bundle: .module.inAppLanguage)
     }
     static func tooLarge(_ machine: String) -> String {
-        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerTooLarge", defaultValue: "This file is too large to send to \(machine).", table: "Cloud", bundle: .module)
+        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerTooLarge", defaultValue: "This file is too large to send to \(machine).", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

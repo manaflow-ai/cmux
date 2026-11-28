@@ -12,7 +12,7 @@ use crate::resource::{
     ScreenPublicId, SplitPublicId, TabPublicId, TabResourceIdentity, WorkspacePublicId,
 };
 use crate::resource_mutation::ResourceMutationPlan;
-use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
+use crate::server_protocol::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::terminal_end::DetachProof;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryTab, RegistryViewportColumn, ResourceCreationPreparation,
@@ -106,6 +106,7 @@ mod pane_browser;
 mod pane_move;
 mod pane_tab_moves;
 mod published_screen;
+mod quick_terminal;
 mod rename_focus;
 mod reservations;
 mod screen_create;

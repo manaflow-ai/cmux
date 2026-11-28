@@ -33,6 +33,7 @@ export function ShellBlock({
   cut,
   footer,
   live = false,
+  took,
 }: {
   id?: string;
   /** Bumped when Find in Chat reveals the call: shows the whole output, not only its end. */
@@ -48,6 +49,8 @@ export function ShellBlock({
   footer?: ReactNode;
   /** The command still runs: its output may yet run past the right edge (conversation.css `data-live`). */
   live?: boolean;
+  /** How long the finished command took ("4.2s", "1h 4m 3s"), beside the label; its row draws no time. */
+  took?: string;
 }) {
   const t = useT();
   const raw = useOutput(output, reveal);
@@ -87,6 +90,11 @@ export function ShellBlock({
               title={command!.slice(0, command!.length - rest!.length).trim()}
             >
               {folder}
+            </span>
+          )}
+          {took && (
+            <span className="cv-shell__time" data-find-skip>
+              {took}
             </span>
           )}
         </span>

@@ -91,9 +91,17 @@ impl Daemon {
         for sub in ["home", "acpmux", "work"] {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
+        // acpmux refuses a group-writable ancestor of its home; a 002 umask makes this dir 775.
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
         if let Some(config) = acpmux_config {
             fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
+            // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+            fs::set_permissions(
+                dir.join("acpmux/config.json"),
+                <fs::Permissions as PermissionsExt>::from_mode(0o600),
+            )
+            .unwrap();
         }
         let cloud_etc = vm_kind.map(|kind| {
             let etc = dir.join("etc-cmux");
@@ -555,6 +563,41 @@ fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_own_trusted_chat_folde
     assert_eq!(reply["error_code"], "agent_session.home_unconfirmed", "{reply}");
 }
 
+/// The machine's acpmux reserves a warm first home-chat folder (`~/chats/r<32 hex>` and the
+/// ticket `~/chats/.reserved`, `acpmux` `hub/pool/reserved.rs`): the first chat with no folder
+/// starts in it, trusted as any chat folder is, and the next chat gets `~/chats/<chat id>`.
+#[test]
+fn the_first_home_chat_of_an_own_cloud_vm_starts_in_the_reserved_folder() {
+    let vm = Daemon::start_cloud("ownreserved", "owner");
+    let home = vm.dir.join("home");
+    let name = "r0123456789abcdef0123456789abcdef";
+    let reserved = home.join("chats").join(name);
+    fs::create_dir_all(&reserved).unwrap();
+    for folder in [reserved.parent().unwrap(), reserved.as_path()] {
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    fs::write(home.join("chats/.reserved"), name).unwrap();
+    let start_at_home = |surface: u64| {
+        vm.rpc(json!({"id": 50, "cmd": "agent-session-start", "surface": surface,
+                      "cwd": home.to_str().unwrap(), "vm_kind": "owner"}))
+    };
+    let first = vm.own_agent_tab();
+    let started = start_at_home(first);
+    assert_eq!(started["ok"], true, "{started}");
+    assert!(!home.join(format!("chats/{first}")).exists(), "the first chat made its own folder");
+    assert!(!home.join("chats/.reserved").exists(), "the ticket was not taken");
+    // Its folder reads trusted with no question.
+    let read = vm.rpc(json!({"id": 51, "cmd": "agent-session-trust", "surface": first,
+                             "cwd": reserved.to_str().unwrap(), "vm_kind": "owner"}));
+    assert_eq!(read["data"]["level"], "trusted", "{read}");
+    assert_eq!(read["data"]["auto"], "cloud_chat", "{read}");
+    // The second chat gets a folder of its own.
+    let second = vm.own_agent_tab();
+    let started = start_at_home(second);
+    assert_eq!(started["ok"], true, "{started}");
+    assert!(home.join(format!("chats/{second}")).is_dir(), "the second chat has no folder");
+}
+
 #[test]
 fn an_unknown_host_kind_value_keeps_the_detected_kind() {
     // An unknown value is no kind: the daemon keeps what it detects (here:
@@ -614,6 +657,9 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    // A Codex credential's provider reaches app-server here (cmux#45774): the app updates a machine without it.
+    assert!(capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
+    assert!(capabilities.contains("agent-session-start-endpoint-credentials-v1"), "{identity}");
     let surface = owner.own_agent_tab();
     let refused = start(&owner, surface, "fcx", None);
     assert_eq!(refused["error_code"], "agent_session.host_unverified", "{refused}");
@@ -634,6 +680,8 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = ssh.rpc(json!({"id": 2, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    assert!(!capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
+    assert!(!capabilities.contains("agent-session-start-endpoint-credentials-v1"), "{identity}");
     let surface = ssh.own_agent_tab();
     let refused = start(&ssh, surface, "fcx", Some("owner"));
     assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");

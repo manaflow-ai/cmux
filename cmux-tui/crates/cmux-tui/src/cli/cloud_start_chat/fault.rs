@@ -150,8 +150,18 @@ pub(super) fn drill_source(
         trail.stop_at(STEP_CREDENTIAL);
         return Err(stopped(&trail, out_of_time()));
     }
+    // The credential is minted for the team the machine is in, as the app's own dial sends that machine's
+    // record team (`CloudCarrierDial`, `session.machine.team`), never the app's active team: the app makes and
+    // lists its Cloud machines in the install's team, so a sign-up team active in the app asked the ticket in a
+    // team with no such machine (404 cloud.machine.not_found; cmuxterm-hq run 44086216741, 2026-11-17).
+    let machine = started.get("machine_id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let asked = left(runner).min(TOKEN_TIMEOUT);
-    let token = credential(runner.app("auth.token", json!({}), asked));
+    let params = match machine_team(runner, &machine, asked) {
+        Some(team) => json!({"team": team}),
+        None => json!({}),
+    };
+    let asked = left(runner).min(TOKEN_TIMEOUT);
+    let token = credential(runner.app("auth.token", params, asked));
     trail.ended(STEP_CREDENTIAL, runner.now(), token.is_ok());
     let token = token.map_err(|why| stopped(&trail, refuse("carrier_fault.no_credential", why)))?;
     let left = left(runner);
@@ -174,6 +184,33 @@ pub(super) fn drill_source(
         Ok(routes) => Ok(Box::new(routes)),
         Err(why) => Err(stopped(&trail, refuse("carrier_fault.no_event_source", why))),
     }
+}
+
+/// The team `machine` is in, as the app's `cloud.machines` row for it says (`team`, the machine record's own);
+/// `None` when the app has no row for it or the row names no team (an app from before the row had it), and the
+/// credential is then the app's own team's, as before.
+fn machine_team(runner: &mut dyn Runner, machine: &str, timeout: Duration) -> Option<String> {
+    if machine.is_empty() {
+        return None;
+    }
+    let listed = runner.app("cloud.machines", json!({}), timeout)?.ok()?;
+    machine_team_in(&listed, machine)
+}
+
+/// [`machine_team`]'s read of one `cloud.machines` answer.
+pub(super) fn machine_team_in(listed: &Value, machine: &str) -> Option<String> {
+    listed
+        .get("machines")?
+        .as_array()?
+        .iter()
+        .find(|row| {
+            row.get("id").and_then(Value::as_str).is_some_and(|id| id.eq_ignore_ascii_case(machine))
+        })?
+        .get("team")?
+        .as_str()
+        .map(str::trim)
+        .filter(|team| !team.is_empty())
+        .map(str::to_owned)
 }
 
 /// The app's `auth.token` answer as the drill's credential, or why there is none.

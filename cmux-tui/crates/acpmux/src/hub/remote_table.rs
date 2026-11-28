@@ -14,6 +14,9 @@
 use super::remote_rows::RemoteRows;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+/// Takings of any table's writer lock that found it held ([`RemoteTable::contended`]).
+static CONTENDED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Default)]
 pub(crate) struct RemoteTable {
     /// One writer at a time; also the ordering fence.
@@ -45,8 +48,12 @@ impl RemoteTable {
 
     /// Changes the table: waits for any other writer, then changes a copy of the current table
     /// (O(1): its maps share every node until written), published when the guard drops.
+    #[track_caller]
     pub(crate) fn write(&self) -> WriteGuard<'_> {
-        WriteGuard::new(self, self.fence())
+        let writer = self.fence();
+        let mut guard = WriteGuard::new(self, writer);
+        guard.held = Some(super::held_lock::HeldTimer::start("remote_sessions"));
+        guard
     }
 
     /// [`Self::write`] if no writer holds the lock now.
@@ -63,8 +70,30 @@ impl RemoteTable {
     /// The writer lock with no change: waits for writers in flight (each has published when it
     /// returns) and keeps others out while held. For a step ordered against row writes that
     /// changes no row (a peer registered, a purge tombstone retired, a capture kept).
+    ///
+    /// A taken lock is waited for off the runtime's worker ([`crate::qos::off_worker`]): the
+    /// worker hands its other tasks on first. Waited for in place, each of ~200 peers' notice
+    /// loops parked a worker on this mutex while a holder sat preempted (cosmic-gray,
+    /// 2026-11-27: load 187 on 15 CPUs, "std mutex held long" on this lock 1646 times), and with
+    /// every worker parked nothing else ran: `acpmux session inbox` hung 60 s and prompt
+    /// admission leases lapsed. A free lock is taken in place, as before.
     pub(crate) fn fence(&self) -> MutexGuard<'_, ()> {
-        self.writer.lock().unwrap_or_else(PoisonError::into_inner)
+        match self.writer.try_lock() {
+            Ok(lock) => lock,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                CONTENDED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                crate::qos::off_worker(|| {
+                    self.writer.lock().unwrap_or_else(PoisonError::into_inner)
+                })
+            }
+        }
+    }
+
+    /// How many takings of the writer lock found it held and waited off the worker, since
+    /// start (a gauge for `daemon status`-style reads and the tests).
+    pub(crate) fn contended() -> u64 {
+        CONTENDED.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -73,13 +102,88 @@ pub(crate) struct WriteGuard<'a> {
     table: &'a RemoteTable,
     /// The copy being changed; taken (an O(1) swap with empty maps) when published.
     rows: RemoteRows,
+    /// Ends before the writer unlocks and the replaced table is freed: cleanup after the
+    /// unlock is not time spent holding the writer lock.
+    held: Option<super::held_lock::HeldTimer>,
     _writer: MutexGuard<'a, ()>,
+    /// The table this one replaced, freed after the writer lock is released (fields drop in
+    /// order), so the next writer never waits on the nodes no reader shares any more.
+    replaced: Option<Arc<RemoteRows>>,
 }
 
 impl<'a> WriteGuard<'a> {
     fn new(table: &'a RemoteTable, writer: MutexGuard<'a, ()>) -> Self {
         let rows = RemoteRows::clone(&table.current.load());
-        Self { table, rows, _writer: writer }
+        under_writer::enter();
+        Self { table, rows, _writer: writer, replaced: None, held: None }
+    }
+}
+
+/// The work a thread does while it holds the rows writer lock, counted in tests: each row of a
+/// peer it walks (`RemoteRows::of_peer`) and each row it builds from JSON (`PeerRow::new`). A
+/// peer's refresh (an idle close, a drop, a row that closes, a restart's saved rows) must build
+/// its rows before the lock and walk none of them under it: every other peer's notices wait on
+/// this lock (cosmic-gray, 2026-11-27: held 53 to 181 ms at each of those four writers, the
+/// daemon at 94% CPU). A no-op outside tests.
+pub(crate) mod under_writer {
+    #[cfg(test)]
+    thread_local! {
+        static HELD: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        static HOLDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        static WALKED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        static BUILT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+
+    #[inline]
+    pub(crate) fn enter() {
+        #[cfg(test)]
+        {
+            HELD.with(|h| h.set(h.get() + 1));
+            HOLDS.with(|h| h.set(h.get() + 1));
+        }
+    }
+
+    #[inline]
+    pub(crate) fn leave() {
+        #[cfg(test)]
+        HELD.with(|h| h.set(h.get().saturating_sub(1)));
+    }
+
+    /// One of a peer's rows walked.
+    #[inline]
+    pub(crate) fn walked() {
+        #[cfg(test)]
+        if HELD.with(std::cell::Cell::get) > 0 {
+            WALKED.with(|w| w.set(w.get() + 1));
+        }
+    }
+
+    /// One row built from JSON.
+    #[inline]
+    pub(crate) fn built() {
+        #[cfg(test)]
+        if HELD.with(std::cell::Cell::get) > 0 {
+            BUILT.with(|b| b.set(b.get() + 1));
+        }
+    }
+
+    /// What this thread did under the writer lock since the last call: how many times it took
+    /// it, and the rows it walked and built while holding it.
+    #[cfg(test)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct Cost {
+        pub(crate) holds: u64,
+        pub(crate) walked: u64,
+        pub(crate) built: u64,
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take() -> Cost {
+        Cost {
+            holds: HOLDS.with(|h| h.replace(0)),
+            walked: WALKED.with(|w| w.replace(0)),
+            built: BUILT.with(|b| b.replace(0)),
+        }
     }
 }
 
@@ -100,123 +204,11 @@ impl Drop for WriteGuard<'_> {
     /// Publishes while the writer lock is still held (fields drop after this body), so the next
     /// writer starts from this table and no write is lost.
     fn drop(&mut self) {
-        self.table.current.store(Arc::new(std::mem::take(&mut self.rows)));
+        under_writer::leave();
+        self.replaced = Some(self.table.current.swap(Arc::new(std::mem::take(&mut self.rows))));
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::*;
-    use super::*;
-    use crate::session_identity::SessionReceipt;
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    fn row(peer: &str, mux: &str) -> (String, RemoteSession) {
-        let receipt = SessionReceipt::new(peer, mux, None, 0);
-        let summary = json!({"sessionId": mux, "peer": peer, "status": "running"});
-        (
-            receipt.qualified_id(),
-            RemoteSession { peer: peer.into(), summary: summary.into(), receipt },
-        )
-    }
-
-    fn table_of(peers: usize, per_peer: usize) -> RemoteTable {
-        let table = RemoteTable::default();
-        {
-            let mut rows = table.write();
-            for p in 0..peers {
-                for s in 0..per_peer {
-                    let (key, r) = row(&format!("peer-{p}"), &format!("s{s}"));
-                    rows.insert(key, r);
-                }
-            }
-        }
-        table
-    }
-
-    /// cmux#40935's class: a reader in the middle of a walk over 12,000 rows, as long as it
-    /// likes, never holds up a write. Under the old mutex the write below waited forever.
-    #[test]
-    fn a_slow_reader_never_stalls_a_writer() {
-        let table = Arc::new(table_of(30, 400));
-        let (started_tx, started) = mpsc::channel();
-        let (release, release_rx) = mpsc::channel::<()>();
-        let reader = {
-            let table = table.clone();
-            std::thread::spawn(move || {
-                let rows = table.read();
-                started_tx.send(()).unwrap();
-                // Still "walking" until released.
-                release_rx.recv().unwrap();
-                rows.len()
-            })
-        };
-        started
-            .recv_timeout(std::time::Duration::from_secs(30))
-            .expect("the reader never started its walk");
-        let (done_tx, done) = mpsc::channel();
-        let writer = {
-            let table = table.clone();
-            std::thread::spawn(move || {
-                let (key, r) = row("peer-new", "s0");
-                table.write().insert(key, r);
-                done_tx.send(()).unwrap();
-            })
-        };
-        let finished = done.recv_timeout(Duration::from_secs(5));
-        // Released either way, so a failure reports instead of hanging.
-        release.send(()).unwrap();
-        assert!(finished.is_ok(), "a write waited behind a reader holding a snapshot");
-        writer.join().unwrap();
-        assert_eq!(reader.join().unwrap(), 12_000, "the reader kept the version it loaded");
-        assert_eq!(table.read().len(), 12_001, "the write is published");
-    }
-
-    /// Writers take turns, each starting from the one before's table: none is lost.
-    #[test]
-    fn writers_serialize_and_publish_in_order() {
-        let table = Arc::new(RemoteTable::default());
-        let writers: Vec<_> = ["a", "b"]
-            .into_iter()
-            .map(|peer| {
-                let table = table.clone();
-                std::thread::spawn(move || {
-                    for s in 0..1_000 {
-                        let (key, r) = row(peer, &format!("s{s}"));
-                        table.write().insert(key, r);
-                    }
-                })
-            })
-            .collect();
-        for w in writers {
-            w.join().unwrap();
-        }
-        let rows = table.read();
-        assert_eq!(rows.len(), 2_000);
-        assert_eq!(rows.writes, 2_000);
-        assert_eq!(rows.peer_counts().get("a"), Some(&1_000));
-    }
-
-    /// A fence waits for a writer in flight and holds the next one off; `settled` sees every
-    /// write that published before it.
-    #[test]
-    fn a_fence_orders_against_writers() {
-        let table = Arc::new(table_of(1, 1));
-        let fence = table.fence();
-        assert!(table.try_write().is_none(), "a fence keeps writers out");
-        let writer = {
-            let table = table.clone();
-            std::thread::spawn(move || {
-                let (key, r) = row("peer-1", "s0");
-                table.write().insert(key, r);
-            })
-        };
-        std::thread::sleep(Duration::from_millis(50));
-        assert_eq!(table.read().len(), 1, "no write lands while the fence is held");
-        drop(fence);
-        writer.join().unwrap();
-        assert_eq!(table.settled().len(), 2);
-        assert!(table.try_write().is_some());
-    }
-}
+#[path = "remote_table_tests.rs"]
+mod tests;

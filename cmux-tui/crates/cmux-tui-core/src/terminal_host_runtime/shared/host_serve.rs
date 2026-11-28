@@ -5,7 +5,6 @@
 //! connection loop (`serve_client*`) over `HostStream`.
 
 use crate::panic_free::RecoverPoison;
-use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
 use std::sync::{Arc, TryLockError};
@@ -268,6 +267,20 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     // as a renderer disconnect.
     let (sender, receiver) = mpsc_channel();
     let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
+    // The daemon's own mirror (the owner token's smart admin connection with
+    // clipboard reads: a surface's, never a one-shot) holds the PTY reader
+    // back when it falls 8 MiB behind, instead of being cut off and resynced
+    // from a snapshot with the bytes in between lost. Every other client
+    // keeps the cutoff, so a stuck viewer cannot hold the terminal or pin
+    // more memory.
+    let tap = if smart_renderer
+        && hello.role == ClientRole::Admin
+        && granted_rights.contains(CapabilityRights::CLIPBOARD_READ)
+    {
+        tap.with_backpressure()
+    } else {
+        tap
+    };
     let command_sender = tap.clone();
     let (snapshot, colors, snapshot_sequence, replay_gap, _active_client_stream) = {
         // Wait for a parser boundary without blocking resize or cell-metric
@@ -472,16 +485,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     if !granted_rights.contains(CapabilityRights::INPUT) {
                         break;
                     }
-                    let bracketed = command_host.term.lock().recover_poison().mode(2004, false);
-                    let mut writer = command_host.writer.lock().recover_poison();
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[200~");
-                    }
-                    let _ = writer.write_all(&frame.payload);
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[201~");
-                    }
-                    let _ = writer.flush();
+                    command_host.write_paste_frame(&frame.payload);
                 }
                 MessageKind::ViewerSize if frame.payload.len() == 4 => {
                     if !granted_rights.contains(CapabilityRights::RESIZE) {
@@ -623,7 +627,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         break;
                     }
                     let Ok(fallback_key) =
-                        crate::server::decode_terminal_host_clear_history(&frame.payload)
+                        crate::protocol_key::decode_terminal_host_clear_history(&frame.payload)
                     else {
                         break;
                     };

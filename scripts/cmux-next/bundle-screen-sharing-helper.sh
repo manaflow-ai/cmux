@@ -3,9 +3,18 @@
 # (plans/cmux-next/screen-sharing-helper.md): wraps the cmux.rd/1 host executable
 # (build-screen-sharing-helper.sh) in
 #
-#   Contents/Library/<app name> Screen Sharing.app       ("cmux NIGHTLY Screen Sharing.app")
+#   Contents/Library/<app name> Helper.app       ("cmux NIGHTLY Helper.app")
 #     Contents/MacOS/cmux-screen-sharing
-#     Contents/Info.plist   <app bundle id>.screen-sharing, LSUIElement
+#     Contents/Info.plist   <app bundle id>.screen-sharing (every DEV build: com.cmuxterm.app.debug.screen-sharing),
+#                           LSUIElement, named "<app name> Helper"
+#     Contents/Resources/AppIcon.icns   Computer Use's icon (the cursor "cmux Computer Use.app" ships), else the
+#                           app's own (its CFBundleIconFile), so onboarding's drag row and System Settings show
+#                           Computer Use, not the generic blank app
+#
+# The name is what macOS permission alerts show ("cmux NIGHTLY Helper"). The bundle id keeps
+# ".screen-sharing" (Screen Recording and Accessibility grants are keyed to it), and the executable
+# keeps its name. Builds before the rename named it "<app name> Screen Sharing.app": this script
+# finds and replaces that one too, so an incremental build or a --stamp of an older app migrates.
 #
 # Its own bundle id and signature make it its own app to macOS: the app starts it with
 # responsibility disclaimed (MacScreenHelper.swift), so Screen Recording and Accessibility are
@@ -32,24 +41,63 @@ set -euo pipefail
 
 repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 EXECUTABLE=cmux-screen-sharing
-SUFFIX=" Screen Sharing"
+SUFFIX=" Helper"
+# The name before 2026-11-22; still found (and replaced) in an app built before the rename.
+LEGACY_SUFFIX=" Screen Sharing"
 
 # PlistBuddy on a Mac; plistlib elsewhere (the Linux release signer stamps before it signs). Empty for a plist that
 # is not there: PlistBuddy's Print then writes "File Doesn't Exist, Will Create: PATH" to stdout, which became the
 # helper's name and an mv to that path failed the build (a launch-ready A/B's head build, 2026-11-17).
+# CMUX_PLISTBUDDY: another PlistBuddy (tests).
+PLISTBUDDY="${CMUX_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 plist_get() {
   [[ -f "$1" ]] || return 0
-  if [[ -x /usr/libexec/PlistBuddy ]]; then
-    /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
+  if [[ -x "$PLISTBUDDY" ]]; then
+    "$PLISTBUDDY" -c "Print :$2" "$1" 2>/dev/null || true
   else
     python3 -I -c 'import plistlib, sys; v = plistlib.load(open(sys.argv[1], "rb")).get(sys.argv[2]); print("" if v is None else v)' \
       "$1" "$2" 2>/dev/null || true
   fi
 }
 
-# The helper's Info.plist: <path> <bundle id> <name> <version> <minimum macOS>.
+# The helper's icon file in its Resources (CFBundleIconFile), Computer Use's or the app's own: without one macOS draws
+# the generic blank app icon for the helper in the Computer Use onboarding's drag row and in System Settings'
+# Privacy & Security lists (Austin: "We need to show the icon instead of the blank white icon").
+HELPER_ICON=AppIcon
+
+# Computer Use's own icon, the one the onboarding page and the agent permission card draw for a helper that names
+# none (CmuxNextDesign's ComputerUseAppIcon). CMUX_NEXT_COMPUTER_USE_ICON: another file (tests; empty: none).
+COMPUTER_USE_ICON="${CMUX_NEXT_COMPUTER_USE_ICON-$repo_root/Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/ComputerUseIcon.icns}"
+
+# Copies the helper's icon in: <app> <helper bundle> [icon name...]. Computer Use's icon when it is there; else
+# each name (the build's ASSETCATALOG_COMPILER_APPICON_NAME first: in the Xcode phase the processed Info.plist may
+# not be written yet), then the app's CFBundleIconFile, names Resources/<name>.icns; the first that is there is
+# copied. Prints $HELPER_ICON when it copied one, nothing when there is none (the helper keeps the generic icon).
+copy_icon() {
+  local app="$1" helper="$2" name src=""
+  shift 2
+  rm -f "$helper/Contents/Resources/$HELPER_ICON.icns"
+  if [[ -n "$COMPUTER_USE_ICON" && -f "$COMPUTER_USE_ICON" ]]; then src="$COMPUTER_USE_ICON"; fi
+  for name in "$@" "$(plist_get "$app/Contents/Info.plist" CFBundleIconFile)"; do
+    [[ -z "$src" ]] || break
+    name="${name%.icns}"
+    [[ -n "$name" && "$name" != */* && -f "$app/Contents/Resources/$name.icns" ]] || continue
+    src="$app/Contents/Resources/$name.icns"
+    break
+  done
+  if [[ -z "$src" ]]; then
+    echo "warning: Screen Sharing helper: $app has no icon .icns in Contents/Resources; the helper shows the generic app icon" >&2
+    return 0
+  fi
+  mkdir -p "$helper/Contents/Resources"
+  cp "$src" "$helper/Contents/Resources/$HELPER_ICON.icns"
+  echo "$HELPER_ICON"
+}
+
+# The helper's Info.plist: <path> <bundle id> <name> <version> <minimum macOS> [icon file].
 write_plist() {
-  local path="$1" id="$2" name="$3" version="$4" minimum="$5"
+  local path="$1" id="$2" name="$3" version="$4" minimum="$5" icon="${6:-}" icon_key=""
+  [[ -z "$icon" ]] || icon_key="<key>CFBundleIconFile</key><string>$icon</string>"
   cat > "$path" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -58,6 +106,7 @@ write_plist() {
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleExecutable</key><string>$EXECUTABLE</string>
   <key>CFBundleIdentifier</key><string>$id</string>
+  $icon_key
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>$name</string>
   <key>CFBundleDisplayName</key><string>$name</string>
@@ -72,20 +121,55 @@ write_plist() {
 PLIST
 }
 
-# Removes every helper bundle in <app>/Contents/Library except <keep> (a renamed app's old one).
+# Refuses a bundle id or app name that is not one: a value read from a tool's output can carry the tool's own
+# message (the PlistBuddy line above), and the helper's path is built from the name. <id> <name>.
+check_identity() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]] \
+    || { echo "error: Screen Sharing helper: bundle id '$1' is not a plain reverse-DNS name" >&2; exit 1; }
+  [[ -n "$2" && "$2" != *[/:[:cntrl:]]* ]] \
+    || { echo "error: Screen Sharing helper: app name '$2' is empty or holds a slash, colon or control character" >&2; exit 1; }
+}
+
+# Prints every helper bundle in <app>/Contents/Library, one per line: legacy "* Screen Sharing.app" first, then
+# "* Helper.app" bundles that carry the helper executable (another app may end in " Helper.app"), so the last one is
+# the preferred, new-name one.
+helper_bundles() {
+  local helper
+  for helper in "$1/Contents/Library/"*"$LEGACY_SUFFIX.app"; do
+    [[ -d "$helper" ]] && printf '%s\n' "$helper"
+  done
+  for helper in "$1/Contents/Library/"*"$SUFFIX.app"; do
+    [[ -d "$helper" && -e "$helper/Contents/MacOS/$EXECUTABLE" ]] && printf '%s\n' "$helper"
+  done
+  return 0
+}
+
+# The helper's bundle id for app id <id>: one per channel. Every DEV build (com.cmuxterm.app.debug and each
+# com.cmuxterm.app.debug.<tag>) shares com.cmuxterm.app.debug.screen-sharing, so System Settings lists one
+# "cmux DEV Helper" row and one copy (SignedHelperStaging.swift), not one per tag; any other app is
+# <id>.screen-sharing (NIGHTLY's and stable's grants live there: check-screen-share-identity.sh pins them).
+helper_id_for() {
+  case "$1" in
+    com.cmuxterm.app.debug|com.cmuxterm.app.debug.*) echo com.cmuxterm.app.debug.screen-sharing ;;
+    *) echo "$1.screen-sharing" ;;
+  esac
+}
+
+# Removes every helper bundle in <app>/Contents/Library except <keep> (a renamed app's old one, or one named
+# before the rename).
 remove_other_helpers() {
   local app="$1" keep="${2:-}" helper
-  for helper in "$app/Contents/Library/"*"$SUFFIX.app"; do
-    [[ -d "$helper" && "$helper" != "$keep" ]] || continue
+  while IFS= read -r helper; do
+    [[ -n "$helper" && "$helper" != "$keep" ]] || continue
     rm -rf "$helper"
-  done
+  done < <(helper_bundles "$app")
 }
 
 # --stamp APP: the final app's id and name (after a nightly or RC rename), before Release signing.
 if [[ "${1:-}" == "--stamp" ]]; then
   app="${2:?usage: $0 --stamp <app>}"
   found=""
-  for helper in "$app/Contents/Library/"*"$SUFFIX.app"; do [[ -d "$helper" ]] && found="$helper"; done
+  while IFS= read -r helper; do [[ -n "$helper" ]] && found="$helper"; done < <(helper_bundles "$app")
   if [[ -z "$found" ]]; then
     echo "note: $app carries no Screen Sharing helper"
     exit 0
@@ -93,13 +177,16 @@ if [[ "${1:-}" == "--stamp" ]]; then
   id="$(plist_get "$app/Contents/Info.plist" CFBundleIdentifier)"
   name="$(plist_get "$app/Contents/Info.plist" CFBundleName)"
   [[ -n "$id" && -n "$name" ]] || { echo "error: $app/Contents/Info.plist has no CFBundleIdentifier or CFBundleName" >&2; exit 1; }
+  check_identity "$id" "$name"
   version="$(plist_get "$app/Contents/Info.plist" CFBundleVersion)"
   minimum="$(plist_get "$app/Contents/Info.plist" LSMinimumSystemVersion)"
   dest="$app/Contents/Library/$name$SUFFIX.app"
   [[ "$found" == "$dest" ]] || { rm -rf "$dest"; mv "$found" "$dest"; }
   remove_other_helpers "$app" "$dest"
-  write_plist "$dest/Contents/Info.plist" "$id.screen-sharing" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}"
-  echo "stamped the Screen Sharing helper: $(basename "$dest") ($id.screen-sharing)"
+  helper_id="$(helper_id_for "$id")"
+  icon="$(copy_icon "$app" "$dest")"
+  write_plist "$dest/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}" "$icon"
+  echo "stamped the Screen Sharing helper: $(basename "$dest") ($helper_id)"
   exit 0
 fi
 
@@ -154,11 +241,25 @@ if command -v lipo >/dev/null 2>&1 && [[ -n "${ARCHS:-}" ]]; then
   done
 fi
 
+# The Xcode phase takes the id, name and version from the build's own settings, as bundle-server-helper.sh and
+# build-cmux-cua.sh do: Xcode may write the processed Info.plist after the script phases, so a rebuild in the same
+# DerivedData finds none, or the previous build's (Resources/Info.plist's CFBundleName is $(PRODUCT_NAME)). --app
+# reads the built app's Info.plist. Each falls back to the other, then to the bundle's file name.
 info="$app/Contents/Info.plist"
-id="$(plist_get "$info" CFBundleIdentifier)"; id="${id:-${PRODUCT_BUNDLE_IDENTIFIER:-com.cmuxterm.app.next}}"
-name="$(plist_get "$info" CFBundleName)"; name="${name:-$(basename "$app" .app)}"
-version="$(plist_get "$info" CFBundleVersion)"; version="${version:-${CURRENT_PROJECT_VERSION:-1}}"
+if [[ -n "$stamp" ]]; then
+  id="${PRODUCT_BUNDLE_IDENTIFIER:-$(plist_get "$info" CFBundleIdentifier)}"
+  name="${PRODUCT_NAME:-$(plist_get "$info" CFBundleName)}"
+  version="${CURRENT_PROJECT_VERSION:-$(plist_get "$info" CFBundleVersion)}"
+else
+  id="$(plist_get "$info" CFBundleIdentifier)"; id="${id:-${PRODUCT_BUNDLE_IDENTIFIER:-}}"
+  name="$(plist_get "$info" CFBundleName)"; name="${name:-${PRODUCT_NAME:-}}"
+  version="$(plist_get "$info" CFBundleVersion)"; version="${version:-${CURRENT_PROJECT_VERSION:-}}"
+fi
+id="${id:-com.cmuxterm.app.next}"
+name="${name:-$(basename "$app" .app)}"
+version="${version:-1}"
 minimum="${MACOSX_DEPLOYMENT_TARGET:-$(plist_get "$info" LSMinimumSystemVersion)}"; minimum="${minimum:-14.0}"
+check_identity "$id" "$name"
 dest="$app/Contents/Library/$name$SUFFIX.app"
 remove_other_helpers "$app" "$dest"
 mkdir -p "$app/Contents/Library"
@@ -168,7 +269,9 @@ staged="$tmp/$name$SUFFIX.app"
 mkdir -p "$staged/Contents/MacOS"
 cp "$src" "$staged/Contents/MacOS/$EXECUTABLE"
 chmod 755 "$staged/Contents/MacOS/$EXECUTABLE"
-write_plist "$staged/Contents/Info.plist" "$id.screen-sharing" "$name$SUFFIX" "$version" "$minimum"
+helper_id="$(helper_id_for "$id")"
+icon="$(copy_icon "$app" "$staged" "${ASSETCATALOG_COMPILER_APPICON_NAME:-}")"
+write_plist "$staged/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "$version" "$minimum" "$icon"
 printf 'APPL????' > "$staged/Contents/PkgInfo"
 
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
@@ -181,4 +284,4 @@ fi
 "$repo_root/scripts/codesign-retry.sh" "${flags[@]}" "$staged"
 rm -rf "$dest"
 mv "$staged" "$dest"
-echo "bundled the Screen Sharing helper $(basename "$dest") ($id.screen-sharing, signed by $identity) from $src"
+echo "bundled the Screen Sharing helper $(basename "$dest") ($helper_id, signed by $identity) from $src"

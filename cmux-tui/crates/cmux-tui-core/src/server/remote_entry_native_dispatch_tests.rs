@@ -316,11 +316,14 @@ fn native_data_frames_reach_only_the_owner() {
         crate::fs_ops::FS_CAPABILITY,
         crate::fs_ops::FS_SYMLINK_CAPABILITY,
         crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
+        crate::fs_ops::FS_WRITE_ZSTD_CAPABILITY,
         crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
         crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
         crate::git_seed::GIT_SEED_CAPABILITY,
         crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
         crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
+        crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
+        crate::git_seed::GIT_SEED_BORROW_CAPABILITY,
         crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     ] {
         assert!(native_owner::carries(capability), "{capability}");
@@ -483,6 +486,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-session-share-room",
     "agent-session-share-uninvite",
     "apps-agent-inventory-changed",
+    "apps-chat-action",
     "apps-dispatch",
     "apps-link-changed",
     "apps-list",
@@ -531,6 +535,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "feed-local-handoff-done",
     "feed-local-list",
     "float-pane",
+    // The launch snapshot is a file beside the local daemon's registry; the
+    // app asks its local daemon only, at quit.
+    "flush-launch-snapshot",
     "forget-session",
     "get-blob",
     "get-frontend-browser-history",
@@ -578,7 +585,12 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "put-blob",
     "put-frontend-projection",
     "put-session",
+    "quick-terminal",
     "remote-host-app",
+    // This Mac's Computer Use settings and saved approvals: the verified local app only
+    // (origin.forbidden otherwise); another machine reaches Computer Use through the relay.
+    "computer-use-config",
+    "computer-use-approvals",
     "remote-host-call",
     "remote-host-config",
     "remote-host-status",

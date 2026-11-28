@@ -121,6 +121,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard let bar = entry.chrome?.addressBar else { return }
             if bar.window === window, !bar.isHiddenOrHasHiddenAncestor, !responder(of: window, isInside: bar) {
                 if controller.focus.isReturningToOmnibar { bar.restoreFocus() } else { bar.focus() }
+                if bar.editsAsFirstResponder { controller.services.keyRouter.creationInputCoordinator.focusDidSettle(in: window) } // keys held since the key (Cmd-Shift-L) go into it now
             }
         case .findBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
@@ -199,11 +200,11 @@ final class FocusEffectApplier: FocusEffectApplying {
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
             if window.firstResponder !== window { FocusRoute(.system, "focus model: page window").moveKeyboard(in: window, to: nil) }
-            // Another of this window's Chromium page windows took the keys without a click (the New
-            // Tab spare made right after Cmd-N): the recorded page asks again, or typing goes there.
-            // Its own window being key ends it, so the ask runs once.
+            // Another Chromium page took the keys, or a click returned them to this window while
+            // the selected page stayed recorded: ask again so typing reaches the selected page.
+            // Its own child window taking the keys ends the ask; hidden pages keep it for later.
             if pageFocus.page === page {
-                if anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true) }
+                if anotherPageWindowIsKey(than: page, in: window) || controller.services.keyWindowSource() === window { pageFocus.refocus(page) }
                 return
             }
             // One key change (#24913): the old page blurs without this window taking the keys
@@ -427,6 +428,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
         // The Files tree follows the focused terminal's folder.
         services.fileExplorers.focusChanged(in: controller)
+        services.projectActions.focusChanged()
         if registry.context != next { registry.context = next }
     }
 

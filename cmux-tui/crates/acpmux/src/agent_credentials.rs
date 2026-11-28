@@ -12,21 +12,36 @@
 //!
 //! The credential lives in memory, on its [`crate::hub::Session`] only: never in the session's
 //! meta, journal, transcript, events, snapshots or logs, and never in the machine's model-plane env
-//! file. A daemon that restarts forgets it; the agent host it hands over keeps the env it started
-//! with, and the Mac's next refresh sets it again. Without one the agent keeps today's coderouter
-//! route.
+//! file. A daemon that restarts keeps none of it; the agent host it hands over keeps the env it
+//! started with, and the new daemon reads the credential back from that agent's own process env
+//! when it adopts the host ([`recovered`], Linux `/proc/PID/environ`; only an agent [`apply`] marked
+//! with [`MARKER`]), so the agent's next start (a wake after the machine paused, a route switch)
+//! runs on it again (cmux#45776: a Cloud Claude chat said "not signed in" after a pause). The Mac
+//! re-sends only a token that expires; an agent whose host also ended before a daemon restart
+//! starts without it. An idle chat is the usual case of that (its agent hibernates after two idle
+//! minutes, `hub/idle.rs`), so its summary says `credentialOnlyHere` meanwhile and a machine update
+//! wakes it before it restarts this daemon (`hub/credentials.rs` `credential_only_here`, cmux-host
+//! `updater/credential_wake.rs`). Left open: a daemon that ends any other way while the agent
+//! sleeps (a crash, a rollback's restart), a closed chat, and a session that holds a credential
+//! with no agent and no hibernation (its agent crashed, or its first start failed or has not run
+//! yet). Without one the agent keeps today's coderouter route.
+//! with [`MARKER`]). Copilot is delivered again by the owner. Its OpenCode files are never a
+//! credential source for the daemon.
 //!
 //! At each spawn ([`apply`]) the agent gets the credential's variables and loses the machine's
 //! coderouter route (`cloud_model_plane::KEYS`: base URLs, placeholder keys) and any other provider
 //! login, through the route-unset list the spawn already honours (`routes::UNSET_KEY`). Codex with a
-//! ChatGPT plan token runs on the OpenAI-documented custom provider (`-c` overrides, never an edit
-//! of the shared `config.toml`); Codex with an OpenAI key the same shape on `OPENAI_API_KEY`; Codex
-//! with the access token of the Mac's Codex CLI ChatGPT login (`codex login`, cmux#45774) the same
-//! shape on the ChatGPT Codex backend Codex itself uses for that login, with the account the token
-//! names (`codex_login_access.rs`): the plan route refuses such a token ("Missing scopes:
-//! api.responses.write"). Claude needs only its env.
+//! ChatGPT plan token (Sign in with ChatGPT, Codex's own OAuth client) runs on a custom provider
+//! (`-c` overrides, never an edit of the shared `config.toml`) to the ChatGPT Codex backend Codex
+//! itself uses for a ChatGPT sign-in, with the account the token names (cmux#45774: the
+//! token-sharing route on api.openai.com refused most accounts with
+//! `subscription_sharing_user_not_eligible`); Codex with an OpenAI key the same shape on
+//! `OPENAI_API_KEY` to api.openai.com. The overrides go after codex's `app-server` word
+//! ([`codex_config_index`]). Claude needs only its env.
 
+use crate::byo_endpoint::{self, Kind};
 use crate::rpc::RpcError;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -43,20 +58,43 @@ pub const ANTHROPIC_KEY: &str = "ANTHROPIC_API_KEY";
 pub const OPENAI_KEY: &str = "OPENAI_API_KEY";
 /// A ChatGPT plan access token (serves Codex through [`CHATGPT_PROVIDER`]).
 pub const CHATGPT_TOKEN: &str = "CMUX_CHATGPT_ACCESS_TOKEN";
-/// The access token of the Mac's Codex CLI ChatGPT login (serves Codex through
-/// [`CODEX_LOGIN_PROVIDER`]); the account it names goes in [`CODEX_ACCOUNT`].
-pub const CODEX_LOGIN_TOKEN: &str = "CMUX_CODEX_ACCESS_TOKEN";
-/// The ChatGPT account a [`CODEX_LOGIN_TOKEN`] acts for, set at the spawn from the token itself
-/// (never taken from the caller), and sent as `chatgpt-account-id`.
-pub const CODEX_ACCOUNT: &str = "CMUX_CODEX_ACCOUNT_ID";
+/// The ChatGPT account a [`CHATGPT_TOKEN`] acts for, set at the spawn from the token itself and
+/// sent as [`ACCOUNT_HEADER`] (never a credential name of its own).
+pub const CHATGPT_ACCOUNT: &str = "CMUX_CHATGPT_ACCOUNT_ID";
+/// The header the ChatGPT Codex backend reads the account from.
+pub const ACCOUNT_HEADER: &str = "chatgpt-account-id";
 
 /// The only names a credential may set.
-pub const NAMES: [&str; 5] =
-    [CLAUDE_OAUTH, ANTHROPIC_KEY, OPENAI_KEY, CHATGPT_TOKEN, CODEX_LOGIN_TOKEN];
+pub(crate) const GEMINI_KEY: &str = "GEMINI_API_KEY";
+pub(crate) const VERTEX_EXPRESS_KEY: &str = "GOOGLE_API_KEY";
+const GROK_KEY: &str = "XAI_API_KEY";
+pub const GROK_PLAN_TOKEN: &str = "CMUX_GROK_PLAN_ACCESS_TOKEN";
+pub const COPILOT_TOKEN: &str = "CMUX_COPILOT_GITHUB_TOKEN";
+
+pub const NAMES: &[&str] = &[
+    CLAUDE_OAUTH,
+    ANTHROPIC_KEY,
+    OPENAI_KEY,
+    CHATGPT_TOKEN,
+    byo_endpoint::OPENAI_KEY_ENV,
+    byo_endpoint::ANTHROPIC_KEY_ENV,
+    GEMINI_KEY,
+    VERTEX_EXPRESS_KEY,
+    GROK_KEY,
+];
+
+/// The name of a route's local-only key to redact. These keys are never recovered as Cloud grants.
+pub(crate) const LOCAL_REDACTION: &str = "ACPMUX_LOCAL_CREDENTIAL_REDACTION";
+/// Set by [`apply`] on a credentialed agent's env to the name of its variable (a name, never a
+/// value): what lets a daemon that adopts the agent later take that variable back ([`recovered`]),
+/// and never a variable the agent merely inherited.
+pub const MARKER: &str = "ACPMUX_LAUNCH_CREDENTIAL";
+/// The validated endpoint metadata (no key) for restart recovery.
+pub const ENDPOINT_MARKER: &str = "ACPMUX_LAUNCH_ENDPOINT";
 
 /// What a credentialed agent never inherits: the machine's coderouter route, and every other
 /// provider login or endpoint switch that would outrank the credential or send it elsewhere.
-pub const UNSET: [&str; 16] = [
+pub const UNSET: &[&str] = &[
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -70,20 +108,31 @@ pub const UNSET: [&str; 16] = [
     "CODEX_API_KEY",
     "CMUX_CODEROUTER_URL",
     "CMUX_CHATGPT_ACCESS_TOKEN",
+    "CMUX_CHATGPT_ACCOUNT_ID",
     "CMUX_CODEX_AUTH",
-    "CMUX_CODEX_ACCESS_TOKEN",
-    "CMUX_CODEX_ACCOUNT_ID",
+    "OPENCODE_CONFIG_CONTENT",
+    "OPENCODE_AUTH_CONTENT",
+    "OPENROUTER_API_KEY",
+    "COPILOT_GITHUB_TOKEN",
+    "GROK_AUTH_PROVIDER_COMMAND",
+    "GROK_CLI_CHAT_PROXY_BASE_URL",
+    "GROK_AUTH_PATH",
+    GROK_PLAN_TOKEN,
+    COPILOT_TOKEN,
+    crate::subscriptions::grok_hook::ROUTE,
+    byo_endpoint::OPENAI_KEY_ENV,
+    MARKER,
+    LOCAL_REDACTION,
+    ENDPOINT_MARKER,
 ];
 
-/// The Codex provider a ChatGPT plan token runs on (Revision 2's OpenAI-documented shape).
+/// The Codex provider a ChatGPT plan token runs on: the ChatGPT Codex backend
+/// ([`crate::chatgpt::CODEX_BACKEND`]), with the account header.
 pub const CHATGPT_PROVIDER: &str = "openai_chatgpt_plan";
 /// The Codex provider an OpenAI API key runs on: the same shape on `OPENAI_API_KEY`.
 pub const OPENAI_KEY_PROVIDER: &str = "openai_api_key";
-/// Where both of those Codex providers send.
+/// Where the OpenAI key's provider sends.
 pub const OPENAI_BASE: &str = "https://api.openai.com/v1";
-/// The Codex provider a Codex CLI ChatGPT login's token runs on: the same shape on
-/// [`CODEX_LOGIN_TOKEN`], to the ChatGPT Codex backend, with the account header.
-pub const CODEX_LOGIN_PROVIDER: &str = "cmux_codex_login";
 
 /// The longest value taken (a ChatGPT JWT is a few KiB).
 const MAX_VALUE_BYTES: usize = 16 * 1024;
@@ -93,6 +142,10 @@ const MAX_VALUE_BYTES: usize = 16 * 1024;
 pub enum Family {
     Claude,
     Codex,
+    Copilot,
+    Opencode,
+    Gemini,
+    Grok,
 }
 
 impl Family {
@@ -103,8 +156,74 @@ impl Family {
         } else if family.starts_with("codex") {
             Some(Self::Codex)
         } else {
-            None
+            match family {
+                "github-copilot" => Some(Self::Copilot),
+                "opencode" | "openrouter" => Some(Self::Opencode),
+                "gemini" => Some(Self::Gemini),
+                "grok" => Some(Self::Grok),
+                _ => None,
+            }
         }
+    }
+}
+
+/// The provider endpoint metadata sent with a launch credential (Revision 3).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct LaunchEndpoint {
+    pub(crate) kind: Kind,
+    pub(crate) base_url: String,
+    pub(crate) models: Vec<String>,
+}
+
+impl LaunchEndpoint {
+    pub(crate) fn checked(kind: Kind, base_url: &str, models: &[String]) -> Option<Self> {
+        if models.len() > byo_endpoint::MAX_MODELS {
+            return None;
+        }
+        let models = byo_endpoint::check_models(models).ok()?;
+        if models.iter().any(|model| {
+            model == byo_endpoint::ALL_MODELS
+                || model.starts_with('-')
+                || byo_endpoint::looks_like_secret(model)
+        }) {
+            return None;
+        }
+        Some(Self { kind, base_url: byo_endpoint::check_cloud_base_url(base_url).ok()?, models })
+    }
+
+    pub(crate) fn harness(&self) -> &'static str {
+        self.kind.harness()
+    }
+}
+
+// Older daemons deny unknown route and profile keys. A reserved first-line comment keeps
+// the identity in the same atomic file as the connection while allowing their parsers to read it.
+const INSTANCE_COMMENT: &str = "# cmux-credential-instance: ";
+
+pub(crate) fn stored_instance(text: &str) -> Option<String> {
+    let instance = text.lines().next()?.strip_prefix(INSTANCE_COMMENT)?;
+    uuid::Uuid::parse_str(instance).ok().map(|id| id.to_string())
+}
+
+pub(crate) fn with_stored_instance(text: &str, instance: &str) -> String {
+    let text = if text.starts_with(INSTANCE_COMMENT) {
+        text.split_once('\n').map_or("", |(_, remaining)| remaining)
+    } else {
+        text
+    };
+    format!("{INSTANCE_COMMENT}{instance}\n{text}")
+}
+
+// The bound form is a local route id and the Mac-scoped connection digest.
+pub(crate) fn valid_connection(connection: &str) -> bool {
+    match connection.split_once(':') {
+        Some((id, digest)) => {
+            crate::routes::is_route_id(id)
+                && digest.len() == 64
+                && digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }
+        None => crate::routes::is_route_id(connection),
     }
 }
 
@@ -112,6 +231,8 @@ impl Family {
 #[derive(Clone, PartialEq, Eq)]
 pub struct AgentCredential {
     env: BTreeMap<String, String>,
+    endpoint: Option<LaunchEndpoint>,
+    connection: Option<String>,
 }
 
 impl std::fmt::Debug for AgentCredential {
@@ -131,8 +252,8 @@ impl AgentCredential {
                 .with_data(serde_json::json!({"reason": "credentials.invalid"}))
         };
         let object = value.as_object().ok_or_else(|| refused("must be an object"))?;
-        if object.keys().any(|k| k != "env") {
-            return Err(refused("only `env` is taken"));
+        if object.keys().any(|k| !matches!(k.as_str(), "env" | "endpoint" | "connection")) {
+            return Err(refused("only `env`, `endpoint` and `connection` are taken"));
         }
         let env = object
             .get("env")
@@ -150,22 +271,113 @@ impl AgentCredential {
             if !token_shaped(value) {
                 return Err(refused("a value is not a token"));
             }
-            // Its account goes with every request: a token that names none cannot be used.
-            if name == CODEX_LOGIN_TOKEN && crate::codex_login_access::account_id(value).is_none() {
-                return Err(refused("a Codex login token that names no ChatGPT account"));
-            }
             out.insert(name.clone(), value.to_owned());
         }
-        Ok(Self { env: out })
+        let endpoint = if let Some(endpoint) = object.get("endpoint") {
+            let endpoint: LaunchEndpoint = serde_json::from_value(endpoint.clone())
+                .map_err(|_| refused("invalid endpoint metadata"))?;
+            let endpoint =
+                LaunchEndpoint::checked(endpoint.kind, &endpoint.base_url, &endpoint.models)
+                    .ok_or_else(|| refused("invalid Cloud endpoint"))?;
+            let key = out
+                .get(endpoint.kind.secret_key())
+                .ok_or_else(|| refused("credential name does not match endpoint kind"))?;
+            if endpoint.base_url.contains(key)
+                || endpoint.models.iter().any(|model| model.contains(key))
+            {
+                return Err(refused("endpoint metadata contains the credential"));
+            }
+            Some(endpoint)
+        } else {
+            if out.contains_key(byo_endpoint::OPENAI_KEY_ENV)
+                || out
+                    .get(byo_endpoint::ANTHROPIC_KEY_ENV)
+                    .is_some_and(|token| !token.starts_with("sk-ant-oat"))
+            {
+                return Err(refused("endpoint metadata is required for this name"));
+            }
+            None
+        };
+        let connection = object
+            .get("connection")
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|id| {
+                        valid_connection(id)
+                            && !out.values().any(|secret| {
+                                *id == secret.as_str()
+                                    || (secret.len() >= 6 && id.contains(secret.as_str()))
+                            })
+                    })
+                    .map(str::to_owned)
+                    .ok_or_else(|| refused("invalid connection id"))
+            })
+            .transpose()?;
+        Ok(Self { env: out, endpoint, connection })
+    }
+
+    /// The owner's connection ID for restoring a chat after its agent exits.
+    pub(crate) fn connection(&self) -> Option<&str> {
+        self.connection.as_deref()
+    }
+
+    pub(crate) fn keep_connection(&mut self, id: Option<&str>) {
+        self.connection = id.map(str::to_owned);
     }
 
     /// The family its variable serves.
     pub fn family(&self) -> Family {
-        if self.env.contains_key(CLAUDE_OAUTH) || self.env.contains_key(ANTHROPIC_KEY) {
+        if self.env.contains_key(GEMINI_KEY) || self.env.contains_key(VERTEX_EXPRESS_KEY) {
+            Family::Gemini
+        } else if self.env.contains_key(GROK_KEY) || self.env.contains_key(GROK_PLAN_TOKEN) {
+            Family::Grok
+        } else if self.env.contains_key(COPILOT_TOKEN) {
+            Family::Copilot
+        } else if self.env.contains_key(byo_endpoint::OPENAI_KEY_ENV) {
+            Family::Opencode
+        } else if self.env.contains_key(CLAUDE_OAUTH)
+            || self.env.contains_key(ANTHROPIC_KEY)
+            || self.env.contains_key(byo_endpoint::ANTHROPIC_KEY_ENV)
+        {
             Family::Claude
         } else {
             Family::Codex
         }
+    }
+
+    pub(crate) fn uses_claude_subscription_token(&self) -> bool {
+        self.env.contains_key(CLAUDE_OAUTH) || self.uses_claude_setup_token()
+    }
+
+    fn uses_claude_setup_token(&self) -> bool {
+        self.endpoint.is_none() && self.env.contains_key(byo_endpoint::ANTHROPIC_KEY_ENV)
+    }
+
+    pub(crate) fn key_provider(&self) -> Option<&'static str> {
+        self.names().find_map(|variable| match variable {
+            ANTHROPIC_KEY => Some("Anthropic"),
+            OPENAI_KEY => Some("OpenAI"),
+            GEMINI_KEY => Some("Gemini"),
+            VERTEX_EXPRESS_KEY => Some("Vertex AI"),
+            GROK_KEY => Some("xAI"),
+            byo_endpoint::ANTHROPIC_KEY_ENV => Some("Anthropic"),
+            byo_endpoint::OPENAI_KEY_ENV => Some("OpenAI-compatible"),
+            _ => None,
+        })
+    }
+
+    pub(crate) fn uses_direct_anthropic_credential(&self) -> bool {
+        self.env.contains_key(ANTHROPIC_KEY) || self.uses_claude_setup_token()
+    }
+
+    /// Delivered endpoint credentials require a transport that checks the actual destination.
+    pub(crate) fn check_launch_destination(&self) -> Result<(), RpcError> {
+        if self.endpoint.is_some() {
+            return Err(RpcError::invalid_params("The connection is unavailable.")
+                .with_data(serde_json::json!({"reason": "credentials.endpoint_unavailable"})));
+        }
+        Ok(())
     }
 
     /// A ChatGPT plan token: it expires, the Mac refreshes it, and its agent restarts on the new one.
@@ -179,9 +391,17 @@ impl AgentCredential {
     }
 }
 
+/// Redact a key echoed in a line before parsing, logging or presenting it.
+pub(crate) fn redact_line(line: String, key: Option<&str>) -> String {
+    match key {
+        Some(key) if !key.is_empty() && line.contains(key) => line.replace(key, "[redacted]"),
+        _ => line,
+    }
+}
+
 /// Printable ASCII token characters, non-empty and bounded: no whitespace, quote, `$` or brace, so
 /// no env expansion or shell reading can change it.
-fn token_shaped(value: &str) -> bool {
+pub(crate) fn token_shaped(value: &str) -> bool {
     (1..=MAX_VALUE_BYTES).contains(&value.len())
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
 }
@@ -190,7 +410,11 @@ fn token_shaped(value: &str) -> bool {
 pub fn requested(meta: Option<&Value>) -> Result<Option<AgentCredential>, RpcError> {
     match meta.and_then(|m| m.get(FIELD)) {
         None | Some(Value::Null) => Ok(None),
-        Some(value) => AgentCredential::parse(value).map(Some),
+        Some(value) => {
+            let credential = AgentCredential::parse(value)?;
+            credential.check_launch_destination()?;
+            Ok(Some(credential))
+        }
     }
 }
 
@@ -222,7 +446,10 @@ pub fn apply(
         .get(crate::routes::UNSET_KEY)
         .map(|l| l.split(',').filter(|k| !k.is_empty()).map(str::to_owned).collect())
         .unwrap_or_default();
-    for key in UNSET {
+    let native = crate::provider_cloud_auth::Provider::for_family(family);
+    for key in
+        UNSET.iter().copied().chain(native.into_iter().flat_map(|provider| provider.direct_env()))
+    {
         env.remove(key);
         if !unset.iter().any(|u| u == key) {
             unset.push(key.to_owned());
@@ -232,41 +459,201 @@ pub fn apply(
     for (k, v) in &credential.env {
         env.insert(k.clone(), v.clone());
     }
-    if harness == Family::Codex {
-        let codex_login = credential.env.get(CODEX_LOGIN_TOKEN);
-        let provider = if credential.is_chatgpt_plan() {
-            CodexProvider {
-                name: CHATGPT_PROVIDER,
-                base_url: OPENAI_BASE,
-                env_key: CHATGPT_TOKEN,
-                account: false,
-            }
-        } else if codex_login.is_some() {
-            CodexProvider {
-                name: CODEX_LOGIN_PROVIDER,
-                base_url: crate::codex_login_access::BASE_URL,
-                env_key: CODEX_LOGIN_TOKEN,
-                account: true,
-            }
-        } else {
-            CodexProvider {
-                name: OPENAI_KEY_PROVIDER,
-                base_url: OPENAI_BASE,
-                env_key: OPENAI_KEY,
-                account: false,
+    env.insert(MARKER.to_owned(), credential.names().collect::<Vec<_>>().join(","));
+    if let Some(endpoint) = &credential.endpoint {
+        if endpoint.kind == Kind::Anthropic {
+            env.retain(|key, _| {
+                !key.starts_with("ANTHROPIC_") || key == byo_endpoint::ANTHROPIC_KEY_ENV
+            });
+        }
+        let endpoint_env = match endpoint.kind {
+            Kind::Anthropic => byo_endpoint::claude_env(&endpoint.base_url, &endpoint.models),
+            Kind::OpenAi => {
+                byo_endpoint::opencode_env("Endpoint", &endpoint.base_url, &endpoint.models, true)
             }
         };
-        // `parse` took this token only when it names an account.
-        if let Some(account) = codex_login.and_then(|t| crate::codex_login_access::account_id(t)) {
-            env.insert(CODEX_ACCOUNT.to_owned(), account);
+        env.extend(endpoint_env.into_iter().map(|(key, value)| (key.to_owned(), value)));
+        if endpoint.kind == Kind::Anthropic {
+            env.insert(ANTHROPIC_KEY.to_owned(), String::new());
+            crate::claude_cloud_auth::isolate_endpoint_settings(argv);
         }
-        set_codex_provider(argv, &provider);
+        env.insert(byo_endpoint::OWN_ENDPOINT_KEY.to_owned(), endpoint.kind.marker().to_owned());
+        env.insert(ENDPOINT_MARKER.to_owned(), serde_json::json!(endpoint).to_string());
+    }
+    if harness == Family::Claude && credential.env.contains_key(ANTHROPIC_KEY) {
+        env.insert("ANTHROPIC_BASE_URL".into(), "https://api.anthropic.com".into());
+        if env.get(crate::agent::REMOTE_ENV_POLICY_KEY).map(String::as_str) != Some("1") {
+            crate::claude_cloud_auth::isolate_api_key_settings(argv);
+        }
+    }
+    if credential.uses_claude_setup_token() {
+        env.insert("ANTHROPIC_BASE_URL".into(), "https://api.anthropic.com".into());
+        env.insert(ANTHROPIC_KEY.to_owned(), String::new());
+        crate::claude_cloud_auth::isolate_endpoint_settings(argv);
+    }
+    if harness == Family::Gemini {
+        env.extend(
+            crate::provider_cloud_auth::gemini_key_env(
+                credential.env.contains_key(VERTEX_EXPRESS_KEY),
+            )
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
+        );
+    }
+    if harness == Family::Codex {
+        if credential.is_chatgpt_plan() {
+            configure_chatgpt(argv, env);
+        } else {
+            configure_openai_key(argv);
+        }
     }
     true
 }
 
+pub(crate) fn configure_local_codex_route(
+    argv: &mut Vec<String>,
+    env: &mut BTreeMap<String, String>,
+) {
+    if env.contains_key(OPENAI_KEY)
+        && env.get("OPENAI_BASE_URL").is_some_and(|base| base == OPENAI_BASE)
+    {
+        env.remove(CHATGPT_TOKEN);
+        env.remove(CHATGPT_ACCOUNT);
+        configure_openai_key(argv);
+    } else if env.contains_key(CHATGPT_TOKEN) {
+        configure_chatgpt(argv, env);
+    }
+}
+
+fn configure_openai_key(argv: &mut Vec<String>) {
+    set_codex_provider(
+        argv,
+        &CodexProvider {
+            name: OPENAI_KEY_PROVIDER,
+            base_url: OPENAI_BASE,
+            env_key: OPENAI_KEY,
+            account: false,
+        },
+    );
+}
+
+/// Configures Codex to use its ChatGPT backend. The command line contains env names only.
+pub(crate) fn configure_chatgpt(argv: &mut Vec<String>, env: &mut BTreeMap<String, String>) {
+    env.remove(CHATGPT_ACCOUNT);
+    if let Some(account) = env.get(CHATGPT_TOKEN).and_then(|token| token_account(token)) {
+        env.insert(CHATGPT_ACCOUNT.to_owned(), account);
+    }
+    set_codex_provider(
+        argv,
+        &CodexProvider {
+            name: CHATGPT_PROVIDER,
+            base_url: crate::chatgpt::CODEX_BACKEND,
+            env_key: CHATGPT_TOKEN,
+            account: true,
+        },
+    );
+}
+
+/// The credential an agent [`apply`] launched on, read back from its process env (`environ`: the
+/// NUL-separated `NAME=value` list of `/proc/PID/environ`): the one variable [`MARKER`] names,
+/// checked as [`AgentCredential::parse`] checks a sent one. None when the agent was not launched on
+/// a credential, or what its env says is not one.
+pub fn recovered(environ: &[u8]) -> Option<AgentCredential> {
+    let vars: BTreeMap<&str, &str> = environ
+        .split(|b| *b == 0)
+        .filter_map(|entry| std::str::from_utf8(entry).ok()?.split_once('='))
+        .collect();
+    recovered_in(&vars)
+}
+
+/// [`recovered`] over an agent's env already split into `NAME` to value.
+fn recovered_in(vars: &BTreeMap<&str, &str>) -> Option<AgentCredential> {
+    let name = *vars.get(MARKER)?;
+    if name == COPILOT_TOKEN || !NAMES.contains(&name) {
+        return None;
+    }
+    let value = *vars.get(name)?;
+    let mut wire = serde_json::json!({"env": {name: value}});
+    if let Some(endpoint) = vars.get(ENDPOINT_MARKER) {
+        wire["endpoint"] = serde_json::from_str(endpoint).ok()?;
+    }
+    AgentCredential::parse(&wire).ok()
+}
+
+/// The launch credential's variables in the env an agent was started with ([`MARKER`] and the
+/// variable it names), which its agent host keeps and says to a daemon that adopts it
+/// (`agent_host::LaunchCredential`). Empty when it was not launched on one.
+pub fn launched_with(env: &[(String, String)]) -> Vec<(String, String)> {
+    let vars: BTreeMap<&str, &str> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let Some(credential) = recovered_in(&vars) else { return Vec::new() };
+    let mut out = vec![(MARKER.to_owned(), credential.names().collect::<Vec<_>>().join(","))];
+    out.extend(credential.env);
+    out
+}
+
+/// [`recovered`] over the variables an agent host said ([`launched_with`]).
+pub fn recovered_from_launch(env: &[(String, String)]) -> Option<AgentCredential> {
+    recovered_in(&env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect())
+}
+
+/// [`recovered`] for the running process `pid` (this daemon's adopted agent), read through the
+/// one-pid env reader `agent_host::tree::environ` (the env its exec was given). Linux only:
+/// elsewhere (and when its env cannot be read) None.
+pub(crate) fn recovered_from_pid(pid: u32, start: u64, session: &str) -> Option<AgentCredential> {
+    #[cfg(target_os = "linux")]
+    {
+        let process_start = crate::owner_exit::process_start;
+        if process_start(pid) != Some(start) {
+            return None;
+        }
+        let pairs = crate::agent_host::tree::environ(pid)?;
+        if process_start(pid) != Some(start) {
+            return None;
+        }
+        let vars: BTreeMap<_, _> = pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        if vars.get(crate::agent_tools::AGENT_SESSION_ENV).copied() != Some(session) {
+            return None;
+        }
+        recovered_in(&vars)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pid, start, session);
+        None
+    }
+}
+
+/// The ChatGPT account a ChatGPT access token (a JWT) names, from its unverified claims: it only
+/// picks the header the token is sent with, so the backend still checks the token itself.
+pub(crate) fn token_account(jwt: &str) -> Option<String> {
+    token_claims(jwt)?
+        .pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id")
+        .and_then(Value::as_str)
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 128
+                && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        .map(str::to_owned)
+}
+
+/// Reads an already-running access token's deadline for restart scheduling only.
+#[cfg(unix)]
+pub(crate) fn chatgpt_token_expiry(jwt: &str) -> Option<i64> {
+    token_claims(jwt)?.get("exp")?.as_i64()
+}
+
+fn token_claims(jwt: &str) -> Option<Value> {
+    use base64::Engine as _;
+    let payload = jwt.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload.trim_end_matches('='))
+        .ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 /// One custom Codex provider a credential runs on: where it sends, the variable its bearer is
-/// read from, and whether it also sends the ChatGPT account ([`CODEX_ACCOUNT`]).
+/// read from, and whether it also sends the ChatGPT account ([`CHATGPT_ACCOUNT`]).
 pub struct CodexProvider<'a> {
     pub name: &'a str,
     pub base_url: &'a str,
@@ -286,8 +673,13 @@ pub fn codex_provider_args(provider: &CodexProvider<'_>) -> Vec<String> {
         format!("{table}.env_key=\"{env_key}\""),
     ];
     if *account {
-        let header = crate::codex_login_access::ACCOUNT_HEADER;
-        args.push(format!("{table}.env_http_headers.{header}=\"{CODEX_ACCOUNT}\""));
+        args.push(format!("{table}.env_http_headers.{ACCOUNT_HEADER}=\"{CHATGPT_ACCOUNT}\""));
+    } else if *name == OPENAI_KEY_PROVIDER {
+        for (header, variable) in
+            [("OpenAI-Organization", "OPENAI_ORGANIZATION"), ("OpenAI-Project", "OPENAI_PROJECT")]
+        {
+            args.push(format!("{table}.env_http_headers.{header}=\"{variable}\""));
+        }
     }
     args.extend([
         format!("{table}.wire_api=\"responses\""),
@@ -316,188 +708,24 @@ fn set_codex_provider(argv: &mut Vec<String>, provider: &CodexProvider<'_>) {
             i = i.saturating_add(1);
         }
     }
+    let at = codex_config_index(argv);
     for (offset, arg) in codex_provider_args(provider).into_iter().enumerate() {
-        argv.insert(1 + offset, arg);
+        argv.insert(at + offset, arg);
     }
+}
+
+/// Where a `-c` override goes in a Codex command line: after its `app-server` or completion
+/// `exec` subcommand, or right after the program without either subcommand.
+/// Codex 0.160 drops every override before the subcommand once the subcommand has one of its own
+/// (cmux#45774), so the launch moves every override after `app-server` before it, in order
+/// (`harness_limits::codex_args`, cmux#48354): none is dropped on any codex.
+pub fn codex_config_index(argv: &[String]) -> usize {
+    if argv.get(1).is_some_and(|arg| arg == "exec") {
+        return 2;
+    }
+    argv.iter().skip(1).position(|a| a == "app-server").map_or(1, |i| i + 2).min(argv.len())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    const CHATGPT: &str = "eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl";
-
-    fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
-    }
-
-    #[test]
-    fn only_one_known_token_shaped_variable_is_taken() {
-        let ok = AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc_DEF"}}));
-        assert_eq!(ok.unwrap().family(), Family::Claude);
-        for bad in [
-            json!({"env": {"PATH": "/evil"}}),
-            json!({"env": {CLAUDE_OAUTH: "a b"}}),
-            json!({"env": {CLAUDE_OAUTH: "${env:HOME}"}}),
-            json!({"env": {CLAUDE_OAUTH: ""}}),
-            json!({"env": {CLAUDE_OAUTH: "x", OPENAI_KEY: "y"}}),
-            json!({"env": {}}),
-            json!({"env": {CLAUDE_OAUTH: "x"}, "file": "/tmp/x"}),
-            json!("sk-ant-oat01"),
-        ] {
-            assert!(AgentCredential::parse(&bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn its_debug_names_the_variable_never_the_value() {
-        let c = AgentCredential::parse(&json!({"env": {CHATGPT_TOKEN: CHATGPT}})).unwrap();
-        let shown = format!("{c:?}");
-        assert!(shown.contains(CHATGPT_TOKEN));
-        assert!(!shown.contains(CHATGPT));
-    }
-
-    #[test]
-    fn only_the_unix_socket_without_a_caller_token_sets_one() {
-        assert!(admit(true, None).is_ok());
-        assert!(admit(true, Some("agent-session")).is_err());
-        assert!(admit(false, None).is_err());
-    }
-
-    #[test]
-    fn a_claude_launch_drops_the_coderouter_route_and_takes_the_token() {
-        let c =
-            AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
-        let mut argv = vec!["claude".to_owned()];
-        let mut e = env(&[
-            ("ANTHROPIC_BASE_URL", "https://coderouter.cmux.internal"),
-            ("ANTHROPIC_API_KEY", crate::cloud_model_plane::PLACEHOLDER),
-            (crate::routes::UNSET_KEY, "FOO"),
-        ]);
-        assert!(apply(&c, "claude", &mut argv, &mut e));
-        assert_eq!(e[CLAUDE_OAUTH], "sk-ant-oat01-abc");
-        assert!(!e.contains_key("ANTHROPIC_BASE_URL"));
-        assert!(!e.contains_key("ANTHROPIC_API_KEY"));
-        let unset: Vec<&str> = e[crate::routes::UNSET_KEY].split(',').collect();
-        assert!(unset.contains(&"FOO"));
-        for key in crate::cloud_model_plane::KEYS {
-            assert!(unset.contains(&key), "{key} is removed from what the agent inherits");
-        }
-        assert_eq!(argv, ["claude"], "Claude needs only its env");
-    }
-
-    #[test]
-    fn an_anthropic_key_stays_set_though_its_name_is_on_the_unset_list() {
-        let c = AgentCredential::parse(&json!({"env": {ANTHROPIC_KEY: "sk-ant-api03-x"}})).unwrap();
-        let (mut argv, mut e) = (vec!["claude".to_owned()], BTreeMap::new());
-        assert!(apply(&c, "claude", &mut argv, &mut e));
-        // The spawn removes the unset names from the inherited env before it sets the profile's.
-        assert_eq!(e[ANTHROPIC_KEY], "sk-ant-api03-x");
-    }
-
-    #[test]
-    fn codex_on_a_chatgpt_plan_runs_the_documented_provider() {
-        let c = AgentCredential::parse(&json!({"env": {CHATGPT_TOKEN: CHATGPT}})).unwrap();
-        let mut argv: Vec<String> =
-            ["codex", "-c", "model_provider=\"openai\"", "app-server"].map(str::to_owned).into();
-        let mut e = env(&[("OPENAI_BASE_URL", "https://coderouter.cmux.internal/v1")]);
-        assert!(apply(&c, "codex", &mut argv, &mut e));
-        assert_eq!(e[CHATGPT_TOKEN], CHATGPT);
-        assert!(!e.contains_key("OPENAI_BASE_URL"));
-        let joined = argv.join(" ");
-        assert!(joined.contains("model_provider=\"openai_chatgpt_plan\""));
-        assert!(!joined.contains("model_provider=\"openai\""), "{joined}");
-        for want in [
-            "model_providers.openai_chatgpt_plan.base_url=\"https://api.openai.com/v1\"",
-            "model_providers.openai_chatgpt_plan.env_key=\"CMUX_CHATGPT_ACCESS_TOKEN\"",
-            "model_providers.openai_chatgpt_plan.wire_api=\"responses\"",
-            "model_providers.openai_chatgpt_plan.requires_openai_auth=false",
-            "model_providers.openai_chatgpt_plan.supports_websockets=false",
-        ] {
-            assert!(argv.iter().any(|a| a == want), "{want} in {joined}");
-        }
-        assert!(!joined.contains(CHATGPT), "the token is never on the command line");
-        assert!(!joined.contains("tool_search"));
-        assert_eq!(argv.first().map(String::as_str), Some("codex"));
-        assert_eq!(argv.last().map(String::as_str), Some("app-server"));
-    }
-
-    /// A Codex access token naming `account` (its `https://api.openai.com/auth` claim), unsigned.
-    fn codex_cli_token(account: Option<&str>) -> String {
-        use base64::Engine as _;
-        let b64 = |v: &Value| {
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string().as_bytes())
-        };
-        let mut claims = json!({"exp": 4_102_444_800_i64});
-        if let Some(account) = account {
-            claims["https://api.openai.com/auth"] = json!({"chatgpt_account_id": account});
-        }
-        format!("{}.{}.c2ln", b64(&json!({"alg": "RS256"})), b64(&claims))
-    }
-
-    /// cmux#45774: a Codex CLI ChatGPT login (the Mac's `codex login`) runs on the ChatGPT Codex
-    /// backend with its token and the account the token names, never on the plan route
-    /// (`api.openai.com/v1`), which refuses a Codex CLI token ("Missing scopes: api.responses.write").
-    #[test]
-    fn codex_on_its_cli_login_runs_the_chatgpt_codex_backend_for_the_tokens_account() {
-        const NAME: &str = "CMUX_CODEX_ACCESS_TOKEN";
-        let token = codex_cli_token(Some("acct-1234"));
-        let c = AgentCredential::parse(&json!({"env": {NAME: token}})).unwrap();
-        assert_eq!(c.family(), Family::Codex);
-        let mut argv: Vec<String> =
-            ["codex", "-c", "model_provider=\"cmux\"", "app-server"].map(str::to_owned).into();
-        let mut e = env(&[
-            ("OPENAI_BASE_URL", "https://coderouter.cmux.internal/v1"),
-            ("OPENAI_API_KEY", crate::codex_cloud_auth::PLACEHOLDER_KEY),
-        ]);
-        assert!(apply(&c, "codex", &mut argv, &mut e));
-        assert_eq!(e[NAME], token);
-        assert_eq!(e["CMUX_CODEX_ACCOUNT_ID"], "acct-1234");
-        assert!(!e.contains_key("OPENAI_BASE_URL"));
-        assert!(!e.contains_key("OPENAI_API_KEY"));
-        let joined = argv.join(" ");
-        assert!(!joined.contains("model_provider=\"cmux\""), "{joined}");
-        assert!(!joined.contains("api.openai.com"), "{joined}");
-        for want in [
-            "model_provider=\"cmux_codex_login\"",
-            "model_providers.cmux_codex_login.base_url=\"https://chatgpt.com/backend-api/codex\"",
-            "model_providers.cmux_codex_login.env_key=\"CMUX_CODEX_ACCESS_TOKEN\"",
-            "model_providers.cmux_codex_login.env_http_headers.chatgpt-account-id=\"CMUX_CODEX_ACCOUNT_ID\"",
-            "model_providers.cmux_codex_login.wire_api=\"responses\"",
-            "model_providers.cmux_codex_login.requires_openai_auth=false",
-            "model_providers.cmux_codex_login.supports_websockets=false",
-        ] {
-            assert!(argv.iter().any(|a| a == want), "{want} in {joined}");
-        }
-        assert!(!joined.contains(&token), "the token is never on the command line");
-        assert_eq!(argv.last().map(String::as_str), Some("app-server"));
-        // A token that names no account cannot be sent with one: refused, never applied without it.
-        let bare = codex_cli_token(None);
-        assert!(AgentCredential::parse(&json!({"env": {NAME: bare}})).is_err());
-    }
-
-    #[test]
-    fn codex_on_an_openai_key_reads_that_key() {
-        let c = AgentCredential::parse(&json!({"env": {OPENAI_KEY: "sk-proj-abc"}})).unwrap();
-        let (mut argv, mut e) =
-            (vec!["codex".to_owned(), "app-server".to_owned()], BTreeMap::new());
-        assert!(apply(&c, "codex", &mut argv, &mut e));
-        assert_eq!(e[OPENAI_KEY], "sk-proj-abc");
-        assert!(
-            argv.iter().any(|a| a == "model_providers.openai_api_key.env_key=\"OPENAI_API_KEY\"")
-        );
-    }
-
-    #[test]
-    fn a_credential_of_another_family_is_not_applied() {
-        let c =
-            AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
-        let mut argv = vec!["codex".to_owned()];
-        let mut e = env(&[("OPENAI_BASE_URL", "https://coderouter.cmux.internal/v1")]);
-        assert!(!apply(&c, "codex", &mut argv, &mut e));
-        assert!(!apply(&c, "opencode", &mut argv, &mut e));
-        assert_eq!(e["OPENAI_BASE_URL"], "https://coderouter.cmux.internal/v1");
-        assert!(!e.contains_key(CLAUDE_OAUTH));
-    }
-}
+#[path = "agent_credentials_tests.rs"]
+mod tests;

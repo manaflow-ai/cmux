@@ -1,0 +1,70 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/apple-look",
+  "name": "Apple",
+  "tagline": "Feels like a native Mac app, light or dark.",
+  "description": "Makes cmux look like an app built into the Mac: a light sidebar, a white page, a blue accent and the system font. Includes a dark version. Remove it and everything you had comes back.",
+  "version": "1.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-apple-look",
+  "screenshots": ["screenshots/apple-light.png", "screenshots/apple-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "apple",
+
+    // The rest of cmux in the same hand. The Markdown viewer: the system face, 15 px at the chat's
+    // 1.45 line height and code scale, in a column as wide as the chat's (720 px is about 94
+    // characters).
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.45,
+    "markdown.code.scale": 0.9,
+    "markdown.layout.width": 94,
+    // Diffs in the theme's own red and green, with a bar at each changed line.
+    "diff.colors": "theme",
+    "diff.diffIndicators": "bars",
+    // Sidebar group colors as glass tints over the window.
+    "sidebar.groupPalette": "glass",
+
+    // The chat in SF Pro: the system font for the chat, its prompt and its menus, 14 pt text at a
+    // reading line height, code in SF Mono (the chat's default code font, ui-monospace) at 0.9.
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.45,
+    "agentPane.display.code.scale": 0.9,
+    "agentPane.display.width": 720,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "symbols",
+    "agentPane.composerRing": "context",
+    // Pending cmux#46738: no Apple composer look exists (auto, codex, claude); a Messages-style
+    // capsule field with the send button inside it is the gap.
+    // "agentPane.composerLook": "auto",
+
+    // The sidebar as a source list: sections by folder under plain gray headings, one-line rows with
+    // their icon, the system's status symbols, a member count on a collapsed section (Mail's counts).
+    // Pending cmux#46805: no Apple sidebar look exists (cmux, claude, codex, studio).
+    // "sidebar.look": "cmux",
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "folder",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.chromeGroups": false,
+    "sidebar.detailedStatusIcons": true,
+    "sidebar.showTimestamps": false,
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": true,
+    "sidebar.hoverCards.enabled": true,
+
+    // Safari's address field: a capsule, no shadow.
+    "browser.omnibar.cornerRadius": "capsule",
+    "browser.omnibar.shadow": false
+  }
+}

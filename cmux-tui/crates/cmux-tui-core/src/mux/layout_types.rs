@@ -145,6 +145,15 @@ pub enum FloatPaneError {
     /// `mode` is not one of the documented strings, or a frame value is not a
     /// finite number.
     InvalidArgument { field: &'static str, value: String },
+    /// `quick-terminal-v1`: no pane of the screen can float, so a new quick
+    /// terminal has no place beside one.
+    NoPlaceForQuickTerminal,
+    /// `quick-terminal-v1`: other requests changed the quick terminal of the
+    /// workspace 2 times while this request ran. The request changed nothing,
+    /// and the client can send it again.
+    QuickTerminalChanged,
+    /// The screen is unknown.
+    ScreenNotFound { screen: ScreenId },
     /// The durable commit failed; details are reported as a status event.
     CommitFailed,
 }
@@ -154,6 +163,9 @@ impl FloatPaneError {
     pub const LAST_TILED_CODE: &'static str = "floating-pane-last-tiled";
     pub const FIXED_CODE: &'static str = "floating-pane-fixed";
     pub const INVALID_ARGUMENT_CODE: &'static str = "invalid-argument";
+    pub const QUICK_NO_PLACE_CODE: &'static str = "quick-terminal-no-place";
+    /// The field name of a bad `mode` of `quick-terminal`.
+    pub const QUICK_MODE_FIELD: &'static str = "quick-terminal mode";
 
     pub fn code(&self) -> Option<&'static str> {
         match self {
@@ -161,7 +173,8 @@ impl FloatPaneError {
             Self::LastTiledPane => Some(Self::LAST_TILED_CODE),
             Self::FixedPane => Some(Self::FIXED_CODE),
             Self::InvalidArgument { .. } => Some(Self::INVALID_ARGUMENT_CODE),
-            Self::CommitFailed => None,
+            Self::NoPlaceForQuickTerminal => Some(Self::QUICK_NO_PLACE_CODE),
+            Self::QuickTerminalChanged | Self::ScreenNotFound { .. } | Self::CommitFailed => None,
         }
     }
 }
@@ -179,9 +192,19 @@ impl fmt::Display for FloatPaneError {
             Self::InvalidArgument { field: "mode", value } => {
                 write!(formatter, "bad mode {value:?} (want \"toggle\", \"on\" or \"off\")")
             }
+            Self::InvalidArgument { field: Self::QUICK_MODE_FIELD, value } => {
+                write!(formatter, "bad mode {value:?} (want \"toggle\", \"show\" or \"hide\")")
+            }
             Self::InvalidArgument { field, value } => {
                 write!(formatter, "bad {field} {value:?} (want four finite numbers: x, y, w, h)")
             }
+            Self::NoPlaceForQuickTerminal => formatter.write_str(
+                "no pane of the screen can float, so a quick terminal has no place on it",
+            ),
+            Self::QuickTerminalChanged => formatter.write_str(
+                "the quick terminal changed while the request ran: send the request again",
+            ),
+            Self::ScreenNotFound { screen } => write!(formatter, "unknown screen {screen}"),
             Self::CommitFailed => formatter.write_str("could not persist the floating pane"),
         }
     }

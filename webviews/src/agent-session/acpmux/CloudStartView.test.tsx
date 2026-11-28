@@ -11,7 +11,7 @@ import { CloudStartView } from "./CloudStartView";
 import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
-import { createGitHubPicker } from "./githubRepos";
+import { createGitHubPicker, githubFullName } from "./githubRepos";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -98,6 +98,35 @@ test("a start on its way reads as a local first turn: the message and the Thinki
   }
 });
 
+test("the quiet line names the stage and counts its seconds, never a usual wait, and keeps Thinking as an arm", () => {
+  const html = renderToStaticMarkup(<CloudStartView start={{ ...start, step: "machine" }} />);
+  expect(html).toContain('data-stage="machine"');
+  expect(html).toContain("Starting your Cloud machine");
+  // No host start time: the clock still shows, counting from when the line first drew the stage.
+  expect(html).toMatch(/<time class="cv-worked__time" data-stage-clock="true">0s<\/time>/);
+  expect(html).not.toContain("usually");
+  expect(html).not.toContain('data-step-id="machine"');
+  // The copy stage, the hint arm's segments (machine done, copy current, agent next), and the arm
+  // that keeps the line as it was.
+  const hint = renderToStaticMarkup(<CloudStartView start={start} quietLook="hint" />);
+  expect(hint).toContain("Copying your project");
+  expect(hint.match(/data-step="(done|current|next)"/g)).toEqual([
+    'data-step="done"',
+    'data-step="current"',
+    'data-step="next"',
+  ]);
+  const stacked = renderToStaticMarkup(<CloudStartView start={start} quietLook="stacked" />);
+  expect(stacked).toContain("data-stage-clock");
+  expect(stacked).not.toContain("usually");
+  const thinking = renderToStaticMarkup(<CloudStartView start={start} quietLook="thinking" />);
+  expect(thinking).toContain("cv-thinking");
+  expect(thinking).not.toContain("acpmux-cloud-start__stage");
+  // Once the agent has started the line is Thinking again.
+  expect(renderToStaticMarkup(<CloudStartView start={{ ...start, initialized: true }} />)).not.toContain(
+    "acpmux-cloud-start__stage",
+  );
+});
+
 test("every arm shows the message and compact preparing status", () => {
   for (const name of ["chips", "rows", "steps"]) {
     arm(name);
@@ -150,12 +179,86 @@ test("a failure says the host's words with no spinner, and the New Tab page draw
   expect(html).not.toContain("fix the build");
 });
 
-test("a signed-out failure keeps the prompt card and offers inline sign-in", () => {
+test("a signed-out send is the first setup step, not a failure: the prompt, the steps, Sign in and ways on", () => {
   const variant = cloudStartGallery.variants["signed-out"]!;
-  const html = renderToStaticMarkup(<CloudStartView {...variant.props} />);
+  const html = renderToStaticMarkup(
+    <CloudStartView {...variant.props} onRunHere={() => undefined} onDismiss={() => undefined} />,
+  );
   expect(html).toContain(variant.props.start.task);
-  expect(html).toContain('class="acpmux-cloud-start__sign-in"');
-  expect(html).toContain("Sign in to use Cloud.");
+  expect(html).toContain('data-setup-step="account"');
+  expect(html).toContain("acpmux-cloud-start__sign-in");
+  expect(html).toContain("Sign in to run this chat on a Cloud machine.");
+  expect(html).toContain("Your message sends by itself when you&#x27;re done.");
+  // Step 1 of 3 is current, the plan and the model are named after it.
+  expect(html).toContain('aria-label="Step 1 of 3"');
+  expect(html).toMatch(/data-step="current" data-step-id="account"/);
+  expect(html).toMatch(/data-step="next" data-step-id="plan"/);
+  expect(html).toMatch(/data-step="next" data-step-id="model"/);
+  // A way on besides Sign in, and no failed startup checklist or alert.
+  expect(html).toContain('data-action="run-here"');
+  expect(html).toContain('data-action="dismiss"');
+  expect(html).not.toContain('role="alert"');
+  expect(html).not.toContain("acpmux-cloud-start__checklist");
+});
+
+test("signed-out setup never falls back to the failed checklist or host CLI hint without a sign-in handler", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{
+        key: "signed-out",
+        task: "Keep this prompt until sign-in finishes",
+        state: "failed",
+        code: "not_signed_in",
+        message: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.",
+      }}
+      showSteps
+    />,
+  );
+  expect(html).toContain("Keep this prompt until sign-in finishes");
+  expect(html).toContain('data-state="setup"');
+  expect(html).toContain('data-action="sign-in"');
+  expect(html).not.toContain('data-state="failed"');
+  expect(html).not.toContain('role="alert"');
+  expect(html).not.toContain("acpmux-cloud-start__checklist");
+  expect(html).not.toContain("cmux cloud sign-in");
+  expect(html).not.toContain("command palette");
+});
+
+test("each first-send gate draws the setup strip at its own step, earlier steps checked", () => {
+  const task = "Run the sidebar tests and fix what fails.";
+  const base = { key: "k", task, state: "failed" as const };
+  const plan = renderToStaticMarkup(
+    <CloudStartView start={{ ...base, code: "cloud_plan_required", refusedHere: true }} onRunHere={() => undefined} />,
+  );
+  expect(plan).toContain('data-setup-step="plan"');
+  expect(plan).toMatch(/data-step="done" data-step-id="account"/);
+  expect(plan).toMatch(/data-step="current" data-step-id="plan"/);
+  expect(plan).toContain("Cloud needs a plan");
+  expect(plan).not.toContain('role="alert"');
+  const model = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...base, code: "cloud_setup_required", cloudSetup: { family: "claude" } }}
+      onSetUp={() => undefined}
+    />,
+  );
+  expect(model).toMatch(/data-step="done" data-step-id="plan"/);
+  expect(model).toMatch(/data-step="current" data-step-id="model"/);
+  expect(model).toContain('aria-label="Step 3 of 3"');
+  // A plan refusal in a team is not a first-run step: its own notice, no strip.
+  const team = renderToStaticMarkup(
+    <CloudStartView
+      start={{
+        ...base,
+        code: "cloud_plan_required",
+        planTeam: { team: "Acme", switchTo: { id: "team_1", name: "Personal" } },
+      }}
+    />,
+  );
+  expect(team).not.toContain("acpmux-cloud-steps");
+  // A start on its way draws no strip.
+  expect(renderToStaticMarkup(<CloudStartView start={{ key: "k", task, state: "starting" }} />)).not.toContain(
+    "acpmux-cloud-steps",
+  );
 });
 
 test("a start waiting on its browser sign-in says so, not starting or Thinking", () => {
@@ -168,6 +271,14 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
     expect(html).not.toContain("cv-thinking");
     expect(html).not.toContain("Preparing machine");
   }
+  // While the browser is out the composer's prompt is held for the sign-in, so the waiting card offers no Run on
+  // This Mac (it would switch to This Mac and send an empty composer) and no Not now; only the failed card does.
+  const waiting = renderToStaticMarkup(
+    <CloudStartView {...variant.props} onRunHere={() => undefined} onDismiss={() => undefined} />,
+  );
+  expect(waiting).toContain('data-setup-step="account"');
+  expect(waiting).not.toContain('data-action="run-here"');
+  expect(waiting).not.toContain('data-action="dismiss"');
   // Once signed in, the start reads as any start again.
   const { signingIn: _signingIn, ...started } = variant.props.start;
   const html = renderToStaticMarkup(<CloudStartView start={started} />);
@@ -175,20 +286,30 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
   expect(html).not.toContain("data-signing-in");
 });
 
-test("a plan refusal shows the pricing card: cmux NEXT Pro and Max with Subscribe, Run on This Mac and Not Now", () => {
+test("a plan refusal shows the pricing card: cmux NEXT Plus, Pro and Max with Subscribe, Run on This Mac and Not Now", () => {
   const refusal = { ...start, state: "failed" as const, code: "cloud_plan_required" };
   const html = renderToStaticMarkup(
     <CloudStartView start={refusal} onRunHere={() => undefined} onDismiss={() => undefined} />,
   );
   expect(html).toContain("Cloud needs a plan");
+  // Smallest first: Plus, then Pro, then Max.
+  expect(html).toMatch(/data-plan="next_plus"[\s\S]*data-plan="next_pro"[\s\S]*data-plan="next_max"/);
+  expect(html).toContain("cmux NEXT Plus");
+  expect(html).toContain("$20 / month");
+  expect(html).toContain("Machines up to 4 vCPU and 16 GB memory");
   expect(html).toContain("cmux NEXT Pro");
   expect(html).toContain("$50 / month");
-  expect(html).toContain("Machines up to 8 vCPU and 16 GB memory");
+  expect(html).toContain("Machines up to 8 vCPU and 32 GB memory");
   expect(html).toContain("cmux NEXT Max");
   expect(html).toContain("$200 / month");
   expect(html).toContain("Machines up to 32 vCPU and 64 GB memory");
-  expect(html).toMatch(/data-action="subscribe" data-plan="next_pro"[^>]*data-role="default"[^>]*>Subscribe<\/button>/);
+  // The first plan's Subscribe leads, and only it.
+  expect(html).toMatch(
+    /data-action="subscribe" data-plan="next_plus"[^>]*data-role="default"[^>]*>Subscribe<\/button>/,
+  );
+  expect(html).toMatch(/data-action="subscribe" data-plan="next_pro"[^>]*>Subscribe<\/button>/);
   expect(html).toMatch(/data-action="subscribe" data-plan="next_max"[^>]*>Subscribe<\/button>/);
+  expect(html).not.toMatch(/data-plan="next_pro"[^>]*data-role="default"/);
   expect(html).not.toMatch(/data-plan="next_max"[^>]*data-role="default"/);
   expect(html).not.toContain('data-plan="pro"');
   expect(html).toContain('data-action="run-here">Run on This Mac</button>');
@@ -230,7 +351,7 @@ test("a plan refusal in a team says so, names the team and switches to the perso
     <CloudStartView start={{ ...refusal, planTeam: { team: "cmux" } }} onSwitchTeam={() => undefined} />,
   );
   expect(plans).not.toContain("switch-team");
-  expect(plans).toMatch(/data-action="subscribe" data-plan="next_pro"[^>]*data-role="default"/);
+  expect(plans).toMatch(/data-action="subscribe" data-plan="next_plus"[^>]*data-role="default"/);
   // The click hands the team to the pane, which switches and sends again.
   const host = installDom();
   const picked: string[] = [];
@@ -424,7 +545,7 @@ test("initialized sessions collapse to one quiet line", () => {
 
 test("startup durations use the supplied clock", () => {
   const rows = startupChecklist({ key: "k", task: "hi", state: "starting", machineStartedAt: 1_000 }, undefined, 3_500);
-  expect(rows[0]?.duration).toBe("2.5s");
+  expect(rows[0]?.duration).toBe("2s");
 });
 
 test("setup hint becomes a link when an environment callback is provided", () => {
@@ -442,6 +563,30 @@ test("setup hint becomes a link when an environment callback is provided", () =>
     />,
   );
   expect(html).toContain('class="acpmux-cloud-start__link"');
+});
+
+test("a failed setup keeps the environment target and opens its editor for repair", async () => {
+  const opened: unknown[] = [];
+  const failed: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    environment: "env_selected",
+    environmentId: "env_resolved",
+    setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+    step: undefined,
+    retryable: true,
+    message: "Environment setup failed.",
+  };
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={failed} onOpenEnvironment={(options) => opened.push(options)} />);
+  });
+  const link = container.querySelector<HTMLButtonElement>("[data-step-id=setup] button");
+  expect(link?.textContent).toBe("Edit cloud environment");
+  expect(container.querySelector('[data-step-id="setup"]')?.textContent).toContain("setup exited with status 1");
+  await act(async () => link?.click());
+  expect(opened).toEqual([{ environmentId: "env_resolved", section: "script" }]);
 });
 
 test("the harness row says Starting until the harness has started", () => {
@@ -552,6 +697,7 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
     },
     () => () => undefined,
     () => false,
+    () => () => undefined,
   );
   expect(
     renderToStaticMarkup(
@@ -585,6 +731,63 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
   refuse = true;
   await act(async () => connect?.click());
   expect(container.querySelector("[data-connect-error]")?.textContent).toBe("GitHub isn't set up for this team.");
+});
+
+// #55104: the card's Connect names the start's repository, and the start goes again by itself once connected.
+test("a needs-GitHub start connects for its repository and retries by itself once connected", async () => {
+  const failed = {
+    ...start,
+    state: "failed" as const,
+    retryable: true,
+    code: "seed.needs_github",
+    repository: "github:manaflow-ai/cmuxterm-hq",
+    message: "Connect GitHub so Cloud can clone manaflow-ai/cmuxterm-hq, then retry.",
+  };
+  const asked: Array<[string, Record<string, unknown>]> = [];
+  let reply: unknown = { opened: true };
+  let changed: (() => void) | undefined;
+  const github = createGitHubPicker(
+    async (method, params) => {
+      asked.push([method, params]);
+      if (method === "github.status") return { state: "ready", repos_scope: "all" };
+      if (method === "github.repos.list") return { repos: [] };
+      return reply;
+    },
+    () => () => undefined,
+    () => false,
+    (run) => {
+      changed = run;
+      return () => undefined;
+    },
+  );
+  const container = installDom();
+  let retried = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={failed} onRetry={() => void retried++} githubStore={github} />);
+  });
+  const connect = container.querySelector<HTMLButtonElement>('[data-action="connect-github"]');
+  // GitHub's page opened: nothing retries until the app says it finished the connection.
+  await act(async () => connect?.click());
+  expect(asked[0]).toEqual(["github.connect", { repo: "manaflow-ai/cmuxterm-hq" }]);
+  expect(retried).toBe(0);
+  await act(async () => changed?.());
+  expect(retried).toBe(1);
+  await act(async () => changed?.());
+  expect(retried).toBe(1); // once per click
+  // A connection already covers it: the start goes again at once, with no page.
+  reply = { opened: false };
+  await act(async () => connect?.click());
+  expect(retried).toBe(2);
+});
+
+test("only a GitHub repository name reaches github.connect", () => {
+  expect(githubFullName("manaflow-ai/cmuxterm-hq")).toBe("manaflow-ai/cmuxterm-hq");
+  expect(githubFullName("github:acme/api")).toBe("acme/api");
+  expect(githubFullName("https://github.com/acme/api.git")).toBe("acme/api");
+  expect(githubFullName("git@github.com:acme/api.git")).toBe("acme/api");
+  for (const bad of [undefined, "", "cmuxterm-hq", "https://gitlab.com/acme/api", "acme/api/x", "acme/..", "-acme/api"])
+    expect(githubFullName(bad)).toBeUndefined();
 });
 
 test("a folder too big to copy offers each repository inside it and no folder, never Retry", async () => {
@@ -730,4 +933,29 @@ test("every failed start offers a way on in the card: the folder, a new Cloud ch
     ),
   );
   expect(container.querySelector(".acpmux-cloud-start__way-on")).toBeNull();
+});
+
+test("the connection card offers the preserved send on This Mac", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const task = "keep this prompt";
+  const local: string[] = [];
+  const connect: string[] = [];
+  await act(async () =>
+    root!.render(
+      <CloudStartView
+        start={{ key: "k", task, state: "failed", code: "cloud_setup_required", cloudSetup: { family: "codex" } }}
+        onRunHere={() => local.push(task)}
+        onSetUp={(action) => connect.push(action)}
+        onSetUpDismiss={() => undefined}
+      />,
+    ),
+  );
+  const buttons = [...container.querySelectorAll("button")];
+  expect(buttons.map((button) => button.dataset.action)).toEqual(["addKey", "run-here", "dismiss"]);
+  expect(buttons[1]?.textContent).toBe("Run on This Mac");
+  expect(container.textContent).toContain(task);
+  await act(async () => buttons[1]!.click());
+  expect(local).toEqual([task]);
+  expect(connect).toEqual([]);
 });

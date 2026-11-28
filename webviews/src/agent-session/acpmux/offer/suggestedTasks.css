@@ -18,12 +18,17 @@
   padding: 0;
   background: none;
 }
+/* The head is a fit row (cardFit.css): at least one 28px line, Start all on the next one in a narrow
+   pane. */
 .acpmux-tasks-head {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  height: 28px;
+  min-height: 28px;
   padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
+}
+.acpmux-tasks-head.cv-fit-row {
+  column-gap: var(--ds-space-2);
 }
 .acpmux-tasks-count {
   flex: 1;
@@ -38,8 +43,9 @@
   color: var(--acpmux-composer-dim);
   white-space: nowrap;
 }
+/* Beside "3 started" the count keeps its own width, yet still gives way in a narrow card. */
 .acpmux-tasks-head:has(.acpmux-tasks-note) .acpmux-tasks-count {
-  flex: none;
+  flex: 0 1 auto;
 }
 .acpmux-task {
   display: flex;
@@ -86,12 +92,15 @@
   overflow-wrap: anywhere;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* Options, Do it here and Start wrap to a second line in a narrow card instead of running past its
+   edge; each line is 28px. */
 .acpmux-task-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
   min-width: 0;
-  height: 28px;
+  min-height: 28px;
   margin-left: -8px;
 }
 .acpmux-task-spacer {
@@ -300,6 +309,17 @@
 .acpmux-task-row:hover {
   background: var(--acpmux-composer-hover);
 }
+/* Started Tasks: Title Opens Chat (experiments.startedTaskTitleChip, off by default): the row is no
+   button and lights nothing; its title is the shared link chip (AgentTag.css), the one part that opens
+   the chat and lights, as the result line's is, and the chevron lights with it. A sibling rule, never a
+   `:has()` whose subject is the row (test/css-invalidation-scope.test.ts). */
+.acpmux-task-started[data-title-chip] > .acpmux-task-row > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: 70%;
+}
+.acpmux-task-started[data-title-chip] > .acpmux-task-row > .cv-agent-tag.is-open:is([data-pointed]:hover, :focus-visible) ~ svg[data-icon] {
+  color: var(--agent-text);
+}
 .acpmux-task-elbow {
   flex: none;
   color: var(--acpmux-composer-dim);
@@ -406,7 +426,7 @@ span.acpmux-task-received-title {
   border-radius: var(--ds-radius-control);
   line-height: 20px;
   color: var(--agent-text);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
 }
 @media (prefers-reduced-motion: no-preference) {

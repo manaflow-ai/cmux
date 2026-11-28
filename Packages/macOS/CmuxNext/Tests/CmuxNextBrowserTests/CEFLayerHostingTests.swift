@@ -561,6 +561,68 @@ private final class LiveResizeWindow: NSWindow {
         #expect(sendRights(first.port) == 0)
     }
 
+    /// A layout change that shows in one commit (a zoom) announced the page's resize: each resize of the view in the
+    /// turn that shows it joins the window's fence, with the GPU's deadline at the commit's bound of refreshes (4 at
+    /// 60 Hz: 67 ms), and a resize in a later turn joins none. A change taken back before it showed owes none.
+    @Test func aResizeThatAPaneCommitAnnouncedJoinsTheFenceForItsTurnOnly() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneCommitWillResize(true)
+        hosting.pageViewResized()
+        hosting.pageViewResized()
+        let first = try #require(fork.fences.first, "the resize that shows a zoom joined no fence")
+        #expect(fork.fences.count == 2)
+        #expect(first.timeoutMs == 67)
+        for done in fork.dones { done(true) }
+        endTurn()
+        #expect(!hosting.commitResizeOwed)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2, "a resize after the commit's turn joined a fence")
+
+        hosting.paneCommitWillResize(true)
+        hosting.paneCommitWillResize(false)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2, "a resize of a change taken back joined a fence")
+    }
+
+    /// A zoom's resize joins the window's fence only for a hosted page on an engine with the fence (fork API 34); on
+    /// another engine, or with the page in its own window, the page takes the zoomed size ahead of the commit instead
+    /// (`CEFTabContentView+PaneCommit`).
+    @Test func onlyAHostedPageOnAnEngineWithTheFenceJoinsIt() {
+        let (hosting, view, window) = makeHosted()
+        defer { window.close() }
+        #expect(hosting.joinsResizeFence)
+        let fenceless = CEFLayerHosting(schedule: { $0() },
+                                        makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                        refreshIntervals: { [1.0 / 60] },
+                                        resizeFences: CEFResizeFences(clock: clock, makePort: { _ in nil }))
+        fenceless.view = view
+        fenceless.pageWindowCreated(browser: 4, fork: CEFLayerHosting.Fork(setLayerHosting: { _, enabled in enabled ? 8 : 0 }))
+        #expect(fenceless.page != nil)
+        #expect(!fenceless.joinsResizeFence, "a page on an engine with no fence joins one")
+        fenceless.stop()
+        let (unhosted, _, other) = makeHosted(false)
+        defer { other.close() }
+        #expect(unhosted.page == nil)
+        #expect(!unhosted.joinsResizeFence, "a page in its own window joins the window's fence")
+    }
+
+    /// A resize that joins a fence counts its main-thread time (`fence_join_ms` in `debug.cef`), for the perf-hot
+    /// budget of ``CEFLayerHosting/pageViewResized()``; a resize that joins none counts none.
+    @Test func aResizeThatJoinsAFenceCountsItsTime() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        let before = CEFHostView.trackerStats.resizeFenceJoinSeconds
+        hosting.pageViewResized()
+        #expect(CEFHostView.trackerStats.resizeFenceJoinSeconds == before, "a resize outside a page sync counted fence time")
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        #expect(CEFHostView.trackerStats.resizeFenceJoinSeconds > before, "a resize that joined a fence counted no time")
+        #expect(CEFHostView.trackerStats.reportFields["fence_join_ms"] != nil)
+        for done in fork.dones { done(true) }
+        endTurn()
+    }
+
     /// After its turn, a fence with a page still out keeps its send right until that page reports, then lets it go: a
     /// fence freed with its right would hold the window's commits for good, and one kept past `done` would too.
     @Test func aFenceOutlivesItsTurnUntilItsPagesReport() throws {
@@ -573,6 +635,31 @@ private final class LiveResizeWindow: NSWindow {
         #expect(sendRights(fence.port) == 1)
         for done in fork.dones { done(true) }
         #expect(sendRights(fence.port) == 0)
+    }
+
+    /// A page that missed its frame at a new size joins no more fences in that drag, so a page slower than the display
+    /// never holds the window's commits frame after frame; the next drag starts in sync again. A page that keeps up
+    /// joins at every resize (Leo, 2026-11-18, of a divider drag beside a long chat: "we SLOW :(").
+    @Test func aPageThatMissesJoinsNoMoreFencesInThatDrag() {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        fork.dones.last?(true)
+        endTurn()
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2)
+        fork.dones.last?(false)
+        endTurn()
+        hosting.pageViewResized()
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2)
+        hosting.paneResizeDrag(active: false)
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 3)
+        fork.dones.last?(true)
+        endTurn()
     }
 
     /// A page that never reports holds the window no longer than this app's deadline (the fork's and one refresh).

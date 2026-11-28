@@ -113,7 +113,7 @@ struct DaemonRestoreProgressTests {
     }
 
     /// LAUNCH 800 (2026-11-10): `DaemonService.start` runs on the main actor before the first window. It read the
-    /// launch snapshot file and decoded its JSON there: 51 ms at the person's 826 workspaces (3.3 MB) against a few
+    /// launch snapshot file and decoded its JSON there: 51 ms at 826 workspaces (3.3 MB) against a few
     /// ms at 60, all before the window (aws-m4pro-7, `sample` of a Release launch). So a start that is handed no
     /// snapshot must not go to the disk for one: with a snapshot file in the state directory, the store shows
     /// nothing; the snapshot shows only when one read off the main actor is handed in (`launch`, as `main` does;
@@ -143,7 +143,7 @@ struct DaemonRestoreProgressTests {
             return (names.session, names.stateDirectory)
         }
         work.post(.userBlocking, mayBlock: .files) { order.withLock { $0.append("frames") } }  // as `main`'s next launch read
-        let snapshot = await read.value
+        let snapshot = await read.value.snapshot
         #expect(order.withLock { $0 }.first == "snapshot", "the launch snapshot read waited behind a read posted after it")
         #expect(snapshot?.tree.workspaces.map(\.name) == ["alpha", "beta"], "the read gave another snapshot")
     }
@@ -182,6 +182,23 @@ struct DaemonRestoreProgressTests {
             return elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
         }
         print("SELF_HEAL_PROBE app restore_status_shown_after_ms=\(ms(shown)) connected_after_ms=\(ms(cleared))")
+    }
+
+    /// Leo, 2026-11-22: "sub-second in and out bulls\*\*\*. remove it." The sidebar's card waits the shared bound: a
+    /// restore that ends sooner draws no card in the Updated card's slot; the launch window's title still says it at once.
+    @Test func theSidebarCardWaitsTheSharedBound() {
+        let recovery = DaemonRecovery()
+        let now = Date()
+        let bound = UInt64(QuietHold.connectionDelaySeconds * 1000)
+        recovery.noteRestoring(RestoreProgressReport(session: "s", pid: 4242, waitedMs: 0, updatedAt: now))
+        #expect(recovery.restoringText != nil)
+        #expect(recovery.restoringCardText == nil, "the card showed before the restore lasted the bound")
+        recovery.noteRestoring(RestoreProgressReport(session: "s", pid: 4242, waitedMs: 5_000, updatedAt: now.addingTimeInterval(5)))
+        #expect(recovery.restoringCardText == nil)
+        recovery.noteRestoring(RestoreProgressReport(session: "s", pid: 4242, waitedMs: bound, updatedAt: now.addingTimeInterval(Double(bound) / 1000)))
+        #expect(recovery.restoringCardText == RefusalStrings.restoringSessions(waitedMs: bound))
+        recovery.noteRestoring(nil)
+        #expect(recovery.restoringCardText == nil)
     }
 
     /// Stands in for "connected" in the usable-during-restore probe: the stand-in's socket never answers, so the

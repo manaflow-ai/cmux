@@ -29,6 +29,9 @@ impl Hub {
                 );
                 o.insert("iconSpec".into(), json!(icon));
                 o.insert("family".into(), json!(family));
+                if crate::byo_endpoint::Kind::of_env(&p.env).is_some() {
+                    o.insert("endpoint".into(), json!(true));
+                }
                 // What a remote device (a phone) may start with it: the modes
                 // a session it starts runs in, the start mode first, or why
                 // not (`web_modes::remote_start`, the remote guard's rules).
@@ -53,6 +56,11 @@ impl Hub {
                 // What a new chat here starts on (start_defaults.rs), for the composer's chip.
                 if let Some(start) = self.start_view(&cfg, name, p) {
                     o.insert("start".into(), start);
+                }
+                // The modes and options its chats report (`start_mode.rs` `reported_options`):
+                // a new chat's Mode and option pickers before any chat of it is open.
+                if let Some(reported) = self.reported_options(name, p) {
+                    o.insert("reported".into(), reported);
                 }
                 // A profile file's display, capability, auth and sessions data.
                 if let Some(Value::Object(meta)) =
@@ -94,6 +102,15 @@ impl Hub {
         // the catalog lacks every harness installed under the person's home. Not
         // the rest of startup: launcher checks can take seconds each.
         let _ = self.catalog_ready.subscribe().wait_for(|ready| *ready).await;
+        // A start's own read (`forStart`, cmux-tui's `ready_catalog`) resolves the harness it will
+        // start as `session/new` does (`rediscover.rs`): the start refuses `harness_missing` from
+        // this reply before `session/new` runs, so a Claude the bare startup PATH missed (the 3 s
+        // login shell read failed on a just-created Cloud machine) refused the chat although
+        // `session/new` would have found it (prod app-chat probe, 5 starts in 24 h, 11-24).
+        if params.get("forStart").and_then(Value::as_bool) == Some(true) {
+            let harness = params.get("harness").and_then(Value::as_str).filter(|h| !h.is_empty());
+            self.rediscover_head(harness, None).await;
+        }
         let mut view = self.harnesses_view().await;
         let Some(cwd) = cwd.filter(|_| !remote) else { return Ok(view) };
         let cfg = self.config.read().await.clone();

@@ -17,8 +17,17 @@ import {
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
 
 test("a start shows the message and the folder by its name", () => {
-  expect(begun()).toEqual({ key: "k-1", task: "fix the build", state: "starting", folder: "paint" });
+  expect(begun()).toEqual({
+    key: "k-1",
+    task: "fix the build",
+    state: "starting",
+    folder: "paint",
+    cwd: "/Users/me/src/paint",
+  });
   expect(cloudStartBegun("k", "t", undefined)).toEqual({ key: "k", task: "t", state: "starting" });
+  expect(
+    cloudStartBegun("k", "t", undefined, undefined, undefined, undefined, undefined, undefined, "env_1").environment,
+  ).toBe("env_1");
 });
 
 test("a start waiting on its browser sign-in is marked until it signs in or ends", () => {
@@ -49,10 +58,14 @@ test("the host's push fills the card, field by field, each checked", () => {
   });
   expect(pushed).toEqual({
     advancedAt: expect.any(Number),
+    // The step moved past the machine: the page stamps when it saw the machine done.
+    machineFinishedAt: expect.any(Number),
     key: "k-1",
     task: "fix the build",
     state: "starting",
     folder: "paint-app",
+    // The host renames the card's folder; the folder the start copies (the composer's chip) stays.
+    cwd: "/Users/me/src/paint",
     step: "folder",
     machine: "paint machine",
     size: "4 CPU, 16 GB",
@@ -408,7 +421,7 @@ test("a folder too big to copy says why with its size, offers no Retry and marks
     more: false,
   });
   expect(ended?.message).toBe(
-    "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+    "~/Projects is too big to copy (at least 20.1 GB in 323,831 files). Pick one of its repositories, or start without a folder.",
   );
   // No repository inside: the limit is named, and another folder is the way on.
   const plain = cloudStartEnded(begun(), "k-1", {
@@ -417,7 +430,7 @@ test("a folder too big to copy says why with its size, offers no Retry and marks
     details: { ...details, folder: "~/Downloads", repos: [] },
   });
   expect(plain?.message).toBe(
-    "~/Downloads is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+    "~/Downloads is too big to copy (at least 20.1 GB in 323,831 files; the limit is 20 GB or 500,000 files). Pick a smaller folder, or start without one.",
   );
 });
 
@@ -473,4 +486,37 @@ test("a failed start's way on: the folder, a new Cloud chat, Retry, or This Mac;
     expect(cloudStartWayOn(failed(code)), code).toEqual([]);
   expect(cloudStartWayOn(failed("cloud_start_failed", { retryable: true }))).toEqual([]);
   expect(cloudStartWayOn({ key: "k", task: "t", state: "starting" })).toEqual([]);
+});
+
+test("each step's clock starts when the page saw it begin, and a running copy keeps its start", () => {
+  let start: CloudStartProgress | undefined = cloudStartBegun("k", "fix the build", "/Users/me/paint");
+  start = cloudStartPushed(start, { key: "k", step: "machine" }, 1_000);
+  expect(start?.machineStartedAt).toBe(1_000);
+  // A repeat of the step stamps nothing new.
+  start = cloudStartPushed(start, { key: "k", step: "machine", machine: "paint-dev" }, 4_000);
+  expect(start?.machineStartedAt).toBe(1_000);
+  start = cloudStartPushed(start, { key: "k", step: "folder", clone: { state: "running", startedAt: 9_000 } }, 9_500);
+  expect(start?.machineFinishedAt).toBe(9_500);
+  // The copy's later lines carry no start time: it keeps the first one.
+  start = cloudStartPushed(start, { key: "k", step: "folder", clone: { state: "running", phase: "copy" } }, 12_000);
+  expect(start?.clone?.startedAt).toBe(9_000);
+  start = cloudStartPushed(start, { key: "k", step: "opening" }, 20_000);
+  expect(start?.harnessStartedAt).toBe(20_000);
+  // The host's own times win over the page's.
+  const hosted = cloudStartPushed(
+    cloudStartBegun("h", "hi", undefined),
+    { key: "h", step: "machine", machineStartedAt: 500 },
+    2_000,
+  );
+  expect(hosted?.machineStartedAt).toBe(500);
+});
+
+test("the host's waking push says Waking machine on the machine step until it ends, keeping the step", () => {
+  const machine = cloudStartPushed(begun(), { key: "k-1", step: "machine" });
+  const waking = cloudStartPushed(machine, { key: "k-1", waking: true });
+  expect(waking?.waking).toBe(true);
+  expect(waking?.step).toBe("machine");
+  expect(cloudStartPushed(waking, { key: "k-2", waking: false })?.waking).toBe(true);
+  expect(cloudStartPushed(waking, { key: "k-1", waking: false })?.waking).toBeUndefined();
+  expect(cloudStartPushed(machine, { key: "k-1", waking: "yes" })?.waking).toBeUndefined();
 });

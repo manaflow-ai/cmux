@@ -10,6 +10,22 @@ For a tagged Debug app with separate chat and pages servers, use
 
 ## The loop
 
+**The quickest way to run your change: copy your nightly and swap your code in.** In your cmux checkout:
+
+```sh
+cmux app try .              # a fresh copy of cmux NIGHTLY runs beside yours, with your code in
+cmux app try . --extract    # keep the code that went in (branch cmux-try/<copy> and a patch)
+cmux app try . --stop       # quit the copy and delete it
+```
+
+The copy is an APFS clone of `/Applications/cmux NIGHTLY.app` (`--from APP` for another build) with its own
+bundle id, data, socket and daemon, so the cmux you are using is never touched. Your web UI goes in through a dev
+server (each save shows live) and your daemon Rust as the published build of your tree, else a local cargo
+build. It prints the copy's socket; `cmux --app-socket SOCKET ...` drives it. Run it again for a fresh copy with
+your newest code. Dev builds stay available: when the change needs one (Swift, Rust the app links), the command
+says why and prints the fleet build command. It is `scripts/cmux-next/hot-verify.py run`, the same engine as
+`look` below without the screenshots.
+
 Write the code, put it into the cmux you are running, use it, then test it. Leo, 2026-11-15: "imagine if you
 could just write the code and then the code goes into your app and then you can just use it." Screenshot it, take
 a video, click through it; compile checks, CI and suites come after the look. Of the newest 300 merged NEXT PRs, 70% of those that change the Mac app could go in live; almost none were looked at in a running app before merging:
@@ -29,7 +45,7 @@ puts the change into a side copy and writes before and after screenshots, a vide
 (`hot-verify.py plan --source dir:. --app APP` first says whether it needs a build).
 
 `cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build (a fork's only when you run `use` again), and
-`library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
+`library off --all` turns every code layer off, and `cmux customize doctor` lists every layer left on and every customization file that does not load, is skipped, overrides another or sits in the wrong folder, as the app's notice does. Rust hot-apply into a Developer ID NIGHTLY takes the
 tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
 cmuxterm-hq [docs/design/cmux-next-hot-swap-layers.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/design/cmux-next-hot-swap-layers.md)
@@ -297,6 +313,32 @@ takes the dev build). At 0f92b5e9 the first PR applied 10.87 s after try-pr star
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
 
+#### Background by default
+
+A side instance opens parked: `side-instance.sh launch` (and so `try-pr.sh`, `hot-verify.py look` and `cmux app
+try`) puts the copy's windows on a virtual display no person looks at, "cmux parked windows"
+(`scripts/cmux-next/park-display.m`), and starts the app with `CMUX_NEXT_NO_ACTIVATE=1` (it never activates and no
+window of it becomes key) and `CMUX_NEXT_TEST_WINDOW_SCREEN` set to that display. An agent trying a change on a
+person's Mac draws nothing on their screens and takes no focus. Leo, 2026-11-22: "when you guys are testing stuff
+on [a test Mac], if you're trying to capture or whatever, ideally you guys are in some sort of background, maybe."
+
+The park display sits below and right of the person's displays, touching the bottom-right one at an 8-point corner
+(macOS keeps displays contiguous), for this login session only. It goes when the copy stops (`side-instance.sh stop`
+or the copy's pid ending). Windows there still draw, so a window shot (`screencapture -l WINDOW`, CuaDriver's
+`get_window_state`) and a window recording (`media/record-window.swift`) see them; a capture of the main display
+does not. Where the copy opens:
+
+| | windows | focus |
+|---|---|---|
+| `--parked` (default) | the park display | never |
+| `--shown` | the person's screens, behind the front app | not taken |
+| `--front` | the person's screens, in front | taken: for a person who asked to look |
+
+`CMUX_SIDE_PLACEMENT=parked|shown|front` sets the default (`CMUX_SIDE_PLACEMENT=front cmux app try .` to watch a try yourself). `try-pr.sh` takes `--shown` and `--front` through.
+`hot-verify.py look --kit` launches `--shown` (the kit records the main display), as does
+`scripts/measure/try-pr-side-instance.sh` (it shoots the display). With no clang or no console session the park
+display cannot be made, and the copy opens `--shown`, which `launch` says.
+
 ### An agent's loop: apply, probe, roll back
 
 ```sh
@@ -356,13 +398,14 @@ cmux live status                             # the last swap: when, which save, 
 cmux live stop --rust                        # stop watching; the daemon keeps the last build
 ```
 
-On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
+On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, or a file outside it the build
+reads (a design token, a schema, a skill page the daemon embeds), the loop
 (`scripts/cmux-next/rust-live.py`):
 
 1. builds only the daemons the changed crates reach (`cargo metadata`), incrementally. With
    `--build-host` the changed files go to a tree kept for this checkout on that host (rsync over one
    kept ssh connection), which keeps its own warm `target/` and uses sccache when the host has it;
-2. brings the binaries back (rsync, compressed) into a new folder per build, so the running daemon's
+2. brings the binaries back (rsync, only the change) into a new folder per build, so the running daemon's
    file is never written over;
 3. swaps the daemon the way `scripts/cmux-next/daemon-swap-check.py` measures it: the old owner
    stops and leaves its terminal hosts running, the new one adopts them. How depends on who runs the
@@ -379,8 +422,15 @@ On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
 The build host builds for the daemon's platform: a Mac build box for the app's daemon on a Mac, any
 Linux box for a daemon on Linux. Pass `--session NAME` for a daemon other than the default session
 (`cmux-app-<tag>` for a tagged build), or `--socket PATH` when the app's daemon socket isn't the
-session's default (an app sets its daemon's `TMPDIR`). A build error is logged (`cmux live status`
-shows it), and the running daemon stays as it was.
+session's default (an app sets its daemon's `TMPDIR`; `cmux --socket PATH live start --rust` works too).
+A build error is logged (`cmux live status` shows it), and the running daemon stays as it was.
+
+A build host gets `cmux-tui/` and everything its build reads outside it, which the loop computes from
+the source each time it starts, so a new include needs no list: each `include_str!`/`include_bytes!`
+target, each `../` path a build script names, the path dependencies (`workers/cmux-vm`), and the
+`ghostty-next` submodule, which a fresh worktree has empty and the loop checks out first. A file a
+sparse checkout leaves out goes from `HEAD`. `rust-live.py inputs` prints the set; the cmux-tui test
+`rust_live_sends_every_outside_input` fails when cargo's dep-info names a file the set misses.
 
 On a side copy of a DEV app (cmux#36389, base 1773603b, PR eddb05df, cmux-tui built on the fleet), the
 app handoff took 1.38 s to the PR's daemon, 1.34 s back and 1.16 s forward again. The app's pid and
@@ -406,10 +456,89 @@ toward a second. From a build host on another machine add the copy: the debug `c
 MB, 263 MB once the build host strips its debug info (the loop does), and rsync sends only the
 change against the last build. That took 19 s from the fleet box to a Mac over the tailnet.
 
+Nearly all of that copy was rsync's `-z`: zlib read the whole 263 MB to shrink a delta of about
+0.4 MB to 0.1 MB. The loop no longer compresses. Measured with `scripts/measure/rust-live-fetch.py`
+(both rsync ends on one fleet Linux box, so CPU counts and the network doesn't; three one-line
+cmux-tui-core edits each; the host's strip adds 1.25 s to every row):
+
+| Copy of the stripped 263 MB cmux-tui | p50 | sent |
+|---|---|---|
+| `rsync -z` (zlib), before | 13.66 s | 0.1 MB |
+| `rsync`, no compression (now) | 0.96 s | 0.4 MB |
+| `rsync -z --compress-choice=zstd` | 1.03 s | 0.1 MB |
+| `zstd -T0 -1` piped, no delta | 1.17 s | 142.6 MB |
+| `rsync -z --whole-file` | 12.61 s | 136.4 MB |
+
+The first copy after a start still sends the whole binary, since there is no build here to diff.
+
 The in-place patch (`hotpatch` feature, `scripts/cmux-next/daemon-hotpatch-check.py`) keeps even the
 daemon's process and its client connections, but on the same box it is slower: 64.2 s for its edit
 in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
 first build. So the loop swaps instead.
+
+The loop's build is not slower than the dev loop's (RFD 0174 slice 5).
+`scripts/measure/rust-live-parity.py` builds the same `identify` edit on one box four ways. Each way
+has its own target directory and a warm-up build, and the builds alternate. The run was on a fleet
+Linux box at cmux#60320's head, 4 edits each:
+
+| Build | p50 | min | max |
+|---|---|---|---|
+| rust-live.py's own (its cargo args and environment, sccache when on PATH) | 29.8 s | 29.7 s | 48.8 s |
+| the same, no RUSTC_WRAPPER | 30.2 s | 29.9 s | 53.2 s |
+| the same, CARGO_INCREMENTAL=1 | 31.3 s | 29.8 s | 54.1 s |
+| rust-dev-loop.py's (its clean env, `-p cmux-tui -p acpmux --bins`) | 30.2 s | 29.9 s | 36.6 s |
+
+Every way compiled the same three crates: cmux-build-identity, cmux-tui-core and cmux-tui. No
+profile, feature, wrapper or incremental setting is behind the gap. The 11.75 s figure is not an
+edit to this crate. What's left is compiling cmux-tui-core itself (splitting the crate) and the
+19 s copy back from a build host.
+
+Where those 29 s go (`scripts/measure/tui-core-edit-breakdown.py`: the same edit, rust-live's cargo
+args with `--timings`, then `-Z time-passes` once per crate; fleet Linux, 32 cores, 4 edits, jobs
+51a80d14fb203f274cdbe13e and ffb7948d72743f4ccaad4b7b at cmux#61653's heads):
+
+| Unit a cmux-tui-core edit rebuilds | p50 |
+|---|---|
+| cmux-tui-core (about 416k lines outside tests) | 15.5 s |
+| the cmux-tui lib (`src/main.rs`, about 359k lines), every time core changes | 12.7 s |
+| the cmux-tui bin: its own compile 0.4 s, the link 2.7 s | 3.1 s |
+| everything (the units overlap a little) | 29.0 s |
+
+Code generation is not the cost: LLVM takes 0.7 s of cmux-tui-core's 15.7 s. The rest is work rustc
+does over the whole crate whatever the edit: writing its metadata 3.6 s, macro expansion 3.1 s, saving
+the incremental cache (dep graph and results) 5.8 s, name resolution 1.9 s, partitioning and the
+monomorphization walk 2.3 s. The cmux-tui lib is the same kind of cost. So time follows the size of
+every crate between the edit and the binary. Splitting cmux-tui-core alone leaves at least the lib and
+the link, about 16 s. The edited code also has to leave a 359k-line crate on its way to the binary.
+The crate is one dependency cycle: every large module (`server`, `mux`, `workspace_registry`,
+`state`, `apps`, `surface`) reaches all the others through `crate::` paths. The only modules that
+reach none of them (`fs_ops`, `layout`, `feed_client`, `git_seed`, `blob_fetch`, `terminal_backend`,
+`event_bus`, `journal_plugin`) are about 15k lines, under 4% of the crate, and take few edits:
+`git_seed` had 104 file changes in the 30 days to 2026-11-27, against about 1,990 for `server` and
+1,460 for `mux`. Moving them out would save under a second. The split that pays is cutting the
+cycle at `server`, the most edited part, so that it builds after the rest of the crate, and doing the
+same in the cmux-tui lib.
+
+Build settings that need no code moved (`scripts/measure/tui-core-edit-levers.py`: the same harness
+once per arm, each an environment change; fleet Linux, 32 cores, rustc 1.95.0; 4 edits per arm in job
+b1d32e6b0416b528e18a77b0, then 12 per arm in two interleaved runs in job e8cd7525058d39c377835ce2):
+
+| Arm | Edit p50 | cmux-tui-core | cmux-tui lib | bin (link) |
+|---|---|---|---|---|
+| rust-live as it was | 28.65 s | 15.23 s | 12.60 s | 3.04 s |
+| `codegen-units = 1024` on the two edited crates (shipped, rust-live only) | 27.86 s | 14.96 s | 11.96 s | 3.10 s |
+| that and `debug = 0` | 27.08 s | 14.78 s | 11.68 s | 2.67 s |
+| `-Z threads=8` (parallel frontend; nightly flag) | 29.57 s against 29.90 s | 15.41 s | 12.54 s | 3.40 s |
+| our crates at opt-level 0 | 30.05 s against 29.90 s | 15.29 s | 12.79 s | 4.23 s |
+| `codegen-units = 16` | 92.70 s | 53.23 s | 61.84 s | 5.47 s |
+
+rust-live's build passes the 1024 units as `--config` for cmux-tui-core and cmux-tui
+(`CMUX_RUST_LIVE_CODEGEN_UNITS`; empty leaves the profile's 256). `debug = 0` saves another 0.8 s but
+drops the line tables that panics, backtraces and profiles read, so it stays off. The parallel
+frontend is within noise at this size, as is opt-level 0, which also makes the link slower. mold is
+not installed on the fleet pool and was not measured. Macs link with Xcode's ld-prime. None of these
+moves the fixed per-crate work (metadata, expansion, the incremental cache, resolution), which is still
+most of the time.
 
 ### Editing while it runs: what survives
 
@@ -594,6 +723,33 @@ digests differ only in what a hot apply swaps, so `plan` compares the two files 
 `"via": "published keys"`. It skips the fetch of SHA and the tree and web key computation. Nothing in
 the plan reads a checkout, so it is the step a `cmux` CLI command in any build can take next. Commits
 without keys (before this, or a branch) are planned from the diff as before.
+
+## Share your build with a teammate
+
+Send a line, not a bundle. The best line is a commit: once your change is on feat-cmux-next,
+`cmux app try <sha>` runs it in the other person's cmux the cheapest way there is, with nothing to
+upload. For anything else, `cmux app share` writes the line for you:
+
+```sh
+cmux app share                      # the cmux DEV build you run (or --app APP): prints one line to send
+cmux app share | pbcopy             # the line alone goes to stdout
+cmux app try '<the line's link>'    # on the other Mac: the build opens beside their cmux
+```
+
+- A clean commit on feat-cmux-next becomes `cmux app try <sha>`; nothing is uploaded.
+- Any other build (local changes, an unmerged commit, `--bundle`) is zipped and uploaded to the team
+  build cache, and the line is `cmux app try https://.../v1/tags/share-...?backend=<env>`. The other Mac
+  downloads it, checks its sha256 and signature, unpacks it under `~/Applications/cmux Shared/`, sets a
+  DEV build's Cloud backend to the sender's, and opens it. Their own cmux is not touched.
+- The sign-in never travels: it lives in the sender's keychain, and no login or token is read or sent.
+  Each person signs in with their own account; the backend in the link takes them to the same Cloud.
+- The cache comes from `--store`, `CMUX_APP_SHARE_STORE` or `~/.config/cmux/app-share.json`
+  (`{"store": "https://..."}`), which the team's HQ menu bar app writes. HQ's menu has
+  **Share this build…**, which runs the same command and copies the line.
+
+Why not AirDrop a zipped `.app`: most dev builds are signed ad hoc, so Gatekeeper blocks the
+quarantined copy on the other Mac, and the sign-in stays behind anyway. A build `cmux app try`
+downloads carries no quarantine, so it runs.
 
 ## Every merge, no checkout
 

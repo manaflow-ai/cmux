@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextDaemon
 public import Foundation
 import os
@@ -56,7 +57,8 @@ extension CloudMachineRequest {
 /// (``CloudCreateRoute/direct``), through the same session call that answers an approval
 /// (`CloudApprovalAnswer.Call`), in the team the relay would pin (`x-cmux-team`). The person's
 /// session never goes to the daemon, and nothing here logs it.
-public nonisolated enum CloudPersonCreate {
+public nonisolated struct CloudPersonCreate {
+    public nonisolated init() {}
     /// One POST of a JSON body to the API Worker as the signed-in person; returns the reply body.
     /// The same shape as `CloudApprovalAnswer.Call`.
     public typealias Call = @Sendable (_ path: String, _ body: Data) async throws -> Data
@@ -70,11 +72,30 @@ public nonisolated enum CloudPersonCreate {
         public var description: String { reason }
     }
 
-    /// The session's POST for `url`: the person's bearer and, when given, the cmux team (`x-cmux-team`).
-    public static func post(_ url: URL, body: Data, bearer: String, team: String?) -> URLRequest {
+    /// How long a session call waits for its answer: an approval's read or answer comes at once.
+    public static let callTimeout: TimeInterval = 15
+    /// How long a direct create waits for its answer. The server answers a person's create once the provider made
+    /// the machine, or after 25 s with the machine still `provisioning` (cmux-platform CloudCore `REQUEST_WAIT_MS`),
+    /// so the wait is longer than that: at ``callTimeout`` a create the provider took 15 s over timed out, and the
+    /// one same-key resend (``CloudConnectHedge``) failed a start whose machine took 30 s.
+    public static let createTimeout: TimeInterval = 40
+
+    /// The session a person's calls go on, each waiting `timeout` for its answer: no cache, no cookies, and
+    /// redirects refused, so the person's bearer never follows one (as `InstallHTTPTransport`).
+    public static func session(timeout: TimeInterval = callTimeout) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpShouldSetCookies = false
+        configuration.timeoutIntervalForRequest = timeout
+        return CmuxEgress.session(site: "CmuxNextCloud.CloudPersonCreate", configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
+    }
+
+    /// The session's POST for `url`: the person's bearer and, when given, the cmux team (`x-cmux-team`); it waits
+    /// `timeout` for its answer.
+    public static func post(_ url: URL, body: Data, bearer: String, team: String?, timeout: TimeInterval = callTimeout) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 15
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization")
         if let team, !team.isEmpty { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }

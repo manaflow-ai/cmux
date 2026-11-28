@@ -32,6 +32,8 @@ meaningful"):
   rapid-open-5       five new tabs as fast as the socket takes them (animations retarget mid-flight)
   rapid-close-3      three of them closed as fast
   open-while-close   a close, then a new tab while the close still animates
+  browser-split      splitBrowserRight from the terminal (ask-08552f8ea0, #56574): blank frames in the new pane's half of the
+                     content (the right 40%) fail; the layout's own motion, the first page time and the shift are reported
 Loads (--loads; parse_load, LOAD_PRESETS): idle and cpu and agents as before, and the instant-at-any-load modes:
   L0 idle; L1 the focused chat streams 60 chunks/s and a 2,000 lines/s tool output; L2 10 other chats streaming at
   30 chunks/s (3 as tabs of a pane split beside the measured one, the rest in background workspaces); L3 the focused
@@ -74,7 +76,9 @@ sys.path.insert(0, HERE)
 import tab_switch_capture as capture  # noqa: E402
 import tab_switch_foreign as foreign  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
+import tab_switch_matrix as matrix  # noqa: E402
 import tab_switch_settle as settle  # noqa: E402
+from state_wait import wait_until  # noqa: E402
 
 
 def mac_helpers():
@@ -96,6 +100,9 @@ WINDOW_FRAME = "40,40,1400,900"
 
 def say(*parts):
     print("tab-switch:", *parts, flush=True)
+
+
+UNKNOWN = object()  # selected_tab: this build's snapshot marks no selected tab
 
 
 class Unmeasurable(Exception):
@@ -199,6 +206,12 @@ class App:
         # defaults: the same key the card sets when asked. This run's own domain only; the product default is unchanged.
         for key in ("home.firstRun.historyImportShown", "cmux.next.hangReports.asked"):
             subprocess.run(["defaults", "write", self.bundle_id, key, "-bool", "YES"], capture_output=True, timeout=30)
+        self.spawn()
+
+    def spawn(self, before=None):
+        """The app's process in this run's home, waited for until its socket lists a workspace. `before`, when given,
+        runs just before the exec (the settle matrix's relaunch flips its marker there)."""
+        from pathlib import Path
         self.socket_path = os.path.join(self.root, "c.sock")
         env = self.smoke.fresh_env(Path(self.root), Path(self.socket_path), 2)
         write_run_settings(Path(env["HOME"]))
@@ -210,6 +223,8 @@ class App:
         os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
         binary = os.path.join(self.bundle, "Contents/MacOS", self.executable)
         self.log = open(os.path.join(self.root, "app.log"), "a")
+        if before is not None:
+            before()
         self.process = subprocess.Popen([binary, "-ApplePersistenceIgnoreState", "YES"], env=env, stdout=self.log,
                                         stderr=self.log, stdin=subprocess.DEVNULL, start_new_session=True)
         say(f"app pid {self.process.pid}")
@@ -511,6 +526,47 @@ class Harness:
                         return pane.get("tabs") or [], pane
         return [], None
 
+    def selected_tab(self):
+        """The id of the measured pane's selected tab, or UNKNOWN when this build's snapshot says no selection."""
+        tabs, pane = self.pane_tabs()
+        if not any("selected" in t for t in tabs) and not (pane and "selected_tab" in pane):
+            return UNKNOWN
+        return next((t.get("id") for t in tabs if t.get("selected") or (pane and t.get("id") == pane.get("selected_tab"))), None)
+
+    def wait_selected(self, name, timeout=15.0):
+        """Until the snapshot shows the tab `name` selected in the measured pane (the select took)."""
+        tab = self.ids.get(name)
+        if tab:
+            wait_until(lambda: (lambda sel: sel is UNKNOWN or sel == tab)(self.selected_tab()),
+                       f"the {name} tab selected in the measured pane", timeout=timeout)
+
+    def wait_workspace(self, workspace, what, timeout=15.0):
+        """Until `workspace` is the focused one; logged when it never is (the round goes on, as it always did)."""
+        if not workspace:
+            return
+        if not wait_until(lambda: (lambda f: f is None or f == workspace)(self.focused_workspace()), what,
+                          timeout=timeout, raise_on_timeout=False):
+            say(f"  note: {what}: not seen in {timeout:g} s")
+
+    def wait_tabs_gone(self, tabs, what, timeout=15.0):
+        """Until none of `tabs` is in any pane; logged when some stay."""
+        gone = set(t for t in tabs if t)
+        if gone and not wait_until(lambda: not gone & self.all_tab_ids(), what, timeout=timeout, raise_on_timeout=False):
+            say(f"  note: {what}: still there after {timeout:g} s")
+
+    def all_tab_ids(self):
+        return {t.get("id") for w in self.c.topology().get("workspaces") or [] for s in w.get("screens") or []
+                for p in s.get("panes") or [] for t in p.get("tabs") or []}
+
+    def pages_loaded(self, names):
+        """True once each page tab in `names` answers document.readyState complete."""
+        for name in names:
+            answer = self.c.call("browser.page.eval", {"tab": self.ids.get(name), "script": "document.readyState"},
+                                 timeout=5)
+            if not isinstance(answer, dict) or answer.get("error") or answer.get("value") != "complete":
+                return False
+        return True
+
     def workspace_ids(self):
         return [w.get("id") for w in self.c.topology().get("workspaces") or [] if w.get("id")]
 
@@ -531,8 +587,10 @@ class Harness:
         reply = self.c.action("workspace new")
         if reply.get("error"):
             raise Unmeasurable(f"workspace new: {reply['error']}")
-        self.wait_tabs(1)
-        time.sleep(1.5)  # test script: the terminal attaches
+        # The terminal attached: its tab names a terminal.
+        if not wait_until(lambda: any(t.get("terminal") for t in self.c.focused_tabs()[0]), "the terminal attached",
+                          timeout=15, raise_on_timeout=False):
+            say("  note: the first tab named no terminal in 15 s")
         made = [w for w in self.workspace_ids() if w not in before]
         self.workspace_id = made[0] if made else self.focused_workspace()
         _tabs, pane = self.c.focused_tabs()
@@ -568,7 +626,9 @@ class Harness:
             raise Unmeasurable(f"the workspace's pane has {len(tabs)} tabs, want {len(order)} ({', '.join(order)}): {json.dumps(tabs)[:600]}")
         self.index = {name: i + 1 for i, name in enumerate(order)}
         self.ids = {name: tabs[i].get("id") for i, name in enumerate(order)}
-        time.sleep(2)  # test script: the page loads
+        pages = [n for n in ("chromium", "webkit") if n in self.ids]
+        if not wait_until(lambda: self.pages_loaded(pages), "the pages loaded", timeout=30, raise_on_timeout=False):
+            say(f"  note: {'+'.join(pages)} not readyState complete in 30 s")
         self.calibrate()
 
     def calibrate(self):
@@ -579,7 +639,7 @@ class Harness:
             self.select(name)
             time.sleep(1.5)  # test script: the tab settles
             self.rec.flip(f"ref-{name}")
-        time.sleep(0.3)
+        time.sleep(0.3)  # sleep-ok: recorded span after the last ref flip, so its tab's frame is in the video
         frames, flips = self.rec.end()
         shown = {name: self.at(frames, flips[f"ref-{name}"]) for name in self.index}
         terminal, page_frame = shown["terminal"], shown["chromium"]
@@ -632,7 +692,7 @@ class Harness:
             except Exception as error:  # noqa: BLE001 - the load runs with what was built
                 notes.append(f"stress: {type(error).__name__}: {error}"[:300])
             self.c.action("goToWorkspace", workspace=self.workspace_id)
-            time.sleep(2)  # test script: the measured workspace shows again
+            self.wait_workspace(self.workspace_id, "the measured workspace shown again")
         if spec.get("chat100k"):
             try:
                 session = agents.hundred_k_chat(self.opt("chat_rows", 100000))
@@ -653,7 +713,7 @@ class Harness:
                 time.sleep(6)  # test script: the 100k-row transcript opens
                 self.rec.begin()
                 self.rec.flip("ref-chat100k")
-                time.sleep(0.3)
+                time.sleep(0.3)  # sleep-ok: recorded span after the ref flip, so the chat's frame is in the video
                 frames, flips = self.rec.end()
                 self.refs["chat"] = self.at(frames, flips["ref-chat100k"])
             except Exception as error:  # noqa: BLE001
@@ -684,6 +744,8 @@ class Harness:
         if spec.get("cpu"):
             cpu.start()
         self.select("terminal")
+        self.wait_selected("terminal")
+        # sleep-ok: --load-settle, the load runs this long before the first round (a running load has no done signal)
         time.sleep(self.opt("load_settle", 5.0))
         return notes
 
@@ -692,6 +754,7 @@ class Harness:
             cpu.stop()
         if agents is not None:
             agents.stop()
+        closed = list(self.load_tabs)
         for tab in reversed(self.load_tabs):
             self.c.action("closeTab", focus=False, target=f"tab:{tab}")
         self.load_tabs = []
@@ -708,13 +771,16 @@ class Harness:
             self.saved_chat = None
             self.chat_session = None
         if self.split_pane:
+            split_pane = self.split_pane
             for tab in getattr(self, "split_tabs", []):
                 self.c.action("closeTab", focus=False, target=f"tab:{tab}")
             self.split_pane, self.split_tabs = None, []
-            time.sleep(1)  # test script: the pane closes
+            if not wait_until(lambda: split_pane not in self.all_panes(), "the split pane closed", timeout=15,
+                              raise_on_timeout=False):
+                say("  note: the split pane was still there after 15 s")
             self.select("terminal")
             self.calibrate()
-        time.sleep(1)  # test script: the load's tabs close
+        self.wait_tabs_gone(closed, "the load's tabs closed")
 
     def open_split_chats(self, agents, count):
         """`count` streaming chats as tabs of a new pane right of the measured one (one shown, the rest hidden tabs);
@@ -734,7 +800,13 @@ class Harness:
         self.split_pane, self.split_tabs, self.split_sessions = made, [], sessions
         for session in sessions:
             self.c.action("agent.openSessionTab", focus=False, session=session, target=f"pane:{made}")
-        time.sleep(2)  # test script: the chats open
+
+        def opened():
+            tabs = next((p.get("tabs") or [] for w in self.c.topology().get("workspaces") or []
+                         for s in w.get("screens") or [] for p in s.get("panes") or [] if p.get("id") == made), [])
+            return len(tabs) >= len(sessions) and not any(str(t.get("id", "")).startswith("pending_tab_") for t in tabs)
+        if not wait_until(opened, "the split pane's chats opened", timeout=30, raise_on_timeout=False):
+            say(f"  note: the split pane had fewer than {len(sessions)} chat tabs after 30 s")
         for workspace in self.c.topology().get("workspaces") or []:
             for screen in workspace.get("screens") or []:
                 for pane in screen.get("panes") or []:
@@ -806,32 +878,37 @@ class Harness:
 
     def returning(self, shown, via, label):
         self.select(shown)
-        time.sleep(self.args.settle)
+        self.wait_selected(shown)
+        time.sleep(self.args.settle)  # sleep-ok: --settle, the recorded span before the leave flip (its last AMBIENT_S are the ambient baseline)
         self.rec.flip(f"{label}:leave")
         self.select(via)
-        time.sleep(self.args.away)
+        self.wait_selected(via)
+        time.sleep(self.args.away)  # sleep-ok: --away, the time spent on the other tab is the scenario
         self.rec.flip(f"{label}:mark")
         self.select(shown)
-        time.sleep(self.args.record)
+        time.sleep(self.args.record)  # sleep-ok: --record, the recording window after the action
         self.rec.flip(f"{label}:end")
         return {"label": label, "kind": "return", "shown": shown}
 
     def new_and_close(self, label_new, label_close):
         self.select("terminal")
-        time.sleep(self.args.settle)
+        self.wait_selected("terminal")
+        time.sleep(self.args.settle)  # sleep-ok: --settle, the recorded span before the leave flip (its last AMBIENT_S are the ambient baseline)
         tabs0 = {t.get("id") for t in self.pane_tabs()[0]}
         self.flip3(label_new)
         reply = self.c.action("newSurface")
-        time.sleep(self.args.record + 0.3)
+        time.sleep(self.args.record + 0.3)  # sleep-ok: --record, the recording window after the action
         self.rec.flip(f"{label_new}:end")
         new = {"label": label_new, "kind": "new", "error": f"newSurface: {reply['error']}" if reply.get("error") else None}
         if new["error"]:
             return new, None
         made = self.new_tabs(tabs0, 1)
-        time.sleep(0.5)
+        if made:
+            wait_until(lambda: (lambda sel: sel is UNKNOWN or sel == made[0])(self.selected_tab()),
+                       "the new tab selected", timeout=15, raise_on_timeout=False)
         self.flip3(label_close)
         reply = self.c.action("closeTab", target=f"tab:{made[0]}") if made else self.c.action("closeTab")
-        time.sleep(self.args.record + 0.3)
+        time.sleep(self.args.record + 0.3)  # sleep-ok: --record, the recording window after the action
         self.rec.flip(f"{label_close}:end")
         close = {"label": label_close, "kind": "close", "error": f"closeTab: {reply['error']}" if reply.get("error") else None}
         tabs, pane = self.pane_tabs()
@@ -841,17 +918,36 @@ class Harness:
             close["error"] = f"the pane has {len(tabs)} tabs after the close, want {len(tabs0)}"
         return new, close
 
+    def browser_split_round(self, load, r):
+        """browser-split: Split Browser Right of the measured pane, judged on its new half; the new pane closes after."""
+        label = f"browser-split/{load} round {r}"
+        self.select("terminal")
+        self.wait_selected("terminal")
+        time.sleep(self.args.settle)  # sleep-ok: --settle, the recorded span before the leave flip (its last AMBIENT_S are the ambient baseline)
+        before = set(self.all_panes())
+        self.flip3(label)
+        reply = self.c.action("splitBrowserRight", target=f"pane:{self.pane_id}")
+        time.sleep(self.args.record + 0.3)  # sleep-ok: --record, the recording window after the action
+        self.rec.flip(f"{label}:end")
+        made = [p for p in self.all_panes() if p not in before]
+        error = f"splitBrowserRight: {reply['error']}" if reply.get("error") else (None if made else "no new pane after splitBrowserRight")
+        for pane in made:
+            self.c.action("closePane", target=f"pane:{pane}")
+        wait_until(lambda: not [p for p in made if p in self.all_panes()], "the new pane closed", timeout=15, raise_on_timeout=False)
+        return [("browser-split", {"label": label, "kind": "settled", "region": "right", "error": error})]
+
     def workspace_round(self, load, r):
         """new-workspace, switch-workspace (back, then to it again) and close-workspace; the items to judge, by name."""
         out = []
         self.select("terminal")
-        time.sleep(self.args.settle)
+        self.wait_selected("terminal")
+        time.sleep(self.args.settle)  # sleep-ok: --settle, the recorded span before the leave flip (its last AMBIENT_S are the ambient baseline)
         before = set(self.workspace_ids())
         ws0 = self.workspace_id
         label = f"new-workspace/{load} round {r}"
         self.flip3(label)
         reply = self.c.action("workspace new")
-        time.sleep(self.args.record + 0.3)
+        time.sleep(self.args.record + 0.3)  # sleep-ok: --record, the recording window after the action
         self.rec.flip(f"{label}:end")
         new_ws = next((w for w in self.workspace_ids() if w not in before), None)
         error = f"workspace new: {reply['error']}" if reply.get("error") else (None if new_ws else "no new workspace")
@@ -860,27 +956,27 @@ class Harness:
             self.c.action("goToWorkspace", workspace=ws0)
             return out
         new_label = label
-        time.sleep(0.3)
+        self.wait_workspace(new_ws, "the new workspace shown")
         back = f"switch-workspace/{load} round {r} back"
         self.flip3(back)
         reply = self.c.action("goToWorkspace", workspace=ws0)
-        time.sleep(self.args.record)
+        time.sleep(self.args.record)  # sleep-ok: --record, the recording window after the action
         self.rec.flip(f"{back}:end")
         out.append(("switch-workspace", {"label": back, "kind": "at", "ref_flip": f"{new_label}:leave", "strip": "sidebar",
                                          "error": f"goToWorkspace: {reply['error']}" if reply.get("error") else None}))
-        time.sleep(0.3)
+        self.wait_workspace(ws0, "the measured workspace shown again")
         there = f"switch-workspace/{load} round {r} there"
         self.flip3(there)
         reply = self.c.action("goToWorkspace", workspace=new_ws)
-        time.sleep(self.args.record)
+        time.sleep(self.args.record)  # sleep-ok: --record, the recording window after the action
         self.rec.flip(f"{there}:end")
         out.append(("switch-workspace", {"label": there, "kind": "at", "ref_flip": f"{back}:leave", "strip": "sidebar",
                                          "error": f"goToWorkspace: {reply['error']}" if reply.get("error") else None}))
-        time.sleep(0.3)
+        self.wait_workspace(new_ws, "the new workspace shown again")
         close = f"close-workspace/{load} round {r}"
         self.flip3(close)
         reply = self.c.action("closeWorkspace", confirm=True, target=f"workspace:{new_ws}")
-        time.sleep(self.args.record + 0.3)
+        time.sleep(self.args.record + 0.3)  # sleep-ok: --record, the recording window after the action
         self.rec.flip(f"{close}:end")
         shown = self.focused_workspace()
         item = {"label": close, "kind": "at" if shown == ws0 else "settled", "ref_flip": f"{there}:leave",
@@ -891,58 +987,62 @@ class Harness:
         out.append(("close-workspace", item))
         if shown != ws0:
             self.c.action("goToWorkspace", workspace=ws0)
-            time.sleep(0.5)
+            self.wait_workspace(ws0, "the measured workspace shown after the close")
         return out
 
     def rapid_round(self, load, r):
         """rapid-open-5, rapid-close-3 and open-while-close in the measured pane; restores its tabs after."""
         out = []
         self.select("terminal")
-        time.sleep(self.args.settle)
+        self.wait_selected("terminal")
+        time.sleep(self.args.settle)  # sleep-ok: --settle, the recorded span before the leave flip (its last AMBIENT_S are the ambient baseline)
         tabs0 = [t.get("id") for t in self.pane_tabs()[0]]
         label = f"rapid-open-5/{load} round {r}"
         self.flip3(label)
         errors = [self.c.action("newSurface").get("error") for _ in range(5)]
-        time.sleep(self.args.record + 0.5)
+        time.sleep(self.args.record + 0.5)  # sleep-ok: --record, the recording window after the action
         self.rec.flip(f"{label}:end")
         made = self.new_tabs(tabs0, 5)
         error = next((f"newSurface: {e}" for e in errors if e), None) or (
             None if len(made) == 5 else f"{len(made)} new tabs, want 5")
         out.append(("rapid-open-5", {"label": label, "kind": "settled", "strip": "tab", "error": error}))
         if len(made) >= 4:
-            time.sleep(0.3)
+            wait_until(lambda: (lambda sel: sel is UNKNOWN or sel in made)(self.selected_tab()),
+                       "a new tab selected after the rapid opens", timeout=15, raise_on_timeout=False)
             label = f"rapid-close-3/{load} round {r}"
             self.flip3(label)
             closing = made[-3:][::-1]
             errors = [self.c.action("closeTab", target=f"tab:{tab}").get("error") for tab in closing]
-            time.sleep(self.args.record + 0.5)
+            time.sleep(self.args.record + 0.5)  # sleep-ok: --record, the recording window after the action
             self.rec.flip(f"{label}:end")
             out.append(("rapid-close-3", {"label": label, "kind": "settled", "strip": "tab",
                                           "error": next((f"closeTab: {e}" for e in errors if e), None)}))
             left = [t for t in made if t not in closing]
-            time.sleep(0.3)
+            self.wait_tabs_gone(closing, "the three closed tabs gone")
             label = f"open-while-close/{load} round {r}"
             self.flip3(label)
             e1 = self.c.action("closeTab", target=f"tab:{left[-1]}").get("error")
             e2 = self.c.action("newSurface").get("error")
-            time.sleep(self.args.record + 0.5)
+            time.sleep(self.args.record + 0.5)  # sleep-ok: --record, the recording window after the action
             self.rec.flip(f"{label}:end")
             out.append(("open-while-close", {"label": label, "kind": "settled", "strip": "tab",
                                              "error": (f"closeTab: {e1}" if e1 else None) or (f"newSurface: {e2}" if e2 else None)}))
-        for tab in [t.get("id") for t in self.pane_tabs()[0] if t.get("id") not in tabs0]:
+        extra = [t.get("id") for t in self.pane_tabs()[0] if t.get("id") not in tabs0]
+        for tab in extra:
             self.c.action("closeTab", focus=False, target=f"tab:{tab}")
-        time.sleep(0.8)  # test script: the extra tabs close
+        self.wait_tabs_gone(extra, "the round's extra tabs closed")
         return out
 
     def foreign_over(self, label):
-        """The foreign windows that were over the content or sidebar rect at any time from the ambient span before the
-        round's leave flip to just after its end flip ([] when no watch runs or the round has no wall times)."""
+        """Every foreign window seen over the round, from the ambient span before its leave flip to just after its end
+        flip, each with its verdict ("above", "overlay", "visible", "intersects", "covers"; [] when no watch runs or the
+        round has no wall times). The round is excluded when any of them "covers" the content or sidebar rect."""
         walls = getattr(self.rec, "walls", None) or {}
         if getattr(self, "watch", None) is None or f"{label}:leave" not in walls or f"{label}:end" not in walls:
             return []
         t0 = walls[f"{label}:leave"] - settle.AMBIENT_S - 0.05
         t1 = walls[f"{label}:end"] + 0.2
-        return self.watch.log.between(t0, t1, [self.content, self.sidebar])
+        return self.watch.log.seen(t0, t1, [self.content, self.sidebar])
 
     def settle_block(self, pending, frames, flips):
         """Each pending switch of a block, judged on the block's frames: the window from its leave flip to its end flip,
@@ -956,11 +1056,17 @@ class Harness:
                 judged.append((item, {"error": item["error"]}))
                 continue
             leave, mark, end = (flips[f"{label}:{k}"] for k in ("leave", "mark", "end"))
-            covered = self.foreign_over(label)
+            seen = self.foreign_over(label)
+            covered = [w for w in seen if w.get("covers")]
+            if covered and item.get("foreign_ok"):
+                # A relaunch leaves the desktop in view by design between the quit and the new window.
+                item["behind"] = "+".join(foreign.owners(covered))
+                covered = []
             if covered:
-                # Another process's window was over the content or sidebar: these pixels measure it, not the app.
+                # Another process's window was over the content or sidebar: these pixels measure it, not the app. The
+                # record keeps every window seen in the round with its verdict, so an exclusion can be read later.
                 judged.append((item, {"label": label, "foreign_window": "+".join(foreign.owners(covered)),
-                                      "windows": covered}))
+                                      "windows": seen}))
                 say(f"  {label}: excluded, a window of {'+'.join(foreign.owners(covered))} covers the app")
                 continue
             window = self.between(frames, leave, end)
@@ -975,7 +1081,13 @@ class Harness:
                 reference = self.at(frames, flips[item["ref_flip"]]) if item.get("ref_flip") in flips else None
             else:
                 reference = self.refs.get(item.get("neighbor"))
-            switch = self.judge(window, mark, reference=reference, strip=strip)
+            if item.get("region") == "right":
+                x0, y0, x1, y1 = self.content
+                switch = judge.judge_switch(window, mark, self.rec.w, (x0 + int((x1 - x0) * 0.6), y0, x1, y1), self.rec.frame_ms,
+                                            reference=reference, strip=None, px_per_point=self.rec.scale, tolerance=self.args.tolerance)
+                switch["gate"] = "blank-only"
+            else:
+                switch = self.judge(window, mark, reference=reference, strip=strip)
             if kind == "close":
                 switch["neighbor"] = item.get("neighbor")
             if item.get("strip") == "sidebar" and getattr(self, "sidebar", None):
@@ -1007,6 +1119,7 @@ class Harness:
         switch.update({k: v for k, v in st.items() if k != "change_frames"})
         switch["change_frames"] = st.get("change_frames", [])[:20]
         switch["oddities"] = odd
+        matrix.add_region_settle(self, switch, frames, window, leave, mark, end)
 
     def run(self, loads, rounds, scenarios, agents, sessions, load_notes=None):
         """The scenario rows. A load in `load_notes` (its setup failed) and the chat scenario without a measurable chat
@@ -1032,6 +1145,10 @@ class Harness:
             if spec.get("cpu") and cpu is None:
                 cpu = CpuLoad(self.root)
             pending = []  # (scenario name, what to judge), in the order driven
+            blocks = []  # (that block's pending, frames, flips)
+            # The matrix records a block per round: CuaDriver ends a session with no tool call for a while, and one
+            # block of five rounds at Leo's scale (about 20 minutes) lost every row on a CI mini (2026-11-18).
+            per_round = any(s in scenarios for s in matrix.MATRIX_SCENARIOS)
             setup = []
             try:
                 setup = self.enter_load(spec, agents, cpu)
@@ -1050,31 +1167,61 @@ class Harness:
                         pending.append(("new-tab", new))
                         if close is not None:
                             pending.append(("close-tab", close))
+                    if "browser-split" in scenarios:
+                        pending += self.browser_split_round(load, r)
                     if any(s in scenarios for s in ("new-workspace", "switch-workspace", "close-workspace")):
                         pending += self.workspace_round(load, r)
                     if any(s in scenarios for s in ("rapid-open-5", "rapid-close-3", "open-while-close")):
                         pending += self.rapid_round(load, r)
+                    if any(s in scenarios for s in matrix.MATRIX_SCENARIOS if s not in ("new-workspace", "launch-restore")):
+                        pending += matrix.matrix_round(self, load, r, scenarios, agents)
                     say(f"  round {r} driven")
-                frames, flips = self.rec.end()
+                    if per_round:
+                        done = sum(len(b[0]) for b in blocks)
+                        frames, flips = self.rec.end()
+                        blocks.append((pending[done:], frames, flips))
+                        if r < rounds:
+                            self.rec.begin()
+                if not per_round:
+                    frames, flips = self.rec.end()
+                    blocks.append((pending, frames, flips))
             except Exception as error:  # noqa: BLE001 - this load's rows say why; the next load still records
-                for name, _item in pending or [(s, None) for s in scenarios]:
+                judged = sum(len(b[0]) for b in blocks)
+                for name, _item in pending[judged:] or [(s, None) for s in scenarios]:
                     notes.setdefault((name, load), f"{type(error).__name__}: {error}"[:600])
                 try:
                     self.rec.end()  # a block a driving fault left open
                 except Exception:  # noqa: BLE001 - it was already closed
                     pass
-                frames = None
             finally:
                 # After the block's recording: ending a load can recalibrate, which records a block of its own.
                 self.exit_load(spec, agents, cpu)
-            if frames is None:
+            if not blocks:
                 continue
-            for (name, _), (_item, switch) in zip(pending, self.settle_block([p for _, p in pending], frames, flips)):
-                if name in scenarios:
-                    if setup:
-                        switch["load_setup"] = setup
-                    rows.setdefault((name, load), []).append(switch)
-            say(f"load {load}: {len(pending)} switches judged on {len(frames)} frames")
+            for block, frames, flips in blocks:
+                for (name, _), (_item, switch) in zip(block, self.settle_block([p for _, p in block], frames, flips)):
+                    if name in scenarios:
+                        if _item.get("chat_perf") is not None:
+                            switch["chat_perf"] = _item["chat_perf"]
+                        if setup:
+                            switch["load_setup"] = setup
+                        rows.setdefault((name, load), []).append(switch)
+            say(f"load {load}: {sum(len(b[0]) for b in blocks)} switches judged on "
+                f"{sum(len(b[1]) for b in blocks)} frames in {len(blocks)} blocks")
+        for key, note in (getattr(self, "matrix_notes", None) or {}).items():
+            if key not in rows:
+                notes.setdefault(key, note)
+        if "switch-workspace-cold" in scenarios and getattr(self, "cold_note", None):
+            for load in loads:
+                notes.setdefault(("switch-workspace-cold", load), self.cold_note)
+        if "launch-restore" in scenarios:
+            # Last: each relaunch restores what the loads left. Its own block, judged as the loads' are.
+            try:
+                pending, frames, flips = matrix.launch_block(self, rounds, self.opt("launch_record", 8.0), say)
+                for (name, _), (_item, switch) in zip(pending, self.settle_block([p for _, p in pending], frames, flips)):
+                    rows.setdefault((name, "scale"), []).append(switch)
+            except Exception as error:  # noqa: BLE001 - the row says why
+                notes[("launch-restore", "scale")] = f"{type(error).__name__}: {error}"[:600]
         out = [judge.scenario_row(name, load, switches) for (name, load), switches in rows.items()]
         return out + [judge.scenario_row(name, load, [], notes=note) for (name, load), note in notes.items()]
 
@@ -1128,12 +1275,28 @@ def main(argv=None):
     parser.add_argument("--load-settle", type=float, default=5.0)
     parser.add_argument("--out", default=os.path.join(os.getcwd(), ".build/tab-switch"))
     parser.add_argument("--no-gate", action="store_true", help="exit 0 when the report is written, budgets or not")
+    parser.add_argument("--scale", default="none",
+                        help="the settle matrix's scale (tab_switch_matrix.py): leo (10,789 sessions, 206 workspaces), "
+                             "SESSIONSxWORKSPACES, or none")
+    parser.add_argument("--seeder", help="the built cmux-tui acpmux example scale_home (needed with --scale)")
+    parser.add_argument("--launch-record", type=float, default=8.0, help="seconds recorded after each relaunch")
+    parser.add_argument("--chat-perf", action="store_true",
+                        help="the settle matrix also runs the measured chat page's own capture (agent.chat.perf) over "
+                             "each step: its long tasks and layout shift say whether the page did work")
     args = parser.parse_args(argv)
     # Decoded h264 frames of one picture differ in the low bits: 16 gray levels, not 32, so noise is not a change.
     judge.QUANT = bytes(v >> 4 for v in range(256))
     loads = [x for x in args.loads.split(",") if x]
-    scenarios = list(judge.ALL_SCENARIOS) if args.scenarios == "all" else [x for x in args.scenarios.split(",") if x]
-    bad = [x for x in scenarios if x not in judge.ALL_SCENARIOS]
+    known = judge.ALL_SCENARIOS + tuple(s for s in matrix.MATRIX_SCENARIOS if s not in judge.ALL_SCENARIOS)
+    scenarios = (list(judge.ALL_SCENARIOS) if args.scenarios == "all" else list(matrix.MATRIX_SCENARIOS)
+                 if args.scenarios == "matrix" else [x for x in args.scenarios.split(",") if x])
+    bad = [x for x in scenarios if x not in known]
+    try:
+        scale = matrix.parse_scale(args.scale)
+    except ValueError as error:
+        parser.error(str(error))
+    if scale and not args.seeder:
+        parser.error("--scale needs --seeder (cargo build --release -p acpmux --example scale_home)")
     for load in loads:
         try:
             parse_load(load)
@@ -1163,6 +1326,11 @@ def main(argv=None):
         extra["bundle_version"] = subprocess.run(["defaults", "read", os.path.join(bundle, "Contents/Info"), "CFBundleVersion"],
                                                  capture_output=True, text=True).stdout.strip()
         app = App(bundle, root, smoke)
+        scale_ids = []
+        if scale:
+            # The NIGHTLY's daemon home is ~/.acpmux of the app's HOME (fresh_env: ROOT/h), written before its first exec.
+            scale_ids = matrix.seed_home(args.seeder, os.path.join(root, "h", ".acpmux"), scale[0], say)
+            extra["scale"] = {"sessions": len(scale_ids), "workspaces": scale[1]}
         app.launch()
         # The chat and the chat loads are optional: a setup fault in either leaves the terminal and page scenarios
         # measured, and names the fault on the rows it cost.
@@ -1187,13 +1355,24 @@ def main(argv=None):
                             "permissions": recorder.permissions, "recorder": "CuaDriver"}
         say(f"capture {json.dumps(extra['capture'])}")
         harness = Harness(args, app, recorder, root)
-        watch = foreign.Watch(args.tools, {app.process.pid, recorder.marker.process.pid}, recorder.window, recorder.scale)
+        watch = foreign.Watch(args.tools, {app.process.pid, recorder.marker.process.pid}, recorder.window, recorder.scale,
+                              display=recorder.display)
         if not watch.ready():
             raise Unmeasurable("the window list (tab-switch-tools windows) gave no sample: foreign windows cannot be ruled out")
         harness.watch = watch
         harness.chat_note = setup.get("chat")
         harness.long_session = session
         harness.build(session)
+        if scale:
+            made = matrix.open_scale_workspaces(harness, scale_ids, scale[1], say)
+            extra["scale"]["workspaces_shown"] = len(harness.workspace_ids())
+            extra["scale"]["opened"] = len(made)
+        if agents is not None and any(s in scenarios for s in ("chat-10k-open", "chat-10k-return")):
+            try:
+                matrix.prepare_10k(harness, agents, say)
+            except Exception as error:  # noqa: BLE001 - the chat-10k rows say why
+                harness.chat_10k_note = f"10k-row chat: {type(error).__name__}: {error}"[:300]
+                say(harness.chat_10k_note)
         extra["content_rect_px"], extra["strip_rect_px"] = harness.content, harness.strip
         extra["sidebar_rect_px"] = harness.sidebar
         extra["tabs_at_build"] = harness.tabs_at_build
@@ -1251,6 +1430,17 @@ def main(argv=None):
     for line in lines:
         print("TSW-TABLE", json.dumps(line), flush=True)
     print(settle.table_markdown(lines), flush=True)
+    if any(s in matrix.MATRIX_SCENARIOS for s in scenarios):
+        # The settle matrix: trigger to truly settled over the window, the page side and the sidebar (SETTLE lines).
+        settled = matrix.table([r for r in rows if r["name"] in matrix.MATRIX_SCENARIOS])
+        out["matrix"] = settled
+        with open(os.path.join(args.out, "report.json"), "w") as handle:
+            json.dump(out, handle, indent=1)
+        with open(os.path.join(args.out, "matrix.md"), "w") as handle:
+            handle.write(matrix.table_markdown(settled))
+        for line in settled:
+            print("SETTLE", json.dumps(line), flush=True)
+        print(matrix.table_markdown(settled), flush=True)
     say(f"pass={out['pass']} report {os.path.join(args.out, 'report.json')}")
     if status == 3:
         return 3

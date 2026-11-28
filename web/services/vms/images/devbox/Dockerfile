@@ -160,9 +160,14 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && uv --version
 
 # Media layer for agent-browser and display capture: ffmpeg for x11grab,
-# Xvfb + xdpyinfo/xprop for a headless display, xdotool, fonts for Chrome.
+# Xvfb + xdpyinfo/xprop for a headless display, xdotool, fonts for Chrome;
+# imagemagick, poppler-utils and git-lfs for people's own media, PDFs and LFS
+# repos (Leo, 2026-11-25: a chat on a folder of MP4s had no ffprobe).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    imagemagick \
+    poppler-utils \
+    git-lfs \
     xvfb \
     xauth \
     x11-utils \
@@ -170,7 +175,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     fonts-liberation \
   && rm -rf /var/lib/apt/lists/* \
-  && command -v Xvfb && command -v xdpyinfo && command -v xprop && command -v xdotool
+  && git lfs install --system --skip-repo \
+  && command -v Xvfb && command -v xdpyinfo && command -v xprop && command -v xdotool \
+  && ffprobe -hide_banner -version >/dev/null && convert -version >/dev/null && command -v pdftotext
 
 # Google Chrome stable from the official .deb (amd64 only; every provider
 # here runs amd64 sandboxes) with the managed policy (DuckDuckGo default
@@ -360,7 +367,8 @@ RUN bash -n /etc/cmux/bashrc \
 # Seed ble.sh tput caches for the TERMs cmux uses, exactly as the chatmux
 # template does (its Dockerfile carries the full rationale): without them the
 # FIRST shell on a machine prints "ble/term.sh: updating tput cache ... done"
-# into the pane before its first prompt. Both cache homes are seeded: the
+# into the pane before its first prompt, and "ble.sh: updating cache/keymap.emacs..."
+# (about 0.25 s, seconds on a slow clone) without the keymap one. Both cache homes are seeded: the
 # XDG seed copied by cmux-bashrc from /etc/cmux/blesh-cache-seed, and
 # <blesh>/cache.d for uid 0 plus the uid-1000 work user (numeric chown: the
 # provider's name for that user is not guaranteed).
@@ -376,10 +384,11 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
   && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs \
   && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
   && chmod a+rwxt /usr/local/share/blesh/cache.d \
-  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
-  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/1000/ \
   && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
   && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000
 
@@ -393,6 +402,13 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
 COPY claude-onboarding.py /etc/cmux/claude-onboarding.py
+# Claude Code user-settings defaults: messages from the person's other Claude
+# Code sessions are delivered, not held (Leo, 2026-11-18: "they shouldnt hold
+# em"). User settings, not managed ones, so the person's own value wins
+# (devboxClaudeSettingsDefaultsCommand).
+RUN python3 -I /etc/cmux/claude-onboarding.py --settings-default /root/.claude/settings.json \
+  && sudo -n -u cmux python3 -I /etc/cmux/claude-onboarding.py --settings-default /home/cmux/.claude/settings.json \
+  && python3 -c 'import json; assert all("crossSessionInbound" in (row := json.load(open(p))) and row["crossSessionInbound"] in ("accept", "hold", "refuse") for p in ["/root/.claude/settings.json", "/home/cmux/.claude/settings.json"])'
 # Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
 # own-login mode per launch (agent-auth.sh) and execs
 # /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so

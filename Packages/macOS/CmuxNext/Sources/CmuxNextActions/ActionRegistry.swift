@@ -1,5 +1,6 @@
 public import AppKit
 public import Observation
+import os
 
 /// A catalog descriptor joined with its bound handler, if any. The palette
 /// and shortcut settings list entries; unbound entries have no handler yet.
@@ -37,6 +38,11 @@ public final class ActionRegistry {
     /// does not depend on what the person focuses. Published by the App.
     @ObservationIgnored public var targetContext: (@MainActor (ActionInvocation) -> ActionContext)?
 
+    /// `app.shortcutLayout` is Keep QWERTY Positions: Command and Control shortcuts
+    /// match by US QWERTY key position (``shortcuts(for:)``). Observable so
+    /// global hot keys re-register. `SettingsApplier` sets it.
+    public var matchesQwertyPositions = false
+
     /// User shortcut overrides (from `cmux.json` `shortcuts`). A stored nil
     /// removes the default shortcut.
     public internal(set) var shortcutOverrides: [ActionID: Shortcut?] = [:] {
@@ -63,9 +69,12 @@ public final class ActionRegistry {
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
+    /// `experiments.menuStyleV2` (prototype; off is today's menus): `makeContextMenu` applies the v2
+    /// content rules (ActionRegistry+ContextMenuStyle). The NSMenu stays a real NSMenu.
+    @ObservationIgnored public var contextMenuStyleV2 = false
     /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
-    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    /// person's own choice, not `DisabledFeatures`). Owners add theirs with `addSettingOffReason` (docks, hang reports too).
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
     /// Debug-only actions: offered to the person only while Internal Developer Mode is on, to scripts
     /// wherever developer tools exist (`DebugActionGate`). The App installs the setting's read.
@@ -82,6 +91,9 @@ public final class ActionRegistry {
     @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
+    /// The rows apps add to a whole right-click menu on `target` (`contributes.menus`): drawn
+    /// after the built-in rows, before Customize Menu…, and read again at each open. The App installs it.
+    @ObservationIgnored public var contributedMenuItems: (@MainActor (ActionMenuContext, ActionTargetRef) -> [NSMenuItem])?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -125,6 +137,9 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument's choices submenu items when the App lists them live (the installed editors of
+    /// Open In ▸) instead of the catalog's `pinned`; nil for a source it does not list, which keeps `pinned`.
+    @ObservationIgnored public var menuChoices: (@MainActor (String) -> [ActionEnumCase]?)?
     /// A suggested argument whose values are not read yet (a list the daemon has not answered):
     /// the load that answers them, which the palette's step awaits under its loading state instead
     /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.
@@ -134,10 +149,10 @@ public final class ActionRegistry {
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
-    /// The current value of a choices submenu's argument for a target, shown
-    /// with a checkmark.
+    /// The current value of a choices submenu's argument for a target, shown with a checkmark.
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
     @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
+    @ObservationIgnored public let rowSubmenus = ActionRowSubmenus() // Screen Sharing ▸ (ActionRowSubmenus.swift)
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
@@ -194,6 +209,8 @@ public final class ActionRegistry {
     @ObservationIgnored var capturedResults: [ActionResultWork]?
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
+    /// Keycaps read with no kept answer (``shortcutKeycaps(for:)``), for the cache tests.
+    @ObservationIgnored internal(set) var keycapsBuilds = 0
     @ObservationIgnored var shortcutIndex: ShortcutIndex? {
         didSet { if shortcutIndex == nil { askToWarmBindingTable() } }
     }
@@ -299,6 +316,16 @@ public final class ActionRegistry {
     /// ``bindUnavailable(_:reason:)`` placeholder is no duplicate; anything else bound twice is.
     public private(set) var duplicateBindings: [ActionID] = []
     private var placeholders: Set<ActionID> = []
+    /// Inside ``bindingFallbacks(_:_:)``: each bind is a fallback a later bind replaces, as a placeholder.
+    @ObservationIgnored private var bindsFallbacks = false
+
+    /// Runs `binds`; when `fallback`, each binding it makes is one a later bind replaces with no duplicate (the
+    /// catalog request rows at launch, before the binders the App runs after its first frame).
+    public func bindingFallbacks(_ fallback: Bool, _ binds: () -> Void) {
+        bindsFallbacks = fallback
+        defer { bindsFallbacks = false }
+        binds()
+    }
 
     /// Ids a handler tried to bind that the catalog does not have, in bind order: a typo, or an
     /// action the Rust source has that the pinned app FFI release does not carry yet (a Swift
@@ -307,6 +334,14 @@ public final class ActionRegistry {
     /// trapped: a Debug build must still launch on a catalog that lags its Swift; the app logs a
     /// fault.
     public private(set) var uncataloguedBindings: [ActionID] = []
+
+    /// One owner per action, and every bound id in the catalog: tests check both (`noActionIsBoundTwice`,
+    /// `everyBoundActionIsInTheCatalog`); at runtime a Debug dogfood build must not crash, so only a fault.
+    public func logBindingProblems() {
+        for (problem, ids) in [("bound twice", duplicateBindings), ("not in the catalog, left unbound", uncataloguedBindings)] where !ids.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions \(problem, privacy: .public): \(ids.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        }
+    }
 
     /// The descriptor a bind takes for `id`, or nil (noting `id` in ``uncataloguedBindings``)
     /// when the catalog does not have it.
@@ -321,7 +356,7 @@ public final class ActionRegistry {
     func noteBinding(_ id: ActionID, placeholder: Bool) {
         let canonical = canonicalID(for: id)
         if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
-        if placeholder { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
+        if placeholder || bindsFallbacks { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
     }
 
     /// Registers `action`, replacing any action with the same ID. Legacy IDs

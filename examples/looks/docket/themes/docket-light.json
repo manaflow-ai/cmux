@@ -1,0 +1,150 @@
+// Docket Light: the same dense, calm issue-tracker look on white. A pale cool sidebar (#fdfeff)
+// beside a white, hairline-outlined panel, near-black text (#282A2F) with gray steps (#6C6F75), and
+// the same indigo (#5E6AD2) for focus, the selected mark and links. Inter type at 13 px, 28 px
+// sidebar rows, a 220 px sidebar, quick ease-out motion.
+{
+  "name": "Docket Light",
+  "description": "Light: a pale sidebar, one white outlined panel, one indigo.",
+
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  // background: white. foreground: the list's titles (#282A2F, sampled). selection: the indigo at
+  // about a seventh over white. accent: the indigo.
+  "colors": { "background": "#ffffff", "foreground": "#282a2f", "selection": "#dfe1f7", "accent": "#5e6ad2" },
+  "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a muted chroma, each solved in OKLCH over the page (5.2:1, the bright ones
+  // 4.7:1, 7 the gray 4.8:1, 15 3:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #ffffff",
+    "foreground = #282a2f",
+    "cursor-color = #5e6ad2",
+    "cursor-text = #ffffff",
+    "selection-background = #dfe1f7",
+    "selection-foreground = #282a2f",
+    "palette = 0=#282a2f",
+    "palette = 1=#a25752",
+    "palette = 2=#3d7948",
+    "palette = 3=#856919",
+    "palette = 4=#476da6",
+    "palette = 5=#8f5a8e",
+    "palette = 6=#04787e",
+    "palette = 7=#6e7279",
+    "palette = 8=#878b93",
+    "palette = 9=#b05b4c",
+    "palette = 10=#2b8350",
+    "palette = 11=#906f05",
+    "palette = 12=#5272b8",
+    "palette = 13=#a05c94",
+    "palette = 14=#04808b",
+    "palette = 15=#939599"
+  ],
+
+  // Material: opaque. No wallpaper, no glass: the calm comes from flat tone steps.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: the work sits in one rounded panel with a hairline outline, inset 8 px from the window,
+  // beside the pale sidebar.
+  "appearance.chromeStyle": "card-outlined",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.focusIndicator": "border",
+  "appearance.density": "compact",
+  // Pending cmux#46780: the view switchers (Priority 4 / Other 12) are capsules.
+  // "appearance.tabShape": "rounded",
+  // Pending cmux#46516: the selected sidebar row is a neutral gray fill (#F1F3F8), never a colored one.
+  // "appearance.selection": "neutral",
+
+  // Proportions, measured on the captures (a 1.2x desktop capture: 263 px sidebar, 35 px item pitch,
+  // 53 px list rows, a 67 px view header): a 220 px sidebar with 28 px rows, 13 px chrome text, a
+  // 44 px title area, 32 px view switchers with 13 px labels, an 8 px inset around the panel and
+  // 1 px hairlines.
+  "appearance.metrics.titlebarHeight": 44,
+  "appearance.metrics.sidebarWidth": 220,
+  "appearance.metrics.sidebarRowHeight": 28,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 32,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 200,
+  "appearance.metrics.tabMinActiveWidth": 120,
+  "appearance.metrics.tabMinInactiveWidth": 80,
+  "appearance.metrics.columnGap": 8,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar a cool step under white (#fdfeff: the light list's group band, #F5F6F8, lightened
+  // so a selected row's captions read at 4.5:1), no
+  // edge line: the panel's outline is the only line. Plain gray section labels ("Your teams").
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#fdfeff",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": false,
+  "sidebar.sectionLook": "quiet",
+
+  // The panel and everything read inside it white; the tab strip, docks and the browser bar on the
+  // sidebar's cool gray; the outline and splits in a hairline (#E3E4E8: the sampled #EFEFF0 a step
+  // darker, so it still shows on white).
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#fdfeff",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#fdfeff",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#fdfeff",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.editor.color": "#ffffff",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#ffffff",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#ffffff",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#e3e4e8",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages: white, as its settings and onboarding pages are.
+  "appearance.surfaces.settings.color": "#ffffff",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#ffffff",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#ffffff",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#ffffff",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: the tracker's state glyph is a ring that fills as work moves (the half-filled
+  // in-progress circle), so work in progress is a thin arc.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.thickness": 1.5,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  "browser.omnibar.glass": "off",
+
+  // Motion: keyboard-first and quick: the fast speed, short ease-out color changes.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeOut",
+  "appearance.colorTransition.duration": 150,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "instant",
+
+  // The terminal face: SF Mono, the system's monospaced face beside Inter.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13
+
+  // Pending cmux#46861 (layout and proportions): two-line inbox rows of 44 px, 8 px row insets, 28 px toolbar buttons with a 6 px corner and a faint active fill, the view header's hairline, a tall prompt box. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 44,
+  // "appearance.metrics.sidebarRowInset": 8,
+  // "appearance.metrics.sidebarRowPadding": 8,
+  // "appearance.metrics.sidebarRowGap": 1,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 4,
+  // "appearance.metrics.toolbarButtonCornerRadius": 6,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.08,
+  // "appearance.metrics.headerDivider": 1,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 64,
+  // "appearance.metrics.spacingScale": 0.9,
+}

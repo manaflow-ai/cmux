@@ -14,6 +14,36 @@ import Testing
 /// own: the workspace is pinned there, the window shows it, and the window it left keeps its space.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct MovedWindowOwnSpaceTests {
+    @Test func scriptedChatOpensInEachFrontmostWindowWithoutChangingEitherSpace() async throws {
+        try await AppHarnessWindows.withApp { services, _ in
+            let windows = services.windows
+            let first = try #require(windows.active)
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "open-workspace-test")
+            services.agentTabs.holdsTabs = { _ in true }
+            #expect(services.registry.perform("newWindow", invocation: ActionInvocation(origin: .script)))
+            try await PinnedPageTests.until({ windows.controllers.count == 2 }, report: { "second window did not open" })
+            let second = try #require(windows.controllers.first { $0 !== first })
+            services.keyWindowSource = { nil }
+            windows.isOnScreen = { _ in true }
+            let rooms = [first.state.profileID, second.state.profileID]
+            #expect(rooms[0] != rooms[1])
+            for (front, other) in [(second, first), (first, second)] {
+                windows.windowDidOrder(try #require(front.window), inFront: true)
+                let key = WorkspaceKey.generate()
+                let request = ActionInvocation(arguments: ["session": .string("chat-" + key.rawValue), "key": .string(key.rawValue)], origin: .script)
+                let work = services.registry.capturingWork {
+                    #expect(services.registry.perform("agent.openSessionWorkspace", invocation: request))
+                }
+                for task in work { let failure = await task.value; #expect(failure == nil) }
+                try await PinnedPageTests.until({ windows.registry.members(of: front.state.id).contains(key.rawValue) },
+                                                report: { "chat did not appear in the frontmost window" })
+                #expect(!windows.registry.members(of: other.state.id).contains(key.rawValue))
+                #expect(windows.controllers.count == 2)
+                #expect([first.state.profileID, second.state.profileID] == rooms)
+            }
+        }
+    }
+
     @Test func aWorkspaceMovedToANewWindowGetsASpaceOfItsOwn() async throws {
         try await AppHarnessWindows.withApp { services, _ in
             let workspace = try await MoveToNewWindowTests.newWorkspace(services)
@@ -51,7 +81,7 @@ struct MovedWindowOwnSpaceTests {
                 : (ActionTargetKind.workspace, workspace.id)
             let staying = (services.windows.registry.value.window(source)?.ownedIDs ?? []).filter { $0 != workspace.id }
             #expect(!staying.isEmpty, "the source keeps a workspace of its own")
-            #expect(services.registry.perform(action, invocation: MoveToNewWindowTests.on(kind, target)))
+            #expect(services.registry.perform(ActionID(rawValue: action), invocation: MoveToNewWindowTests.on(kind, target)))
             @MainActor func moved() -> WindowRegistry.Window? {
                 services.windows.registry.value.openWindows.first { $0.id != source }
             }
@@ -66,7 +96,8 @@ struct MovedWindowOwnSpaceTests {
             #expect(Set(landed.workspaceIDs).isDisjoint(with: staying))
             // The source keeps its space and its workspaces, none of them pinned to the new window's space.
             #expect(services.windows.states[source]?.profileID == sourceSpace)
-            #expect(Set(services.windows.registry.value.window(source)?.ownedIDs ?? []).isSuperset(of: staying))
+            let kept = Set(services.windows.registry.value.window(source)?.ownedIDs ?? [])
+            #expect(kept.isSuperset(of: staying))
             #expect(WindowProfiles.visible(staying, profile: sourceSpace, machines: services.machines) == staying)
             let newSpace = try #require(services.windows.states[landed.id]?.profileID)
             #expect(WindowProfiles.visible(staying, profile: newSpace, machines: services.machines).isEmpty)

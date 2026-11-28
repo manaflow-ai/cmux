@@ -35,6 +35,10 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The transcript's open folds (tool cards, thoughts, "Worked for", subagent groups), handed back so
     /// a page built again opens them as they were (webviews conversation/wakeFolds.ts, bounded there).
     public var folds: Folds?
+    /// The subagent a subagent's pane showed (webviews App.tsx `subagentPaneNow`), or its background
+    /// tasks: the page built again shows it, never the chat it came from. Its `subagent:` reveal was
+    /// the first page's only.
+    public var subagentPane: String?
 
     /// The shown chat's open folds by id, as the page keeps them (App.tsx `expanded`, `openedGroups`, `viewToggles`).
     public nonisolated struct Folds: Codable, Sendable, Equatable {
@@ -98,7 +102,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
                 scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
                 holdsPageState: Bool? = nil, subagentDrafts: [String: SubagentDraft]? = nil,
-                holdsEdits: Bool? = nil, folds: Folds? = nil) {
+                holdsEdits: Bool? = nil, folds: Folds? = nil, subagentPane: String? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
@@ -109,12 +113,29 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         self.subagentDrafts = subagentDrafts
         self.holdsEdits = holdsEdits
         self.folds = folds
+        self.subagentPane = subagentPane
     }
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
         (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
             && holdsPrompts != true && holdsPageState != true && (subagentDrafts ?? [:]).isEmpty && folds?.isEmpty != false
+            && (subagentPane ?? "").isEmpty
+    }
+
+    /// It holds only where the transcript rested: a released idle chat opening again may take the
+    /// prewarmed spare page (``AgentPaneSpareAdoption``), whose adopt event carries that place (``place``).
+    public var holdsOnlyPlace: Bool {
+        var rest = self
+        (rest.scrollAnchor, rest.atLatest) = (nil, nil)
+        return rest.isEmpty
+    }
+
+    /// Where the transcript rested, as the spare's adopt event takes it: `.some(nil)` at its latest
+    /// message, nil when unknown (the tab's kept place stands).
+    public var place: AgentPaneScrollAnchor?? {
+        if let scrollAnchor { return .some(scrollAnchor) }
+        return atLatest == true ? .some(nil) : nil
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)

@@ -1,0 +1,84 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/basalt-look",
+  "name": "Basalt",
+  "tagline": "Dark and quiet, with your repos in the sidebar.",
+  "description": "A dark, quiet window whose sidebar groups your chats by repository, with a framed prompt and a steel-blue accent. Includes a light version. Remove it and everything you had comes back.",
+  "version": "1.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-basalt-look",
+  "screenshots": ["screenshots/basalt-dark.png", "screenshots/basalt-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "basalt",
+
+    // The rest of cmux in the same hand. The Markdown viewer: the system face, 15 px at the chat's
+    // 1.6 line height and code scale, in a column as wide as the chat's (760 px is about 92
+    // characters).
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.6,
+    "markdown.code.scale": 0.9,
+    "markdown.layout.width": 92,
+    // Diffs in the theme's own red and green, with a bar at each changed line.
+    "diff.colors": "theme",
+    "diff.diffIndicators": "bars",
+    // Sidebar group colors from the theme's own palette (the theme files' terminal colors).
+    "sidebar.groupPalette": "theme",
+
+    // The chat: the system font throughout, 15 px replies on a 24 px line (1.6), code at 0.9 in the
+    // chat's monospace, a 760 px column (the measured prompt box), no minimap.
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.6,
+    "agentPane.display.code.scale": 0.9,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    // Progressive disclosure: thoughts and tool calls fold into one line ("Explored 5 files") you
+    // can open.
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.harnessPlacement": "symbols",
+    // The branch and "This Mac" pickers sit under the composer, at its left.
+    "agentPane.display.environment.placement": "left",
+    // The right rail ("On todo-app": Changes, Browser, Terminal) pushes the chat aside.
+    "agentPane.display.sessionInfo.placement": "push",
+    // "1 File Changed" with Review closes each turn, scoped to that turn ("Last Agent Turn").
+    "agentPane.editedFiles.show": "always",
+    "agentPane.editedFiles.scope": "turn",
+    "agentPane.composerRing": "context",
+    "agentPane.newChatsIn": "local",
+    // Pending cmux#46738: no composer look matches the editor's (auto, codex, claude); a bordered
+    // box with + and the model at the left of its single line is the gap.
+    // "agentPane.composerLook": "auto",
+
+    // The sidebar: chats under their repository, plain gray headings, one line per chat with a
+    // status dot and its age at the right, pin and archive shown on hover.
+    // Pending cmux#46805: no matching sidebar look exists (cmux, claude, codex, studio).
+    // "sidebar.look": "cmux",
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "folder",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.chromeGroups": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showTimestamps": true,
+    "sidebar.controlsOnHover": true,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": false,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.layout": "compact",
+    "sidebar.hoverCards.delay": 500,
+
+    // The browser's address field: a 6 px rounded rectangle, no shadow.
+    "browser.omnibar.cornerRadius": 6,
+    "browser.omnibar.shadow": false
+  }
+}

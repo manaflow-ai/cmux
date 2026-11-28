@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use super::*;
 
-/// Lawrence's daemon had 170 agents in 826 workspaces (2026-11-10).
+/// A large session had 170 agents in 826 workspaces (2026-11-10).
 const MAX_AGENTS: usize = 170;
 const TURN_MS: u64 = 3 * 60 * 60 * 1000;
 /// One tool report of each agent per simulated 30 s.

@@ -46,10 +46,19 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var badgeSize: CGFloat
     /// How a hovered tab's x takes its status's slot.
     public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
+    /// The theme's close button colors (`appearance.tabClose.*`); unset is today's.
+    public var closeColors = ThemeFlourishes.TabClose()
     /// How a busy tab with unread output draws; nil follows `TabTunables.busyUnreadMark`.
     public var busyUnreadMark: TabBusyUnreadMark?
     /// Where a titled tab's trailing status mark sits; nil follows `TabTunables.statusMarkPlacement`.
     public var statusMarkPlacement: TabStatusMarkPlacement?
+    /// `experiments.agentBadges`: an agent chat tab's count pill and its reserved slot (TabCell+CountPill). Read
+    /// with the tokens, so a change relays the strip out (`startObservingTokens`).
+    public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (off by default): a terminal agent's tab draws its mark on the soft rounded
+    /// square (`TabIcon.terminalAgentMark`); off, it draws the bare mark as a GUI agent chat does. Read with the tokens,
+    /// so flipping the switch redraws the strip live.
+    public var terminalAgentMarks = false
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -130,8 +139,11 @@ public struct TabStripMetrics: Equatable, Sendable {
 
     /// Title room a crowded tab keeps beyond ``faviconCloseWidth``: about four characters of its title,
     /// faded, at rest (Lawrence msg 19596: 26 tabs showed "…" alone, "not very helpful"). The default
-    /// minimum tab width is the sum (`MetricTunables.tabMinInactiveWidth`).
-    public static let crowdedTitleRoom: CGFloat = 24
+    /// minimum tab width is the sum (`MetricTunables.tabMinInactiveWidth`). 32, not 24 (Leo 2026-11-27, ask ask-3729c9c563:
+    /// "why dont your tabs have any names/letters showing up?"): the x (hover) and a status mark (a working agent) each
+    /// take the trailing slot, which left 18 pt of a 24 pt room, under the 3-character floor that hides a sliver
+    /// (`TabCell.layoutTitle`), so a busy or hovered tab at the minimum never showed its title.
+    public static let crowdedTitleRoom: CGFloat = 32
 
     /// The default narrowest inactive tab: the favicon, the close button and ``crowdedTitleRoom``.
     public var crowdedMinimumWidth: CGFloat { faviconCloseWidth + Self.crowdedTitleRoom }
@@ -210,12 +222,14 @@ public struct TabStripMetrics: Equatable, Sendable {
         // The first and last pills keep one gap to the strip's ends at every density (`Metrics.tabStripEndGap`).
         stripHorizontalPadding = Metrics.tabStripEndGap
         stripTopOutset = Metrics.stripTopOutset
-        // The chrome's one button size (`TitlebarBandButton.side`), as the pane's tools beside it.
-        newTabButtonWidth = TitlebarBandButton.side
+        // The tab bar controls' one square, a tab tall (`Metrics.tabBarControlSide`), as the pane's ⋮ and tools beside it.
+        newTabButtonWidth = Metrics.tabBarControlSide
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
-        cornerRadius = Metrics.tabCornerRadius
+        // `appearance.tabShape` rounded: a capsule, half the tab's height (block keeps the tab's corner).
+        cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
+                                                                       tabHeight: Metrics.tabHeight)
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
@@ -227,6 +241,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        closeColors = DesignSettings.shared.flourishes.tabClose
+        agentBadges = DesignSettings.shared.agentBadges
+        terminalAgentMarks = DesignSettings.shared.terminalAgentMarks
     }
 
     /// Token-derived metrics for the current density.

@@ -18,8 +18,17 @@
 //! session whose snapshot is megabytes and whose tabs change state every few
 //! seconds then costs a bounded number of bytes an hour, not one whole file
 //! per change.
+//!
+//! Two things write the file at once, with no settle, delay or byte-budget
+//! wait: the close of a connection that wrote a native frontend projection
+//! (the app quit, was force quit, crashed or was killed), and an explicit
+//! `flush-launch-snapshot` (`launch-snapshot-flush-v1`). The writer wakes and
+//! writes on that pass, so a quick relaunch on the same daemon draws the
+//! window records the app saved last, not the write before them. Everything
+//! else keeps the timing above.
 
 use crate::panic_free::RecoverPoison;
+use std::sync::Condvar;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
@@ -27,15 +36,110 @@ use std::thread::JoinHandle;
 use super::*;
 use crate::MuxEventReceiver;
 
-/// The file name inside the session's state directory.
-pub const LAUNCH_SNAPSHOT_FILE: &str = "launch-snapshot.json";
+pub(crate) use crate::server_protocol::LAUNCH_SNAPSHOT_FILE;
 const LAUNCH_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
-/// A snapshot larger than this drops its projections, then is not written.
-/// The app reads the file before it connects (`LaunchSnapshot.maximumBytes`).
-pub(crate) const MAX_LAUNCH_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) use crate::server_protocol::MAX_LAUNCH_SNAPSHOT_BYTES;
 /// Failed writes back off (a full disk must not turn into a write loop).
 const WRITE_RETRY_INITIAL: Duration = Duration::from_secs(1);
 const WRITE_RETRY_MAX: Duration = Duration::from_secs(60);
+/// How long `flush-launch-snapshot` waits for its write before it answers
+/// `flushed:false` (the write still happens; a quit does not wait for it).
+pub(crate) const LAUNCH_SNAPSHOT_FLUSH_WAIT: Duration = Duration::from_secs(1);
+
+/// Requests for an immediate write (`flush-launch-snapshot`) and their
+/// answers. The Mux holds it while the writer runs.
+pub(crate) struct LaunchSnapshotFlush {
+    /// The writer's events, to wake it (replaced in place when it resubscribes).
+    events: Arc<Mutex<MuxEventReceiver>>,
+    state: Mutex<FlushState>,
+    answered: Condvar,
+}
+
+#[derive(Default)]
+struct FlushState {
+    /// The newest request, and the newest one a write pass answered.
+    requested: u64,
+    answered: u64,
+    /// Whether that pass left the file holding the current snapshot.
+    current: bool,
+    /// The writer stopped: nothing answers a later request.
+    stopped: bool,
+    /// Open connections that wrote a native frontend projection.
+    writers: HashSet<u64>,
+}
+
+impl LaunchSnapshotFlush {
+    fn new(events: Arc<Mutex<MuxEventReceiver>>) -> Self {
+        Self { events, state: Mutex::new(FlushState::default()), answered: Condvar::new() }
+    }
+
+    /// Asks the writer to write now and waits up to `wait` for it. True once
+    /// the file holds the snapshot as of this request (written now, or
+    /// already the same); false when the write failed, the writer stopped or
+    /// `wait` passed.
+    pub(crate) fn flush(&self, wait: Duration) -> bool {
+        let Some(ticket) = self.request() else { return false };
+        let deadline = Instant::now() + wait;
+        let mut state = self.state.lock().recover_poison();
+        while state.answered < ticket && !state.stopped {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            state = self.answered.wait_timeout(state, remaining).recover_poison().0;
+        }
+        state.answered >= ticket && state.current
+    }
+
+    /// Asks for an immediate write and wakes the writer; its ticket, or None
+    /// once the writer stopped.
+    fn request(&self) -> Option<u64> {
+        let ticket = {
+            let mut state = self.state.lock().recover_poison();
+            if state.stopped {
+                return None;
+            }
+            state.requested += 1;
+            state.requested
+        };
+        self.events.lock().recover_poison().wake();
+        Some(ticket)
+    }
+
+    /// `client` wrote a native frontend projection (`put-frontend-projection`):
+    /// it is the frontend whose window records the snapshot carries.
+    pub(crate) fn projection_writer(&self, client: u64) {
+        self.state.lock().recover_poison().writers.insert(client);
+    }
+
+    /// A connection closed. When it wrote a native frontend projection (the
+    /// app quit, was force quit, crashed or was killed: each closes its
+    /// socket), the writer writes at once, as on `flush-launch-snapshot`,
+    /// so a relaunch draws the records it saved last. Nothing waits for it.
+    pub(crate) fn client_left(&self, client: u64) {
+        let wrote = self.state.lock().recover_poison().writers.remove(&client);
+        if wrote {
+            let _ = self.request();
+        }
+    }
+
+    /// The newest unanswered request, if any.
+    fn pending(&self) -> Option<u64> {
+        let state = self.state.lock().recover_poison();
+        (state.requested > state.answered).then_some(state.requested)
+    }
+
+    fn answer(&self, ticket: u64, current: bool) {
+        let mut state = self.state.lock().recover_poison();
+        state.answered = state.answered.max(ticket);
+        state.current = current;
+        self.answered.notify_all();
+    }
+
+    fn stop(&self) {
+        self.state.lock().recover_poison().stopped = true;
+        self.answered.notify_all();
+    }
+}
 
 /// When the writer writes after a change.
 #[derive(Debug, Clone, Copy)]
@@ -73,6 +177,7 @@ pub struct LaunchSnapshotWriter {
     writes: Arc<AtomicU64>,
     bytes: Arc<AtomicU64>,
     mux: Weak<Mux>,
+    flush: Arc<LaunchSnapshotFlush>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -102,8 +207,10 @@ impl LaunchSnapshotWriter {
     fn signal_stop(&self) {
         self.stop.store(true, Ordering::Release);
         self.events.lock().recover_poison().close();
+        self.flush.stop();
         if let Some(mux) = self.mux.upgrade() {
             mux.set_launch_snapshot_path(None);
+            mux.set_launch_snapshot_flush(None);
         }
     }
 }
@@ -142,6 +249,8 @@ pub fn start_launch_snapshot_writer_with(
     let thread_bytes = bytes.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().recover_poison().clone();
+    let flush = Arc::new(LaunchSnapshotFlush::new(events.clone()));
+    let thread_flush = flush.clone();
     let thread =
         std::thread::Builder::new().name("mux-launch-snapshot".into()).spawn(move || {
             // Write once at start, so a relaunch finds the current layout even
@@ -159,6 +268,14 @@ pub fn start_launch_snapshot_writer_with(
                 if thread_stop.load(Ordering::Acquire) {
                     break;
                 }
+                // A flush request writes on this pass: what is queued is in
+                // the snapshot it computes, and no settle, delay, retry or
+                // byte-budget wait holds it back.
+                let urgent = thread_flush.pending();
+                if urgent.is_some() {
+                    while thread_events.try_recv().is_ok() {}
+                    dirty_since.get_or_insert_with(Instant::now);
+                }
                 let now = Instant::now();
                 let due = dirty_since.map(|first| {
                     let settled = last_change + timing.settle;
@@ -167,11 +284,13 @@ pub fn start_launch_snapshot_writer_with(
                     let due = retry_at.map_or(due, |retry_at| due.max(retry_at));
                     budget_at.map_or(due, |budget_at| due.max(budget_at))
                 });
-                if let Some(due) = due
-                    && now >= due
-                {
+                if urgent.is_some() || due.is_some_and(|due| now >= due) {
                     let Some(mux) = weak.upgrade() else { break };
-                    match write_launch_snapshot(&mux, &thread_path) {
+                    let result = write_launch_snapshot(&mux, &thread_path);
+                    if let Some(ticket) = urgent {
+                        thread_flush.answer(ticket, result.is_ok());
+                    }
+                    match result {
                         Ok((dropped, written)) => {
                             if written > 0 {
                                 budget_at = Some(
@@ -235,8 +354,10 @@ pub fn start_launch_snapshot_writer_with(
                 thread_bytes.fetch_add(written as u64, Ordering::AcqRel);
                 thread_writes.fetch_add(1, Ordering::AcqRel);
             }
+            thread_flush.stop();
         })?;
     mux.set_launch_snapshot_path(Some(path.clone()));
+    mux.set_launch_snapshot_flush(Some(flush.clone()));
     Ok(Some(LaunchSnapshotWriter {
         path,
         stop,
@@ -244,8 +365,16 @@ pub fn start_launch_snapshot_writer_with(
         writes,
         bytes,
         mux: Arc::downgrade(mux),
+        flush,
         thread: Some(thread),
     }))
+}
+
+/// `flush-launch-snapshot`: writes the launch snapshot now and answers once it
+/// landed (`flushed:true`), or after [`LAUNCH_SNAPSHOT_FLUSH_WAIT`], or at
+/// once without a writer (`flushed:false`).
+pub(super) fn flush_command(mux: &Mux) -> anyhow::Result<Value> {
+    Ok(json!({"flushed": mux.flush_launch_snapshot(LAUNCH_SNAPSHOT_FLUSH_WAIT)}))
 }
 
 /// How long the writer waits after it wrote `written` bytes.
@@ -451,404 +580,5 @@ mod size_tests;
 mod budget_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::SurfaceOptions;
-
-    fn temp_root(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "cmux-launch-snapshot-{name}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ))
-    }
-
-    fn read_snapshot(path: &Path) -> Option<Value> {
-        serde_json::from_slice(&std::fs::read(path).ok()?).ok()
-    }
-
-    /// Waits until the snapshot file satisfies `accept` (the writer settles
-    /// on its own schedule; tests may wait).
-    fn wait_for_snapshot(path: &Path, accept: impl Fn(&Value) -> bool) -> Value {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            if let Some(snapshot) = read_snapshot(path)
-                && accept(&snapshot)
-            {
-                return snapshot;
-            }
-            assert!(Instant::now() < deadline, "snapshot never matched: {:?}", read_snapshot(path));
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    fn workspace_names(snapshot: &Value) -> Vec<String> {
-        snapshot["tree"]["workspaces"]
-            .as_array()
-            .map(|workspaces| {
-                workspaces
-                    .iter()
-                    .filter_map(|workspace| workspace["name"].as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// Over its bound, the snapshot leaves out the largest projections first,
-    /// only as many as it must, and names them.
-    #[test]
-    fn an_oversized_snapshot_drops_the_largest_projections_first() {
-        let projection = |subject: &str, bytes: usize| {
-            json!({"frontend":"cmux-next","scope":"personal","subject_key":subject,
-                   "projection":{"pad":"x".repeat(bytes)}})
-        };
-        let big = MAX_LAUNCH_SNAPSHOT_BYTES / 2;
-        let mut value = json!({"tree":{},"frontend_projections":[
-            projection("windows", 1000),
-            projection("history", big),
-            projection("bookmarks", big),
-        ]});
-        let bytes = serde_json::to_vec(&value).unwrap().len();
-        assert!(bytes > MAX_LAUNCH_SNAPSHOT_BYTES);
-        let dropped = drop_largest_projections(&mut value, bytes);
-        assert_eq!(dropped.len(), 1, "only as many as needed: {dropped:?}");
-        assert!(dropped[0].ends_with("/history") || dropped[0].ends_with("/bookmarks"));
-        assert!(serde_json::to_vec(&value).unwrap().len() <= MAX_LAUNCH_SNAPSHOT_BYTES);
-        let kept: Vec<_> = value["frontend_projections"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|p| p["subject_key"].as_str().unwrap().to_string())
-            .collect();
-        assert!(kept.contains(&"windows".to_string()), "the small window state is kept: {kept:?}");
-    }
-
-    #[test]
-    fn cmux_next_launch_snapshot_follows_the_tree_after_it_settles() {
-        let root = temp_root("tree");
-        let mux =
-            Mux::open_persistent("launch-snapshot-tree", SurfaceOptions::default(), &root).unwrap();
-        let writer = start_launch_snapshot_writer_with(
-            &mux,
-            LaunchSnapshotTiming {
-                settle: Duration::from_millis(50),
-                max_delay: Duration::from_millis(500),
-                max_bytes_per_second: u64::MAX,
-            },
-        )
-        .unwrap()
-        .expect("a persistent session has a snapshot path");
-        let path = writer.path().to_path_buf();
-        assert_eq!(path.file_name().unwrap(), "launch-snapshot.json");
-        assert_eq!(mux.launch_snapshot_path().as_deref(), Some(path.as_path()));
-
-        let identify = run_command(&mux, json!({"cmd":"identify"}));
-        assert!(
-            identify["capabilities"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|capability| capability == LAUNCH_SNAPSHOT_CAPABILITY)
-        );
-        assert_eq!(identify["launch_snapshot_path"], json!(path.to_string_lossy()));
-
-        let placement = mux.create_empty_workspace(Some("first".into()), None, None).unwrap();
-        let snapshot = wait_for_snapshot(&path, |snapshot| {
-            workspace_names(snapshot).contains(&"first".to_string())
-        });
-        assert_eq!(snapshot["schema_version"], json!(1));
-        assert_eq!(snapshot["app"], json!("cmux-tui"));
-        assert_eq!(snapshot["session"], json!("launch-snapshot-tree"));
-        let (registry_id, generation) = mux.registry_identity();
-        assert_eq!(snapshot["registry_id"], json!(registry_id));
-        assert_eq!(snapshot["generation"], json!(generation));
-        assert!(snapshot["written_at_ms"].as_u64().is_some());
-        // The tree is the list-workspaces reply, so frontends decode it with
-        // the decoder they already have.
-        let listed = run_command(&mux, json!({"cmd":"list-workspaces"}));
-        assert_eq!(snapshot["tree"]["workspaces"], listed["workspaces"]);
-
-        assert!(mux.rename_workspace(placement.workspace, "renamed".into()));
-        wait_for_snapshot(&path, |snapshot| {
-            workspace_names(snapshot) == vec!["renamed".to_string()]
-        });
-
-        // Written atomically: no temporary file is left next to it.
-        let leftovers = std::fs::read_dir(path.parent().unwrap())
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry.file_name().to_string_lossy().starts_with("launch-snapshot.json.")
-            })
-            .count();
-        assert_eq!(leftovers, 0);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode, 0o600, "tab titles and paths are private to the user");
-        }
-
-        drop(writer);
-        mux.shutdown();
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// The app draws the Pinned band from the snapshot before it connects
-    /// (Lawrence 2026-10-29: pins came back minutes after an update), so the
-    /// snapshot holds the sidebar document as `sidebar.get` returns it, and a
-    /// pin rewrites it.
-    #[test]
-    fn cmux_next_launch_snapshot_carries_the_sidebar_document() {
-        let root = temp_root("sidebar-doc");
-        let mux =
-            Mux::open_persistent("launch-snapshot-sidebar-doc", SurfaceOptions::default(), &root)
-                .unwrap();
-        let writer = start_launch_snapshot_writer_with(
-            &mux,
-            LaunchSnapshotTiming {
-                settle: Duration::from_millis(50),
-                max_delay: Duration::from_millis(500),
-                max_bytes_per_second: u64::MAX,
-            },
-        )
-        .unwrap()
-        .unwrap();
-        let request = |operation: &str, params: Value, key: Option<&str>| {
-            let mut params = params;
-            params["machine"] = json!("current");
-            params["session"] = json!("current");
-            let mut envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":operation,
-                                      "operation":operation,"params":params});
-            if let Some(key) = key {
-                envelope["idempotency_key"] = json!(key);
-            }
-            let response =
-                crate::resource_router::handle_resource_message(&mux, &envelope.to_string())
-                    .unwrap();
-            assert_eq!(response["ok"], true, "{operation}: {response}");
-            response["result"].clone()
-        };
-        mux.create_empty_workspace(Some("pinned-one".into()), None, None).unwrap();
-        let doc = request("sidebar.get", json!({}), None);
-        let item = doc["items"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|item| item["body"]["type"] == "workspace")
-            .map(|item| item["id"].clone());
-        let item = match item {
-            Some(item) => item,
-            None => {
-                let (registry_id, _) = mux.registry_identity();
-                let listed = run_command(&mux, json!({"cmd":"list-workspaces"}));
-                let workspace = listed["workspaces"][0]["resource_id"].clone();
-                request(
-                    "sidebar.adopt",
-                    json!({"refs":[{"session_id":registry_id,"workspace_id":workspace}]}),
-                    Some("launch-snapshot-adopt"),
-                );
-                let doc = request("sidebar.get", json!({}), None);
-                doc["items"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|item| item["body"]["type"] == "workspace")
-                    .map(|item| item["id"].clone())
-                    .expect("the adopted workspace has an item")
-            }
-        };
-        request("sidebar.pin", json!({"items":[item]}), Some("launch-snapshot-pin"));
-        let expected = request("sidebar.get", json!({}), None);
-        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
-            snapshot["sidebar_doc"]["items"].as_array().is_some_and(|items| {
-                items.iter().any(|entry| entry["id"] == item && entry["section"] == "sec_pinned")
-            })
-        });
-        assert_eq!(snapshot["sidebar_doc"], expected, "the snapshot's document is sidebar.get's");
-
-        drop(writer);
-        mux.shutdown();
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn cmux_next_launch_snapshot_carries_frontend_projections() {
-        let root = temp_root("projection");
-        let mux =
-            Mux::open_persistent("launch-snapshot-projection", SurfaceOptions::default(), &root)
-                .unwrap();
-        let writer = start_launch_snapshot_writer_with(
-            &mux,
-            LaunchSnapshotTiming {
-                settle: Duration::from_millis(50),
-                max_delay: Duration::from_millis(500),
-                max_bytes_per_second: u64::MAX,
-            },
-        )
-        .unwrap()
-        .unwrap();
-        run_command(
-            &mux,
-            json!({
-                "cmd":"put-frontend-projection",
-                "frontend":"cmux-next",
-                "scope":"personal",
-                "subject_key":"windows",
-                "schema_version":1,
-                "projection":{"windows":[{"id":"w1","workspace_keys":[]}]},
-                "origin":"test",
-                "mutation_id":"launch-snapshot-projection",
-            }),
-        );
-        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
-            snapshot["frontend_projections"].as_array().is_some_and(|projections| {
-                projections.iter().any(|projection| projection["subject_key"] == "windows")
-            })
-        });
-        let projection = snapshot["frontend_projections"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|projection| projection["subject_key"] == "windows")
-            .unwrap()
-            .clone();
-        assert_eq!(projection["frontend"], "cmux-next");
-        assert_eq!(projection["scope"], "personal");
-        assert_eq!(projection["projection"]["windows"][0]["id"], "w1");
-
-        drop(writer);
-        mux.shutdown();
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn cmux_next_launch_snapshot_carries_personal_state() {
-        let root = temp_root("personal");
-        let mux =
-            Mux::open_persistent("launch-snapshot-personal", SurfaceOptions::default(), &root)
-                .unwrap();
-        let writer = start_launch_snapshot_writer_with(
-            &mux,
-            LaunchSnapshotTiming {
-                settle: Duration::from_millis(50),
-                max_delay: Duration::from_millis(500),
-                max_bytes_per_second: u64::MAX,
-            },
-        )
-        .unwrap()
-        .unwrap();
-        wait_for_snapshot(writer.path(), |snapshot| snapshot["personal"].is_object());
-        // A personal change alone (no tree change) rewrites the snapshot.
-        run_command(
-            &mux,
-            json!({"cmd":"create-profile","profile":"prof_work","name":"Work",
-                   "defaults":{"cwd":"/tmp","env":{"TOKEN":"secret"}}}),
-        );
-        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
-            snapshot["personal"]["profiles"]
-                .as_array()
-                .is_some_and(|profiles| profiles.iter().any(|profile| profile["id"] == "prof_work"))
-        });
-        let work = snapshot["personal"]["profiles"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|profile| profile["id"] == "prof_work")
-            .unwrap();
-        assert_eq!(work["defaults"]["cwd"], "/tmp");
-        assert!(work["defaults"].get("env").is_none(), "room env stays out of the file");
-        // A session's capability list stays out of the file too.
-        run_command(
-            &mux,
-            json!({"cmd":"put-session","session_id":"remote-1","transport":{"kind":"ssh"},
-                   "capabilities":["profiles-v1"]}),
-        );
-        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
-            snapshot["personal"]["sessions"].as_array().is_some_and(|sessions| {
-                sessions.iter().any(|session| session["session_id"] == "remote-1")
-            })
-        });
-        assert!(
-            snapshot["personal"]["sessions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|session| session.get("capabilities").is_none()),
-            "session capabilities stay out of the file"
-        );
-        assert_eq!(
-            snapshot["personal"]["personal_revision"],
-            run_command(&mux, json!({"cmd":"list-personal"}))["personal_revision"]
-        );
-
-        drop(writer);
-        mux.shutdown();
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn cmux_next_launch_snapshot_writes_nothing_while_nothing_changes() {
-        let root = temp_root("idle");
-        let mux =
-            Mux::open_persistent("launch-snapshot-idle", SurfaceOptions::default(), &root).unwrap();
-        let writer = start_launch_snapshot_writer_with(
-            &mux,
-            // A settle window well above one rename keeps the burst inside it
-            // on a loaded runner.
-            LaunchSnapshotTiming {
-                settle: Duration::from_millis(250),
-                max_delay: Duration::from_secs(2),
-                max_bytes_per_second: u64::MAX,
-            },
-        )
-        .unwrap()
-        .unwrap();
-        // The first write happens at start, so a relaunch finds a file.
-        wait_for_snapshot(writer.path(), |_| true);
-        let settled = writer.writes();
-        assert!(settled >= 1);
-        std::thread::sleep(Duration::from_millis(400));
-        assert_eq!(writer.writes(), settled, "an idle session must not rewrite its snapshot");
-
-        mux.create_empty_workspace(Some("burst".into()), None, None).unwrap();
-        for index in 0..20 {
-            let workspace = mux.with_state(|state| state.workspaces[0].id);
-            mux.rename_workspace(workspace, format!("burst-{index}"));
-        }
-        wait_for_snapshot(writer.path(), |snapshot| {
-            workspace_names(snapshot) == vec!["burst-19".to_string()]
-        });
-        // 21 changes settle into a few writes, never one per change. The
-        // bound leaves room for a slow runner splitting the burst.
-        let burst = writer.writes() - settled;
-        assert!(burst <= 5, "writes: {burst} for 21 changes");
-
-        drop(writer);
-        mux.shutdown();
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn cmux_next_launch_snapshot_has_no_path_without_a_persistent_registry() {
-        let mux = Mux::new_for_test("launch-snapshot-memory", SurfaceOptions::default());
-        assert!(start_launch_snapshot_writer(&mux).unwrap().is_none());
-        assert_eq!(mux.launch_snapshot_path(), None);
-        let identify = run_command(&mux, json!({"cmd":"identify"}));
-        assert_eq!(identify["launch_snapshot_path"], Value::Null);
-    }
-
-    fn run_command(mux: &Arc<Mux>, request: Value) -> Value {
-        let command: Command = serde_json::from_value(request).unwrap();
-        let writer = MessageWriter::new(QueuedSink {
-            outbound: Arc::new(BoundedOutbound::default()),
-            control: None,
-        });
-        handle_command(mux, mux.local_test_client(0), command, &writer).unwrap()
-    }
-}
+#[path = "launch_snapshot_tests.rs"]
+mod tests;

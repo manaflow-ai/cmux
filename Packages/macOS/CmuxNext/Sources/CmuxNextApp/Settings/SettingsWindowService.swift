@@ -37,8 +37,8 @@ final class SettingsWindowService: InternalPageProvider {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
-    /// The kept React page (a reopen shows it again with no reload); nil before the first show.
     private var webPage: PageWebView?
+    private var transientPages: [String: PageWebView] = [:]
     /// Customize Menu… opens so far (``showMenus(_:)``).
     private var menusOpens = 0
     /// The route the next page view opens on.
@@ -55,7 +55,7 @@ final class SettingsWindowService: InternalPageProvider {
     var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
-    /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
+    /// `SettingsAnchor(key:)` knows, or a page-only place's route, ``SettingsPageAnchor``) with its highlight. An unknown setting is refused and opens
     /// nothing. `focus` false (automation) opens the tab without selecting it.
     /// `route` opens a page-only place instead (`#/settings/agents?focus=agents.add`, Settings >
     /// Agents' Add panel), with no section or setting.
@@ -65,22 +65,19 @@ final class SettingsWindowService: InternalPageProvider {
         Task { [devices = services.devices] in await devices.refresh() }
         // task-owner: one read of this Mac's join status per opening (its consent switches)
         Task { [join = services.joinConsent] in await join.refresh() }
-        var anchor: SettingsAnchor?
-        if let setting {
-            guard let found = SettingsAnchor(key: setting) else {
-                throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting))
-            }
-            anchor = found
-        }
+        let modelRoute = setting.flatMap { DeepLink.modelSettingsRoute(focus: $0) }
+        let place = setting.flatMap(SettingsPageAnchor.init(key:))
+        let anchor = modelRoute == nil && place == nil ? setting.flatMap(SettingsAnchor.init(key:)) : nil
+        if let setting, modelRoute == nil, place == nil, anchor == nil { throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting)) }
         let target = anchor?.section ?? section
-        if target == .keyboard {
+        if modelRoute == nil, target == .keyboard {
             let invocation = ActionInvocation(origin: focus ? .user : .cli)
             guard services.registry.perform("keybindings.open", invocation: invocation) else {
                 throw ActionFailure(message: RefusalStrings.noWindowOpen)
             }
             return
         }
-        let route = pageRoute ?? Self.route(section: target, setting: setting)
+        let route = place?.route ?? pageRoute ?? modelRoute ?? SettingsDeepLink.route(section: target, setting: setting)
         // The window's one Settings tab comes back when another workspace of the window holds it
         // (nxdog77: Cmd-, in a second workspace opened a second Settings tab).
         if focus, let window = services.windows.active { revealSettingsTab(of: window) }
@@ -148,19 +145,6 @@ final class SettingsWindowService: InternalPageProvider {
            page.route != route { page.open(route: route) }
     }
 
-    /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
-    /// anchor opens its section.
-    /// The Development section (and its keys) exists only in DEV and NIGHTLY builds: elsewhere a request for
-    /// it opens Settings on the default page (the page hides the category the same way).
-    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isEnabled) -> String? {
-        if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
-            guard descriptor.section != .development || devBuild else { return nil }
-            return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"
-        }
-        guard let section, section != .development || devBuild else { return nil }
-        return "#/settings/\(section.rawValue)"
-    }
-
     // MARK: InternalPageProvider
 
     var page: InternalPageID { .settings }
@@ -177,12 +161,12 @@ final class SettingsWindowService: InternalPageProvider {
             return webPage
         }
         guard let page = PageFactory(services: services).settingsPage(route: route) else { return NSView() }
-        if webPage == nil { webPage = page }
+        if webPage == nil { webPage = page } else { transientPages.updateValue(page, forKey: key)?.close() }
         return page
     }
 
     func tabClosed(_ key: String) {
-        // A live preview left by a closed page (mid-drag) must not stay applied.
+        transientPages.removeValue(forKey: key)?.close()
         services.settings?.endPreview()
     }
 

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextHomeModel
 public import Foundation
 
@@ -39,7 +40,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
 
     /// The app's cache folder for Chief pictures.
     public static var defaultCache: URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let caches = NextSupport.cachesDirectory()
         return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
             .appendingPathComponent("ChiefAvatarRegistry", isDirectory: true)
     }
@@ -184,15 +185,20 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     }
 }
 
-/// The media type the registry keeps for `data` (PNG, JPEG, GIF or WebP, at most 1 MiB), from its bytes.
+/// The media type the registry keeps for `data` (PNG, JPEG, GIF or WebP, at most 1 MiB), from its bytes:
+/// Rust's `chief_settings.registryMediaType` (cmux-home-rules `chief_settings/picture.rs`).
 private nonisolated func registryMediaType(of data: Data) -> String? {
-    guard data.count <= 1024 * 1024 else { return nil }
-    let bytes = [UInt8](data.prefix(12))
-    if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
-    if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
-    if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "image/gif" }
-    if bytes.count >= 12, bytes.starts(with: [0x52, 0x49, 0x46, 0x46]), Array(bytes[8..<12]) == [0x57, 0x45, 0x42, 0x50] {
-        return "image/webp"
+    do {
+        let type: String? = try HomeRules.call("chief_settings.registryMediaType",
+                                               MediaTypeRequest(head: [UInt8](data.prefix(12)), length: UInt64(data.count)))
+        return type
+    } catch {
+        return nil
     }
-    return nil
+}
+
+/// `chief_settings.registryMediaType`'s request: the first bytes (an array, not base64) and the size.
+private nonisolated struct MediaTypeRequest: Encodable {
+    var head: [UInt8]
+    var length: UInt64
 }

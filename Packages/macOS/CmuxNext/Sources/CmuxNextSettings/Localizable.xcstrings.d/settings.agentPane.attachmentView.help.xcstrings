@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.attachmentView.help" : {
+      "comment" : "Settings > Agent Chat > Attachment View: help under the row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "طريقة ظهور الصور والملفات في مربع الكتابة وفي الرسائل المرسلة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kako se slike i datoteke prikazuju u polju za pisanje i u poslanim porukama."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvordan billeder og filer vises i skrivefeltet og i sendte beskeder."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie Bilder und Dateien im Eingabefeld und in gesendeten Nachrichten erscheinen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How pictures and files show in the composer and in sent messages."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cómo se muestran las imágenes y los archivos en el redactor y en los mensajes enviados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Comment les images et les fichiers s’affichent dans le champ de saisie et dans les messages envoyés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Come appaiono immagini e file nel campo di scrittura e nei messaggi inviati."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "入力欄と送信済みメッセージでの画像とファイルの表示方法。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "របៀបដែលរូបភាព និងឯកសារបង្ហាញក្នុងប្រអប់សរសេរ និងក្នុងសារដែលបានផ្ញើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작성란과 보낸 메시지에서 사진과 파일이 표시되는 방식입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvordan bilder og filer vises i skrivefeltet og i sendte meldinger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak obrazy i pliki wyświetlają się w polu wiadomości i w wysłanych wiadomościach."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Como imagens e arquivos aparecem no campo de escrita e nas mensagens enviadas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Как картинки и файлы показываются в поле ввода и в отправленных сообщениях."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "วิธีแสดงรูปภาพและไฟล์ในช่องเขียนข้อความและในข้อความที่ส่งแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Resimlerin ve dosyaların yazma alanında ve gönderilen mesajlarda nasıl görüneceği."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Як зображення та файли показуються в полі введення і в надісланих повідомленнях."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cách ảnh và tệp hiển thị trong ô soạn và trong tin nhắn đã gửi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "图片和文件在输入框及已发送消息中的显示方式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "圖片和檔案在輸入框及已傳送訊息中的顯示方式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

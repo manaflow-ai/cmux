@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
@@ -12,8 +13,11 @@ import CmuxNextHomeEngine
 import CmuxNextKeys
 import CmuxNextMacScreen
 import CmuxNextPages
+import CmuxNextRemoteLocalhostService
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSettingsWindow
+import CmuxNextSidebarActions
 import CmuxNextTerminal
 import CmuxNextUpdater
 import Foundation
@@ -55,29 +59,29 @@ struct PageFactory {
         return page
     }
 
-    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/needs-you`, the only
-    /// route the app opens now); nil only when the page
-    /// resources are missing. `cmux.feed.` goes to the daemon's feed client through the page relay,
-    /// `cmux.app.` runs the page's actions (open an item, a GitHub action, Settings).
-    func feedWebPage(route: String) -> PageWebView? {
+    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/needs-you`, the only route the app opens now); nil only when the page resources
+    /// are missing. `cmux.feed.` goes to the daemon's feed client through the page relay, `cmux.app.` runs the page's actions (open an item, a
+    /// GitHub action, Settings), `cmux.settings.hub.` (with Chief's `hub`) its integrations hub approval cards.
+    func feedWebPage(route: String, hub: SettingsIntegrationsHub? = nil) -> PageWebView? {
         let relay = DaemonPageRelay(services: services)
         let native = AppPageNativeProvider(services: services, page: .feed)
         native.forward = { op, params, context in try await relay.call(op, params: params, context: context) }
-        let routes = [PageRoute(prefix: "cmux.feed.", provider: relay), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.feed.", provider: relay), PageRoute(prefix: "cmux.app.", provider: native)] + (hub.map { [PageRoute(prefix: "cmux.settings.hub.", provider: $0)] } ?? [])
         guard let page = PageWebView(descriptor: .feed, routes: routes, route: route) else { return nil }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page
     }
 
+    var integrationsHub: SettingsIntegrationsHub { SettingsIntegrationsHub(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, answerApproval: HubApprovalAnswer.poster(auth: services.cloud.auth) { [weak services] in services.map { !$0.registry.disabledFeatures.contains(.cloud) && $0.cloud.mayCallCloud } ?? false }) } // Settings > Integrations and Chief's cards; answers carry the Cloud bearer
     /// The App Store page (react-pages.md 3, apps-web-DESIGN.md) on `route` (`#/discover?app=<id>`,
     /// `#/installed`); nil only when the page resources are missing.
     /// `cmux.apps.` goes to the daemon relay behind the native sheet of ``AppsPageConfirmations``
     /// (the sheet reads the listing first so it can name the scopes); `glyph/` is ``AppsGlyphResource``.
     func appsWebPage(route: String?) -> PageWebView? {
-        let confirming = appsStoreProvider()
+        let confirming = appsStoreProvider(fromPage: true)
         let native = AppPageNativeProvider(services: services, page: .apps)
-        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native), AppsPanelsPageProvider.route(services.apps.client)]
+        let routes = [AppsNewTabPageProvider.route(personOnly: RefusalStrings.personOnlyFromPage) { [weak services] in services?.settings }, PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: PageGestureActionProvider(page: .apps, wrapping: native)), AppsPanelsPageProvider.route(services.apps.client)]
         guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
@@ -88,44 +92,19 @@ struct PageFactory {
     /// The App Store's `cmux.apps.*` calls: the daemon relay behind the native consent card of
     /// ``AppsPageConfirmations`` (the card reads the listing first so it can name the scopes). The
     /// App Store page and the `app.install` / `app.remove` actions (CLI, palette, MCP) share it, so
-    /// every install shows the same card and only the person's click makes it the user's.
-    func appsStoreProvider() -> ConfirmingPageProvider {
+    /// cards match; on the page (`fromPage`) a plain Install click is the person's own, so no card.
+    func appsStoreProvider(fromPage: Bool = false) -> ConfirmingPageProvider {
         // The organization's DisabledFeatures `apps` turns the store off (the same transport state
         // the native store reads), checked on every call.
         let relay = PolicyGatedPageProvider(inner: DaemonPageRelay(services: services)) { [weak apps = services.apps] in
             apps?.transport.turnedOff
         }
         return ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
-            guard AppsPageConfirmations().needsDetail(op), let app = params["app"]?.stringValue else { return nil }
+            guard AppsPageConfirmations().needsDetail(op, params: params, fromPage: fromPage), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
                                                context: PageCallContext(page: PageDescriptor.apps.id))
-            return AppsPageConfirmations().confirmation(op: op, params: params, detail: detail)
+            return AppsPageConfirmations().confirmation(op: op, params: params, detail: detail, fromPage: fromPage)
         }
-    }
-
-    /// The React CodeRouter page (cmux.coderouter). Its namespace goes to the CodeRouter app's
-    /// ops over the control router (``CodeRouterPageProvider``); before the control socket starts
-    /// every call answers `unavailable`. `cmux.app.` runs the page's four account actions.
-    func coderouterWebPage() -> PageWebView? {
-        let ops = CodeRouterAppOps(control: { [weak apps = services.apps] method, params throws(AppHostCapabilityError) in
-            guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
-                throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
-            }
-            return try await router.appControl(method, params)
-        }, pageShapes: true)
-        let registry = services.registry
-        let provider = CodeRouterPageProvider(ops: ops, connect: { id in
-            registry.perform(ActionID(rawValue: "accounts.connect"), invocation: ActionInvocation(arguments: ["provider": .string(id)], origin: .user))
-        })
-        let confirming = ConfirmingPageProvider(inner: provider, presenter: DialogPageConfirmationPresenter()) { op, params in
-            CodeRouterPageConfirmations.confirmation(op: op, params: params)
-        }
-        let native = AppPageNativeProvider(services: services, page: .coderouter)
-        let routes = [PageRoute(prefix: "cmux.coderouter.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .coderouter, routes: routes) else { return nil }
-        confirming.anchor = { [weak page] in page }
-        native.anchor = { [weak page] in page }
-        return page
     }
 
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
@@ -135,7 +114,7 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: .cloud)
         let cloud = Self.cloudProvider(cloud: services.cloud)
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
-        let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native), PageRoute(prefix: BillingStatusPageProvider.op, provider: BillingStatusPageProvider { [weak services] in services?.cloud.isSignedIn == true ? services?.accounts.client : nil })]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
         let page = services.pageHostPool.claim(.cloud, routes: routes,
                                                documentAttributes: attributes,
@@ -153,7 +132,7 @@ struct PageFactory {
                           signOut: { [weak account] in await account?.signOut() },
                           account: { [weak account] in
                               CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
-                                                             team: account?.auth.teamID)
+                                                             team: account?.auth.teamID, signInBackend: account?.configuration.signInBackendLine)
                           })
     }
 
@@ -166,8 +145,8 @@ struct PageFactory {
     func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
-        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, wideningGate: services.wideningGate)
+            ["themes": services?.themes.catalog.names ?? [], "font_families": TerminalFontSetting.installedFamilies, "ui_font_families": AppFontSetting.installedFamilies, "sounds": services?.notifications.soundGate.soundNames ?? [], "recent_fonts": services?.settings?.recentFonts.families ?? []]
+        }, hostSections: services.settingsWindow.pageHostSections(), wideningGate: services.wideningGate)
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
         provider.setJoinConsent = { [weak services] surface, on in
@@ -175,14 +154,15 @@ struct PageFactory {
             return await services.joinConsent.set(surface, on: on)
         }
         provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
+        provider.sounds = NotificationSoundImport(host: services, gate: services.notifications.soundGate) // AppServices lives as long as the app
         // Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs.
         provider.ownerConfirm = LocalDeviceOwnerAuthenticator()
         provider.setMachineVmHost = { [weak services] id, on in
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
         }
-        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys)
         provider.agents = services.agentHarnesses
+        let native = AppPageNativeProvider(services: services, page: .settings)
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
             openTerminal: { [weak services] line in services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } ?? false },
@@ -192,14 +172,50 @@ struct PageFactory {
             },
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
             refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
-            unsupported: { AgentHarnessStrings.unsupported }
-        )
+            unsupported: { AgentHarnessStrings.unsupported },
+            openSignInPage: { [weak services, weak native] url, hosts in services?.linkOpener.openSignInPage(url, beside: native?.anchor(), stillOn: hosts) })
+        (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys, signIn: harnesses)
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
-        let models = SettingsModels.live(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, harnesses: harnesses, settings: settings,
-                                              activeTeam: { [weak services] in services?.accounts.activeTeam }, agentKeys: services.accounts.agentKeys,
-                                              policy: services.accounts.modelsPolicy)
-        models.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() } // a chat waiting on Set up Cloud checks again
+        var returnFromModelSignIn: [String: @MainActor () -> Void] = [:]
+        let opened: AppServices.ModelSignInOpened = { owner, back in returnFromModelSignIn.updateValue(back, forKey: owner)?() }
+        let anchor: @MainActor () -> NSView? = { [weak native] in native?.anchor() }
+        let modelEnvironment: @MainActor () async -> AcpmuxEnvironment? = { [weak services] in
+            guard let host = services?.agentTabs.host as? AcpmuxHost else { return nil }
+            return try? await host.readyEnvironment()
+        }
+        provider.loadSignInAccounts = { await harnesses.loadSignInAccounts(ready: modelEnvironment) }
+        let models = SettingsModels.live(environment: modelEnvironment,
+            settings: settings, activeTeam: { [weak services] in services?.accounts.activeTeam },
+            agentKeys: services.accounts.agentKeys, policy: services.accounts.modelsPolicy, cloudClaudeApproval: services.accounts.cloudClaudeApproval,
+            openSignInPage: { [weak services] url, owner in
+                guard let services else { return false }
+                opened(owner, services.linkOpener.openSignInPage(url, beside: anchor()))
+                return true
+            },
+            openClaudeCallback: { [weak services] url, owner, scope in
+                await services?.chatSignIn.openSettings(url, daemon: nil, from: anchor().flatMap { services?.linkOpener.source(containing: $0) } ?? services?.windows.active?.focusedPane,
+                                                        callbackPort: AgentPaneSignInPage.callbackPort(url), owner: owner, checking: scope, onOpened: opened) == true
+            },
+            closeSignInPage: { owner in returnFromModelSignIn.removeValue(forKey: owner)?() }
+        )
+        models.harnesses = harnesses
+        services.settingsClaudeLogin(beside: anchor, onOpened: opened).install(on: models, setup: services.cloud.setup)
+        models.onConnections = { [weak services] in
+            services?.cloud.setup.connectionsChanged()
+            services?.cloud.agentCredentials.credentialConnectionsChanged()
+        }
+        models.cloudRunnerConnectWait = CloudStartSession.connectWait
+        models.cloudUnlinkedMachines = { [weak services] in
+            guard let services else { return [] }
+            return Set(services.cloud.listedMachineIDs.filter { services.machines.session($0)?.daemon.liveIdentity == nil })
+        }
+        models.cloudHarnesses = { [weak services] subscription, offline in
+            guard let services else { return ([], false) }
+            let candidates = services.cloud.listedMachineIDs.subtracting(offline)
+            let confirmed = candidates.compactMap { services.machines.session($0)?.credentialHarnesses(subscription: subscription) }
+            return (Set(confirmed.flatMap { $0 }), confirmed.count < candidates.count)
+        }
         provider.models = models
         let cloud = services.cloud
         let environments = CloudEnvironmentsSettings(
@@ -223,14 +239,11 @@ struct PageFactory {
                     CloudPresenter.confirm(title, body, button: button, identifier: CloudPresenter.environmentConfirmIdentifier,
                                            in: services?.windows.active?.window) { continuation.resume(returning: $0) }
                 }
-            })
-        provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
-        provider.environmentsRun = { params in
-            guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
-                throw PageError.invalidParams("unknown environments action")
-            }
-            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run)))) ?? .object([:])
-        }
+            }, defaultImage: { [weak services] in services?.settings.map { CloudNewWorkspaceSetting().defaultImage(in: $0.snapshot.root) } }) // rebuilt when stale
+        provider.environments = environments
+        provider.allotment = CloudAllotmentPage(
+            available: { [weak cloud, weak settings] in settings?.snapshot.teamCompute == true && cloud?.auth.isSignedIn == true },
+            get: { [weak cloud] in try JSONEncoder().encode(await cloud?.appOps("cloud.allotment.get", .object([:]), nil, .script)) })
         let devices = services.deviceHub.settingsModel
         devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }
         devices.shareThisMac = { [weak services] in _ = services?.registry.perform("macScreen.shareThisMac", invocation: ActionInvocation(origin: .page)) }
@@ -251,8 +264,8 @@ struct PageFactory {
         provider.keys = SettingsKeys(requests: services.keyRequests, binary: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
-        let integrations = SettingsAgentIntegrations(cli: cli)
-        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url })]
+        let integrations = SettingsAgentIntegrations(cli: cli, agentTools: services.onboarding.agentTools), tokens = SettingsDeveloperTokens(cli: cli), archived = SettingsArchivedWorkspaces(host: .host(services), personOnly: RefusalStrings.personOnlyFromPage), mcpServers = SettingsMcpServers(cli: cli, home: { [weak services] in await services?.catalogAcpmux()?.home }, openPage: { [weak services] url in _ = services?.linkOpener.openWeb(url, from: services?.windows.active?.focusedPane, background: false) }), agentMcp = SettingsAgentMcpServers(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }, pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first }), agentHooks = SettingsAgentHooks(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }), hub = integrationsHub, autocloud = SettingsAutomationsCloud(cli: cli), connections = SettingsConnections(cli: cli, linkScheme: { [weak services] in services?.linkScheme ?? "cmux" }, openInBrowser: { [weak services] url in if services?.cloud.auth.openSignInInApp?(url) != true { LinkRouter.shared.open(url, in: .system) } }), agentSkills = SettingsAgentSkills(cli: cli, enabled: { [weak services] in services?.settings?.snapshot.agentCustomization == true }, workingFolder: { [weak services] in services.flatMap { s in s.windows.active.flatMap { s.fileExplorers.folder(focusedIn: $0) } } }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) })
+        provider.parts = [SettingsArchivedWorkspaces.listOp: archived, SettingsArchivedWorkspaces.runOp: archived, SettingsIntegrationsHub.stateOp: hub, SettingsIntegrationsHub.runOp: hub, SettingsDeveloperTokens.stateOp: tokens, SettingsDeveloperTokens.runOp: tokens, SettingsConnections.stateOp: connections, SettingsConnections.runOp: connections, SettingsAutomationsCloud.stateOp: autocloud, SettingsAutomationsCloud.runOp: autocloud, "cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, "cmux.settings.agentTools.state": integrations, "cmux.settings.agentTools.run": integrations, SettingsMcpServers.stateOp: mcpServers, SettingsMcpServers.runOp: mcpServers, SettingsAgentMcpServers.stateOp: agentMcp, SettingsAgentMcpServers.runOp: agentMcp, SettingsAgentHooks.stateOp: agentHooks, SettingsAgentHooks.runOp: agentHooks, SettingsAgentSkills.stateOp: agentSkills, SettingsAgentSkills.runOp: agentSkills, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsCustomizeLibrary.checklistOp: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsAgentConfig.op: SettingsAgentConfig(cli: cli, enabled: { settings.snapshot.agentCustomization }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) }), SettingsLooks.op: SettingsLooks(cli: cli, settingsFile: { settings.file.url })]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
@@ -304,19 +317,19 @@ struct PageFactory {
                 value: { [weak services] id in services?.themes.workspaceOpacity(id) },
                 set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
                 preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
-        let native = AppPageNativeProvider(services: services, page: .settings)
+        SettingsHistoryPage.ops.forEach { [history = SettingsHistoryPage(daemon: services.daemon, settings: settings, writer: SettingsPageProvider.writer, personOnly: SettingsPageProvider.personOnly)] in provider.parts[$0] = history } // Undo, Redo and Reset on the daemon's settings history
         // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
         let images = provider.backdropImages.map { images in
             BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
                                        inUse: { [weak services] in services?.settings?.snapshot.backdropSelection }, settings: services.settings,
                                        pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first })
         }
-        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
+        let routes = [PageRoute(prefix: "cmux.settings.slack.", provider: SlackPageProvider.live(configuration: services.cloud.configuration, auth: services.cloud.auth, identity: services.cloud.installIdentity, chief: { [weak services] in services?.home.cloudChiefs.slackChief?.id })), PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: PageGestureActionProvider(page: .settings, wrapping: native, backs: provider.personBacksGesture, refusal: JoinConsentStrings.personOnly)),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
-                      PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
-                      PageRoute(prefix: WorktreeSetupPageRoute.prefix,
-                                provider: WorktreeSetupPageRoute { [weak services] in services?.machines.local.connection }),
+                      PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: services.agentHarnesses.chiefBackendPage),
+                      PageRoute(prefix: WorktreeSetupPageRoute.prefix, provider: WorktreeSetupPageRoute { [weak services] in services?.machines.local.connection }),
+                      PageRoute(prefix: ExtensionSettingsPageRoute.prefix, provider: ExtensionSettingsPageRoute(apps: services.apps.client) { [weak services] in services?.machines.local.connection }),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix,
                                 provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services, daemons = services.acpmuxDaemons] in
@@ -330,13 +343,13 @@ struct PageFactory {
                                         ? nil : DaemonUpdateBoard.updateRefused
                                 })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
-                      PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)),
+                      PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)), PageRoute(prefix: AppLanguageRelaunchRoute.prefix, provider: AppLanguageRelaunchRoute(updater: services.updater, app: Bundle.main.bundleURL)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
                       PageRoute(prefix: ContextMenusPageProvider.prefix, provider: services.settingsWindow.contextMenusRoute),
                       // Settings > Server > This Mac on Your Tailnet: sign in and out on the app's person connection to acpmux.
-                      PageRoute(prefix: SettingsTailnet.prefix, provider: SettingsTailnet { [weak services] in services.flatMap(QuitAgents.environment) }),
+                      PageRoute(prefix: SettingsTailnet.prefix, provider: SettingsTailnet(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, cli: { [bundled = services.bundledCLI] in await bundled.resolve() })),
                       // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
                       PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },
@@ -350,15 +363,23 @@ struct PageFactory {
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
                                                           })
-        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
+        guard let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
                                                surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, options: Self.settingsEngineOptions,
-                           surface: .settings, dynamicResources: dynamicResources)
+                           surface: .settings, dynamicResources: dynamicResources) else { return nil }
         native.anchor = { [weak page] in page }
+        page.onOpenExternal = { [weak services, weak page] url in
+            guard let page else { return }
+            if SettingsModelKeyPages.contains(url), let services {
+                _ = services.linkOpener.openSignInPage(url, beside: page)
+            } else {
+                LinkRouter.shared.open(url, otherTarget: LinkRouter.isOtherTarget(page.externalLinkModifiers), from: page)
+            }
+        }
         // An image or movie dropped on Settings becomes the background (cx-t2x.8).
-        page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
+        page.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
             // task-owner: one short copy and settings write per drop; a failed one changes nothing
             Task { try? await provider?.useBackdropImage(url) }
         }
