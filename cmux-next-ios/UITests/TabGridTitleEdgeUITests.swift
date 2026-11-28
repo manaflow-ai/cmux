@@ -30,7 +30,11 @@ final class TabGridTitleEdgeUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        XCTAssertTrue(app.staticTexts["29 Tabs"].firstMatch.waitForExistence(timeout: 60), "the 29-tab grid\n\(app.debugDescription)")
+        // As TabSwitch and PlaceholderBound do: pass the team chooser, then wait on the grid's cards.
+        let choose = app.scrollViews["setup.teams.choose"]
+        if choose.waitForExistence(timeout: 5), app.buttons["Manaflow"].exists { app.buttons["Manaflow"].tap() }
+        let cards = app.buttons.matching(NSPredicate(format: "label ENDSWITH[c] ', tab'"))
+        XCTAssertTrue(cards.firstMatch.waitForExistence(timeout: 60), "the 29-tab grid's cards\n\(app.debugDescription)")
         Thread.sleep(forTimeInterval: 2.0)
         let name = style.isEmpty ? "default" : style
         attach(app, "\(name)-0-top")
