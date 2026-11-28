@@ -72,7 +72,9 @@ function rules(): { file: string; selector: string; body: Map<string, string> }[
 test("no header tool draws a fill at rest, nor a border or shadow in any state", () => {
   const boxed: string[] = [];
   for (const { file, selector, body } of rules()) {
-    const tools = parts(selector).filter((part) => HEADER_TOOL.test(part));
+    // The Tab strip layout's control is the open pane's tab, not an icon: it draws the pane's fill at rest by design
+    // (#36441, Debug Settings agentChat.topRight.consolidate).
+    const tools = parts(selector).filter((part) => HEADER_TOOL.test(part) && !part.includes(".acpmux-topright-tab"));
     if (tools.length === 0) continue;
     for (const [property, value] of body) {
       // A fill only in a lit state: every header-tool part of the rule names one.

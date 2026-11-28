@@ -1284,11 +1284,13 @@ button.cv-subagent > :last-child {
 /* Open in terminal shows while the open row is hovered or has focus, never at rest (Leo, 2026-11-24). */
 .acpmux-running-tray__tail-foot .acpmux-running-tray__terminal {
   opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
 }
 .acpmux-running-tray__tail:hover .acpmux-running-tray__terminal,
 .acpmux-running-tray__tail:has([data-popup-open]) .acpmux-running-tray__terminal,
 .acpmux-running-tray__tail:is(:has([data-popup-open]), :focus-within) .acpmux-running-tray__terminal {
   opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }
 .acpmux-running-tray__tail-foot a:hover,
 .acpmux-running-tray__tail-foot a:focus-visible,

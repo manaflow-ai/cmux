@@ -296,8 +296,10 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
   });
 
   test("the loading shell carries the offered row state before the handshake", () => {
-    const app = read("agent-session/acpmux/App.tsx");
-    const loading = app.match(/const pane = !knowsWhatItIs \? \(([\s\S]*?)\) : \(/)?.[1] ?? "";
+    // The loading shell moved from App.tsx into pane/PaneBody.tsx with the pane body tree (#51600).
+    const body = read("agent-session/acpmux/pane/PaneBody.tsx");
+    const loading = body.match(/return !knowsWhatItIs \? \(([\s\S]*?)\) : \(/)?.[1] ?? "";
+    expect(loading).toContain('aria-busy="true"');
     expect(loading).toContain('data-tab-row={inTabRow ? "" : undefined}');
     expect(loading).toContain("style={inTabRow ? tabRowStyle(tabRow) : undefined}");
   });

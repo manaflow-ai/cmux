@@ -188,39 +188,5 @@ test("a prompt that opens a turn over an unnamed reply starts its answer below i
   ]);
 });
 
-const planned = (entries: { content: string; status: string }[]) =>
-  update({ sessionUpdate: "plan", entries: entries.map((entry) => ({ ...entry, priority: "medium" })) });
-
-test("a plan cleared after a steer is the agent's next step: its answer starts below the bubble", async () => {
-  const rows = await rowsOf([
-    ...opened,
-    ["in", "plan", planned([{ content: "Find G2", status: "in_progress" }])],
-    ["in", "agent_message_chunk", say("G2 exists only on studio-mac.")],
-    ["mux", "user_message", { text: "which lane?", promptId: "p-2", steer: true }],
-    ["in", "plan", planned([])],
-    ["in", "agent_message_chunk", say("Lane 2 owns it.")],
-  ]);
-  expect(drawn(rows)).toEqual([
-    "user: Where is G2?",
-    "assistant: G2 exists only on studio-mac.",
-    "user: which lane?",
-    "assistant: Lane 2 owns it.",
-  ]);
-});
-
-test("a plan changed in place after a notice held the reply is the agent's next step", async () => {
-  const rows = await rowsOf([
-    ...opened,
-    ["in", "plan", planned([{ content: "Find G2", status: "in_progress" }])],
-    ["in", "agent_message_chunk", say("G2 exists only on studio-mac.")],
-    ["mux", "host_notice", { text: "cmux Cloud resized this machine." }],
-    ["in", "plan", planned([{ content: "Find G2", status: "completed" }])],
-    ["in", "agent_message_chunk", say("Next, item A.")],
-  ]);
-  expect(drawn(rows)).toEqual([
-    "user: Where is G2?",
-    "assistant: G2 exists only on studio-mac.",
-    "notice: cmux Cloud resized this machine.",
-    "assistant: Next, item A.",
-  ]);
-});
+// #55935 (cmux next: remove the agent to-do list) dropped plan updates at acpmux's root, so no plan update
+// ends a held reply any more: the two cases that read one as the agent's next step went with it.

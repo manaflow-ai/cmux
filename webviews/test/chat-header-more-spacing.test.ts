@@ -44,8 +44,14 @@ test("every tool is one square from the grid tokens, the ⋯ included, with a to
   expect(tool.get("justify-content")).toBe("center");
   expect(tool.get("align-items")).toBe("center");
   expect(tool.get("border-radius")).toBe("var(--ds-radius-md,6px)");
-  // No rule gives the ⋯ its own box or margin.
-  expect(css).not.toMatch(/\.acpmux-header-more\s*\{/);
+  // No rule gives the ⋯ its own box or margin. A rule may still target it for something else: #56616's warning dot
+  // positions the ⋯ (position: relative) so its ::after sits in the corner, and that moves nothing.
+  const boxProperty =
+    /(?:^|[;{\s])(?:width|height|min-width|min-height|max-width|max-height|padding[\w-]*|margin[\w-]*|inline-size|block-size|flex(?:-basis|-grow|-shrink)?)\s*:/;
+  const moreRules = [...css.matchAll(/([^{}]*\.acpmux-header-more(?![\w-])[^{}]*)\{([^{}]*)\}/g)].filter((rule) =>
+    rule[1]!.split(",").some((selector) => /\.acpmux-header-more(?![\w-])\s*$/.test(selector.trim())),
+  );
+  for (const rule of moreRules) expect(rule[2]!, rule[1]!.trim()).not.toMatch(boxProperty);
   const gap = "var(--acpmux-header-tool-gap,var(--grid-half-step))";
   expect(declarations(".acpmux-header-tools").get("gap")).toBe(gap);
   expect(declarations(".acpmux-header-tool-group").get("gap")).toBe(gap);

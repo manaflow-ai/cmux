@@ -101,7 +101,8 @@ button.acpmux-env-card__row:disabled {
 .acpmux-changes-pill-row {
   display: flex;
   justify-content: center;
-  padding: 0 var(--cv-inset, 16px) 8px;
+  /* Centered on the column, which ends at --cv-inset-end (the minimap's and the computer use preview's room). */
+  padding: 0 var(--cv-inset-end, var(--cv-inset, 16px)) 8px var(--cv-inset, 16px);
   pointer-events: none;
 }
 .acpmux-changes-pill {
