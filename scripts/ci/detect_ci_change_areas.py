@@ -183,6 +183,17 @@ _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt", ".log")
 # that names a helper only in a comment does not run it (a Cargo.toml's note on
 # the release strip routed that strip script to every lane, #42338).
 _HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
+# Files where `//` and `/* */` start comments. One that names a helper only in
+# a comment does not run it (web/tests/vm-image-cmux-vm-auto-roll.test.ts, #48644,
+# cites scripts/ci/one_linux_label.py and made what that helper reaches every area).
+_SLASH_COMMENT_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".cjs", ".swift", ".rs", ".go")
+_SLASH_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
+_SLASH_LINE_COMMENT_RE = re.compile(r"(?<![:/\\])//[^\n]*")
+
+
+def _without_slash_comments(text: str) -> str:
+    """`text` without `//` line comments (a URL's `://` stays) and `/* */` blocks."""
+    return _SLASH_LINE_COMMENT_RE.sub("", _SLASH_BLOCK_COMMENT_RE.sub("", text))
 # Data files that name helpers without running them: git attributes, the
 # warm-source table, whose entries describe a source in prose (#28568), the
 # single-host fallback declaration, whose `fallback` lines name the rescue that
@@ -232,6 +243,8 @@ _NON_RUNNING_FILES = frozenset({
     ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
     ".github/workflow-job-bounds.json",
+    # The always-run job list job_inputs.py reads: job names, not commands.
+    "scripts/ci/job-inputs-always.json",
 })
 
 
@@ -328,6 +341,13 @@ def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
     return frozenset(result.stdout.splitlines())
 
 
+def _is_docs_table(path: str) -> bool:
+    """A table under docs/ that local tools read, never CI (#61514's
+    docs/benches/relevance-map.toml lists the tests a path's bench runs, and
+    made every helper those tests reach route to every area)."""
+    return path.startswith("docs/") and path.endswith((".toml", ".json", ".yml", ".yaml"))
+
+
 def referrer_role(path: str) -> Optional[str]:
     """What ci_helper_areas() makes of a tracked file that names a helper, or
     None when it cannot place the file and so answers every area.
@@ -339,9 +359,19 @@ def referrer_role(path: str) -> Optional[str]:
     """
     if path.startswith(".github/workflows/"):
         return "workflow"
-    if path.endswith(_DOCUMENTATION_SUFFIXES):
+    if path == "ci/steps.toml":
+        # The CI v2 step table: pr-pipeline.yml runs its steps, routed by their
+        # own `inputs`, outside ci.yml's call tree, so a dead end like that
+        # workflow. Its path lists named helpers and made them every area.
+        return "workflow"
+    if path.endswith(_DOCUMENTATION_SUFFIXES) or _is_docs_table(path):
         return "documentation"
     if path in _NON_RUNNING_FILES:
+        return "data"
+    if path.startswith("tests/fixtures/") and path.endswith((".yml", ".yaml", ".json")):
+        # A captured workflow or a table a test reads, never run as CI
+        # (#64464's base_red_excuse_step_mapping/cmux-63557-acpmux.yml snapshot
+        # named the warm-target helpers and made them every area).
         return "data"
     if path.startswith(".github/actions/") and path.endswith(("/action.yml", "/action.yaml")):
         return "action"
@@ -653,6 +683,8 @@ _MACOS_DERIVED_OUTPUTS = frozenset({
 _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_ci_change_areas.py",
     "scripts/ci/detect_linux_guard_changes.py",
+    # The cargo fast tier's input list (#49682 put the warm-target helpers in it).
+    "scripts/ci/fast_tier_cargo_route.py",
     "scripts/ci/workflow_guard_groups.py",
 })
 # Files that list test paths without running them: the routing tables,
@@ -750,6 +782,16 @@ def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
     return _python_names(text, test)
 
 
+def _shell_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
+    """Whether the shell script `runner` names `test` outside comments, or None
+    when it cannot be read (fail open)."""
+    try:
+        text = (root / runner).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _names(text, test)
+
+
 def _nothing_imports_test(root: Path, test: str) -> bool:
     """True when no tracked file but the test, its inert registry entry, the
     test path lists and documentation names its module, outside a Python file
@@ -763,7 +805,7 @@ def _nothing_imports_test(root: Path, test: str) -> bool:
     if namers is None:
         return False
     for namer in namers:
-        if namer == test or namer in _TEST_PATH_LISTS or namer.endswith(_DOCUMENTATION_SUFFIXES):
+        if namer == test or namer in _TEST_PATH_LISTS or referrer_role(namer) in ("documentation", "data"):
             continue
         if is_test_registry_path(namer) and _registry_lane_is_inert(root, test):
             continue
@@ -922,6 +964,13 @@ def ci_helper_areas(
                     return every_area(f"could not read {referrer}")
                 if not _names(text, token):
                     continue
+            elif referrer.endswith(_SLASH_COMMENT_SUFFIXES):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                if not _names(_without_slash_comments(text), token):
+                    continue
             if role == "action":
                 # An action runs in whatever job uses it; its directory is
                 # the token those jobs name.
@@ -929,6 +978,14 @@ def ci_helper_areas(
                 continue
             if role == "test":
                 if is_guard_only_test(referrer, test_references):
+                    continue
+                if (referrer.endswith(".py") and "/" not in referrer[len("tests/"):]
+                        and not Path(referrer).name.startswith("test_")
+                        and is_unrouted_test(referrer, test_references)):
+                    # A helper module tests import (tests/runs_on_labels.py,
+                    # tests/workflow_jobs.py) runs wherever those tests run:
+                    # walk on through its importers, as for a script.
+                    tokens.append(Path(referrer).stem)
                     continue
                 if is_unrouted_test(referrer, test_references):
                     runners = _files_naming(root, referrer)
@@ -942,7 +999,9 @@ def ci_helper_areas(
                         runner for runner in runners
                         if runner != referrer
                         and runner not in _TEST_PATH_LISTS
-                        and not runner.endswith(_DOCUMENTATION_SUFFIXES)
+                        # Nor does a data file or a table under docs/ that lists it
+                        # (.github/runners.json, docs/benches/relevance-map.toml).
+                        and referrer_role(runner) not in ("documentation", "data")
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
                         # So does a script under scripts/ (scripts/cmux-next/tests/
                         # test_build_names.py names tests/test_script_module_loads.py
@@ -950,6 +1009,12 @@ def ci_helper_areas(
                         # that test reaches).
                         and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
+                        # A shell script that cites the test only in a comment
+                        # (scripts/ci/github-egress-run.sh, whose header names
+                        # tests/test_cmux_next_checks_workflow.py) does not run it.
+                        and not (runner.startswith(("tests/", "scripts/"))
+                                 and runner.endswith((".sh", ".bash", ".zsh"))
+                                 and _shell_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a
                         # manual-lane test nothing runs or imports, reaches no
@@ -965,7 +1030,7 @@ def ci_helper_areas(
                         # people run by hand, which no pull request job reaches.
                         continue
                     if runners and all(
-                        (runner.startswith(".github/workflows/") and runner not in routed)
+                        (referrer_role(runner) == "workflow" and runner not in routed)
                         or runner.startswith("scripts/")
                         for runner in runners
                     ):
