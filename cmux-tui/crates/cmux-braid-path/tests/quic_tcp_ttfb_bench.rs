@@ -32,6 +32,12 @@ impl Leg {
     }
 }
 
+impl cmux_braid_path::Leg for Leg {
+    fn leg(&self) -> String {
+        self.name().to_string()
+    }
+}
+
 /// QUIC's handshake timeout before a fallback gives up on UDP (Chromium waits on the order of
 /// its 300 to 500 ms alternate-job delay; 400 ms is the figure #57195's duress run used).
 const QUIC_GIVE_UP: Duration = Duration::from_millis(400);
