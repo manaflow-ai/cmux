@@ -565,6 +565,10 @@
       "reason": "keep: a read for scripts and agents (what the app supports); the app shows the same state on screen"
     },
     {
+      "verb": "app chat memory",
+      "reason": "keep: a measurement read (each chat page's memory and its ratio to an empty chat) for the memory-per-chat goal and scripts"
+    },
+    {
       "verb": "app chat perf",
       "reason": "keep: a measurement read (a chat's frames and record-to-paint times) for perf work and scripts"
     },

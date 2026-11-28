@@ -848,6 +848,7 @@ dependencies = [
  "webrtc",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]

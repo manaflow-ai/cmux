@@ -53,6 +53,20 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Main-thread seconds of the resizes that joined a fence (``CEFLayerHosting/pageViewResized()`` past its guard:
     /// the fence port, the fork's call and the deadline task), for its perf-hot budget per call.
     public var resizeFenceJoinSeconds = 0.0
+    /// Seconds from each page's join to its `done` (presented or missed), summed, and the replies that came later than
+    /// ``lateFenceReplySeconds``. Nightly c6ff12463 browser cells: a split or close whose page missed its fence showed
+    /// no frame for about 520 ms (s9-browser-w10 close_right, s4-browser-w1 close_down) while the fence's own deadline
+    /// was tens of ms; these say whether the page's reply (the fork holding its send right) or the commit was late.
+    public var resizeFenceReplySeconds = 0.0
+    public var resizeFenceRepliesLate = 0
+    /// A reply later than this is late: well past any fence deadline (4 refreshes at 60 Hz and one more is ~83 ms).
+    static let lateFenceReplySeconds = 0.1
+
+    /// One page's `done` came `seconds` after it joined its fence.
+    mutating func resizeFenceReplied(after seconds: Double) {
+        resizeFenceReplySeconds += max(0, seconds)
+        if seconds > Self.lateFenceReplySeconds { resizeFenceRepliesLate += 1 }
+    }
     /// Pane commits a page drew ahead for with no fence (``CEFCommitPageWait``), by how each wait ended: the page
     /// answered that it laid out at the new size, the wait reached its bound first, or the page hid or left.
     public var commitWaitsAnswered = 0
@@ -90,6 +104,7 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
          "fences": Double(resizeFences), "fence_joined": Double(resizeFenceJoined),
          "fence_presented": Double(resizeFencePresented), "fence_missed": Double(resizeFenceMissed),
          "fences_expired": Double(resizeFencesExpired), "fence_join_ms": resizeFenceJoinSeconds * 1_000,
+         "fence_reply_ms": resizeFenceReplySeconds * 1_000, "fence_reply_late": Double(resizeFenceRepliesLate),
          "commit_answered": Double(commitWaitsAnswered), "commit_at_bound": Double(commitWaitsAtBound),
          "commit_left": Double(commitWaitsLeft), "commit_answer_late": Double(commitAnswersLate),
          "commit_answer_failed": Double(commitAnswersFailed), "commit_answer_ms": commitAnswerSeconds * 1_000]

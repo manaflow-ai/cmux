@@ -60,12 +60,13 @@ on:
       ios_fast_run:
         value: ${{ jobs.ios-fast-runner.outputs.run }}
       ios_fast_summary:
-        value: ${{ jobs.ios-fast-runner.outputs.summary }}
+        value: ${{ jobs.ios-fast-runner.outputs.reused == 'true' && format('{0} (reused the pass of {1})', jobs.ios-fast-runner.outputs.summary, jobs.ios-fast-runner.outputs.reused_run) || jobs.ios-fast-runner.outputs.summary }}
       # false when the plan builds only to test the fast verdict's own files: no ios-flows proof applies.
       ios_fast_proof:
         value: ${{ jobs.ios-fast-runner.outputs.proof }}
+      # A reused pass (ios-fast-runner found one on the same inputs, so ios-fast never took a Mac) is success.
       ios_fast_verdict:
-        value: ${{ jobs.ios-fast.outputs.verdict }}
+        value: ${{ jobs.ios-fast.outputs.verdict || (jobs.ios-fast-runner.outputs.reused == 'true' && 'success' || '') }}
     secrets:
       # The org's manaflow-glaeda-route App key (read-only on runners), for the ios-runner job's live read of the
       # owned simulator Macs. Optional: without it the picker reads with the run's token.
@@ -96,7 +97,7 @@ jobs:
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
     # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min,
     # wire-lockstep-peers 30 min, the nightly and cmux-tui release guards 20 min, the cmux cloud CLI 15 min): 710 min
-    # with 59 shared steps (30 waves) and the setup and tool bounds, so a slow step is reported by the runner, not cut here.
+    # with 60 shared steps (30 waves) and the setup and tool bounds, so a slow step is reported by the runner, not cut here.
     timeout-minutes: 710
     permissions:
       contents: read
@@ -792,6 +793,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+      # The plan reads the head's earlier cmux/ios-fast statuses: a pass on the same iOS inputs is reused.
+      statuses: read
     outputs:
       run: ${{ steps.plan.outputs.run }}
       plan: ${{ steps.plan.outputs.plan }}
@@ -800,6 +803,9 @@ jobs:
       runs_on: ${{ steps.pool.outputs.runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
       label: ${{ steps.pool.outputs.label }}
+      reuse_key: ${{ steps.reuse-key.outputs.key }}
+      reused: ${{ steps.reuse.outputs.hit }}
+      reused_run: ${{ steps.reuse.outputs.run_url }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -814,7 +820,37 @@ jobs:
           persist-credentials: false
       - name: Plan the changed iOS targets
         id: plan
+        env:
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/ios_fast_verdict.py plan
+      # Content-addressed skip (goal ci-runner-min-per-day-10k; Leo, 11-28: "im asking for 99% fewer minutes of ci
+      # time, period."). The key (scripts/ci/job_input_fingerprint.py ios-fast-verdict) is every path the ios-kit
+      # step routes at this merge commit, this check's own files, pr-pipeline.yml and the plan's targets, so a pass
+      # is reused only on identical iOS inputs with the same targets: a rerun, a re-push, a base move that touched
+      # nothing iOS reads. 11-27: 1,166 of 7,675 Mac min re-ran a head whose own run had passed. A hit skips
+      # ios-fast before it takes a Mac and the verdict reads success, naming the run that passed; any failure to
+      # key or look up is a miss and the job runs. vars.CI_IOS_FAST_REUSE=0 turns it off.
+      - name: Key the fast verdict's inputs
+        id: reuse-key
+        if: steps.plan.outputs.run == 'true' && format('{0}', vars.CI_IOS_FAST_REUSE) != '0'
+        continue-on-error: true
+        env:
+          PLAN: ${{ steps.plan.outputs.plan }}
+          XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
+        run: |
+          set -euo pipefail
+          targets=$(python3 -I -c 'import json, os; p = json.loads(os.environ["PLAN"]); print(json.dumps({k: p[k] for k in ("tests", "build", "app")}, sort_keys=True, separators=(",", ":")))')
+          python3 -I scripts/ci/job_input_fingerprint.py ios-fast-verdict \
+            --extra "plan=$targets" --extra "xcode_app=$XCODE_APP" >> "$GITHUB_OUTPUT"
+      - name: Look for a pass on the same inputs
+        id: reuse
+        if: steps.plan.outputs.run == 'true' && steps.reuse-key.outputs.key != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.reuse-key.outputs.key }}
+        run: python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" | tee -a "$GITHUB_OUTPUT"
       - name: Mint the cmux-bot read token (even runs)
         # Even run ids read on cmux-bot's installation budget, odd ones on
         # manaflow-glaeda-route's, so per-PR reads stop draining the build
@@ -933,7 +969,7 @@ jobs:
   ios-fast:
     name: ios fast verdict
     needs: [ios-fast-runner]
-    if: ${{ needs.ios-fast-runner.outputs.run == 'true' }}
+    if: ${{ needs.ios-fast-runner.outputs.run == 'true' && needs.ios-fast-runner.outputs.reused != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.ios-fast-runner.outputs.retry_runs_on || needs.ios-fast-runner.outputs.runs_on) }}
     # Warm: about 3-4 min. Cold (a new Mac, a changed FFI or Package.resolved): the FFI (the fleet's copy, up to
     # 10 min, or this Mac builds it) and a full kit build.
@@ -1016,6 +1052,23 @@ jobs:
         run: |
           echo "::notice title=iOS fast verdict::$SUMMARY"
           bash scripts/ci/ios_fast_verdict.sh
+      # The pass ios-fast-runner's lookup reuses (scripts/ci/job_reuse.py): same-repository runs only.
+      - name: Record this pass for the same inputs
+        if: ${{ success() && needs.ios-fast-runner.outputs.reuse_key != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-job-pass"
+          printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
+      - name: Save the pass
+        if: ${{ success() && needs.ios-fast-runner.outputs.reuse_key != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.ios-fast-runner.outputs.reuse_key }}
+          path: ${{ runner.temp }}/ci-job-pass
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
       # pr-router.yml's ios-fast-status posts this as `cmux/ios-fast`.
       - name: Record the verdict
         id: verdict

@@ -116,6 +116,12 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.yolo != ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
+    # The release App secrets (CMUX_FFI_RELEASE_APP_*) live only in the ffi-release environment (deployment
+    # policy: feat-cmux-next only, the ref a YOLO dispatch runs on). Without it the mint below read an empty
+    # app id, fell back to the job token, and the ref create failed again (run 46085910676, 2026-11-28).
+    environment:
+      name: ffi-release
+      deployment: false
     permissions:
       # contents: write pushes the ios-yolo/ stack branch; actions: write dispatches the builder;
       # pull-requests: write tells a PR it was left out.

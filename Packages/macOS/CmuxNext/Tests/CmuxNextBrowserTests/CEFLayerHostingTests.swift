@@ -623,6 +623,26 @@ private final class LiveResizeWindow: NSWindow {
         endTurn()
     }
 
+    /// Each page's reply to its fence counts its time from the join (`fence_reply_ms` in `debug.cef`), and a reply past
+    /// ``CEFTrackerStats/lateFenceReplySeconds`` counts as late (`fence_reply_late`), so a split-scale row says whether a
+    /// missed page or the commit held the frame.
+    @Test func aFenceReplyCountsItsTimeAndALateOne() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        let seconds = CEFHostView.trackerStats.resizeFenceReplySeconds
+        let late = CEFHostView.trackerStats.resizeFenceRepliesLate
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let done = try #require(fork.dones.first)
+        Thread.sleep(forTimeInterval: CEFTrackerStats.lateFenceReplySeconds + 0.02)
+        done(false)
+        endTurn()
+        #expect(CEFHostView.trackerStats.resizeFenceReplySeconds > seconds + CEFTrackerStats.lateFenceReplySeconds)
+        #expect(CEFHostView.trackerStats.resizeFenceRepliesLate >= late + 1)
+        #expect(CEFHostView.trackerStats.reportFields["fence_reply_ms"] != nil)
+        #expect(CEFHostView.trackerStats.reportFields["fence_reply_late"] != nil)
+    }
+
     /// After its turn, a fence with a page still out keeps its send right until that page reports, then lets it go: a
     /// fence freed with its right would hold the window's commits for good, and one kept past `done` would too.
     @Test func aFenceOutlivesItsTurnUntilItsPagesReport() throws {
