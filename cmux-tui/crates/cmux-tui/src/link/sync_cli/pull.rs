@@ -212,6 +212,7 @@ fn pull_based(
     if !std::fs::metadata(&local)?.is_dir() {
         bail!("{} is not a folder", local.display());
     }
+    super::sync_back::check(&local)?;
     let git = GitDirs::of(&local)?;
     let mut remote = Remote::connect(socket)?;
     // A fresh base (Transfer to This Mac, seed fetch) stands for "nothing was pushed"; otherwise the
@@ -1607,6 +1608,9 @@ fn mode_bits(display: &str) -> u32 {
 
 /// The error code of a pull failure.
 pub(super) fn failure_code(error: &anyhow::Error) -> String {
+    if let Some(code) = super::sync_back::code_of(error) {
+        return code.into();
+    }
     if error.downcast_ref::<base::NoBase>().is_some() {
         return "sync_no_base".into();
     }
