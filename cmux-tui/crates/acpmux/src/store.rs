@@ -53,6 +53,7 @@ mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 mod session_records;
+pub(crate) use session_records::ClaudeTokenRecovery;
 pub use session_records::{
     ApprovedPlan, AwayRecap, CapacityFallback, EventRecord, ForkBefore, ForkRequest, ForkStart,
     LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, WaitReason,
@@ -722,6 +723,11 @@ pub trait Store: Send + Sync {
     /// Where the approvals audit trail is kept (`hub/audit_log.rs`): `audit/` beside
     /// `sessions/`, or none (in memory) for the memory store.
     fn audit_dir(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Where each chat's usage tracker is saved (`hub/usage_view.rs`): `usage-trackers/` beside
+    /// `sessions/`, or none (in memory, read over by each daemon) for the memory store.
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -2026,6 +2032,10 @@ impl Store for LocalStore {
 
     fn audit_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("audit"))
+    }
+
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("usage-trackers"))
     }
 }
 
