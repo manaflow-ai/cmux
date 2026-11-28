@@ -502,7 +502,7 @@ def idle_window(top, seconds, disks):
     return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits,
             "syncer": syncer, "window": seconds,
             "wakes": wakes, "wake_terminals": len(asked),
-            "threads": threads, "pids_made": pids_made, "timers": tui_timers, "wakers": woken_by,
+            "threads": threads, "pids_made": pids_made, "timers": tui_timers, "wakers": woken_by, "settle": SETTLED[-1] if SETTLED else None,
             "quiet": quiet}
 
 
@@ -1127,43 +1127,44 @@ def settle(args, top):
     settle_io(args, top)
 
 
-def tui_io_state(tui):
-    """The tui's I/O counters and how many of its threads wait in the kernel (D: an fsync, a page write-back).
-    Only /proc/<pid>/io and /proc/<tid>/stat: neither wakes a thread (/proc/<tid>/syscall did)."""
-    try:
-        with open(f"/proc/{tui}/io") as f:
-            io = tuple(line.strip() for line in f if line.split(":")[0] in ("syscw", "write_bytes", "rchar", "wchar"))
-        waiting = 0
-        for tid in os.listdir(f"/proc/{tui}/task"):
-            try:
-                with open(f"/proc/{tui}/task/{tid}/stat") as f:
-                    waiting += f.read().rsplit(")", 1)[1].split()[0] == "D"
-            except OSError:
-                pass
-        return io, waiting
-    except (OSError, TypeError):
-        return None, 0
+SETTLED = []  # settle_io's last drain, for the next window's INFINITE-DAY line
+
+
+def tui_switches(tui):
+    """The tui's context switches summed over its threads, from /proc/<tid>/status (a read that wakes nothing;
+    /proc/<tid>/syscall did)."""
+    threads = thread_detail(tui)
+    return sum(d.get("volu", 0) + d.get("nonv", 0) for d in threads.values()) if threads else None
 
 
 def settle_io(args, top):
-    """Then the durability work that parking or closing started: a pass that fsyncs ~n parked snapshots and the
-    registry WAL wakes its thread once per I/O completion (jbd2 commit, page write-back), so a window opened while
-    it drains counts a one-off O(n) burst as idle wakeups. Wait until the tui writes nothing and no thread waits in
-    the kernel for 3 s, bounded by 180 s; INFINITE-SETTLE logs the drain, so the burst stays visible, not hidden."""
+    """Then the durability work that parking or closing started: a pass that fsyncs the parked snapshots and the
+    registry WAL wakes its thread once per I/O completion (jbd2 commit, page write-back; the I/O counters do not
+    move for an fsync), so a window opened while it drains counts a one-off burst as idle wakeups. Wait until the
+    tui switches at most 3 times in 3 s, bounded by 180 s. INFINITE-SETTLE logs the drain and the switches it
+    waited out, so the burst stays visible; bounded=yes means it never went quiet, and the window then counts it."""
     tui = top.get("tui")
     start = time.monotonic()
-    deadline, last, same, reads = start + 180.0, None, 0, 12
+    first = tui_switches(tui)
+    marks = [(start, first)]
     while True:
-        io, waiting = tui_io_state(tui)
-        same = same + 1 if io is not None and io == last and not waiting else 0
-        last = io
-        if io is None or same >= reads:
-            log(f"INFINITE-SETTLE io_drain_s={time.monotonic() - start:.1f} bounded=no")
+        time.sleep(0.25)  # the poll interval of the tui's switch counts
+        now, n = time.monotonic(), tui_switches(tui)
+        if n is None or first is None:
+            SETTLED.append("drain_s=0 switches=- bounded=no")
+            log("INFINITE-SETTLE " + SETTLED[-1])
             return
-        if time.monotonic() >= deadline:
-            log(f"INFINITE-SETTLE io_drain_s={time.monotonic() - start:.1f} bounded=yes waiting={waiting}")
+        marks.append((now, n))
+        while len(marks) > 1 and now - marks[1][0] >= 3.0:
+            marks.pop(0)
+        if now - marks[0][0] >= 3.0 and n - marks[0][1] <= 3:
+            SETTLED.append(f"drain_s={now - start:.1f} switches={n - first} bounded=no")
+            log("INFINITE-SETTLE " + SETTLED[-1])
             return
-        time.sleep(0.25)  # the poll interval of the tui's I/O counters
+        if now - start >= 180.0:
+            SETTLED.append(f"drain_s={now - start:.1f} switches={n - first} bounded=yes")
+            log("INFINITE-SETTLE " + SETTLED[-1])
+            return
 
 
 def dhat_mark(day):
@@ -1259,7 +1260,8 @@ def report(results):
         for s in r["samples"]:
             t_ = s["total"]
             print(f"INFINITE-DAY {n} day={s['day']} mb={t_['pss_mb']} cpu={t_['cpu_pct']} wk={t_['wakeups_per_s']} "
-                  f"procs={t_['procs']} thr={t_.get('threads')} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
+                  f"procs={t_['procs']} thr={t_.get('threads')} fds={t_['fds']} disk={json.dumps(s['disk'])} "
+                  f"settle={s.get('settle')!r}", flush=True)
             print(f"INFINITE-COMMITS {n} day={s['day']} per_s={round(sum(s.get('commits', {}).values()) / max(1, s.get('window', 1)), 2)} "
                   f"by_thread={json.dumps(dict(sorted(s.get('commits', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
             print(f"INFINITE-SYNCER {n} day={s['day']} states={len(s.get('syncer', {}))} "
