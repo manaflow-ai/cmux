@@ -4,7 +4,7 @@
 // awkward as ui. unilaterally, literally anything else would be a motherfucking improvement. go
 // debate figure shit out. try some variants." Compare the arms with the entry's experiment.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
@@ -42,6 +42,24 @@ const scene = (agents: Subagent[]) =>
     { isWorking: true },
   );
 
+// A turn that started one subagent and ended after it did, its "Worked for" closed: the start line in
+// sight says it finished, since the done line folded with the turn's work (Leo, 2026-11-25, on
+// "Say hi started working" under "Worked for 9s": "dot on left weird").
+const endedTurn = () => {
+  const agent: Subagent = {
+    ...running("Say hi", 1),
+    background: false,
+    state: "completed",
+    endedAt: minutesAgo(0.95),
+  };
+  return chat([
+    user("Use the Task tool once to launch a general-purpose subagent with the prompt: Reply with exactly: hi.", 1.1),
+    activity([tool("Say hi", "other", "completed")], 1.05),
+    row(SUBAGENTS, 1.05, { subagents: [agent] }),
+    summary(0.94, { durationMs: 9_000, toolCount: 1, status: "completed" }),
+  ]);
+};
+
 const line = (ctx: PlayContext) => ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-started"));
 
 export default agentPaneEntry({
@@ -69,6 +87,11 @@ export default agentPaneEntry({
       note: "Three at once, the fewest the crowd look takes.",
       play: line,
       snapshot: scene(seven.slice(0, 3)),
+    },
+    ended: {
+      note: "A closed turn whose one subagent ended: `Say hi finished` beside `Worked for 9s`, not `started working`.",
+      play: line,
+      snapshot: endedTurn(),
     },
     two: {
       note: "Two still read as a sentence: `A and B started working`.",
