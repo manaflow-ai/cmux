@@ -1,6 +1,0 @@
-/* The Leo collection's Markdown pages: headings a little bolder, inline highlights tinted with
-   the theme's accent. Colors come from the theme file. */
-:root {
-  --cmux-md-heading-weight: 650;
-  --cmux-md-accent-background: color-mix(in srgb, var(--cmux-accent, currentColor) 14%, transparent);
-}

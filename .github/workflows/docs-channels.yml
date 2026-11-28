@@ -1,0 +1,55 @@
+name: Deploy docs channels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "CHANGELOG.md"
+      # Standalone lint policy is not an input to the docs build.
+      - "!web/scripts/check-complexity.mjs"
+      - "!web/oxlint-complexity-baseline.txt"
+      - "!web/.oxlintrc.json"
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  # A deploy of classic web/ from main ships only past the classic deploy guard (Leo's label or a teammate's PR).
+  guard:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/classic-deploy-guard.yml
+    with:
+      role: docs
+    secrets:
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+
+  nightly:
+    if: github.ref == 'refs/heads/main'
+    needs: guard
+    uses: ./.github/workflows/docs-deploy-reusable.yml
+    with:
+      channel: nightly
+    secrets:
+      vercel_org_id: ${{ secrets.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ secrets.VERCEL_NIGHTLY_DOCS_PROJECT_ID }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/docs-deploy-reusable.yml
+    with:
+      channel: release
+    secrets:
+      vercel_org_id: ${{ secrets.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ secrets.VERCEL_RELEASE_DOCS_PROJECT_ID }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN }}

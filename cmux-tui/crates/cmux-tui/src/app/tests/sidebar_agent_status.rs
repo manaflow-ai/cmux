@@ -3,8 +3,13 @@
 //! most urgent first and a click there focuses the agent's tab, and a turn
 //! that finished in the tab the person views is seen (idle), not done.
 
+use std::time::{Duration, Instant};
+
 use super::*;
-use cmux_tui_core::{Actor, NotificationLevel, NotificationSource};
+use cmux_tui_core::NotificationLevel;
+
+/// How long a test waits for the roster and the notification marker.
+const EVENT_WAIT: Duration = Duration::from_secs(10);
 
 /// An app showing the workspace rail. `host_focused` is set before the
 /// first layout frame, which may already ack a done tab the person views.
@@ -40,7 +45,7 @@ fn wait_for_status(
     surface: SurfaceId,
     wanted: Option<cmux_tui_core::AgentStatus>,
 ) {
-    let deadline = Instant::now() + crate::test_wait::EVENT;
+    let deadline = Instant::now() + EVENT_WAIT;
     loop {
         draw(app, terminal);
         let status = app.sidebar_status.tab(surface);
@@ -114,13 +119,11 @@ fn a_blocked_agent_shows_on_its_workspace_row_and_tops_the_agents_section() {
 fn a_finished_turn_stays_done_until_the_person_views_its_tab() {
     let (mux, agent_tab) = test_mux("agent-sidebar-done-until-seen-test", None);
     mux.report_agent(agent_tab.id, AgentState::Idle, AgentSource::Hook, Some("s1".into())).unwrap();
-    mux.post_notification_as(
-        &Actor::Daemon,
+    mux.post_notification(
         "Claude finished".into(),
         String::new(),
         NotificationLevel::Info,
         Some(agent_tab.id),
-        NotificationSource::Cli,
     )
     .unwrap();
     // The host terminal is in the background: the turn is not seen.

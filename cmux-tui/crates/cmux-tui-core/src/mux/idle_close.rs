@@ -13,8 +13,7 @@
 //! The reaper is deadline-driven: it sleeps until the earliest unattached
 //! terminal's policy is due, and is woken early when a policy changes or a
 //! view detaches. With no policy-bearing terminal it blocks indefinitely
-//! (it used to tick every 15 s whether or not any policy existed). The idle
-//! freeing timer (`idle_freeing.rs`) runs on the same thread and deadline.
+//! (it used to tick every 15 s whether or not any policy existed).
 
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::JoinHandle;
@@ -167,7 +166,7 @@ impl Mux {
             })
             .collect();
         let due = self.idle_close.lock().unwrap().due(now, &candidates);
-        let any_due = !due.is_empty();
+        let forgot_any = !due.is_empty();
         let mut closed = Vec::with_capacity(due.len());
         for terminal_id in due {
             // Whatever happens next, this terminal's idle period is over: a
@@ -186,7 +185,7 @@ impl Mux {
                 incarnation.as_deref(),
                 None,
                 None,
-                &WorkspaceMutation::daemon_local(IDLE_CLOSE_MUTATION_ORIGIN),
+                &WorkspaceMutation::local(IDLE_CLOSE_MUTATION_ORIGIN),
             ) {
                 Ok(_) => closed.push(terminal_id),
                 Err(error) => self.report_internal_diagnostic(format!(
@@ -197,14 +196,13 @@ impl Mux {
         // A closed or forgotten terminal is re-tracked from `now` on the
         // next pass, so the deadline below covers only live periods.
         let next = self.idle_close.lock().unwrap().next_deadline(&candidates);
-        // A due terminal was forgotten even when its close failed or a view
-        // attached at the recheck; without a pass now it would never be
-        // re-tracked and the reaper would block with no deadline.
-        let next = if !any_due && next.is_none_or(|next| next > now) {
+        let next = if !forgot_any && next.is_none_or(|next| next > now) {
             next
         } else {
-            // Something changed this pass: evaluate again at once so the
-            // tracker records fresh periods for the terminals it forgot.
+            // Something changed this pass (a close, a failed close, or a late
+            // attach): evaluate again at once so the tracker records fresh
+            // periods for the terminals it forgot. A failed close is then
+            // retried after one more full period instead of never.
             Some(now)
         };
         (closed, next)
@@ -220,7 +218,7 @@ impl Mux {
     /// Every surface a client can attach to for a terminal, grouped by the
     /// stable host id it presents: placed views plus the catalog runtime,
     /// which resource clients attach to even when the terminal is unplaced.
-    pub(super) fn terminal_placements_by_host(&self) -> HashMap<String, Vec<SurfaceId>> {
+    fn terminal_placements_by_host(&self) -> HashMap<String, Vec<SurfaceId>> {
         let state = self.state.lock().unwrap();
         let mut placements: HashMap<String, Vec<SurfaceId>> = HashMap::new();
         let surfaces = state.surfaces.values().chain(state.terminal_catalog.values());
@@ -297,12 +295,6 @@ pub fn start_idle_terminal_reaper(
             let Some(owner) = mux.upgrade() else { break };
             let now = Instant::now();
             let (_, next) = owner.reap_idle_terminals_until_next(now);
-            // The freeing timer shares this thread and its one deadline (`idle_freeing.rs`).
-            let freeing = owner.free_idle_terminals_until_next(now);
-            let next = match (next, freeing) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
             drop(owner);
             let message = match next {
                 None => messages.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -318,5 +310,72 @@ pub fn start_idle_terminal_reaper(
 }
 
 #[cfg(test)]
-#[path = "idle_close_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    const HOUR: Duration = Duration::from_secs(60 * 60);
+
+    fn candidate(terminal_id: &str, attached: bool, attach_epoch: u64) -> IdleCandidate<'_> {
+        IdleCandidate { terminal_id, idle_close: HOUR, attached, attach_epoch }
+    }
+
+    #[test]
+    fn unattached_terminal_is_due_only_once_its_policy_elapses() {
+        let start = Instant::now();
+        let mut tracker = IdleCloseTracker::default();
+        let idle = [candidate("idle", false, 0)];
+
+        assert!(tracker.due(start, &idle).is_empty(), "the first observation starts the clock");
+        assert!(tracker.due(start + HOUR - Duration::from_secs(1), &idle).is_empty());
+        assert_eq!(tracker.due(start + HOUR, &idle), vec!["idle".to_string()]);
+    }
+
+    #[test]
+    fn attached_terminal_is_never_due_and_detaching_restarts_the_clock() {
+        let start = Instant::now();
+        let mut tracker = IdleCloseTracker::default();
+
+        assert!(tracker.due(start, &[candidate("view", false, 1)]).is_empty());
+        assert!(tracker.due(start + 10 * HOUR, &[candidate("view", true, 1)]).is_empty());
+        assert_eq!(tracker.tracked(), 0, "an attached terminal carries no idle clock");
+
+        let detached_at = start + 11 * HOUR;
+        assert!(tracker.due(detached_at, &[candidate("view", false, 1)]).is_empty());
+        assert!(tracker.due(detached_at + HOUR / 2, &[candidate("view", false, 1)]).is_empty());
+        assert_eq!(
+            tracker.due(detached_at + HOUR, &[candidate("view", false, 1)]),
+            vec!["view".to_string()]
+        );
+    }
+
+    #[test]
+    fn reattach_between_ticks_resets_the_clock() {
+        let start = Instant::now();
+        let mut tracker = IdleCloseTracker::default();
+
+        assert!(tracker.due(start, &[candidate("flicker", false, 1)]).is_empty());
+        // A view attached and detached again between two ticks: the tick
+        // only sees a newer attach epoch.
+        let reattached = start + HOUR - Duration::from_secs(1);
+        assert!(tracker.due(reattached, &[candidate("flicker", false, 2)]).is_empty());
+        assert!(tracker.due(start + HOUR, &[candidate("flicker", false, 2)]).is_empty());
+        assert_eq!(
+            tracker.due(reattached + HOUR, &[candidate("flicker", false, 2)]),
+            vec!["flicker".to_string()]
+        );
+    }
+
+    #[test]
+    fn terminal_without_a_policy_is_forgotten() {
+        let start = Instant::now();
+        let mut tracker = IdleCloseTracker::default();
+
+        assert!(tracker.due(start, &[candidate("cleared", false, 0)]).is_empty());
+        assert_eq!(tracker.tracked(), 1);
+        // Clearing the policy (`null`) removes the terminal from the candidates.
+        assert!(tracker.due(start + 100 * HOUR, &[]).is_empty());
+        assert_eq!(tracker.tracked(), 0);
+        // A policy set again later starts a fresh clock.
+        assert!(tracker.due(start + 101 * HOUR, &[candidate("cleared", false, 0)]).is_empty());
+    }
+}

@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/agent-pane-zoom.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentPaneZoom.generated.swift",
-  "type": "AgentPaneZoomSettingsSchema",
-  "lists": {
-    "zoom": ["descriptors", null]
-  }
-}

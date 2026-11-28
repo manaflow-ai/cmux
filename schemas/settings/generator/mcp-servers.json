@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/mcp-servers.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+McpServers.generated.swift",
-  "type": "McpServersSettingsSchema",
-  "lists": {
-    "mcpServers": ["descriptors", "McpServersSettings"]
-  }
-}

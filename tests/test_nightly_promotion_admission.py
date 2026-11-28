@@ -20,6 +20,9 @@ activity, deployment approvals) and checks the decision the workflow acts on:
 - G4: the approval must come from someone who did not land the surface
   change (push actor, PR author or merger, commit author) and did not start
   the run; a missing push actor fails closed.
+- G5: the SHA's cmux-tui tree-commit marker (files.cmux.com) reads 200 and
+  names it. A 404 refuses with the backfill command; anything else is a
+  marker read failure, never "no tree".
 - Newest request wins (decideNewest): a newer request GitHub evicted from the
   promote queue in the last day is decided before this request's own commit;
   a person's cancel, an older or ungreen commit and a dry run are not. The
@@ -31,12 +34,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "ci" / "promote-nightly-next.mjs"
@@ -199,17 +198,41 @@ const github = {
   },
 };
 const core = { notice: (m) => notices.push(m), warning: (m) => notices.push(`warning: ${m}`) };
+// G5's tree-commit marker: ready unless scenario.treeMarkers says otherwise
+// ({status, body} per commit, or 'throw' for no response).
+calls.markerReads = [];
+const readTreeMarker = async (sha) => {
+  calls.markerReads.push(sha);
+  const marker = (scenario.treeMarkers || {})[sha];
+  if (marker === 'throw') throw new Error('getaddrinfo ENOTFOUND files.cmux.com');
+  return marker || { status: 200, body: { commit: sha, key: 'f'.repeat(40), publishedBy: 'e'.repeat(40), markedBy: 'https://github.com/manaflow-ai/cmux/actions/runs/1' } };
+};
+// G5's exception: each commit's nightly.yml (scenario.workflows: text per
+// commit, or 'throw' for a failed read); an absent entry has no line.
+calls.workflowReads = [];
+const readWorkflow = async (sha) => {
+  calls.workflowReads.push(sha);
+  const text = (scenario.workflows || {})[sha];
+  if (text === 'throw') throw Object.assign(new Error('Bad Gateway'), { status: 502 });
+  return text ?? 'name: Nightly macOS build\n';
+};
 let newest = null;
-const decision = scenario.newest
+const decision = scenario.request !== undefined
+  ? (newest = await guard.decideRequest({
+      requested: scenario.request, actor: scenario.requestActor,
+      github, core, owner: 'manaflow-ai', repo: 'cmux', runId: 1,
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker, readWorkflow,
+    })).decision
+  : scenario.newest
   ? (newest = await guard.decideNewest({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha, runId: 1,
-      surfaceText: scenario.surface, sleep: async () => {},
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker, readWorkflow,
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
       ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
     })).decision
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
-      surfaceText: scenario.surface, sleep: async () => {},
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker, readWorkflow,
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
       ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
       // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
@@ -861,6 +884,60 @@ def test_an_unreadable_eviction_list_decides_the_request_alone() -> None:
     assert any("cancelled in the promote queue" in notice for notice in out["notices"]), out["notices"]
 
 
+# The cadence (decideRequest): only the 30-minute tick ("tick:" prefix) or a
+# person promotes; a landing's request (github-actions[bot], no prefix) is skipped.
+LANDING = "github-actions[bot]"
+
+
+def test_a_burst_of_landings_promotes_nothing() -> None:
+    for sha in (SHA, NEWER, MID):
+        out = run(scenario(request=sha, requestActor=LANDING))
+        assert out["decision"]["action"] == "skip", out["decision"]
+        assert "nightly-next tick" in out["decision"]["reason"], out["decision"]
+        # Skipped before any read: no eviction scan, no guard.
+        assert out["calls"]["dispatchStatuses"] == [] and out["calls"]["comparePages"] == 0, out["calls"]
+
+
+def test_the_tick_promotes_through_the_newest_request_guard() -> None:
+    out = run(scenario(request=f"tick:{SHA}", requestActor=LANDING))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["newest"]["tick"] and not out["newest"]["dryRun"], out["newest"]
+    assert out["calls"]["dispatchStatuses"] == ["cancelled"], out["calls"]
+
+
+def test_a_tick_with_nothing_new_does_nothing() -> None:
+    out = run(scenario(request=f"tick:{CURRENT}", requestActor=LANDING, sha=CURRENT, onSource={CURRENT: "ahead"}))
+    assert out["decision"]["action"] == "skip" and "already at" in out["decision"]["reason"], out["decision"]
+
+
+def test_a_persons_dispatch_still_promotes() -> None:
+    out = run(scenario(request=SHA, requestActor="teamleaderleo"))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_a_dry_run_tick_parses_both_prefixes_in_either_order() -> None:
+    for request in (f"dry-run:tick:{SHA}", f"tick:dry-run:{SHA}"):
+        out = run(scenario(request=request, requestActor=LANDING))
+        assert out["newest"]["dryRun"] and out["newest"]["tick"], out["newest"]
+        assert out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_an_evicted_landing_request_is_not_decided() -> None:
+    case = with_evicted(NEWER)
+    case["request"], case["requestActor"] = f"tick:{SHA}", LANDING
+    case["dispatchRuns"][0]["triggering_actor"] = {"login": LANDING}
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_an_evicted_tick_request_is_decided() -> None:
+    case = with_evicted(NEWER, title=f"Promote nightly-next to tick:{NEWER}")
+    case["request"], case["requestActor"] = f"tick:{SHA}", LANDING
+    case["dispatchRuns"][0]["triggering_actor"] = {"login": LANDING}
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
+
+
 def test_an_older_evicted_request_does_not_replace_the_request() -> None:
     out = run(with_evicted(MID))
     assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
@@ -900,21 +977,39 @@ def test_the_request_title_names_its_commit() -> None:
 def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "environment: nightly-next-promote" in WORKFLOW
     assert "&& 'release-surface-ack' || ''" in WORKFLOW
-    assert "requested.startsWith('dry-run:')" in WORKFLOW
+    assert "guard.decideRequest({" in WORKFLOW and "TRIGGERING_ACTOR: ${{ github.triggering_actor }}" in WORKFLOW
     assert "ref: ${{ github.sha }}" in WORKFLOW
-    # promote-nightly-next moves a "needs-ack" decision like a "promote" one (scripts/ci/promote-nightly-next.mjs, #25995).
-    assert ("if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && "
-            "steps.decide.outputs.dry_run != 'true'") in WORKFLOW
-    # The acked mover is retired (`if: false`): the first job moves a needs-ack decision itself (#25995).
-    assert "promote-nightly-next-acked:" in WORKFLOW and "\n    if: false\n" in WORKFLOW
+    assert "if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'" in WORKFLOW
+    assert "if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'" in WORKFLOW
     assert "group: nightly-next-promote-ack-${{ github.run_id }}" in WORKFLOW
-    assert "guard.decideNewest({" in WORKFLOW
+    assert "guard.decideRequest({" in WORKFLOW
 
 
-# Main's copy also pins the Linux runner labels of the nightly jobs here
-# (test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallback).
-# feat-cmux-next routes them through vars.LINUX_RUNNER instead, and
-# tests/test_ci_nightly_off_blacksmith.py owns its runner rules.
+def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallback() -> None:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    for name in (
+        "decide",
+        "promote-nightly-next",
+        "await-release-surface-ack",
+        "promote-nightly-next-acked",
+        "resolve-nightly-cmux-tui-client",
+        "publish-nightly",
+        "report-nightly-failure",
+    ):
+        runner = str(jobs[name]["runs-on"])
+        assert "blacksmith-2vcpu-ubuntu-2404" in runner, name
+        assert runner != "ubuntu-24.04", name
+    probe = yaml.safe_load((ROOT / ".github/workflows/nightly-tag-permission-probe.yml").read_text())
+    # The probe holds a write token, so it runs on the secret JIT label.
+    assert "cmux-gcp-secret-jit-x64" in str(probe["jobs"]["probe"]["runs-on"])
+    for workflow in ("nightly-next-tick.yml", "nightly-next-feed-watch.yml"):
+        document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+        for name, job in document["jobs"].items():
+            runner = str(job.get("runs-on", ""))
+            if runner:
+                assert "blacksmith-2vcpu-ubuntu-2404" in runner, f"{workflow}:{name}"
 
 
 def test_only_the_wait_for_the_approval_is_cancellable() -> None:
@@ -929,7 +1024,7 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
     assert wait["permissions"] == {}
-    assert not workflow_jobs.secret_names(wait)
+    assert "secrets." not in json.dumps(wait)
     # The writers are never in a cancelling group.
     assert move["concurrency"]["cancel-in-progress"] is False and "github.run_id" in move["concurrency"]["group"]
     assert decide_job["concurrency"] == {"group": "nightly-next-promote", "cancel-in-progress": False}
@@ -1046,17 +1141,8 @@ console.log(JSON.stringify({ ok, bad, crashed }));
 
 
 def test_both_promote_decisions_pass_the_train_verifier() -> None:
-    import yaml
-
     assert WORKFLOW.count("verifyTrain: guard.trainVerifier(") == 2
-    # Each job that verifies the train checks out the verifier. Read the parsed workflow: the two
-    # jobs share their checkout step through a YAML anchor (#30471), so its text appears once.
-    jobs = yaml.safe_load(WORKFLOW)["jobs"]
-    verifying = [job for job in jobs.values() if "verifyTrain: guard.trainVerifier(" in yaml.safe_dump(job)]
-    assert len(verifying) == 2
-    for job in verifying:
-        sparse = [str((step.get("with") or {}).get("sparse-checkout", "")) for step in job["steps"]]
-        assert any("scripts/ci/nightly_next_train.py\n" in paths for paths in sparse), job["steps"][0]
+    assert WORKFLOW.count("scripts/ci/nightly_next_train.py\n") >= 2
 
 
 def test_by_default_a_tip_without_a_release_compile_is_promoted_itself() -> None:
@@ -1138,6 +1224,257 @@ def test_g4_reads_grow_with_the_range_only_with_require_approval() -> None:
     skipped = run(case)
     assert skipped["decision"]["action"] == "promote", skipped["decision"]
     assert skipped["calls"]["commitReads"] == 0 and skipped["calls"]["trees"] == 0, skipped["calls"]
+
+
+def test_g5_a_commit_without_a_tree_marker_is_refused_with_the_backfill() -> None:
+    # Nightly-next run 40445128409: a promote moved nightly-next to a commit
+    # whose cmux-tui tree was still building.
+    case = scenario(treeMarkers={SHA: {"status": 404}})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    reason = out["decision"]["reason"]
+    assert "has no cmux-tui tree-commit marker" in reason, reason
+    assert "gh workflow run cmux-tui-artifacts.yml -R manaflow-ai/cmux --ref feat-cmux-next" in reason, reason
+    assert "nightly-next-tick.yml" in reason, reason
+    assert out["calls"]["moves"] == 0
+
+
+def test_g5_a_marker_read_failure_is_not_a_missing_tree() -> None:
+    for marker in ({"status": 503}, {"status": 302}, {"status": 0, "error": "timeout"}, "throw",
+                   {"status": 200, "error": "the body does not parse"},
+                   {"status": 200, "body": {"commit": NEWER, "key": "f" * 40}},
+                   {"status": 200, "body": {"commit": SHA}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40, "publishedBy": "x", "markedBy": "u"}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40, "publishedBy": "e" * 40, "markedBy": ""}}):
+        case = scenario(treeMarkers={SHA: marker})
+        del case["requireApproval"]
+        out = run(case)
+        assert out["decision"]["action"] == "refuse", (marker, out["decision"])
+        reason = out["decision"]["reason"]
+        assert reason.startswith("tree marker read failed"), (marker, reason)
+        assert "has no cmux-tui tree-commit marker" not in reason, (marker, reason)
+
+
+def test_g5_reads_the_marker_of_the_promoted_commit() -> None:
+    case = scenario()
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["markerReads"] == [SHA], out["calls"]
+
+
+def test_g5_runs_after_g1() -> None:
+    # A commit off feat-cmux-next is refused by G1 before any marker read.
+    case = scenario(onSource={SHA: "diverged"}, sourceHead="e" * 40)
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse" and "is not on feat-cmux-next" in out["decision"]["reason"], out["decision"]
+    assert out["calls"]["markerReads"] == [], out["calls"]
+
+
+TREE_AT_INSTALL = "env:\n  NIGHTLY_NEXT_TREE_AT_INSTALL: v1\n"
+
+
+def test_g5_a_commit_whose_nightly_waits_for_its_tree_is_promoted_without_a_marker() -> None:
+    # The landing's build starts while its tree compiles; its nightly.yml
+    # waits for the tree at install and gates publication on the marker.
+    case = scenario(treeMarkers={SHA: {"status": 404}}, workflows={SHA: TREE_AT_INSTALL})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["workflowReads"] == [SHA], out["calls"]
+    assert any("waits for its own tree at install" in n for n in out["notices"]), out["notices"]
+
+
+def test_g5_the_tree_at_install_exception_needs_the_exact_line() -> None:
+    for text in ("name: Nightly macOS build\n",
+                 "# NIGHTLY_NEXT_TREE_AT_INSTALL: v1 is not set here\n",
+                 "env:\n  NIGHTLY_NEXT_TREE_AT_INSTALL: v2\n"):
+        case = scenario(treeMarkers={SHA: {"status": 404}}, workflows={SHA: text})
+        del case["requireApproval"]
+        out = run(case)
+        assert out["decision"]["action"] == "refuse", (text, out["decision"])
+        assert "has no cmux-tui tree-commit marker" in out["decision"]["reason"], out["decision"]
+
+
+def test_g5_an_unreadable_nightly_yml_refuses() -> None:
+    case = scenario(treeMarkers={SHA: {"status": 404}}, workflows={SHA: "throw"})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    reason = out["decision"]["reason"]
+    assert "has no cmux-tui tree-commit marker" in reason and "could not be read (502)" in reason, reason
+
+
+def test_g5_a_marker_read_failure_never_takes_the_tree_at_install_exception() -> None:
+    # A malformed marker whose fields carry the 404 reason's words is still a read failure.
+    for marker in ({"status": 503}, "throw", {"status": 200, "body": {"commit": SHA}},
+                   {"status": 200, "body": {"commit": "has no cmux-tui tree-commit marker"}},
+                   {"status": 200, "error": f"{SHA} has no cmux-tui tree-commit marker"}):
+        case = scenario(treeMarkers={SHA: marker}, workflows={SHA: TREE_AT_INSTALL})
+        del case["requireApproval"]
+        out = run(case)
+        assert out["decision"]["action"] == "refuse", (marker, out["decision"])
+        assert out["decision"]["reason"].startswith("tree marker read failed"), (marker, out["decision"])
+        # G6 reads the file once for its size; G5 never consults it for the exception.
+        assert out["calls"]["workflowReads"] == [SHA], (marker, out["calls"])
+
+
+def test_g5_a_published_tree_reads_the_workflow_only_for_g6() -> None:
+    case = scenario(workflows={SHA: TREE_AT_INSTALL})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["workflowReads"] == [SHA], out["calls"]
+
+
+def test_g5_and_g6_share_one_workflow_read() -> None:
+    case = scenario(treeMarkers={SHA: {"status": 404}}, workflows={SHA: TREE_AT_INSTALL})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["workflowReads"] == [SHA], out["calls"]
+
+
+# G6: 2026-11-26, 711b39cb7 and a94af7249 had a 512,450-byte nightly.yml;
+# GitHub started no nightly for either and nightly-next published nothing for
+# five hours after this guard promoted them.
+def test_g6_a_nightly_yml_over_githubs_limit_refuses() -> None:
+    case = scenario(workflows={SHA: "#" * 512_449 + "\n"})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    reason = out["decision"]["reason"]
+    assert "512450 bytes" in reason and "512000-byte workflow limit" in reason, reason
+    assert out["calls"]["markerReads"] == [], out["calls"]
+
+
+def test_g6_counts_utf8_bytes_not_characters() -> None:
+    # 256,001 two-byte characters: 256,001 characters, 512,002 bytes.
+    case = scenario(workflows={SHA: "\u00e9" * 256_001})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "512002 bytes" in out["decision"]["reason"], out["decision"]
+
+
+def test_g6_a_nightly_yml_at_the_limit_promotes() -> None:
+    case = scenario(workflows={SHA: "#" * 511_999 + "\n"})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+
+
+def test_g6_an_unreadable_nightly_yml_does_not_block_a_published_tree() -> None:
+    case = scenario(workflows={SHA: "throw"})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+
+
+def test_g5_workflow_reader_reads_the_raw_file_at_the_sha() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const seen = [];
+const github = { rest: { repos: { getContent: async (params) => { seen.push(params); return { data: 'env:\n  NIGHTLY_NEXT_TREE_AT_INSTALL: v1\n' }; } } } };
+const yes = await guard.waitsForTreeAtInstall(guard.workflowReader(github, 'manaflow-ai', 'cmux'), 'a'.repeat(40));
+const dir = { rest: { repos: { getContent: async () => ({ data: [{ name: 'nightly.yml' }] }) } } };
+const notFile = await guard.waitsForTreeAtInstall(guard.workflowReader(dir, 'manaflow-ai', 'cmux'), 'a'.repeat(40));
+console.log(JSON.stringify({ seen, yes, notFile }));
+"""
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                            env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    assert out["seen"] == [{"owner": "manaflow-ai", "repo": "cmux", "path": ".github/workflows/nightly.yml",
+                            "ref": "a" * 40, "mediaType": {"format": "raw"}}], out
+    assert out["yes"] is True, out
+    assert "is not a file" in out["notFile"]["error"], out
+
+
+def test_g5_fetch_reads_the_contract_url_with_a_cache_buster() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const seen = [];
+const ok = await guard.fetchTreeMarker('a'.repeat(40), { now: () => 42, fetchImpl: async (url) => {
+  seen.push(url); return { status: 200, json: async () => ({ commit: 'a'.repeat(40), key: 'f'.repeat(40) }) }; } });
+const opts = [];
+const missing = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async (url, o) => { opts.push(o); return { status: 404, text: async () => 'Not Found' }; } });
+const cut = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 404, text: async () => { throw new Error('terminated'); } }) });
+const moved = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 302, json: async () => ({ commit: 'a'.repeat(40) }) }) });
+const down = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => { throw new Error('ECONNRESET'); } });
+const garbled = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 200, json: async () => { throw new Error('Unexpected token'); } }) });
+console.log(JSON.stringify({ seen, ok, missing, down, garbled, cut, moved, redirect: opts[0].redirect }));
+"""
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                            env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    assert out["seen"] == [f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json?t=42"], out
+    assert out["ok"]["status"] == 200 and out["ok"]["body"]["commit"] == "a" * 40, out
+    assert out["missing"] == {"url": f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json", "status": 404}, out
+    assert out["down"]["status"] == 0 and "ECONNRESET" in out["down"]["error"], out
+    assert out["garbled"]["status"] == 200 and "does not parse" in out["garbled"]["error"], out
+    # A 404 cut off mid-body is a read failure, and a redirect is never followed.
+    assert out["cut"]["status"] == 0 and "cut off" in out["cut"]["error"], out
+    assert out["moved"] == {"url": f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json", "status": 302}, out
+    assert out["redirect"] == "manual", out
+
+
+def test_quota_reset_retry_waits_once_without_polling_or_retrying_writes() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const run = async ({status = 403, remaining = '0', reset = '1100', method = 'GET', alwaysFails = false} = {}) => {
+  const waits = [], warnings = [];
+  let calls = 0;
+  const error = Object.assign(new Error('API rate limit exceeded for installation'), {
+    status, response: {headers: {'x-ratelimit-remaining': remaining, 'x-ratelimit-reset': reset}},
+  });
+  const retry = guard.quotaResetRetry({now: () => 1000000, sleep: async ms => waits.push(ms),
+    core: {warning: message => warnings.push(message)}});
+  const request = async options => {
+    calls++;
+    if (calls === 1 || alwaysFails) throw error;
+    return {data: options.url};
+  };
+  let result, failed = false;
+  try { result = await retry(request, {method, url: '/repos/manaflow-ai/cmux/git/ref/heads/feat-cmux-next'}); }
+  catch (caught) { if (caught !== error) throw caught; failed = true; }
+  // The same decision may make many reads: none gets another quota wait.
+  try { if (calls === 2) await retry(async () => {throw error}, {method: 'GET'}); }
+  catch (caught) { if (caught !== error) throw caught; }
+  return {calls, waits, warnings, result, failed};
+};
+const recovered = await run();
+const refused = [];
+for (const options of [{status: 401}, {remaining: '1'}, {remaining: undefined, reset: 'bad'},
+  {reset: ''}, {reset: 'NaN'}, {reset: 'Infinity'}, {reset: '5000'}, {method: 'POST'}, {method: 'PATCH'}]) {
+  refused.push(await run(options));
+}
+  console.log(JSON.stringify({recovered, refused, exhausted: await run({alwaysFails: true}),
+  clockSkew: await run({reset: '999'}), capped: await run({reset: '1300'})}));
+"""
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                            env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    assert out["recovered"]["calls"] == 2 and not out["recovered"]["failed"], out
+    assert out["recovered"]["waits"] == [101000], out
+    assert len(out["recovered"]["warnings"]) == 1, out
+    assert all(case["calls"] == 1 and case["failed"] and not case["waits"] for case in out["refused"]), out
+    assert out["exhausted"]["calls"] == 2 and out["exhausted"]["failed"], out
+    assert out["exhausted"]["waits"] == [101000], out
+    assert out["clockSkew"]["waits"] == [1000], out
+    # A reset beyond the three-minute bound returns to the caller without
+    # sleeping until the hourly reset; the workflow's read-token fallback
+    # keeps the decision on a separate bucket when it is available.
+    assert out["capped"]["calls"] == 1 and out["capped"]["failed"] and not out["capped"]["waits"], out
+
+
+def test_promotion_decision_uses_the_quota_isolated_read_token_when_available() -> None:
+    assert "Mint the quota-isolated read token" in WORKFLOW
+    assert "github-token: ${{ steps.read-token.outputs.token || github.token }}" in WORKFLOW
+    assert "permission-actions: read" in WORKFLOW
+    assert "permission-contents: read" in WORKFLOW
 
 
 def main() -> None:

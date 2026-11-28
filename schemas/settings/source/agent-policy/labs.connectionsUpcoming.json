@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Whether Connections lists the servers that cannot be connected yet (Slack, Google): the person decides when this preview appears."
-}

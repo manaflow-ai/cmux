@@ -31,14 +31,21 @@ transport = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(transport)
 
 WORKFLOW = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
-CONSUMERS = ("cli-product-tests",)
+CONSUMERS = ("app-host-unit-tests", "tests-build-and-lag")
 SOURCE_ORDER = (
     "Try node-local compiled product cache",
     "Try trusted fleet peer artifact source",
+    "Restore selective app-host product layers",
     "Try shared R2 artifact transport",
     "Try parallel GitHub artifact transport",
-    "Download compiled test product",
+    "Download compiled app-host test product",
 )
+
+
+# The transport runs inside a JavaScript action so it gets ACTIONS_RUNTIME_TOKEN
+# and resolves the artifact without the installation REST quota (run 45890106663).
+SHIM = "execFileSync('python3', ['scripts/ci/parallel_artifact_download.py']"
+WORKFLOWS = ("ci-macos.yml", "test-e2e.yml", "test-ios.yml")
 
 
 def job_block(name: str) -> str:
@@ -75,7 +82,8 @@ class WorkflowWiringTests(unittest.TestCase):
             step = step_block(job_block(job), "Try parallel GitHub artifact transport")
             self.assertIn("id: parallel-products", step)
             self.assertIn("continue-on-error: true", step)
-            self.assertIn("run: python3 scripts/ci/parallel_artifact_download.py", step)
+            self.assertIn("uses: actions/github-script@", step)
+            self.assertIn(SHIM, step)
             self.assertIn("ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}", step)
             self.assertIn(
                 "ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}", step
@@ -83,35 +91,59 @@ class WorkflowWiringTests(unittest.TestCase):
             for guard in (
                 "steps.node-products.outputs.hit != 'true'",
                 "steps.peer-products.outputs.hit != 'true'",
+                "steps.restore-layers.outputs.hit != 'true'",
                 "steps.r2-products.outputs.hit != 'true'",
             ):
                 self.assertIn(guard, step, job)
 
     def test_fallback_download_has_a_bounded_transfer_wait(self):
         # A failed ranged fast path falls back to one actions/download-artifact
-        # stream. Mini telemetry saw that fallback hold an app-host runner for
-        # 25–50 minutes while the tests themselves took minutes; bound the
-        # action so a dead or crawling stream cannot consume the whole job.
+        # stream. A dead stream once held a CLI regressions shard for the whole
+        # 15 minutes (run 45890106663) while the other shard's fallback took 5.
+        # Every fallback is a bounded attempt plus one retry on a fresh stream,
+        # together within the old 15-minute budget.
         action = (ROOT / ".github/actions/download-test-product/action.yml").read_text(encoding="utf-8")
         step_start = action.index("    - name: Download artifact\n")
         step_end = action.find("\n    - name:", step_start + 1)
         step = action[step_start:step_end if step_end >= 0 else len(action)]
         self.assertIn("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", step)
-        self.assertNotIn("timeout-minutes: 15", step)
-        for workflow_name in ("ci-macos.yml",):
-            workflow = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
-            uses = "        uses: ./.github/actions/download-test-product\n"
-            occurrences = workflow.count(uses)
-            self.assertGreater(occurrences, 0, workflow_name)
-            self.assertEqual(
-                occurrences,
-                workflow.count("        timeout-minutes: 15\n" + uses),
-                workflow_name,
-            )
+        self.assertNotIn("timeout-minutes:", step)
+        seen = 0
+        for workflow_name in WORKFLOWS:
+            jobs = yaml.safe_load((ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8"))["jobs"]
+            for job_name, job in jobs.items():
+                steps = job.get("steps") or []
+                for index, item in enumerate(steps):
+                    uses = item.get("uses", "")
+                    if not (uses == "./.github/actions/download-test-product"
+                            or (uses.startswith("actions/download-artifact@") and "test product" in item.get("name", "").lower())):
+                        continue
+                    if item.get("if", "").startswith("steps.download-product.outcome"):
+                        continue
+                    seen += 1
+                    where = f"{workflow_name}:{job_name}:{item.get('name')}"
+                    self.assertEqual(item.get("id"), "download-product", where)
+                    self.assertIs(item.get("continue-on-error"), True, where)
+                    retry = steps[index + 1]
+                    self.assertEqual(retry.get("uses"), uses, where)
+                    self.assertEqual(retry.get("with"), item.get("with"), where)
+                    self.assertEqual(retry.get("if"), "steps.download-product.outcome == 'failure'", where)
+                    self.assertNotIn("continue-on-error", retry, where)
+                    self.assertLessEqual(item["timeout-minutes"] + retry["timeout-minutes"], 15, where)
+        self.assertEqual(seen, 6)
+
+    def test_no_workflow_runs_the_transport_without_the_runtime_token(self):
+        # Detector: a bare `run:` step has no ACTIONS_RUNTIME_TOKEN, so it would
+        # spend the shared REST quota again and 403 with every other consumer.
+        for workflow_name in WORKFLOWS:
+            text = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
+            self.assertNotIn("run: python3 scripts/ci/parallel_artifact_download.py", text, workflow_name)
+        shims = sum((ROOT / ".github/workflows" / name).read_text(encoding="utf-8").count(SHIM) for name in WORKFLOWS)
+        self.assertEqual(shims, 6)
 
     def test_restore_step_records_the_transport_it_used(self):
         for job in CONSUMERS:
-            step = step_block(job_block(job), "Restore compiled test product")
+            step = step_block(job_block(job), "Restore compiled app-host test product")
             self.assertIn("CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}", step)
         script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
         self.assertIn('"github-parallel" if parallel_hit else', script)
@@ -125,8 +157,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("--wait 0", script)
 
     def test_cli_product_lane_keeps_the_consumer_transport_chain(self):
-        # cli-product-tests restores the compiled product without layers, so it
-        # must keep the fast sources, route check and cache finalize.
+        # cli-product-tests restores the same compiled product without layers,
+        # so it must keep the same fast sources, route check and cache finalize.
         block = job_block("cli-product-tests")
         order = (
             "Verify GitHub-hosted route",
@@ -153,9 +185,25 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}", finalize)
         self.assertIn("node_product_cache.py finalize", finalize)
         jobs = yaml.safe_load(WORKFLOW)["jobs"]
-        # The R2 transport needs id-token to mint its token.
-        self.assertEqual(jobs["cli-product-tests"]["permissions"],
-                         {"contents": "read", "actions": "read", "id-token": "write"})
+        # Same permissions: the R2 transport needs id-token to mint its token.
+        self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
+        # The two routes differ only by the job's owned_jobs key (#14318) and
+        # the shards' pr_shard_runner branch (pr_runner_pool.spread_shards).
+        # Both take pr_gui_runner: both hold the mini's gui token
+        # (pr_runner_pool.gui_token_job()).
+        shard_route = step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route")
+        self.assertIn("inputs.pr_shard_runner || ", shard_route)
+        self.assertEqual(
+            step_block(block, "Verify GitHub-hosted route").replace("' cli-product '", "KEY").replace("'cli-product'", "LATE"),
+            shard_route.replace("format(' shard-{0} ', matrix.shard)", "KEY").replace("format('shard-{0}', matrix.shard)", "LATE")
+            .replace("inputs.pr_shard_runner || ", ""),
+        )
+
+    def test_layer_transport_prefers_parallel_reads_and_keeps_the_stream_fallback(self):
+        source = (ROOT / "scripts/ci/app_host_layer_transport.py").read_text(encoding="utf-8")
+        self.assertIn("import parallel_artifact_download", source)
+        self.assertIn("parallel_artifact_download.download_zip(", source)
+        self.assertIn("self.download_stream(artifact_id, target, limit)", source)
 
 
 class RangeAssemblyTests(unittest.TestCase):
@@ -320,6 +368,57 @@ class RangeDeadlineTests(unittest.TestCase):
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(self.sleeps, [])
 
+    def test_a_slow_transfer_that_keeps_landing_bytes_runs_past_the_stall_window(self):
+        # cmux run 45999336721: a fixed cut discarded a ~1.5 MB/s transfer that
+        # was still moving; only a transfer with no bytes landing may stop early.
+        factory = mock.Mock(return_value="https://blob.example/initial")
+
+        def fetch(url, start, end, fd, budget):
+            self.clock += 50
+            os.pwrite(fd, b"x", start)
+            budget.progress(1)
+
+        with mock.patch.object(transport.time, "monotonic", side_effect=lambda: self.clock), \
+                mock.patch.object(transport.time, "sleep", side_effect=self.sleep):
+            transport.download_ranges(factory, self.target, 4, connections=1, chunk_bytes=1,
+                                      deadline_seconds=600, stall_seconds=90, fetch=fetch)
+        self.assertEqual(self.target.read_bytes(), b"xxxx")
+        self.assertEqual(self.clock, 200)
+        self.assertEqual(self.sleeps, [])
+
+    def test_a_transfer_that_lands_nothing_stops_at_the_stall_bound(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+
+        def fetch(url, start, end, fd, budget):
+            self.clock += 100
+            budget.check()
+
+        with self.assertRaisesRegex(transport.TransportError, "stalled: no bytes for 90 s"):
+            with mock.patch.object(transport.time, "monotonic", side_effect=lambda: self.clock), \
+                    mock.patch.object(transport.time, "sleep", side_effect=self.sleep):
+                transport.download_ranges(factory, self.target, 1, connections=1, chunk_bytes=1,
+                                          deadline_seconds=600, stall_seconds=90, fetch=fetch)
+        self.assertLess(self.clock, 600)
+
+    def test_the_ceiling_still_ends_a_moving_transfer_and_says_how_far_it_got(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+
+        def fetch(url, start, end, fd, budget):
+            self.clock += 60
+            budget.progress(1)
+            budget.check()
+
+        with self.assertRaisesRegex(transport.TransportError, r"deadline exceeded \(\d+ bytes landed\)"):
+            with mock.patch.object(transport.time, "monotonic", side_effect=lambda: self.clock), \
+                    mock.patch.object(transport.time, "sleep", side_effect=self.sleep):
+                transport.download_ranges(factory, self.target, 100, connections=1, chunk_bytes=1,
+                                          deadline_seconds=300, stall_seconds=90, fetch=fetch)
+
+    def test_the_default_ceiling_leaves_room_for_the_slowest_observed_mac(self):
+        # The iOS product is ~645 MB; ~1.5 MB/s Macs need ~7 minutes.
+        self.assertGreaterEqual(transport.DEADLINE_SECONDS, 645 / 1.0)
+        self.assertLess(transport.STALL_SECONDS, transport.DEADLINE_SECONDS)
+
     def test_concurrent_403s_share_one_url_renewal(self):
         import threading
 
@@ -468,17 +567,116 @@ class EntryPointTests(unittest.TestCase):
             self.assertFalse((Path(temp) / "app-host-products").exists())
 
 
+class RuntimeServiceTests(unittest.TestCase):
+    """The runtime artifact service resolves the artifact without the REST quota."""
+
+    @staticmethod
+    def token(scope="Actions.GenericRead:1 Actions.Results:run-backend:job-backend"):
+        def part(value):
+            return transport.base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+        return f"{part({'alg': 'none'})}.{part({'scp': scope})}.sig"
+
+    def service(self, replies):
+        calls = []
+
+        def post(method, body):
+            calls.append((method, body))
+            reply = replies[method]
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+        return transport.RuntimeArtifacts(self.token(), "https://results.example/", post=post), calls
+
+    def test_backend_ids_come_from_the_results_scope(self):
+        self.assertEqual(transport.RuntimeArtifacts.backend_ids(self.token()), ("run-backend", "job-backend"))
+        for bad in ("not-a-jwt", self.token("Actions.GenericRead:1")):
+            with self.subTest(token=bad), self.assertRaises(transport.RuntimeUnavailable):
+                transport.RuntimeArtifacts.backend_ids(bad)
+
+    def test_missing_token_or_unsafe_results_url_is_unavailable(self):
+        for token, url in (("", "https://results.example/"), (self.token(), ""),
+                           (self.token(), "http://results.example/"), (self.token(), "https://u:p@results.example/")):
+            with self.subTest(url=url), self.assertRaises(transport.RuntimeUnavailable):
+                transport.RuntimeArtifacts(token, url, post=lambda *_: {})
+
+    def test_metadata_and_signed_url_are_resolved_by_exact_id(self):
+        runtime, calls = self.service({
+            "ListArtifacts": {"artifacts": [
+                {"databaseId": "77", "name": "product", "workflowRunBackendId": "run-backend",
+                 "workflowJobRunBackendId": "build-job", "size": "1234", "digest": "sha256:" + "a" * 64},
+                {"databaseId": "78", "name": "other"},
+            ]},
+            "GetSignedArtifactURL": {"signedUrl": "https://blob.example/product.zip?sig=1"},
+        })
+        info = runtime.metadata(9)("manaflow-ai/cmux", 77, None)
+        self.assertEqual(info, {"id": 77, "expired": False, "digest": "sha256:" + "a" * 64,
+                                "size_in_bytes": 1234, "workflow_run": {"id": 9}})
+        self.assertEqual(calls[0], ("ListArtifacts", {"workflowRunBackendId": "run-backend",
+                                                      "workflowJobRunBackendId": "job-backend", "idFilter": "77"}))
+        self.assertEqual(runtime.signed_url(runtime.resolved), "https://blob.example/product.zip?sig=1")
+        self.assertEqual(calls[1], ("GetSignedArtifactURL", {"workflowRunBackendId": "run-backend",
+                                                             "workflowJobRunBackendId": "build-job", "name": "product"}))
+
+    def test_an_unlisted_artifact_is_unavailable_not_a_foreign_read(self):
+        runtime, _ = self.service({"ListArtifacts": {"artifacts": [{"databaseId": "78", "name": "other"}]}})
+        with self.assertRaises(transport.RuntimeUnavailable):
+            runtime.metadata(9)("manaflow-ai/cmux", 77, None)
+
+    def test_a_non_https_signed_url_is_refused(self):
+        runtime, _ = self.service({"GetSignedArtifactURL": {"signedUrl": "http://blob.example/x"}})
+        with self.assertRaises(transport.TransportError):
+            runtime.signed_url({"run_backend": "r", "job_backend": "j", "name": "n"})
+
+    def run_main(self, environment, restore):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "github-output"
+            environ = {"RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ID": "9",
+                       "ARTIFACT_ID": "77", "ARTIFACT_PROVIDER_DIGEST": "sha256:" + "a" * 64, **environment}
+            with mock.patch.dict(os.environ, environ), \
+                    mock.patch.object(transport, "restore_aggregate", side_effect=restore) as restored:
+                self.assertEqual(transport.main(), 0)
+            return output.read_text(encoding="utf-8"), restored
+
+    def test_runtime_resolution_is_used_first_and_rest_only_when_it_is_unavailable(self):
+        def restore(*_arguments, **options):
+            if "metadata" in options:
+                options["metadata"]("repo", 77, None)
+            return {"zip_bytes": 1, "transfer_seconds": 1.0}
+        runtime = {"ACTIONS_RUNTIME_TOKEN": self.token(), "ACTIONS_RESULTS_URL": "https://results.example/"}
+        with mock.patch.object(transport.RuntimeArtifacts, "_post",
+                               side_effect=transport.RuntimeUnavailable("HTTP 500")):
+            text, restored = self.run_main(runtime, restore)
+        self.assertEqual(restored.call_count, 2)
+        self.assertNotIn("metadata", restored.call_args_list[1].kwargs)
+        self.assertIn("hit=true", text)
+
+        with mock.patch.object(transport.RuntimeArtifacts, "_post", return_value={}):
+            def transfer_fails(*_arguments, **options):
+                raise transport.TransportError("range failed")
+            text, restored = self.run_main(runtime, transfer_fails)
+        # A failed transfer is a miss: no second REST read of the same bytes.
+        self.assertEqual(restored.call_count, 1)
+        self.assertIn("hit=false", text)
+
+    def test_rest_refusal_names_a_spent_quota(self):
+        error = transport.urllib.error.HTTPError(
+            "https://api.github.com/x", 403, "Forbidden",
+            {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1795640000"},
+            io.BytesIO(b'{"message": "API rate limit exceeded for installation ID 1."}'))
+        self.assertEqual(str(transport._refusal(error)),
+                         "REST HTTP 403 rate limit (remaining 0, reset 1795640000): "
+                         "API rate limit exceeded for installation ID 1.")
+
+
 class RegistrationTests(unittest.TestCase):
-    def test_transport_files_run_in_the_artifact_transport_step(self):
-        step = (ROOT / "ci/steps.toml").read_text(encoding="utf-8").split("[step.ci-artifact-transport]", 1)[1]
-        step = step.split("\n[step.", 1)[0]
+    def test_transport_files_run_in_the_artifact_transport_workflow(self):
+        workflow = (ROOT / ".github/workflows/ci-artifact-transport.yml").read_text(encoding="utf-8")
         for path in ("scripts/ci/parallel_artifact_download.py", "tests/test_ci_parallel_artifact_transport.py"):
-            self.assertIn(f'"{path}"', step)
-        self.assertIn("python3 tests/test_ci_parallel_artifact_transport.py", step)
+            self.assertIn(f"- {path}\n", workflow)
+        self.assertIn("python3 tests/test_ci_parallel_artifact_transport.py", workflow)
 
     def test_test_is_registered_in_the_execution_registry(self):
-        registry = "".join(path.read_text(encoding="utf-8")
-                           for path in sorted((ROOT / "tests/test-execution.d").glob("*.toml")))
+        registry = (ROOT / "tests/test-execution.toml").read_text(encoding="utf-8")
         self.assertIn('path = "tests/test_ci_parallel_artifact_transport.py"', registry)
 
 

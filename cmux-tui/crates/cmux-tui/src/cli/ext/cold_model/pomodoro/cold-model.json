@@ -1,5 +1,0 @@
-{
-  "model": "claude-haiku-5-5",
-  "task": "A pomodoro timer widget: the minutes left in the current 25-minute focus block (use sample data: 17 minutes left, block 2 of 4), and in the medium size the blocks done today.",
-  "page": "skills/cmux-customization/references/extension-design.md"
-}

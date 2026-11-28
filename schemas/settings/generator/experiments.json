@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/experiments.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Experiments.generated.swift",
-  "type": "ExperimentsSettingsSchema",
-  "lists": {
-    "experiments": ["descriptors", "CmuxConfigSnapshot"]
-  }
-}

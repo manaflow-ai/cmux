@@ -1,42 +1,20 @@
 #!/usr/bin/env bash
 # Behavioral guard for installing verified Zig on CI runners without sudo.
 set -euo pipefail
-# A fleet Mac's prebaked Zig trees (install-zig-ci.sh ZIG_FLEET_TOOLS_DIR) must not answer for these fakes.
-export ZIG_FLEET_TOOLS_DIR=""
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT="$ROOT_DIR/scripts/install-zig-ci.sh"
 TMP_DIR="$(mktemp -d)"
-# The installer accepts only a Zig version the license review recorded
-# (cmux-tui/build-support/notices/toolchains/toolchains.json). Run a copy in a
-# fixture repository root that records the fixture version, so no installed
-# Zig of a real version can stand in for the download under test.
-FIXTURE_REPO="$TMP_DIR/repo"
-mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_REPO/cmux-tui/build-support/notices/toolchains"
-cp "$ROOT_DIR/scripts/install-zig-ci.sh" "$ROOT_DIR/scripts/ghostty-zig-version.sh" "$FIXTURE_REPO/scripts/"
-printf '{"zig": [{"ci_version": "99.99.99"}]}\n' > "$FIXTURE_REPO/cmux-tui/build-support/notices/toolchains/toolchains.json"
-SCRIPT="$FIXTURE_REPO/scripts/install-zig-ci.sh"
-# The installer's shared temp root is /tmp (its fallback install root, and the shared extraction folder it
-# must not touch). The copy runs with every /tmp path moved to a simulated shared folder (sticky and
-# world-writable, like /tmp), so this test never makes or deletes a fixed name in the real /tmp, where it
-# could hit another user's files or a concurrent job's install.
-SHARED_TMP="$TMP_DIR/shared-tmp"
-mkdir -p "$SHARED_TMP"
-chmod 1777 "$SHARED_TMP"
-grep -Fq '/tmp/cmux-zig-ci' "$SCRIPT" || { echo "FAIL: the Zig installer no longer falls back to its cmux-zig-ci folder in /tmp" >&2; exit 1; }
-python3 - "$SCRIPT" "$SHARED_TMP" <<'PY'
-import re, sys
-path, root = sys.argv[1:]
-with open(path) as handle:
-    text = handle.read()
-moved = re.sub(r"""(?<![\w.$/])/tmp(?=[/"'}\s]|$)""", lambda _: root, text, flags=re.M)
-if moved == text:
-    sys.exit("install-zig-ci.sh names no /tmp path to move")
-with open(path, "w") as handle:
-    handle.write(moved)
-PY
+DEFAULT_INSTALL_ROOT=""
 
 cleanup() {
   rm -rf "$TMP_DIR"
+  if [ -n "$DEFAULT_INSTALL_ROOT" ]; then
+    rm -rf "$DEFAULT_INSTALL_ROOT"
+  fi
+  if [ -n "${SHARED_TMP_ZIG_DIR:-}" ]; then
+    rm -rf "$SHARED_TMP_ZIG_DIR"
+  fi
 }
 trap cleanup EXIT
 
@@ -44,6 +22,17 @@ canonical_install_root() {
   local root="$1"
   mkdir -p "$(dirname "$root")"
   printf '%s/%s\n' "$(cd "$(dirname "$root")" && pwd -P)" "$(basename "$root")"
+}
+
+read_zig_lib_dir_from_stdin() {
+  python3 -c 'import json, re, sys
+text = sys.stdin.read()
+try:
+    print(json.loads(text).get("lib_dir", ""))
+except Exception:
+    match = re.search(r"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]*)\"", text)
+    print(match.group(1) if match else "")
+'
 }
 
 archive_sha256() {
@@ -77,8 +66,8 @@ esac
 FIXTURE_ROOT="$TMP_DIR/fixture"
 ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
 ARCHIVE="$TMP_DIR/${ZIG_NAME}.tar.xz"
-DEFAULT_INSTALL_ROOT="$SHARED_TMP/cmux-zig-ci/$ZIG_NAME"
-SHARED_TMP_ZIG_DIR="$SHARED_TMP/$ZIG_NAME"
+DEFAULT_INSTALL_ROOT="/tmp/cmux-zig-ci/$ZIG_NAME"
+SHARED_TMP_ZIG_DIR="/tmp/$ZIG_NAME"
 SHARED_TMP_MARKER="$SHARED_TMP_ZIG_DIR/keep.txt"
 BIN_DIR="$TMP_DIR/bin"
 RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
@@ -105,22 +94,32 @@ DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
 SUDO_LOG="$TMP_DIR/sudo.log"
 
-mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/std" "$BIN_DIR" "$RUNNER_TEMP_DIR" "$WRONG_VERSION_RUNNER_TEMP_DIR" "$WRONG_VERSION_LIB_DIR/std"
+mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR" "$RUNNER_TEMP_DIR" "$WRONG_VERSION_RUNNER_TEMP_DIR" "$WRONG_VERSION_LIB_DIR/compiler"
 rm -rf "$SHARED_TMP_ZIG_DIR"
 mkdir -p "$SHARED_TMP_ZIG_DIR"
 printf 'shared temp marker\n' > "$SHARED_TMP_MARKER"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-# The hosted Linux Zig 0.16 invocation can report a false lib_dir from its env command;
-# the installer must validate the extracted install root directly.
 self="\$0"
+if [ -L "\$self" ]; then
+  target="\$(readlink "\$self")"
+  case "\$target" in
+    /*)
+      self="\$target"
+      ;;
+    *)
+      self="\$(cd "\$(dirname "\$self")" && pwd -P)/\$target"
+      ;;
+  esac
+fi
 case "\${1:-}" in
   version)
     echo "$ZIG_REQUIRED"
     ;;
   env)
-    printf '.{\\n    .lib_dir = "%s",\\n}\\n' "$BROKEN_ZIG_LIB_DIR"
+    zig_dir="\$(cd "\$(dirname "\$self")" && pwd -P)"
+    printf '.{\\n    .lib_dir = "%s/lib",\\n}\\n' "\$zig_dir"
     ;;
   *)
     echo "$ZIG_REQUIRED"
@@ -128,9 +127,9 @@ case "\${1:-}" in
 esac
 EOF
 chmod +x "$FIXTURE_ROOT/$ZIG_NAME/zig"
-printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/fixture.txt"
-printf 'std fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std/std.zig"
-printf 'wrong version std fixture\n' > "$WRONG_VERSION_LIB_DIR/std/std.zig"
+printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std"
+printf 'build runner fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler/build_runner.zig"
+printf 'wrong version build runner fixture\n' > "$WRONG_VERSION_LIB_DIR/compiler/build_runner.zig"
 (cd "$FIXTURE_ROOT" && tar -cf "$ARCHIVE" "$ZIG_NAME")
 ARCHIVE_SHA256="$(archive_sha256 "$ARCHIVE")"
 
@@ -220,7 +219,7 @@ fi
 
 if grep -Fq "already installed at" "$OUTPUT_FILE"; then
   cat "$OUTPUT_FILE"
-  echo "FAIL: installer accepted a broken existing zig whose lib_dir lacks std/std.zig" >&2
+  echo "FAIL: installer accepted a broken existing zig whose lib_dir lacks compiler/build_runner.zig" >&2
   exit 1
 fi
 
@@ -299,9 +298,10 @@ if [ "$(canonical_install_root "$(readlink "$SUDO_SYSTEM_PREFIX/lib/zig")")" != 
   exit 1
 fi
 
-if [ ! -f "$SUDO_SYSTEM_PREFIX/lib/$ZIG_NAME/lib/std/std.zig" ]; then
+SUDO_LIB_DIR="$("$SUDO_SYSTEM_PREFIX/bin/zig" env | read_zig_lib_dir_from_stdin)"
+if [ ! -f "$SUDO_LIB_DIR/compiler/build_runner.zig" ]; then
   cat "$SUDO_OUTPUT_FILE"
-  echo "FAIL: sudo-installed zig is missing std/std.zig in its extracted root" >&2
+  echo "FAIL: sudo-installed zig does not resolve compiler/build_runner.zig through zig env" >&2
   exit 1
 fi
 
@@ -314,38 +314,6 @@ fi
 if ! grep -Fxq "CMUX_ZIG=$EXPECTED_SUDO_BIN_DIR/zig" "$SUDO_GITHUB_ENV_FILE"; then
   cat "$SUDO_OUTPUT_FILE"
   echo "FAIL: sudo install did not publish CMUX_ZIG" >&2
-  exit 1
-fi
-
-# A host's system zig belongs to the classic ghostty submodule. When the
-# requested Zig differs from it, the install stays job-local even with sudo,
-# so a ghostty-next job never swaps /usr/local/bin/zig under a classic job.
-CLASSIC_PREFIX="$TMP_DIR/classic-system-prefix"
-CLASSIC_RUNNER_TEMP="$TMP_DIR/classic-runner-temp"
-CLASSIC_OUTPUT_FILE="$TMP_DIR/classic-output"
-mkdir -p "$FIXTURE_REPO/ghostty" "$CLASSIC_RUNNER_TEMP"
-printf '.{\n    .minimum_zig_version = "1.0.0",\n}\n' > "$FIXTURE_REPO/ghostty/build.zig.zon"
-rm -f "$SUDO_LOG"
-PATH="$BIN_DIR:/usr/bin:/bin" \
-  RUNNER_TEMP="$CLASSIC_RUNNER_TEMP" \
-  GITHUB_PATH="$TMP_DIR/classic-github-path" \
-  GITHUB_ENV="$TMP_DIR/classic-github-env" \
-  FAKE_ZIG_VERSION="0.0.0" \
-  ZIG_REQUIRED="$ZIG_REQUIRED" \
-  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
-  ZIG_SYSTEM_PREFIX="$CLASSIC_PREFIX" \
-  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
-  "$SCRIPT" > "$CLASSIC_OUTPUT_FILE" 2>&1
-rm -f "$FIXTURE_REPO/ghostty/build.zig.zon"
-if [ -e "$CLASSIC_PREFIX/bin/zig" ] || { [ -f "$SUDO_LOG" ] && grep -q "cp " "$SUDO_LOG"; }; then
-  cat "$CLASSIC_OUTPUT_FILE"
-  echo "FAIL: a zig that differs from the classic ghostty zig replaced the system zig" >&2
-  exit 1
-fi
-if ! grep -Fq "installing it job-locally" "$CLASSIC_OUTPUT_FILE" ||
-   [ ! -f "$CLASSIC_RUNNER_TEMP/$ZIG_NAME/lib/std/std.zig" ]; then
-  cat "$CLASSIC_OUTPUT_FILE"
-  echo "FAIL: a zig that differs from the classic ghostty zig was not installed job-locally" >&2
   exit 1
 fi
 
@@ -448,60 +416,4 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_EN
   exit 1
 fi
 
-# ZIG_KEEP_DIR: the first force-local install keeps the verified tree at the version-pinned path, and
-# a later job reuses it with no download (a failing curl stands in for the network) and no extraction.
-KEEP_DIR="$TMP_DIR/keep"
-KEEP_ENV_FILE="$TMP_DIR/keep-github-env"
-KEEP_OUTPUT_FILE="$TMP_DIR/keep-output"
-run_keep() {
-  PATH="$BIN_DIR:/usr/bin:/bin" \
-    RUNNER_TEMP="$TMP_DIR/keep-runner-temp-$1" \
-    GITHUB_PATH="$TMP_DIR/keep-github-path" \
-    GITHUB_ENV="$KEEP_ENV_FILE" \
-    FAKE_ZIG_VERSION="0.0.0" \
-    ZIG_REQUIRED="$ZIG_REQUIRED" \
-    ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
-    ZIG_FORCE_LOCAL_INSTALL=1 \
-    ZIG_PUBLISH_ENV=CMUX_VT_ZIG \
-    ZIG_KEEP_DIR="$KEEP_DIR" \
-    ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
-    "$SCRIPT" > "$KEEP_OUTPUT_FILE" 2>&1
-}
-mkdir -p "$TMP_DIR/keep-runner-temp-1" "$TMP_DIR/keep-runner-temp-2" "$TMP_DIR/keep-runner-temp-3"
-run_keep 1 || { cat "$KEEP_OUTPUT_FILE"; echo "FAIL: the first ZIG_KEEP_DIR install failed" >&2; exit 1; }
-EXPECTED_KEEP_ROOT="$(canonical_install_root "$KEEP_DIR/$ZIG_NAME")"
-if [ ! -x "$KEEP_DIR/$ZIG_NAME/zig" ] || ! grep -Fq "kept zig $ZIG_REQUIRED at" "$KEEP_OUTPUT_FILE" ||
-   [ "$(cat "$KEEP_DIR/$ZIG_NAME/.cmux-zig-tarball-sha256")" != "$ARCHIVE_SHA256" ] ||
-   ! grep -Fxq "CMUX_VT_ZIG=$EXPECTED_KEEP_ROOT/zig" "$KEEP_ENV_FILE"; then
-  cat "$KEEP_OUTPUT_FILE"
-  echo "FAIL: a ZIG_KEEP_DIR install did not keep and publish the verified tree at its pinned path" >&2
-  exit 1
-fi
-mv "$BIN_DIR/curl" "$BIN_DIR/curl.ok"
-printf '#!/usr/bin/env bash\necho "curl called: $*" >&2\nexit 7\n' > "$BIN_DIR/curl"
-chmod +x "$BIN_DIR/curl"
-: > "$KEEP_ENV_FILE"
-run_keep 2 || { cat "$KEEP_OUTPUT_FILE"; echo "FAIL: a kept Zig did not answer with the network down" >&2; exit 1; }
-if ! grep -Fq "already kept at" "$KEEP_OUTPUT_FILE" || grep -Fq "Installing verified" "$KEEP_OUTPUT_FILE" ||
-   ! grep -Fxq "CMUX_VT_ZIG=$EXPECTED_KEEP_ROOT/zig" "$KEEP_ENV_FILE"; then
-  cat "$KEEP_OUTPUT_FILE"
-  echo "FAIL: a later job did not reuse the kept Zig without downloading" >&2
-  exit 1
-fi
-# A kept tree from another tarball (its marker names another SHA-256) is never reused.
-printf 'not-the-pinned-sha\n' > "$KEEP_DIR/$ZIG_NAME/.cmux-zig-tarball-sha256"
-if run_keep 3 || grep -Fq "already kept at" "$KEEP_OUTPUT_FILE"; then
-  cat "$KEEP_OUTPUT_FILE"
-  echo "FAIL: a kept Zig whose marker names another tarball was reused" >&2
-  exit 1
-fi
-mv -f "$BIN_DIR/curl.ok" "$BIN_DIR/curl"
-run_keep 3 || { cat "$KEEP_OUTPUT_FILE"; echo "FAIL: a stale kept Zig was not replaced" >&2; exit 1; }
-if [ "$(cat "$KEEP_DIR/$ZIG_NAME/.cmux-zig-tarball-sha256")" != "$ARCHIVE_SHA256" ] ||
-   ls -a "$KEEP_DIR" | grep -q "^\.$ZIG_NAME\."; then
-  cat "$KEEP_OUTPUT_FILE"
-  echo "FAIL: a stale kept Zig was not replaced cleanly" >&2
-  exit 1
-fi
-
-echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, keeps the classic system zig, and handles missing RUNNER_TEMP, and keeps and reuses a ZIG_KEEP_DIR install"
+echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"

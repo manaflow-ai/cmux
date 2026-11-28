@@ -50,10 +50,7 @@ public struct MobileTerminalInputFrame: Equatable, Sendable {
             flags |= Self.deliveryFlag
             metadata.append(delivery.encoded())
         }
-        guard let length = UInt32(exactly: bytes.count + metadata.count), length <= Self.lengthMask else {
-            throw FrameError.invalidLength
-        }
-        var header = (length | flags).bigEndian
+        var header = (UInt32(bytes.count + metadata.count) | flags).bigEndian
         var frame = withUnsafeBytes(of: &header) { Data($0) }
         frame.append(metadata)
         frame.append(bytes)
@@ -63,41 +60,38 @@ public struct MobileTerminalInputFrame: Equatable, Sendable {
     /// Retains partial frames and accepts legacy UTF-8 frames unchanged.
     public static func decode(from buffer: inout Data) throws -> [Self] {
         var frames: [Self] = []
-        var reader = WireByteReader(buffer)
-        defer {
-            if reader.remainingCount < buffer.count { buffer = reader.remaining }
-        }
-        while true {
-            var frame = reader
-            guard let header = frame.bigEndian(UInt32.self) else { break }
+        while buffer.count >= 4 {
+            let header = buffer.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
             let marked = header & markerFlag != 0
             let delivered = header & deliveryFlag != 0
+            let length = Int(header & lengthMask)
             let metadataBytes = (marked ? markerByteCount : 0)
                 + (delivered ? MobileTerminalInputDelivery.encodedByteCount : 0)
-            guard let length = Int(exactly: header & lengthMask),
-                  length > metadataBytes, length <= maximumInputBytes + metadataBytes else {
+            guard length > metadataBytes, length <= maximumInputBytes + metadataBytes else {
                 throw FrameError.invalidLength
             }
-            guard let payload = frame.bytes(length) else { break }
-            var fields = WireByteReader(payload)
+            guard buffer.count >= length + 4 else { break }
+            let payload = Data(buffer.dropFirst(4).prefix(length))
+            var offset = 0
             var sequence: UInt64?
             if marked {
-                guard let marker = fields.bigEndian(UInt64.self) else { throw FrameError.invalidLength }
-                sequence = marker
+                sequence = payload.prefix(markerByteCount).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+                offset += markerByteCount
             }
             var delivery: MobileTerminalInputDelivery?
             if delivered {
-                guard let identity = fields.bytes(MobileTerminalInputDelivery.encodedByteCount),
-                      let decoded = MobileTerminalInputDelivery(decoding: identity) else {
+                let identity = payload.dropFirst(offset).prefix(MobileTerminalInputDelivery.encodedByteCount)
+                guard let decoded = MobileTerminalInputDelivery(decoding: Data(identity)) else {
                     throw FrameError.invalidLength
                 }
                 delivery = decoded
+                offset += MobileTerminalInputDelivery.encodedByteCount
             }
-            guard let text = String(data: fields.remaining, encoding: .utf8) else {
+            guard let text = String(data: payload.dropFirst(offset), encoding: .utf8) else {
                 throw FrameError.invalidUTF8
             }
             frames.append(Self(text: text, sequence: sequence, delivery: delivery))
-            reader = frame
+            buffer.removeFirst(length + 4)
         }
         return frames
     }

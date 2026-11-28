@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking."
-}

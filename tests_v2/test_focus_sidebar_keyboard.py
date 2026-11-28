@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from cmux import cmux, cmuxError, wait_until
+from cmux import cmux, cmuxError
 
 
 def _call(c: cmux, fn, *args):
@@ -30,7 +30,7 @@ def _call(c: cmux, fn, *args):
         except cmuxError as error:
             if "rate_limited" not in str(error):
                 raise
-            time.sleep(0.3)  # keep: back-off the socket's rate limit asks for
+            time.sleep(0.3)
     return fn(*args)
 
 
@@ -48,7 +48,14 @@ def _focused_terminal(c: cmux) -> bool:
 
 
 def _settle(check, timeout: float = 3.0):
-    return wait_until(check, timeout, 0.3)
+    deadline = time.time() + timeout
+    value = check()
+    while time.time() < deadline:
+        value = check()
+        if value:
+            return value
+        time.sleep(0.3)
+    return value
 
 
 def main() -> int:
@@ -57,10 +64,11 @@ def main() -> int:
     if not c.ping():
         raise cmuxError("socket ping failed")
     c.activate_app()
+    time.sleep(0.3)
 
     for _ in range(3):
-        wsid = c.new_workspace()
-        _settle(lambda: wsid in [w for _i, w, _t, _s in _call(c, c.list_workspaces)])
+        c.new_workspace()
+        time.sleep(0.3)
     order = [wsid for _i, wsid, _t, _s in c.list_workspaces()]
     if len(order) < 3:
         raise cmuxError(f"expected three workspaces, got {order}")
@@ -68,7 +76,7 @@ def main() -> int:
     ws1, ws2, ws3 = created
     print("workspaces", order)
     c.select_workspace(ws2)
-    _settle(lambda: _selected(c) == ws2)
+    time.sleep(1.0)
     _settle(lambda: _focused_terminal(c))
 
     results = []
@@ -82,22 +90,23 @@ def main() -> int:
     # Unbound by default: the key does nothing until a person binds it.
     c.set_shortcut("focus_sidebar", "default")
     c.simulate_shortcut("ctrl+cmd+e")
-    time.sleep(0.5)  # keep: negative check, gives an unbound key time to (wrongly) move focus
+    time.sleep(0.5)
     check("ctrl+cmd+e is unbound by default", _focused_terminal(c))
     c.set_shortcut("focus_sidebar", "ctrl+cmd+e")
 
     try:
         c.simulate_shortcut("ctrl+cmd+e")
+        time.sleep(0.5)
         check("ctrl+cmd+e moves focus off the terminal", bool(_settle(lambda: not _focused_terminal(c))))
 
         c.simulate_shortcut("down")
         _settle(lambda: _selected(c) == ws3)
         check("down selects the next workspace", _selected(c) == ws3, f"got={_selected(c)} want={ws3}")
-        time.sleep(0.5)  # keep: negative check, gives focus time to (wrongly) bounce back to the terminal
+        time.sleep(0.5)
         check("the sidebar keeps focus after down", not _focused_terminal(c))
 
         c.simulate_shortcut("up")
-        _settle(lambda: _selected(c) == ws2)
+        time.sleep(0.4)
         c.simulate_shortcut("up")
         _settle(lambda: _selected(c) == ws1)
         check("up twice selects two workspaces back", _selected(c) == ws1, f"got={_selected(c)} want={ws1}")

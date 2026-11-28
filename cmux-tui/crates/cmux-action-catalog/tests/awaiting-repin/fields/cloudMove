@@ -1,2 +1,0 @@
-# a waited move runs for minutes, not the 2 s control-plane deadline (lane/cloud-move-action-deadline): the dump has the old flag until the re-pin
-/waitsForResult

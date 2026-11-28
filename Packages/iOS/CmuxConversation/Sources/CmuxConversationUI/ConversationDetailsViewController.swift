@@ -15,13 +15,13 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     let store: ConversationStore
     private var info: ConversationInfo
     private let meID: String?
+    private let avatarImage: UIImage?
     let infoPage: ConversationDetailsInfoPage
     private var backgroundsPage: ConversationDetailsBackgroundsPage?
 
     /// Messages' backdrop: the transcript blurred at radius 16 under a 60 %
     /// wash of the background color (`ConversationVeilBlur.details`).
     private let blur = UIVisualEffectView(effect: nil)
-    // motion: allow static blur, a paused animator that only holds the blur amount and never runs
     private var blurAnimator: UIViewPropertyAnimator?
     private let wash = UIView()
     private let pages = UIScrollView()
@@ -36,11 +36,12 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         didSet { backgroundsPage?.current = background }
     }
 
-    init?(store: ConversationStore, showsBackgrounds: Bool) {
+    init?(store: ConversationStore, showsBackgrounds: Bool, avatarImage: UIImage? = nil) {
         guard let info = store.info else { return nil }
         self.store = store
         self.info = info
         meID = store.meID
+        self.avatarImage = avatarImage
         infoPage = ConversationDetailsInfoPage(store: store)
         tabBar = showsBackgrounds ? ConversationDetailsTabBar(titles: [
             // DETAILS_INFO_TAB / DETAILS_BACKGROUNDS_TAB
@@ -64,7 +65,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         view.addSubview(blur)
         wash.frame = view.bounds
         wash.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        wash.backgroundColor = UIColor.resolving {
+        wash.backgroundColor = UIColor {
             let veil = ConversationVeilBlur.details(dark: $0.userInterfaceStyle == .dark)
             return UIColor(white: veil.washWhite, alpha: veil.washAlpha)
         }
@@ -87,7 +88,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
             pages.addSubview(backgroundsPage.scroll)
         }
 
-        header.configure(info: info, meID: meID)
+        header.configure(info: info, meID: meID, avatarImage: avatarImage)
         view.addSubview(header)
         if let tabBar {
             tabBar.onSelect = { [weak self] index in self?.showPage(index, animated: true) }
@@ -193,7 +194,6 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     private func applyBlur() {
         guard blurAnimator == nil else { return }
         let veil = ConversationVeilBlur.details(dark: traitCollection.userInterfaceStyle == .dark)
-        // motion: allow static blur, a paused animator that only holds the blur amount and never runs
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear)
         animator.addAnimations { [blur] in blur.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
         animator.pausesOnCompletion = true
@@ -304,8 +304,6 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     }
 
     func showPage(_ index: Int, animated: Bool) {
-        // Under Reduce Motion the page and the tab capsule land at once.
-        let animated = animated && !UIView.reducesMotion
         tabBar?.select(index, animated: animated)
         pages.setContentOffset(CGPoint(x: CGFloat(index) * pages.bounds.width, y: 0), animated: animated)
         UIAccessibility.post(notification: .layoutChanged, argument: index == 0 ? infoPage.table : backgroundsPage?.scroll)
@@ -316,7 +314,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     func storeDidChange(_ change: ConversationStoreChange) {
         if let info = store.info, info != self.info {
             self.info = info
-            header.configure(info: info, meID: meID)
+            header.configure(info: info, meID: meID, avatarImage: avatarImage)
         }
         infoPage.storeDidChange(change)
     }
@@ -421,14 +419,14 @@ final class ConversationDetailsHeaderView: UIView {
         return fitted > 0 ? fitted : ConversationDetailsHeaderGeometry.titleHeight
     }
 
-    func configure(info: ConversationInfo, meID: String?) {
+    func configure(info: ConversationInfo, meID: String?, avatarImage: UIImage? = nil) {
         titleLabel.text = info.title
         let others = info.participants.filter { $0.id != meID }
         let shown = info.kind == .group ? Array(others.prefix(3)) : Array(others.prefix(1))
         avatars.forEach { $0.removeFromSuperview() }
         avatars = shown.map { participant in
             let view = ConversationAvatarView()
-            view.configure(initials: participant.initials, colorHex: nil)
+            view.configure(initials: participant.initials, colorHex: nil, image: avatarImage)
             addSubview(view)
             return view
         }
@@ -621,7 +619,7 @@ final class ConversationDetailsTabBar: UIView {
     /// response 0.435 s) and settles from its lift on the same spring.
     func select(_ index: Int, animated: Bool) {
         selectedIndex = index
-        guard animated, !UIView.reducesMotion, window != nil else {
+        guard animated, window != nil else {
             selectionMove = nil
             liftMove = nil
             selection = CGFloat(index)
@@ -633,12 +631,6 @@ final class ConversationDetailsTabBar: UIView {
     }
 
     private func moveLift(to target: CGFloat, spring: SendMenuGeometry.Spring) {
-        // Under Reduce Motion the capsule takes its lift at once, no spring.
-        guard !UIView.reducesMotion else {
-            liftMove = nil
-            lift = target
-            return
-        }
         liftMove = (lift, target, CACurrentMediaTime(), spring)
         startLink()
     }

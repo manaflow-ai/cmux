@@ -58,18 +58,11 @@ pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
     buf.set_stringn(x + 2, y + 6, &peer, (width - 4) as usize, base);
 
     let deny_label = copy.deny;
-    // An attached TUI cannot approve (cx-ehrq): no Approve, a pointer to
-    // where approval happens, and Deny alone.
-    let can_approve = crate::app::pairing_confirm::can_approve(&app.session);
-    if !can_approve {
-        buf.set_stringn(x + 2, y + 7, copy.approve_elsewhere, (width - 4) as usize, base);
-    }
-    let approve_label = if can_approve { copy.approve } else { "" };
+    let approve_label = copy.approve;
     let deny_w = label_width(deny_label);
     let approve_w = label_width(approve_label);
     let approve_x = x + width - 2 - approve_w;
-    let deny_x =
-        if can_approve { approve_x.saturating_sub(deny_w + 2) } else { approve_x - deny_w };
+    let deny_x = approve_x.saturating_sub(deny_w + 2);
     let button_y = y + 8;
     dialog.approve = Rect { x: approve_x, y: button_y, width: approve_w, height: 1 };
     dialog.deny = Rect { x: deny_x, y: button_y, width: deny_w, height: 1 };
@@ -756,5 +749,46 @@ fn trim_grapheme_whitespace(input: &str) -> &str {
 }
 
 #[cfg(test)]
-#[path = "overlay_tests.rs"]
-mod tests;
+mod tests {
+    use cmux_tui_core::Rect;
+    use ratatui::buffer::CellWidth;
+
+    use super::{label_width, toast_rect_for_label, wrapped_message_lines};
+    use crate::localization::catalog_for_locale;
+
+    #[test]
+    fn pairing_dialog_has_english_and_japanese_copy() {
+        assert_eq!(catalog_for_locale("en_US.UTF-8").pairing.title, "Approve browser?");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").pairing.title, "ブラウザを承認しますか？");
+    }
+
+    #[test]
+    fn toast_occlusion_uses_the_rendered_character_clamp() {
+        assert_eq!(
+            toast_rect_for_label(Rect { x: 10, y: 2, width: 10, height: 5 }, " 界 "),
+            Some(Rect { x: 15, y: 5, width: 4, height: 1 })
+        );
+    }
+
+    #[test]
+    fn overlay_labels_and_wrapping_use_terminal_cell_width() {
+        assert_eq!(label_width(" 界 "), 4);
+        let lines = wrapped_message_lines("界界界", 4, 2);
+        assert_eq!(lines, vec!["界界", "界"]);
+        assert!(lines.iter().all(|line| line.cell_width() <= 4));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn wrapping_trims_whitespace_graphemes_without_orphaning_marks() {
+        let lines = wrapped_message_lines("a \u{301}b", 2, 2);
+        assert_eq!(lines, vec!["a", "b"]);
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn wrapping_uses_terminal_cell_width_for_halfwidth_dakuten() {
+        let lines = wrapped_message_lines("界ﾞ界ﾞ", 5, 2);
+        assert_eq!(lines, vec!["界ﾞ", "界ﾞ"]);
+    }
+}

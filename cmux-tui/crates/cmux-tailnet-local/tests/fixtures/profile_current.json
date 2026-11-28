@@ -1,1 +1,0 @@
-{"ID":"a1b2","Name":"alice@example.com","NetworkProfile":{"MagicDNSName":"example-tailnet.ts.net","DomainName":"alice@example.com"},"Key":"profile-a1b2","UserProfile":{"ID":1001,"LoginName":"alice@example.com","DisplayName":"Alice"},"NodeID":"nSELF000CNTRL","LocalUserID":"","ControlURL":"https://headscale.example.org:8443"}

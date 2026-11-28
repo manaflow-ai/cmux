@@ -1,6 +1,0 @@
-/* Companion paint only. These public tokens follow the active theme.
-   No vendor CSS, layout selectors, fabricated color mixes, or new motion. */
-:root {
-  --agent-link: var(--agent-accent);
-  --cv-link: var(--agent-accent);
-}

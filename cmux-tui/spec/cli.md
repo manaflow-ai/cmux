@@ -12,25 +12,11 @@ request:
 
 ```text
 cmux [START OPTIONS]
-cmux daemon start [START OPTIONS]
+cmux server start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
-cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
-cmux wg dial --hub <unix socket> <host> <port>
-cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]
-cmux carrier key --public
-cmux carrier capabilities [--json] [--wg-hub PATH]
-cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
-cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop|acpmux] [--socket <absolute path>]
-cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
-cmux link stop --state-dir <dir>
-cmux link status --state-dir <dir>
-cmux link archive --state-dir <dir>
-cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
-cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
-cmux script repl [--timeout MS]
-cmux script types
+cmux wg hub --config <wg-quick file> --socket <unix socket>
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -38,242 +24,7 @@ socket. Machine connectors use it as a transport primitive. `wg hub` owns one
 in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
 socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
-on SIGTERM or SIGINT. With `--client-token-stdin` it reads a token as stdin's
-first line and serves only clients presenting it (`remote connect
---wireguard-hub-token-stdin`); a client without it reaches port 22 only (`wg dial`, an ssh
-`ProxyCommand` that bridges stdio to HOST:PORT through the hub; ssh authenticates both ends).
-`--config -` reads the config from the rest of stdin.
-
-`cmux-tui __daemon-capabilities [--json]` (private, not in help) prints, with
-no daemon running, the capabilities every daemon
-of this build always advertises in `identify` (one per line, or
-`{"capabilities": [...]}` with `--json`). Capabilities a daemon adds for what it
-installs at startup (a cloud transport, a WebSocket listener, the search index)
-are not listed. The cmux NEXT app bundle records the list, with acpmux's, in
-`Contents/Resources/bin/daemon-capabilities.json`. `cmux capabilities` is the
-classic verb that asks the running app (`system.capabilities`).
-
-`carrier dial` bridges standard I/O to a Cloud machine's session daemon over its
-carrier (`design/cloud-carrier.md`): a cmux-remote session through the machine's
-relay (`relay+do`), admitted by a carrier grant for this device's Noise key,
-with the daemon key from the machine record pinned. Its ticket and grant come from
-cmux-platform (`POST /v1/cloud/machines/{id}/carrier`) with the caller's credential
-(`--cloud-api` or `CMUX_CLOUD_API_URL`, `--cloud-token-file` or
-`CMUX_CLOUD_ACCESS_TOKEN`). `--team` or `CMUX_CLOUD_TEAM` (`team_` and 20 lowercase
-hex digits, else `bad_request`) is sent as `x-cmux-team`, so a machine of a shared team
-is found; unset, no header is sent. A grant is single-use, so each connect attempt asks
-again, and a resume of the session presents none. stderr gets one JSON line first, `{"ok":true,"path_state":"relay",
-"route":"carrier"}` or `{"ok":false,"error_code":...,"error_detail"?:...}`, where
-`error_code` names the step the dial did not get past: `ticket`, `relay`,
-`parked_timeout` (the relay held the connect until the deadline: the machine's
-daemon never registered) or `handshake` (`bad_request` for bad usage). On `ok`,
-stdin and stdout carry `cmux.protocol/2` lines on the session's mux control service.
-With `--service desktop` they carry the machine's desktop instead (raw `cmux.rd/1`
-bytes, cmux-remote's `local-socket` to `/run/cmux-rd/desktop.sock`), which the daemon
-opens only for the machine owner's grant; its refusal is `error_code` `service_refused`
-(exit 6).
-Each attempt then writes `cloud.connect route=carrier machine=<vm_id>
-phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr and appends it to
-`<workspace state dir>/carrier/connect.log`, a file only the dial writes, never
-emptied or replaced (it stops growing at 4 MiB). A failed attempt's line ends in
-` detail=<code>` after `ms`, when the failure names one: one `[a-z0-9_]{1,24}` token, either
-the relay's WebSocket close code (`1013`), an HTTP status (`http_503`), the relay's error code
-(`slot_busy`), a fixed word (`connect_refused`, `tls`, `timeout`, `deadline`, `closed`,
-`rejected`, `io`, `daemon_key`), or else `other`. The failure's text stays in the reply
-line's `error_detail`; no ticket, grant or token reaches the route line. One
-deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
-retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
-6 service_refused, 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first
-unlock, this device only); elsewhere each dial makes its own.
-The ok line also has `"vmk":"owner"` or `"vmk":"team"`, the person's role on the
-machine from the carrier grant's `vmk` claim; a grant without one leaves it out.
-`--answer-fd N` hands over the first attempt's answer, the `carrier` that a create or
-spare claim answered with: the descriptor's first line is `{"carrier_answer":{…}}`
-holding that object as answered (with 0, stdin's first line, and the stream follows it). That attempt dials at once without asking the platform. Without
-`daemon_key`, it asks for the key while the relay holds the connect, and once more when
-the daemon registers if needed. The handshake always waits for the pin. A stale answer is
-dropped and the attempt asks; any line that is not an answer is `bad_request` (64).
-
-`carrier key --public` prints this device's carrier Noise static public key on stdout as
-one line of unpadded base64url (43 characters), the `carrier.noise_key` of a create
-request, and exits 0. It is the key dial and serve use: on a Mac, for a Team-signed build,
-the login Keychain item `com.cmuxterm.app.next.carrier-noise-key` (account `device`, read
-with prompts off, so a locked or foreign item fails at once); for a build with no Team ID
-(an ad-hoc DEV build), never the Keychain but the 0600 file
-`~/Library/Application Support/cmux-next/builds/<build key>/carrier/noise-key`, one per
-build and tag. Either is made the same way when missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
-nothing and writes the dial's failure line (`handshake`, exit 5); other arguments are
-`bad_request` (64).
-
-`carrier capabilities` prints one JSON object on stdout and exits 0, with no network,
-sign-in or app: `routes` (the carriers this device can carry a Cloud session over,
-`["relay"]` or `["relay", "ssh"]`), `faults` (the faults a probe can inject, `["kill-route"]`),
-and `carriers.relay` and `carriers.ssh`, each `{available, probe, faults, code?, reason?}`.
-ssh is available exactly when the dial's own check of this device passes: the tunnel hub
-answers at `--wg-hub` (else `<state dir>/carrier/tunnel.sock`) and the carrier key is there
-(made the first time, as a dial makes it). When it is not, `code` is the connect log's `ssh=`
-word (`no_tunnel`, `no_key`) and `reason` says it in words. The machine's own `ssh` candidate
-is per answer, so only the dial's `carrier.routes` line reports it. The probe account's fault drill,
-`cmux cloud start-chat … --carrier-fault kill-route=relay,after-events=N`, is refused unless
-`CMUX_CARRIER_PROBE_FAULTS=1` is set and the app is signed in to a probe account; a fault
-that leaves no other carrier is `carrier_fault.no_other_route` before anything starts, with
-the drill record (`capabilities`, `fault`, `kill`, `events`, `resumes`) in `error.details`.
-Once the gates pass, the drill starts the chat without its prompt (a promptless `start-chat`
-answer carries `daemon_tab`, the chat tab's number on the machine's daemon), dials the machine
-once over the Cloud carrier, attaches to that tab's event stream on the relay, sends the prompt,
-kills the relay inside that session after N events and resumes the stream over ssh after the
-last seq it had, all inside one `--timeout`. A drill that reached the turn's last event answers
-the record under `drill`.
-
-`carrier serve` serves the same stream on a Unix socket, for callers that hand a
-daemon socket path on: each accepted connection is its own dial (a fresh grant,
-the daemon key pin, its own deadline and session) and then carries
-`cmux.protocol/2` lines like a local daemon socket. A failed dial closes that
-connection having written nothing; the listener goes on, up to 64 connections at
-once. The socket is claimed like a daemon's (a live socket or another file at the
-path is refused, a stale socket is replaced, the directory must be the user's
-alone) and is 0600. Once listening, stderr gets
-`{"ok":true,"socket":PATH,"route":"carrier"}`; after it, one line per accepted
-connection before its bytes flow, `{"ok":true,"route":"carrier","vmk"?:…}` when its
-dial connected (`vmk` as on the dial's ok line) or the dial's failure line (`ticket`,
-`relay`, `parked_timeout`, `handshake`) when it did not, plus one `bad_request` per
-unusable stdin line and one `socket` if the listener fails for good. None holds `cloud.connect`: route lines go
-only to `connect.log`. stdin carries JSON lines: `{"access_token":"…"}` replaces the
-credential for every later dial, and sessions already up stay up.
-`{"carrier_answer":{…}}` is used by the next accepted connection's first attempt,
-as with `dial --answer-fd`. Before ready a
-failure writes the dial's failure line: exit 64 usage or a path it cannot claim (a
-live listener, a file that is not a socket), 2 no API or credential, 5 no device
-key. It exits 0 when stdin ends or on SIGTERM or SIGINT, 6 when accepting fails for
-good, and removes the socket on every exit after the bind.
-
-`link dial` bridges standard I/O to a service of a paired install or a Cloud
-host (`host_…`) through this machine's running `cmux link` (the caller never
-holds peer keys or link tokens). `--service` is `daemon` (the default; the
-session's remote entry), `ssh` (the host's sshd, Cloud hosts only, when
-their policy allows it; paired installs do not serve it), `owner_session`
-(a paired server's owner session, its owner only), `desktop` (the Cloud
-machine's agent display as `cmux.rd/1`, its creator only, on a machine that
-serves it; refused with `desktop_unavailable` when it does not) or `acpmux`
-(a paired install's acpmux WebSocket listener on its loopback: only the one
-its running acpmux daemon recorded in `listener.json` in its acpmux home, after
-the far link checked that the file is the same user's and that the listener
-answers a fresh challenge with an HMAC under the record's key, which only the
-daemon that wrote it holds; `config.json`'s `websocket.listen` is never used. acpmux
-checks its own token on the upgrade, so pairing grants nothing more. Without a
-proven listener the stream closes before any of its bytes are sent on).
-`--socket`
-dials exactly that link socket instead of looking up the running link (for a
-caller with a private `HOME`, or a tagged link); it must be an absolute path
-to a socket (otherwise exit 64), and a path that does not exist means the
-link is not running (exit 6). Standard error
-always gets exactly one JSON line first: `{"ok":true,"path_state":"direct"|"tunnel",
-"relay_available":false}` when connected, then the stream's bytes use
-standard input and output until the stream ends; otherwise
-`{"ok":false,"error_code":...,"path_state":"unreachable","relay_available":false}`.
-Key order is not part of the contract. Exit codes:
-
-| Exit | `error_code` | Meaning |
-| --- | --- | --- |
-| 0 | (none) | connected; the stream ended |
-| 2 | `unknown_host` | no paired install or Cloud machine has this id |
-| 3 | `not_authorized` | the caller may not reach this host or service |
-| 4 | `host_paused` | the Cloud machine is paused; start it and dial again |
-| 5 | `unreachable` | no path answered |
-| 6 | `link_unavailable` | no `cmux link` runs, or it did not answer the dial |
-| 64 | `bad_request` | bad arguments or a malformed dial |
-
-`link ensure`, `link stop` and `link status` let an app run the per-user
-link on demand, as it ensures the session daemon (`server ensure`). One link
-runs per state directory: `serve` holds `<state dir>/link.lock` for its life
-(taken before the UDP bind; a second `serve` exits with "a cmux link already
-runs"), and `ensure` and `stop` hold `<state dir>/link.ensure.lock` while
-they run. The registration is `link.json` in the state directory's parent;
-the socket is `link-<12 hex>.sock` in the runtime directory, named from the
-state directory, in a folder that must be this user's private folder (a real
-folder, owned by this user, mode `0700`; also the `/tmp/cmux-tui-<uid>`
-fallback). `stop`, `status` and `ensure` use a registration only when its
-socket is their state directory's own socket (its `link-<12 hex>.sock`
-name; the folder depends on the `TMPDIR` of the process that started the
-link, so a CLI caller with another `TMPDIR` still finds the app's link, and
-that folder must be this user's private folder), so a link of another state
-folder, or a socket in an open or foreign folder, is never reported or
-stopped.
-
-`ensure` runs `init` first when the state directory has no config (then
-`--install` is required; `--port 0` binds any free UDP port). When a link of
-this state directory runs, `ensure` keeps it and prints
-`{"status":"running","pid","socket","build","udp"}`. Otherwise it starts
-`cmux link serve` in its own session (the link outlives the caller; output
-goes to `<state dir>/link.log`), waits for its ready line on a private pipe,
-and prints `{"status":"started","pid","socket","udp","build"}`. Without
-`--handoff`, `ensure` refuses a different `--install` or `--port` than the
-config has (`install_mismatch`, `port_mismatch`) and a running link that
-serves another `--session-socket` or `server.json` (`config_mismatch`; the
-`server.json` is compared by path and SHA-256), and keeps a running link of
-another build.
-
-`--handoff` is for the app that owns its link only (not in the help text).
-With it, `ensure` restarts a running link of another build or of another
-session socket or `server.json` (`"status":"restarted"`), and a different
-`--install` or `--port` replaces the config: the running link stops, the old
-install's WireGuard key and paired peers are kept under its name
-(`private.key.<install>`, `peers.<install>.json`), and the new install gets
-its own kept pair back, or a new key and no paired peers. Nothing is
-deleted; a new install may be another signed-in person, so another install's
-paired machines never carry over. Same-user access is the trust boundary of
-the state directory.
-
-`stop` signals only the pid that a fresh connection proved serves the
-registered socket, waits for that connection to end (the link removes its
-registration first) and then for the process to exit (an exit event), all
-within 10 s; a link that does not end is an error (`stop_timeout`) and is
-not reported stopped. It prints `{"ok":true,"stopped":true|false}`.
-`archive` is for the app after a sign-out: with the link of this state
-directory stopped (else `link_running`), it moves the install's WireGuard key
-and paired peers into the install's archive (`private.key.<install>`,
-`peers.<install>.json`) and removes the config, so no `ensure` without
-`--install` starts the link as that install again. It prints
-`{"ok":true,"archived":true|false,"install"?}`. An `ensure --install ID` on a
-state directory with no config gets `ID`'s archived key and peers back.
-`status` prints `{"running":false}` or the link's own `link.status` answer
-with `"running":true` (`pid`, `socket`, `state_dir`, `install`, `port`,
-`udp`, `build`, `session_socket`, `server_config: {path, sha256}`). The
-link's local socket also answers `{"op":"link.status"}` with that line.
-
-`apps run` runs one catalog op of an installed app through the session
-daemon (`apps-run`; the CLI sends no `origin`, so gesture-required and
-destructive ops answer `apps.gesture_required` or `apps.scope_missing`) and
-prints its result data as JSON (exit 0; an op error exits 1 with its
-`error_code` and `error_details`). Ctrl-C cancels the op: when the daemon
-advertises `cancel-request-v1` in `identify`, the CLI sends
-`{"cmd":"cancel-request","target":<the apps-run id>}` on the same connection,
-waits at most 3 seconds for the run to answer `cmux.op.cancelled`, prints
-"cancelled" and exits 130; otherwise it closes the connection (the daemon
-then cancels the op) and prints "cancelled (no confirmation)", exit 130. A
-second Ctrl-C exits 130 at once. A cancelled mutation may or may not have
-taken effect; retry it with the same `--idempotency-key`.
-
-`script run` runs JavaScript in a sandboxed script session of the session
-daemon (`script-run`; plans/cmux-next/scripting-runtime.md) and prints the
-value of its last expression statement: nothing for null, a string as is,
-other values as JSON (compact JSON for every value with `--json`). `KEY=VALUE`
-words and `--args JSON` become `cmux.args`. Console output arrives as
-`script-log` events before the answer and is printed as it comes (info and
-debug on stdout, warn and error on stderr; all on stderr with `--json`). A
-script calls ops through the global `cmux` with the rights of the calling
-connection, only ops the daemon owns, and has no network, filesystem or
-process access. An error exits 1 with its `error_code` (an op's own code, or
-`script.error`, `script.timeout`, `script.memory`, `script.cpu`,
-`script.host`); a usage error or a TypeScript file exits 2; Ctrl-C sends
-`cancel-request` for the running cell and exits 130. `script repl` keeps one
-session across lines (one line per cell; a line that ends with `\`
-continues), prints each value, and opens a new session when a cell ended its
-session. `script types` prints the TypeScript declarations of the `cmux`
-global. Connections bound to an agent, and remote connections, answer
-`script.forbidden`.
-
-`attach` opens the
+on SIGTERM or SIGINT. `attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
 from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
@@ -284,7 +35,7 @@ Interactive and headless ownership are intentionally separate:
 | Form | Contract |
 | --- | --- |
 | `cmux` or `cmux --session NAME` | Create or attach an interactive session. |
-| `cmux daemon start --session NAME` | Start a headless owner. |
+| `cmux server start --session NAME` | Start a headless owner. |
 | `cmux attach --session NAME` | Attach an existing owner and fail if it is absent. |
 
 The explicit split prevents two clients from silently creating competing
@@ -295,7 +46,7 @@ Migration from tmux or Zellij keeps the owner and client steps visible. Run the
 owner in one terminal:
 
 ```bash
-cmux daemon start --session agents
+cmux server start --session agents
 ```
 
 Then attach from another terminal:
@@ -307,128 +58,61 @@ cmux attach --session agents
 Callers supervise the owner. A blind attach retry cannot distinguish a missing
 owner from an owner still starting.
 
-`daemon` is the local durable mux owner for exactly one named session
-(`cmux-tui server …` is the same scope; on `cmux`, `server` is the machine
-server, see `cmux help server`):
+`server` is the local durable mux owner for exactly one named session:
 
 ```text
-cmux daemon start [START OPTIONS]
-cmux daemon status [--session <name>] [--socket <path>]
-cmux daemon stats [--session <name>] [--socket <path>] [--json]
-cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]
-  [--if-idle] [--restore-wait-seconds <n>]
-cmux daemon reload-config [--session <name>] [--socket <path>]
+cmux server start [START OPTIONS]
+cmux server status [--session <name>] [--socket <path>]
+cmux server stats [--session <name>] [--socket <path>] [--json]
+cmux server stop [--session <name>] [--socket <path>] [--force]
+cmux server reload-config [--session <name>] [--socket <path>]
 ```
 
-`daemon stats` prints the `server-stats` diagnostics (registry lock contention
+`server stats` prints the `server-stats` diagnostics (registry lock contention
 with holder sites, journal writer batches and commit latency, connection
 admission); see `docs/journal-operations.md` for how to read it.
 
-`daemon start` is the canonical foreground spelling of `--headless`.
+`server start` is the canonical foreground spelling of `--headless`.
 The shared `--session` and `--socket` routing options can also precede the
-scope, for example `cmux --session agents daemon start --socket /path/to.sock`.
+scope, for example `cmux --session agents server start --socket /path/to.sock`.
 Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
-The owner binds its local socket before it restores its session (registry,
-terminal host adoption). While it restores, the socket accepts connections
-and answers an `identify` with `restore_progress: true` at once:
-`lifecycle_ready: false`, empty `registry_id` and `generation`, and
-`restore`: `phase` (`registry_open`, `schema`,
-`migrations`, `integrity`, `snapshot`, `agent_roster`, `mux_build`,
-`browsers`, `host_adoption`, `reconcile`, `finish`), `done` and `total` (null
-when the phase does not count; `agent_roster` counts journal rows),
-`elapsed_ms` and `last_advance_ms` (when the restore last moved, in ms since it
-began: a restore that hangs keeps it while `elapsed_ms` grows). A
-`server-stats` with `restore_progress: true` fails with `server.restoring`
-and the same `restore` in `error_details`. A connection's first other
-request (an `identify` without the flag included) is held unanswered; when the restore ends,
-every held connection is served by the normal protocol handler, from that
-request on. `identify` then reports `lifecycle_ready: false` until the owner
-finishes startup. `server ensure --restore-progress` adds the owner's
-`restore` to its progress lines when the owner reports one. `daemon stop` waits
-for a restoring owner, through both phases, and then stops it: up to
-`--restore-wait-seconds` (1 to 3600, default 120, the bound `server ensure`
-gives a restore). While it waits it prints a progress line on stderr after the
-first second and then every 5 s (with `--json`, one JSON object per line:
-`progress: "restoring"`, `session`, `phase` (`restoring`: the owner restores
-its session (it reports its `restore`, or an older owner holds the connection
-unanswered); `starting`: it restored and reports `lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
-bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
-`reason`, `phase`, `pid`, `waited_ms`, and `retry`, the stop command with a
-longer wait, also named in the message) and leaves the owner running. Other
-lifecycle commands fail fast while `lifecycle_ready` is `false` and can be
-retried after the owner is ready. `daemon stop --if-idle` stops the owner only
-while no other client is connected (the owner's own journal plugin aside) and
-no terminal is launching, adopting or running; otherwise it fails with
-`server.in_use` (exit 1; `details`: `clients`, each `client`, `name` and
-`kind`, and `terminals`, the live count), names them in the message and leaves
-the owner running. A client that connects meanwhile is refused, and no
-terminal may start between the check and the stop. An owner without
-`daemon-stop-if-idle-v1` (an older build) is left running: the stop fails with
-`server.if_idle_unsupported` (exit 4). `server ensure` waits for a restoring
-owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
-another. Its `status` is `started` only for an owner this call
-spawned, that announced itself on its ready pipe (Unix) and that answers with
-the pid this call spawned (a DEV build that runs the owner under its launcher
-checks only the announcement). When that owner lost the bind to a racing
-ensure's owner, or a successor replaced it, the owner that answers is reported
-as `running` (this call started none). An owner at its connection limit refuses each new connection with a
-`type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
-capacity instead of starting another owner and fails with `server.busy` after
-10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an
-owner that refuses every connection for that long. This is the explicit **Restart
-cmux-tui** action, including when healthy clients hold every connection: it closes
-their live connections. Terminal hosts survive and the new owner adopts them;
-clients must reconnect. To keep those connections, release an unused client and
-retry normal ensure instead.
-
-The refusal is emitted before reading any request, so neither `identify` nor
-`server-stats` can check a full owner's health through a new connection. The
-accept loop can keep refusing while request workers are wedged; conversely,
-healthy idle clients need not make progress or release a permit. CPU or I/O
-activity also does not prove those workers can serve requests. There is no
-reliable bounded progress signal in this protocol that distinguishes both cases,
-so explicit Restart retains recovery of a wedged full owner. Automatic ensure
-keeps reporting `server.busy` without replacing it. The
-`replace_unresponsive_owner` integration tests cover both healthy and wedged
-saturation and normal ensure adopting the original owner once capacity is available.
-
-`server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
-contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
-extra page origins, a comma-separated list: the app passes every first-party page origin
-`cmux-page://cmux.<page>`, cx-hnmbt.10; one malformed member refuses the list): that owner mints its WebSocket credential and writes it
-to `<socket>.websocket.json` (transports.md "App listener and page files"). A
-running owner keeps the listener it was started with. The owner serves the page
-bundle from `CMUX_TUI_PAGES_DIR`, else `<binary dir>/../share/cmux-tui/pages`.
-`daemon stop` first reads the process identity, then sends the existing PID and
+The local socket accepts ordinary protocol clients while the owner finishes
+startup. Its `identify` response reports `lifecycle_ready`; lifecycle commands
+fail fast while this field is `false` and can be retried after the owner is ready.
+`server stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
 and stopping never deletes the durable topology. Once the owner has closed
 its socket, stop removes the socket's `<socket>.spawn-lock` start lock (a
-running owner does not hold it; no wait for the process, which can stay a
-zombie of its parent), which it takes first so it never unlinks a lock a
-starting owner holds,
-and reports the removed paths as `removed` (`[]` when there was none; an
-absent server also removes a stale lock). Durable state (`writer.lock`, the
-registry) stays; `session <name> reset-state` deletes it. `session <name>|current stop`
-is an alias for the same local operation. Opaque session IDs are not accepted
+running owner does not hold it; stop does not wait for the process, which can
+stay a zombie of its parent). Stop takes the lock first, so it never unlinks a
+lock that a starting owner holds, and reports the removed paths as `removed`
+(`[]` when there was none; an absent server also removes a stale lock).
+Durable state (`writer.lock`, the registry) stays; `session <name> reset-state`
+deletes it. A starter of an older cmux-tui version does not check the lock
+file again after it locks it, so a stop that removes the file while such a
+starter waits can let it start beside a newer one; this needs two versions
+starting the same session at once. `session <name>|current stop` is an alias for the same local operation. Opaque session IDs are not accepted
 because local socket resolution uses a session name. `--all` is intentionally
 deferred until a multi-session registry can identify every target without
 introducing a second command registry.
 
-`daemon status` fails when no server is listening. In contrast, `daemon stop`
+`server status` fails when no server is listening. In contrast, `server stop`
 is idempotent and reports `not_running` as success for an absent socket. JSON
 errors use stable lifecycle codes and do not include raw transport, server, or
 filesystem error text.
 
-Authenticated network operations use `remote connect|ssh|exec|cp|forward|rpc`,
+Authenticated network operations use `remote connect|ssh|forward|rpc`,
 `remote enroll`, and `remote known-daemons`; they cannot accept local server
-targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
+targeting. `remote doctor HOST` is a read-only reachability probe that needs no
+server or enrollment. `remote trust` edits this machine's per-peer trust
+records in the remote state root and needs no server. `remote connect --carrier` dials a `ws`/`wss` route with carrier
 authentication and no enrollment; only a daemon started with
 `--remote-ws-trusted-carrier` (or `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1`), whose
 listener is reachable solely from a private network of authorized members,
 accepts it. `remote stop` manages only a replaceable SSH sidecar. A listener
-embedded by `daemon start` stops only through `daemon stop`, which also stops
-the local owner and its workspaces. `daemon start` accepts the explicit
+embedded by `server start` stops only through `server stop`, which also stops
+the local owner and its workspaces. `server start` accepts the explicit
 remote-listener flags when the owning process also serves authenticated
 clients. Top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle.
@@ -443,13 +127,9 @@ The public resource roots are:
 
 ```text
 server   machine  session  client  workspace  screen  pane  tab
-terminal browser  notification  agent  sidebar  git
+terminal browser  notification  agent  attention  sidebar
 pairing  projection  provider  raw
 ```
-
-Run as `cmux`, the CLI spells the lifecycle root `daemon`, and `server` is
-the machine server (`cmux help server`); `srv` is a shorthand on `cmux-tui`
-only.
 
 Structural resources may be addressed directly by opaque ID or through their
 parents:
@@ -468,7 +148,17 @@ then the current workspace, then the session; the first level with a match
 wins, and two or more tabs there are `selector.ambiguous`. A tab name under an
 explicit pane stays in that pane.
 
-Run `cmux <resource> --help` for its exact paths and flags. Parser tests
+Run `cmux <resource> --help` for its exact paths, and add `--help` to an action
+(`cmux tab <selector> move --help`, or `cmux help tab <selector> move`) for
+every flag it takes, its value, and whether it is required. One catalog,
+`crates/cmux-tui/src/cli/command/actions.rs`, lists each action's flags: the
+parser rejects a flag the action does not list before reading any value, reports
+all missing required flags in one error, and debug builds fail when the parser
+reads a flag the catalog does not list. Help, usage errors, and `--version` name
+the program as it was invoked (`argv[0]`): `cmux` through the npm launcher,
+`cmux-tui` where the binary is installed under that name.
+
+Parser tests
 map every operational one-shot command and parameter in
 [`resource-operations-v2.json`](resource-operations-v2.json) to a public path.
 Sensitive renderer grants and connection-owned stream/viewer controls remain
@@ -500,8 +190,7 @@ output modes, and exit codes. It never sends private protocol commands.
 All `-t` values are cmux selectors. They do not interpret tmux numeric indexes,
 `%pane`, `@window`, or `session:window.pane` targets. Capture/input also accept a
 full `pane_…` ID, selecting its current tab's terminal. An omitted target uses
-`current` in the selected session (the caller's own object inside cmux), not a
-remembered client or shell.
+`current` in the selected session, not a remembered client or shell.
 
 Explicit selector paths take precedence over shorthand actions. Use `name:` for
 names that collide with command words. Names, option values, key payloads, and
@@ -516,7 +205,7 @@ for text, and `--help` for help (`splitw -h` means horizontal).
 
 There is no `new-session` alias because a cmux session owns a separate process.
 Use `cmux --session NAME` for interactive create/attach or
-`cmux daemon ensure --session NAME` to ensure a detached owner. `neww` creates a
+`cmux server ensure --session NAME` to ensure a detached owner. `neww` creates a
 screen inside the selected session's workspace.
 
 ## Selectors
@@ -524,79 +213,35 @@ screen inside the selected session's workspace.
 An instance selector accepts:
 
 - a typed opaque ID such as `ws_…`, `pane_…`, or `term_…`;
-- a unique prefix of such an ID with at least 4 hex digits (`pane_3f0a`), for
-  a workspace, screen, pane, tab, terminal or browser: two or more objects
-  with that prefix return `selector.ambiguous` with every candidate id, and a
-  shorter prefix (`pane_3f`) is `validation.invalid`;
-- a bare ID, the 32 hex digits without the prefix; for a terminal also its
-  host id (the raw protocol's `terminal_id`, as `run` and `create-terminal`
-  return it), and a tab or pane id (the terminal that tab shows, or the
-  pane's selected tab's terminal);
-- `caller`, for a workspace, screen, pane, tab or terminal;
-- `current`, and `focused` (the session's focused object);
+- `current`;
 - an exact name.
-
-The daemon resolves every form (one resolver for the CLI, MCP, the SDKs and
-the app), so one selector selects one object in every command. JSON replies
-name objects by their full public ids. These forms are additions to
-`cmux.protocol/2`: a selector that resolved before selects the same object. A
-prefix is expanded first (the parser refused it before, and `name:` still
-selects a name that looks like one). A full id and a name are resolved next,
-as before; a bare id, a host id and `focused` apply only when no object has
-that name (a tab named `focused` is still that tab).
-
-`caller` is the object the command runs in: the caller's terminal
-(`CMUX_TUI_TERMINAL_ID`) and the tab, pane, screen and workspace that hold it,
-or for an agent session (`CMUX_AGENT_SESSION`) the place of its chat that the
-app's `system.identify` reports. The CLI resolves it to ids before it sends the
-request. It fails with `selector.not_found` when no caller is known and with
-`selector.invalid` under `--machine`, or under a `--socket` or `--session` that
-names another session than the caller's. A `--socket` or `--session` that
-resolves to the caller's own session socket (`CMUX_TUI_SOCKET` or
-`CMUX_MUX_SOCKET`) keeps `caller`, and `current` then means the caller too.
-
-`current` is the caller's object as well when a caller is known and the
-request routes to the caller's own session, so an agent never acts on the
-workspace or pane the person is looking at. It is the session's focused object
-when no caller is known or the caller cannot be found (a shell outside cmux, a
-stale terminal id, an app that does not answer), under `--socket`, `--session`
-or `--machine`, below an explicit parent that is not the caller's, above an
-explicit id or name, and for a browser target. The daemon itself only knows
-`current` as focused. `cmux agents` keeps `current` focused and does not take
-`caller`. The MCP tools resolve `current` to the chat's own place themselves,
-use `focused` for the object the person looks at, and do not take `caller`.
-
-An agent name (`cmux agent start NAME`) and any tab name that is unique in the
-session select that tab's terminal, tab or pane wherever such a selector goes:
-the word after `terminal`, `tab` or `pane`, and the `--terminal`, `--tab` and
-`--pane` values of those scopes and of `agent` and `notification`. The daemon
-looks a name under `current` parents up where it always did first (a screen
-name in the current workspace, a pane name in the current screen, a tab name in
-the current pane, the current tab's terminal title). A name it does not find
-there is looked up further, with the rules every client had before. A tab name
-is looked up in the current screen, then the current workspace, then the
-session; the first level with a match decides. A screen or pane name, or a
-terminal title, is looked up in the whole session, and then (for a pane or a
-terminal) the tab name in the whole session. In each step a tab whose terminal
-runs (with an agent or not) wins over one whose terminal exited (so
-`terminal NAME resume` finds it), and two at one step return
-`selector.ambiguous` with their ids, also an agent tab and a shell tab with one
-name. Under an explicit parent (an id or a name) only that parent's scope is
-read. Before it parses a command, the CLI
-asks the daemon to resolve each such word (`<scope> <word> show`) and puts the
-id it answers in place of the word, so a flag that takes a full id
-(`notification create --terminal`, `agent report --terminal`) also takes a
-name, a prefix or a bare id. A word the daemon does not find stays as it is.
-An id, `current`, `caller`, `focused`, command words and the parser's
-subcommand words (such as `group` in `tab group list`, which no agent can take
-as its name) are not asked about. The scan reads flag values as the parser
-does: every flag that is not a boolean flag takes the next word.
 
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to
-`current` or `caller`, names containing `_`, reserved command words, and ID-shaped names.
+`current`, names containing `_`, reserved command words, and ID-shaped names.
 An ambiguous name returns `selector.ambiguous` with every candidate ID. It
 never chooses one or changes state.
+
+An agent name (`cmux agent start NAME`) and any tab name that is unique in the
+session select that tab's terminal, tab or pane wherever such a selector goes:
+the word after `terminal`, `tab` or `pane`, and the `--terminal` and `--pane`
+values of those scopes and of `agent` and `notification`. Before it parses the
+command, the CLI reads one `session.snapshot` and puts the id in place of the
+name: a tab with that name whose terminal runs (with an agent or not), else one
+whose terminal exited (so `terminal NAME resume` finds it). Two tabs at the
+first step that has any return `selector.ambiguous` with their tab ids, also an
+agent tab and a shell tab with one name. A name only fills a gap: when a name
+matches, the CLI first asks the daemon to resolve the word with the rules above
+(the current scope, names under a parent), and a word that resolves stays as it
+is, so a selector that worked before selects the same object. The flag values
+of `agent` and `notification` take `term_` ids only, so a name there always
+becomes its id. A word that matches no tab, an id, `current`, command words and
+the parser's subcommand words (such as `create` in `tab create terminal`) are
+left to those rules. No agent can take a literal word of an action path
+(`write`, `keys`, `create`, ...) as its name. A terminal title under the
+current tab, and a pane's own name under the current screen, win over a tab
+name, because the daemon resolves them first. The scan reads flag values as the
+parser does: every flag that is not a boolean flag takes the next word.
 
 `--machine` and `--session` provide routing defaults. `--socket` selects an
 exact local socket. Local socket precedence is explicit `--socket`, explicit
@@ -608,39 +253,6 @@ One endpoint describes exactly one local mux session. `machine list`,
 `machine get`, `session list`, `session get`, and `session open` expose that
 local route. Cross-machine discovery and provider lifecycle require a later
 broker protocol.
-
-## Caller identity and the agent guide
-
-`cmux identify` reports where the command runs. In a terminal of a cmux-tui
-session that the reachable cmux app does not own (a standalone cmux-tui, or one
-started in a cmux app terminal, whose panes inherit that app's
-`CMUX_SOCKET_PATH`), the innermost multiplexer answers: the CLI reads the
-session daemon named by `CMUX_TUI_SOCKET` and prints
-`{kind: "cmux-tui", socket_path, session: {id, name}, machine: {id, name},
-caller: {found, workspace, workspace_name, screen, screen_name, pane, tab,
-tab_name, terminal_id}, outer_app, guide}`. The `caller` fields have the names of
-the app's `system.identify` caller. In the app's own terminals, with
-`--socket`, `--app-socket`, `--session` or `--machine`, and outside a cmux
-terminal, `cmux identify` stays the app's `system.identify`; `cmux app identify`
-always asks the app.
-
-The `cmux` name accepts the `session` and `client` scopes like `cmux-tui`, so a
-pane's `cmux` reads the whole topology (`cmux session current snapshot`) and
-stops its session. `cmux session current` alone is `session current show`.
-
-`cmux skill show [--json]` prints the agent guide, generated by the CLI that runs
-it: the caller's live ids when run in a cmux terminal, the targeting, focus and
-cleanup rules, task recipes (each one parsed by the CLI's own parser in the
-tests), the waits and exit codes, the scope table of `cmux --help`, and the
-usage of `terminal`, `pane` and `tab`. The `claude` shim adds a `SessionStart`
-hook (`cmux-tui agent session-context`) and the `codex` shim's own
-`SessionStart` hook prints the same facts as `additionalContext`: the agent
-runs in cmux, its session, workspace, screen, pane, tab and terminal ids, and
-`cmux skill show`. Nothing is written to `~/.claude` or `~/.codex`.
-
-`cmux --help` groups the scopes only the cmux app serves under a closing
-"CMUX APP" heading when no app answers, or in a cmux-tui pane whose session the
-answering app does not own.
 
 ## Output
 
@@ -704,41 +316,11 @@ cmux workspace current run shell 'cargo test && printf ready'
 
 The client never reads or expands `$SHELL`.
 
-`workspace create` starts the new workspace's first terminal the same way:
-`--cwd <path>` sets its folder, and exact argv after `--` or `--shell <script>`
-replaces the login shell. Apps need the `workspace:execute` scope for a command.
-
-```bash
-cmux workspace create --name build --cwd ~/src/app -- make watch
-cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
-```
-
-`screen create`, `pane create`, `pane <selector> split` and `tab create
-terminal` take the same exact argv after `--` or `--shell <script>`: the new
-terminal runs it instead of a shell. Apps need `workspace:execute` for these
-too. Text after `--` on a command that starts no terminal is a usage error.
-`screen create` does not move the focus: the workspace's focused screen
-stays, unless `--focus` is given (or the workspace had no screen). It takes
-`--workspace <selector>` to choose the workspace.
-
-```bash
-cmux tab create terminal --pane current -- htop
-cmux screen create --name logs -- tail -f /var/log/system.log
-```
-
-Both run forms accept `--on-exit <close|keep|shell>`. `close` (the default)
+Both run forms accept `--on-exit <close|keep>`. `close` (the default)
 detaches every view when the process exits and leaves only the durable exit
 receipt. `keep` retains the tab and the final screen next to that receipt
 until the terminal is closed; after a daemon restart a kept-exited terminal
-degrades to the normal detach. `shell` keeps the tab and the final screen,
-then starts a new shell in it under the same terminal id (as Restart does);
-that shell's own exit closes the tab.
-The policies apply only to a process end, an exit status or signal that
-the terminal host reported. When the host dies without one (it is killed,
-or it dies while no daemon runs), every tab stays and shows the terminal
-dead; only a close removes it. A process that dies of a signal while its
-session shuts down (logout, reboot, `SIGTERM` to the daemon) counts as a
-host death too.
+degrades to the normal detach.
 
 ## Resource paths
 
@@ -774,28 +356,10 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended] [--terminal <selector>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
-agent <agent_id|term_id> focus
-agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
-agent message --reply-to <message-id> [--from <name>] [--] <text...|->
-agent message release <message-id> --recipient <agent> --approve|--decline
-agent message unsend <message-id> [--recipient <agent>]
-agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <source>
-agent hook emit --source <provider> --event <native-event> [--terminal <id>] [--deadline-ms <n>]
+agent list [--state working|blocked|done|idle|unknown|ended] [--terminal <id>]
+agent report --terminal <selector> --state <state> --source <source>
+agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
-
-agent ls [--all] [--json]
-agent send [--no-wait] SESSION MESSAGE
-agent history SESSION [-n COUNT]
-agent search QUERY... [-n COUNT]
-agent resolve NAME|ID|LINK
-agent register NAME [--code CODE]
-agent open SESSION_ID
-agent open-tab SESSION_ID [--target PANE_OR_TAB]
-agent bg start [--cwd DIR] [--description TEXT] COMMAND
-agent bg list [--all]
-agent notices [SESSION] [--thread THREAD [--mark-read]]
 
 client list
 client <selector> show|detach
@@ -803,185 +367,72 @@ client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list [--order session|personal] [--name <name>] [--cwd <path>] [--id <id,...>] [--tree]
-workspace create
-workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
+workspace list|create
 workspace <selector> show|rename|move|focus|close|run
-workspace <selector> close --remove-worktree [--discard]
 workspace <selector> layout apply
-workspace [<selector>] open-url --url <url>
 workspace <selector> screen ...
 
 screen list|create [--workspace <selector>] [--focus]
 screen <selector> show|rename|focus|close
 screen <selector> layout export|undo
-screen <selector> column <split_id> update
 screen <selector> pane ...
 
-pane list [--name <name>] [--cwd <path>]
-pane create
+pane list|create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
-pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--index <n>] [--to-screen <selector>] [--focus]
+pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
 pane <selector> focus direction <left|right|up|down>
 pane <selector> split ratio set
 pane <selector> viewport width set
 pane <selector> tab ...
 
 tab list
-tab create terminal|browser [--engine chromium|webkit]
+tab create terminal|browser
 tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
-terminal list [--cwd <path>]
-terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
-terminal <selector> close [--if-unplaced]
-terminal <term_id> keep on|off
-terminal <term_id>|current pin-tail on|off
+terminal list
+terminal <selector> show|write|keys|mouse|move|project|attach|close
 terminal <selector> focus <in|out>
-terminal <selector> screen read [--unwrap] [--lines <n>]
+terminal <selector> screen read [--unwrap] [--lines <n>] [--details]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
-terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap] [--details]
-terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--pattern <regex>]
-  [--timeout <d>] [--settle <d>] [--force] [--exit-with-status]
-terminal <selector> run [--pattern <regex>] [--timeout <d>] [--force] -- <command...>
+terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
 terminal <selector> state read
 terminal <selector> history read|clear
 terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
+terminal <selector> wait --until ready [--timeout <duration>]
+terminal <selector> resume [OPTIONS] [-- ARGS...]
 terminal <selector> viewport scroll
 
-browser open <url> | --url <url> [--engine chromium|webkit] [OPTIONS]
 browser list
-browser profile list
-browser profile create --name <name> [--color <value>] [--icon <value>] [--index <n>]
-browser profile move --profile <id-or-name> --index <n>
-browser profile open <url> | --url <url> --profile <id-or-name> [--engine chromium|webkit] [--pane <selector>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
 
 notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
-notification clear [--terminal <term_id> | --workspace <ws_id> | --notification <notification_id>]
+notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
-notification banners
-notification open <banner-id>
-attention request --tab <tab_…> --reason <text>
-attention clear --tab <tab_…>
+notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 attention next [--after <tab_…>] [--focus]
 attention list
-git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
-git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch | --scope commits --base <commit> --head <commit>] [--patch]
-  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
-  [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
-git fingerprint [TARGET] [--scope uncommitted|unstaged|staged|branch]
-git branches [TARGET] [--limit <n>]
-git files [TARGET] [--limit <n>] <query>...
-git list [TARGET] [--limit <n>]
-git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
-  [--reason manual|handoff|turn] [--max-bytes <n>] [--max-files <n>]
-  [--expected-repository <id>] [--expected-worktree <id>]
-git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
-git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
-git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
-git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
-git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
-  [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
-git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
-git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
-git worktree create [TARGET] [--name <name>] [--base <revision>]
-git worktree apply [TARGET]
-git worktree remove [TARGET] [--discard]
-git worktree setup [TARGET] [--since <offset>]
-git review start [TARGET] <pull-request-url>
-git review comment [TARGET] --file <path> --line <n> [--start-line <n>] [--side new|old] --message <text>
-git comments list [--root <path>]
-git comments save [--root <path>] --comment <json-object>
-git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
-git comments send [--root <path>] <comment-id>... --threads --acp-session <id> [--text <note>]
-git comments reply [--root <path>] <comment-id> --text <answer> [--author agent|reviewer]
-git comments resolve [--root <path>] <comment-id> [--reopen]
-notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
-conversation list                                             (cmux-tui only)
-conversation <conv_id> get [--tail <0..500>]
-conversation <conv_id> history --before-seq <n> --limit <1..500>
-conversation search <words>... [--limit <1..100>]
-conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
-conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
-chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
-chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
-chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief> | chief history <chief> [--limit <n>] | chief undo <chief> [--to-rev <n>]
-chief usage [--chief <id>] [--since <24h|7d|30d|90d|1y|all>] [--until <d>] [--bucket hour|day|week|month] [--by chief|agent|model|harness|kind] [--top <n>] [--json]
-agent list|message|inbox|report
+agent list|report
+agent start|resume <name> [OPTIONS] [-- ARGS...]
 agent plugin list|install|use|update|remove
 pairing request list
-pairing request <selector> respond <accept|reject>   (accept: only from the verified cmux app; other callers may reject)
+pairing request <selector> respond <accept|reject>
 projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload
 sidebar plugin list|install|use|update|remove
-sidebar section-scroll <section> fixed|flow   (sidebar.section.update {scroll})
-sidebar section-max-rows <section> <1-50>|none   (sidebar.section.update {max_rows}; none grows without limit)
 
 provider authority install
 
 ```
 
-`notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
-work unchanged inside a machine: `--title` (default `Notification`, at most
-512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
-`--clear`, `--surface`, `--workspace`, `--json`, `--desktop true|false`
-(`false`: the app shows no banner; the sidebar marker still shows), and
-`--reply` (the banner takes a typed reply, which the app pastes into the
-target terminal and submits with Return); `--window`
-and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
-(`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
-current` says the same, `--surface <term_id>` names another terminal of this
-session, `--workspace <ws_id>` posts a row with no terminal that belongs to
-that workspace (`workspace_id`; the app's banner names it), and `--workspace
-current` posts a session-level row. A machine can only address its own
-session. `--clear` removes the retained rows for that target on the machine
-(`notification.clear`), so every attached client drops them; `--clear
---workspace <ws_id>` removes that workspace's rows and those of its terminals. A reply goes only to the notification's target
-terminal, while that notification is still unread, as text the user typed into its banner, over the same link the
-app's terminal input uses. Every row is bounded because each
-one is pushed to every attached client.
-
-`notification ack --client <id> <notification-id>...` records that one client
-install has read the listed notifications. `--client` is the durable client
-id (1 to 128 printable ASCII bytes) that the client also reports through
-`client-focus`. Read state is per client: every notification row carries
-`read_by`, the sorted client ids that acknowledged it, and a second client
-keeps its own unread state. The shared `unread` marker on the console tree is
-unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
-returned under `unknown`, not rejected, so a late acknowledgement after
-eviction is complete.
-
-`notification banners` and `notification open <banner-id>` ask the cmux app
-(its `notifications.banners` and `notifications.open` methods), not the
-daemon. `banners` lists the macOS banners the app asked for, newest last and
-bounded: `{banners: [{id, title, subtitle, body, reply, approval, category,
-…}], authorization}`, each with the app's number for the tab it opens (none
-for an incognito window's banner, listed as it showed). It moves no focus.
-`open` shows that banner's own tab (never a caller-chosen one), as a click on
-it does, so it moves the app's focus there, and answers `{opened, …}`; an id
-the app does not list is `not_found` and opens nothing. Only a tab's banner
-opens, and a web page's banner runs none of the page's click handler: a
-passkey, pairing, attention or Run banner acts on the person's own click, so
-opening one is `person_required`. Release
-builds serve both, so a probe can check a Nightly's banners from outside the app.
-
-`terminal <selector> output read` returns a bounded plain-text window of the
-terminal's journaled output stream: `{text, start_offset, next_offset,
-complete}`. Offsets are `terminal.output` stream byte offsets; pass a previous
-`next_offset` as `--after` to resume exactly, and omit it to read from the
-earliest still-retained byte. `complete` is false when `--max-bytes` (default
-262144, maximum 4194304) truncated the window. The command works on live
-terminals and on exited ones under both exit policies; after exit, reads
-before the durable exit snapshot's coverage answer with the snapshot's screen
-projection (`start_offset` 0), so the read never needs unbounded record
-retention. Escape sequences never appear in `text`, though a window that
-starts mid-stream may carry escape-state artifacts at its leading edge.
+In the human output `screen read` prints the screen's text as it shows (no
+trailing blank rows); `--details` prints every field of the record (`text`,
+`cols`, `rows`, ...), and `--json` prints the record as before.
 
 Terminal text reads break lines where the terminal wrapped them unless asked
 not to (`terminal-read-unwrap-v1`). `screen read --unwrap` (`unwrap`) joins
@@ -995,102 +446,137 @@ describe the screen. `copy --unwrap` joins soft wraps for `screen` and
 text printed below the line the cursor is on when the wait starts, soft wraps
 joined, and `text` is then that new text: the echo of a command typed on that
 line and older output never match. Output printed before the wait starts is
-not new, so start the wait before the command, or use `terminal send
---pattern`.
+not new, so start the wait before the command prints.
 
-`terminal <t> send` reads with soft wraps joined when the daemon can, and an
-older daemon gets row reads. With OSC 133 shell integration the terminal
-record carries `extra.last_command` (`terminal-exit-status-v1`): the last
-command the shell finished, with `exit_code` from `D;<code>` (absent when the
-shell sent none), `finished_at_ms` and `started_at_ms`. Without integration
-the field is absent, so its absence never means success. `send --wait prompt`
-ends as soon as a command finished after the message and the prompt is back,
-and its receipt has that command's `exit_status`; a command record from
-before the send is never reported. `--pattern <regex>` also ends the wait
-when output after the message's echo matches (receipt `matched`; the echo
-never matches) and when the command finishes first (`matched: false`, exit 1).
-`--exit-with-status` exits with `exit_status` (0..255), or 125 when the shell
-reported none; a timeout still exits 124. `terminal <t> run [OPTIONS] --
-<command...>` (or `--text <command>`) is `send --wait prompt
---exit-with-status`: it types the command into the terminal's shell, waits
-for it to finish, prints its output and exits with its status. One word
-after `--` is a shell line as it is (`run -- 'make && ./a.out'`); two or more
-words are an argv: each word is POSIX shell-quoted, so sh, bash and zsh get
-the same words (`run -- sh -c 'exit 7'` exits 7); for cmd.exe or PowerShell
-pass the line as one word. `terminal <t> status` adds a `LAST
-COMMAND` line for a person; `--json` keeps the record list.
-
-Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
---regex`) is multi-line: `^` and `$` match at the start and end of each line, so
+A `--pattern` regex (`screen wait`, and the raw `wait-for` command) is
+multi-line: `^` and `$` match at the start and end of each line, so
 `'^READY$'` matches a line that is only `READY`. Start the pattern with
 `(?-m)` to anchor at the start and end of the whole text.
 
-`pane <p> move` moves a whole pane: every tab in it, in order, in one
-`pane.move` request, which the daemon commits as one journaled change (a crash
-leaves the pane before or after the move; a retry with the same key replays
-the result). `--to-pane <q> --split right|down|left|up` puts the pane beside
-pane q, and `--to-workspace <w>` or `--new-screen` (alias `--new-tab`, the
-pane's own workspace) makes it the only pane of a new screen there, named
-`--name`: in these the pane keeps its id. `--to-pane <q>` without `--split`
-appends the tabs to pane q (at `--index <n>` if given), and `--to-tab <t>` puts
-them after tab t; the tabs keep their ids and the moved pane closes. With
-`--to-pane` or `--to-tab`, `--to-workspace <w>` and `--to-screen <s>` are that
-selector's workspace and screen. A screen
-that the move empties closes. The focus stays where it was, unless `--focus`
-(the moved tabs' pane) or the moved pane had it (the focus stays with it). A
-destination in the pane itself is `validation.invalid`. The result is
-`{pane_id, moved_pane_id, pane_kept, workspace_id, screen_id, tab_ids, index,
-created_screen_id?, closed_screen_id?, focused_pane_id?}`: `pane_id` is where
-the tabs are now (the moved pane's own id unless the tabs merged), `index` the
-first tab's position there. The daemon resolves every selector, the
-destination's too (ids, unique id prefixes, bare ids, `name:` and exact names,
-`focused`, `current`; `caller` is resolved by the CLI for `<p>` only).
+`screen create` does not move the focus: the workspace's focused screen
+stays, unless `--focus` is given (`screen.create.focus`, default false for a
+caller; the TUI's own new screen still shows it) or the workspace had no
+screen. It takes `--workspace <selector>` to choose the workspace. A
+`screen.create` in a session with no workspace makes one, which takes the
+focus as before (main's `workspace.create` has no focus option).
 
-`workspace create --worktree <name>` runs `git worktree create --name <name>`
-in the repository `--repo` names (default: the current directory), with
-`--base`, then `workspace create` with the remaining options, `--cwd` set to
-the worktree and `--name <name>` unless given (`--cwd` and `--empty` are
-refused), then `workspace.agent_folder.set` to the worktree's canonical
-folder (only an app connection may set it; an agent's CLI is refused, and the
-command goes on). The result is the `workspace create` result plus
-`worktree`, the `git worktree create` result (`root` is the folder) and
-`workspace_folder` (whether the agent folder was set). `workspace <ws> close
---remove-worktree [--discard]` runs `git worktree remove` of the workspace's
-agent folder when it has one, else of the worktree its current terminal works
-in (`--workspace <ws>`; the main checkout is never removed), then closes the
-workspace, then ends each running terminal that had a tab in it and has none
-after the close (they worked in the removed folder); a refused remove closes
-nothing. Each end is `terminal.close` with `if_unplaced`, so the session
-leaves a terminal running that is marked keep, is attached or got a tab since.
-The command sends the field on the same route as the close (also with
-`--machine`). Any older daemon on that route (a build without
-`terminal-close-if-unplaced-v1`, the target or a local daemon that forwards
-the request) refuses it as an unknown parameter, and only then the command
-sends the plain `terminal.close`, which also ends a kept or attached terminal. Any other
-failure leaves that terminal to the reaper.
-The caller's own terminal (`CMUX_TUI_TERMINAL_ID`) is not ended: the reply and
-the exit code go there, and the reaper ends it after its grace. The result is
-the close result plus `worktree`, the removal, and `ended_terminals`, the
-terminals it ended (one it did not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
-when absent), so retrying the whole command replays the steps that ran; a
-failed step's error names `step`, the command's `idempotency_key` and what
-the steps before it `made`.
+`pane <p> move` moves a whole pane: every tab in it, in order, with one
+`tab.move` each (the daemon has no pane move), and the emptied pane closes.
+`--to-pane <q>` appends the tabs to pane q; with `--split right|down|left|up`
+they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
+its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
+pane's own workspace) put them into a new screen there, named `--name`. A new
+pane's shell ends once the tabs are in (`terminal <t> close`, which takes its
+tab; a tab close alone left the shell running with no tab), and the new pane
+takes the moved pane's name. `tab.move` focuses what it moved, so afterwards
+the command focuses the pane that had the focus before (`--focus`: the
+destination pane); when the moved pane had the focus, the focus stays with its
+tabs. A destination in the pane itself is a usage error. The result is `{pane,
+moved_tabs, destination: {workspace, screen, pane, index}, created,
+focused_pane}`, `created` being `{screen, pane}`, `{pane}` or null. The
+command resolves every selector (ids, unique id prefixes, `name:` and exact
+names, `focused`, `current`, `caller`) against one `session.snapshot` and
+sends ids only. Each step is its own request, its idempotency key derived from
+the command's (`--idempotency-key`, else a random one). A failed step names
+itself and what already moved in `details.step` and `details.made`; running
+the command again does not resume it (`details.retry`), so move the remaining
+tabs with `tab move`.
+
+`agent list` is one `agent.list` read and one `notification.list` read; the
+daemon's rows are unchanged except that the CLI adds `status`, the word the
+TUI sidebar shows: `blocked`, `done` (idle with an unread notification on its
+terminal), `working`, `idle` or `unknown`, and `null` for an agent whose
+session ended. The daemon's `state` field (`working`, `blocked`, `idle`,
+`done` = ended, `unknown`) stays as it was. `--state` takes the status words
+and `ended` and asks the daemon for its state: `done` and `idle` ask for
+`idle` (the CLI then keeps the rows with that status), `ended` asks for the
+daemon's `done`, the others for themselves. `--state done` used to select the
+ended sessions; that is `--state ended` now. A refused notification read (an
+older daemon) leaves every idle agent `idle`.
+
+`agent list` then reads one `session.snapshot` and adds the place of each
+row's terminal: `tab_id`, `tab_name` and `pane_id` of the tab that shows it,
+and `name`, the tab's name when it is an agent name (`cmux agent start NAME`),
+else `null`. A terminal the snapshot does not show, or a refused snapshot
+read, gives `null` for all four.
+
+`agent hook status` reports each provider on its own row. A provider whose
+config cannot be read is `state: unavailable`, `reason: unreadable`, with the
+cause in `detail`; the other providers still answer and the command exits 0.
+A failed `agent hook install|uninstall` names each cause in its message
+(`<provider>: <cause>`). `agent|sidebar plugin list` with no plugin installed
+prints how to install one (`--json` prints `[]`).
+
+A selector that starts with an id prefix (`term_`, `ws_`, `pane_`, ...) but is
+not an id (not 32 lowercase hex digits) is refused as a mistyped id: the
+message names the id shape, the list command that prints real ids, and the
+`name:` escape for a name.
+
+With OSC 133 shell integration the terminal record carries
+`extra.last_command` (`terminal-exit-status-v1`): the last command the shell
+finished, with `exit_code` from `D;<code>` (absent when the shell sent none,
+or when the next prompt came without `D`), `finished_at_ms` and
+`started_at_ms` (decimal strings). Without integration the field is absent, so
+its absence never means success. A change to it publishes a terminal upsert,
+so a subscriber sees the new value without a read.
+
+`notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
+work unchanged inside a machine: `--title` (default `Notification`, at most
+512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
+`--clear`, `--surface`, `--workspace`, `--json`; `--window`, `--id-format`, and
+`--desktop` (validated as `true|false`) are accepted and ignored. The target defaults to the caller's own terminal
+(`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
+current` says the same, `--surface <term_id>` names another terminal of this
+session, and `--workspace` alone posts a session-level row with no terminal.
+A machine can only address its own session. `--clear` removes the retained
+rows for that target on the machine (`notification.clear`), so every attached
+client drops them. `--reply` is refused: a reply would type into a terminal,
+and that channel does not cross the link. Every row is bounded because each
+one is pushed to every attached client.
+
+`notification ack --client <id> <notification-id>...` records that one client
+install has read the listed notifications. `--client` is the durable client
+id (1 to 128 printable ASCII bytes) that the client also reports through
+`client-focus`. Read state is per client: every notification row carries
+`read_by`, the sorted client ids that acknowledged it, and a second client
+keeps its own unread state. The shared `unread` marker on the console tree is
+unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
+returned under `unknown`, not rejected, so a late acknowledgement after
+eviction is complete.
+
+`attention next` and `attention list` read one `session.snapshot` and answer
+the tabs that need the person, in the order the TUI's `next-attention` key
+(`Ctrl-b a`) visits them: tabs whose agent is `blocked` first, then tabs with
+an unread `error` or `warning` notification, then other unread tabs, each
+oldest first. A queue entry is `{tab, terminal, workspace_id, workspace,
+title, kind, reason, level, since_ms}`; `kind` is `blocked` or `unread`, and
+`reason` is the notification title. `list` answers `{queue}`. `next` answers
+`{target, queue_length, focused}`: `target` is the entry after the focused tab
+(or after `--after <tab_…>`), wrapping, else the first, or null when the queue
+is empty. Focus moves only with `--focus`, which sends `tab <tab> focus`.
+An entry names the tab of its terminal's `tab_id`; a terminal projected into
+several tabs is listed once, for that tab.
+
+`terminal <selector> output read` returns a bounded plain-text window of the
+terminal's journaled output stream: `{text, start_offset, next_offset,
+complete}`. Offsets are `terminal.output` stream byte offsets; pass a previous
+`next_offset` as `--after` to resume exactly, and omit it to read from the
+earliest still-retained byte. `complete` is false when `--max-bytes` (default
+262144, maximum 4194304) truncated the window. The command works on live
+terminals and on exited ones under both exit policies; after exit, reads
+before the durable exit snapshot's coverage answer with the snapshot's screen
+projection (`start_offset` 0), so the read never needs unbounded record
+retention. Escape sequences never appear in `text`, though a window that
+starts mid-stream may carry escape-state artifacts at its leading edge.
 
 Workspace creation starts with one terminal unless `--empty` is present.
 `terminal <selector> project` requires destination `--workspace`, `--screen`,
 `--pane`, and `--index` values and creates an unfocused tab placement. Tab,
-pane, screen, and workspace closes detach PTY views; only `terminal close`
-ends the session-owned process and removes all of its placements.
-`terminal <selector> close --if-unplaced` sends `if_unplaced: true`: it ends
-the terminal only when it has no tab, no `keep` mark and no attach stream, and
-otherwise fails and changes nothing.
-`tab`, `pane`, `screen` and `workspace <selector> close` with `--others`,
-`--to-right`, `--to-left` or `--all` (panes: `--others` or `--all`) send one
-`layout.bulk` close: the selected object's siblings in its pane, screen,
-workspace or session close in one commit as one closed-history group, which
-`closed reopen` restores whole. Pinned tabs, screens and workspaces stay unless
-`--include-pinned`; the home workspace never closes; `--end-terminals` ends
-the terminals the close leaves without a view.
+pane, screen, and workspace closes detach PTY views; `terminal close` ends the
+session-owned process at once and removes all of its placements. An owner
+started with `--terminal-reap-grace-seconds <n>` (`identify` lists
+`terminal-reaper-active-v1`) also ends a terminal that has had no tab for `n`
+seconds, counted across owner restarts.
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.
@@ -1110,434 +596,6 @@ long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
 
-`git status`, `git diff` and `git branches` are read-only git reads (`git.status`,
-`git.diff`, `git.branches`) of the repository a path is in, or the working directory of the terminal a
-selector names (a workspace, screen, pane or tab names its current terminal). Without
-a target the CLI sends the current directory. The session host runs git with
-no ambient `GIT_*` environment, no fsmonitor, external diff or textconv,
-literal pathspecs, a deadline and bounded output. `git diff` lists each file's
-status and line counts, adds patches only with `--patch` (each cut at
-`--max-patch-bytes`, 262144 by default, and marked `patch_truncated`; each
-hunk keeps `--context-lines` unchanged lines around it, 3 by default), lists at
-most `--max-files` (500) files with the rest counted in `files_omitted`, and
-counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
-`--after-path` (`after_path`) lists the files after a path, so the reply's
-`next_path` reads the next page. With `--patch` and exactly one file path,
-`--patch-offset` (`patch_offset`, a decimal byte offset; start at 0) returns a
-bounded `patch_page` of that file's whole raw patch instead of the clipped
-`patch`; a later page passes the first page's `revision` as `--patch-revision`
-(`patch_revision`). `git checkpoint diff` takes the same three flags.
-The base branch (`git status`'s `base`, the `branch` scope's merge base) is the
-one `git worktree create` recorded for the current branch
-(`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
-default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
-linked worktree `git status` adds `worktree.main_root`, its main checkout.
-While a merge, rebase, cherry-pick or revert is stopped partway in the
-checkout, `git status` adds `in_progress` (`merge`, `rebase`, `cherry-pick` or
-`revert`), read from the checkout's own git directory with no extra run.
-`git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
-64 hex digits that stay equal while the scope's `git diff` stays equal, for a
-view that asks often if its diff is still current. It runs no patch: the
-digits come from the work tree's top folder, HEAD, the merge base (the
-`branch` scope), the `core`, `diff` and `filter` settings (as one constant
-above 1 MiB) and, for each file `git status` lists, its modes, blob ids and a
-hash of its work tree content. A file's hash is kept by its stat
-entry, so a work tree at rest costs no file read (`files_read` and
-`bytes_read` say what one read cost), and a file whose time stamp alone moved
-gives the same digits. One read hashes at most 8192 files and 256 MiB and no
-file above 64 MiB; a file past a bound counts by its stat entry. Compare two
-replies of one running session host: the digits hold random bytes of its
-process, and are not equal across a restart or a version.
-`git branches` (`git.branches`, capability `git-branches-v1`) lists at most
-`--limit` (200, up to 1000) branches: local ones, then remote-tracking ones,
-each by newest tip commit. Each carries its full ref, commit and whether HEAD
-is on it; a local branch also carries its upstream and its ahead and behind
-counts. `suggested_bases` lists the bases a branch diff may compare with,
-best first: the base branch above (the recorded base, then the default
-branch), then the upstream of HEAD's branch when it is a different ref.
-`truncated` says more branches exist.
-`git files` (`git.files.search`) lists the files under the target folder whose
-path holds the query's characters in order, case-insensitively and ignoring
-spaces, best first: tracked files still in the working tree and untracked
-files no ignore rule hides. It prints at most `--limit` (50, up to 200)
-results relative to `search_root`, the folder searched; `root` is the
-repository top level.
-`git list` (`git.files.list`, shorthand `git ls`) lists the immediate children of the target folder
-for a file explorer: each candidate `git files` would rank folds into its
-first path component, a `directory` when paths sit below it or it is a
-submodule, else a `file`. Directories come first, then names
-case-insensitively. It prints at most `--limit` (2000, up to 5000) entries
-and sets `truncated` when more exist. A folder in no repository lists too, from
-one read of the folder on disk: its children only, names
-that start with `.` left out, a symlink a `file`.
-A repository's filter drivers never run: every configured `filter.<driver>` is
-blanked for the read. One reply carries at most 8 MiB of patches.
-
-`conversation` maps one verb to each `conversation.*` operation of the local
-conversation owner (resource-api-v2.md, "Conversations"); it is a
-`cmux-tui` scope only, and the conversation operations are not MCP tools,
-because MCP clients act as the local user. `send` takes its idempotency key
-from `--idempotency-key` or a random one; the key is the message's
-`client_msg_id`. `events` prints one item per line with `--jsonl`.
-
-`chief` is the chat with the person's Chief over the same operations: it
-selects the Chief conversation (the oldest one with participant `agent_mux`),
-reads `conversation.events`, and sends with `conversation.send` as the
-person, so Home and the CLI show the same messages live. With `-p <text>`, or
-with text on stdin, it sends one message, prints the Chief's reply (live from
-its `draft` items when stdout is a terminal, else only the posted messages,
-or each as a JSON line with `--json`) and exits 0 when the turn that answers
-the message ends; it gives up after `--timeout` seconds (default 1800,
-`0` waits without a limit) and exits 124. After a stream gap it takes the
-turn's state from the reopened stream's snapshot, so a lost typing item
-never makes it wait for nothing. On a terminal it opens an inline
-chat: finished messages go into the terminal's scrollback, the live reply and
-the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
-Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
-`/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
-commands. `chief engine` and `chief stop` make one such call without the
-chat. `chief usage` reads this Mac's Chief usage ledgers (tokens by kind, cost, cache hit,
-turn time over time; plans/cmux-next/chief-usage-analytics-DESIGN.md) through the bundled
-`optchat-chief usage`; no daemon or brain needs to run. `chief list`, `chief new`, `chief edit` and `chief delete` make the
-person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
-`chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
-Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
-`--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
-`--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
-`--model`, `--effort` (the Chief's backend, written into its brain's engine
-file), `--lock` / `--unlock` (the person's lock: no Chief may change it).
-`chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
-makes an agent already in the person's conversations a Chief under its own
-id; its conversations and history stay. `chief history <chief>`
-(`chief.profile.history`) lists the kept revisions (rev, time, actor,
-operation); `chief undo <chief> [--to-rev <n>]` (`chief.profile.undo`)
-restores the one before the current rev, or rev `n`, as a new rev. Every
-write (new, adopt, edit, delete, undo) is refused for an agent caller (`origin.forbidden`, reason
-`agent_caller`). `--json` prints the record. It refuses a socket under
-`~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
-Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
-timeout.
-
-`git checkpoint` (`git.checkpoint.create|get|list|pin|unpin`, capability
-`git-checkpoints-v1`) stores an immutable checkpoint of a repository: the raw
-index entries, the tracked worktree files, and the untracked files the caller
-names (or `--untracked eligible` for every eligible one), each tree with its
-modes and raw bytes, plus `metadata.json`, in one parentless commit published
-as `refs/cmux/checkpoints/<worktree_id>/<checkpoint_id>`. Capture never changes
-HEAD, the index, the worktree or any branch, and runs no hooks, filters or
-fsmonitor. Untracked files are read without following links. Refusals are
-`operation.failed` whose `details.reason` is the machine reason and whose
-`extra.message` explains it: `unsupported_index` for skip-worktree,
-assume-unchanged, intent-to-add, unmerged, split or sparse indexes;
-`repository_changed` when the repository changes under the capture, an
-`--expected-*` id no longer matches, or a key is reused for a target that now
-resolves elsewhere; `budget_exceeded` past `--max-bytes` (128 MiB) or
-`--max-files` (1000); and `no_state_directory`, `store_failed`,
-`not_a_repository`, `no_working_directory` or `git_failed`. Ignored,
-credential (`.env*`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`,
-`credentials`, SSH private keys, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`,
-`*.keystore`), over-10 MB, nested-repository and unselected untracked files
-are skipped and reported. `complete` is false when anything other than an
-ignored or credential file was skipped. Checkpoints live in the session's
-state directory, so an in-memory session refuses with `no_state_directory`.
-Mutations are recorded in the session's resource mutation ledger: a create,
-pin or unpin retried with the same key and arguments replays its first
-result, and `get --key` finds a create of the same worktree after an
-uncertain reply. A create that stopped after publishing its ref is finished
-by its retry, and a create sweeps refs of its worktree that have no record.
-`list --candidates` counts every ignored path in `ignored_total` and lists at
-most 200 of them. Unpinned checkpoints expire after 7 days and at most 50 are
-kept per repository; pins never expire, and pins beginning `handoff:` or
-`restore:` are owned by cmux and cannot be removed with `unpin`.
-
-`git commit` (`git.commit`, capability `git-commit-v1`) and `git push`
-(`git.push`, capability `git-push-v1`) are the user's own actions: git runs in
-the user's environment as in a terminal, so their config, identity, signing,
-hooks, credential helper and SSH agent apply, and inherited `GIT_*` variables
-of the daemon are dropped. Git never prompts (no terminal,
-`GIT_TERMINAL_PROMPT=0`, no askpass) and is stopped after 120 s with
-`timed_out`; a GUI prompt the user's own tools open (a signing pinentry, a
-Keychain dialog) can still hold a run until that deadline. Both run only on
-this machine: with another machine as the target the CLI refuses them. `commit` commits the named paths as they are in the working tree
-(paths are relative to the current directory; they are staged first and stay staged when the commit is refused; other staged changes stay out of the commit), every tracked
-change with `--all` (plus untracked files with `--include-untracked`), or the
-index as it is; `--no-verify` skips pre-commit and commit-msg. It refuses with
-`nothing_to_commit`, `head_moved` (HEAD is not `--expected-head`),
-`merge_in_progress` (also a rebase, cherry-pick or revert), `hook_failed` (with
-the hook's output, at most 16 KiB, in `extra.output`), `identity_missing`,
-`index_locked`, `path_not_found` or `git_failed`. A retry with the same key
-replays the first result, and a retry after a lost reply or a timeout
-reports the commit the first attempt made: the attempt's id is in the commit's
-reflog message (bounded attempt journal: 7 days, 256 entries). `push` pushes the branch's tip (the current branch unless
-`--branch`) to the branch of the same name on a configured remote (default:
-where `git push` would go, else `origin`), never forced, and makes it the
-branch's upstream when the branch has none (or with `--set-upstream`). It
-refuses with `no_remote`, `push_refspec_configured`, `mirror_remote`, `upstream_mismatch`, `detached_head`, `branch_not_found`, `head_moved`,
-`rejected_non_fast_forward`, `rejected_by_remote` (with the remote's message),
-`hook_failed`, `auth_failed`, `network_failed` or `git_failed`; pushing a
-commit the remote has succeeds with `up_to_date`.
-
-`git worktree create` (`git.worktree.create`, capability `git-worktree-v1`)
-makes a chat's own worktree, in the user's environment like `commit`, and
-only on this machine. The worktree is `~/.cmux/worktrees/<project>/<name>`
-(`<project>` is the main checkout's folder name) on a new branch
-`cmux/<name>` from `--base` (default: the current branch, else HEAD's
-commit), and the base is recorded as `branch.cmux/<name>.cmuxBase` (a branch by
-name, any other revision as its commit). The name
-is `--name` as a slug (lowercase letters, digits and `-`, at most 48 before a suffix), else
-`chat-` and six random hex digits; a name taken by a folder or a branch gets
-the next free suffix (`-2` to `-99`). The user's checkout, its index and its
-uncommitted changes are untouched. The result is the worktree's `root`,
-`branch`, `base`, `base_commit` and, unless the repository is bare,
-`main_root`. It refuses with `base_not_found`, `name_taken`, `path_exists`,
-`no_home` or `git_failed`; a retry after a lost reply or a timeout finds the
-worktree the first attempt made. A failing post-checkout hook does not undo
-the worktree, so it is reported as made.
-
-`git review start <url>` (`git.review.start`, capability `git-review-v1`)
-checks a GitHub pull request out for review, only on this machine. `gh pr view`
-reads the pull request and `git fetch` brings its head and base branch from the
-remote of TARGET's repository that is `OWNER/REPO` on github.com, both in the
-user's environment. The worktree is `git worktree create`'s, named
-`review-<number>`, at the head, and the merge-base with the base branch is
-recorded as its `cmuxBase`, so the diff viewer's branch scope shows exactly the
-pull request's change. The result is the worktree's `root`, `branch`, `head`,
-`base` (the merge-base), the pull request's `url`, `repo`, `number` and
-`title`, and `diff`, the git command that prints its diff. A worktree an
-earlier review made on the same head is reused with its drafts (`reused`). It
-refuses with `no_remote`, `gh_unavailable`, `gh_failed`, `fetch_failed`,
-`pull_request_moved` or `git_failed`.
-
-`git review comment` (`git.review.comment`), run in such a worktree, saves one
-draft review comment on lines `--start-line` to `--line` of `--file`, on the
-pull request's version (`--side new`, default) or the base's (`--side old`).
-The diff viewer shows it with its other comments. The lines must lie in one
-hunk of the pull request's diff as GitHub shows it (three lines of context);
-otherwise it refuses with `not_in_diff`, whose `extra.new_lines` or
-`extra.old_lines` lists the lines that side shows. `not_a_review` names a
-worktree `review start` did not make. Nothing here posts: the person posts the
-drafts as one review from the diff viewer (`git.review.post`, which is not a
-`cmux` verb or an MCP tool).
-
-`git worktree apply` (`git.worktree.apply`, capability `git-worktree-apply-v1`),
-run in a worktree whose branch `git worktree create` recorded a base for, brings
-its work back to the main checkout, in the user's environment and only on this
-machine. Everything the worktree changed since the merge base with that base
-(its commits, its uncommitted edits and the new files it never added) lands in
-the main checkout's files as uncommitted changes; submodules are left out. HEAD
-and the index of both checkouts stay as they are, and the user's diff and apply
-settings change nothing. The result is `main_root` and the `files` it changed.
-It refuses, changing nothing, with `not_a_worktree`, `no_base`, `unmerged`
-(mid-merge or mid-rebase), `no_merge_base`, `nothing_to_apply`,
-`main_checkout_changed` (the main checkout has a change of its own, or a file git
-does not track, at those paths, listed in `extra.files`), `does_not_apply` or
-`git_failed`. A retry after a lost reply or a timeout finds the work applied
-instead of applying it twice; one stopped while git wrote the files is refused
-as `interrupted`, as the main checkout may hold part of it.
-
-`git worktree remove` (`git.worktree.remove`, capability `git-worktree-remove-v1`),
-run in a linked worktree, removes it with `git worktree remove` from the main
-checkout, in the user's environment and only on this machine; the folder goes
-with its ignored files. Its branch goes too, with its settings, when `git
-worktree create` made it (`cmux/<name>` with a recorded base); any other branch
-stays. Without `--discard` it refuses, changing nothing, with
-`uncommitted_changes` (tracked or untracked files; `extra.files` lists up to 20,
-`extra.count` all) or `unpushed_commits` (commits on no other branch and no
-remote, on a detached HEAD or on the branch that goes; `extra.count`), checked
-again right before the folder and the branch go: a branch that got new commits
-meanwhile stays. With `--discard` that work is lost. The main checkout is
-refused as `not_a_worktree`, and other worktrees are never touched. The result
-is the removed `root`, `main_root`, the `branch` and whether it was deleted
-(`branch_deleted`). A retry after a timeout finishes what the first attempt
-started; once the folder is gone, a request naming it finds no repository.
-Before the folder goes, a setup still running there is stopped and the project's
-teardown runs in it, once, for at most a minute; the result carries its `state`,
-`exit_code` and `output` as `teardown`. A failed teardown does not keep the
-worktree. The worktree's ports go back once it is gone.
-
-A project's worktree recipe is what a new worktree copies and runs. The
-repository says it in `.worktreeinclude` (the files to copy from the main
-checkout: `.gitignore`-style lines, each a path from the root; `**` walks
-folders, `!` takes back, a trailing `/` matches folders; a matched folder is
-copied whole; nothing in the worktree is overwritten and no link out of the
-repository is followed or copied) and in `.cmux/worktree.toml` (`setup` and
-`teardown` commands, `run`, the command that starts the project there on its
-port, and `include`, more `.worktreeinclude` lines). The user's
-saved recipe (`project update` field `worktree`) wins command by command (an
-empty command turns the repository's off), and its include lines come after the
-repository's, so a `!` line takes one back. `git worktree create` answers once git made
-the worktree, then copies the files and runs `setup` in the worktree in the
-background, in the user's login shell, with `CMUX_ROOT_PATH` (the main
-checkout), `CMUX_WORKSPACE_PATH` (the worktree), `CMUX_WORKSPACE_NAME` and
-`CMUX_PORT` (the first of ten ports the worktree keeps until it is removed), each
-also as `CONDUCTOR_*`. Its result's `setup` has the `state` (`none`, `copying`)
-and the `port`. A failed setup keeps the worktree.
-
-`git worktree setup` (`git.worktree.setup`, capability `git-worktree-setup-v1`)
-reads the `recipe` of the repository a path names (`setup`, `run`, `teardown`,
-`include`, the `repository` one, the `saved` one, the `files` read and their
-`problems`) and its `run`: `state` (`none`, `copying`, `running`, `succeeded`,
-`failed`, `timed_out`, or `interrupted` when the session host restarted
-meanwhile), `port`, `exit_code`, what `include` copied, and the `output` from
-byte `--since` (at most its last 64 KiB) with `output_start` and `output_end`
-(decimal strings); the next read passes `output_end` as `--since`. Setup stops
-after 30 minutes.
-
-`git comments list|save|delete` (`diff.comments.list|save|delete`, capability
-`diff-comments-v1`) read and change the diff page's review comments, which the
-session host keeps per worktree root: `--root`, made absolute against the
-current directory, which is the default. `save` sends `--comment` (a JSON
-object, kept as given; its `id` names a saved comment to replace) and the
-session host sets `createdAt` and `updatedAt`. `delete` names the ids to
-remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
-a comment edited since is kept. Unknown ids are ignored.
-
-`git comments send --threads` (`diff.comments.send` with `threads`, capability
-`diff-comments-threads-v1`) hands the named comments to the acpmux session
-`--acp-session` as review threads: one prompt the session host writes from
-what each thread holds that the agent has not read (a new comment, reviewer
-replies, a resolve), `--text` an optional note at its top. Nothing is
-removed. The agent answers each thread with `git comments reply <id> --text`
-(author `agent` by default) and closes one with `git comments resolve <id>`
-(`--reopen` undoes it); both are `diff.comments.thread`.
-
-## Waiting for one event
-
-`cmux events` (the app's event stream) and `cmux agents events` (the
-daemon's journal and the app's dialogs and chat states) take the same three
-flags, so an agent waiting for one event needs no timeout wrapper or grep:
-
-```bash
-cmux events --until action.catalog.changed --timeout 30s --jsonl
-cmux events --until 'mobile.*' --timeout 5m --jsonl
-cmux agents events --until workspace.changed --match name=build --timeout 30s --json
-cmux agents events --until agent.state --match state=idle --match terminal_id=term_1 --timeout 10m --json
-```
-
-- `--until NAME` names the event: exactly, or by a prefix ending in `*`
-  (`mobile.*`). For `cmux events` it is the frame's `name` (what the app
-  publishes: `action.catalog.changed`, `mobile.rpc.ready`); for `agents
-  events` it is `KIND.CHANGE` (`workspace.changed`, `tab.closed`,
-  `notification.created`, `dialog.opened`, `agent.state`).
-- `--match PATH=VALUE`, repeatable, compares the field at a dotted path into
-  the event's JSON (`workspace_id`, `payload.state`; a number steps into an
-  array): a string by its text, any other value by its JSON (`true`, `3`,
-  `null`). Every condition must hold. Either flag alone starts a wait.
-- `--timeout DURATION` takes `30s`, `5m`, `2h`, `1500ms` or plain seconds.
-
-A change to one tab's record (`tab.update`: an unread mark, an attention
-mark, a zoom, an icon; `browser.tab.emulate`) is one `tab.changed` event for
-that tab and no `workspace.changed` event, so a wait for `workspace.changed`
-does not end on it; wait for `tab.changed` with `--match id=TAB`.
-
-A wait prints only the matching event and exits 0. When the time runs out it
-exits 124: `cmux events` prints a last line `{"type": "timeout", "timed_out":
-true, "waited_ms": "30000", "until": {...}}` with `--json` or `--jsonl` (a
-person gets a line on stderr), and `agents events` answers `matched: false,
-timed_out: true`. If the app closes the stream before a match, `cmux events`
-fails with `events.closed` (exit 1); rerun it with `--after <last seq>`.
-
-`cmux events` keeps no default timeout (a plain `--timeout` ends a stream
-the same way, exit 124), so an agent passes one. Start the wait before the
-action it waits for, or pass `--after` so events already past count: a
-`cmux events --after <seq>` wait matches replayed events, and an `agents
-events --after <cursor>` wait matches events pending since the cursor. Its
-`next_after` continues right after the matched event. Without `--until` or
-`--match`, `agents events` stays the long-poll it was (at most 60 s, exit 0
-when empty); with one the CLI waits up to a day. The MCP tool `agents_events`
-takes `until` and `match` (an object of path to value) within its 60 s bound.
-
-## Local sidebar plugins
-
-`sidebar plugin` commands read and write local plugin installation state. They
-never open a protocol connection or send a plugin ID to a session. Optional
-plugin names are slugs matching `[a-z0-9-_]+`.
-
-## Agent sessions
-
-`cmux agent ls` lists named sessions on this host and its peers. Use a session
-name or `HOST/NAME` with `cmux agent history` to read its turns or with
-`cmux agent send` to message it. `cmux agent resolve` accepts a name, an ID or
-a session link.
-
-`cmux agent search "failing test"` finds prompts and replies in the session
-history on this host and its peers. Results include the session, host, UTC turn
-time ending in `Z`, and a one-line preview. Open a result by passing its session
-ID to `cmux agent open` or `cmux agent open-tab`. Include `--host HOST` for
-a session on a peer.
-
-From inside a session, `cmux agent bg start 'make test'` starts a background
-shell command owned by that session. `cmux agent bg list` shows its tasks.
-`cmux agent notices` shows the session's inbox threads. Pass a thread ID
-with `--thread` to read its messages.
-
-The engine, acpmux, also accepts its existing standalone commands.
-
-## Agent list
-
-`agent list` is one `agent.list` read; the CLI ranks, limits and counts its
-rows, so the wire value is unchanged. `--state` and `--terminal` are the
-read's own filters. `--terminal` takes any terminal selector: the `term_` id,
-the host id that `run` returns, a bare id, a unique prefix, a tab or pane id,
-or a name; the daemon resolves it (the read's `terminal` field). Every row has `status`, one of the words `terminal list
---agents` and `agent wait` use: `blocked`, `done` (idle with an unread
-notification on its terminal), `working`, `idle` or `unknown`, and `ended` for
-an agent whose session ended (the word the `send` receipt says; it was
-`null`). The CLI writes the row's `state` over with the same word, as a
-deprecated alias of `status`. The daemon's wire does not change: `agent.list` and
-`session.snapshot` still say `state: done` for an ended session, and the CLI
-maps that `done` to `ended` in every output (`agent list`, `agent report`,
-`terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
-finished turn that nobody viewed yet. A terminal that closed has no agent: the
-daemon deletes the agent record with the terminal (`resource-api-v2.md`,
-"Agent"), so no output lists it, `--state ended` included; the ended chat, with
-its provider and session id, stays in `cmux history list --kind agent`. The CLI still
-leaves out an ended agent whose terminal the snapshot does not have (a daemon
-of an older build kept the records of closed terminals); `--state ended`
-shows them. `hidden_ended` (in `--json --counts`) counts the rows it left out,
-and the text output ends with a line that says how many (localized).
-`--state` takes
-the status words and `ended` and asks the daemon for its state: `done` and
-`idle` ask for `idle` (the CLI then keeps the rows with that status), `ended`
-asks for the daemon's `done`, the others for themselves. `--state done` used to
-select the ended sessions; that is `--state ended` now. `--needs-me` lists the
-blocked agents and is refused with any other `--state`. An acpmux chat row's
-`status` is the shared word too (it was acpmux's own status); acpmux's own
-status moved to `acp_status`.
-
-`--sort needs-me`, the default, puts blocked agents first, then done, then
-working, then idle, then unknown, then ended; `recent` ignores status; `none`
-keeps the daemon's order. Within a group the most recently updated agent comes first,
-and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
-the first `n` ranked rows.
-
-Without `--terminal` the list is the caller's session: its terminal agents
-and the acpmux chats created in one of its workspaces (the chat's
-`createdBy.workspace` is a workspace `key` of `workspace.list`). Chats of
-other sessions, such as the desktop app's, and chats with no workspace on
-record are left out; `--all-sessions` lists every session's terminal agents
-and every acpmux chat on the machine.
-
-The command also reads `terminal.list` on the same connection, so each row
-can show its terminal's title and folder. A refused or failed terminal read
-leaves those out. AGE is the time since the agent's `updated_at_ms`, its
-last report.
-
-Human output starts with the counts by status over every listed agent, before
-`--limit` (`2 blocked · 0 done · 1 working · 3 idle`, plus `unknown` and
-`ended` when there is one, and `(showing n of m)` when the limit hid rows),
-then one row per agent: STATE (the status word), AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
-home folder) and TERMINAL, with SESSION first under `--all-sessions`. With no
-agents it prints `No agents.`
-
-`--json` prints the ranked agents as a bare array, as it always has; only the
-default order changed (it was the daemon's order). Each agent is the
-`AgentSnapshot` plus `age_ms` and, when its terminal was listed, its `title`
-and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
-instead: `counts` has `blocked`, `done`, `working`, `idle`, `unknown`, `ended` and
-`total`, counted before `--limit`. `--jsonl` prints one agent per line with
-or without `--counts`.
-
 ## Agent start and resume
 
 ```text
@@ -1554,20 +612,24 @@ can take a message. NAME is a lowercase letter, then up to 31 lowercase
 letters, digits, `-` or `_`; it may not be a command word, `current`,
 `caller`, `focused`, `start`, `resume` or id-shaped, and no running tab may
 have it (`agent.name_taken`). The launcher is a shell command line: `--cmd`,
-else the `CMUX_AGENT_COMMAND` environment variable, else `claude` (`sr2
-claude`, `codex --model o3`). The tab runs `$SHELL -lc 'LAUNCHER "$@"'
+else the `CMUX_AGENT_COMMAND` environment variable, else `claude` (`claude
+--model opus`, `codex --model o3`, any wrapper). The tab runs `$SHELL -lc 'LAUNCHER "$@"'
 cmux-agent ARGS...` (`/bin/sh` when `$SHELL` is not a POSIX shell), so each
 extra argument stays one argv word, with `pane run --on-exit keep`: the exited
 terminal keeps its argv and name for `resume`. Without `--pane` or `--split`
 the caller's pane (else the focused pane) is split to the right; `--pane SEL`
 alone opens a tab in that pane; `--split DIR` splits SEL (default: the
-caller's pane). The split's shell ends (`terminal <t> close`, which takes its
-tab) once the agent runs. In a session
-with no pane yet (a daemon that no client opened), it creates a workspace named
-NAME and ends its shell the same way; the pane and the shell tab come from the create
-receipt (else the pane of the receipt's workspace), never from focus, so two
-starts at once each use their own workspace. The tab
-is focused unless `--no-focus`.
+caller's pane). In a session with no pane yet (a daemon that no client
+opened), it creates a workspace named NAME; the pane and its shell come from
+the create receipt (else the pane of the receipt's workspace), never from
+focus, so two starts at once each use their own workspace. The shell that a
+split or a new workspace opens with ends once the agent runs, with `terminal
+<t> close` as `pane move` does, so no running shell stays without a tab; `tab
+close` is only the fallback when the terminal is not known or does not close.
+The tab is focused unless `--no-focus`. These commands are client flows over
+the requests above (`pane split`, `pane run`, `workspace create`,
+`session.snapshot`, `terminal.screen.read`, `agent.list`,
+`terminal.process.get`, `terminal close`, `tab close`).
 
 The wait looks four times a second at the terminal, its agent records and its
 screen. A startup dialog in the last 16 non-blank rows of the screen, where no
@@ -1576,36 +638,15 @@ input box shows, is `blocked` with `dialog` (`folder_trust`,
 `update_prompt`) and a `reason`; a fresh hook record that says `blocked` is
 `agent_question`. Otherwise a fresh hook record that says idle (the
 `SessionStart` hook) or the agent's input box on screen is `ready`. Both count
-only once the screen stood still for 1 s. cmux never answers a dialog. A
-blocked result also has the dialog's numbered `options` (`{number, label,
-selected}`) read from the screen; for `folder_trust` it has `accept_keys`, the
-keys that pick the trust option (for example `["down", "enter"]`), and
-`accept_label`, the label of the option those keys pick. The `reason` names
-the agent's terminal and says to ask the person and, when they agree to that
-label, run `cmux terminal <name> keys` with the keys (Enter alone can pick
-"No, exit" and end the agent). When the label also lets the agent act without
-asking for approval ("without asking", "bypass", "full access", ...), the
-reason adds a warning to tell the person. The reason is localized (English
-and Japanese).
+only once the screen stood still for 1 s. cmux never answers a dialog.
 
-The new agent's pane splits the caller's pane (or the `--pane` pane) and takes
-its width only from that pane: every pane that existed before keeps its width
-(or height for a vertical row), so a person's 0.7 column stays 0.7. The agent
-panes next to the new one in that row (panes whose tabs' terminals all have
-the snapshot's `extra.agent_start` mark and still run; a tab's name does not
-count; only a live terminal, `running`, `launching` or `adopting`, counts, so
-an exited agent kept with `--on-exit keep`, any other lifecycle word or a
-terminal record without one keeps its width) then
-share their space equally, so the third agent of a row is not an
-eighth of it.
-
-`--json` prints `{name, state, reason, dialog, options, accept_keys,
-accept_label, harness, launcher, args, cwd, placement, workspace_id, screen_id,
-pane_id, tab_id, terminal_id, waited_ms}` (`options`, `accept_keys` and
-`accept_label` only when blocked on a dialog that shows them).
+`--json` prints `{name, state, reason, dialog, harness, launcher, args, cwd,
+placement, workspace_id, screen_id, pane_id, tab_id, terminal_id, waited_ms}`.
 `state` is `ready` (exit 0), `blocked` (exit 4), `timeout` (exit 124, default
 `--timeout` 90s), `exited` (exit 1) or `started` with `--no-wait` (exit 0).
-`harness` uses the one vocabulary of `terminal list --agents`.
+`harness` is one word per harness: `claude` (input aliases `claude-code`,
+`claude_code`, `Claude Code`), `codex` (`codex-cli`), `opencode`, `gemini`,
+`amp`.
 
 `agent resume NAME` and `terminal <sel> resume` bring back an agent whose
 terminal exited (a running one is `agent.running`). They read the harness
@@ -1619,89 +660,84 @@ passed (`-- ARGS` may hold the first prompt, which a resume must not send
 again; put launcher flags in `--cmd`), add this command's own `-- ARGS`, and
 append the harness's own resume arguments as separate argv words: `claude
 --resume <id>`, `codex resume <id>`, `gemini --resume <id>`, `opencode
---session <id>`, `amp threads continue <id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
-when no record does. The agent reopens in the exited tab's pane unless `--pane`
-or `--split` say otherwise, with the old tab's name and folder; the exited tab
-is closed. The output adds `resumed: {terminal_id, tab_id, agent_session_id,
-tab_closed}`. An exited terminal whose tab was closed has no placement, so an
-owner with a reaper (every owner a client starts: 30 s unless the client names
-another grace) ends it after the grace; resume it within that time, or keep it
-first (`terminal <t> keep on`).
+--session <id>`, `amp threads continue <id>`. `--cmd` replaces the recorded
+launcher; `--harness` names the harness when no record does. The agent reopens
+in the exited tab's pane unless `--pane` or `--split` say otherwise, with the
+old tab's name and folder; the exited tab is closed. The output adds `resumed:
+{terminal_id, tab_id, agent_session_id, tab_closed}`.
+
+For `terminal <sel> resume` and `terminal <sel> wait`, `current` and
+`focused` are resolved by the daemon (`terminal <sel> show`), as in every
+other terminal command; other selectors are matched in one
+`session.snapshot` (ids, id prefixes, titles, then names).
 
 `terminal <sel> wait --until ready` is the same wait for any terminal (agent
-records of any age count). `ready` and `blocked` print `{terminal_id, until,
-state, dialog, reason, waited_ms}` and exit 0 and 4; an exit is
-`terminal.exited` (exit 1) and a passed `--timeout` `wait.timeout` (exit 124).
+records of any age count). `ready` is the only `--until` value. `ready` and
+`blocked` print `{terminal_id, until, state, dialog, reason, waited_ms}` and
+exit 0 and 4; an exit is `terminal.exited` (exit 1) and a passed `--timeout`
+`wait.timeout` (exit 124). Without `--timeout` the wait has no practical
+limit.
 
-## Agent messages
+## Identity and agent guide
 
-`agent message` stores a message with `agent.message.send` and then delivers
-it. `<agent>` is a terminal agent (`term_...`), an agent (`agent_...`, sent to
-its terminal), or an acpmux session by name or id (`acp:` optional). The
-daemon sets the sender from the caller's launch credential (the CLI sends it to
-its own terminal's session): the agent's terminal or ACP session, else `cli`
-(the person); `--from` adds an untrusted display name. A recipient in another
-workspace, or one whose workspace is unknown, may be held for the person
-(`agent.message.send` in resource-api-v2.md).
-A lone `-` reads the body from standard input. `--reply-to` answers a message:
-the reply goes to its sender and stays in its thread.
+```text
+cmux identify
+cmux skill show
+```
 
-For an acpmux recipient the daemon's delivery pump prompts the session with
-the message, using the message id as the acpmux prompt id, and marks the
-receipt `delivered` (or `failed`, with acpmux's error); the command waits up
-to 15 seconds for it and reports a delivery still `queued` (acpmux is down or
-the session has not started; the pump retries). Neither starts the acpmux
-daemon. For a Codex terminal agent whose thread the shared Codex app-server
-daemon has loaded, it hands the agent's queued messages to Codex as one input
-(`turn/start` when the thread is idle, `turn/steer` when a turn is running)
-and marks them `delivered`. Any other terminal agent's message, or one Codex
-cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
-stored either way, and problems with older messages are reported on stderr.
+`identify` prints where the calling process runs. In a cmux-tui terminal
+(`CMUX_TUI_TERMINAL_ID` names a `term_…` id) it reads that terminal's own
+session (`CMUX_TUI_SOCKET`, or the session `--socket`/`--session` names) and
+follows the terminal to its tab, pane, screen and workspace. With `--json` it
+prints one object:
 
-`terminal <t> write` (and `send-keys -l`) into a terminal whose hooks report a
-live agent (any state but `done`) still types the text, then prints on stderr
-the `agent message` command that would send it as a message instead, with the
-caller's `--machine`, `--session` and `--socket`, and `--` before the text so
-text that starts with a dash stays the message. Text with a control character, a line
-break or more than 200 characters shows as `'…'`. `--quiet` prints no hint,
-`terminal <t> keys` gets none, and the lookup (`terminal.get`, `agent.list`)
-gives up silently when a read waits 500 ms.
+```json
+{"kind": "cmux-tui", "socket_path": "...",
+ "session": {"id": "session_…", "name": "main"},
+ "machine": {"id": "machine_…", "name": "local"},
+ "caller": {"found": true, "terminal_id": "term_…", "tab": "tab_…", "tab_name": null,
+            "pane": "pane_…", "screen": "screen_…", "screen_name": "0",
+            "workspace": "ws_…", "workspace_name": "api"},
+ "outer_app": null, "guide": "cmux skill show"}
+```
 
-`agent message release` is the person's decision on a held delivery of
-`<message-id>` to `--recipient`: `--approve` queues it, `--decline` declines
-it (one `agent.message.release`). Only the verified cmux app may decide, so
-from a terminal the command is refused with reason `release_needs_app`; the
-app's Approve and Decline controls make the same request.
+`caller` uses the field names of the cmux app's `system.identify` caller, so a
+script reads either answer the same way. Outside a cmux-tui terminal, or when
+the session does not place the terminal, `caller.found` is false and
+`caller.error` says why; `session` and `machine` are still the ones this CLI
+reaches. `outer_app.socket_path` is the cmux app the environment names
+(`CMUX_SOCKET_PATH`); this answer is not from it. Exit codes: 0, 2 for an
+invalid `--session` name, 3 when the session cannot be reached, 1 when it
+refuses a read.
 
-`agent message unsend` takes `<message-id>` back, from every recipient or
-only `--recipient` (one `agent.message.unsend`), and prints each delivery's
-outcome: `unsent` (it never reached the agent), `retracted` (acpmux told the
-agent in its turn that it was withdrawn), `too_late` (its turn ended, or the
-delivery path cannot take it back) or `failed` (acpmux refused, did not
-answer or may still take it; try again). `failed` exits 1, after the result
-is printed. Only the message's sender, from its own terminal or ACP session
-(its launch credential), or the person in the cmux app may take it back;
-there is no time limit. From a plain terminal the command is refused
-with reason `unsend_needs_app`.
+`skill show` prints the agent guide for this build as Markdown: the caller's
+live ids (as `identify` reports them), the targeting rules, task recipes, waits,
+errors and exit codes, the scope table and the terminal, pane and tab paths.
+The recipes are data that a test runs through this parser, and the scope table
+and paths come from the help text, so the guide never names a command the build
+lacks. The guide names the executable that printed it: in a cmux app
+terminal the `cmux` on PATH can be the app's CLI, so an agent runs that path
+when `cmux --json identify` does not answer `kind: "cmux-tui"`. Its recipes
+never `run` in the caller's own pane: `pane run` shows its new tab in the pane
+it names, so the recipes split first. With `--json` it prints
+`{name, version, markdown}`.
 
-The daemon delivers messages to acpmux recipients (its delivery pump), and
-retries while acpmux is down or the session has not started, so a message that
-waited for acpmux, or for the person's approval, goes out without another
-`agent message`. `agent message` waits for the pump's hand-over to each acpmux
-recipient and reports one that failed or still waits.
+Claude Code and Codex started through the cmux-tui shims receive a short form of
+the same place at session start (`SessionStart` `additionalContext`); see
+[Agent hooks](../docs/agent-hooks.md#session-context).
 
-`agent inbox` lists messages newest first for `<agent>`, or for the caller's
-own address when it has one, else every message. `--state` is any delivery
-state: held, queued, delivered, acknowledged, failed, unsent, retracted or
-declined. `--ack` marks the listed queued, delivered or failed messages
-acknowledged for that recipient.
+## Local sidebar plugins
+
+`sidebar plugin` commands read and write local plugin installation state. They
+never open a protocol connection or send a plugin ID to a session. Optional
+plugin names are slugs matching `[a-z0-9-_]+`.
 
 ## Local agent plugins
 
 `agent plugin` commands read and write local installation state. They clone
 and build the selected package, validate its `kind = "agent"` manifest, and
 write the selected background command to `agents.plugin`. They do not open a
-protocol connection or send a plugin ID to a session. Run `cmux daemon
+protocol connection or send a plugin ID to a session. Run `cmux server
 reload-config` after changing the selection. The running plugin uses the
 generic journal producer and append operations over the server socket. Use
 `agent plugin use --builtin` to disable the selected userland plugin and return
@@ -1710,63 +746,6 @@ to no agent detector.
 `provider authority install` is a local Linux host-administration action. It
 installs the credential for an already running provider-managed session and is
 not a transported resource operation or cross-machine discovery API.
-
-## Group actions
-
-```text
-cmux tab group list|create|remove ...
-cmux tab group <group> update|add|move|split|column|new-workspace|ungroup|close|save|unsave ...
-cmux screen group <group> update [--icon <icon>|--clear-icon] ...
-cmux tab group saved list | saved <saved> delete|reopen --pane <id>
-cmux workspace group list [--room <room>]
-cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
-cmux workspace group create --remote <host> [--name <name>]   # app: New Remote Group (remote.newGroup)
-cmux workspace group create --parent <group> --name <name>    # app: New Subgroup (workspaceGroup.newSubgroup)
-cmux workspace group remove --workspace <ws>
-cmux workspace group <group> update|delete|move|add ...
-```
-
-Tab groups and saved tab groups are private protocol-v12 commands
-(`create-tab-group` and so on; see `spec/commands.md`). These actions build
-exactly one such request and send it like `raw command`, so they work against
-a headless daemon with no app running. Tab and pane arguments take the
-private protocol's ids or public `tab_...` and `pane_...` ids.
-`tab group <group> update --icon <icon>` and `screen group <group> update
---icon <icon>` set the group's icon (the same icon string as a workspace
-group's) through `tab_group.update` and `screen_group.update`, and
-`--clear-icon` removes it (`tab-group-icon-v1`, `screen-group-icon-v1`).
-
-Workspace groups are personal state of the home session. `workspace group`
-uses the `workspace_group.*` resource operations, and `add`/`remove` use
-`workspace.place` with a workspace selector (`--workspace <ws>`). The shared
-workspace group commands are no longer used by the CLI. `workspace group <group> update --top-index <n>`
-puts a group right before the personal workspace at placement index `<n>`;
-`--clear-top-index` puts it after every loose workspace
-(`personal-mixed-order-v1`). `workspace group <group> update --icon <icon>`
-sets the group's icon (one emoji, an SF Symbol name, or a stored
-`image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
-removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
-or unpins it (`workspace-group-pin-v1`). `workspace list --name <name>` keeps the workspaces whose name is exactly
-`<name>`, and `--cwd <path>` those with at least one terminal whose folder
-(`terminal.cwd`) is `<path>` or inside it; `pane list` takes the same two
-flags for panes, and `terminal list --cwd <path>` keeps the terminals in or
-under `<path>`. `<path>` is made absolute against the caller's folder (`.`
-and `..` resolved) and also matched with its links resolved. Filters combine
-with AND and keep the list's JSON shape and order; no match prints `[]` and
-exits 0. The CLI filters the rows it read: `--name` and `terminal list --cwd`
-add no request, and a workspace or pane `--cwd` adds one `session.snapshot`
-read on the same connection, joined in memory (a constant two requests, not
-one per row). A Cloud machine's workspaces (`--machine <Cloud machine> workspace
-list`, which the app answers) take `--name`; a `--cwd` there fails with
-`validation.invalid`, since those rows carry no terminals. A `name:<name>` selector that two workspaces share fails with
-`selector.ambiguous`; `workspace list --name <name> --json` lists both ids.
-`workspace list --order personal` lists the
-workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
-`workspace list` without `--order` also lists the sidebar order (one order
-with the sidebar). `--order session` (and, without the
-document, no `--order`) lists the session's workspace order, the same order as
-`topology.workspaces`: creation order unless a workspace was moved. The app's `snapshot.get` `windows[].workspaces` lists the order
-each window shows.
 
 ## Raw access
 

@@ -615,7 +615,6 @@ final class MacListTypingIndicator: MacFlippedView {
         dot.backgroundColor = resolved(.labelColor, in: self)
         CATransaction.commit()
         if dot.animation(forKey: "dot") == nil {
-            // motion: allow opacity pulse, the typing indicator's gentle "working" form under Reduce Motion
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0.25
             fade.toValue = 0.6

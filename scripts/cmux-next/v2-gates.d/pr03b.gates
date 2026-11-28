@@ -1,5 +1,0 @@
-# The gates whose tests write the design doc's row 3b (`v2.pr03b.*`). A line is GROUP FILTER; see run-v2-gates.sh.
-acpmux-lib v2_pr03b_tee_append_added
-acpmux-lib v2_pr03b_append_on_off
-acpmux-lib v2_pr03b_catchup_ack
-acpmux-lib v2_pr03b_catchup_peak_rss

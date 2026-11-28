@@ -1,0 +1,70 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sampleSidebarApp.detail" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep this app installed. In cmux, open Sidebar Extensions, enable CMUX Sample Sidebar Extension, choose it from the sidebar picker, and confirm Workspace Signals shows your real workspaces."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このアプリをインストールしたままにしてください。cmuxでサイドバー拡張機能を開き、CMUX Sample Sidebar Extensionを有効にして、サイドバーピッカーから選択し、Workspace Signalsに実際のワークスペースが表示されることを確認してください。"
+          }
+        }
+      }
+    },
+    "sampleSidebarApp.identifier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extension ID: co.manaflow.CMUXExtKitSampleSidebarApp.Extension"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡張機能ID: co.manaflow.CMUXExtKitSampleSidebarApp.Extension"
+          }
+        }
+      }
+    },
+    "sampleSidebarApp.scopes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Requests workspace and surface metadata, plus navigation, selection, and create-surface actions for the sidebar controls."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドバー操作のために、ワークスペースとサーフェスのメタデータ、ナビゲーション、選択、サーフェス作成アクションを要求します。"
+          }
+        }
+      }
+    },
+    "sampleSidebarApp.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CMUX Sample Sidebar Extension"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CMUX サンプルサイドバー拡張機能"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

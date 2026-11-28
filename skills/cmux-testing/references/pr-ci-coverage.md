@@ -4,18 +4,38 @@ Use this when deciding whether a pull request needs more CI than it gets by
 default. First identify the lanes the change needs, then use the routed checks
 or targeted validation that already cover them.
 
+## What normal PR CI runs
+
+Normal PR CI already runs routed tests, including Swift package and CLI wrapper
+checks, without any label:
+
+- A `cmuxTests/` diff runs the suites it declares or extends.
+- An app-source diff runs the suites whose tests mention what it changed
+  (`reverse_test_impact.py`, #14418), in one changed-suites batch. Edited suites
+  over the batch budget take all seven shards.
+- A change to how the suites are laid out over the workers (the timings file,
+  the sharder, the batch runner, or the job's matrix and shard env) runs every
+  app-host suite on its own.
+- No PR job runs `cmuxUITests/`.
+
 ## Labels
 
 | Label | Effect |
 | --- | --- |
-| `full-ci` | Requests the expensive full macOS suite lanes. |
+| `unit-ci` | Runs every app-host suite across all seven workers. |
+| `full-ci` | Requests the expensive full macOS suite policy: `unit-ci` plus the other lanes (eligible app-host shards, lag builds and other full-suite lanes). |
+| `no-full-ci` | Records a deliberate skip for `suite-coverage`. |
 
-Which tests a change selects, and why: [adding a test](adding-a-test.md). Normal PR routing already runs the Swift package and CLI checks a diff touches.
+Neither `unit-ci` nor `full-ci` is needed to test edited suites that normal PR
+routing runs. The exception is `cmuxUITests/`: no PR job runs all of it, so the
+`suite-coverage` job fails a `cmuxUITests/` diff until `full-ci` runs its
+selected UI regression targets or `no-full-ci` records the deliberate skip.
+`full-ci` does not run every edited `cmuxUITests/` target.
+
 `full-ci` is not shorthand for normal PR checks, relevant tests, review
-readiness or permission to merge. The rule for when to add it lives in the root
-[CLAUDE.md](../../../CLAUDE.md#ci-review-and-merge): only for a requested or
-agreed broad plan, naming the extra lanes and why. The old `no-full-ci` label
-and its `suite-coverage` job were removed.
+readiness or permission to merge. Do not add it as a generic review or merge
+requirement. Add it only when the user or an agreed validation plan explicitly
+calls for the broad suite, and state which additional lanes are needed and why.
 
 The label permits lanes; it does not force them. Path routing, release routing
 and job dependencies still apply, and it does not request every repository test.
@@ -26,20 +46,3 @@ existing run or a rerun of that event.
 
 Inspect the tests that actually executed on the current SHA. A green skipped job
 is not coverage.
-
-The `ran` line of the PR's **cmux status** comment says which workflows the diff
-started and the changed file that started each one, then the workflows that start
-on every PR whatever the diff, then how many did not start
-(`scripts/ci/pr_ran_line.py`, written by the red-checks comment job). Read it
-before asking why a check ran or did not. To see it for a diff before you push:
-
-```bash
-git diff --name-only origin/feat-cmux-next... > /tmp/changed.txt
-python3 scripts/ci/pr_ran_line.py --base-branch feat-cmux-next --changed-files /tmp/changed.txt
-```
-
-A workflow listed under "on every PR" should earn that: if it cannot fail for
-most diffs, give it a path filter, or route its jobs the way `cmux-next.yml`
-(`scripts/ci/cmux_next_route.py`) and `cmux-tui-spec.yml`
-(`scripts/ci/affected_jobs.py`) do. A workflow that produces a check required on
-the base branch must keep starting (`tests/test_ci_required_checks_have_no_path_filters.py`).

@@ -1,9 +1,11 @@
 import { useTranslations, useLocale } from "next-intl";
+import { PRO_CHECKOUT_URL } from "@/app/lib/billing";
 import { HeroScreenshot } from "@/app/[locale]/components/hero-screenshot";
 import { TypingTagline } from "@/app/[locale]/typing";
 import { DownloadButton } from "@/app/[locale]/components/download-button";
 import { GitHubButton } from "@/app/[locale]/components/github-button";
 import { WaitlistCallout } from "@/app/[locale]/components/waitlist-callout";
+import { NextCallout } from "@/app/[locale]/components/next-callout";
 import { FaqPlatformAnswer } from "@/app/[locale]/components/faq-platform-answer";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
@@ -104,11 +106,12 @@ function HomeContent() {
         <div
           className="flex flex-wrap items-center gap-3"
           data-dev="download"
-          style={{ marginTop: 21, marginBottom: 16 }}
+          style={{ marginTop: 21, marginBottom: 10 }}
         >
           <DownloadButton location="hero" />
           <GitHubButton />
         </div>
+        <NextCallout className="mb-4" />
 
         {/* Features */}
         <section
@@ -169,9 +172,12 @@ function HomeContent() {
               <span className="text-muted shrink-0">-</span>
               <span>
                 <strong className="font-medium">
-                  <Link href="/ios" className={linkClass}>
+                  <a
+                    href={PRO_CHECKOUT_URL}
+                    className={linkClass}
+                  >
                     {t("feature.ios")}
-                  </Link>
+                  </a>
                 </strong>
                 <span className="text-muted">{t("feature.iosDesc")}</span>
               </span>
@@ -223,7 +229,16 @@ function HomeContent() {
             <div>
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
               <p className="text-muted">
-                {t("faqIosA")}
+                {t.rich("faqIosA", {
+                  proLink: (chunks) => (
+                    <a
+                      href={PRO_CHECKOUT_URL}
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
               </p>
             </div>
             <div>
@@ -418,7 +433,16 @@ function HomeContent() {
             <div>
               <p className="font-medium mb-1">{t("faqSupportQ")}</p>
               <p className="text-muted">
-                {t("faqSupportA")}
+                {t.rich("faqSupportA", {
+                  proLink: (chunks) => (
+                    <a
+                      href={PRO_CHECKOUT_URL}
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
               </p>
             </div>
             <div>

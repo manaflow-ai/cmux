@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -121,22 +122,6 @@ brew upgrade --cask cmux
 
 On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
-### Linux and SSH machines (the cmux CLI and daemon)
-
-One line installs `~/.cmux/bin/cmux`, no sudo. It downloads the installer at a fixed commit of this repository,
-checks it against the sha256 printed here, and runs it only when it matches; the installer then installs only a
-build named by cmux's signed release file. Both the commit and the sha256 come from this page on GitHub, not from
-cmux.com:
-
-```bash
-d="$(mktemp -d)" && curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/1bbe36058aa72302b52c4e6fd49ef8c669d71140/web/public/tui/install-static.sh -o "$d/install.sh" && echo "2050d00553e82de1c51a2f890ce8fca3f944b71b6cdc62641ba2630d82ec1323  $d/install.sh" | $(command -v sha256sum || echo shasum -a 256) -c && sh "$d/install.sh"; rm -rf "$d"
-```
-
-Script arguments go after `sh "$d/install.sh"` (`--server` also keeps a cmux session running there as a service;
-`--dry-run` prints what would happen). `mktemp -d` makes a folder only you can open, so the file checked is the
-file run. A change to the installer moves this commit and sha256 with it; `tests/test_tui_install_pin.py` fails
-when they disagree.
-
 ### Shell completion
 
 The Homebrew cask installs completions for zsh, bash, and fish. Start a new shell after installing. If they don't load, make sure Homebrew's completion directories are wired into your shell (see [Homebrew's shell completion docs](https://docs.brew.sh/Shell-Completion)).
@@ -181,8 +166,6 @@ Give a million developers composable primitives and they'll collectively find th
 ## Documentation
 
 For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
-
-For cmux NEXT remote agent sessions and current Cloud commands, see [Remote agents and cmux Cloud](docs/remote-agents-and-cloud.md).
 
 To theme cmux (colors, fonts, transparency, sidebar, and more), see [Customizing cmux's look](docs/customizing-appearance.md).
 
@@ -416,7 +399,7 @@ macOS only, for now. cmux is a native Swift + AppKit app.
 
 ### Is there an iOS app?
 
-Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. See the [iOS docs](https://cmux.com/docs/ios).
+Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro). See the [iOS docs](https://cmux.com/docs/ios).
 
 ### What coding agents does cmux work with?
 
@@ -476,7 +459,7 @@ Yes, cmux is free to use. The source code is available on [GitHub](https://githu
 
 ### How can I support cmux?
 
-cmux is free and open source, and always will be.
+cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### I have a feature request or found a bug?
 
@@ -499,14 +482,9 @@ change something" to a merged pull request, including what you can fix without a
 Mac. Then the [contributor guide](CONTRIBUTING.md) and
 [fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
 
-To run your change with no build, copy your nightly and swap your code in: `cmux app try .` in your checkout
-starts a copy of cmux NIGHTLY beside yours with your web UI and daemon code in (`--extract` keeps the code,
-`--stop` deletes the copy). Dev builds stay available for Swift changes
-([how it works](docs/cmux-next/hot-reload.md#the-loop)).
-
 Ways to get involved:
 
-- Follow us on X for updates [@lawrencecchen](https://x.com/lawrencecchen) and [@austinywang](https://x.com/austinywang)
+- Follow us on X for updates [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), and [@austinywang](https://x.com/austinywang)
 - Join the conversation on [Discord](https://discord.gg/xsgFEVrWCZ)
 - Create and participate in [GitHub issues](https://github.com/manaflow-ai/cmux/issues) and [discussions](https://github.com/manaflow-ai/cmux/discussions)
 - Let us know what you're building with cmux
@@ -516,6 +494,7 @@ Ways to get involved:
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
+- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -524,6 +503,12 @@ Ways to get involved:
   <strong>WeChat:</strong> Scan the QR code to join the community.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR code to join the cmux community" width="240" />
 </p>
+
+## cmux Pro
+
+cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
+
+**[Get cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Install
 

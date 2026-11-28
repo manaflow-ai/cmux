@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "On, a live code build loads Swift patches into the running app: only the person turns that on."
-}

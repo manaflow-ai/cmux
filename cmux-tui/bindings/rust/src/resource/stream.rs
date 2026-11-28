@@ -2,12 +2,12 @@ use super::id::StreamId;
 use super::model::{StreamEnd, StreamEndReason, StreamItem, StreamPoll};
 use super::ops;
 use super::wire::{self, Params};
-use crate::codec::UnixStream;
 use crate::{Error, Result};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::Write;
 use std::net::Shutdown;
+use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -31,9 +31,6 @@ pub(crate) struct StreamParts {
     pub(crate) cleanup_timeout: Duration,
     pub(crate) item_validator: StreamItemValidator,
     pub(crate) initial_envelopes: VecDeque<(Value, usize)>,
-    /// The opening handle's request-origin claim, carried by every request
-    /// this stream sends (its cancel and its controls).
-    pub(crate) origin: Option<&'static str>,
 }
 
 struct CancellationInner {
@@ -42,7 +39,6 @@ struct CancellationInner {
     cancel_params: Params,
     max_request_bytes: usize,
     cancel_state: AtomicU8,
-    origin: Option<&'static str>,
 }
 
 /// Thread-safe cancellation handle for an owned resource stream.
@@ -79,13 +75,13 @@ impl StreamCancellation {
             return Ok(false);
         }
         let request_id = self.request_id();
-        let envelope = super::client::request_envelope(
-            &request_id,
-            ops::STREAM_CANCEL,
-            self.inner.cancel_params.clone().into_value(),
-            None,
-            self.inner.origin,
-        );
+        let envelope = json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": request_id,
+            "operation": ops::STREAM_CANCEL,
+            "params": self.inner.cancel_params.clone().into_value(),
+        });
         let result = self.write_envelope(&envelope, "stream cancel");
         // A write error closes the shared transport. It can also follow a
         // partial write, so another attempt could append a duplicate request
@@ -164,7 +160,6 @@ impl ResourceStream {
                 cancel_params: parts.cancel_params,
                 max_request_bytes: parts.max_request_bytes,
                 cancel_state: AtomicU8::new(CANCELLATION_READY),
-                origin: parts.origin,
             }),
         };
         let mut stream = Self {
@@ -270,10 +265,9 @@ impl ResourceStream {
                         ));
                     }
                     let result = super::client::decode_response(envelope, &request_id)?;
-                    // Fields a newer daemon adds to the result are ignored, not refused.
-                    if !result.is_object() {
+                    if result.as_object().is_none_or(|result| !result.is_empty()) {
                         return Err(Error::UnexpectedEnvelope(
-                            "stream cancel result must be an object".to_string(),
+                            "stream cancel result must be an empty object".to_string(),
                         ));
                     }
                     response_seen = true;
@@ -337,7 +331,6 @@ impl ResourceStream {
             operation,
             self.control_params.clone().extend(params).into_value(),
             None,
-            self.cancellation.inner.origin,
         );
         self.cancellation.write_envelope(&envelope, "stream connection control")?;
         loop {
@@ -370,9 +363,7 @@ impl ResourceStream {
         }
     }
 
-    /// The next item within `timeout`: an item, the stream's end
-    /// ([`Self::end`] says why), or `TimedOut` with the stream still open.
-    pub fn recv_timeout(&mut self, timeout: Duration) -> Result<StreamPoll<StreamItem>> {
+    pub(crate) fn recv_timeout(&mut self, timeout: Duration) -> Result<StreamPoll<StreamItem>> {
         if timeout.is_zero() {
             return Err(Error::InvalidArgument(
                 "stream poll timeout must be greater than zero".to_string(),
@@ -487,7 +478,23 @@ impl ResourceStream {
             ));
         }
         validate_stream_id(object, &self.id)?;
-        // Fields a newer daemon adds are ignored, not refused.
+        let mut unknown = object
+            .keys()
+            .filter(|field| {
+                !matches!(
+                    field.as_str(),
+                    "protocol" | "type" | "stream_id" | "sequence" | "cursor" | "item"
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        unknown.sort();
+        if !unknown.is_empty() {
+            return Err(Error::UnexpectedEnvelope(format!(
+                "stream item contains unknown fields: {}",
+                unknown.join(", ")
+            )));
+        }
         let sequence = wire::parse_decimal(
             object.get("sequence").ok_or_else(|| {
                 Error::UnexpectedEnvelope("stream item sequence is required".to_string())
@@ -525,7 +532,23 @@ impl ResourceStream {
             ));
         }
         validate_stream_id(object, &self.id)?;
-        // Fields a newer daemon adds are ignored, not refused.
+        let mut unknown = object
+            .keys()
+            .filter(|field| {
+                !matches!(
+                    field.as_str(),
+                    "protocol" | "type" | "stream_id" | "reason" | "cursor" | "error" | "recovery"
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        unknown.sort();
+        if !unknown.is_empty() {
+            return Err(Error::UnexpectedEnvelope(format!(
+                "stream end contains unknown fields: {}",
+                unknown.join(", ")
+            )));
+        }
         let reason = object
             .get("reason")
             .and_then(Value::as_str)
@@ -546,7 +569,20 @@ impl ResourceStream {
                 let object = error.as_object().ok_or_else(|| {
                     Error::UnexpectedEnvelope("stream error must be an object".to_string())
                 })?;
-                // Fields a newer daemon adds are ignored, not refused.
+                let mut unknown = object
+                    .keys()
+                    .filter(|field| {
+                        !matches!(field.as_str(), "code" | "message" | "details" | "retryable")
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                unknown.sort();
+                if !unknown.is_empty() {
+                    return Err(Error::UnexpectedEnvelope(format!(
+                        "stream error contains unknown fields: {}",
+                        unknown.join(", ")
+                    )));
+                }
                 Ok(super::model::ProtocolFailure {
                     code: object
                         .get("code")
@@ -642,4 +678,138 @@ fn validate_stream_id(object: &serde_json::Map<String, Value>, expected: &Stream
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::io::Read;
+
+    #[test]
+    fn failed_cancel_send_is_retired_and_closes_the_transport() {
+        let (client, mut peer) = UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        let connection =
+            crate::codec::JsonLineConnection::from_stream(client, Duration::from_millis(100), 1024)
+                .unwrap();
+        let writer = connection.shutdown_clone().unwrap();
+        let mut stream = ResourceStream::from_parts(StreamParts {
+            id: StreamId::parse("stream_00000000000000000000000000000001").unwrap(),
+            attachment_lease: None,
+            connection,
+            writer,
+            cancel_params: Params::new(),
+            control_params: Params::new(),
+            max_request_bytes: 1,
+            max_stream_items: 1,
+            max_stream_bytes: 1,
+            cleanup_timeout: Duration::from_millis(100),
+            item_validator: |_| Ok(()),
+            initial_envelopes: VecDeque::new(),
+        })
+        .unwrap();
+        let detached = stream.cancellation();
+
+        assert!(matches!(stream.cancel(), Err(Error::FrameTooLarge { limit: 1, .. })));
+        assert!(!detached.send().unwrap());
+
+        let mut received = Vec::new();
+        peer.read_to_end(&mut received).unwrap();
+        assert!(received.is_empty());
+    }
+
+    #[test]
+    fn partial_cancel_write_is_not_retried() {
+        const PREFIX_BYTES: usize = 4096;
+        const REQUEST_BYTES: usize = 8 * 1024 * 1024;
+
+        let (client, mut peer) = UnixStream::pair().unwrap();
+        let cancellation = StreamCancellation {
+            inner: Arc::new(CancellationInner {
+                id: StreamId::parse("stream_00000000000000000000000000000001").unwrap(),
+                writer: Mutex::new(client),
+                cancel_params: Params::new().string("padding", "x".repeat(REQUEST_BYTES)),
+                max_request_bytes: REQUEST_BYTES * 2,
+                cancel_state: AtomicU8::new(CANCELLATION_READY),
+            }),
+        };
+        let reader = std::thread::spawn(move || {
+            let mut prefix = vec![0; PREFIX_BYTES];
+            peer.read_exact(&mut prefix).unwrap();
+            peer.shutdown(Shutdown::Both).unwrap();
+            prefix
+        });
+
+        assert!(matches!(cancellation.send(), Err(Error::Connection(_))));
+        assert!(!cancellation.send().unwrap());
+
+        let prefix = reader.join().unwrap();
+        assert_eq!(prefix.len(), PREFIX_BYTES);
+        assert!(!prefix.ends_with(b"\n"));
+    }
+
+    #[test]
+    fn stream_item_envelopes_are_exact() {
+        let (client, _peer) = UnixStream::pair().unwrap();
+        let connection =
+            crate::codec::JsonLineConnection::from_stream(client, Duration::from_millis(100), 1024)
+                .unwrap();
+        let writer = connection.shutdown_clone().unwrap();
+        let id = StreamId::parse("stream_00000000000000000000000000000001").unwrap();
+        let mut stream = ResourceStream::from_parts(StreamParts {
+            id: id.clone(),
+            attachment_lease: None,
+            connection,
+            writer,
+            cancel_params: Params::new(),
+            control_params: Params::new(),
+            max_request_bytes: 1024,
+            max_stream_items: 1,
+            max_stream_bytes: 1024,
+            cleanup_timeout: Duration::from_millis(100),
+            item_validator: |_| Ok(()),
+            initial_envelopes: VecDeque::new(),
+        })
+        .unwrap();
+        let base = json!({
+            "protocol": "cmux.protocol/2",
+            "type": "stream_item",
+            "stream_id": id.as_str(),
+            "sequence": "0",
+            "item": {"kind": "future"},
+        });
+
+        let mut wrong_type = base.clone();
+        wrong_type["type"] = json!("stream_end");
+        let mut unknown_field = base.clone();
+        unknown_field["future"] = json!(true);
+        let mut null_cursor = base.clone();
+        null_cursor["cursor"] = Value::Null;
+        let mut numeric_sequence = base.clone();
+        numeric_sequence["sequence"] = json!(0);
+        let mut noncanonical_sequence = base.clone();
+        noncanonical_sequence["sequence"] = json!("00");
+        let mut wrong_stream = base.clone();
+        wrong_stream["stream_id"] = json!("stream_ffffffffffffffffffffffffffffffff");
+        let mut missing_item = base.clone();
+        missing_item.as_object_mut().unwrap().remove("item");
+
+        for malformed in [
+            wrong_type,
+            unknown_field,
+            null_cursor,
+            numeric_sequence,
+            noncanonical_sequence,
+            wrong_stream,
+            missing_item,
+        ] {
+            assert!(matches!(stream.decode_item(malformed), Err(Error::UnexpectedEnvelope(_))));
+            assert!(stream.last_sequence.is_none());
+        }
+
+        let decoded = stream.decode_item(base).unwrap();
+        assert_eq!(decoded.sequence, 0);
+        assert_eq!(stream.last_sequence, Some(0));
+    }
 }

@@ -166,51 +166,14 @@ class ReconcileEntitlementsTests(unittest.TestCase):
         self.assertEqual(summary["missing_restricted"], ["com.apple.developer.web-browser.public-key-credential"])
         self.assertIn("com.apple.developer.web-browser.public-key-credential", effective)
 
-    def test_repo_entitlement_files_do_not_request_the_tunnel(self):
-        # cmux-next ships no Cloud tunnel system extension (the userspace
-        # `cmux-tui wg hub` replaced it), so no channel asks for it and the
-        # hardened-runtime keys the app needs are kept.
+    def test_repo_entitlement_files_request_the_tunnel(self):
         for name in ("cmux.release.entitlements", "cmux.nightly.entitlements", "cmux.rc.entitlements"):
-            with (ROOT / name).open("rb") as handle:
-                desired = plistlib.load(handle)
-            proc, effective = run(desired, PROFILE_WITH_TUNNEL)
+            desired = plistlib.load((ROOT / name).open("rb"))
+            proc, effective = run(desired, PROFILE_WITHOUT_TUNNEL)
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            summary = json.loads(proc.stdout)
-            self.assertFalse(summary["tunnel_requested"], name)
-            self.assertFalse(summary["tunnel_supported"], name)
+            self.assertTrue(json.loads(proc.stdout)["tunnel_requested"], name)
             self.assertNotIn("com.apple.developer.networking.networkextension", effective, name)
-            self.assertIn("com.apple.security.cs.disable-library-validation", effective, name)
 
-    def test_keychain_groups_under_the_team_wildcard_are_granted(self):
-        desired = {**DESIRED, "keychain-access-groups": ["7WLXT3NR37.com.cmuxterm.app", "7WLXT3NR37.com.cmuxterm.app.shared"]}
-        proc, effective = run(desired, PROFILE_WITHOUT_TUNNEL)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(json.loads(proc.stdout)["missing_keychain_groups"], [])
-        self.assertEqual(effective["keychain-access-groups"], desired["keychain-access-groups"])
-
-    def test_a_keychain_group_the_profile_does_not_grant_is_reported(self):
-        profile = {"Entitlements": {**PROFILE_WITHOUT_TUNNEL["Entitlements"],
-                                    "keychain-access-groups": ["7WLXT3NR37.com.cmuxterm.app"]}}
-        desired = {**DESIRED, "keychain-access-groups": ["7WLXT3NR37.com.cmuxterm.app", "7WLXT3NR37.com.cmuxterm.app.shared"]}
-        proc, effective = run(desired, profile)
-        self.assertEqual(json.loads(proc.stdout)["missing_keychain_groups"], ["7WLXT3NR37.com.cmuxterm.app.shared"])
-        self.assertIn("keychain access group 7WLXT3NR37.com.cmuxterm.app.shared", proc.stderr)
-        self.assertEqual(effective["keychain-access-groups"], desired["keychain-access-groups"])
-
-    def test_every_profiled_channel_keeps_its_own_group_first_then_the_shared_group(self):
-        # Team-signed channels with a Developer ID profile share the sign-in item (cmux-cloud-config
-        # `shared_session`); their own group stays first, so existing items keep resolving.
-        for name, own in (("cmux.release.entitlements", "7WLXT3NR37.com.cmuxterm.app"),
-                          ("cmux.nightly.entitlements", "7WLXT3NR37.com.cmuxterm.app.nightly"),
-                          ("cmux.rc.entitlements", "7WLXT3NR37.com.cmuxterm.app.rc")):
-            with (ROOT / name).open("rb") as handle:
-                desired = plistlib.load(handle)
-            self.assertEqual(desired["keychain-access-groups"], [own, "7WLXT3NR37.com.cmuxterm.app.shared"], name)
-            proc, _ = run(desired, PROFILE_WITHOUT_TUNNEL)
-            self.assertEqual(json.loads(proc.stdout)["missing_keychain_groups"], [], name)
-        # NEXT DEV and NEXT Stable embed no profile: no keychain group at all.
-        with (ROOT / "cmux.next-dev.entitlements").open("rb") as handle:
-            self.assertNotIn("keychain-access-groups", plistlib.load(handle))
 
 if __name__ == "__main__":
     unittest.main()

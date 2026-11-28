@@ -9,9 +9,6 @@ import tempfile
 import unittest
 
 import yaml
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
-import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/ci-macos.yml').read_text())
@@ -44,7 +41,7 @@ def expression(text, context):
 
 
 def render(value, context):
-    return gh_expressions.STRIPPED.sub(lambda m: str(expression(m[1], context)), str(value))
+    return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', lambda m: str(expression(m[1], context)), str(value))
 
 
 class ReleaseHelperArchitectures(unittest.TestCase):
@@ -56,9 +53,7 @@ class ReleaseHelperArchitectures(unittest.TestCase):
         self.bin.mkdir()
         self.app = self.root / 'build-universal/Build/Products/Release/cmux.app'
         for name in ['scripts/ci/release-build-archs.sh', 'scripts/ci/verify-binary-archs.sh',
-                     'scripts/install-prebuilt-ghostty-cli-helper.sh',
-                     # The Release build step sources its fleet-cache retry and reads the cache settings.
-                     'scripts/ci/lib/fleet-cache-fallback.sh', 'scripts/ci/fleet-compilation-cache.sh']:
+                     'scripts/install-prebuilt-ghostty-cli-helper.sh']:
             dest = self.root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, dest)
@@ -94,6 +89,11 @@ case "$1" in
   *) exit 2 ;;
 esac
 ''')
+        # The step logs `file` on each binary; some Linux guard runners (hetzner-1-16,
+        # run 46023799545) have no `file`, so the fixture brings its own like lipo and otool.
+        self.tool('bin/file', '''#!/bin/bash
+for f in "$@"; do printf '%s: Mach-O fixture\\n' "$f"; done
+''')
         self.tool('bin/otool', '''#!/bin/bash
 case "$2" in *ghostty-cli-helper*) sdk=15.5 ;; *) sdk=26.3 ;; esac
 printf 'cmd LC_BUILD_VERSION\\n sdk %s\\n' "$sdk"
@@ -105,8 +105,8 @@ archs=""
 for arg in "$@"; do case "$arg" in ARCHS=*) archs="${arg#ARCHS=}" ;; esac; done
 [[ -n "$archs" ]] || exit 1
 app=build-universal/Build/Products/Release/cmux.app
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin"
-for file in Contents/MacOS/cmux Contents/Resources/bin/cmux Contents/Resources/bin/cmux-diff-sidecar; do
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin" "$app/Contents/Library/cmux Computer Use.app/Contents/MacOS"
+for file in Contents/MacOS/cmux Contents/Resources/bin/cmux "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" Contents/Resources/bin/cmux-diff-sidecar; do
   printf '%s\\n' "$archs" > "$app/$file"; chmod +x "$app/$file"
 done
 ''')
@@ -124,15 +124,10 @@ shift 2
 shift 2
 [[ "$1" == --arch ]] || exit 2
 case "$2" in arm64) archs=arm64 ;; universal) archs="arm64 x86_64" ;; *) exit 2 ;; esac
-rm -f "$app/Contents/Resources/bin/cmux"
-printf '%s\\n' "$archs" > "$app/Contents/Resources/bin/cmux"
-chmod +x "$app/Contents/Resources/bin/cmux"
-for alias in cmux-tui acpmux; do
-  rm -f "$app/Contents/Resources/bin/$alias"
-  ln -s cmux "$app/Contents/Resources/bin/$alias"
-done
+printf '%s\\n' "$archs" > "$app/Contents/Resources/bin/cmux-tui"
+chmod +x "$app/Contents/Resources/bin/cmux-tui"
 ''')
-        self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'], RUNNER_TEMP=str(self.root))
+        self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'])
         self.context = {'inputs': {'release_archs': 'default'}, 'vars': {'CI_RELEASE_BUILD_ARCHS': ''},
                         'steps': {}, 'needs': {}, 'github': {'token': 'fixture-no-token'}}
 

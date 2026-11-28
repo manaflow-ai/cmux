@@ -1,84 +1,101 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::path::PathBuf;
-use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use cmux_tui_core::resource::{
     OperationClass, ResourceOperation, Selector, validate_idempotency_key,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::{BOOLEAN_FLAGS, SWITCH_OR_VALUE_FLAGS, usage, validate_one_of};
 
-mod agent_focus;
-#[cfg(unix)]
-mod agent_hook_links;
-#[cfg(unix)]
-mod agent_hook_status;
-mod agent_list;
-mod agent_message_cmd;
-mod browser;
-mod bulk_close;
-#[cfg(test)]
-pub(in crate::cli) mod cases;
-mod conversation;
-mod flags;
-pub(super) mod git;
-mod history;
-mod journal_flags;
-mod list_filter;
-mod machine;
-mod name_flags;
-mod notification;
-mod pane_move;
-mod project;
-pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
-pub(super) mod plan;
-mod screen;
-mod session_reset;
-pub(super) use session_reset::{end_stopped_terminal_state, run_session_reset_state};
-pub(super) use state::parse_duration_ms;
-mod server_ensure;
-mod settings;
-#[cfg(test)]
-pub(super) use settings::KEY_ALIASES;
-pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resolve_alias};
-mod sidebar_doc;
-mod state;
-mod terminal;
-mod values;
-mod workspace;
-use journal_flags::{add_journal_subscription, apply_journal_hook_context};
-#[cfg(test)]
-pub(super) use list_filter::CwdFilter;
-pub(super) use list_filter::ListFilter;
-use notification::{parse_notification, parse_notify};
-pub(super) use plan::{
-    AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,
-};
-use screen::{parse_screen, parse_screen_strings};
-use terminal::parse_terminal;
-use values::*;
+mod actions;
 
 pub(super) enum ParsedCommand {
     Help(Option<String>),
-    Docs(super::docs::Plan),
-    CodeMode(super::code_mode::Plan),
     Command { global: GlobalArgs, plan: CommandPlan },
 }
+
 pub(super) enum CommandPlan {
     Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),
-    Protocol(Box<RequestPlan>),
+    Protocol(RequestPlan),
     SessionResetState(SessionResetStatePlan),
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
-    AgentMessage(Box<super::agent_message::MessagePlan>),
-    AgentInbox(super::agent_message::InboxPlan),
+    Attention(super::attention::AttentionPlan),
+    /// `cmux agent list`: `agent.list` with the shared status
+    /// (`cli/agent_list.rs`).
+    AgentList(Box<super::agent_list::AgentListPlan>),
+    /// `cmux pane <pane> move`: a composite of `tab.move` steps
+    /// (`cli/pane_move.rs`).
+    PaneMove(Box<super::pane_move::MoveRequest>),
+    /// `cmux identify`: where this process runs (`cli/pane_identify.rs`).
+    Identify,
+    /// `cmux skill show`: the agent guide (`cli/skill.rs`).
+    SkillShow,
+    /// `agent start|resume`, `terminal <t> resume` and `terminal <t> wait
+    /// --until ready` (`cli/agent_start.rs`).
+    Agent(Box<super::agent_start::Command>),
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct RequestPlan {
+    pub operation: WireOperation,
+    pub params: Value,
+    pub idempotency_key: Option<String>,
+    pub stream: bool,
+    /// How a person sees the result (`--json` always prints the whole result).
+    pub view: ResponseView,
+}
+
+/// How human output shows a result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum ResponseView {
+    /// Every field of the result.
+    #[default]
+    Full,
+    /// `terminal <t> screen read` without `--details`: the screen's `text`
+    /// alone, as it shows (W3-H).
+    ScreenText,
+}
+
+impl CommandPlan {
+    /// `terminal <t> screen read`: human output prints the screen text only.
+    fn screen_text(self) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::ScreenText;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum WireOperation {
+    Typed(ResourceOperation),
+    Raw { name: String, class: OperationClass },
+}
+
+impl WireOperation {
+    pub fn class(&self) -> OperationClass {
+        match self {
+            Self::Typed(operation) => operation.class(),
+            Self::Raw { class, .. } => *class,
+        }
+    }
+
+    pub fn name(&self) -> Result<String, UsageError> {
+        match self {
+            Self::Typed(operation) => Ok(operation.wire_name().to_owned()),
+            Self::Raw { name, .. } => Ok(name.clone()),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -119,12 +136,8 @@ impl Selectors {
     ) -> Result<(), UsageError> {
         validate_selector(scope, prefix, value)?;
         if !matches!(Selector::parse(value), Ok(Selector::Id(_))) {
-            // `focused` is the object the person looks at, so its implied
-            // parents are the focused ones too, not the caller's
-            // (resolve.rs `focused_scopes`).
-            let parent = if value == "focused" { "focused" } else { "current" };
             for ancestor in structural_ancestors(scope) {
-                self.values.entry(ancestor).or_insert_with(|| parent.into());
+                self.values.entry(ancestor).or_insert_with(|| "current".into());
             }
         }
         self.values.insert(scope, value.to_string());
@@ -142,20 +155,28 @@ impl Selectors {
 #[derive(Default)]
 struct Flags {
     values: BTreeMap<String, Option<String>>,
+    /// The flag names in the order they were given, for flags where the
+    /// last one wins ([`Flags::last_given`]).
+    order: Vec<String>,
+    /// The resolved action, so debug builds can prove its help lists every
+    /// flag the parser reads.
+    action: Option<&'static actions::ActionSpec>,
 }
 
 impl Flags {
     fn take(&mut self, name: &str) -> Option<String> {
+        self.assert_documented(name);
         self.values.remove(name).flatten()
     }
 
-    fn take_hook_emit_budget(&mut self) -> Result<Option<Duration>, UsageError> {
-        let Some(value) = self.values.remove("deadline-ms") else { return Ok(None) };
-        let millis = value
-            .as_deref()
-            .and_then(|s| s.parse::<std::num::NonZeroU64>().ok())
-            .ok_or_else(|| UsageError::new("--deadline-ms needs a positive integer"))?;
-        Ok(Some(Duration::from_millis(millis.get())))
+    fn assert_documented(&self, name: &str) {
+        if let Some(action) = self.action {
+            debug_assert!(
+                action.accepts(name),
+                "`{}` reads --{name}, which its entry in cli/command/actions.rs does not list",
+                action.path,
+            );
+        }
     }
 
     fn required(&mut self, name: &str) -> Result<String, UsageError> {
@@ -163,7 +184,14 @@ impl Flags {
     }
 
     fn boolean(&mut self, name: &str) -> bool {
+        self.assert_documented(name);
         self.values.remove(name).is_some()
+    }
+
+    /// Which of `names` was given last, if any (`--focus` and `--no-focus`:
+    /// the last one wins). Read it before taking those flags.
+    fn last_given(&self, names: &[&str]) -> Option<&str> {
+        self.order.iter().rev().map(String::as_str).find(|given| names.contains(given))
     }
 
     /// Take a flag by its dashed spelling, for compatibility flags whose bare
@@ -186,106 +214,159 @@ struct Tokens {
     argv: Option<Vec<String>>,
 }
 
-/// Inspect an emit budget before the command parser reads the native payload from stdin.
-pub(super) fn hook_emit_budget(args: &[String]) -> Result<Option<Duration>, UsageError> {
-    if args.first().is_none_or(|word| word != "agent" && !word.starts_with('-'))
-        || !args.iter().any(|word| word == "--deadline-ms" || word.starts_with("--deadline-ms="))
-    {
-        return Ok(None);
-    }
-    // The regular parser reports tokenization errors before reading the payload.
-    let Ok(mut tokens) = tokenize(args) else { return Ok(None) };
-    if tokens.words != ["agent", "hook", "emit"] || tokens.argv.is_some() {
-        return Ok(None);
-    }
-    tokens.flags.take_hook_emit_budget()
-}
-
-pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
-    if let [scope, verb, rest @ ..] = args
-        && matches!(scope.as_str(), "settings" | "config")
-        && verb == "list"
-    {
-        return settings::request_list(rest);
-    }
-    let mut tokens = tokenize(args)?;
+pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
+    let mut tokens = match tokenize(args) {
+        Ok(tokens) => tokens,
+        // Startup options before `server start` are not resource flags; say
+        // where they go instead of naming the first one as unknown.
+        Err(_) if starts_with_server_start(args) => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.start_options_after_action,
+            ));
+        }
+        Err(error) => return Err(error),
+    };
     super::shorthand::normalize_words(&mut tokens.words);
-    flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
+    if let Some(action) = actions::resolve(&tokens.words) {
+        check_action_flags(action, &tokens.flags)?;
+        tokens.flags.action = Some(action);
+    }
     let scope = tokens
         .words
         .first()
         .map(String::as_str)
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
-    let words = tokens.words.get(1..).unwrap_or_default();
-    if tokens.argv.is_some() && !takes_argv(scope, &strs(words)) {
-        return Err(UsageError::new(format!(
-            "`{}` runs no command: drop the words after --",
-            tokens.words.join(" ")
-        )));
-    }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(words, &mut tokens.flags, surface)?,
-        "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
-        "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
-        "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
-        "workspace" => parse_workspace(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "screen" => parse_screen(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "settings" | "config" => settings::parse(words, &mut tokens.flags, tokens.argv.as_deref())?,
-        "pane" => parse_pane(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "tab" => parse_tab(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "terminal" => parse_terminal(words, &mut selectors, &mut tokens.flags)?,
-        "browser" => parse_browser(words, &mut selectors, &mut tokens.flags)?,
-        "notification" => parse_notification(words, &mut tokens.flags)?,
-        "attention" => state::parse_attention(&strs(words), &mut selectors, &mut tokens.flags)?,
-        "room" => state::parse_room(&strs(words), &mut tokens.flags)?,
-        "space" => parse_space(&strs(words), &mut tokens.flags)?,
-        "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
-        "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
-        "project" => project::parse_project(&strs(words), &mut tokens.flags)?,
-        "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
-        "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
-        "notify" => parse_notify(words, &mut tokens.flags)?,
-        "agent" => parse_agent(words, &mut tokens.flags, tokens.argv)?,
-        "sidebar" => parse_sidebar(words, &mut selectors, &mut tokens.flags)?,
-        "pairing" => parse_pairing(words, &mut selectors, &mut tokens.flags)?,
-        "projection" => parse_projection(words, &mut selectors, &mut tokens.flags)?,
-        "provider" => parse_provider(words, &mut selectors, &mut tokens.flags)?,
-        "raw" => parse_raw(words, &mut tokens.flags)?,
-        value => return Err(super::unknown_scope(value, surface)),
+        "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
+        "machine" => parse_machine(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "workspace" => {
+            parse_workspace(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
+        }
+        "screen" => {
+            parse_screen(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
+        }
+        "pane" => parse_pane(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
+        "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
+        "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
+        "attention" => parse_attention(&tokens.words[1..], &mut tokens.flags)?,
+        "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
 }
 
-/// `space list` is the friendly name for the daemon's room listing. Mutating
-/// space verbs are app actions and are dispatched by the app parser first.
-fn parse_space(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
-    match words {
-        ["list"] => state::parse_room(&["list"], flags),
-        _ => usage("space action"),
+/// Whether the first two command words are `server start` (or `srv start`),
+/// skipping startup switches, value-bearing startup options, and resource
+/// flags with their catalog arity.
+fn starts_with_server_start(args: &[String]) -> bool {
+    let mut words = Vec::new();
+    let mut index = 0;
+    while index < args.len() && words.len() < 2 {
+        let value = args[index].as_str();
+        if value == "--" {
+            break;
+        }
+        if crate::STARTUP_SWITCH_OPTIONS.contains(&value) {
+            index += 1;
+            continue;
+        }
+        if let Some(end) = crate::startup_option_value_end(args, index) {
+            index = end;
+            continue;
+        }
+        if let Some(name) = value.strip_prefix("--") {
+            if !name.contains('=')
+                && flag_takes_value(name)
+                && args.get(index + 1).is_some_and(|next| !next.starts_with('-'))
+            {
+                index += 1;
+            }
+        } else {
+            words.push(value);
+        }
+        index += 1;
     }
+    matches!(words[..], [scope, "start"] if super::shorthand::scope(scope) == "server")
 }
 
-fn parse_server(
-    words: &[String],
-    flags: &mut Flags,
-    surface: super::Surface,
-) -> Result<CommandPlan, UsageError> {
+/// Reject flags the action does not take and report every missing required
+/// flag at once, before any value is interpreted.
+fn check_action_flags(action: &actions::ActionSpec, flags: &Flags) -> Result<(), UsageError> {
+    let usage = || format!("usage: {}", action.usage(&super::program_name()));
+    if let Some(name) = flags.values.keys().find(|name| !action.accepts(name)) {
+        return Err(UsageError::new(format!(
+            "unknown flag --{name} for `{}`\n{}",
+            action.path,
+            usage()
+        )));
+    }
+    let missing = action
+        .all_options()
+        .into_iter()
+        .filter(|option| option.required && !flags.values.contains_key(option.name()))
+        .map(|option| format!("--{}", option.name()))
+        .collect::<Vec<_>>();
+    let message = match missing.as_slice() {
+        [] => return Ok(()),
+        [flag] => format!("{flag} is required"),
+        [first, second] => format!("{first} and {second} are required"),
+        [rest @ .., last] => format!("{}, and {last} are required", rest.join(", ")),
+    };
+    Err(UsageError::new(format!("{message}\n{}", usage())))
+}
+
+/// Words that name the help topic in a `--help` invocation: option values
+/// and forwarded argv are skipped, and shorthand is normalized the same way
+/// as for a real command.
+pub(super) fn help_words(args: &[String]) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let value = args[index].as_str();
+        if value == "--" {
+            break;
+        }
+        if let Some(name) = value.strip_prefix("--") {
+            if !name.contains('=') && actions::arity(name) == Some(actions::Arity::Value) {
+                index += 1;
+            }
+        } else if !value.starts_with('-') {
+            words.push(value.to_string());
+        }
+        index += 1;
+    }
+    super::shorthand::normalize_words(&mut words);
+    words
+}
+
+/// The action a help invocation names, as a help topic.
+pub(super) fn action_help_topic(words: &[String]) -> Option<&'static str> {
+    actions::resolve(words).map(|action| action.path)
+}
+
+pub(super) fn action_help(path: &str, program: &str) -> Option<String> {
+    actions::ACTIONS.iter().find(|action| action.path == path).map(|action| action.help(program))
+}
+
+fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
-        ["ensure"] => server_ensure::parse(flags)?,
-        ["stop"] => stop_action(flags)?,
-        ["restart"] => restart_action(flags)?,
+        ["ensure"] => super::lifecycle::ServerAction::Ensure,
+        ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
-        ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
-            state_dir: flags.take("state-dir").map(PathBuf::from),
-        },
-        ["premigrate-registry"] => super::lifecycle::ServerAction::PremigrateRegistry {
-            state_dir: flags.take("state-dir").map(PathBuf::from),
-            max_duration: premigrate_max_duration(flags)?,
-        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -293,23 +374,11 @@ fn parse_server(
         }
         [action] => {
             let messages = &crate::localization::catalog().local_server;
-            let scope = if surface == super::Surface::Cmux { "daemon" } else { "server" };
             return Err(UsageError::new(messages.unknown_server_action(
-                scope,
                 action,
                 super::suggestion(
                     action,
-                    &[
-                        "stats",
-                        "start",
-                        "ensure",
-                        "status",
-                        "stop",
-                        "restart",
-                        "reload-config",
-                        "compact-registry",
-                        "premigrate-registry",
-                    ],
+                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
                 ),
             )));
         }
@@ -320,65 +389,6 @@ fn parse_server(
         }
     };
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
-}
-
-/// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
-/// [--if-idle] [--restore-wait-seconds <n>]`. The wait for an owner that still restores
-/// defaults to the bound `server ensure` gives a restore
-/// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
-fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
-    Ok(super::lifecycle::ServerAction::Stop {
-        restore_wait: restore_wait(flags)?,
-        force: flags.boolean("force"),
-        end_terminals: flags.boolean("end-terminals"),
-        if_idle: flags.boolean("if-idle"),
-    })
-}
-
-/// `server restart`: `[--force] [--restore-wait-seconds <n>]`, the stop's
-/// options. A restart keeps every terminal, so `--end-terminals` is refused.
-fn restart_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
-    if flags.boolean("end-terminals") {
-        return Err(UsageError::new(
-            crate::localization::catalog().local_server.restart_end_terminals,
-        ));
-    }
-    Ok(super::lifecycle::ServerAction::Restart {
-        restore_wait: restore_wait(flags)?,
-        force: flags.boolean("force"),
-    })
-}
-
-/// `server premigrate-registry --max-seconds <n>`: at most a day, 10 minutes
-/// by default (the app's update handoff waits for it; a partial fold still
-/// shortens the next start, and the next run resumes it).
-fn premigrate_max_duration(flags: &mut Flags) -> Result<Option<std::time::Duration>, UsageError> {
-    const DEFAULT_SECONDS: u64 = 600;
-    const MAX_SECONDS: u64 = 86_400;
-    match flags.take("max-seconds") {
-        None => Ok(Some(std::time::Duration::from_secs(DEFAULT_SECONDS))),
-        Some(value) => match value.parse::<u64>() {
-            Ok(seconds @ 1..=MAX_SECONDS) => Ok(Some(std::time::Duration::from_secs(seconds))),
-            _ => Err(UsageError::new(
-                crate::localization::catalog().local_server.registry_premigrate_max_seconds_invalid,
-            )),
-        },
-    }
-}
-
-fn restore_wait(flags: &mut Flags) -> Result<std::time::Duration, UsageError> {
-    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
-    match flags.take("restore-wait-seconds") {
-        None => Ok(crate::local_owner::RESTORE_DEADLINE),
-        Some(value) => match value.parse::<u64>() {
-            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => {
-                Ok(std::time::Duration::from_secs(seconds))
-            }
-            _ => Err(UsageError::new(
-                crate::localization::catalog().local_server.stop_restore_wait_invalid,
-            )),
-        },
-    }
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -399,9 +409,10 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if name.is_empty() {
                 return Err(UsageError::new("empty flag name"));
             }
-            let switch = inline.is_none()
-                && flag_takes_no_value(name, args.get(index + 1).map(String::as_str));
-            let flag_value = if is_boolean_flag(name) || switch {
+            let Some(arity) = actions::arity(name) else {
+                return Err(unknown_flag(name));
+            };
+            let flag_value = if arity == actions::Arity::Switch {
                 if inline.is_some() {
                     return Err(UsageError::new(format!("--{name} does not take a value")));
                 }
@@ -409,16 +420,18 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             } else if let Some(value) = inline {
                 Some(value)
             } else {
-                let value =
-                    args.get(index + 1).cloned().ok_or_else(|| flags::missing_value(name))?;
+                let value = args
+                    .get(index + 1)
+                    .cloned()
+                    .ok_or_else(|| UsageError::new(format!("--{name} needs a value")))?;
                 index += 1;
                 Some(value)
             };
             if flags.values.insert(name.to_string(), flag_value).is_some() {
                 return Err(UsageError::new(format!("duplicate flag --{name}")));
             }
-        } else if value.starts_with('-') && value != "-" && value.parse::<f64>().is_err() {
-            // A lone `-` is a word: standard input, for commands that read it.
+            flags.order.push(name.to_string());
+        } else if value.starts_with('-') {
             return Err(UsageError::new(format!("unknown short flag {value:?}")));
         } else {
             words.push(value.clone());
@@ -428,77 +441,54 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
-/// Whether the command `scope words…` reads the words after `--`: workspace,
-/// screen, pane and terminal-tab create, workspace and pane run, pane split
-/// (also under a workspace, screen or pane path), the workspace
-/// status/progress/log and checklist commands (which check their own verbs),
-/// and agent messages. Every other command would drop
-/// them, so the caller is told instead.
-fn takes_argv(scope: &str, words: &[&str]) -> bool {
-    fn tab(words: &[&str]) -> bool {
-        matches!(words, ["create", "terminal"])
-    }
-    fn pane(words: &[&str]) -> bool {
-        matches!(words, ["create"] | [_, "split"] | [_, "run", ..])
-            || matches!(words, [_, "tab", tail @ ..] if tab(tail))
-    }
-    fn screen(words: &[&str]) -> bool {
-        matches!(words, ["create"]) || matches!(words, [_, "pane", tail @ ..] if pane(tail))
-    }
-    fn workspace(words: &[&str]) -> bool {
-        let area = |word: &&str| state::STATUS_AREAS.contains(word) || *word == "checklist";
-        match words {
-            ["create"] | [_, "run", ..] => true,
-            [first, ..] if area(first) => true,
-            [_, second, ..] if area(second) => true,
-            [_, "screen", tail @ ..] => screen(tail),
-            _ => false,
+/// Whether `--name` consumes the next token. Arity comes from the action
+/// catalog, the same distinction Clap models with `ArgAction::SetTrue`.
+/// Unknown flags take no value, so they are reported as unknown instead of
+/// swallowing the next argument.
+pub(super) fn flag_takes_value(name: &str) -> bool {
+    actions::arity(name) == Some(actions::Arity::Value)
+}
+
+/// Whether `word` is a command word of some action path in the catalog
+/// (`write` in `terminal <selector> write`), not a placeholder.
+pub(super) fn is_action_word(word: &str) -> bool {
+    actions::ACTIONS.iter().any(|action| {
+        action.path.split_whitespace().any(|part| part == word && !part.starts_with('<'))
+    })
+}
+
+fn unknown_flag(name: &str) -> UsageError {
+    let known = actions::known_flag_names().into_iter().collect::<Vec<_>>();
+    match super::suggestion(name, &known) {
+        Some(suggestion) => {
+            UsageError::new(format!("unknown flag --{name}; did you mean --{suggestion}?"))
         }
-    }
-    match scope {
-        "workspace" => workspace(words),
-        "screen" => screen(words),
-        "pane" => pane(words),
-        "tab" => tab(words),
-        "agent" => matches!(words, ["message", ..]),
-        "settings" | "config" => {
-            matches!(words, ["get", ..] | ["set", ..] | ["reset", ..] | ["unset", ..])
-        }
-        _ => false,
+        None => UsageError::new(format!("unknown flag --{name}")),
     }
 }
 
-/// `argv` (the words after `--`) or `--shell SCRIPT` for a command that
-/// creates a terminal: the new terminal runs it instead of a plain shell.
-fn insert_creation_command(
-    params: &mut Map<String, Value>,
-    argv: Option<Vec<String>>,
+fn parse_machine(
+    words: &[String],
+    selectors: &mut Selectors,
     flags: &mut Flags,
-) -> Result<(), UsageError> {
-    match (argv, flags.take("shell")) {
-        (None, None) => Ok(()),
-        (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
-            params.insert("argv".into(), json!(argv));
-            Ok(())
+) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["list"] => request(ResourceOperation::MachineList, selectors, flags, Map::new()),
+        [selector, "show"] => {
+            selectors.insert("machine", "machine", selector)?;
+            request(ResourceOperation::MachineGet, selectors, flags, Map::new())
         }
-        (None, Some(script)) if !script.is_empty() => {
-            params.insert("shell".into(), Value::String(script));
-            Ok(())
+        [machine, "session", "list"] => {
+            selectors.insert("machine", "machine", machine)?;
+            request(ResourceOperation::SessionList, selectors, flags, Map::new())
         }
-        _ => Err(UsageError::new("give exact argv after -- or one --shell script")),
+        [machine, "session", session, "open"] => {
+            selectors.insert("machine", "machine", machine)?;
+            selectors.insert("session", "session", session)?;
+            request(ResourceOperation::SessionOpen, selectors, flags, Map::new())
+        }
+        _ => usage("machine action"),
     }
-}
-
-pub(super) fn is_boolean_flag(name: &str) -> bool {
-    BOOLEAN_FLAGS.contains(&name)
-}
-
-/// Whether `--name` followed by `next` (the next argument, if any) is a flag
-/// without a value: a boolean flag, or a [`SWITCH_OR_VALUE_FLAGS`] one with no
-/// value word after it.
-pub(super) fn flag_takes_no_value(name: &str, next: Option<&str>) -> bool {
-    is_boolean_flag(name)
-        || (SWITCH_OR_VALUE_FLAGS.contains(&name) && next.is_none_or(|next| next.starts_with("--")))
 }
 
 fn parse_session(
@@ -508,9 +498,7 @@ fn parse_session(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::SessionList, selectors, flags, Map::new()),
-        // `session current` alone is `session current show`: an agent's
-        // first "which session am I in" (`cmux identify` has the whole path).
-        [selector, "show"] | [selector] => {
+        [selector, "show"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionGet, selectors, flags, Map::new())
         }
@@ -662,7 +650,7 @@ fn parse_session(
                 }
             };
             Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
-                action: stop_action(flags)?,
+                action: super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
                 session,
             }))
         }
@@ -796,21 +784,19 @@ fn parse_workspace(
     flags: &mut Flags,
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
-    let refs = strs(words);
-    if let Some(plan) = state::parse_workspace_status(&refs, selectors, flags, argv.as_deref())? {
-        return Ok(plan);
-    }
-    if let Some(plan) = state::parse_workspace_checklist(&refs, selectors, flags, argv.as_deref())?
-    {
-        return Ok(plan);
-    }
-    match refs.as_slice() {
-        ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
-        ["placement", "list"] => {
-            request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
+    match strs(words).as_slice() {
+        ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
+        ["create"] => {
+            let mut params = Map::new();
+            if let Some(name) = flags.take("name") {
+                params.insert("name".into(), Value::String(name));
+            }
+            params.insert(
+                "initial_content".into(),
+                Value::String(if flags.boolean("empty") { "empty" } else { "terminal" }.into()),
+            );
+            request(ResourceOperation::WorkspaceCreate, selectors, flags, params)
         }
-        ["list"] => state::workspace_list(selectors, flags),
-        ["create"] => workspace::workspace_create(selectors, flags, argv),
         [selector, "show"] => {
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceGet, selectors, flags, Map::new())
@@ -818,10 +804,6 @@ fn parse_workspace(
         [selector, "rename"] => {
             selectors.insert("workspace", "ws", selector)?;
             request_with_required_name(ResourceOperation::WorkspaceRename, selectors, flags)
-        }
-        [selector, "update"] => {
-            selectors.insert("workspace", "ws", selector)?;
-            state::workspace_update(selectors, flags)
         }
         [selector, "move"] => {
             selectors.insert("workspace", "ws", selector)?;
@@ -833,14 +815,10 @@ fn parse_workspace(
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceFocus, selectors, flags, Map::new())
         }
-        // `workspace-open-url-v1`: a web link on the workspace's right side;
-        // with no workspace, the home workspace.
-        ["open-url"] => workspace_open_url(selectors, flags),
-        [selector, "open-url"] => {
+        [selector, "close"] => {
             selectors.insert("workspace", "ws", selector)?;
-            workspace_open_url(selectors, flags)
+            request(ResourceOperation::WorkspaceClose, selectors, flags, Map::new())
         }
-        [selector, "close"] => bulk_close::close("workspace", selector, selectors, flags),
         [selector, "run", tail @ ..] => {
             selectors.insert("workspace", "ws", selector)?;
             let mut params = run_params(tail, argv, flags)?;
@@ -861,20 +839,74 @@ fn parse_workspace(
     }
 }
 
-fn workspace_open_url(
+fn parse_screen(
+    words: &[String],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
-    let url = flags.required("url")?;
-    if url.is_empty() {
-        return Err(UsageError::new("--url cannot be empty"));
+    let refs = strs(words);
+    parse_screen_strings(&refs, selectors, flags, argv)
+}
+
+fn parse_screen_strings(
+    words: &[&str],
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+    argv: Option<Vec<String>>,
+) -> Result<CommandPlan, UsageError> {
+    match words {
+        ["list"] => request(ResourceOperation::ScreenList, selectors, flags, Map::new()),
+        ["create"] => {
+            let mut params = Map::new();
+            add_optional_parent_selectors(selectors, flags, &["workspace"])?;
+            insert_optional_string(&mut params, flags, "name", "name");
+            // The new screen keeps the person's focus unless --focus
+            // (`screen.create.focus`, default false); --no-focus says so.
+            let _ = flags.boolean("no-focus");
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
+            request(ResourceOperation::ScreenCreate, selectors, flags, params)
+        }
+        [selector, "show"] => {
+            selectors.insert("screen", "screen", selector)?;
+            request(ResourceOperation::ScreenGet, selectors, flags, Map::new())
+        }
+        [selector, "rename"] => {
+            selectors.insert("screen", "screen", selector)?;
+            request_with_required_name(ResourceOperation::ScreenRename, selectors, flags)
+        }
+        [selector, "focus"] => {
+            selectors.insert("screen", "screen", selector)?;
+            request(ResourceOperation::ScreenFocus, selectors, flags, Map::new())
+        }
+        [selector, "close"] => {
+            selectors.insert("screen", "screen", selector)?;
+            request(ResourceOperation::ScreenClose, selectors, flags, Map::new())
+        }
+        [selector, "layout", "export"] => {
+            selectors.insert("screen", "screen", selector)?;
+            request(ResourceOperation::ScreenLayoutExport, selectors, flags, Map::new())
+        }
+        [selector, "layout", "undo"] => {
+            selectors.insert("screen", "screen", selector)?;
+            let mut params = Map::new();
+            if flags.boolean("confirm-close") {
+                params.insert("confirm_close".into(), Value::Bool(true));
+            }
+            if let Some(token) = flags.take("confirmation-token") {
+                validate_bounded_text("--confirmation-token", &token)?;
+                params.insert("confirmation_token".into(), Value::String(token));
+            }
+            request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
+        }
+        [selector, "pane", tail @ ..] => {
+            selectors.insert("screen", "screen", selector)?;
+            parse_pane_strings(tail, selectors, flags, argv)
+        }
+        _ => usage("screen action"),
     }
-    request(
-        ResourceOperation::WorkspaceOpenUrl,
-        selectors,
-        flags,
-        map_with("url", Value::String(url)),
-    )
 }
 
 fn parse_pane(
@@ -894,26 +926,17 @@ fn parse_pane_strings(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
-        ["list"] => {
-            add_optional_parent_selectors(selectors, flags, &["workspace", "screen"])?;
-            let filter = list_filter::take(flags, true, true)?;
-            request(ResourceOperation::PaneList, selectors, flags, Map::new())
-                .map(|plan| plan.filtered(filter))
-        }
+        ["list"] => request(ResourceOperation::PaneList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
             add_size(&mut params, flags)?;
             insert_optional_string(&mut params, flags, "cwd", "cwd");
-            insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::PaneCreate, selectors, flags, params)
         }
         [selector, "show"] => {
             selectors.insert("pane", "pane", selector)?;
             request(ResourceOperation::PaneGet, selectors, flags, Map::new())
         }
-        // `pane move ...` is the caller's pane (`current`).
-        ["move"] => pane_move::parse("current", selectors, flags),
-        [selector, "move"] => pane_move::parse(selector, selectors, flags),
         [selector, "split"] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = Map::new();
@@ -921,20 +944,6 @@ fn parse_pane_strings(
             params.insert("direction".into(), Value::String(direction.clone()));
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
-            }
-            if flags.values.contains_key("fit") {
-                if flags.take("fit").is_some() {
-                    return Err(UsageError::new("--fit does not take a value"));
-                }
-                if direction != "right" {
-                    return Err(UsageError::new("--fit requires --right"));
-                }
-                if flags.values.contains_key("viewport-width") || params.contains_key("ratio") {
-                    return Err(UsageError::new(
-                        "--fit shares the window; drop --viewport-width and --ratio",
-                    ));
-                }
-                params.insert("fit".into(), Value::Bool(true));
             }
             if let Some(viewport_width) = flags.take("viewport-width") {
                 if direction != "right" {
@@ -948,13 +957,6 @@ fn parse_pane_strings(
                 )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
-            // The new pane runs this instead of a shell, so no empty shell
-            // tab is left beside the command's (agent evals, mode 3).
-            insert_creation_command(&mut params, argv, flags)?;
-            // A script's split keeps the user's focus unless it asks.
-            if flags.boolean("focus") {
-                params.insert("focus".into(), Value::Bool(true));
-            }
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneSplit, selectors, flags, params)
         }
@@ -1025,16 +1027,47 @@ fn parse_pane_strings(
             insert_positive_u16(&mut params, "columns", "--columns", flags.required("columns")?)?;
             request(ResourceOperation::PaneViewportWidthSet, selectors, flags, params)
         }
-        [selector, "close"] => bulk_close::close("pane", selector, selectors, flags),
+        [selector, "close"] => {
+            selectors.insert("pane", "pane", selector)?;
+            request(ResourceOperation::PaneClose, selectors, flags, Map::new())
+        }
         [selector, "run", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = run_params(tail, argv, flags)?;
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneRun, selectors, flags, params)
         }
+        [selector, "move"] => {
+            // The command resolves its own selectors from one snapshot
+            // (names, unique id prefixes, `focused`), so they stay raw here;
+            // a nested path would name parents it does not read.
+            if !selectors.values.is_empty() {
+                return Err(UsageError::new(
+                    "pane move takes the pane alone: cmux pane <pane> move ...",
+                ));
+            }
+            let new_screen = flags.boolean("new-screen");
+            let new_tab = flags.boolean("new-tab");
+            // `--focus` and `--no-focus`: the last one given wins.
+            let focus = flags.last_given(&["focus", "no-focus"]) == Some("focus");
+            let _ = flags.boolean("focus");
+            let _ = flags.boolean("no-focus");
+            let move_flags = super::pane_move::MoveFlags {
+                to_pane: flags.take("to-pane"),
+                to_tab: flags.take("to-tab"),
+                to_workspace: flags.take("to-workspace"),
+                split: flags.take("split"),
+                name: flags.take("name"),
+                new_screen: new_screen || new_tab,
+                focus,
+                idempotency_key: flags.take("idempotency-key"),
+            };
+            super::pane_move::request(selector, move_flags)
+                .map(|request| CommandPlan::PaneMove(Box::new(request)))
+        }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
-            parse_tab_strings(tail, selectors, flags, argv)
+            parse_tab_strings(tail, selectors, flags)
         }
         _ => usage("pane action"),
     }
@@ -1044,27 +1077,18 @@ fn parse_tab(
     words: &[String],
     selectors: &mut Selectors,
     flags: &mut Flags,
-    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
-    parse_tab_strings(&refs, selectors, flags, argv)
+    parse_tab_strings(&refs, selectors, flags)
 }
 
 fn parse_tab_strings(
     words: &[&str],
     selectors: &mut Selectors,
     flags: &mut Flags,
-    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
-        ["group", rest @ ..] => state::parse_tab_group(rest, flags),
-        ["list"] => {
-            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
-            let created_by = list_filter::take_created_by(flags)?;
-            request(ResourceOperation::TabList, selectors, flags, Map::new())
-                .map(|plan| plan.filtered(ListFilter { created_by, ..ListFilter::default() }))
-        }
-        ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
+        ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabGet, selectors, flags, Map::new())
@@ -1073,10 +1097,8 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             insert_optional_string(&mut params, flags, "name", "name");
-            insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
-            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
         }
         ["create", "browser"] => {
@@ -1087,10 +1109,8 @@ fn parse_tab_strings(
             }
             params.insert("url".into(), Value::String(url));
             insert_optional_string(&mut params, flags, "name", "name");
-            browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
-            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
         }
         [selector, "rename"] => {
@@ -1107,37 +1127,10 @@ fn parse_tab_strings(
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabFocus, selectors, flags, Map::new())
         }
-        // browser-devices-v1: emulate a device in a browser tab (the daemon
-        // keeps it; the engine that shows the tab applies extra.emulation).
-        [selector, "emulate"] => {
+        [selector, "close"] => {
             selectors.insert("tab", "tab", selector)?;
-            let mut params = Map::new();
-            insert_optional_string(&mut params, flags, "device", "device");
-            insert_optional_string(&mut params, flags, "orientation", "orientation");
-            // --fit 16:9 | 1280: a desktop layout scaled to the tab's width, full height.
-            insert_optional_string(&mut params, flags, "fit", "fit");
-            if let Some(custom) = flags.take("custom-json") {
-                let custom = serde_json::from_str(&custom).map_err(|error| {
-                    UsageError::new(format!("invalid --custom-json JSON: {error}"))
-                })?;
-                params.insert("custom".into(), custom);
-            }
-            if params.is_empty() {
-                return Err(UsageError::new(
-                    "tab emulate needs --device, --custom-json, --orientation or --fit 16:9|1280|off; `cmux browser devices list` lists the devices",
-                ));
-            }
-            request(ResourceOperation::BrowserTabEmulate, selectors, flags, params)
+            request(ResourceOperation::TabClose, selectors, flags, Map::new())
         }
-        [selector, "emulate", "clear"] => {
-            selectors.insert("tab", "tab", selector)?;
-            request(ResourceOperation::BrowserTabEmulateClear, selectors, flags, Map::new())
-        }
-        [selector, action @ ("pin" | "unpin" | "update" | "zoom" | "restart"), rest @ ..] => {
-            selectors.insert("tab", "tab", selector)?;
-            state::tab_change(action, rest, selectors, flags)
-        }
-        [selector, "close"] => bulk_close::close("tab", selector, selectors, flags),
         [selector, "terminal", tail @ ..] => {
             selectors.insert("tab", "tab", selector)?;
             let tail = tail.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
@@ -1152,22 +1145,571 @@ fn parse_tab_strings(
     }
 }
 
-use browser::parse_browser;
-
-fn parse_agent(
+fn parse_terminal(
     words: &[String],
+    selectors: &mut Selectors,
     flags: &mut Flags,
-    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["list"] => request(ResourceOperation::TerminalList, selectors, flags, Map::new()),
+        [selector, "show"] => {
+            selectors.insert("terminal", "term", selector)?;
+            request(ResourceOperation::TerminalGet, selectors, flags, Map::new())
+        }
+        [selector, "write"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            match (flags.take("text"), flags.take("bytes-base64")) {
+                (Some(text), None) => {
+                    params.insert("text".into(), Value::String(text));
+                }
+                (None, Some(bytes)) => {
+                    validate_base64("--bytes-base64", &bytes)?;
+                    params.insert("bytes_base64".into(), Value::String(bytes));
+                }
+                (None, None) => {
+                    let mut text = String::new();
+                    io::stdin()
+                        .read_to_string(&mut text)
+                        .map_err(|error| UsageError::new(format!("cannot read stdin: {error}")))?;
+                    params.insert("text".into(), Value::String(text));
+                }
+                (Some(_), Some(_)) => {
+                    return Err(UsageError::new(
+                        "--text and --bytes-base64 are mutually exclusive",
+                    ));
+                }
+            }
+            request(ResourceOperation::TerminalInputWrite, selectors, flags, params)
+        }
+        [selector, "keys", keys @ ..] if !keys.is_empty() => {
+            selectors.insert("terminal", "term", selector)?;
+            if keys.iter().any(|key| key.is_empty()) {
+                return Err(UsageError::new("terminal key names cannot be empty"));
+            }
+            request(
+                ResourceOperation::TerminalInputKeys,
+                selectors,
+                flags,
+                map_with("keys", json!(keys)),
+            )
+        }
+        [selector, "mouse", kind] => {
+            selectors.insert("terminal", "term", selector)?;
+            validate_one_of("--kind", kind, &["down", "up", "move", "wheel"])?;
+            let mut params = Map::new();
+            params.insert("kind".into(), Value::String((*kind).into()));
+            insert_u16(&mut params, "row", "--row", flags.required("row")?)?;
+            insert_u16(&mut params, "column", "--column", flags.required("column")?)?;
+            let button = flags.take("button");
+            let delta_rows = flags.take("delta-rows");
+            match (*kind, button, delta_rows) {
+                ("down" | "up", Some(button), None) => {
+                    validate_one_of("--button", &button, &["left", "middle", "right"])?;
+                    params.insert("button".into(), Value::String(button));
+                }
+                ("move", None, None) => {}
+                ("wheel", None, Some(delta_rows)) => {
+                    let delta_rows = delta_rows.parse::<i32>().map_err(|_| {
+                        UsageError::new("--delta-rows must be a signed 32-bit integer")
+                    })?;
+                    if delta_rows == 0 {
+                        return Err(UsageError::new("--delta-rows must be nonzero for wheel"));
+                    }
+                    params.insert("delta_rows".into(), json!(delta_rows));
+                }
+                ("down" | "up", None, _) => {
+                    return Err(UsageError::new("--button is required for down and up"));
+                }
+                ("down" | "up", Some(_), Some(_)) => {
+                    return Err(UsageError::new("--delta-rows is forbidden for down and up"));
+                }
+                ("move", Some(_), _) => {
+                    return Err(UsageError::new("--button is forbidden for move"));
+                }
+                ("move", None, Some(_)) => {
+                    return Err(UsageError::new("--delta-rows is forbidden for move"));
+                }
+                ("wheel", Some(_), _) => {
+                    return Err(UsageError::new("--button is forbidden for wheel"));
+                }
+                ("wheel", None, None) => {
+                    return Err(UsageError::new("--delta-rows is required for wheel"));
+                }
+                _ => unreachable!("kind validated above"),
+            }
+            insert_optional_enum_list(
+                &mut params,
+                flags,
+                "modifiers",
+                &["shift", "control", "alt", "meta"],
+            )?;
+            request(ResourceOperation::TerminalInputMouse, selectors, flags, params)
+        }
+        [selector, "focus", state] => {
+            selectors.insert("terminal", "term", selector)?;
+            if !matches!(*state, "in" | "out") {
+                return Err(UsageError::new("terminal focus must be in or out"));
+            }
+            request(
+                ResourceOperation::TerminalInputFocus,
+                selectors,
+                flags,
+                map_with("focused", Value::Bool(*state == "in")),
+            )
+        }
+        [selector, "read"] | [selector, "screen", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            // `terminal-read-unwrap-v1`: soft wraps joined, and the last N
+            // lines of scrollback and screen.
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
+            }
+            if let Some(lines) = flags.take("lines") {
+                insert_bounded_u32(&mut params, "lines", "--lines", lines, 1, 10_000)?;
+            }
+            // Plain screen text unless --details asks for the record's fields (W3-H).
+            let details = flags.boolean("details");
+            request(ResourceOperation::TerminalScreenRead, selectors, flags, params)
+                .map(|plan| if details { plan } else { plan.screen_text() })
+        }
+        [selector, "state", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            request(ResourceOperation::TerminalStateRead, selectors, flags, Map::new())
+        }
+        [selector, "history", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(before) = flags.take("before") {
+                validate_decimal("--before", &before)?;
+                params.insert("before".into(), Value::String(before));
+            }
+            if let Some(limit) = flags.take("limit") {
+                insert_bounded_u32(&mut params, "limit", "--limit", limit, 1, 10_000)?;
+            }
+            if flags.boolean("styled") {
+                params.insert("styled".into(), Value::Bool(true));
+            }
+            request(ResourceOperation::TerminalHistoryRead, selectors, flags, params)
+        }
+        [selector, "history", "clear"] => {
+            selectors.insert("terminal", "term", selector)?;
+            request(ResourceOperation::TerminalHistoryClear, selectors, flags, Map::new())
+        }
+        [selector, "output", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(after) = flags.take("after") {
+                validate_decimal("--after", &after)?;
+                params.insert("after".into(), Value::String(after));
+            }
+            if let Some(max_bytes) = flags.take("max-bytes") {
+                insert_bounded_u32(
+                    &mut params,
+                    "max_bytes",
+                    "--max-bytes",
+                    max_bytes,
+                    1,
+                    4_194_304,
+                )?;
+            }
+            request(ResourceOperation::TerminalOutputRead, selectors, flags, params)
+        }
+        [selector, "screen", "wait"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            let pattern = flags.required("pattern")?;
+            if pattern.is_empty() {
+                return Err(UsageError::new("--pattern cannot be empty"));
+            }
+            params.insert("pattern".into(), Value::String(pattern));
+            if let Some(timeout) = flags.take("timeout-ms") {
+                insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
+            }
+            // `terminal-wait-new-v1`: only output printed below the cursor's
+            // line from now on can match, never a typed command's echo.
+            if flags.boolean("new") {
+                params.insert("new".into(), Value::Bool(true));
+            }
+            request(ResourceOperation::TerminalWait, selectors, flags, params)
+        }
+        [selector, "copy"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(mode) = flags.take("mode") {
+                validate_one_of("--mode", &mode, &["screen", "selection", "scrollback"])?;
+                params.insert("mode".into(), Value::String(mode));
+            }
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
+            }
+            request(ResourceOperation::TerminalCopy, selectors, flags, params)
+        }
+        [selector, "process", "show"] => {
+            selectors.insert("terminal", "term", selector)?;
+            request(ResourceOperation::TerminalProcessGet, selectors, flags, Map::new())
+        }
+        [selector, "process", "wait"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(timeout) = flags.take("timeout-ms") {
+                insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
+            }
+            request(ResourceOperation::TerminalWaitExit, selectors, flags, params)
+        }
+        [selector, "viewport", "scroll"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            insert_i32(&mut params, "delta_rows", "--delta-rows", flags.required("delta-rows")?)?;
+            request(ResourceOperation::TerminalViewportScroll, selectors, flags, params)
+        }
+        [selector, "move"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let params = destination_params(flags)?;
+            request(ResourceOperation::TerminalMove, selectors, flags, params)
+        }
+        [selector, "project"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = destination_params(flags)?;
+            if let Some(name) = flags.take("name") {
+                params.insert("name".into(), Value::String(name));
+            }
+            request(ResourceOperation::TerminalProject, selectors, flags, params)
+        }
+        [selector, "attach"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            add_stream_id(&mut params, flags)?;
+            add_size(&mut params, flags)?;
+            if flags.boolean("read-only") {
+                params.insert("read_only".into(), Value::Bool(true));
+            }
+            request(ResourceOperation::TerminalAttach, selectors, flags, params)
+        }
+        [selector, "close"] => {
+            selectors.insert("terminal", "term", selector)?;
+            request(ResourceOperation::TerminalClose, selectors, flags, Map::new())
+        }
+        _ => usage("terminal action"),
+    }
+}
+
+fn parse_browser(
+    words: &[String],
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["list"] => request(ResourceOperation::BrowserList, selectors, flags, Map::new()),
+        [selector, "show"] => {
+            selectors.insert("browser", "browser", selector)?;
+            request(ResourceOperation::BrowserGet, selectors, flags, Map::new())
+        }
+        [selector, "navigate"] => {
+            selectors.insert("browser", "browser", selector)?;
+            let url = flags.required("url")?;
+            if url.is_empty() {
+                return Err(UsageError::new("--url cannot be empty"));
+            }
+            request(
+                ResourceOperation::BrowserNavigate,
+                selectors,
+                flags,
+                map_with("url", Value::String(url)),
+            )
+        }
+        [selector, "back"] => {
+            browser_no_args(ResourceOperation::BrowserBack, selector, selectors, flags)
+        }
+        [selector, "forward"] => {
+            browser_no_args(ResourceOperation::BrowserForward, selector, selectors, flags)
+        }
+        [selector, "reload"] => {
+            browser_no_args(ResourceOperation::BrowserReload, selector, selectors, flags)
+        }
+        [selector, "activate"] => {
+            browser_no_args(ResourceOperation::BrowserActivate, selector, selectors, flags)
+        }
+        [selector, "key"] => {
+            selectors.insert("browser", "browser", selector)?;
+            let mut params = Map::new();
+            let key = flags.required("key")?;
+            if key.is_empty() {
+                return Err(UsageError::new("--key cannot be empty"));
+            }
+            params.insert("key".into(), Value::String(key));
+            if let Some(kind) = flags.take("kind") {
+                validate_one_of("--kind", &kind, &["down", "up", "press"])?;
+                params.insert("kind".into(), Value::String(kind));
+            }
+            insert_optional_enum_list(
+                &mut params,
+                flags,
+                "modifiers",
+                &["shift", "control", "alt", "meta"],
+            )?;
+            request(ResourceOperation::BrowserInputKey, selectors, flags, params)
+        }
+        [selector, "text"] => {
+            selectors.insert("browser", "browser", selector)?;
+            let text = flags.required("text")?;
+            request(
+                ResourceOperation::BrowserInputText,
+                selectors,
+                flags,
+                map_with("text", Value::String(text)),
+            )
+        }
+        [selector, "mouse"] => {
+            selectors.insert("browser", "browser", selector)?;
+            let mut params = Map::new();
+            let kind = flags.required("kind")?;
+            validate_one_of("--kind", &kind, &["down", "up", "move"])?;
+            params.insert("kind".into(), Value::String(kind.clone()));
+            insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
+            insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
+            let pointer_frame_seq = flags.required("pointer-frame-seq")?;
+            validate_decimal("--pointer-frame-seq", &pointer_frame_seq)?;
+            params.insert("pointer_frame_seq".into(), Value::String(pointer_frame_seq));
+            match (kind.as_str(), flags.take("button"), flags.take("click-count")) {
+                ("down" | "up", Some(button), click_count) => {
+                    validate_one_of(
+                        "--button",
+                        &button,
+                        &["left", "middle", "right", "back", "forward"],
+                    )?;
+                    params.insert("button".into(), Value::String(button));
+                    if let Some(click_count) = click_count {
+                        insert_u32(&mut params, "click_count", "--click-count", click_count)?;
+                    }
+                }
+                ("down" | "up", None, _) => {
+                    return Err(UsageError::new("--button is required for down and up"));
+                }
+                ("move", None, None) => {}
+                ("move", Some(_), _) => {
+                    return Err(UsageError::new("--button is forbidden for move"));
+                }
+                ("move", None, Some(_)) => {
+                    return Err(UsageError::new("--click-count is forbidden for move"));
+                }
+                _ => unreachable!("kind validated above"),
+            }
+            request(ResourceOperation::BrowserInputMouse, selectors, flags, params)
+        }
+        [selector, "wheel"] => {
+            selectors.insert("browser", "browser", selector)?;
+            let mut params = Map::new();
+            insert_float(&mut params, "delta_x", "--delta-x", flags.required("delta-x")?)?;
+            insert_float(&mut params, "delta_y", "--delta-y", flags.required("delta-y")?)?;
+            insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
+            insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
+            let pointer_frame_seq = flags.required("pointer-frame-seq")?;
+            validate_decimal("--pointer-frame-seq", &pointer_frame_seq)?;
+            params.insert("pointer_frame_seq".into(), Value::String(pointer_frame_seq));
+            request(ResourceOperation::BrowserInputWheel, selectors, flags, params)
+        }
+        [selector, "attach"] => {
+            selectors.insert("browser", "browser", selector)?;
+            let mut params = Map::new();
+            add_stream_id(&mut params, flags)?;
+            add_pixel_size(&mut params, flags)?;
+            request(ResourceOperation::BrowserAttach, selectors, flags, params)
+        }
+        [selector, "close"] => {
+            selectors.insert("browser", "browser", selector)?;
+            request(ResourceOperation::BrowserClose, selectors, flags, Map::new())
+        }
+        _ => usage("browser action"),
+    }
+}
+
+fn browser_no_args(
+    operation: ResourceOperation,
+    selector: &str,
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    selectors.insert("browser", "browser", selector)?;
+    request(operation, selectors, flags, Map::new())
+}
+
+fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
-        ["message", rest @ ..] => agent_message_cmd::parse(rest, flags, argv),
-        ["inbox", rest @ ..] => {
-            let state = flags.take("state");
-            let limit = flags.take("limit");
-            let ack = flags.boolean("ack");
-            Ok(CommandPlan::AgentInbox(super::agent_message::parse_inbox(rest, state, limit, ack)?))
+        ["list"] => {
+            let mut params = Map::new();
+            if let Some(limit) = flags.take("limit") {
+                insert_bounded_u32(&mut params, "limit", "--limit", limit, 1, 256)?;
+            }
+            request(ResourceOperation::NotificationList, &selectors, flags, params)
         }
+        ["create"] => {
+            let mut params = Map::new();
+            let title = flags.required("title")?;
+            if title.is_empty() {
+                return Err(UsageError::new("--title cannot be empty"));
+            }
+            params.insert("title".into(), Value::String(title));
+            if let Some(subtitle) = flags.take("subtitle") {
+                params.insert("subtitle".into(), Value::String(subtitle));
+            }
+            params.insert("body".into(), Value::String(flags.required("body")?));
+            if let Some(level) = flags.take("level") {
+                validate_one_of("--level", &level, &["info", "success", "warning", "error"])?;
+                params.insert("level".into(), Value::String(level));
+            }
+            if let Some(terminal) = flags.take("terminal") {
+                validate_prefixed_id("terminal", "term", &terminal)?;
+                params.insert("terminal_id".into(), Value::String(terminal));
+            }
+            request(ResourceOperation::NotificationCreate, &selectors, flags, params)
+        }
+        ["clear"] => {
+            let mut params = Map::new();
+            if let Some(terminal) = flags.take("terminal") {
+                validate_prefixed_id("terminal", "term", &terminal)?;
+                params.insert("terminal_id".into(), Value::String(terminal));
+            }
+            request(ResourceOperation::NotificationClear, &selectors, flags, params)
+        }
+        ["ack", ids @ ..] => {
+            let mut params = Map::new();
+            let client_id = flags.required("client")?;
+            if client_id.is_empty()
+                || client_id.len() > 128
+                || !client_id.bytes().all(|byte| byte.is_ascii_graphic())
+            {
+                return Err(UsageError::new(
+                    "--client must be 1 to 128 printable ASCII bytes without spaces",
+                ));
+            }
+            params.insert("client_id".into(), Value::String(client_id));
+            if ids.is_empty() {
+                return Err(UsageError::new("notification ack needs at least one notification ID"));
+            }
+            if ids.len() > 256 {
+                return Err(UsageError::new(
+                    "notification ack accepts at most 256 notification IDs",
+                ));
+            }
+            for id in ids {
+                validate_prefixed_id("notification", "notification", id)?;
+            }
+            params.insert(
+                "notifications".into(),
+                Value::Array(ids.iter().map(|id| Value::String((*id).to_string())).collect()),
+            );
+            request(ResourceOperation::NotificationAck, &selectors, flags, params)
+        }
+        _ => usage("notification action"),
+    }
+}
+
+/// `cmux notify`, with the flags of the macOS `cmux notify`, so a script or an
+/// agent hook written for a local terminal works unchanged inside a machine.
+/// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
+/// into every daemon PTY) unless `--surface` names another terminal of this
+/// session or `--workspace` asks for a session-level row; a machine cannot
+/// address anything outside its own session. `--reply` is refused: the reply
+/// channel would type into a terminal, and that channel does not cross the
+/// machine boundary. `--window`, `--id-format`, and `--desktop` are accepted
+/// for signature parity and have no meaning on a machine: the Mac decides how
+/// a machine's row is delivered. `--desktop` is still validated so a bad value
+/// fails the same way it does locally, and like the local flag it is not
+/// validated with `--clear`.
+fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    if !words.is_empty() {
+        return usage("notify takes flags only");
+    }
+    let selectors = Selectors::default();
+    if flags.boolean("reply") {
+        return Err(UsageError::new(
+            "--reply is not available on a machine: replies would type into a terminal across the link",
+        ));
+    }
+    let _ = flags.take("window");
+    let _ = flags.take("id-format");
+    let desktop = flags.take("desktop");
+    let workspace = flags.take("workspace");
+    if let Some(workspace) = &workspace
+        && workspace != "current"
+    {
+        validate_prefixed_id("workspace", "ws", workspace)?;
+    }
+    let caller_terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+    let surface = match flags.take_dashed("--surface") {
+        Some(value) if value == "current" => match caller_terminal {
+            Some(terminal) => Some(terminal),
+            None => {
+                return Err(UsageError::new(
+                    "--surface current needs a caller terminal (CMUX_TUI_TERMINAL_ID is not set); pass --surface <term_id>",
+                ));
+            }
+        },
+        Some(value) => Some(value),
+        // A workspace-scoped notify has no terminal, like the local form.
+        None if workspace.is_some() => None,
+        None => caller_terminal,
+    };
+    if let Some(surface) = &surface {
+        validate_prefixed_id("terminal", "term", surface)?;
+    }
+    let mut params = Map::new();
+    if flags.boolean("clear") {
+        if flags.take("title").is_some()
+            || flags.take("subtitle").is_some()
+            || flags.take("body").is_some()
+        {
+            return Err(UsageError::new("--clear does not take --title, --subtitle, or --body"));
+        }
+        // A clear must name its scope. Outside a daemon terminal there is no
+        // caller terminal to default to, and silently clearing the whole
+        // session would be the wrong surprise.
+        if surface.is_none() && workspace.is_none() {
+            return Err(UsageError::new(
+                "--clear needs a scope: run it from a machine terminal, or pass --surface <term_id> or --workspace current",
+            ));
+        }
+        if let Some(surface) = surface {
+            params.insert("terminal_id".into(), Value::String(surface));
+        }
+        return request(ResourceOperation::NotificationClear, &selectors, flags, params);
+    }
+    // Like the local flag, `--desktop` has no effect with `--clear` and is validated only here.
+    if let Some(desktop) = desktop {
+        parse_bool("--desktop", &desktop)
+            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
+    }
+    let title = flags.take("title").unwrap_or_else(|| "Notification".into());
+    if title.is_empty() {
+        return Err(UsageError::new("--title cannot be empty"));
+    }
+    if title.chars().count() > 512 {
+        return Err(UsageError::new("--title is limited to 512 characters"));
+    }
+    params.insert("title".into(), Value::String(title));
+    if let Some(subtitle) = flags.take("subtitle") {
+        if subtitle.chars().count() > 512 {
+            return Err(UsageError::new("--subtitle is limited to 512 characters"));
+        }
+        params.insert("subtitle".into(), Value::String(subtitle));
+    }
+    let body = flags.take("body").unwrap_or_default();
+    if body.chars().count() > 4096 {
+        return Err(UsageError::new("--body is limited to 4096 characters"));
+    }
+    params.insert("body".into(), Value::String(body));
+    if let Some(surface) = surface {
+        params.insert("terminal_id".into(), Value::String(surface));
+    }
+    request(ResourceOperation::NotificationCreate, &selectors, flags, params)
+}
+
+fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    let selectors = Selectors::default();
+    match strs(words).as_slice() {
         ["plugin", tail @ ..] => {
             parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Agent)
         }
@@ -1183,12 +1725,41 @@ fn parse_agent(
                 providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
             }))
         }
-        ["list"] => agent_list::parse(flags),
+        ["list"] => {
+            let mut params = Map::new();
+            if let Some(terminal) = flags.take("terminal") {
+                validate_prefixed_id("terminal", "term", &terminal)?;
+                params.insert("terminal_id".into(), Value::String(terminal));
+            }
+            // `--state` takes the shared status words (`done` is a finished
+            // turn nobody has viewed; `ended` a session that ended). The
+            // daemon filters by its own state, the CLI then by status
+            // (cli/agent_list.rs).
+            let status = match flags.take("state") {
+                Some(state) => {
+                    validate_one_of("--state", &state, &super::agent_list::STATUS_WORDS)?;
+                    super::agent_list::STATUS_WORDS.iter().copied().find(|word| *word == state)
+                }
+                None => None,
+            };
+            if let Some(status) = status {
+                let state = super::agent_list::daemon_state_for_status(status);
+                params.insert("state".into(), Value::String(state.to_owned()));
+            }
+            let CommandPlan::Protocol(list) =
+                request(ResourceOperation::AgentList, &selectors, flags, params)?
+            else {
+                unreachable!("request() makes a protocol plan");
+            };
+            Ok(CommandPlan::AgentList(Box::new(super::agent_list::AgentListPlan {
+                request: list,
+                status,
+            })))
+        }
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
             let native_event = flags.required("event")?;
-            let _ = flags.take_hook_emit_budget()?;
             let native = match flags.take("payload-json") {
                 Some(payload) => serde_json::from_str(&payload).map_err(|error| {
                     UsageError::new(format!("invalid --payload-json JSON: {error}"))
@@ -1219,17 +1790,13 @@ fn parse_agent(
             };
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
-            terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
-            // Read before the journal event redacts them; they travel beside it (memory only).
-            let live = cmux_tui_core::agent_hook_live_fields(&source, &native_event, &native);
-            let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
+            let ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
                 terminal.as_deref(),
                 native,
             )
             .map_err(|error| UsageError::new(error.to_string()))?;
-            cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
             if serde_json::to_vec(&ingress.payload)
                 .map_err(|error| UsageError::new(format!("encode agent hook: {error}")))?
                 .len()
@@ -1239,37 +1806,37 @@ fn parse_agent(
                     "encoded agent hook payload cannot exceed 1048576 bytes",
                 ));
             }
-            let mut fields = map_with(
-                "event",
-                serde_json::to_value(ingress).map_err(|error| {
-                    UsageError::new(format!("encode agent hook request: {error}"))
-                })?,
-            );
-            fields.extend(live);
-            request(ResourceOperation::SessionJournalAppend, &selectors, flags, fields)
+            request(
+                ResourceOperation::SessionJournalAppend,
+                &selectors,
+                flags,
+                map_with(
+                    "event",
+                    serde_json::to_value(ingress).map_err(|error| {
+                        UsageError::new(format!("encode agent hook request: {error}"))
+                    })?,
+                ),
+            )
         }
         ["report"] => {
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
             let state = flags.required("state")?;
-            validate_one_of(
-                "--state",
-                &state,
-                &["working", "blocked", "idle", "ended", "done", "unknown"],
-            )?;
-            // The CLI says `ended` for a session that ended; the daemon's
-            // word for it is `done` (`--state done` stays as an old alias).
-            let state = if state == "ended" { "done".to_owned() } else { state };
+            validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
-            let mut params = Map::new();
-            params.insert("terminal_id".into(), json!(terminal));
-            params.insert("state".into(), json!(state));
-            params.insert("source".into(), json!(source));
+            let mut params = json!({
+                "terminal_id": terminal,
+                "state": state,
+                "source": source,
+            })
+            .as_object()
+            .cloned()
+            .expect("literal object");
             insert_optional_string(&mut params, flags, "source-session", "source_session");
-            Ok(request(ResourceOperation::AgentReport, &selectors, flags, params)?.agent_report())
+            request(ResourceOperation::AgentReport, &selectors, flags, params)
         }
-        other => agent_focus::parse(other, flags),
+        _ => usage("agent action"),
     }
 }
 
@@ -1334,12 +1901,6 @@ fn parse_sidebar(
         ["plugin", tail @ ..] => {
             parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Sidebar)
         }
-        ["section-scroll", section, scroll] => {
-            sidebar_doc::section_scroll(section, scroll, selectors, flags)
-        }
-        ["section-max-rows", section, rows] => {
-            sidebar_doc::section_max_rows(section, rows, selectors, flags)
-        }
         _ => usage("sidebar action"),
     }
 }
@@ -1375,10 +1936,13 @@ fn parse_plugin(
         }
         _ => return usage("plugin action"),
     }
+    // Only install takes --name and --force; the action check rejects them
+    // anywhere else before the plugin manager runs.
+    let install = positionals.first().is_some_and(|action| action == "install");
     let plan = PluginPlan {
         positionals,
-        name: flags.take("name"),
-        force: flags.boolean("force"),
+        name: if install { flags.take("name") } else { None },
+        force: install && flags.boolean("force"),
         builtin,
         kind,
     };
@@ -1488,113 +2052,6 @@ fn parse_provider(
     }
 }
 
-/// A numeric id stays a number; anything else (such as `tab_...`) is sent
-/// as a string for the daemon to resolve.
-fn group_id_value(value: &str) -> Value {
-    value.parse::<u64>().map(Value::from).unwrap_or_else(|_| Value::String(value.to_string()))
-}
-
-fn group_number(flags: &mut Flags, name: &str) -> Result<Option<Value>, UsageError> {
-    flags
-        .take(name)
-        .map(|value| {
-            value
-                .parse::<u64>()
-                .map(Value::from)
-                .map_err(|_| UsageError::new(format!("--{name} must be a non-negative integer")))
-        })
-        .transpose()
-}
-
-fn group_float(flags: &mut Flags, name: &str) -> Result<Option<Value>, UsageError> {
-    flags
-        .take(name)
-        .map(|value| {
-            value
-                .parse::<f64>()
-                .ok()
-                .filter(|value| value.is_finite())
-                .map(Value::from)
-                .ok_or_else(|| UsageError::new(format!("--{name} must be a number")))
-        })
-        .transpose()
-}
-
-fn group_collapse(flags: &mut Flags, request: &mut Map<String, Value>) -> Result<(), UsageError> {
-    match (flags.boolean("collapse"), flags.boolean("expand")) {
-        (true, true) => Err(UsageError::new("--collapse and --expand are mutually exclusive")),
-        (true, false) => {
-            request.insert("collapsed".into(), Value::Bool(true));
-            Ok(())
-        }
-        (false, true) => {
-            request.insert("collapsed".into(), Value::Bool(false));
-            Ok(())
-        }
-        (false, false) => Ok(()),
-    }
-}
-
-/// Group commands use the private control protocol, like `raw command`, so
-/// they work against a headless daemon with no app running.
-fn group_raw_plan(command: &str, mut request: Map<String, Value>) -> CommandPlan {
-    request.insert("id".into(), Value::from(1));
-    request.insert("cmd".into(), Value::String(command.to_string()));
-    CommandPlan::RawCommand(super::raw::RawCommandPlan {
-        request: Value::Object(request),
-        stream: false,
-    })
-}
-
-/// Tab group moves with no `cmux.protocol/2` operation yet use the private
-/// control protocol, like `raw command`, so they work against a headless
-/// daemon with no app running. Every other tab group verb is a v2 operation
-/// (`state.rs`).
-fn parse_tab_group_private(
-    group: &str,
-    action: &str,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    let mut request = Map::new();
-    insert_optional_string(&mut request, flags, "transaction", "transaction");
-    request.insert("group".into(), Value::String(group.to_string()));
-    let command = match action {
-        "split" => {
-            request.insert("pane".into(), group_id_value(&flags.required("pane")?));
-            request.insert("edge".into(), Value::String(flags.required("edge")?));
-            if let Some(ratio) = group_float(flags, "ratio")? {
-                request.insert("ratio".into(), ratio);
-            }
-            "move-tab-group-to-split"
-        }
-        "column" => {
-            if let Some(pane) = flags.take("pane") {
-                request.insert("pane".into(), group_id_value(&pane));
-            }
-            if let Some(screen) = group_number(flags, "screen")? {
-                request.insert("screen".into(), screen);
-            }
-            if let Some(column) = group_number(flags, "after-column")? {
-                request.insert("after_column".into(), column);
-            }
-            if let Some(width) = group_float(flags, "width")? {
-                request.insert("width".into(), width);
-            }
-            "move-tab-group-to-column"
-        }
-        "new-workspace" => {
-            insert_optional_string(&mut request, flags, "workspace-group", "workspace_group");
-            if let Some(index) = group_number(flags, "index")? {
-                request.insert("index".into(), index);
-            }
-            "move-tab-group-to-new-workspace"
-        }
-        "unsave" => "unsave-tab-group",
-        _ => return usage("tab group action"),
-    };
-    Ok(group_raw_plan(command, request))
-}
-
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
     if refs.as_slice() == ["command"] {
@@ -1658,7 +2115,9 @@ fn request(
     flags: &mut Flags,
     mut params: Map<String, Value>,
 ) -> Result<CommandPlan, UsageError> {
-    params.extend(selectors.params());
+    for (key, value) in selectors.params() {
+        params.insert(key, value);
+    }
     add_routing_defaults(operation, &mut params);
     if correlated_creation(operation)
         && let Some(correlation_key) = flags.take("correlation-key")
@@ -1673,7 +2132,6 @@ fn request(
         params.insert("expected_revision".into(), Value::String(revision));
     }
     finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
-        .map(|plan| plan::with_caller_lookup(plan, &selectors.values))
 }
 
 const fn correlated_creation(operation: ResourceOperation) -> bool {
@@ -1721,15 +2179,13 @@ fn finalize_request(
     if explicit_key.is_some() && class != OperationClass::Mutation {
         return Err(UsageError::new("--idempotency-key is accepted only for mutations"));
     }
-    Ok(CommandPlan::Protocol(Box::new(RequestPlan {
+    Ok(CommandPlan::Protocol(RequestPlan {
         stream: class == OperationClass::StreamOpen,
         operation,
         params,
         idempotency_key: explicit_key,
-        resolve: Vec::new(),
         view: ResponseView::Full,
-        filter: Default::default(),
-    })))
+    }))
 }
 
 fn structural_ancestors(scope: &str) -> &'static [&'static str] {
@@ -1770,8 +2226,210 @@ fn supports_expected_revision(operation: ResourceOperation) -> bool {
                 | ResourceOperation::SessionJournalHookPut
                 | ResourceOperation::SessionJournalProducerPut
                 | ResourceOperation::SessionJournalSegmentSeal
-                | ResourceOperation::LayoutBulk
         )
+}
+
+fn validate_one_of(flag: &str, value: &str, allowed: &[&str]) -> Result<(), UsageError> {
+    if allowed.contains(&value) {
+        Ok(())
+    } else {
+        Err(UsageError::new(format!("{flag} must be one of {}", allowed.join(", "))))
+    }
+}
+
+fn parse_bool(flag: &str, value: &str) -> Result<bool, UsageError> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(UsageError::new(format!("{flag} must be true or false"))),
+    }
+}
+
+fn insert_optional_string(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    flag: &str,
+    field: &str,
+) {
+    if let Some(value) = flags.take(flag) {
+        params.insert(field.into(), Value::String(value));
+    }
+}
+
+fn insert_optional_clearable_string(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    name: &str,
+) -> Result<(), UsageError> {
+    let value = flags.take(name);
+    let clear = flags.boolean(&format!("clear-{name}"));
+    match (value, clear) {
+        (Some(_), true) => {
+            Err(UsageError::new(format!("--{name} and --clear-{name} are mutually exclusive")))
+        }
+        (Some(value), false) => {
+            params.insert(name.into(), Value::String(value));
+            Ok(())
+        }
+        (None, true) => {
+            params.insert(name.into(), Value::Null);
+            Ok(())
+        }
+        (None, false) => Ok(()),
+    }
+}
+
+fn insert_optional_nullable_string(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    flag: &str,
+) -> Result<(), UsageError> {
+    let field = flag.replace('-', "_");
+    let value = flags.take(flag);
+    let clear_flag = format!("clear-{flag}");
+    let clear = flags.boolean(&clear_flag);
+    match (value, clear) {
+        (Some(_), true) => {
+            Err(UsageError::new(format!("--{flag} and --{clear_flag} are mutually exclusive")))
+        }
+        (Some(value), false) => {
+            params.insert(field, Value::String(value));
+            Ok(())
+        }
+        (None, true) => {
+            params.insert(field, Value::Null);
+            Ok(())
+        }
+        (None, false) => Ok(()),
+    }
+}
+
+fn insert_optional_nullable_bool(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    flag: &str,
+) -> Result<(), UsageError> {
+    let field = flag.replace('-', "_");
+    let value = flags.take(flag);
+    let clear_flag = format!("clear-{flag}");
+    let clear = flags.boolean(&clear_flag);
+    match (value, clear) {
+        (Some(_), true) => {
+            Err(UsageError::new(format!("--{flag} and --{clear_flag} are mutually exclusive")))
+        }
+        (Some(value), false) => {
+            params.insert(field, Value::Bool(parse_bool(&format!("--{flag}"), &value)?));
+            Ok(())
+        }
+        (None, true) => {
+            params.insert(field, Value::Null);
+            Ok(())
+        }
+        (None, false) => Ok(()),
+    }
+}
+
+fn insert_optional_nullable_json_object(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    flag: &str,
+) -> Result<(), UsageError> {
+    let field = flag.replace('-', "_");
+    let value = flags.take(flag);
+    let clear_flag = format!("clear-{flag}");
+    let clear = flags.boolean(&clear_flag);
+    match (value, clear) {
+        (Some(_), true) => {
+            Err(UsageError::new(format!("--{flag} and --{clear_flag} are mutually exclusive")))
+        }
+        (Some(value), false) => {
+            let parsed = parse_json_object(&format!("--{flag}"), &value)?;
+            params.insert(field, parsed);
+            Ok(())
+        }
+        (None, true) => {
+            params.insert(field, Value::Null);
+            Ok(())
+        }
+        (None, false) => Ok(()),
+    }
+}
+
+fn parse_json_object(flag: &str, value: &str) -> Result<Value, UsageError> {
+    let value: Value = serde_json::from_str(value)
+        .map_err(|error| UsageError::new(format!("invalid {flag} JSON: {error}")))?;
+    if value.is_object() {
+        Ok(value)
+    } else {
+        Err(UsageError::new(format!("{flag} must be a JSON object")))
+    }
+}
+
+fn validate_base64(flag: &str, value: &str) -> Result<(), UsageError> {
+    BASE64
+        .decode(value)
+        .map(|_| ())
+        .map_err(|error| UsageError::new(format!("{flag} is not canonical base64: {error}")))
+}
+
+fn validate_terminal_defaults(params: &Map<String, Value>) -> Result<(), UsageError> {
+    for field in
+        ["foreground", "background", "cursor", "selection_background", "selection_foreground"]
+    {
+        if let Some(color) = params.get(field).and_then(Value::as_str) {
+            validate_color(&format!("--{}", field.replace('_', "-")), color)?;
+        }
+    }
+    if let Some(style) = params.get("cursor_style").and_then(Value::as_str) {
+        validate_one_of("--cursor-style", style, &["block", "bar", "underline"])?;
+    }
+    if let Some(palette) = params.get("palette").and_then(Value::as_object) {
+        for (index, color) in palette {
+            let valid_index = index == "0"
+                || (!index.starts_with('0')
+                    && index.parse::<u16>().is_ok_and(|value| value <= 255));
+            if !valid_index {
+                return Err(UsageError::new(
+                    "--palette keys must be canonical decimal indexes from 0 to 255",
+                ));
+            }
+            let color = color
+                .as_str()
+                .ok_or_else(|| UsageError::new("--palette values must be color strings"))?;
+            validate_color("--palette", color)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_color(flag: &str, value: &str) -> Result<(), UsageError> {
+    if value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        Ok(())
+    } else {
+        Err(UsageError::new(format!("{flag} must use #rrggbb")))
+    }
+}
+
+fn insert_optional_enum_list(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    name: &str,
+    allowed: &[&str],
+) -> Result<(), UsageError> {
+    let Some(value) = flags.take(name) else { return Ok(()) };
+    let values = if value.is_empty() {
+        Vec::new()
+    } else {
+        value.split(',').map(str::to_owned).collect::<Vec<_>>()
+    };
+    for value in &values {
+        validate_one_of(&format!("--{name}"), value, allowed)?;
+    }
+    params.insert(name.replace('-', "_"), json!(values));
+    Ok(())
 }
 
 fn insert_selector_or_current(
@@ -1838,7 +2496,19 @@ fn request_with_required_name(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
-    let params = name_flags::rename_params(operation, flags)?;
+    let mut params = Map::new();
+    params.insert("name".into(), Value::String(flags.required("name")?));
+    if operation == ResourceOperation::TabRename {
+        if let Some(source) = flags.take("source") {
+            validate_one_of("--source", &source, &["user", "auto"])?;
+            params.insert("source".into(), Value::String(source));
+        }
+        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
+        if let Some(revision) = flags.take("expected-name-revision") {
+            validate_decimal("--expected-name-revision", &revision)?;
+            params.insert("expected_name_revision".into(), Value::String(revision));
+        }
+    }
     request(operation, selectors, flags, params)
 }
 
@@ -1872,15 +2542,49 @@ fn run_params(
     }
     if let Some(policy) = flags.take("on-exit") {
         match policy.as_str() {
-            "close" | "keep" | "shell" => {
+            "close" | "keep" => {
                 params.insert("on_exit".into(), Value::String(policy));
             }
+            "shell" => {
+                return Err(UsageError::new("--on-exit shell is not supported yet"));
+            }
             _ => {
-                return Err(UsageError::new("--on-exit must be close, keep or shell"));
+                return Err(UsageError::new("--on-exit must be close or keep"));
             }
         }
     }
     Ok(params)
+}
+
+fn add_size(params: &mut Map<String, Value>, flags: &mut Flags) -> Result<(), UsageError> {
+    let cols = flags.take("cols");
+    let rows = flags.take("rows");
+    match (cols, rows) {
+        (None, None) => Ok(()),
+        (Some(cols), Some(rows)) => {
+            insert_positive_u16(params, "cols", "--cols", cols)?;
+            insert_positive_u16(params, "rows", "--rows", rows)
+        }
+        _ => Err(UsageError::new("--cols and --rows must be supplied together")),
+    }
+}
+
+fn add_required_size(params: &mut Map<String, Value>, flags: &mut Flags) -> Result<(), UsageError> {
+    insert_positive_u16(params, "cols", "--cols", flags.required("cols")?)?;
+    insert_positive_u16(params, "rows", "--rows", flags.required("rows")?)
+}
+
+fn add_pixel_size(params: &mut Map<String, Value>, flags: &mut Flags) -> Result<(), UsageError> {
+    let width = flags.take("width-px");
+    let height = flags.take("height-px");
+    match (width, height) {
+        (None, None) => Ok(()),
+        (Some(width), Some(height)) => {
+            insert_positive_u32(params, "width_px", "--width-px", width)?;
+            insert_positive_u32(params, "height_px", "--height-px", height)
+        }
+        _ => Err(UsageError::new("--width-px and --height-px must be supplied together")),
+    }
 }
 
 fn add_stream_id(params: &mut Map<String, Value>, flags: &mut Flags) -> Result<(), UsageError> {
@@ -1915,10 +2619,408 @@ fn add_optional_cursor(
     }
 }
 
+fn add_journal_subscription(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    default_start: Option<&str>,
+    follow: bool,
+) -> Result<(), UsageError> {
+    let explicit_start = flags.take("from");
+    if let Some(start) = explicit_start.as_deref() {
+        validate_one_of("--from", start, &["tail", "beginning"])?;
+    }
+    let session_id = flags.take("cursor-session");
+    let sequence = flags.take("sequence");
+    match (session_id, sequence) {
+        (None, None) => {
+            if let Some(start) = explicit_start.or_else(|| default_start.map(str::to_owned)) {
+                params.insert("start".into(), Value::String(start));
+            }
+        }
+        (Some(session_id), Some(sequence)) if explicit_start.is_none() => {
+            validate_prefixed_id("session", "session", &session_id)?;
+            validate_decimal("--sequence", &sequence)?;
+            params.insert("cursor".into(), json!({"generation":session_id,"revision":sequence}));
+        }
+        (Some(_), Some(_)) => {
+            return Err(UsageError::new("--from cannot be combined with a journal cursor"));
+        }
+        _ => {
+            return Err(UsageError::new(
+                "--cursor-session and --sequence must be supplied together",
+            ));
+        }
+    }
+    if !follow {
+        params.insert("follow".into(), Value::Bool(false));
+    }
+
+    let mut filter = Map::new();
+    if let Some(kinds) = flags.take("kinds") {
+        let kinds = comma_separated("--kinds", &kinds)?;
+        for kind in &kinds {
+            validate_cli_journal_kind(kind)?;
+        }
+        filter.insert("kinds".into(), Value::Array(kinds.into_iter().map(Value::String).collect()));
+    }
+    if let Some(classes) = flags.take("classes") {
+        let classes = comma_separated("--classes", &classes)?;
+        for class in &classes {
+            validate_one_of("--classes", class, &["state", "observation", "effect", "checkpoint"])?;
+        }
+        filter.insert(
+            "classes".into(),
+            Value::Array(classes.into_iter().map(Value::String).collect()),
+        );
+    }
+    if let Some(subjects) = flags.take("subjects") {
+        let subjects = comma_separated("--subjects", &subjects)?
+            .into_iter()
+            .map(|subject| {
+                let (kind, id) = subject
+                    .split_once(':')
+                    .ok_or_else(|| UsageError::new("--subjects entries must use <kind>:<id>"))?;
+                if kind.is_empty()
+                    || id.is_empty()
+                    || !kind.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+                {
+                    return Err(UsageError::new(
+                        "--subjects entries must use a lowercase <kind>:<id>",
+                    ));
+                }
+                Ok(json!({"kind":kind,"id":id}))
+            })
+            .collect::<Result<Vec<_>, UsageError>>()?;
+        filter.insert("subjects".into(), Value::Array(subjects));
+    }
+    if let Some(sensitivity) = flags.take("max-sensitivity") {
+        validate_one_of("--max-sensitivity", &sensitivity, &["public", "metadata", "sensitive"])?;
+        filter.insert("max_sensitivity".into(), Value::String(sensitivity));
+    }
+    let regex = flags.take("regex");
+    let regex_field = flags.take("regex-field");
+    let ignore_case = flags.boolean("ignore-case");
+    match (regex, regex_field, ignore_case) {
+        (Some(pattern), field, ignore_case) => {
+            if pattern.is_empty() || pattern.len() > 1024 {
+                return Err(UsageError::new("--regex must contain 1 to 1024 UTF-8 bytes"));
+            }
+            let field = field.unwrap_or_else(|| "record".into());
+            validate_one_of(
+                "--regex-field",
+                &field,
+                &["kind", "subjects", "payload", "record", "terminal_output"],
+            )?;
+            filter.insert(
+                "regex".into(),
+                json!({
+                    "pattern":pattern,
+                    "field":field,
+                    "case_sensitive":!ignore_case,
+                }),
+            );
+        }
+        (None, Some(_), _) => {
+            return Err(UsageError::new("--regex-field requires --regex"));
+        }
+        (None, None, true) => {
+            return Err(UsageError::new("--ignore-case requires --regex"));
+        }
+        (None, None, false) => {}
+    }
+    if !filter.is_empty() {
+        params.insert("filter".into(), Value::Object(filter));
+    }
+    Ok(())
+}
+
+fn comma_separated(flag: &str, value: &str) -> Result<Vec<String>, UsageError> {
+    let values = value.split(',').map(str::to_string).collect::<Vec<_>>();
+    if values.is_empty()
+        || values.len() > 64
+        || values.iter().any(|value| value.is_empty() || value.len() > 256)
+    {
+        return Err(UsageError::new(format!(
+            "{flag} must contain 1 to 64 non-empty comma-separated values",
+        )));
+    }
+    Ok(values)
+}
+
+fn validate_cli_journal_kind(kind: &str) -> Result<(), UsageError> {
+    let base = kind.strip_suffix(".*").unwrap_or(kind);
+    if base.is_empty()
+        || kind.contains('*') != kind.ends_with(".*")
+        || base.split('.').any(|part| {
+            part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+    {
+        Err(UsageError::new("--kinds entries must be dotted names with an optional terminal .*"))
+    } else {
+        Ok(())
+    }
+}
+
+fn parse_json_flag(flags: &mut Flags, name: &str) -> Result<Value, UsageError> {
+    let value = flags.required(name)?;
+    serde_json::from_str(&value)
+        .map_err(|error| UsageError::new(format!("invalid --{name} JSON: {error}")))
+}
+
+fn apply_journal_hook_context(
+    event: &mut Value,
+    hook_id: Option<&str>,
+    causation_id: Option<&str>,
+    correlation_id: Option<&str>,
+) -> Result<(), UsageError> {
+    let hook_id = hook_id.filter(|value| !value.is_empty());
+    let causation_id = causation_id.filter(|value| !value.is_empty());
+    let correlation_id = correlation_id.filter(|value| !value.is_empty());
+    if hook_id.is_none() && causation_id.is_none() && correlation_id.is_none() {
+        return Ok(());
+    }
+    let object = event
+        .as_object_mut()
+        .ok_or_else(|| UsageError::new("--event-json must contain a JSON object"))?;
+    if let Some(causation_id) = causation_id
+        && object.get("causation_id").is_none_or(Value::is_null)
+    {
+        object.insert("causation_id".into(), Value::String(causation_id.into()));
+    }
+    if let Some(correlation_id) = correlation_id
+        && object.get("correlation_id").is_none_or(Value::is_null)
+    {
+        object.insert("correlation_id".into(), Value::String(correlation_id.into()));
+    }
+    if let Some(hook_id) = hook_id {
+        let subjects = object.entry("subjects").or_insert_with(|| Value::Array(Vec::new()));
+        let subjects = subjects
+            .as_array_mut()
+            .ok_or_else(|| UsageError::new("--event-json subjects must contain a JSON array"))?;
+        let already_present = subjects.iter().any(|subject| {
+            subject.get("kind").and_then(Value::as_str) == Some("hook")
+                && subject.get("id").and_then(Value::as_str) == Some(hook_id)
+        });
+        if !already_present {
+            subjects.push(json!({"kind":"hook","id":hook_id}));
+        }
+    }
+    Ok(())
+}
+
+fn insert_u16(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<u16>()
+        .map_err(|_| UsageError::new(format!("{flag} must be an unsigned 16-bit integer")))?;
+    params.insert(field.into(), Value::Number(Number::from(number)));
+    Ok(())
+}
+
+fn insert_positive_u16(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<u16>()
+        .ok()
+        .filter(|number| *number > 0)
+        .ok_or_else(|| UsageError::new(format!("{flag} must be an integer from 1 to 65535")))?;
+    params.insert(field.into(), Value::Number(Number::from(number)));
+    Ok(())
+}
+
+fn insert_u32(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<u32>()
+        .map_err(|_| UsageError::new(format!("{flag} must be an unsigned 32-bit integer")))?;
+    params.insert(field.into(), Value::Number(Number::from(number)));
+    Ok(())
+}
+
+fn insert_positive_u32(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    insert_bounded_u32(params, field, flag, value, 1, u32::MAX)
+}
+
+fn insert_bounded_u32(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+    minimum: u32,
+    maximum: u32,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<u32>()
+        .ok()
+        .filter(|number| (minimum..=maximum).contains(number))
+        .ok_or_else(|| {
+            UsageError::new(format!("{flag} must be an integer from {minimum} to {maximum}"))
+        })?;
+    params.insert(field.into(), Value::Number(Number::from(number)));
+    Ok(())
+}
+
+fn insert_i32(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<i32>()
+        .map_err(|_| UsageError::new(format!("{flag} must be a signed 32-bit integer")))?;
+    params.insert(field.into(), Value::Number(Number::from(number)));
+    Ok(())
+}
+
+fn insert_decimal(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    validate_decimal(flag, &value)?;
+    params.insert(field.into(), Value::String(value));
+    Ok(())
+}
+
+fn insert_float(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
+        .and_then(Number::from_f64)
+        .ok_or_else(|| UsageError::new(format!("{flag} must be a finite number")))?;
+    params.insert(field.into(), Value::Number(number));
+    Ok(())
+}
+
+fn insert_ratio(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite() && *number > 0.0 && *number < 1.0)
+        .and_then(Number::from_f64)
+        .ok_or_else(|| UsageError::new(format!("{flag} must be greater than 0 and less than 1")))?;
+    params.insert(field.into(), Value::Number(number));
+    Ok(())
+}
+
+fn insert_viewport_width(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite() && (0.1..=1.0).contains(number))
+        .and_then(Number::from_f64)
+        .ok_or_else(|| UsageError::new(format!("{flag} must be from 0.1 through 1")))?;
+    params.insert(field.into(), Value::Number(number));
+    Ok(())
+}
+
 fn map_with(name: &str, value: Value) -> Map<String, Value> {
     let mut map = Map::new();
     map.insert(name.into(), value);
     map
+}
+
+fn validate_selector(scope: &str, prefix: &str, value: &str) -> Result<(), UsageError> {
+    let selector = Selector::parse(value).map_err(|error| UsageError::new(error.message))?;
+    if matches!(selector, Selector::Id(_)) {
+        validate_prefixed_id(scope, prefix, value)?;
+    }
+    Ok(())
+}
+
+fn validate_prefixed_id(scope: &str, prefix: &str, value: &str) -> Result<(), UsageError> {
+    let Some(payload) = value.strip_prefix(&format!("{prefix}_")) else {
+        return Err(UsageError::new(format!("{scope} ID must start with {prefix}_")));
+    };
+    if payload.len() != 32
+        || !payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(UsageError::new(format!(
+            "{scope} ID must contain exactly 32 lowercase hexadecimal digits"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_direction(value: &str) -> Result<(), UsageError> {
+    if matches!(value, "left" | "right" | "up" | "down") {
+        Ok(())
+    } else {
+        Err(UsageError::new("direction must be left, right, up, or down"))
+    }
+}
+
+fn validate_decimal(flag: &str, value: &str) -> Result<(), UsageError> {
+    if value == "0"
+        || (!value.starts_with('0')
+            && value.len() <= 20
+            && value.bytes().all(|byte| byte.is_ascii_digit())
+            && value.parse::<u64>().is_ok())
+    {
+        Ok(())
+    } else {
+        Err(UsageError::new(format!("{flag} must be a canonical unsigned decimal string")))
+    }
+}
+
+fn validate_operation_name(value: &str) -> Result<(), UsageError> {
+    let mut parts = value.split('.');
+    let Some(first) = parts.next() else {
+        return Err(UsageError::new("operation name is empty"));
+    };
+    let rest = parts.collect::<Vec<_>>();
+    if rest.is_empty()
+        || !std::iter::once(first).chain(rest).all(|part| {
+            !part.is_empty()
+                && part.as_bytes()[0].is_ascii_lowercase()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+    {
+        return Err(UsageError::new("operation must be a lowercase dotted name"));
+    }
+    Ok(())
 }
 
 pub(super) fn random_prefixed(prefix: &str) -> Result<String, UsageError> {
@@ -1940,6 +3042,31 @@ fn strs(values: &[String]) -> Vec<&str> {
     values.iter().map(String::as_str).collect()
 }
 
+/// `attention next [--after <tab_…>] [--focus]` and `attention list`
+/// (`cli/attention.rs`): a client-side read of `session.snapshot`.
+fn parse_attention(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    use super::attention::AttentionPlan;
+    match strs(words).as_slice() {
+        ["next"] => {
+            let after = flags.take("after");
+            if after
+                .as_deref()
+                .is_some_and(|tab| tab.strip_prefix("tab_").is_none_or(str::is_empty))
+            {
+                return Err(UsageError::new("--after takes a tab id (tab_…)"));
+            }
+            let focus = flags.boolean("focus");
+            Ok(CommandPlan::Attention(AttentionPlan::Next { after, focus }))
+        }
+        ["list"] => Ok(CommandPlan::Attention(AttentionPlan::List)),
+        _ => usage("attention action"),
+    }
+}
+
+fn usage<T>(what: &str) -> Result<T, UsageError> {
+    Err(UsageError::new(format!("unknown or incomplete {what}; use --help")))
+}
+
 pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
     match crate::plugin_manager::execute(
         &plan.positionals,
@@ -1950,9 +3077,13 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
         },
         plan.kind,
     ) {
-        Ok(result) if global.output == super::OutputMode::Human && result == json!([]) => {
+        Ok(result)
+            if global.output == super::OutputMode::Human
+                && plan.positionals.first().map(String::as_str) == Some("list")
+                && result == json!([]) =>
+        {
             // An empty list printed nothing at all (bench round 3).
-            println!("{}", no_plugins_line(plan.kind));
+            println!("{}", no_plugins_line(plan.kind, crate::localization::catalog()));
             0
         }
         Ok(result) => super::wire::print_local_success(&result, global.output),
@@ -1969,13 +3100,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 }
 
 pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
-    #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut result = run_hooks_and_links(&plan);
-    #[cfg(unix)]
-    if plan.action == crate::agent_hook_install::Action::Status {
-        result.value =
-            agent_hook_status::with_pane_helper(result.value, agent_hook_status::pane_helper());
-    }
+    let result = crate::agent_hook_install::run(&plan);
     if result.failed {
         let error = json!({
             "code": "local.agent_hooks",
@@ -1989,47 +3114,12 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     }
 }
 
-/// `agent hook` over the hook providers and the `link-` rows (agent_hook_links.rs): a status
-/// with no ids lists both; an install or uninstall with no ids touches hooks only; ids that are
-/// all `link-` run no hook step.
-#[cfg(unix)]
-fn run_hooks_and_links(
-    plan: &crate::agent_hook_install::Plan,
-) -> crate::agent_hook_install::RunResult {
-    use crate::agent_hook_install::{Action, Plan, RunResult};
-    let (apps, hooks, mut errors) = agent_hook_links::split(&plan.providers);
-    let every = plan.providers.is_empty();
-    let hooks_run = every || !hooks.is_empty();
-    let base = if hooks_run {
-        crate::agent_hook_install::run(&Plan { action: plan.action, providers: hooks })
-    } else {
-        let action = match plan.action {
-            Action::Install => "install",
-            Action::Uninstall => "uninstall",
-            Action::Status => "status",
-        };
-        RunResult { value: json!({"action": action, "providers": [], "errors": []}), failed: false }
-    };
-    let (rows, link_errors) = if every && plan.action != Action::Status {
-        (Vec::new(), Vec::new())
-    } else {
-        agent_hook_links::run(plan.action, &apps, every)
-    };
-    errors.extend(link_errors);
-    let failed = base.failed || !errors.is_empty();
-    RunResult { value: agent_hook_links::merge(base.value, rows, errors), failed }
-}
-
-#[cfg(not(unix))]
-fn run_hooks_and_links(
-    plan: &crate::agent_hook_install::Plan,
-) -> crate::agent_hook_install::RunResult {
-    crate::agent_hook_install::run(plan)
-}
-
 /// What `cmux agent|sidebar plugin list` prints when no plugin is installed.
-fn no_plugins_line(kind: crate::plugin_manager::PluginKind) -> String {
-    format!("No plugins are installed. {} install <git-url> installs one.", kind.command_prefix())
+fn no_plugins_line(
+    kind: crate::plugin_manager::PluginKind,
+    catalog: &crate::localization::Catalog,
+) -> String {
+    catalog.pane_cli.no_plugins_installed.replace("{command}", kind.command_prefix())
 }
 
 /// The message of a failed `agent hook install|uninstall|status`: the
@@ -2047,7 +3137,7 @@ fn agent_hooks_failure_message(value: &Value) -> String {
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
     let output = global.output;
     let Some(socket) = global.socket else {
-        eprintln!("cmux: provider authority install requires --socket");
+        eprintln!("{}: provider authority install requires --socket", crate::cli::program_name());
         return 2;
     };
     #[cfg(target_os = "linux")]
@@ -2087,5 +3177,2279 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
     }
 }
 
+pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStatePlan) -> i32 {
+    let output = global.output;
+    let messages = &crate::localization::catalog().session_reset;
+    let routing_options = [
+        global.socket.as_ref().map(|_| "--socket"),
+        global.session.as_ref().map(|_| "--session"),
+        global.machine.as_ref().map(|_| "--machine"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !routing_options.is_empty() {
+        let options = routing_options.join(", ");
+        return super::wire::print_local_error(
+            &json!({
+                "code": "session.reset_state.routing_options_unsupported",
+                "message": messages.routing_options_unsupported(&options),
+                "details": { "options": routing_options },
+                "retryable": false,
+            }),
+            output,
+            2,
+        );
+    }
+    let state_root =
+        match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
+            Some(path) => cmux_tui_core::platform::normalize_filesystem_path(path),
+            None => {
+                return super::wire::print_local_error(
+                    &json!({
+                        "code": "session.reset_state.no_state_root",
+                        "message": messages.no_state_root,
+                        "details": {},
+                        "retryable": false,
+                    }),
+                    output,
+                    1,
+                );
+            }
+        };
+    let resetter = cmux_tui_core::PersistentSessionStateResetter::new(state_root);
+    if !plan.force {
+        let preview = match resetter.preview(&plan.session) {
+            Ok(preview) => preview,
+            Err(error) => {
+                let advice = reset_failure_advice(&error);
+                return super::wire::print_local_error(
+                    &json!({
+                        "code": advice.code,
+                        "message": format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery),
+                        "details": {
+                            "session": &plan.session,
+                            "reason": advice.reason,
+                            "recovery": advice.recovery,
+                        },
+                        "retryable": false,
+                    }),
+                    output,
+                    1,
+                );
+            }
+        };
+        return super::wire::print_local_success(
+            &json!({
+                "session": plan.session,
+                "state_root": preview.state_root,
+                "session_dir": preview.session_dir,
+                "terminal_host_root": preview.terminal_host_root,
+                "pending_reset_dirs": preview.pending_reset_dirs,
+                "requires_force": preview.requires_force,
+                "confirm_reset": preview.confirm_reset,
+            }),
+            output,
+        );
+    }
+    match resetter.reset(&plan.session, plan.confirm_reset.as_deref()) {
+        Ok(reset) => super::wire::print_local_success(
+            &json!({
+                "session": plan.session,
+                "removed_session_state": reset.removed_session_state,
+                "removed_terminal_hosts": reset.removed_terminal_hosts,
+            }),
+            output,
+        ),
+        Err(error) => {
+            let advice = reset_failure_advice(&error);
+            let message = if advice.code == "session.reset_state.confirmation_required" {
+                format!("{}; {}", messages.confirmation_required, messages.confirmation_recovery)
+            } else {
+                format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery)
+            };
+            super::wire::print_local_error(
+                &json!({
+                    "code": advice.code,
+                    "message": message,
+                    "details": {
+                        "session": plan.session,
+                        "reason": advice.reason,
+                        "recovery": advice.recovery,
+                    },
+                    "retryable": false,
+                }),
+                output,
+                1,
+            )
+        }
+    }
+}
+
+struct ResetFailureAdvice {
+    code: &'static str,
+    reason: &'static str,
+    recovery: &'static str,
+}
+
+fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
+    let messages = &crate::localization::catalog().session_reset;
+    if reset_error_starts_with(error, &["reset confirmation is required"]) {
+        ResetFailureAdvice {
+            code: "session.reset_state.confirmation_required",
+            reason: messages.confirmation_required,
+            recovery: messages.confirmation_recovery,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["safe saved-state reset is not supported on this platform"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.unsupported",
+            reason: messages.reason_reset_unsupported,
+            recovery: messages.recovery_reset_unsupported,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &[
+            "workspace state root is not a directory",
+            "workspace session state path is not a directory",
+            "terminal host state path is not a directory",
+            "private reset path is not a directory",
+            "session lock directory is not a directory",
+            "not a directory:",
+        ],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.invalid_state_path",
+            reason: messages.reason_invalid_state_path,
+            recovery: messages.recovery_invalid_state_path,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["workspace session is already owned by another daemon"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.session_running",
+            reason: messages.reason_session_running,
+            recovery: messages.recovery_session_running,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &[
+            "terminal host state still has live or unverified hosts",
+            "terminal host state has live or unverified hosts",
+        ],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.terminal_hosts_live",
+            reason: messages.reason_terminal_hosts_live,
+            recovery: messages.recovery_terminal_hosts_live,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["terminal host liveness cannot be verified on this platform"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.terminal_hosts_unsupported",
+            reason: messages.reason_terminal_hosts_unsupported,
+            recovery: messages.recovery_terminal_hosts_unsupported,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["reset path changed during reset", "reset path changed during fingerprint"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.state_changed",
+            reason: messages.reason_state_changed,
+            recovery: messages.recovery_state_changed,
+        }
+    } else if reset_error_starts_with(error, &["reset confirmation scan exceeds"]) {
+        ResetFailureAdvice {
+            code: "session.reset_state.state_too_large",
+            reason: messages.reason_state_too_large,
+            recovery: messages.recovery_state_too_large,
+        }
+    } else {
+        ResetFailureAdvice {
+            code: "session.reset_state.filesystem",
+            reason: messages.reason_filesystem,
+            recovery: messages.recovery_filesystem,
+        }
+    }
+}
+
+fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
+    error.chain().any(|cause| {
+        let cause = cause.to_string();
+        prefixes.iter().any(|prefix| cause.starts_with(prefix))
+    })
+}
+
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    /// `cmux agent hook status` text output said only "one or more
+    /// coding-agent hook operations failed" (bench round 3); the cause was
+    /// in `--json` alone.
+    #[test]
+    fn w4j_a_hook_failure_message_names_each_cause() {
+        let value = json!({"errors": ["copilot: ~/.copilot/config.json is not valid JSON"]});
+        assert_eq!(
+            agent_hooks_failure_message(&value),
+            "coding-agent hook operations failed: copilot: ~/.copilot/config.json is not valid JSON"
+        );
+        assert_eq!(
+            agent_hooks_failure_message(&json!({"errors": []})),
+            "one or more coding-agent hook operations failed"
+        );
+    }
+
+    /// An empty `plugin list` printed nothing at all (bench round 3).
+    #[test]
+    fn w4j_an_empty_plugin_list_says_how_to_install_one() {
+        use crate::plugin_manager::PluginKind;
+        let english = crate::localization::catalog_for_locale("en_US.UTF-8");
+        assert_eq!(
+            no_plugins_line(PluginKind::Agent, english),
+            "No plugins are installed. cmux agent plugin install <git-url> installs one."
+        );
+        let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let line = no_plugins_line(PluginKind::Sidebar, japanese);
+        assert!(line.contains("cmux sidebar plugin install <git-url>"), "{line}");
+        assert_ne!(line, no_plugins_line(PluginKind::Sidebar, english));
+    }
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn server_start_hint_respects_startup_option_arity() {
+        let expected = crate::localization::catalog().local_server.start_options_after_action;
+        for option in [
+            "--ephemeral",
+            "--cloud",
+            "--headless",
+            "--ws-insecure-bind",
+            "--remote",
+            "--remote-ws-insecure-bind",
+            "--remote-ws-trusted-carrier",
+            "--iroh",
+        ] {
+            let error = match parse(&strings(&[option, "server", "start"])) {
+                Err(error) => error,
+                Ok(_) => panic!("misplaced {option} must be rejected"),
+            };
+            assert_eq!(error.0, expected, "{option}");
+        }
+
+        for args in [
+            &["--term", "xterm-256color", "server", "start"][..],
+            &["--term", "server", "server", "start"][..],
+            &["--ephemeral", "--term", "xterm-256color", "server", "start"][..],
+            &["--ephemeral", "--force", "server", "start"][..],
+            &["--ephemeral", "--cwd", "/tmp", "server", "start"][..],
+            &["--ephemeral", "srv", "start"][..],
+        ] {
+            let error = match parse(&strings(args)) {
+                Err(error) => error,
+                Ok(_) => panic!("misplaced startup options must be rejected"),
+            };
+            assert_eq!(error.0, expected, "{args:?}");
+        }
+        for args in [
+            &["--term", "server", "start"][..],
+            &["--ephemeral", "tab", "server", "start"][..],
+            &["--ephemeral", "--", "server", "start"][..],
+            &["--machine-provider-command", "server", "start", "--"][..],
+        ] {
+            let error = match parse(&strings(args)) {
+                Err(error) => error,
+                Ok(_) => panic!("invalid command must be rejected"),
+            };
+            assert_ne!(error.0, expected, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn boolean_flag_metadata_matches_tokenizer_contract() {
+        for name in actions::known_flag_names()
+            .into_iter()
+            .filter(|name| actions::arity(name) == Some(actions::Arity::Switch))
+        {
+            let args = vec!["workspace".into(), "create".into(), format!("--{name}")];
+            let tokens = tokenize(&args).expect("metadata flag must tokenize");
+            assert!(tokens.flags.values.contains_key(name));
+            assert_eq!(tokens.flags.values[name], None);
+        }
+    }
+
+    #[test]
+    fn non_boolean_flags_still_consume_the_next_token() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
+            .expect("value flag must tokenize");
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn server_stats_typo_suggests_stats_action() {
+        let error = match parse(&strings(&["server", "stat"])) {
+            Err(error) => error,
+            Ok(_) => panic!("unknown server action must be rejected"),
+        };
+        assert!(error.0.contains("Did you mean `stats`?"), "{error}");
+    }
+
+    #[test]
+    fn bounded_text_validation_has_shared_limits() {
+        assert!(validate_bounded_text("--name", "ok").is_ok());
+        assert!(validate_bounded_text("--name", "").is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(129)).is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(128)).is_ok());
+    }
+
+    fn protocol(values: &[&str]) -> RequestPlan {
+        match parse(&strings(values)).unwrap() {
+            CommandPlan::Protocol(plan) => plan,
+            CommandPlan::AgentList(plan) => plan.request,
+            _ => panic!("expected protocol plan"),
+        }
+    }
+
+    /// W3-H: a person reads `screen read` as the screen's text; `--details`
+    /// keeps every field of the record. `--json` prints the record either way.
+    #[test]
+    fn w3h_screen_read_shows_text_unless_details_asks_for_the_record() {
+        let plain = protocol(&["terminal", "current", "screen", "read"]);
+        assert_eq!(plain.view, ResponseView::ScreenText);
+        let details = protocol(&["terminal", "current", "screen", "read", "--details"]);
+        assert_eq!(details.view, ResponseView::Full);
+        assert!(details.params.get("details").is_none(), "{:?}", details.params);
+        let show = protocol(&["terminal", "current", "show"]);
+        assert_eq!(show.view, ResponseView::Full);
+    }
+
+    #[test]
+    fn coding_agent_hook_management_stays_local() {
+        let CommandPlan::AgentHooks(plan) =
+            parse(&strings(&["agent", "hook", "install", "codex", "claude-code"])).unwrap()
+        else {
+            panic!("expected local agent hook plan");
+        };
+        assert_eq!(plan.action, crate::agent_hook_install::Action::Install);
+        assert_eq!(plan.providers, ["codex", "claude-code"]);
+    }
+
+    fn operation(plan: &RequestPlan) -> String {
+        plan.operation.name().unwrap()
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_fingerprint_race_as_state_changed() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "reset path changed during fingerprint: /tmp/cmux-state/registry"
+        ));
+        assert_eq!(advice.code, "session.reset_state.state_changed");
+        assert!(advice.recovery.contains("rerun the preview"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_confirmation_scan_limit() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "reset confirmation scan exceeds 64 paths; scoped state is too large"
+        ));
+        assert_eq!(advice.code, "session.reset_state.state_too_large");
+        assert!(advice.recovery.contains("reduce the scoped saved state"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_unsupported_checked_deletion() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "safe saved-state reset is not supported on this platform because cmux cannot verify saved state during deletion"
+        ));
+        assert_eq!(advice.code, "session.reset_state.unsupported");
+        assert!(advice.recovery.contains("supported platform build"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_ignores_marker_text_inside_paths() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "workspace state root is not a directory: /tmp/already owned by another daemon"
+        ));
+        assert_eq!(advice.code, "session.reset_state.invalid_state_path");
+    }
+
+    fn operation_catalog() -> Value {
+        serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../spec/resource-operations-v2.json"
+        )))
+        .expect("canonical operation catalog")
+    }
+
+    fn assert_plan_matches_catalog(plan: &RequestPlan, expected: &str, catalog: &Value) {
+        let descriptor = &catalog["operations"][expected];
+        assert!(descriptor.is_object(), "catalog omitted {expected}");
+        let params = plan.params.as_object().expect("CLI params object");
+        let selectors = descriptor["params"]["selectors"].as_object().expect("catalog selectors");
+        let fields = descriptor["params"]["fields"].as_object().expect("catalog fields");
+
+        for key in params.keys() {
+            assert!(
+                selectors.contains_key(key) || fields.contains_key(key),
+                "{expected} emitted forbidden catalog parameter {key:?}: {params:?}"
+            );
+        }
+        for (key, requiredness) in selectors {
+            if requiredness == "required" {
+                assert!(
+                    params.contains_key(key),
+                    "{expected} omitted required selector {key:?}: {params:?}"
+                );
+            }
+        }
+        for (key, field) in fields {
+            if field["required"] == true {
+                assert!(
+                    params.contains_key(key),
+                    "{expected} omitted required field {key:?}: {params:?}"
+                );
+            }
+        }
+        if let Some(alternatives) = descriptor["params"]["one_of"].as_array() {
+            assert!(
+                alternatives.iter().any(|alternative| {
+                    alternative["required"].as_array().is_none_or(|required| {
+                        required
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .all(|key| params.contains_key(key))
+                    }) && alternative["forbidden"].as_array().is_none_or(|forbidden| {
+                        forbidden
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .all(|key| !params.contains_key(key))
+                    })
+                }),
+                "{expected} violates its catalog one_of: {params:?}"
+            );
+        }
+
+        let class = match plan.operation.class() {
+            OperationClass::Read => "read",
+            OperationClass::Mutation => "mutation",
+            OperationClass::StreamOpen => "stream_open",
+            OperationClass::ConnectionControl => "connection_control",
+            OperationClass::Local => "local",
+        };
+        assert_eq!(descriptor["class"], class, "{expected} class drift");
+        assert_eq!(plan.stream, class == "stream_open", "{expected} stream drift");
+    }
+
+    #[test]
+    fn direct_and_nested_paths_share_operations_and_flat_ancestors() {
+        let direct = protocol(&["pane", "pane_33333333333333333333333333333333", "show"]);
+        let nested = protocol(&[
+            "workspace",
+            "ws_11111111111111111111111111111111",
+            "screen",
+            "screen_22222222222222222222222222222222",
+            "pane",
+            "pane_33333333333333333333333333333333",
+            "show",
+        ]);
+        assert_eq!(operation(&direct), "pane.get");
+        assert_eq!(operation(&nested), "pane.get");
+        assert_eq!(
+            direct.params,
+            json!({
+                "machine":"current",
+                "session":"current",
+                "pane":"pane_33333333333333333333333333333333"
+            })
+        );
+        assert_eq!(
+            nested.params,
+            json!({
+                "machine":"current",
+                "session":"current",
+                "workspace":"ws_11111111111111111111111111111111",
+                "screen":"screen_22222222222222222222222222222222",
+                "pane":"pane_33333333333333333333333333333333"
+            })
+        );
+    }
+
+    #[test]
+    fn name_and_current_targets_fill_a_contiguous_structural_context() {
+        let named = protocol(&["terminal", "name:build", "show"]);
+        assert_eq!(
+            named.params,
+            json!({
+                "machine": "current",
+                "session": "current",
+                "workspace": "current",
+                "screen": "current",
+                "pane": "current",
+                "tab": "current",
+                "terminal": "name:build",
+            })
+        );
+    }
+
+    #[test]
+    fn workspace_creation_has_explicit_initial_content() {
+        let terminal = protocol(&["workspace", "create"]);
+        assert_eq!(terminal.params["initial_content"], "terminal");
+        let empty = protocol(&["workspace", "create", "--empty"]);
+        assert_eq!(empty.params["initial_content"], "empty");
+    }
+
+    #[test]
+    fn creation_correlation_is_bounded_and_scoped() {
+        let correlated =
+            protocol(&["workspace", "create", "--correlation-key", "creation-attempt-1"]);
+        assert_eq!(correlated.params["correlation_key"], "creation-attempt-1");
+
+        assert!(parse(&strings(&["workspace", "create", "--correlation-key="])).is_err());
+        assert!(
+            parse(&strings(&["workspace", "create", "--correlation-key", &"x".repeat(129),]))
+                .is_err()
+        );
+        assert!(
+            parse(&strings(&["workspace", "list", "--correlation-key", "creation-attempt-1",]))
+                .is_err()
+        );
+        assert!(
+            parse(&strings(&["session", "current", "creation", &"x".repeat(129), "resolve",]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn terminal_screen_and_process_wait_are_distinct_paths() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        const BROWSER: &str = "browser_00000000000000000000000000000009";
+        let screen = protocol(&[
+            "terminal",
+            TERMINAL,
+            "screen",
+            "wait",
+            "--pattern",
+            "ready",
+            "--timeout-ms",
+            "5000",
+        ]);
+        assert_eq!(operation(&screen), "terminal.wait");
+        assert_eq!(screen.params["timeout_ms"], "5000");
+
+        let process = protocol(&["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"]);
+        assert_eq!(operation(&process), "terminal.wait_exit");
+        assert_eq!(process.params["timeout_ms"], "5000");
+
+        for invalid in ["-1", "01", "18446744073709551616"] {
+            assert!(
+                parse(&strings(&[
+                    "terminal",
+                    TERMINAL,
+                    "process",
+                    "wait",
+                    "--timeout-ms",
+                    invalid,
+                ]))
+                .is_err(),
+                "accepted noncanonical timeout {invalid:?}"
+            );
+        }
+
+        assert!(parse(&strings(&["terminal", TERMINAL, "wait", "--pattern", "ready"])).is_err());
+        for unreachable in [
+            vec!["terminal", TERMINAL, "viewer", "resize", "--cols", "80", "--rows", "24"],
+            vec!["terminal", TERMINAL, "viewer", "release"],
+            vec!["browser", BROWSER, "viewer", "resize", "--width-px", "800", "--height-px", "600"],
+            vec!["browser", BROWSER, "viewer", "release"],
+            vec!["stream", "stream_0000000000000000000000000000000a", "cancel"],
+        ] {
+            assert!(parse(&strings(&unreachable)).is_err(), "{unreachable:?}");
+        }
+    }
+
+    #[test]
+    fn cloud_rename_authority_validates_name_source_and_revision() {
+        const TAB: &str = "tab_00000000000000000000000000000007";
+        for source in ["user", "auto"] {
+            for revision in ["0", "18446744073709551615"] {
+                let plan = protocol(&[
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    source,
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    revision,
+                ]);
+                assert_eq!(operation(&plan), "tab.rename");
+                assert_eq!(plan.params["source"], source);
+                assert_eq!(plan.params["expected_generation"], "daemon");
+                assert_eq!(plan.params["expected_name_revision"], revision);
+            }
+        }
+
+        for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
+            let args =
+                ["tab", TAB, "rename", "--name", "logs", "--expected-name-revision", invalid];
+            assert!(parse(&strings(&args)).is_err(), "accepted invalid revision {invalid:?}");
+        }
+
+        for invalid in ["", "process", "USER"] {
+            let args = ["tab", TAB, "rename", "--name", "logs", "--source", invalid];
+            assert!(parse(&strings(&args)).is_err(), "accepted invalid source {invalid:?}");
+        }
+    }
+
+    /// The machine `notify` accepts the macOS flag set, ignores the Mac-only ones, and validates `--desktop`.
+    #[test]
+    fn notify_matches_the_local_cmux_notify_signature() {
+        const TERMINAL: &str = "term_00000000000000000000000000000041";
+        let plain = protocol(&[
+            "notify",
+            "--title",
+            "Build done",
+            "--subtitle",
+            "api",
+            "--body",
+            "ok",
+            "--surface",
+            TERMINAL,
+            "--id-format",
+            "both",
+            "--window",
+            "1",
+        ]);
+        assert_eq!(plain.operation.name().unwrap(), "notification.create");
+        assert_eq!(plain.params["title"], "Build done");
+        assert_eq!(plain.params["subtitle"], "api");
+        assert_eq!(plain.params["body"], "ok");
+        assert_eq!(plain.params["terminal_id"], TERMINAL);
+
+        // Defaults match the local CLI: title "Notification", empty body.
+        let defaults = protocol(&["notify", "--workspace", "current"]);
+        assert_eq!(defaults.params["title"], "Notification");
+        assert_eq!(defaults.params["body"], "");
+        assert!(defaults.params.get("terminal_id").is_none(), "a workspace notify has no terminal");
+
+        let clear = protocol(&["notify", "--clear", "--surface", TERMINAL]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["terminal_id"], TERMINAL);
+        let clear_all = protocol(&["notify", "--clear", "--workspace", "current"]);
+        assert!(clear_all.params.get("terminal_id").is_none());
+        let clear_ignores_desktop =
+            protocol(&["notify", "--clear", "--surface", TERMINAL, "--desktop", "maybe"]);
+        assert_eq!(clear_ignores_desktop.operation.name().unwrap(), "notification.clear");
+
+        assert!(
+            parse(&strings(&["notify", "--reply", "--title", "x"])).is_err(),
+            "no reply channel across the link"
+        );
+        // The Mac owns delivery for a machine's rows, so the local banner
+        // switch parses for parity and adds nothing to the request.
+        for parity in [
+            &["notify", "--workspace", "current", "--desktop", "false"][..],
+            &["notify", "--workspace", "current", "--desktop=true"][..],
+        ] {
+            let plan = protocol(parity);
+            assert_eq!(plan.operation.name().unwrap(), "notification.create");
+            assert!(plan.params.get("effects").is_none(), "{parity:?}");
+        }
+        match parse(&strings(&["notify", "--workspace", "current", "--desktop", "maybe"])) {
+            Err(error) => assert_eq!(
+                error.to_string(),
+                "--desktop must be true|false",
+                "--desktop is validated like the local flag, with the local error text"
+            ),
+            Ok(_) => panic!("--desktop maybe was accepted"),
+        }
+        if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
+            assert!(
+                parse(&strings(&["notify", "--clear"])).is_err(),
+                "no implicit whole-session clear"
+            );
+            assert!(parse(&strings(&["notify", "--surface", "current"])).is_err());
+        }
+        assert!(parse(&strings(&["notify", "--title", ""])).is_err());
+        assert!(
+            parse(&strings(&["notify", "--surface", "not-a-terminal"])).is_err(),
+            "only this session's terminal ids"
+        );
+        assert!(parse(&strings(&["notify", "extra"])).is_err());
+        let long = "x".repeat(4097);
+        assert!(parse(&strings(&["notify", "--body", &long])).is_err());
+    }
+
+    #[test]
+    fn journal_subscribe_builds_replay_cursor_and_filter_contracts() {
+        const SESSION: &str = "session_00000000000000000000000000000002";
+        const WORKSPACE: &str = "ws_00000000000000000000000000000004";
+
+        let replay = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "subscribe",
+            "--from",
+            "beginning",
+            "--kinds",
+            "pane.*,tab.focus",
+            "--classes",
+            "state,effect",
+            "--subjects",
+            &format!("workspace:{WORKSPACE}"),
+            "--max-sensitivity",
+            "metadata",
+            "--regex",
+            "journal|resumed",
+            "--regex-field",
+            "payload",
+            "--ignore-case",
+        ]);
+        assert_eq!(operation(&replay), "session.journal.subscribe");
+        assert!(replay.stream);
+        assert_eq!(replay.params["start"], "beginning");
+        assert_eq!(replay.params["filter"]["kinds"], json!(["pane.*", "tab.focus"]));
+        assert_eq!(replay.params["filter"]["classes"], json!(["state", "effect"]));
+        assert_eq!(
+            replay.params["filter"]["subjects"],
+            json!([{"kind":"workspace","id":WORKSPACE}])
+        );
+        assert_eq!(replay.params["filter"]["max_sensitivity"], "metadata");
+        assert_eq!(
+            replay.params["filter"]["regex"],
+            json!({
+                "pattern":"journal|resumed",
+                "field":"payload",
+                "case_sensitive":false,
+            })
+        );
+
+        let resumed = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "subscribe",
+            "--cursor-session",
+            SESSION,
+            "--sequence",
+            "42",
+        ]);
+        assert_eq!(resumed.params["cursor"], json!({"generation":SESSION,"revision":"42"}));
+        assert!(resumed.params.get("start").is_none());
+
+        let read = protocol(&["session", SESSION, "journal", "read", "--kinds", "agent.*"]);
+        assert_eq!(operation(&read), "session.journal.subscribe");
+        assert_eq!(read.params["start"], "beginning");
+        assert_eq!(read.params["follow"], false);
+        assert_eq!(read.params["filter"]["kinds"], json!(["agent.*"]));
+
+        let read_from_cursor = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "read",
+            "--cursor-session",
+            SESSION,
+            "--sequence",
+            "42",
+        ]);
+        assert!(read_from_cursor.params.get("start").is_none());
+        assert_eq!(read_from_cursor.params["follow"], false);
+
+        for invalid in [
+            vec!["--from", "beginning", "--cursor-session", SESSION, "--sequence", "1"],
+            vec!["--cursor-session", SESSION],
+            vec!["--kinds", "pane*"],
+            vec!["--classes", "unknown"],
+            vec!["--subjects", "workspace"],
+            vec!["--max-sensitivity", "secret"],
+            vec!["--regex-field", "payload"],
+            vec!["--ignore-case"],
+            vec!["--regex", "value", "--regex-field", "unknown"],
+        ] {
+            let mut args = vec!["session", SESSION, "journal", "subscribe"];
+            args.extend(invalid);
+            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+        }
+
+        let manifest = r#"{"producer_id":"demo","namespace":"plugin.demo"}"#;
+        let producer = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "producer",
+            "put",
+            "--manifest-json",
+            manifest,
+            "--idempotency-key",
+            "producer-put-1",
+        ]);
+        assert_eq!(operation(&producer), "session.journal.producer.put");
+        assert_eq!(producer.params["manifest"]["producer_id"], "demo");
+        assert_eq!(producer.idempotency_key.as_deref(), Some("producer-put-1"));
+
+        let append = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "append",
+            "--event-json",
+            r#"{"producer_id":"demo","payload":{"ready":true}}"#,
+            "--idempotency-key",
+            "append-1",
+        ]);
+        assert_eq!(operation(&append), "session.journal.append");
+        assert_eq!(append.params["event"]["payload"]["ready"], true);
+
+        let hooks = protocol(&["session", SESSION, "journal", "hook", "list"]);
+        assert_eq!(operation(&hooks), "session.journal.hook.list");
+
+        let hook = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "hook",
+            "put",
+            "--manifest-json",
+            r#"{"hook_id":"demo_hook","manifest_version":1}"#,
+            "--idempotency-key",
+            "hook-put-1",
+        ]);
+        assert_eq!(operation(&hook), "session.journal.hook.put");
+        assert_eq!(hook.params["manifest"]["hook_id"], "demo_hook");
+        assert_eq!(hook.idempotency_key.as_deref(), Some("hook-put-1"));
+
+        let checkpoint = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "checkpoint",
+            "create",
+            "--idempotency-key",
+            "checkpoint-1",
+        ]);
+        assert_eq!(operation(&checkpoint), "session.journal.checkpoint.create");
+        let checkpoints = protocol(&["session", SESSION, "journal", "checkpoint", "list"]);
+        assert_eq!(operation(&checkpoints), "session.journal.checkpoint.list");
+
+        let restore = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "restore",
+            "preview",
+            "--checkpoint",
+            "latest",
+        ]);
+        assert_eq!(operation(&restore), "session.journal.restore.preview");
+        assert_eq!(restore.params["checkpoint"], "latest");
+
+        let segments = protocol(&["session", SESSION, "journal", "segment", "list"]);
+        assert_eq!(operation(&segments), "session.journal.segment.list");
+        let seal = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "segment",
+            "seal",
+            "--through",
+            "42",
+            "--idempotency-key",
+            "segment-1",
+        ]);
+        assert_eq!(operation(&seal), "session.journal.segment.seal");
+        assert_eq!(seal.params["through_sequence"], "42");
+    }
+
+    #[test]
+    fn agent_hook_emit_normalizes_and_preserves_the_native_payload() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let payload = r#"{"session_id":"native-session","message":"done","opaque":{"v":42}}"#;
+        let first = protocol(&[
+            "agent",
+            "hook",
+            "emit",
+            "--source",
+            "codex",
+            "--event",
+            "Stop",
+            "--terminal",
+            TERMINAL,
+            "--payload-json",
+            payload,
+        ]);
+        let second = protocol(&[
+            "agent",
+            "hook",
+            "emit",
+            "--source",
+            "codex",
+            "--event",
+            "Stop",
+            "--terminal",
+            TERMINAL,
+            "--payload-json",
+            payload,
+        ]);
+        assert_eq!(operation(&first), "session.journal.append");
+        assert_eq!(first.params["event"]["kind"], "agent.turn.completed");
+        assert_eq!(first.params["event"]["payload"]["native"]["opaque"]["v"], 42);
+        assert_eq!(
+            first.params["event"]["payload"]["normalized"]["agent_session_id"],
+            "native-session"
+        );
+        assert_eq!(first.params["event"]["subjects"][0]["id"], TERMINAL);
+        assert_eq!(first.params["event"]["sensitivity"], "sensitive");
+        for optional in ["occurred_at_ms", "causation_id", "correlation_id"] {
+            assert!(
+                first.params["event"].get(optional).is_none(),
+                "absent optional field {optional} must not serialize as null"
+            );
+        }
+        assert_eq!(first.idempotency_key, None);
+        assert_eq!(second.idempotency_key, None);
+
+        assert!(
+            parse(&strings(&[
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "Invalid Source",
+                "--event",
+                "Stop",
+                "--payload-json",
+                "{}",
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn journal_append_inherits_scoped_hook_causation() {
+        let mut event = json!({
+            "producer_id":"demo",
+            "subjects":[{"kind":"workspace","id":"ws_test"}],
+            "payload":{},
+        });
+        apply_journal_hook_context(
+            &mut event,
+            Some("demo_hook"),
+            Some("event_hook_started"),
+            Some("demo_hook:1:event_source"),
+        )
+        .unwrap();
+        assert_eq!(event["causation_id"], "event_hook_started");
+        assert_eq!(event["correlation_id"], "demo_hook:1:event_source");
+        assert_eq!(
+            event["subjects"],
+            json!([
+                {"kind":"workspace","id":"ws_test"},
+                {"kind":"hook","id":"demo_hook"},
+            ])
+        );
+    }
+
+    #[test]
+    fn run_never_infers_a_shell() {
+        let direct = protocol(&["pane", "current", "run", "--", "printf", "%s", "a b"]);
+        assert_eq!(direct.params["argv"], json!(["printf", "%s", "a b"]));
+        assert!(direct.params.get("shell").is_none());
+
+        let shell = protocol(&["pane", "current", "run", "shell", "printf 'ok'"]);
+        assert_eq!(shell.params["shell"], "printf 'ok'");
+        assert!(shell.params.get("argv").is_none());
+
+        let empty_argument = protocol(&["pane", "current", "run", "--", "printf", ""]);
+        assert_eq!(empty_argument.params["argv"], json!(["printf", ""]));
+        assert!(parse(&strings(&["pane", "current", "run", "--", "", "argument"])).is_err());
+        assert!(parse(&strings(&["pane", "current", "run", "echo ok"])).is_err());
+    }
+
+    #[test]
+    fn run_on_exit_policy_is_validated_and_forwarded_verbatim() {
+        for scope in [["workspace", "current"], ["pane", "current"]] {
+            let kept = protocol(&[scope[0], scope[1], "run", "--on-exit", "keep", "--", "true"]);
+            assert_eq!(kept.params["on_exit"], "keep");
+
+            let closed = protocol(&[scope[0], scope[1], "run", "--on-exit", "close", "--", "true"]);
+            assert_eq!(closed.params["on_exit"], "close");
+
+            let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
+            assert!(default.params.get("on_exit").is_none());
+
+            let shell_policy =
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]));
+            assert!(
+                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
+                "--on-exit shell must be a typed not-yet-supported usage error"
+            );
+            assert!(
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn read_run_terminal_reads_take_unwrap_lines_and_new() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "screen", "read"]);
+        assert!(plain.params.get("unwrap").is_none());
+        assert!(plain.params.get("lines").is_none());
+
+        let read = protocol(&["terminal", TERMINAL, "read", "--unwrap", "--lines", "50"]);
+        assert_eq!(operation(&read), "terminal.screen.read");
+        assert_eq!(read.params["unwrap"], true);
+        assert_eq!(read.params["lines"], 50);
+        for invalid in ["0", "10001", "-1"] {
+            assert!(
+                parse(&strings(&["terminal", TERMINAL, "screen", "read", "--lines", invalid]))
+                    .is_err(),
+                "accepted --lines {invalid}"
+            );
+        }
+
+        let copy = protocol(&["terminal", TERMINAL, "copy", "--mode", "scrollback", "--unwrap"]);
+        assert_eq!(operation(&copy), "terminal.copy");
+        assert_eq!(copy.params["unwrap"], true);
+
+        let wait =
+            protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready", "--new"]);
+        assert_eq!(operation(&wait), "terminal.wait");
+        assert_eq!(wait.params["new"], true);
+        let old = protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready"]);
+        assert!(old.params.get("new").is_none());
+    }
+
+    #[test]
+    fn terminal_output_read_parses_cursor_and_bounded_window() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "output", "read"]);
+        assert!(plain.params.get("after").is_none());
+        assert!(plain.params.get("max_bytes").is_none());
+
+        let resumed = protocol(&[
+            "terminal",
+            TERMINAL,
+            "output",
+            "read",
+            "--after",
+            "4096",
+            "--max-bytes",
+            "65536",
+        ]);
+        assert_eq!(resumed.params["after"], "4096");
+        assert_eq!(resumed.params["max_bytes"], 65536);
+
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--after", "-1"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "0"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "4194305"]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn input_commands_enforce_variant_constraints() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        const BROWSER: &str = "browser_00000000000000000000000000000009";
+
+        assert!(
+            parse(&strings(&[
+                "terminal", TERMINAL, "mouse", "down", "--row", "1", "--column", "1",
+            ]))
+            .is_err()
+        );
+        assert!(
+            parse(&strings(&[
+                "terminal",
+                TERMINAL,
+                "mouse",
+                "wheel",
+                "--row",
+                "1",
+                "--column",
+                "1",
+                "--delta-rows",
+                "0",
+            ]))
+            .is_err()
+        );
+        assert!(
+            parse(&strings(&[
+                "terminal",
+                TERMINAL,
+                "mouse",
+                "move",
+                "--row",
+                "1",
+                "--column",
+                "1",
+                "--modifiers",
+                "super",
+            ]))
+            .is_err()
+        );
+        let meta = protocol(&[
+            "terminal",
+            TERMINAL,
+            "mouse",
+            "move",
+            "--row",
+            "1",
+            "--column",
+            "1",
+            "--modifiers",
+            "meta",
+        ]);
+        assert_eq!(meta.params["modifiers"], json!(["meta"]));
+
+        assert!(
+            parse(&strings(&[
+                "browser", BROWSER, "mouse", "--kind", "down", "--x-px", "1", "--y-px", "1",
+            ]))
+            .is_err()
+        );
+        assert!(
+            parse(&strings(&[
+                "browser", BROWSER, "mouse", "--kind", "move", "--x-px", "1", "--y-px", "1",
+                "--button", "left",
+            ]))
+            .is_err()
+        );
+        assert!(
+            parse(&strings(&[
+                "browser",
+                BROWSER,
+                "wheel",
+                "--delta-x",
+                "0",
+                "--delta-y",
+                "1",
+                "--x-px",
+                "1",
+            ]))
+            .is_err()
+        );
+        assert!(
+            parse(&strings(&[
+                "browser", BROWSER, "mouse", "--kind", "move", "--x-px", "1", "--y-px", "1",
+            ]))
+            .is_err()
+        );
+        let guarded = protocol(&[
+            "browser",
+            BROWSER,
+            "mouse",
+            "--kind",
+            "move",
+            "--x-px",
+            "1",
+            "--y-px",
+            "1",
+            "--pointer-frame-seq",
+            "18446744073709551615",
+        ]);
+        assert_eq!(guarded.params["pointer_frame_seq"], "18446744073709551615");
+        assert!(
+            parse(&strings(&[
+                "browser",
+                BROWSER,
+                "wheel",
+                "--delta-x",
+                "0",
+                "--delta-y",
+                "1",
+                "--x-px",
+                "1",
+                "--y-px",
+                "1",
+                "--pointer-frame-seq",
+                "18446744073709551616",
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn idempotency_is_only_for_mutations() {
+        let mutation = protocol(&["workspace", "create"]);
+        assert_eq!(mutation.operation.class(), OperationClass::Mutation);
+        let read = parse(&strings(&["workspace", "list", "--idempotency-key", "no"]));
+        assert!(read.is_err());
+    }
+
+    #[test]
+    fn explicit_idempotency_keys_match_the_durable_identifier_contract() {
+        for invalid in ["", " ", "\u{00a0}\u{3000}", "key\ncontrol", &"\u{00e9}".repeat(65)] {
+            assert!(
+                parse(&strings(&["workspace", "create", "--idempotency-key", invalid])).is_err(),
+                "accepted invalid idempotency key {invalid:?}"
+            );
+        }
+        for valid in [" key ", "\u{feff}", &"\u{00e9}".repeat(64)] {
+            let plan = protocol(&["workspace", "create", "--idempotency-key", valid]);
+            assert_eq!(plan.idempotency_key.as_deref(), Some(valid));
+        }
+    }
+
+    #[test]
+    fn nullable_fields_have_explicit_clear_flags() {
+        const CLIENT: &str = "client_00000000000000000000000000000003";
+        const SESSION: &str = "session_00000000000000000000000000000002";
+
+        let client =
+            protocol(&["client", CLIENT, "metadata", "set", "--clear-name", "--clear-kind"]);
+        assert_eq!(client.params["name"], Value::Null);
+        assert_eq!(client.params["kind"], Value::Null);
+
+        let defaults = protocol(&[
+            "session",
+            SESSION,
+            "terminal",
+            "defaults",
+            "set",
+            "--clear-foreground",
+            "--clear-cursor-blink",
+            "--clear-palette",
+        ]);
+        assert_eq!(defaults.params["foreground"], Value::Null);
+        assert_eq!(defaults.params["cursor_blink"], Value::Null);
+        assert_eq!(defaults.params["palette"], Value::Null);
+
+        assert!(
+            parse(&strings(&[
+                "client",
+                CLIENT,
+                "metadata",
+                "set",
+                "--name",
+                "cli",
+                "--clear-name",
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn attach_allocates_a_typed_stream_id() {
+        let attach = protocol(&["terminal", "term_55555555555555555555555555555555", "attach"]);
+        assert!(
+            attach.params["stream_id"].as_str().is_some_and(|value| value.starts_with("stream_"))
+        );
+        assert!(attach.stream);
+    }
+
+    #[test]
+    fn wrong_resource_id_prefix_is_rejected_locally() {
+        assert!(
+            parse(&strings(&["workspace", "pane_33333333333333333333333333333333", "show",]))
+                .is_err()
+        );
+    }
+
+    /// `screen create` keeps the focus unless `--focus` (bench round 3,
+    /// T8); `--workspace` places the screen in another workspace.
+    #[test]
+    fn w4j_screen_create_sends_focus_only_when_asked_and_takes_a_workspace() {
+        let plain = protocol(&["screen", "create", "--name", "build"]).params;
+        assert!(plain.get("focus").is_none(), "{plain}");
+        let quiet = protocol(&["screen", "create", "--no-focus"]).params;
+        assert!(quiet.get("focus").is_none(), "{quiet}");
+        let focused = protocol(&["screen", "create", "--focus"]).params;
+        assert_eq!(focused["focus"], true);
+        let workspace = "ws_00000000000000000000000000000004";
+        let placed = protocol(&["screen", "create", "--workspace", workspace]).params;
+        assert_eq!(placed["workspace"], workspace);
+    }
+
+    /// `--state` takes the shared status words: `done` and `idle` both ask
+    /// the daemon for `idle` (the unread marker tells them apart), `ended`
+    /// asks for the daemon's `done` (a session that ended).
+    #[test]
+    fn w4j_agent_list_state_takes_the_shared_status_words() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        for (status, daemon) in [
+            ("done", "idle"),
+            ("idle", "idle"),
+            ("ended", "done"),
+            ("working", "working"),
+            ("blocked", "blocked"),
+            ("unknown", "unknown"),
+        ] {
+            let CommandPlan::AgentList(list) =
+                parse(&strings(&["agent", "list", "--terminal", TERMINAL, "--state", status]))
+                    .unwrap()
+            else {
+                panic!("agent list is an agent list plan");
+            };
+            assert_eq!(list.request.params["state"], daemon, "--state {status}");
+            assert_eq!(list.status, Some(status));
+        }
+        assert!(parse(&strings(&["agent", "list", "--state", "busy"])).is_err());
+    }
+
+    #[test]
+    fn agent_commands_use_canonical_public_states() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        // agent list --state takes the shared status words and maps them
+        // (w4j_agent_list_state_takes_the_shared_status_words); agent report
+        // takes the daemon state.
+        for state in ["working", "blocked", "idle", "done", "unknown"] {
+            let report = protocol(&[
+                "agent",
+                "report",
+                "--terminal",
+                TERMINAL,
+                "--state",
+                state,
+                "--source",
+                "socket",
+            ]);
+            assert_eq!(report.params["state"], state);
+        }
+        for noncanonical in ["running", "waiting", "error"] {
+            assert!(
+                parse(&strings(&[
+                    "agent",
+                    "report",
+                    "--terminal",
+                    TERMINAL,
+                    "--state",
+                    noncanonical,
+                    "--source",
+                    "socket",
+                ]))
+                .is_err(),
+                "accepted noncanonical agent state {noncanonical:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn old_hyphenated_action_is_not_a_nested_selector() {
+        assert!(
+            parse(&strings(&[
+                "terminal",
+                "term_55555555555555555555555555555555",
+                "history-clear",
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn sensitive_renderer_grant_has_no_public_path() {
+        for scope in ["terminal", "tab", "client"] {
+            let args = strings(&[scope, "renderer", "grant", "create"]);
+            assert!(parse(&args).is_err());
+        }
+        let raw = protocol(&[
+            "raw",
+            "operation",
+            "terminal.renderer_grant.create",
+            "--params-json",
+            r#"{"machine":"current","session":"current","terminal":"term_00000000000000000000000000000001","ttl_ms":1000}"#,
+        ]);
+        assert_eq!(operation(&raw), "terminal.renderer_grant.create");
+        assert_eq!(raw.operation.class(), OperationClass::ConnectionControl);
+    }
+
+    #[test]
+    fn every_local_catalog_operation_has_a_socket_free_path() {
+        let cases = [
+            (
+                vec![
+                    "sidebar",
+                    "plugin",
+                    "install",
+                    "https://example.com/plugin.git",
+                    "--name",
+                    "custom",
+                    "--force",
+                ],
+                "sidebar_plugin.install",
+            ),
+            (vec!["sidebar", "plugin", "list"], "sidebar_plugin.list"),
+            (vec!["sidebar", "plugin", "remove", "custom"], "sidebar_plugin.remove"),
+            (vec!["sidebar", "plugin", "update", "custom"], "sidebar_plugin.update"),
+            (vec!["sidebar", "plugin", "use", "custom"], "sidebar_plugin.use"),
+            (vec!["sidebar", "plugin", "use", "--builtin"], "sidebar_plugin.use_builtin"),
+        ];
+        let mut seen = std::collections::BTreeSet::new();
+        for (args, operation) in cases {
+            let CommandPlan::Plugin(plan) = parse(&strings(&args)).unwrap() else {
+                panic!("{operation} did not stay local");
+            };
+            assert!(!plan.positionals.is_empty());
+            if operation == "sidebar_plugin.install" {
+                assert_eq!(plan.name.as_deref(), Some("custom"));
+                assert!(plan.force);
+            }
+            if operation == "sidebar_plugin.use_builtin" {
+                assert!(plan.builtin);
+            }
+            seen.insert(operation);
+        }
+        let catalog = operation_catalog();
+        let expected = catalog["local_operations"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(seen, expected);
+    }
+
+    #[test]
+    fn agent_plugin_management_stays_local_and_can_be_disabled() {
+        let cases = [
+            (vec!["agent", "plugin", "list"], false),
+            (vec!["agent", "plugin", "install", "https://example.com/plugin.git"], false),
+            (vec!["agent", "plugin", "use", "screen-detector"], false),
+            (vec!["agent", "plugin", "update", "screen-detector"], false),
+            (vec!["agent", "plugin", "remove", "screen-detector"], false),
+            (vec!["agent", "plugin", "use", "--builtin"], true),
+        ];
+        for (args, builtin) in cases {
+            let CommandPlan::Plugin(plan) = parse(&strings(&args)).unwrap() else {
+                panic!("agent plugin command did not stay local: {args:?}");
+            };
+            assert_eq!(plan.kind, crate::plugin_manager::PluginKind::Agent);
+            assert_eq!(plan.builtin, builtin);
+        }
+    }
+
+    #[test]
+    fn every_safe_transport_operation_has_a_noun_first_path() {
+        const MACHINE: &str = "machine_00000000000000000000000000000001";
+        const SESSION: &str = "session_00000000000000000000000000000002";
+        const CLIENT: &str = "client_00000000000000000000000000000003";
+        const WORKSPACE: &str = "ws_00000000000000000000000000000004";
+        const SCREEN: &str = "screen_00000000000000000000000000000005";
+        const PANE: &str = "pane_00000000000000000000000000000006";
+        const TAB: &str = "tab_00000000000000000000000000000007";
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        const BROWSER: &str = "browser_00000000000000000000000000000009";
+        const PAIRING: &str = "pairing_0000000000000000000000000000000b";
+        const PROJECTION: &str = "projection_0000000000000000000000000000000c";
+        const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
+
+        let cases: Vec<(Vec<&str>, &str)> = vec![
+            (vec!["machine", "list"], "machine.list"),
+            (vec!["machine", MACHINE, "show"], "machine.get"),
+            (vec!["machine", MACHINE, "session", "list"], "session.list"),
+            (vec!["machine", MACHINE, "session", SESSION, "open"], "session.open"),
+            (vec!["session", SESSION, "show"], "session.get"),
+            (vec!["session", SESSION, "snapshot"], "session.snapshot"),
+            (
+                vec!["session", SESSION, "creation", "create-42", "resolve"],
+                "session.creation.resolve",
+            ),
+            (
+                vec!["session", SESSION, "events", "--generation", "g1", "--revision", "3"],
+                "session.events",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "read",
+                    "--from",
+                    "beginning",
+                    "--kinds",
+                    "pane.*,tab.focus",
+                ],
+                "session.journal.subscribe",
+            ),
+            (
+                vec!["session", SESSION, "journal", "producer", "list"],
+                "session.journal.producer.list",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "producer",
+                    "put",
+                    "--manifest-json",
+                    r#"{"producer_id":"demo","namespace":"plugin.demo"}"#,
+                ],
+                "session.journal.producer.put",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "append",
+                    "--event-json",
+                    r#"{"producer_id":"demo","payload":{"ready":true}}"#,
+                ],
+                "session.journal.append",
+            ),
+            (vec!["session", SESSION, "journal", "hook", "list"], "session.journal.hook.list"),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "hook",
+                    "put",
+                    "--manifest-json",
+                    r#"{"hook_id":"demo_hook","manifest_version":1}"#,
+                ],
+                "session.journal.hook.put",
+            ),
+            (
+                vec!["session", SESSION, "journal", "checkpoint", "create"],
+                "session.journal.checkpoint.create",
+            ),
+            (
+                vec!["session", SESSION, "journal", "checkpoint", "list"],
+                "session.journal.checkpoint.list",
+            ),
+            (
+                vec!["session", SESSION, "journal", "restore", "preview", "--checkpoint", "latest"],
+                "session.journal.restore.preview",
+            ),
+            (
+                vec!["session", SESSION, "journal", "segment", "list"],
+                "session.journal.segment.list",
+            ),
+            (
+                vec!["session", SESSION, "journal", "segment", "seal", "--through", "42"],
+                "session.journal.segment.seal",
+            ),
+            (vec!["session", SESSION, "ping"], "session.ping"),
+            (vec!["session", SESSION, "shutdown", "--force"], "session.shutdown"),
+            (vec!["session", SESSION, "config", "reload"], "session.reload_config"),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "terminal",
+                    "defaults",
+                    "set",
+                    "--foreground",
+                    "#ffffff",
+                    "--background",
+                    "#000000",
+                    "--cursor",
+                    "#aaaaaa",
+                    "--selection-background",
+                    "#111111",
+                    "--selection-foreground",
+                    "#eeeeee",
+                    "--cursor-style",
+                    "bar",
+                    "--cursor-blink",
+                    "true",
+                    "--palette",
+                    "{\"0\":\"#000000\",\"255\":\"#ffffff\"}",
+                    "--complete",
+                ],
+                "session.terminal_defaults.update",
+            ),
+            (vec!["client", "list"], "client.list"),
+            (vec!["client", CLIENT, "show"], "client.get"),
+            (
+                vec!["client", CLIENT, "metadata", "set", "--name", "cli", "--kind", "automation"],
+                "client.metadata.update",
+            ),
+            (
+                vec![
+                    "client",
+                    CLIENT,
+                    "sizing",
+                    "set",
+                    "--terminal",
+                    TERMINAL,
+                    "--enabled",
+                    "true",
+                    "--exclusive",
+                    "true",
+                ],
+                "client.sizing.set",
+            ),
+            (
+                vec!["client", CLIENT, "sizing", "release", "--terminal", TERMINAL],
+                "client.sizing.release",
+            ),
+            (
+                vec![
+                    "client",
+                    CLIENT,
+                    "cell",
+                    "pixels",
+                    "set",
+                    "--width-px",
+                    "8",
+                    "--height-px",
+                    "16",
+                ],
+                "client.cell_pixels.set",
+            ),
+            (vec!["client", CLIENT, "detach"], "client.detach"),
+            (
+                vec!["session", SESSION, "window", "title", "set", "--title", "build"],
+                "session.window.title.set",
+            ),
+            (vec!["session", SESSION, "window", "title", "clear"], "session.window.title.clear"),
+            (vec!["pairing", "request", "list"], "pairing_request.list"),
+            (vec!["pairing", "request", PAIRING, "respond", "accept"], "pairing_request.resolve"),
+            (vec!["projection", PROJECTION, "show"], "frontend_projection.get"),
+            (
+                vec![
+                    "projection",
+                    PROJECTION,
+                    "put",
+                    "--projection",
+                    "{\"sidebar\":\"compact\"}",
+                    "--frontend-id",
+                    "cmux-cli",
+                    "--window-id",
+                    "window-1",
+                    "--generation",
+                    "launch-1",
+                    "--expected-projection-revision",
+                    "7",
+                ],
+                "frontend_projection.put",
+            ),
+            (vec!["workspace", "list"], "workspace.list"),
+            (vec!["workspace", WORKSPACE, "show"], "workspace.get"),
+            (
+                vec![
+                    "workspace",
+                    "create",
+                    "--empty",
+                    "--name",
+                    "empty",
+                    "--correlation-key",
+                    "create-42",
+                ],
+                "workspace.create",
+            ),
+            (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
+            (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
+            (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
+            (vec!["workspace", WORKSPACE, "close"], "workspace.close"),
+            (
+                vec![
+                    "workspace",
+                    WORKSPACE,
+                    "run",
+                    "--cwd",
+                    "/tmp",
+                    "--name",
+                    "tests",
+                    "--cols",
+                    "100",
+                    "--rows",
+                    "40",
+                    "--on-exit",
+                    "keep",
+                    "--correlation-key",
+                    "create-42",
+                    "--",
+                    "cargo",
+                    "test",
+                ],
+                "workspace.run",
+            ),
+            (
+                vec!["workspace", WORKSPACE, "layout", "apply", "--layout", "{\"kind\":\"leaf\"}"],
+                "workspace.layout.apply",
+            ),
+            (vec!["screen", "list"], "screen.list"),
+            (vec!["screen", SCREEN, "show"], "screen.get"),
+            (
+                vec![
+                    "screen",
+                    "create",
+                    "--name",
+                    "build",
+                    "--focus",
+                    "--correlation-key",
+                    "create-42",
+                ],
+                "screen.create",
+            ),
+            (vec!["screen", SCREEN, "rename", "--name", "tests"], "screen.rename"),
+            (vec!["screen", SCREEN, "focus"], "screen.focus"),
+            (vec!["screen", SCREEN, "close"], "screen.close"),
+            (vec!["screen", SCREEN, "layout", "export"], "screen.layout.export"),
+            (
+                vec![
+                    "screen",
+                    SCREEN,
+                    "layout",
+                    "undo",
+                    "--confirm-close",
+                    "--confirmation-token",
+                    "layout-preview-token",
+                ],
+                "screen.layout.undo",
+            ),
+            (vec!["pane", "list"], "pane.list"),
+            (vec!["pane", PANE, "show"], "pane.get"),
+            (
+                vec![
+                    "pane",
+                    "create",
+                    "--cwd",
+                    "/tmp",
+                    "--cols",
+                    "80",
+                    "--rows",
+                    "24",
+                    "--correlation-key",
+                    "create-42",
+                ],
+                "pane.create",
+            ),
+            (
+                vec![
+                    "pane",
+                    PANE,
+                    "split",
+                    "--right",
+                    "--ratio",
+                    "0.5",
+                    "--viewport-width",
+                    "0.5",
+                    "--cwd",
+                    "/tmp",
+                    "--cols",
+                    "80",
+                    "--rows",
+                    "24",
+                    "--correlation-key",
+                    "create-42",
+                ],
+                "pane.split",
+            ),
+            (vec!["pane", PANE, "rename", "--name", "server"], "pane.rename"),
+            (vec!["pane", PANE, "focus"], "pane.focus"),
+            (vec!["pane", PANE, "focus", "direction", "right"], "pane.focus_direction"),
+            (vec!["pane", PANE, "neighbor", "left"], "pane.neighbor.get"),
+            (
+                vec![
+                    "pane",
+                    PANE,
+                    "swap",
+                    "--other-workspace",
+                    WORKSPACE,
+                    "--other-screen",
+                    SCREEN,
+                    "--other-pane",
+                    PANE,
+                ],
+                "pane.swap",
+            ),
+            (vec!["pane", PANE, "zoom", "--enabled", "true"], "pane.zoom"),
+            (
+                vec![
+                    "pane",
+                    PANE,
+                    "split",
+                    "ratio",
+                    "set",
+                    "--split",
+                    "split_0000000000000000000000000000000f",
+                    "--ratio",
+                    "0.5",
+                ],
+                "pane.split_ratio.set",
+            ),
+            (
+                vec!["pane", PANE, "viewport", "width", "set", "--columns", "80"],
+                "pane.viewport_width.set",
+            ),
+            (vec!["pane", PANE, "close"], "pane.close"),
+            (
+                vec![
+                    "pane",
+                    PANE,
+                    "run",
+                    "--cwd",
+                    "/tmp",
+                    "--name",
+                    "make",
+                    "--cols",
+                    "90",
+                    "--rows",
+                    "30",
+                    "--on-exit",
+                    "keep",
+                    "--correlation-key",
+                    "create-42",
+                    "--",
+                    "make",
+                    "test",
+                ],
+                "pane.run",
+            ),
+            (vec!["tab", "list"], "tab.list"),
+            (vec!["tab", TAB, "show"], "tab.get"),
+            (
+                vec![
+                    "tab",
+                    "create",
+                    "terminal",
+                    "--cwd",
+                    "/tmp",
+                    "--name",
+                    "shell",
+                    "--cols",
+                    "80",
+                    "--rows",
+                    "24",
+                    "--correlation-key",
+                    "create-42",
+                ],
+                "tab.create_terminal",
+            ),
+            (
+                vec![
+                    "tab",
+                    "create",
+                    "browser",
+                    "--url",
+                    "https://example.com",
+                    "--name",
+                    "docs",
+                    "--width-px",
+                    "1200",
+                    "--height-px",
+                    "800",
+                    "--correlation-key",
+                    "create-42",
+                ],
+                "tab.create_browser",
+            ),
+            (
+                vec![
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    "auto",
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    "0",
+                ],
+                "tab.rename",
+            ),
+            (
+                vec![
+                    "tab",
+                    TAB,
+                    "move",
+                    "--workspace",
+                    WORKSPACE,
+                    "--screen",
+                    SCREEN,
+                    "--pane",
+                    PANE,
+                    "--index",
+                    "0",
+                ],
+                "tab.move",
+            ),
+            (vec!["tab", TAB, "focus"], "tab.focus"),
+            (vec!["tab", TAB, "close"], "tab.close"),
+            (vec!["terminal", "list"], "terminal.list"),
+            (vec!["terminal", TERMINAL, "show"], "terminal.get"),
+            (vec!["terminal", TERMINAL, "write", "--text", "hello"], "terminal.input.write"),
+            (vec!["terminal", TERMINAL, "keys", "ctrl-c"], "terminal.input.keys"),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "mouse",
+                    "down",
+                    "--row",
+                    "4",
+                    "--column",
+                    "7",
+                    "--button",
+                    "left",
+                    "--modifiers",
+                    "shift,meta",
+                ],
+                "terminal.input.mouse",
+            ),
+            (vec!["terminal", TERMINAL, "focus", "in"], "terminal.input.focus"),
+            (
+                vec!["terminal", TERMINAL, "screen", "read", "--unwrap", "--lines", "5"],
+                "terminal.screen.read",
+            ),
+            (vec!["terminal", TERMINAL, "state", "read"], "terminal.state.read"),
+            (
+                vec![
+                    "terminal", TERMINAL, "history", "read", "--before", "0", "--limit", "100",
+                    "--styled",
+                ],
+                "terminal.history.read",
+            ),
+            (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "output",
+                    "read",
+                    "--after",
+                    "4096",
+                    "--max-bytes",
+                    "65536",
+                ],
+                "terminal.output_read",
+            ),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "screen",
+                    "wait",
+                    "--pattern",
+                    "ready",
+                    "--timeout-ms",
+                    "5000",
+                    "--new",
+                ],
+                "terminal.wait",
+            ),
+            (vec!["terminal", TERMINAL, "copy", "--mode", "screen", "--unwrap"], "terminal.copy"),
+            (vec!["terminal", TERMINAL, "process", "show"], "terminal.process.get"),
+            (
+                vec!["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"],
+                "terminal.wait_exit",
+            ),
+            (
+                vec!["terminal", TERMINAL, "viewport", "scroll", "--delta-rows", "-3"],
+                "terminal.viewport.scroll",
+            ),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "move",
+                    "--workspace",
+                    WORKSPACE,
+                    "--screen",
+                    SCREEN,
+                    "--pane",
+                    PANE,
+                    "--index",
+                    "1",
+                ],
+                "terminal.move",
+            ),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "project",
+                    "--workspace",
+                    WORKSPACE,
+                    "--screen",
+                    SCREEN,
+                    "--pane",
+                    PANE,
+                    "--index",
+                    "1",
+                    "--name",
+                    "mirror",
+                ],
+                "terminal.project",
+            ),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "attach",
+                    "--cols",
+                    "100",
+                    "--rows",
+                    "40",
+                    "--read-only",
+                ],
+                "terminal.attach",
+            ),
+            (vec!["terminal", TERMINAL, "close"], "terminal.close"),
+            (vec!["browser", "list"], "browser.list"),
+            (vec!["browser", BROWSER, "show"], "browser.get"),
+            (
+                vec!["browser", BROWSER, "navigate", "--url", "https://example.com"],
+                "browser.navigate",
+            ),
+            (vec!["browser", BROWSER, "back"], "browser.back"),
+            (vec!["browser", BROWSER, "forward"], "browser.forward"),
+            (vec!["browser", BROWSER, "reload"], "browser.reload"),
+            (vec!["browser", BROWSER, "activate"], "browser.activate"),
+            (
+                vec![
+                    "browser",
+                    BROWSER,
+                    "key",
+                    "--key",
+                    "Enter",
+                    "--kind",
+                    "press",
+                    "--modifiers",
+                    "shift,meta",
+                ],
+                "browser.input.key",
+            ),
+            (vec!["browser", BROWSER, "text", "--text", "hello"], "browser.input.text"),
+            (
+                vec![
+                    "browser",
+                    BROWSER,
+                    "mouse",
+                    "--kind",
+                    "down",
+                    "--x-px",
+                    "10",
+                    "--y-px",
+                    "20",
+                    "--button",
+                    "left",
+                    "--click-count",
+                    "2",
+                    "--pointer-frame-seq",
+                    "42",
+                ],
+                "browser.input.mouse",
+            ),
+            (
+                vec![
+                    "browser",
+                    BROWSER,
+                    "wheel",
+                    "--delta-x",
+                    "1",
+                    "--delta-y",
+                    "120",
+                    "--x-px",
+                    "10",
+                    "--y-px",
+                    "20",
+                    "--pointer-frame-seq",
+                    "42",
+                ],
+                "browser.input.wheel",
+            ),
+            (
+                vec!["browser", BROWSER, "attach", "--width-px", "1200", "--height-px", "800"],
+                "browser.attach",
+            ),
+            (vec!["browser", BROWSER, "close"], "browser.close"),
+            (vec!["notification", "list", "--limit", "100"], "notification.list"),
+            (
+                vec![
+                    "notification",
+                    "create",
+                    "--subtitle",
+                    "api",
+                    "--title",
+                    "done",
+                    "--body",
+                    "tests passed",
+                    "--level",
+                    "success",
+                    "--terminal",
+                    TERMINAL,
+                ],
+                "notification.create",
+            ),
+            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
+            (
+                vec![
+                    "agent",
+                    "report",
+                    "--terminal",
+                    TERMINAL,
+                    "--state",
+                    "working",
+                    "--source",
+                    "socket",
+                    "--source-session",
+                    "job-1",
+                ],
+                "agent.report",
+            ),
+            (vec!["sidebar", "view", "show", "--view", VIEW], "sidebar_view.get"),
+            (
+                vec!["sidebar", "view", "ensure", "--cols", "30", "--rows", "40", "--relaunch"],
+                "sidebar_view.ensure",
+            ),
+            (vec!["sidebar", "view", "attach", "--view", VIEW], "sidebar_view.attach"),
+            (vec!["sidebar", "view", "input", "--view", VIEW, "--text", "j"], "sidebar_view.input"),
+            (
+                vec!["sidebar", "view", "resize", "--view", VIEW, "--cols", "30", "--rows", "40"],
+                "sidebar_view.resize",
+            ),
+            (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
+            (
+                vec![
+                    "notification",
+                    "ack",
+                    "notification_00000000000000000000000000000041",
+                    "--client",
+                    "mac-1",
+                ],
+                "notification.ack",
+            ),
+            (
+                vec![
+                    "notification",
+                    "clear",
+                    "--terminal",
+                    "term_00000000000000000000000000000041",
+                ],
+                "notification.clear",
+            ),
+        ];
+
+        assert_eq!(cases.len(), 120);
+        let catalog = operation_catalog();
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
+        let mut seen = std::collections::BTreeSet::new();
+        let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
+        for (args, expected) in &cases {
+            let plan = protocol(args);
+            assert_eq!(operation(&plan), *expected, "{args:?}");
+            assert_plan_matches_catalog(&plan, expected, &catalog);
+            assert!(seen.insert(*expected), "duplicate operation case {expected}");
+            record_covered_fields(&plan, expected, &catalog, &mut covered_fields);
+
+            if catalog["operations"][expected]["params"]["fields"]["expected_revision"].is_object()
+            {
+                let mut with_revision = args.clone();
+                let insert_at = with_revision
+                    .iter()
+                    .position(|value| *value == "--")
+                    .unwrap_or(with_revision.len());
+                with_revision.splice(insert_at..insert_at, ["--expected-revision", "7"]);
+                let revised = protocol(&with_revision);
+                assert_eq!(
+                    revised.params["expected_revision"], "7",
+                    "{expected} did not expose optimistic concurrency"
+                );
+                assert_plan_matches_catalog(&revised, expected, &catalog);
+                record_covered_fields(&revised, expected, &catalog, &mut covered_fields);
+            }
+        }
+        for (args, expected) in [
+            (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
+            (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "subscribe",
+                    "--cursor-session",
+                    SESSION,
+                    "--sequence",
+                    "42",
+                ],
+                "session.journal.subscribe",
+            ),
+            (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "mouse",
+                    "wheel",
+                    "--row",
+                    "4",
+                    "--column",
+                    "7",
+                    "--delta-rows",
+                    "-2",
+                ],
+                "terminal.input.mouse",
+            ),
+        ] {
+            let plan = protocol(&args);
+            record_covered_fields(&plan, expected, &catalog, &mut covered_fields);
+        }
+        let expected = catalog["operations"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|name| {
+                !matches!(
+                    name.as_str(),
+                    "browser.viewer.release"
+                        | "browser.viewer.resize"
+                        | "request.cancel"
+                        | "stream.cancel"
+                        | "terminal.renderer_grant.create"
+                        | "terminal.viewer.release"
+                        | "terminal.viewer.resize"
+                )
+            })
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
+        for operation in &expected {
+            let catalog_fields = catalog["operations"][operation]["params"]["fields"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                covered_fields.get(operation).cloned().unwrap_or_default(),
+                catalog_fields,
+                "{operation} has catalog fields with no exercised CLI representation"
+            );
+        }
+    }
+
+    fn record_covered_fields<'a>(
+        plan: &RequestPlan,
+        operation: &'a str,
+        catalog: &Value,
+        covered: &mut BTreeMap<&'a str, std::collections::BTreeSet<String>>,
+    ) {
+        let catalog_fields =
+            catalog["operations"][operation]["params"]["fields"].as_object().unwrap();
+        let entry = covered.entry(operation).or_default();
+        for key in plan.params.as_object().unwrap().keys() {
+            if catalog_fields.contains_key(key) {
+                entry.insert(key.clone());
+            }
+        }
+    }
+}

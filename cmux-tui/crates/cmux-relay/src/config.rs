@@ -1,20 +1,17 @@
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
 use cmux_remote_protocol::{LaneToken, RelayPermission, RelayTicketClaims};
 
-/// `127.0.0.1:8787`; a test checks that it equals the documented text.
-const DEFAULT_BIND: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8787));
+const DEFAULT_BIND: &str = "127.0.0.1:8787";
 const DEFAULT_LEASE_SECONDS: u64 = 30;
 const DEFAULT_JOIN_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 300;
 const DEFAULT_HANDSHAKE_TIMEOUT_SECONDS: u64 = 10;
-/// Off: a socket's first control message must attach it (register, connect, join).
-const DEFAULT_PREATTACH_HOLD_SECONDS: u64 = 0;
 const DEFAULT_CONTROL_IDLE_TIMEOUT_SECONDS: u64 = 120;
 const DEFAULT_HTTP_HEADER_TIMEOUT_SECONDS: u64 = 5;
 const DEFAULT_HTTP_KEEPALIVE_TIMEOUT_SECONDS: u64 = 600;
@@ -43,10 +40,6 @@ pub struct RelayConfig {
     pub join_timeout: Duration,
     pub idle_timeout: Duration,
     pub handshake_timeout: Duration,
-    /// How long a socket may wait unattached, answering `Ping` controls, before its first
-    /// register, connect or join: a dialer's standby socket. Each wait between messages is
-    /// still bounded by `handshake_timeout`. Zero (the default) turns the hold off.
-    pub preattach_hold: Duration,
     pub control_idle_timeout: Duration,
     pub http_header_timeout: Duration,
     pub http_keepalive_timeout: Duration,
@@ -72,12 +65,11 @@ pub struct RelayConfig {
 impl Default for RelayConfig {
     fn default() -> Self {
         Self {
-            bind: DEFAULT_BIND,
+            bind: DEFAULT_BIND.parse().expect("default relay bind address is valid"),
             lease_duration: Duration::from_secs(DEFAULT_LEASE_SECONDS),
             join_timeout: Duration::from_secs(DEFAULT_JOIN_TIMEOUT_SECONDS),
             idle_timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECONDS),
             handshake_timeout: Duration::from_secs(DEFAULT_HANDSHAKE_TIMEOUT_SECONDS),
-            preattach_hold: Duration::from_secs(DEFAULT_PREATTACH_HOLD_SECONDS),
             control_idle_timeout: Duration::from_secs(DEFAULT_CONTROL_IDLE_TIMEOUT_SECONDS),
             http_header_timeout: Duration::from_secs(DEFAULT_HTTP_HEADER_TIMEOUT_SECONDS),
             http_keepalive_timeout: Duration::from_secs(DEFAULT_HTTP_KEEPALIVE_TIMEOUT_SECONDS),
@@ -128,9 +120,6 @@ impl RelayConfig {
         if let Some(value) = lookup("CMUX_RELAY_HANDSHAKE_TIMEOUT_SECONDS") {
             self.handshake_timeout =
                 parse_duration("CMUX_RELAY_HANDSHAKE_TIMEOUT_SECONDS", &value)?;
-        }
-        if let Some(value) = lookup("CMUX_RELAY_PREATTACH_HOLD_SECONDS") {
-            self.preattach_hold = parse_duration("CMUX_RELAY_PREATTACH_HOLD_SECONDS", &value)?;
         }
         if let Some(value) = lookup("CMUX_RELAY_CONTROL_IDLE_TIMEOUT_SECONDS") {
             self.control_idle_timeout =
@@ -269,12 +258,9 @@ impl RelayConfig {
                 "CMUX_RELAY_ISSUER must contain 1 to 256 bytes without newline",
             ));
         }
-        // Open mode admits any non-empty provider ticket: any process that
-        // reaches the port could register or connect to any slot, also on
-        // loopback. It needs an explicit opt-in.
-        if self.ticket_secret.is_none() && !self.allow_open {
+        if !self.bind.ip().is_loopback() && self.ticket_secret.is_none() && !self.allow_open {
             return Err(ConfigError::new(
-                "refusing an open relay; configure CMUX_RELAY_HMAC_SECRET or pass --allow-open (development only)",
+                "refusing a non-loopback open relay; configure CMUX_RELAY_HMAC_SECRET or pass --allow-open",
             ));
         }
         Ok(())
@@ -283,7 +269,7 @@ impl RelayConfig {
 
 #[derive(Clone)]
 pub enum RelayCommand {
-    Serve(Box<RelayConfig>),
+    Serve(RelayConfig),
     Ticket {
         secret: Vec<u8>,
         issuer: String,
@@ -313,10 +299,10 @@ impl RelayCommand {
     ) -> Result<Self, ConfigError> {
         let mut args = arguments.into_iter().peekable();
         let mut command = "serve".to_owned();
-        if let Some(first) =
-            args.next_if(|value| value.to_str().is_some_and(|first| !first.starts_with('-')))
+        if let Some(first) = args.peek().and_then(|value| value.to_str())
+            && !first.starts_with('-')
         {
-            command = first.to_string_lossy().into_owned();
+            command = args.next().unwrap().to_string_lossy().into_owned();
         }
 
         if command == "help" {
@@ -428,7 +414,7 @@ impl RelayCommand {
             }
         }
         config.validate()?;
-        Ok(Self::Serve(Box::new(config)))
+        Ok(Self::Serve(config))
     }
 
     fn parse_ticket(
@@ -533,7 +519,7 @@ impl RelayCommand {
            --max-active-circuits-per-slot N   Paired circuits per slot\n\
            --max-allocations-per-second-per-slot N  Sliding one-second allocation limit\n\
            --issuer NAME                     HMAC ticket issuer (CMUX_RELAY_ISSUER)\n\
-           --allow-open                      Permit an unauthenticated relay (development only)\n\n\
+           --allow-open                      Permit an unauthenticated non-loopback relay\n\n\
          Ticket options: --lane TOKEN, --generation N, --ttl-seconds N (maximum 300).\n\
          Set CMUX_RELAY_HMAC_SECRET to validate provider tickets and mint join tickets.\n\
          Endpoints: /healthz, /v1/relay, and /ws\n"
@@ -607,4 +593,97 @@ fn parse_next_string(
     args.next()
         .map(|value| value.to_string_lossy().into_owned())
         .ok_or_else(|| ConfigError::new(format!("{option} requires a value")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_loopback_open_relay_requires_an_explicit_override() {
+        let config =
+            RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn command_line_overrides_defaults() {
+        let command = RelayCommand::parse(
+            RelayConfig::default(),
+            [
+                "--bind",
+                "127.0.0.1:9000",
+                "--max-frame-bytes",
+                "1024",
+                "--max-queue-bytes",
+                "2048",
+                "--http-header-timeout-seconds",
+                "7",
+                "--max-control-sockets-per-slot",
+                "9",
+                "--max-allocations-per-second-per-slot",
+                "11",
+            ]
+            .map(OsString::from),
+        )
+        .unwrap();
+        let RelayCommand::Serve(config) = command else {
+            panic!("expected serve command");
+        };
+        assert_eq!(config.bind, "127.0.0.1:9000".parse().unwrap());
+        assert_eq!(config.max_frame_bytes, 1024);
+        assert_eq!(config.max_queue_bytes, 2048);
+        assert_eq!(config.http_header_timeout, Duration::from_secs(7));
+        assert_eq!(config.max_control_sockets_per_slot, 9);
+        assert_eq!(config.max_allocations_per_second_per_slot, 11);
+    }
+
+    #[test]
+    fn allow_open_flag_is_applied_before_security_validation() {
+        let config =
+            RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
+        let command = RelayCommand::parse(config, [OsString::from("--allow-open")]).unwrap();
+        assert!(matches!(command, RelayCommand::Serve(config) if config.allow_open));
+    }
+
+    #[test]
+    fn version_is_available_as_a_flag_or_command() {
+        for arguments in [vec!["--version"], vec!["-V"], vec!["version"]] {
+            let command = RelayCommand::parse(
+                RelayConfig::default(),
+                arguments.into_iter().map(OsString::from),
+            )
+            .unwrap();
+            assert!(matches!(command, RelayCommand::Version));
+        }
+    }
+
+    #[test]
+    fn ticket_command_rejects_ttl_over_five_minutes() {
+        let config = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
+        let result = RelayCommand::parse(
+            config,
+            ["ticket", "--permission", "register", "--slot", "slot-a", "--ttl-seconds", "301"]
+                .map(OsString::from),
+        );
+
+        let error = result.err().expect("ticket TTL above five minutes must be rejected");
+        assert!(error.to_string().contains("cannot exceed 300 seconds"));
+    }
+
+    #[test]
+    fn ticket_command_accepts_five_minute_ttl_boundary() {
+        let config = RelayConfig { ticket_secret: Some(vec![7; 32]), ..RelayConfig::default() };
+        let command = RelayCommand::parse(
+            config,
+            ["ticket", "--permission", "register", "--slot", "slot-a", "--ttl-seconds", "300"]
+                .map(OsString::from),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            command,
+            RelayCommand::Ticket { ttl, .. } if ttl == Duration::from_secs(300)
+        ));
+    }
 }

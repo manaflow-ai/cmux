@@ -1,0 +1,802 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5C6D3E60080CC641DB4C8FBF /* Tabs Visible Sidebar Extension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 919B1CC81D12E5904103EF57 /* Tabs Visible Sidebar Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FE91D213B4728F007B68C7DD /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = CFEB80E86E6CC742FD554B53 /* CmuxExtensionKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		515CEF3E778EC3FC2CC2B567 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A3685D432FCA97E900009F1B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 095AE40FC6A0494D72064FB6;
+			remoteInfo = TabsVisibleSidebarExtension;
+		};
+		A3685D592FCA97EB00009F1B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A3685D432FCA97E900009F1B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A3685D4A2FCA97E900009F1B;
+			remoteInfo = TabsVisibleSidebar;
+		};
+		A3685D632FCA97EB00009F1B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A3685D432FCA97E900009F1B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A3685D4A2FCA97E900009F1B;
+			remoteInfo = TabsVisibleSidebar;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CC4F886D4540227AB3A37497 /* Embed ExtensionKit Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				5C6D3E60080CC641DB4C8FBF /* Tabs Visible Sidebar Extension.appex in Embed ExtensionKit Extensions */,
+			);
+			name = "Embed ExtensionKit Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		919B1CC81D12E5904103EF57 /* Tabs Visible Sidebar Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = "Tabs Visible Sidebar Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3685D4B2FCA97E900009F1B /* TabsVisibleSidebar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TabsVisibleSidebar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3685D582FCA97EB00009F1B /* TabsVisibleSidebarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TabsVisibleSidebarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3685D622FCA97EB00009F1B /* TabsVisibleSidebarUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TabsVisibleSidebarUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		E7BF8D059BCCD649E62309D4 /* Exceptions for "TabsVisibleSidebarExtension" folder in "TabsVisibleSidebarExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 095AE40FC6A0494D72064FB6 /* TabsVisibleSidebarExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A3685D4D2FCA97E900009F1B /* TabsVisibleSidebar */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = TabsVisibleSidebar;
+			sourceTree = "<group>";
+		};
+		A3685D5B2FCA97EB00009F1B /* TabsVisibleSidebarTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = TabsVisibleSidebarTests;
+			sourceTree = "<group>";
+		};
+		A3685D652FCA97EB00009F1B /* TabsVisibleSidebarUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = TabsVisibleSidebarUITests;
+			sourceTree = "<group>";
+		};
+		E7BF8D059BCCD649E62309D3 /* TabsVisibleSidebarExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E7BF8D059BCCD649E62309D4 /* Exceptions for "TabsVisibleSidebarExtension" folder in "TabsVisibleSidebarExtension" target */,
+			);
+			path = TabsVisibleSidebarExtension;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		34A445F98B7F894A82A9A667 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FE91D213B4728F007B68C7DD /* CmuxExtensionKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685D482FCA97E900009F1B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685D552FCA97EB00009F1B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685D5F2FCA97EB00009F1B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		02B95A27EB74606C91612834 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		9BE2A10F5A2FA917C4A18AA7 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				02B95A27EB74606C91612834 /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A3685D422FCA97E900009F1B = {
+			isa = PBXGroup;
+			children = (
+				A3685D4D2FCA97E900009F1B /* TabsVisibleSidebar */,
+				A3685D5B2FCA97EB00009F1B /* TabsVisibleSidebarTests */,
+				A3685D652FCA97EB00009F1B /* TabsVisibleSidebarUITests */,
+				A3685D4C2FCA97E900009F1B /* Products */,
+				9BE2A10F5A2FA917C4A18AA7 /* Frameworks */,
+				E7BF8D059BCCD649E62309D3 /* TabsVisibleSidebarExtension */,
+			);
+			sourceTree = "<group>";
+		};
+		A3685D4C2FCA97E900009F1B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A3685D4B2FCA97E900009F1B /* TabsVisibleSidebar.app */,
+				A3685D582FCA97EB00009F1B /* TabsVisibleSidebarTests.xctest */,
+				A3685D622FCA97EB00009F1B /* TabsVisibleSidebarUITests.xctest */,
+				919B1CC81D12E5904103EF57 /* Tabs Visible Sidebar Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		095AE40FC6A0494D72064FB6 /* TabsVisibleSidebarExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CE3DC7B6BBC1237511AD3D38 /* Build configuration list for PBXNativeTarget "TabsVisibleSidebarExtension" */;
+			buildPhases = (
+				A43CA654B1ADB8F2473F2BE6 /* Sources */,
+				34A445F98B7F894A82A9A667 /* Frameworks */,
+				8738F4731FF43293B4042F97 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E7BF8D059BCCD649E62309D3 /* TabsVisibleSidebarExtension */,
+			);
+			name = TabsVisibleSidebarExtension;
+			packageProductDependencies = (
+				CFEB80E86E6CC742FD554B53 /* CmuxExtensionKit */,
+			);
+			productName = TabsVisibleSidebarExtension;
+			productReference = 919B1CC81D12E5904103EF57 /* Tabs Visible Sidebar Extension.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
+		};
+		A3685D4A2FCA97E900009F1B /* TabsVisibleSidebar */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3685D6C2FCA97EB00009F1B /* Build configuration list for PBXNativeTarget "TabsVisibleSidebar" */;
+			buildPhases = (
+				A3685D472FCA97E900009F1B /* Sources */,
+				A3685D482FCA97E900009F1B /* Frameworks */,
+				A3685D492FCA97E900009F1B /* Resources */,
+				CC4F886D4540227AB3A37497 /* Embed ExtensionKit Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7D4C9BA6FB7CB87DF278F3DE /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A3685D4D2FCA97E900009F1B /* TabsVisibleSidebar */,
+			);
+			name = TabsVisibleSidebar;
+			productName = TabsVisibleSidebar;
+			productReference = A3685D4B2FCA97E900009F1B /* TabsVisibleSidebar.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A3685D572FCA97EB00009F1B /* TabsVisibleSidebarTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3685D6F2FCA97EB00009F1B /* Build configuration list for PBXNativeTarget "TabsVisibleSidebarTests" */;
+			buildPhases = (
+				A3685D542FCA97EB00009F1B /* Sources */,
+				A3685D552FCA97EB00009F1B /* Frameworks */,
+				A3685D562FCA97EB00009F1B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A3685D5A2FCA97EB00009F1B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A3685D5B2FCA97EB00009F1B /* TabsVisibleSidebarTests */,
+			);
+			name = TabsVisibleSidebarTests;
+			productName = TabsVisibleSidebarTests;
+			productReference = A3685D582FCA97EB00009F1B /* TabsVisibleSidebarTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A3685D612FCA97EB00009F1B /* TabsVisibleSidebarUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3685D722FCA97EB00009F1B /* Build configuration list for PBXNativeTarget "TabsVisibleSidebarUITests" */;
+			buildPhases = (
+				A3685D5E2FCA97EB00009F1B /* Sources */,
+				A3685D5F2FCA97EB00009F1B /* Frameworks */,
+				A3685D602FCA97EB00009F1B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A3685D642FCA97EB00009F1B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A3685D652FCA97EB00009F1B /* TabsVisibleSidebarUITests */,
+			);
+			name = TabsVisibleSidebarUITests;
+			productName = TabsVisibleSidebarUITests;
+			productReference = A3685D622FCA97EB00009F1B /* TabsVisibleSidebarUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A3685D432FCA97E900009F1B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					A3685D4A2FCA97E900009F1B = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					A3685D572FCA97EB00009F1B = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = A3685D4A2FCA97E900009F1B;
+					};
+					A3685D612FCA97EB00009F1B = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = A3685D4A2FCA97E900009F1B;
+					};
+				};
+			};
+			buildConfigurationList = A3685D462FCA97E900009F1B /* Build configuration list for PBXProject "TabsVisibleSidebar" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A3685D422FCA97E900009F1B;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4C7B40C3DDA8FC4D2ECAE012 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A3685D4C2FCA97E900009F1B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A3685D4A2FCA97E900009F1B /* TabsVisibleSidebar */,
+				A3685D572FCA97EB00009F1B /* TabsVisibleSidebarTests */,
+				A3685D612FCA97EB00009F1B /* TabsVisibleSidebarUITests */,
+				095AE40FC6A0494D72064FB6 /* TabsVisibleSidebarExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8738F4731FF43293B4042F97 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685D492FCA97E900009F1B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685D562FCA97EB00009F1B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685D602FCA97EB00009F1B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A3685D472FCA97E900009F1B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685D542FCA97EB00009F1B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685D5E2FCA97EB00009F1B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A43CA654B1ADB8F2473F2BE6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7D4C9BA6FB7CB87DF278F3DE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = TabsVisibleSidebarExtension;
+			target = 095AE40FC6A0494D72064FB6 /* TabsVisibleSidebarExtension */;
+			targetProxy = 515CEF3E778EC3FC2CC2B567 /* PBXContainerItemProxy */;
+		};
+		A3685D5A2FCA97EB00009F1B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A3685D4A2FCA97E900009F1B /* TabsVisibleSidebar */;
+			targetProxy = A3685D592FCA97EB00009F1B /* PBXContainerItemProxy */;
+		};
+		A3685D642FCA97EB00009F1B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A3685D4A2FCA97E900009F1B /* TabsVisibleSidebar */;
+			targetProxy = A3685D632FCA97EB00009F1B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		31431F113A409103628945F8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				CMUX_DISPLAY_NAME_SUFFIX = "";
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_DEBUG_DYLIB = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TabsVisibleSidebarExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Tabs Visible Sidebar$(CMUX_DISPLAY_NAME_SUFFIX)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.TabsVisibleSidebar$(CMUX_BUNDLE_ID_SUFFIX).Extension";
+				PRODUCT_NAME = "Tabs Visible Sidebar Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7058EB05B7208E7F6DA95B87 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				CMUX_DISPLAY_NAME_SUFFIX = "";
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_DEBUG_DYLIB = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TabsVisibleSidebarExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Tabs Visible Sidebar$(CMUX_DISPLAY_NAME_SUFFIX)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.TabsVisibleSidebar$(CMUX_BUNDLE_ID_SUFFIX).Extension";
+				PRODUCT_NAME = "Tabs Visible Sidebar Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A3685D6A2FCA97EB00009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A3685D6B2FCA97EB00009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A3685D6D2FCA97EB00009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.TabsVisibleSidebar$(CMUX_BUNDLE_ID_SUFFIX)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A3685D6E2FCA97EB00009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.TabsVisibleSidebar$(CMUX_BUNDLE_ID_SUFFIX)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A3685D702FCA97EB00009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.TabsVisibleSidebarTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TabsVisibleSidebar.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TabsVisibleSidebar";
+			};
+			name = Debug;
+		};
+		A3685D712FCA97EB00009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.TabsVisibleSidebarTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TabsVisibleSidebar.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TabsVisibleSidebar";
+			};
+			name = Release;
+		};
+		A3685D732FCA97EB00009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.TabsVisibleSidebarUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = TabsVisibleSidebar;
+			};
+			name = Debug;
+		};
+		A3685D742FCA97EB00009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.TabsVisibleSidebarUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = TabsVisibleSidebar;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A3685D462FCA97E900009F1B /* Build configuration list for PBXProject "TabsVisibleSidebar" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685D6A2FCA97EB00009F1B /* Debug */,
+				A3685D6B2FCA97EB00009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A3685D6C2FCA97EB00009F1B /* Build configuration list for PBXNativeTarget "TabsVisibleSidebar" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685D6D2FCA97EB00009F1B /* Debug */,
+				A3685D6E2FCA97EB00009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A3685D6F2FCA97EB00009F1B /* Build configuration list for PBXNativeTarget "TabsVisibleSidebarTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685D702FCA97EB00009F1B /* Debug */,
+				A3685D712FCA97EB00009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A3685D722FCA97EB00009F1B /* Build configuration list for PBXNativeTarget "TabsVisibleSidebarUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685D732FCA97EB00009F1B /* Debug */,
+				A3685D742FCA97EB00009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CE3DC7B6BBC1237511AD3D38 /* Build configuration list for PBXNativeTarget "TabsVisibleSidebarExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7058EB05B7208E7F6DA95B87 /* Release */,
+				31431F113A409103628945F8 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		4C7B40C3DDA8FC4D2ECAE012 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/macOS/CmuxExtensionKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CFEB80E86E6CC742FD554B53 /* CmuxExtensionKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4C7B40C3DDA8FC4D2ECAE012 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */;
+			productName = CmuxExtensionKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A3685D432FCA97E900009F1B /* Project object */;
+}

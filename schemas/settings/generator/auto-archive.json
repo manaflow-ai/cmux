@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/auto-archive.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift",
-  "type": "AutoArchiveSettingsSchema",
-  "lists": {
-    "autoArchive": ["descriptors", "AutoArchiveSettings"]
-  }
-}

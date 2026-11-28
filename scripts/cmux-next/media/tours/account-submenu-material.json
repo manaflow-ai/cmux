@@ -1,8 +1,0 @@
-{
-  "title": "The account menu over a tinted theme while it is not key (a capture worker never makes the app active, so no popup takes the keys there: the state a parent menu is in while its submenu has them). Before the fix the menu draws the grey frost; after, the theme's glass. Record it with: cmux-ci capture SHA --state tour:account-submenu-material",
-  "steps": [
-    {"title": "Launch", "wait": 3, "shot": false},
-    {"title": "A tinted theme", "cmux": ["settings", "set", "appearance.theme", "Soft Blue"], "wait": 2, "shot": false},
-    {"title": "The account menu, not key", "rpc": {"method": "action.run", "params": {"action": "sidebar.profileMenu"}}, "wait": 1.5}
-  ]
-}

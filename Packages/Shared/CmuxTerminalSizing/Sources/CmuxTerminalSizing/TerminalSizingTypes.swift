@@ -18,14 +18,10 @@ public struct TerminalGridSize: Codable, Hashable, Sendable {
 
 /// The kind of device behind one attached view.
 public enum TerminalDeviceKind: String, Codable, Hashable, Sendable, CaseIterable {
-    case mac, iphone, ipad, tui, browser, linux, windows, unknown
+    case mac, iphone, ipad, tui, browser, unknown
 
-    /// Phones and tablets defer to a desktop of the same user.
+    /// Phones and tablets defer to a Mac or TUI of the same user.
     public var isHandheld: Bool { self == .iphone || self == .ipad }
-
-    /// A Mac, a TUI, or the desktop app on Linux or Windows: a handheld of
-    /// the same user defers to it.
-    public var isDesktop: Bool { [.mac, .tui, .linux, .windows].contains(self) }
 
     public init(from decoder: any Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
@@ -131,18 +127,15 @@ public struct TerminalSizingPolicy: Codable, Hashable, Sendable {
     /// Grid used by `.fixed`.
     public var fixed: TerminalGridSize?
 
-    public init(mode: TerminalSizingMode = .latest, priority: [String] = [], fixed: TerminalGridSize? = nil) {
+    public init(mode: TerminalSizingMode = .smallest, priority: [String] = [], fixed: TerminalGridSize? = nil) {
         self.mode = mode
         self.priority = priority
         self.fixed = fixed?.clamped
     }
 
-    /// Fit everyone: every attached device sees the whole grid.
+    /// The default: fit everyone, so every attached device sees the whole grid.
     public static let fitEveryone = TerminalSizingPolicy(mode: .smallest)
 
-    /// The default: last active. The grid follows the counting view that last
-    /// typed, pasted, clicked or took over; a phone's attach alone never takes it
-    /// (plans/cmux-next/sync-ux/DESIGN.md part 2).
     public static let latest = TerminalSizingPolicy(mode: .latest)
 
     /// The largest fixed grid a client may request. Every entrypoint (size
@@ -159,7 +152,7 @@ public struct TerminalSizingPolicy: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
-            mode: try c.decodeIfPresent(TerminalSizingMode.self, forKey: .mode) ?? .latest,
+            mode: try c.decodeIfPresent(TerminalSizingMode.self, forKey: .mode) ?? .smallest,
             priority: try c.decodeIfPresent([String].self, forKey: .priority) ?? [],
             fixed: try c.decodeIfPresent(TerminalGridSize.self, forKey: .fixed)
         )

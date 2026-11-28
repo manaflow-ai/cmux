@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The conversation owner's `question` part (snake_case, cmux-tui
 /// spec/commands.md `Question`) and the `question.answer` op's `answer`.
@@ -14,7 +14,7 @@ extension AgentQuestion {
                 guard let id = option["id"]?.text, let label = option["label"]?.text else { return nil }
                 let preview = option["preview"].flatMap { preview -> Preview? in
                     guard let text = preview["text"]?.string else { return nil }
-                    return Preview(text: text, format: preview["format"]?.string.flatMap(Preview.Format.init(rawValue:)) ?? .monospace)
+                    return Preview(text: text, format: preview["format"]?.string == "markdown" ? .markdown : .monospace)
                 }
                 return Option(id: id, label: label, detail: option["detail"]?.text, preview: preview)
             }
@@ -25,7 +25,8 @@ extension AgentQuestion {
         let harness = part["harness"]?.string.flatMap(Harness.init(rawValue:)) ?? .chief
         let source = Source(harness: harness, session: session, permission: part["permission"]?.text,
                             agentName: part["agent"]?.text)
-        self.init(id: "\(messageID)#\(partIndex)", source: source, items: mapped, state: Self.conversationState(part["state"]))
+        self.init(id: "\(messageID)#\(partIndex)", source: source, items: mapped, state: Self.conversationState(part["state"]),
+                  submitLabel: part["submit_label"]?.text)
     }
 
     static func conversationState(_ state: AgentQuestionJSON?) -> State {

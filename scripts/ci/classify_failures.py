@@ -37,8 +37,7 @@ labels like attempt 1, and a mini that is online but broken may fail it
 again; attempt 3 goes to Blacksmith, which ends it), or a later attempt a
 person started (this re-run then goes to Blacksmith), only while it is still
 the run's latest attempt, the pull request is open and its head has not
-moved. A runner lost again on this bot's own re-run is reported, not re-run
-again. owned_pool_rescue.py may re-run a refused
+moved. owned_pool_rescue.py may re-run a refused
 job first; the attempt check then skips, and GitHub refuses a second re-run of
 a run in progress. A cancelled run is reported, never re-run: the rescue
 cancels a stuck run before its own full re-run, and a re-run of failed jobs
@@ -60,7 +59,9 @@ failures; system and cache `error:` noise dropped), and each gets an owner:
 The comment's first line is the verdict in those words. A pull request that
 merged before its CI finished still gets the comment (fix forward on main).
 A green run whose macOS jobs never ran, on a pull request that changes the
-app, says so instead of "passes". The comment records the head it speaks for:
+app, says so instead of "passes". A green CI run says "passes" only when every other
+check run and commit status on the head is green too (head_checks): #50275's comment said
+"CI passes on 800f012d13" while cmux-next/compile was red on that head six times. The comment records the head it speaks for:
 when CI starts on a newer head (workflow_run `requested`) or an older head's
 run completes, a comment about another head is rewritten to "pending".
 """
@@ -90,11 +91,11 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
-import glaeda_log  # noqa: E402
 import pr_status  # noqa: E402
+import ui_tests_dispatch  # noqa: E402
 import web_test_failure_census  # noqa: E402
 from test_touches_diff import RUNNER_FILES  # noqa: E402
-from pr_runner_pool import LAST_OWNED_ATTEMPT, RESCUE_ACTORS  # noqa: E402
+from pr_runner_pool import LAST_OWNED_ATTEMPT  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
 MARKER = "<!-- cmux-ci-failure-attribution -->"
@@ -102,12 +103,9 @@ BOT = "github-actions[bot]"
 RED = {"failure", "timed_out"}
 # Jobs that only read other jobs' results. Their names as the jobs API reports
 # them; tests/test_ci_classify_failures.py derives each from its workflow.
-# `web / react-apps-check` fails when a shard or replay under it did: judged as a gate, a replay that lost its runner
-# (cmux#33162's react-apps-base-check (3), job 126154996598, 2026-11-03) is the run's only failure, so it is re-run;
-# read as a job of its own, its unknown verdict kept the machine failure from being re-run at all.
 GATE_JOBS = frozenset({
     "ci-status", "CI timing", "linux-preflight", "macOS admission gate",
-    "macos / macOS status", "guards / Guard status", "web / Web status", "web / react-apps-check",
+    "macos / macOS status", "guards / Guard status", "web / Web status",
 })
 MAX_EVIDENCE_CHARS = 300
 MAX_RENDERED_JOBS = 20
@@ -143,6 +141,8 @@ SIGNATURES = (
         "the owned runner refused the job (host busy or out of capacity)"),
     sig("product-restore-failed", MACHINE, r'^CMUX_TEST_PRODUCT_RESTORE \{.*"outcome": "failure"',
         "the compiled app-host products did not restore on this runner"),
+    sig("app-host-preparation", MACHINE, r"Unexpected app-host preparation outcome",
+        "the isolated app-host home was not prepared"),
     sig("gui-token-unavailable", MACHINE,
         r"^Could not take this Mac's gui token for the app-host tests \(take-gui exited ",
         "the runner could not acquire the GUI token for app-host tests"),
@@ -174,6 +174,7 @@ SIGNATURES = (
         step=DOWNLOAD_ARTIFACT_STEP, yields_to_code=True),
     sig("swift-testing-issue", CODE, r"^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)", "a test failed"),
     sig("xctest-failure", CODE, r"\.swift:\d+: error: -\[", "a test failed"),
+    sig("ratchet-new-failure", CODE, r"^RATCHET_NEW_FAILURE ", "a test failed that passes on main"),
     sig("compile-error", CODE, r"\S+\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\d+:\d+: error: ",
         "a compile error"),
     sig("guard-failed", CODE, r"^\s*FAIL\s+[\d.]+s\s", "a guard step failed"),
@@ -261,8 +262,6 @@ def classify_jobs(jobs: Iterable[Mapping], texts: Mapping[int, tuple[str, list[s
         # A machine job's test failures are not evidence about the code (SIGNATURES).
         result["failures"] = extract_failures(*text, web_root=web_root(job.get("name"))) \
             if result["verdict"] != MACHINE else []
-        if result["verdict"] != MACHINE and is_base_check(job.get("name")):
-            base_check_verdict(result, text[0])
         step = next((s.get("name") for s in job.get("steps") or [] if s.get("conclusion") in RED), None)
         if result["verdict"] == UNKNOWN:
             result["why"] = ("timed out" if job.get("conclusion") == "timed_out" else "no known signature") + (
@@ -405,43 +404,6 @@ def extract_failures(text: str, annotations: Iterable[str] = (), web_root: str =
     return dedupe(found)[:MAX_FAILURES_PER_JOB]
 
 
-# The webview verdict (ci-web.yml's react-apps-base-check) replays the head's red files on the base
-# and then prints guards_new_reds.py's verdict. bun's `(fail)` lines in its log are the base
-# replay's: tests that fail on the base too, which the verdict already excuses as warnings. The
-# change's own reds are the verdict's `::error title=Webview test red on this change::NAME` lines,
-# which reach the log as `##[error]NAME`. #28611's report listed the two composer tests the base
-# also failed and named neither of the two tests that were its own.
-BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check(?: \(\d+\))?$")  # one job since #42540, 12 before
-BASE_CHECK_RED = re.compile(r"^##\[error\](?P<file>\S+\.(?:test|spec)\.[cm]?[jt]sx?)(?: > (?P<test>.+))?$")
-BASE_CHECK_ROOT = "webviews/"
-
-
-def is_base_check(job_name: object) -> bool:
-    return bool(BASE_CHECK_JOB.search(str(job_name or "")))
-
-
-def base_check_reds(text: str) -> list[dict]:
-    """The webview tests the verdict charged to the change (its `##[error]` file > test lines)."""
-    found = []
-    for raw in text.splitlines():
-        line = ANSI.sub("", TIMESTAMP.sub("", raw.lstrip("\ufeff"))).rstrip()
-        if match := BASE_CHECK_RED.match(line):
-            found.append(failure("test", BASE_CHECK_ROOT + match["file"], test=match["test"] or "",
-                                 message="red on this change, passed on the base"))
-    return dedupe(found)[:MAX_FAILURES_PER_JOB]
-
-
-def base_check_verdict(result: dict, text: str) -> None:
-    """A base-check job's failures and evidence from its verdict, never from the base replay's `(fail)` lines."""
-    reds = base_check_reds(text)
-    if reds:
-        first = reds[0]
-        result.update(verdict=CODE, signature="webview-verdict-new-red",
-                      why="a webview test red on this change, not on the base",
-                      evidence=f"{first['file']} > {first['test']}".removesuffix(" > ")[:MAX_EVIDENCE_CHARS])
-    result["failures"] = reds or [f for f in result.get("failures") or [] if f["kind"] != "test"]
-
-
 def dedupe(found: Iterable[dict]) -> list[dict]:
     """One entry per failure, compile errors first. A test named only by its suite (the summary
     `failed` line, the ratchet) is dropped when an issue line already points into its file."""
@@ -531,8 +493,7 @@ def job_text(gh: GitHub, job_id: int) -> tuple[str, list[str]]:
     """The job's log and its failure annotations (a lost runner leaves only an annotation)."""
     log, notes = "", []
     try:
-        kept = glaeda_log.cached_job_log(gh.repo, job_id)  # this host's glaeda-gh kept it: no API call
-        log = kept if kept is not None else str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
+        log = str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
     except RuntimeError as error:
         print(f"job {job_id}: no log: {error}", file=sys.stderr)
     try:
@@ -556,16 +517,76 @@ def macos_ran(jobs: Iterable[Mapping]) -> bool:
 # because of change routing (nothing for macOS, or an admitted compile reused), which is not a
 # gap: tests/test_ci_classify_failures.py pins the names to ci.yml.
 MACOS_PREREQUISITES = ("changes", "Fast static checks")
+STATIC_CHECKS_JOB = "Fast static checks"
+# Pull requests into this base run CI from its ci.yml, which skips `Fast static checks` (and so
+# `macos`) by design: cmux-next.yml owns their app checks. That skip is routing, not a gap, and a
+# green run there never needs its jobs read (tests/test_ci_classify_failures.py pins this to
+# feat-cmux-next's ci.yml when the branch is fetched).
+NEXT_BASE = "feat-cmux-next"
 
 
-def macos_blocked(jobs: Iterable[Mapping]) -> str:
+def run_base(run: Mapping, repo: str) -> str:
+    """The base branch of this repository's pull request in the workflow_run event, or ""."""
+    for pull in run.get("pull_requests") or []:
+        base = pull.get("base") or {}
+        if str((base.get("repo") or {}).get("url", "")).lower().endswith(f"/repos/{repo.lower()}"):
+            return str(base.get("ref") or "")
+    return ""
+
+
+def macos_blocked(jobs: Iterable[Mapping], base: str = "") -> str:
     """Why the macOS jobs could not run, or "" when they ran or routing skipped them."""
     jobs = list(jobs)
     if macos_ran(jobs):
         return ""
     found = {str(j.get("name")): str(j.get("conclusion") or j.get("status") or "missing") for j in jobs}
+    if base == NEXT_BASE and found.get(STATIC_CHECKS_JOB) == "skipped":
+        found[STATIC_CHECKS_JOB] = "success"
     return ", ".join(f"`{name}` {found.get(name, 'missing')}" for name in MACOS_PREREQUISITES
                      if found.get(name) != "success")
+
+
+# Check run conclusions and commit status states that are red; anything else completed is green.
+RED_CHECKS = frozenset({"failure", "timed_out", "startup_failure", "action_required", "cancelled", "stale"})
+RED_STATUSES = frozenset({"failure", "error"})
+# This workflow's own job: it is running while it reads the head's checks.
+OWN_CHECKS = frozenset({"Attribute"})
+MAX_CHECK_PAGES = 5
+
+
+def head_checks(gh: GitHub, sha: str) -> dict[str, list[str]]:
+    """The head's other checks that are not green: {"red": names, "running": names}. CI (ci.yml) is one
+    workflow of many; a green ci.yml run said nothing about cmux-next/compile, the macOS app build or
+    any other check on the same head (#50275: "CI passes on 800f012d13" over six red compiles).
+    Check runs (the latest per name) and commit statuses (the latest per context) both count."""
+    red: set[str] = set()
+    running: set[str] = set()
+    seen: set[str] = set()
+    for page in range(1, MAX_CHECK_PAGES + 1):
+        body = gh.get(f"repos/{gh.repo}/commits/{sha}/check-runs?filter=latest&per_page=100&page={page}") or {}
+        runs = list(body.get("check_runs") or [])  # type: ignore[union-attr]
+        for check in runs:
+            name = str(check.get("name") or "")
+            if not name or name in OWN_CHECKS or name in seen:
+                continue
+            seen.add(name)
+            if check.get("status") != "completed":
+                running.add(name)
+            elif check.get("conclusion") in RED_CHECKS:
+                red.add(name)
+        if len(runs) < 100:
+            break
+    combined = gh.get(f"repos/{gh.repo}/commits/{sha}/status?per_page=100") or {}
+    for status in combined.get("statuses") or []:  # type: ignore[union-attr]
+        context = str(status.get("context") or "")
+        if not context or context in seen:
+            continue
+        seen.add(context)
+        if status.get("state") in RED_STATUSES:
+            red.add(context)
+        elif status.get("state") == "pending":
+            running.add(context)
+    return {"red": sorted(red), "running": sorted(running)}
 
 
 def classify_run(gh: GitHub, run: Mapping) -> dict:
@@ -576,7 +597,18 @@ def classify_run(gh: GitHub, run: Mapping) -> dict:
     return {"run_id": int(run["id"]), "attempt": attempt,
             "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
             "conclusion": run.get("conclusion"), "jobs": classify_jobs(jobs, texts),
-            "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs)}
+            "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs, run_base(run, gh.repo))}
+
+
+def green_next_report(gh: GitHub, run: Mapping) -> dict | None:
+    """The report of a green run on a pull request into NEXT_BASE, without reading its jobs: no
+    failed job to show and the macOS jobs are skipped by routing there, so the jobs change
+    nothing. act() then reads only the comments, and stops there unless this bot reported before."""
+    if run.get("conclusion") != "success" or run_base(run, gh.repo) != NEXT_BASE:
+        return None
+    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+            "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
+            "conclusion": "success", "jobs": [], "macos_ran": False, "macos_blocked": ""}
 
 
 def run_pull(gh: GitHub, run: Mapping, pr: int | None = ...) -> tuple[int | None, dict]:  # type: ignore[assignment]
@@ -660,35 +692,6 @@ def login(item: Mapping) -> str:
 MAIN_RED, MAIN_GREEN, MAIN_UNKNOWN = "red", "green", "unknown"
 
 
-class main_full_suite:  # noqa: N801 - stands in for main's scripts/ci/main_full_suite.py
-    """The names main_red() reads from main's main_full_suite.py.
-
-    That module and its workflow live on main only (this branch deleted them
-    with the legacy app), but main_red() still reads main's full-suite state
-    through the API. Keep these values equal to main's module.
-    """
-
-    ISSUE_LABEL = "main-full-suite-failure"
-    CI_WORKFLOW_FILE = "ci.yml"
-    CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
-    DISPATCH_EVENT = "workflow_dispatch"
-    TESTED_CONCLUSIONS = frozenset({"success", "failure"})
-
-    @classmethod
-    def latest_tested_run(cls, runs, branch: str = "main"):
-        """The newest completed full-suite run on the branch that went green or red."""
-        tested = [
-            run for run in runs
-            if run.get("event") == cls.DISPATCH_EVENT
-            and run.get("head_branch") == branch
-            and run.get("path") == cls.CI_WORKFLOW_PATH
-            and run.get("status") == "completed"
-            and run.get("conclusion") in cls.TESTED_CONCLUSIONS
-        ]
-        tested.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
-        return tested[0] if tested else None
-
-
 def main_state(main: Mapping) -> str:
     """What main_red() found; {} (it failed) is unknown."""
     return str(main.get("state") or (MAIN_RED if main.get("issue") else MAIN_UNKNOWN))
@@ -701,6 +704,8 @@ def main_red(gh: GitHub) -> dict:
     Green needs main's latest completed full-suite run to have passed. No open issue is not enough:
     a token without the `issues` permission finds none, and the issue lags the run (#17258 was told
     main was green while #17286 was open and main's latest run was red)."""
+    import main_full_suite
+
     issues = list(gh.get(f"repos/{gh.repo}/issues?labels={main_full_suite.ISSUE_LABEL}&state=open&per_page=1") or [])  # type: ignore[arg-type]
     if not issues:
         body = gh.get(f"repos/{gh.repo}/actions/workflows/{main_full_suite.CI_WORKFLOW_FILE}/runs?branch=main"
@@ -927,12 +932,30 @@ def listed(items: list[Mapping], why: bool = True) -> str:
     return ", ".join(texts) + (f" and {rest} more" if rest > 0 else "")
 
 
+def names(items: list[str], limit: int = 5) -> str:
+    shown = ", ".join(code(item, 80) for item in items[:limit])
+    return shown + (f" and {len(items) - limit} more" if len(items) > limit else "")
+
+
+def success_state(report: Mapping) -> str:
+    """A green CI run's state: passes only when the macOS jobs ran and every other check is green."""
+    others = report.get("other_checks") or {}
+    if others.get("red"):
+        return "failed"
+    return "unverified" if report.get("macos_skipped") or others.get("running") else "passes"
+
+
 def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     """The comment's first line: whose failure it is, in plain words."""
     sha = (report.get("head_sha") or "")[:10]
     if report.get("conclusion") == "success":
         if report.get("macos_skipped"):
             return f"**Not verified:** {MACOS_SKIPPED} on `{sha}`; ci-status is green without them."
+        others = report.get("other_checks") or {}
+        if others.get("red"):
+            return f"**Other checks red:** CI (ci.yml) is green on `{sha}`, but {names(others['red'])} failed."
+        if others.get("running"):
+            return f"**Not verified:** CI (ci.yml) is green on `{sha}`; {names(others['running'])} still running."
         return f"**Passes:** CI passes on `{sha}`."
     jobs = report["jobs"]
     failures = [f for job in jobs if job["verdict"] != MACHINE for f in job.get("failures") or []]
@@ -1024,11 +1047,17 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
     sha = (report.get("head_sha") or "")[:10]
     run = f"[run {report['run_id']} attempt {report['attempt']}]({report.get('run_url')})"
     jobs = report["jobs"]
-    state = ("unverified" if report.get("macos_skipped") else "passes") if report.get("conclusion") == "success" \
+    state = success_state(report) if report.get("conclusion") == "success" \
         else "stopped" if report.get("conclusion") == "cancelled" else "failed"
     out = [MARKER, head_marker(str(report.get("head_sha") or ""), state), verdict_line(report, reran, rerun), ""]
     if report.get("conclusion") == "success":
-        out.append(f"CI passes on `{sha}` ({run}).")
+        others = report.get("other_checks") or {}
+        out.append(f"CI (ci.yml) is green on `{sha}` ({run})." if others.get("red") or others.get("running")
+                   else f"CI passes on `{sha}` ({run}).")
+        if others.get("red"):
+            out.append(f"Red on the same head: {names(others['red'], 20)}. Fix or re-run those before merging.")
+        if others.get("running"):
+            out.append(f"Still running on the same head: {names(others['running'], 20)}.")
         if report.get("macos_skipped"):
             out.append(f"{MACOS_SKIPPED}: {report.get('macos_blocked')} (the `macos` job needs both to succeed). "
                        "Re-run CI once they pass, before merging.")
@@ -1119,14 +1148,7 @@ def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> 
     # (a full disk, a failed product restore) may have failed again, whose re-run (attempt 3) takes Blacksmith;
     # or a later attempt a person started, whose re-run by this bot takes Blacksmith
     # (pr_runner_pool.host_fault_retry()). Blacksmith ends the chain.
-    automatic = str((latest.get("triggering_actor") or {}).get("login") or "") in RESCUE_ACTORS
-    # A lost runner is re-run once: lost again on this bot's own re-run, it is reported, not re-run in a loop.
-    lost = [j["name"] for j in jobs if j.get("signature") == "runner-lost"]
-    if lost and report["attempt"] > 1 and automatic:
-        return False, (f"{', '.join(f'`{n}`' for n in lost[:3])} lost its runner again on the automatic re-run "
-                       f"(attempt {report['attempt']}); reported, not re-run again. Re-run it by hand if it should go "
-                       "again.")
-    if report["attempt"] > LAST_OWNED_ATTEMPT and automatic:
+    if report["attempt"] > LAST_OWNED_ATTEMPT and str((latest.get("triggering_actor") or {}).get("login") or "") == BOT:
         return False, (f"Every failure is a machine failure, but attempt {report['attempt']} was already an "
                        "automatic re-run. Re-run it by hand if it should go again.")
     return True, (f"Every failure is a machine failure: re-ran the failed jobs as attempt {report['attempt'] + 1} "
@@ -1218,6 +1240,13 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
             print(f"::warning::could not record failures in issue {SEEN_ISSUE}: {code(error)}", flush=True)
     if report.get("macos_blocked"):
         report["macos_skipped"] = touches_app(files or safe_pr_files(gh, pr))
+    if report.get("conclusion") == "success":
+        try:
+            report["other_checks"] = head_checks(gh, str(report.get("head_sha") or ""))
+        except RuntimeError as error:
+            # Unread is not green: say so rather than "passes".
+            print(f"::warning::the head's other checks unreadable: {code(error)}", file=sys.stderr)
+            report["other_checks"] = {"red": [], "running": ["(the head's other checks could not be read)"]}
     rerun, line = False, ""
     if report.get("conclusion") != "success":
         rerun, line = rerun_decision(report, lambda: gh.run(int(report["run_id"])))
@@ -1229,15 +1258,44 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         except RuntimeError as error:
             # GitHub refuses to re-run a run another re-run already started.
             rerun, line = False, f"Every failure is a machine failure; the re-run request failed: {code(error)}"
+        else:
+            # This token's re-run may emit no workflow_run event; start the UI
+            # test dispatch the new attempt's ui-tests job waits for.
+            path, body = ui_tests_dispatch.rerun_dispatch(report["run_id"], int(report.get("attempt") or 1) + 1)
+            try:
+                writer.call("POST", f"repos/{gh.repo}/{path}", body)
+            except RuntimeError as error:
+                print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE}: {code(error)}", flush=True)
     body = render_comment(report, line, rerun)
     write_summary(body)
     # A green run says so only where a failure was reported before; a green run whose macOS jobs
     # never ran says that even where nothing was reported, since it looks green. A machine-only
     # failure that is being re-run asks nothing of the author, so it posts no new comment either.
-    quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") or rerun
+    quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") \
+        and not (report.get("other_checks") or {}).get("red") or rerun
     if current is not None or not quiet:
         upsert_comment(writer, gh.repo, pr, MARKER, body, existing, section="attribution")
     return {"pr": pr, "rerun": rerun, "line": line}
+
+
+def moved_past(run: Mapping, pulled: tuple[int | None, dict]) -> bool:
+    """Whether act() could only skip this run or mark the comment pending: no open (or merged) pull
+    request, or one whose head moved past the run. main() then reads no jobs, logs or annotations
+    for it: a red run on an older head cost 5 to 7 calls on 2026-10-27, on the cmux-bot
+    installation's 5000 an hour, which ran out five hours in a row that night. act() still reads
+    the pull request again after classifying a run that was current: it may move or close while
+    the logs are read, and the re-run is decided on that later read."""
+    pr, pull = pulled
+    if not pr or (pull.get("state") != "open" and not pull.get("merged_at")):
+        return True
+    return str((pull.get("head") or {}).get("sha") or "") != str(run.get("head_sha") or "")
+
+
+def bare_report(run: Mapping) -> dict:
+    """The report of a run whose jobs were not read (moved_past()): act() only skips or marks pending."""
+    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+            "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
+            "conclusion": run.get("conclusion"), "jobs": [], "macos_ran": False, "macos_blocked": ""}
 
 
 def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
@@ -1291,7 +1349,9 @@ def main(argv: list[str]) -> int:
             print(json.dumps({"log": path, **classify_text(Path(path).read_text(errors="replace"))}))
         return 0
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    gh = GitHub(args.repo, token) if token else None
+    # READ_TOKEN (an App's, with its own budget) makes the reads; writes, the re-run above all,
+    # stay on GH_TOKEN (guard_attribution.GitHub).
+    gh = GitHub(args.repo, token, read_token=os.environ.get("READ_TOKEN") or "") if token else None
     run = load_run(gh, args.run_id)
     if gh is None:
         raise SystemExit("set GH_TOKEN")
@@ -1302,13 +1362,20 @@ def main(argv: list[str]) -> int:
         for entry in writer.log:
             print(entry)
         print(json.dumps(result))
-        print(f"api calls: {gh.calls}")
+        print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
         return 0
     if run.get("conclusion") not in ("success", "failure", "cancelled"):
         print(f"run {run.get('id')} concluded {run.get('conclusion')}; nothing to attribute")
         return 0
-    # A green run's jobs are read too (no logs): its macOS jobs may never have run.
-    report = classify_run(gh, run)
+    # A green run's jobs are read too (no logs): its macOS jobs may never have run. Into
+    # feat-cmux-next they never do, by design, so there the comments are read first instead.
+    # A red or cancelled run whose pull request has moved on or closed: its jobs and logs change
+    # nothing (moved_past()). Green runs read only the comments already (act()).
+    if (args.command == "act" and run.get("conclusion") != "success"
+            and moved_past(run, run_pull(gh, run))):
+        report = bare_report(run)
+    else:
+        report = (green_next_report(gh, run) if args.command == "act" else None) or classify_run(gh, run)
     if args.command == "classify":
         print(json.dumps(report, indent=2))
         return 0
@@ -1317,7 +1384,7 @@ def main(argv: list[str]) -> int:
     for entry in writer.log:
         print(entry)
     print(json.dumps({**result, "jobs": [(j["name"], j["verdict"], j["signature"]) for j in report["jobs"]]}))
-    print(f"api calls: {gh.calls}")
+    print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
     return 0
 
 

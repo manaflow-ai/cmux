@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/shortcut-hints.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+ShortcutHints.generated.swift",
-  "type": "ShortcutHintsSettingsSchema",
-  "lists": {
-    "shortcutHints": ["descriptors", "ModifierHoldHintsSetting"]
-  }
-}

@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 
 /// The tapback badge Messages hangs on a bubble, read from ChatKit's
 /// `CKTapbackPlatterView` in Messages on iOS 26.5 and 27.0 (iPhone 17 Pro,

@@ -1,24 +1,24 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{
-    Lane, MUX_CONTROL_LINE_CODECS, MUX_INPUT_V1_FEATURE, MUX_LINE_CODEC_ZLIB,
-    MUX_LINE_ZLIB_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
+    Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
     RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl,
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
     WorkspaceRequest, WorkspaceResponse,
 };
+use cmux_tui_core::resource::TerminalPublicId;
 #[cfg(unix)]
-use cmux_terminal_host_protocol::terminal_host::{
+use cmux_tui_core::terminal_host::{
     CapabilityRights, CapabilityToken, ClientHello, ClientRole, HostHello, HostIncarnation,
     TerminalId,
 };
 #[cfg(unix)]
-use cmux_terminal_host_protocol::terminal_host_protocol::{
+use cmux_tui_core::terminal_host_protocol::{
     FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, FrameDecoder,
     HEADER_LEN, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, encode_frame, frame_payload_len,
 };
@@ -28,10 +28,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 
-use cmux_link::carrier_grant::CarrierGrant;
-
-use crate::acpmux_bridge;
-use crate::crypto::ServiceAuthority;
 use crate::daemon::ServerConnection;
 use crate::service::{
     EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream, StreamBudget,
@@ -259,10 +255,6 @@ pub struct DaemonServices {
     workspace: WorkspaceService,
     mux_socket: Option<PathBuf>,
     mux_upload_budget: MuxUploadBudget,
-    /// The Unix sockets [`Service::LocalSocket`] may reach, fixed at start.
-    local_sockets: Arc<[PathBuf]>,
-    /// acpmux's carrier socket, which [`Service::Acpmux`] bridges to.
-    acpmux_socket: Option<PathBuf>,
 }
 
 fn validate_renderer_host_hello(
@@ -302,39 +294,7 @@ fn validate_renderer_host_hello(
 
 impl DaemonServices {
     pub fn new(workspace: WorkspaceService, mux_socket: Option<PathBuf>) -> Arc<Self> {
-        Self::with_local_sockets(workspace, mux_socket, Vec::new())
-    }
-
-    /// [`DaemonServices::new`], and [`Service::LocalSocket`] may reach
-    /// exactly `local_sockets` (absolute paths; anything else is dropped).
-    /// The client's `path` must equal one entry byte for byte: nothing is
-    /// resolved, so `..` or a symlink spelling never matches.
-    pub fn with_local_sockets(
-        workspace: WorkspaceService,
-        mux_socket: Option<PathBuf>,
-        local_sockets: Vec<PathBuf>,
-    ) -> Arc<Self> {
-        Self::with_carrier_sockets(workspace, mux_socket, local_sockets, None)
-    }
-
-    /// [`DaemonServices::with_local_sockets`], and [`Service::Acpmux`]
-    /// bridges to acpmux's carrier socket `acpmux_socket` (see
-    /// [`crate::acpmux_bridge`]); without one it refuses every open.
-    pub fn with_carrier_sockets(
-        workspace: WorkspaceService,
-        mux_socket: Option<PathBuf>,
-        local_sockets: Vec<PathBuf>,
-        acpmux_socket: Option<PathBuf>,
-    ) -> Arc<Self> {
-        let local_sockets =
-            local_sockets.into_iter().filter(|path| path.is_absolute()).collect::<Vec<_>>();
-        Arc::new(Self {
-            workspace,
-            mux_socket,
-            mux_upload_budget: MuxUploadBudget::new(),
-            local_sockets: local_sockets.into(),
-            acpmux_socket,
-        })
+        Arc::new(Self { workspace, mux_socket, mux_upload_budget: MuxUploadBudget::new() })
     }
 
     pub async fn run(self: Arc<Self>, clients: mpsc::Receiver<Arc<ServerConnection>>) {
@@ -388,7 +348,6 @@ impl DaemonServices {
         let scope = ClientScope::new(client.device_id.clone(), client.session_id);
         let mut cleanup =
             ClientCleanupGuard::new(client.clone(), self.workspace.clone(), scope.clone());
-        let service_authority = client.service_authority().clone();
         let multiplexer = ServiceMultiplexer::new(client, EndpointRole::Daemon);
         let stream_slots = Arc::new(Semaphore::new(MAX_ACTIVE_SERVICE_STREAMS));
         let request_slots = RequestAdmission::new();
@@ -400,10 +359,6 @@ impl DaemonServices {
                         Ok(Some(incoming)) => incoming,
                         Ok(None) => break Ok(()),
                         Err(error) => break Err(error.into()),
-                    };
-                    let Some(incoming) = Self::authorize_service(&service_authority, incoming).await?
-                    else {
-                        continue;
                     };
                     let permit = match stream_slots.clone().try_acquire_owned() {
                         Ok(permit) => permit,
@@ -421,13 +376,9 @@ impl DaemonServices {
                     let services = self.clone();
                     let scope = scope.clone();
                     let request_slots = request_slots.clone();
-                    let grant = service_authority.grant().cloned();
-                    let mux_role = service_authority.mux_role();
                     handlers.spawn_local(async move {
                         let _permit = permit;
-                        services
-                            .serve_stream(scope, request_slots, grant, mux_role, incoming)
-                            .await
+                        services.serve_stream(scope, request_slots, incoming).await
                     });
                 }
                 completed = handlers.join_next(), if !handlers.is_empty() => {
@@ -467,33 +418,10 @@ impl DaemonServices {
         outcome
     }
 
-    async fn authorize_service(
-        authority: &ServiceAuthority,
-        incoming: IncomingStream,
-    ) -> Result<Option<IncomingStream>, ServicesError> {
-        if authority.allows(incoming.service) {
-            return Ok(Some(incoming));
-        }
-        let message = if incoming.service == Service::Acpmux {
-            // The bridge's own reason: no grant, or a grant without acpmux.
-            acpmux_bridge::header(authority.grant().map(Arc::as_ref))
-                .err()
-                .unwrap_or("acpmux.not_granted")
-                .to_owned()
-        } else {
-            let service = serde_json::to_string(&incoming.service)?;
-            format!("the client grant does not allow {}", service.trim_matches('"'))
-        };
-        incoming.stream.reject("permission-denied".into(), message).await?;
-        Ok(None)
-    }
-
     async fn serve_stream(
         self: Arc<Self>,
         scope: ClientScope,
         request_slots: Arc<RequestAdmission>,
-        grant: Option<Arc<CarrierGrant>>,
-        mux_role: Option<Option<cmux_link::token::VmKind>>,
         incoming: IncomingStream,
     ) -> Result<(), ServicesError> {
         let workspace = self.workspace.clone();
@@ -520,23 +448,9 @@ impl DaemonServices {
             Service::TcpTunnel => {
                 Self::serve_tcp_tunnel(workspace, incoming.stream, incoming.metadata).await
             }
-            Service::LocalSocket => {
-                Self::serve_local_socket(&self.local_sockets, incoming.stream, incoming.metadata)
-                    .await
-            }
-            Service::Acpmux => {
-                Self::serve_acpmux(self.acpmux_socket.as_deref(), grant.as_deref(), incoming.stream)
-                    .await
-            }
             Service::MuxControl => {
-                Self::serve_mux_control_with_budget(
-                    mux_socket,
-                    mux_role,
-                    incoming.stream,
-                    mux_upload_budget,
-                    mux_line_zlib_requested(&incoming.metadata),
-                )
-                .await
+                Self::serve_mux_control_with_budget(mux_socket, incoming.stream, mux_upload_budget)
+                    .await
             }
             Service::ComputerUse => {
                 incoming
@@ -732,116 +646,6 @@ impl DaemonServices {
         pump_stream(stream, reader, writer).await
     }
 
-    /// A byte stream to one allowlisted Unix socket. The session already
-    /// holds [`Service::LocalSocket`] (only an owner's grant carries it);
-    /// the path must also be on this daemon's allowlist.
-    async fn serve_local_socket(
-        allowlist: &[PathBuf],
-        stream: ServiceStream,
-        metadata: BTreeMap<String, String>,
-    ) -> Result<(), ServicesError> {
-        if allowlist.is_empty() {
-            stream
-                .reject("unavailable".into(), "this daemon serves no local sockets".into())
-                .await?;
-            return Ok(());
-        }
-        let Some(path) = metadata.get("path") else {
-            stream.reject("invalid-argument".into(), "missing metadata path".into()).await?;
-            return Ok(());
-        };
-        let Some(target) = allowlist.iter().find(|allowed| allowed.as_os_str() == path.as_str())
-        else {
-            stream
-                .reject(
-                    "permission-denied".into(),
-                    "the path is not on this daemon's local socket allowlist".into(),
-                )
-                .await?;
-            return Ok(());
-        };
-        #[cfg(unix)]
-        {
-            let socket = match tokio::net::UnixStream::connect(target).await {
-                Ok(socket) => socket,
-                Err(error) => {
-                    stream
-                        .reject(
-                            "unavailable".into(),
-                            format!("the local socket did not answer: {}", error.kind()),
-                        )
-                        .await?;
-                    return Ok(());
-                }
-            };
-            let stream = Arc::new(stream);
-            send_opened(&stream, Lane::Tunnel).await?;
-            let (reader, writer) = socket.into_split();
-            pump_stream(stream, reader, writer).await
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = target;
-            stream.reject("unsupported".into(), "local sockets need a Unix host".into()).await?;
-            Ok(())
-        }
-    }
-
-    /// One acpmux connection for the person the session's carrier grant
-    /// names (`crate::acpmux_bridge`). A grant the bridge refuses is
-    /// refused before the socket is dialed.
-    async fn serve_acpmux(
-        socket: Option<&Path>,
-        grant: Option<&CarrierGrant>,
-        stream: ServiceStream,
-    ) -> Result<(), ServicesError> {
-        let header = match acpmux_bridge::header(grant) {
-            Ok(header) => header,
-            Err(reason) => {
-                stream.reject("permission-denied".into(), reason.into()).await?;
-                return Ok(());
-            }
-        };
-        let Some(socket) = socket else {
-            stream.reject("unavailable".into(), "this daemon bridges to no acpmux".into()).await?;
-            return Ok(());
-        };
-        #[cfg(unix)]
-        {
-            let ws = match acpmux_bridge::connect(socket, &header).await {
-                Ok(ws) => ws,
-                Err(error) => {
-                    stream
-                        .reject(
-                            "unavailable".into(),
-                            format!("acpmux's carrier socket did not answer: {}", error.kind()),
-                        )
-                        .await?;
-                    return Ok(());
-                }
-            };
-            let stream = Arc::new(stream);
-            send_opened(&stream, Lane::Tunnel).await?;
-            // The stream's bytes cross a pipe so the relay reads lines from
-            // it as from any reader; each side's end reaches the other.
-            let (near, far) = tokio::io::duplex(2 * COPY_CHUNK);
-            let (far_reader, far_writer) = tokio::io::split(far);
-            let (near_reader, near_writer) = tokio::io::split(near);
-            let (pumped, relayed) = tokio::join!(
-                pump_stream(stream, far_reader, far_writer),
-                acpmux_bridge::relay(ws, near_reader, near_writer),
-            );
-            relayed?;
-            pumped
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = (socket, header);
-            stream.reject("unsupported".into(), "acpmux needs a Unix host".into()).await?;
-            Ok(())
-        }
-    }
-
     #[cfg(unix)]
     async fn serve_terminal_bytes(
         mux_socket: Option<PathBuf>,
@@ -889,7 +693,7 @@ impl DaemonServices {
 
     #[cfg(unix)]
     async fn negotiate_terminal_bytes(
-        mux_path: &Path,
+        mux_path: &std::path::Path,
         terminal_request: TerminalBytesRequest,
     ) -> Result<tokio::net::UnixStream, ServicesError> {
         // The control socket only brokers a one-use renderer grant. The
@@ -997,54 +801,43 @@ impl DaemonServices {
         Ok(())
     }
 
-    /// One `mux-control` stream, spliced to the session daemon's unix socket. A
-    /// grant-admitted session's stream first carries the grant's signed role
-    /// (`mux_carrier_role.rs`), before any of the person's bytes, and a session this
-    /// machine's own user opened (`cmux ssh`: kernel or SSH evidence) the owner's role
-    /// (`ServiceAuthority::mux_role`). `line_zlib`:
-    /// the client listed zlib in its open metadata, so large lines to it go
-    /// compressed and `opened` says so.
+    #[cfg(all(unix, test))]
+    async fn serve_mux_control(
+        mux_socket: Option<PathBuf>,
+        stream: ServiceStream,
+    ) -> Result<(), ServicesError> {
+        Self::serve_mux_control_with_budget(mux_socket, stream, MuxUploadBudget::new()).await
+    }
+
     #[cfg(unix)]
     async fn serve_mux_control_with_budget(
         mux_socket: Option<PathBuf>,
-        mux_role: Option<Option<cmux_link::token::VmKind>>,
         stream: ServiceStream,
         upload_budget: MuxUploadBudget,
-        line_zlib: bool,
     ) -> Result<(), ServicesError> {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let mut socket = connect_owned_unix_socket(path).await?;
-        if let Some(role) = mux_role
-            && let Err(refused) = crate::mux_carrier_role::stamp(&mut socket, role).await
-        {
-            let (code, message) = match refused {
-                crate::mux_carrier_role::StampRefused::NotTaken => (
-                    "permission-denied",
-                    "mux_control.role_not_taken: the session daemon did not take this grant's role",
-                ),
-                crate::mux_carrier_role::StampRefused::Unavailable => (
-                    "unavailable",
-                    "mux_control.role_unavailable: the session daemon did not answer the role stamp",
-                ),
-            };
-            stream.reject(code.into(), message.into()).await?;
-            return Ok(());
-        }
+        let socket = connect_owned_unix_socket(path).await?;
         let stream = Arc::new(stream);
-        send_opened_with(&stream, Lane::Interactive, line_zlib).await?;
+        send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
-        pump_mux_server_with_budget(stream, reader, writer, upload_budget, line_zlib).await
+        pump_mux_server_with_budget(stream, reader, writer, upload_budget).await
+    }
+
+    #[cfg(all(not(unix), test))]
+    async fn serve_mux_control(
+        _mux_socket: Option<PathBuf>,
+        stream: ServiceStream,
+    ) -> Result<(), ServicesError> {
+        Self::serve_mux_control_with_budget(None, stream, MuxUploadBudget::new()).await
     }
 
     #[cfg(not(unix))]
     async fn serve_mux_control_with_budget(
         _mux_socket: Option<PathBuf>,
-        _mux_role: Option<Option<cmux_link::token::VmKind>>,
         stream: ServiceStream,
         _upload_budget: MuxUploadBudget,
-        _line_zlib: bool,
     ) -> Result<(), ServicesError> {
         stream
             .reject(
@@ -1058,17 +851,8 @@ impl DaemonServices {
 
 /// Validated `terminal-bytes-v1` open metadata.
 struct TerminalBytesRequest {
-    /// A terminal's public id (`term_` and 32 lowercase hex digits, cmux-tui-core's `TerminalPublicId`).
-    terminal: String,
+    terminal: TerminalPublicId,
     viewer_size_priority: bool,
-}
-
-/// cmux-tui-core's `TerminalPublicId::parse`, here so this crate builds without cmux-tui-core.
-fn terminal_public_id(value: &str) -> Option<&str> {
-    let payload = value.strip_prefix("term_")?;
-    (payload.len() == 32
-        && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
-    .then_some(value)
 }
 
 fn terminal_bytes_metadata(
@@ -1088,12 +872,15 @@ fn terminal_bytes_metadata(
             ));
         }
     };
-    let terminal =
-        terminal_public_id(metadata.get("terminal").ok_or_else(|| {
-            ServicesError::Metadata("terminal byte stream requires terminal".into())
-        })?)
-        .ok_or_else(|| ServicesError::Metadata("terminal byte stream terminal is invalid".into()))?
-        .to_owned();
+    let terminal = TerminalPublicId::parse(
+        metadata
+            .get("terminal")
+            .ok_or_else(|| {
+                ServicesError::Metadata("terminal byte stream requires terminal".into())
+            })?
+            .clone(),
+    )
+    .map_err(|_| ServicesError::Metadata("terminal byte stream terminal is invalid".into()))?;
     Ok(TerminalBytesRequest { terminal, viewer_size_priority })
 }
 
@@ -1329,7 +1116,14 @@ struct MessageReadState {
 
 impl MessageStream {
     pub fn new(stream: Arc<ServiceStream>) -> Self {
-        let lane = crate::service::default_lane(stream.service());
+        let lane = match stream.service() {
+            Service::MuxControl | Service::TerminalBytes | Service::ComputerUse => {
+                Lane::Interactive
+            }
+            Service::ProcessStream => Lane::Bulk,
+            Service::WorkspaceRpc => Lane::Control,
+            Service::TcpTunnel => Lane::Tunnel,
+        };
         Self::with_lane(stream, lane)
     }
 
@@ -1428,32 +1222,12 @@ impl MessageStream {
     }
 }
 
-/// Whether a `mux-control` open lists zlib among the line codecs its client
-/// reads (`MUX_CONTROL_LINE_CODECS`).
-fn mux_line_zlib_requested(metadata: &BTreeMap<String, String>) -> bool {
-    metadata
-        .get(MUX_CONTROL_LINE_CODECS)
-        .is_some_and(|codecs| codecs.split(',').any(|codec| codec.trim() == MUX_LINE_CODEC_ZLIB))
-}
-
 async fn send_opened(stream: &ServiceStream, lane: Lane) -> Result<(), ServicesError> {
-    send_opened_with(stream, lane, false).await
-}
-
-async fn send_opened_with(
-    stream: &ServiceStream,
-    lane: Lane,
-    line_zlib: bool,
-) -> Result<(), ServicesError> {
     let payload = if stream.service() == Service::MuxControl {
-        let mut features = vec![MUX_INPUT_V1_FEATURE];
-        if line_zlib {
-            features.push(MUX_LINE_ZLIB_V1_FEATURE);
-        }
         serde_json::to_vec(&serde_json::json!({
             "type": "opened",
             "service": stream.service(),
-            "features": features,
+            "features": [MUX_INPUT_V1_FEATURE],
         }))?
     } else {
         serde_json::to_vec(&ServiceControl::Opened { service: stream.service() })?
@@ -1555,7 +1329,6 @@ async fn read_mux_uploads<R>(
     interactive: mpsc::Sender<MuxUploadMessage>,
     control: mpsc::Sender<MuxUploadMessage>,
     bulk: mpsc::Sender<MuxUploadMessage>,
-    line_zlib: bool,
 ) -> Result<(), ServicesError>
 where
     R: AsyncRead + Unpin,
@@ -1589,20 +1362,11 @@ where
                 actual: Lane::Tunnel,
             });
         }
-        let maximum = crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES;
-        let packets = if line_zlib && line.len() >= crate::mux_codec::ZLIB_BLOCKING_LINE_BYTES {
-            // Tens of milliseconds of deflate stay off the runtime's workers.
-            let owned = std::mem::take(&mut line);
-            tokio::task::spawn_blocking(move || {
-                crate::mux_codec::encode_line_for_client(message, &owned, maximum, true)
-            })
-            .await
-            .map_err(|error| {
-                ServicesError::Remote(format!("mux line compression failed: {error}"))
-            })??
-        } else {
-            crate::mux_codec::encode_line_for_client(message, &line, maximum, line_zlib)?
-        };
+        let packets = crate::mux_codec::encode_line_with_limit(
+            message,
+            &line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )?;
         let encoded_bytes =
             packets.iter().try_fold(0_usize, |total, packet| total.checked_add(packet.len()));
         let Some(encoded_bytes) = encoded_bytes else {
@@ -1639,12 +1403,24 @@ async fn send_mux_uploads(
     Ok(())
 }
 
+#[cfg(test)]
+pub(crate) async fn pump_mux_server<R, W>(
+    remote: Arc<ServiceStream>,
+    local_reader: R,
+    local_writer: W,
+) -> Result<(), ServicesError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    pump_mux_server_with_budget(remote, local_reader, local_writer, MuxUploadBudget::new()).await
+}
+
 async fn pump_mux_server_with_budget<R, W>(
     remote: Arc<ServiceStream>,
     local_reader: R,
     mut local_writer: W,
     upload_budget: MuxUploadBudget,
-    line_zlib: bool,
 ) -> Result<(), ServicesError>
 where
     R: AsyncRead + Unpin,
@@ -1666,7 +1442,6 @@ where
                 interactive_tx,
                 control_tx,
                 bulk_tx,
-                line_zlib,
             );
             let send_interactive =
                 send_mux_uploads(remote.clone(), Lane::Interactive, interactive_rx);
@@ -1782,7 +1557,7 @@ fn workspace_rpc_metadata(
 /// user, so refuse any other listener before a request or token is written.
 #[cfg(unix)]
 async fn connect_owned_unix_socket(
-    path: impl AsRef<Path>,
+    path: impl AsRef<std::path::Path>,
 ) -> Result<tokio::net::UnixStream, ServicesError> {
     let stream = tokio::net::UnixStream::connect(path).await?;
     crate::admin::verify_unix_peer_owner(&stream)
@@ -1867,14 +1642,2163 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
     }
 }
 
-#[cfg(all(test, unix))]
-#[path = "acpmux_service_tests.rs"]
-mod acpmux_service_tests;
-
-#[cfg(all(test, unix))]
-#[path = "mux_control_role_tests.rs"]
-mod mux_control_role_tests;
-
 #[cfg(test)]
-#[path = "services_tests.rs"]
-mod tests;
+mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+    #[cfg(unix)]
+    use std::sync::{Condvar, Mutex as StdMutex};
+
+    use async_trait::async_trait;
+    use cmux_remote_protocol::{
+        ByteString, FrameFlags, ProcessEnvironment, ProcessEvent, ProcessIo, ProcessLifetime,
+        ProcessSignal, RpcEvent, WorkspaceId, WorkspaceResponse,
+    };
+    use tempfile::tempdir;
+    #[cfg(unix)]
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    #[cfg(unix)]
+    use tokio::sync::oneshot;
+    use tokio::sync::{Notify, mpsc, watch};
+
+    use super::*;
+    use crate::client::WorkspaceClient;
+    use crate::service::{ServiceMultiplexer, SessionEndpoint};
+    use crate::session::ReceivedFrame;
+
+    struct TestEndpoint {
+        outgoing: mpsc::Sender<ReceivedFrame>,
+        incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
+        sequence: AtomicU64,
+        generation: watch::Sender<u64>,
+    }
+
+    #[cfg(unix)]
+    struct BackpressuredMuxEndpoint {
+        generation: watch::Sender<u64>,
+        bulk_active: AtomicBool,
+        bulk_released: AtomicBool,
+        control_frames: AtomicUsize,
+        activity_changed: Notify,
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for TestEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            lane: Lane,
+            stream: u64,
+            payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
+            self.outgoing
+                .send(ReceivedFrame { generation: 0, lane, stream, sequence, flags, payload })
+                .await
+                .map_err(|_| ServiceError::Closed)?;
+            Ok(sequence)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            Ok(self.incoming.lock().await.recv().await)
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
+        let (left_tx, left_rx) = mpsc::channel(64);
+        let (right_tx, right_rx) = mpsc::channel(64);
+        let (left_generation, _) = watch::channel(0);
+        let (right_generation, _) = watch::channel(0);
+        (
+            Arc::new(TestEndpoint {
+                outgoing: left_tx,
+                incoming: Mutex::new(right_rx),
+                sequence: AtomicU64::new(0),
+                generation: left_generation,
+            }),
+            Arc::new(TestEndpoint {
+                outgoing: right_tx,
+                incoming: Mutex::new(left_rx),
+                sequence: AtomicU64::new(0),
+                generation: right_generation,
+            }),
+        )
+    }
+
+    #[cfg(unix)]
+    impl BackpressuredMuxEndpoint {
+        fn new() -> Arc<Self> {
+            let (generation, _) = watch::channel(0);
+            Arc::new(Self {
+                generation,
+                bulk_active: AtomicBool::new(false),
+                bulk_released: AtomicBool::new(false),
+                control_frames: AtomicUsize::new(0),
+                activity_changed: Notify::new(),
+            })
+        }
+
+        async fn wait_for_bulk(&self) {
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                loop {
+                    let notified = self.activity_changed.notified();
+                    if self.bulk_active.load(Ordering::Acquire) {
+                        break;
+                    }
+                    notified.await;
+                }
+            })
+            .await
+            .expect("render event never reached the backpressured Bulk lane");
+        }
+
+        async fn wait_for_control(&self) {
+            loop {
+                let notified = self.activity_changed.notified();
+                if self.control_frames.load(Ordering::Acquire) != 0 {
+                    break;
+                }
+                notified.await;
+            }
+        }
+
+        fn release_bulk(&self) {
+            self.bulk_released.store(true, Ordering::Release);
+            self.activity_changed.notify_waiters();
+        }
+    }
+
+    #[cfg(unix)]
+    #[async_trait]
+    impl SessionEndpoint for BackpressuredMuxEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            if flags.contains(FrameFlags::OPEN) {
+                return Ok(1);
+            }
+            match lane {
+                Lane::Bulk => {
+                    self.bulk_active.store(true, Ordering::Release);
+                    self.activity_changed.notify_waiters();
+                    loop {
+                        let notified = self.activity_changed.notified();
+                        if self.bulk_released.load(Ordering::Acquire) {
+                            break;
+                        }
+                        notified.await;
+                    }
+                }
+                Lane::Control => {
+                    self.control_frames.fetch_add(1, Ordering::AcqRel);
+                    self.activity_changed.notify_waiters();
+                }
+                Lane::Interactive | Lane::Tunnel => {}
+            }
+            Ok(1)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            std::future::pending().await
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mux_server_drains_control_while_bulk_lane_is_backpressured() {
+        let endpoint = BackpressuredMuxEndpoint::new();
+        let multiplexer = ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Daemon);
+        let stream =
+            Arc::new(multiplexer.open(Service::MuxControl, BTreeMap::new()).await.unwrap());
+        let (bridge, mut fake_core) = tokio::io::duplex(64 * 1024);
+        let (reader, writer) = tokio::io::split(bridge);
+        let pump = tokio::spawn(pump_mux_server(stream, reader, writer));
+
+        fake_core
+            .write_all(
+                concat!(
+                    "{\"event\":\"render-delta\",\"surface\":1}\n",
+                    "{\"id\":91,\"ok\":true}\n",
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        endpoint.wait_for_bulk().await;
+        let control = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            endpoint.wait_for_control(),
+        )
+        .await;
+        endpoint.release_bulk();
+        pump.abort();
+        let _ = pump.await;
+
+        control.expect(
+            "mux socket reader stopped behind Bulk backpressure before dispatching Control",
+        );
+        multiplexer.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[derive(Default)]
+    struct BlockingGateState {
+        released: bool,
+        forced_timeout: bool,
+    }
+
+    #[cfg(unix)]
+    struct BlockingGate {
+        state: StdMutex<BlockingGateState>,
+        changed: Condvar,
+    }
+
+    #[cfg(unix)]
+    impl BlockingGate {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                state: StdMutex::new(BlockingGateState::default()),
+                changed: Condvar::new(),
+            })
+        }
+
+        fn block_with_watchdog(&self) {
+            let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let (mut state, timeout) = self
+                .changed
+                .wait_timeout_while(state, std::time::Duration::from_secs(10), |state| {
+                    !state.released
+                })
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if timeout.timed_out() && !state.released {
+                state.released = true;
+                state.forced_timeout = true;
+            }
+        }
+
+        fn release(&self) {
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.released = true;
+            drop(state);
+            self.changed.notify_all();
+        }
+
+        fn forced_timeout(&self) -> bool {
+            self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).forced_timeout
+        }
+    }
+
+    #[cfg(unix)]
+    struct ReleaseOnDrop(Arc<BlockingGate>);
+
+    #[cfg(unix)]
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            self.0.release();
+        }
+    }
+
+    #[test]
+    fn workspace_rpc_metadata_binds_cancellation_to_control() {
+        assert_eq!(
+            workspace_rpc_metadata(&BTreeMap::new()).unwrap(),
+            (Lane::Control, WorkspaceRpcPurpose::Requests)
+        );
+        assert_eq!(
+            workspace_rpc_metadata(&BTreeMap::from([
+                ("lane".into(), "control".into()),
+                ("purpose".into(), "cancellation".into()),
+            ]))
+            .unwrap(),
+            (Lane::Control, WorkspaceRpcPurpose::Cancellation)
+        );
+        assert!(
+            workspace_rpc_metadata(&BTreeMap::from([
+                ("lane".into(), "bulk".into()),
+                ("purpose".into(), "cancellation".into()),
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn terminal_bytes_metadata_requires_a_stable_terminal_id() {
+        const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::new()),
+            Err(ServicesError::Metadata(_))
+        ));
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::from([("terminal".into(), "pane-a".into())])),
+            Err(ServicesError::Metadata(_))
+        ));
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::from([
+                ("terminal".into(), TERMINAL.into()),
+                ("after".into(), "3".into()),
+            ])),
+            Err(ServicesError::Metadata(_))
+        ));
+        assert!(
+            terminal_bytes_metadata(&BTreeMap::from([("terminal".into(), TERMINAL.into())]))
+                .is_ok()
+        );
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::from([("surface".into(), "9".into())])),
+            Err(ServicesError::Metadata(_))
+        ));
+    }
+
+    #[test]
+    fn renderer_host_hello_requires_acknowledgements_and_exact_grant_identity() {
+        let terminal_id = TerminalId::random().unwrap();
+        let incarnation = HostIncarnation::random().unwrap();
+        let mut response = Frame::new(
+            MessageKind::HostHello,
+            HostHello {
+                selected_version: PROTOCOL_VERSION,
+                granted_rights: CapabilityRights::RENDERER,
+                terminal_id,
+                incarnation,
+            }
+            .encode(),
+        );
+        response.request_id = 7;
+        response.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        let host =
+            validate_renderer_host_hello(&response, 7, terminal_id, incarnation, false).unwrap();
+        assert_eq!(host.granted_rights, CapabilityRights::RENDERER);
+        assert!(host.granted_rights.contains(CapabilityRights::RESIZE));
+
+        response.flags = FLAG_SMART_RENDERER;
+        assert!(
+            validate_renderer_host_hello(&response, 7, terminal_id, incarnation, false)
+                .unwrap_err()
+                .to_string()
+                .contains("required renderer capabilities")
+        );
+
+        response.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        assert!(
+            validate_renderer_host_hello(
+                &response,
+                7,
+                terminal_id,
+                HostIncarnation::random().unwrap(),
+                false,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("does not match renderer grant")
+        );
+    }
+
+    #[test]
+    fn terminal_bytes_metadata_accepts_only_preferred_viewer_size_priority() {
+        const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+        let key = TERMINAL_BYTES_VIEWER_SIZE_PRIORITY;
+        let preferred = TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED;
+        let parse = |pairs: &[(&str, &str)]| {
+            let metadata = pairs.iter().map(|(name, value)| (name.to_string(), value.to_string()));
+            terminal_bytes_metadata(&metadata.collect::<BTreeMap<_, _>>())
+        };
+
+        let request = parse(&[("terminal", TERMINAL), (key, preferred)]).unwrap();
+        assert_eq!(request.terminal.as_str(), TERMINAL);
+        assert!(request.viewer_size_priority);
+        assert!(!parse(&[("terminal", TERMINAL)]).unwrap().viewer_size_priority);
+
+        let rejected: [&[(&str, &str)]; 5] = [
+            &[("terminal", TERMINAL), (key, "yes")],
+            &[("terminal", TERMINAL), (key, "")],
+            &[("terminal", TERMINAL), (key, preferred), ("after", "3")],
+            &[("terminal", TERMINAL), ("viewer_size", preferred)],
+            &[(key, preferred)],
+        ];
+        for pairs in rejected {
+            assert!(matches!(parse(pairs), Err(ServicesError::Metadata(_))), "accepted {pairs:?}");
+        }
+    }
+
+    #[test]
+    fn renderer_host_hello_requires_viewer_size_priority_echo_exactly_when_requested() {
+        let terminal_id = TerminalId::random().unwrap();
+        let incarnation = HostIncarnation::random().unwrap();
+        let mut response = Frame::new(
+            MessageKind::HostHello,
+            HostHello {
+                selected_version: PROTOCOL_VERSION,
+                granted_rights: CapabilityRights::RENDERER,
+                terminal_id,
+                incarnation,
+            }
+            .encode(),
+        );
+        response.request_id = 7;
+        let renderer = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        for (flags, requested, accepted) in [
+            (renderer | FLAG_VIEWER_SIZE_PRIORITY, true, true),
+            (renderer, false, true),
+            (renderer, true, false),
+            (renderer | FLAG_VIEWER_SIZE_PRIORITY, false, false),
+        ] {
+            response.flags = flags;
+            let result =
+                validate_renderer_host_hello(&response, 7, terminal_id, incarnation, requested);
+            if accepted {
+                assert!(result.is_ok(), "flags {flags:#x} requested {requested}");
+            } else {
+                assert!(
+                    result.unwrap_err().to_string().contains("viewer-size priority"),
+                    "flags {flags:#x} requested {requested}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    async fn open_with_priority(
+        requested: bool,
+        supports: Option<bool>,
+        echoes: bool,
+    ) -> (u32, ServiceControl) {
+        let directory = tempdir().unwrap();
+        let mux_path = directory.path().join("mux.sock");
+        let host_path = directory.path().join("terminal.sock");
+        let mux_listener = tokio::net::UnixListener::bind(&mux_path).unwrap();
+        let host_listener = tokio::net::UnixListener::bind(&host_path).unwrap();
+        let terminal_id = TerminalId::random().unwrap();
+        let incarnation = HostIncarnation::random().unwrap();
+        let token = CapabilityToken::random().unwrap();
+        let token_hex =
+            token.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+
+        let mux_server = {
+            let host_path = host_path.clone();
+            let terminal_id = terminal_id.to_hex();
+            let incarnation = incarnation.to_hex();
+            tokio::spawn(async move {
+                let (socket, _) = mux_listener.accept().await.unwrap();
+                let mut request = String::new();
+                let mut socket = BufReader::new(socket);
+                socket.read_line(&mut request).await.unwrap();
+                let mut grant = serde_json::json!({
+                    "endpoint": host_path,
+                    "terminal_id": terminal_id,
+                    "incarnation": incarnation,
+                    "token": token_hex,
+                    "rights": CapabilityRights::RENDERER.bits(),
+                });
+                if let Some(supported) = supports {
+                    grant["supports_viewer_size_priority"] = serde_json::json!(supported);
+                }
+                let response = serde_json::json!({ "id": 1, "ok": true, "data": grant });
+                let mut line = serde_json::to_vec(&response).unwrap();
+                line.push(b'\n');
+                socket.get_mut().write_all(&line).await.unwrap();
+            })
+        };
+        let host_server = tokio::spawn(async move {
+            let (mut socket, _) = host_listener.accept().await.unwrap();
+            let hello = read_terminal_frame(&mut socket).await.unwrap();
+            assert_eq!(hello.kind, MessageKind::ClientHello);
+            let mut response = Frame::new(
+                MessageKind::HostHello,
+                HostHello {
+                    selected_version: PROTOCOL_VERSION,
+                    granted_rights: CapabilityRights::RENDERER,
+                    terminal_id,
+                    incarnation,
+                }
+                .encode(),
+            );
+            response.request_id = hello.request_id;
+            response.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            if echoes {
+                response.flags |= FLAG_VIEWER_SIZE_PRIORITY;
+            }
+            socket.write_all(&encode_frame(&response).unwrap()).await.unwrap();
+            hello.flags
+        });
+
+        let mut metadata = BTreeMap::from([(
+            "terminal".to_string(),
+            "term_0123456789abcdef0123456789abcdef".to_string(),
+        )]);
+        if requested {
+            metadata.insert(
+                TERMINAL_BYTES_VIEWER_SIZE_PRIORITY.into(),
+                TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED.into(),
+            );
+        }
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client_mux.open(Service::TerminalBytes, metadata).await.unwrap();
+        let incoming = daemon_mux.accept().await.unwrap().unwrap();
+        let handler = tokio::spawn(DaemonServices::serve_terminal_bytes(
+            Some(mux_path),
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let first = client_stream.receive().await.unwrap().unwrap();
+        let control = serde_json::from_slice::<ServiceControl>(&first.payload).unwrap();
+        if matches!(control, ServiceControl::Opened { .. }) {
+            client_stream.close().await.unwrap();
+        }
+        mux_server.await.unwrap();
+        let hello_flags = host_server.await.unwrap();
+        handler.await.unwrap().unwrap();
+        client_mux.shutdown().await;
+        daemon_mux.shutdown().await;
+        (hello_flags, control)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminal_bytes_viewer_size_priority_flag_follows_request_and_host_support() {
+        let renderer = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        let opened = ServiceControl::Opened { service: Service::TerminalBytes };
+        // An old mux omits the grant field; an old host record reports false.
+        for (requested, supports, expected) in [
+            (true, Some(true), renderer | FLAG_VIEWER_SIZE_PRIORITY),
+            (true, Some(false), renderer),
+            (true, None, renderer),
+            (false, Some(true), renderer),
+        ] {
+            let echoes = expected & FLAG_VIEWER_SIZE_PRIORITY != 0;
+            let (flags, control) = open_with_priority(requested, supports, echoes).await;
+            assert_eq!(flags, expected, "{requested} {supports:?}");
+            assert_eq!(control, opened, "{requested} {supports:?}");
+        }
+
+        let (flags, control) = open_with_priority(true, Some(true), false).await;
+        assert_eq!(flags, renderer | FLAG_VIEWER_SIZE_PRIORITY);
+        let ServiceControl::Rejected { code, message } = &control else {
+            panic!("a missing priority echo opened the stream: {control:?}");
+        };
+        assert_eq!(code, "terminal-unavailable");
+        assert!(message.contains("viewer-size priority"), "{message}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminal_bytes_adapter_mints_smart_grant_and_proxies_cmth_byte_for_byte() {
+        let directory = tempdir().unwrap();
+        let mux_path = directory.path().join("mux.sock");
+        let host_path = directory.path().join("terminal.sock");
+        let mux_listener = tokio::net::UnixListener::bind(&mux_path).unwrap();
+        let host_listener = tokio::net::UnixListener::bind(&host_path).unwrap();
+        let terminal_id = TerminalId::random().unwrap();
+        let terminal = "term_0123456789abcdef0123456789abcdef";
+        let incarnation = HostIncarnation::random().unwrap();
+        let token = CapabilityToken::random().unwrap();
+        let token_hex =
+            token.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let proxied = encode_frame(&Frame {
+            version: PROTOCOL_VERSION,
+            kind: MessageKind::Ready,
+            flags: 0,
+            request_id: 0,
+            sequence: 41,
+            payload: b"host-to-renderer".to_vec(),
+        })
+        .unwrap();
+        let upload =
+            encode_frame(&Frame::new(MessageKind::Input, b"renderer-to-host".to_vec())).unwrap();
+
+        let mux_server = {
+            let host_path = host_path.clone();
+            let terminal_id = terminal_id.to_hex();
+            let incarnation = incarnation.to_hex();
+            tokio::spawn(async move {
+                let (socket, _) = mux_listener.accept().await.unwrap();
+                let mut request = String::new();
+                let mut socket = BufReader::new(socket);
+                socket.read_line(&mut request).await.unwrap();
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                assert_eq!(request["cmd"], "mint-terminal-renderer-by-terminal");
+                assert_eq!(request["terminal"], terminal);
+                let response = serde_json::json!({
+                    "id": 1,
+                    "ok": true,
+                    "data": {
+                        "endpoint": host_path,
+                        "terminal_id": terminal_id,
+                        "incarnation": incarnation,
+                        "token": token_hex,
+                        "rights": CapabilityRights::RENDERER.bits(),
+                    }
+                });
+                socket
+                    .get_mut()
+                    .write_all(serde_json::to_string(&response).unwrap().as_bytes())
+                    .await
+                    .unwrap();
+                socket.get_mut().write_all(b"\n").await.unwrap();
+            })
+        };
+
+        let (upload_seen, upload_received) = oneshot::channel();
+        let host_server = {
+            let proxied = proxied.clone();
+            let upload = upload.clone();
+            tokio::spawn(async move {
+                let (mut socket, _) = host_listener.accept().await.unwrap();
+                let hello = read_terminal_frame(&mut socket).await.unwrap();
+                assert_eq!(hello.kind, MessageKind::ClientHello);
+                assert_eq!(hello.flags, FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS);
+                let client = ClientHello::decode(&hello.payload).unwrap();
+                assert_eq!(client.terminal_id, terminal_id);
+                assert_eq!(client.token, token);
+                assert_eq!(client.role, ClientRole::Renderer);
+                assert_eq!(client.requested_rights, CapabilityRights::RENDERER);
+                assert!(client.requested_rights.contains(CapabilityRights::RESIZE));
+                let mut response = Frame::new(
+                    MessageKind::HostHello,
+                    HostHello {
+                        selected_version: PROTOCOL_VERSION,
+                        granted_rights: CapabilityRights::RENDERER,
+                        terminal_id,
+                        incarnation,
+                    }
+                    .encode(),
+                );
+                response.request_id = hello.request_id;
+                response.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+                socket.write_all(&encode_frame(&response).unwrap()).await.unwrap();
+                socket.write_all(&proxied).await.unwrap();
+                let mut received = vec![0u8; upload.len()];
+                socket.read_exact(&mut received).await.unwrap();
+                assert_eq!(received, upload);
+                let _ = upload_seen.send(());
+            })
+        };
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client_mux
+            .open(Service::TerminalBytes, BTreeMap::from([("terminal".into(), terminal.into())]))
+            .await
+            .unwrap();
+        let incoming = daemon_mux.accept().await.unwrap().unwrap();
+        let handler = tokio::spawn(DaemonServices::serve_terminal_bytes(
+            Some(mux_path),
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let opened = client_stream.receive().await.unwrap().unwrap();
+        assert_eq!(opened.lane, Lane::Interactive);
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
+            ServiceControl::Opened { service: Service::TerminalBytes }
+        );
+        let mut received = Vec::with_capacity(proxied.len());
+        while received.len() < proxied.len() {
+            let chunk = client_stream.receive().await.unwrap().unwrap();
+            received.extend_from_slice(&chunk.payload);
+        }
+        assert_eq!(received, proxied);
+        client_stream.send(Bytes::from(upload)).await.unwrap();
+        upload_received.await.unwrap();
+        client_stream.close().await.unwrap();
+
+        mux_server.await.unwrap();
+        host_server.await.unwrap();
+        handler.await.unwrap().unwrap();
+        client_mux.shutdown().await;
+        daemon_mux.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    async fn assert_terminal_bytes_open_rejected(
+        mux_socket: Option<PathBuf>,
+        metadata: BTreeMap<String, String>,
+        expected_code: &str,
+        expected_message: &str,
+    ) {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream =
+            client.open(Service::TerminalBytes, metadata).await.expect("open terminal byte stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept terminal byte stream")
+            .expect("terminal byte stream was not delivered");
+        let handler = tokio::spawn(DaemonServices::serve_terminal_bytes(
+            mux_socket,
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(2), client_stream.receive())
+                .await
+                .expect("terminal byte rejection timed out")
+                .expect("terminal byte rejection became a transport error")
+                .expect("terminal byte stream closed without a rejection");
+        assert_eq!(response.lane, Lane::Control);
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&response.payload).unwrap(),
+            ServiceControl::Rejected {
+                code: expected_code.into(),
+                message: expected_message.into(),
+            }
+        );
+        handler
+            .await
+            .expect("terminal byte handler panicked")
+            .expect("terminal byte handler returned an error after rejecting the open");
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminal_bytes_pre_open_failures_are_explicitly_rejected() {
+        assert_terminal_bytes_open_rejected(
+            None,
+            BTreeMap::new(),
+            "invalid-argument",
+            "invalid service metadata: terminal byte stream requires terminal",
+        )
+        .await;
+        assert_terminal_bytes_open_rejected(
+            None,
+            BTreeMap::from([("terminal".into(), "term_0123456789abcdef0123456789abcdef".into())]),
+            "unavailable",
+            "mux control socket is not configured",
+        )
+        .await;
+    }
+
+    async fn assert_process_stream_open_rejected(
+        workspace: WorkspaceService,
+        scope: ClientScope,
+        metadata: BTreeMap<String, String>,
+        expected_code: &str,
+        expected_message: &str,
+    ) {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream =
+            client.open(Service::ProcessStream, metadata).await.expect("open process stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept process stream")
+            .expect("process stream was not delivered");
+        let handler = tokio::spawn(DaemonServices::serve_process_stream(
+            workspace,
+            scope,
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(2), client_stream.receive())
+                .await
+                .expect("process-stream rejection timed out")
+                .expect("process-stream rejection became a transport error")
+                .expect("process stream closed without a rejection");
+        assert_eq!(response.lane, Lane::Control);
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&response.payload).unwrap(),
+            ServiceControl::Rejected {
+                code: expected_code.into(),
+                message: expected_message.into(),
+            }
+        );
+        handler
+            .await
+            .expect("process-stream handler panicked")
+            .expect("process-stream handler returned an error after rejecting the open");
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn process_stream_metadata_failure_is_rejected_before_open() {
+        assert_process_stream_open_rejected(
+            WorkspaceService::new(),
+            ClientScope::new("metadata-rejection", cmux_remote_protocol::SessionId([13; 16])),
+            BTreeMap::new(),
+            "invalid-argument",
+            "missing process",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn process_stream_unknown_process_and_invalid_cursor_keep_rpc_errors() {
+        let workspace = WorkspaceService::new();
+        let scope = ClientScope::new("rpc-rejections", cmux_remote_protocol::SessionId([14; 16]));
+        let unknown = ProcessId::from_u128(0x8000_0000_0030_0000);
+        assert_process_stream_open_rejected(
+            workspace.clone(),
+            scope.clone(),
+            BTreeMap::from([("process".into(), unknown.to_string()), ("after".into(), "0".into())]),
+            "unknown-process",
+            &format!("unknown process {unknown}"),
+        )
+        .await;
+
+        let reserved = ProcessId::from_u128(0x8000_0000_0030_0001);
+        assert_process_stream_open_rejected(
+            workspace,
+            scope,
+            BTreeMap::from([
+                ("process".into(), reserved.to_string()),
+                ("after".into(), "1".into()),
+                ("reserve".into(), "true".into()),
+            ]),
+            "invalid-replay-cursor",
+            "a pre-spawn process stream must start after sequence zero",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn failed_response_send_keeps_paginated_cursor_retryable() {
+        let directory = tempdir().unwrap();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(directory.path().join(name), name).unwrap();
+        }
+        let workspace = WorkspaceService::new();
+        let scope = ClientScope::new("failed-page-send", cmux_remote_protocol::SessionId([15; 16]));
+        let opened = workspace
+            .handle_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(1),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Workspace { id, .. } = opened.result.unwrap() else { panic!() };
+        let first = workspace
+            .handle_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(2),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id.clone(),
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: None,
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Directory { next_cursor: Some(cursor), .. } = first.result.unwrap()
+        else {
+            panic!()
+        };
+        let prepared = workspace
+            .prepare_rpc_for(
+                scope.clone(),
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(3),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id.clone(),
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: Some(cursor.clone()),
+                    },
+                },
+            )
+            .await;
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let _client_stream = client
+            .open(Service::WorkspaceRpc, BTreeMap::new())
+            .await
+            .expect("open workspace RPC stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept workspace RPC stream")
+            .expect("workspace RPC stream was delivered");
+        incoming.stream.close().await.expect("close test response stream");
+        let messages = MessageStream::with_lane(Arc::new(incoming.stream), Lane::Control);
+        let send_error = send_prepared_workspace_response(&workspace, &messages, prepared, false)
+            .await
+            .expect_err("closed response stream should reject the page");
+        assert!(matches!(send_error, ServicesError::Service(ServiceError::Closed)));
+
+        let retried = workspace
+            .handle_rpc_for(
+                scope,
+                RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(4),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: id,
+                        path: String::new(),
+                        include_hidden: false,
+                        limit: 1,
+                        cursor: Some(cursor),
+                    },
+                },
+            )
+            .await;
+        let WorkspaceResponse::Directory { entries, .. } = retried.result.unwrap() else {
+            panic!()
+        };
+        assert_eq!(entries[0].name, "b.txt");
+
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn process_stream_duplicate_reservation_is_rejected_before_open() {
+        let workspace = WorkspaceService::new();
+        let scope =
+            ClientScope::new("duplicate-reservation", cmux_remote_protocol::SessionId([15; 16]));
+        let process = ProcessId::from_u128(0x8000_0000_0030_0002);
+        workspace
+            .subscribe_or_reserve_process(&scope, process, 0, true)
+            .await
+            .expect("seed process reservation");
+
+        assert_process_stream_open_rejected(
+            workspace.clone(),
+            scope.clone(),
+            BTreeMap::from([
+                ("process".into(), process.to_string()),
+                ("after".into(), "0".into()),
+                ("reserve".into(), "true".into()),
+            ]),
+            "duplicate-process-id",
+            &format!("process handle {process} is already reserved"),
+        )
+        .await;
+        workspace.release_process_reservation(&scope, process).await;
+    }
+
+    #[tokio::test]
+    async fn process_stream_reservation_capacity_is_rejected_before_open() {
+        const RESERVATION_LIMIT: u128 = 256;
+
+        let workspace = WorkspaceService::new();
+        let scope =
+            ClientScope::new("reservation-capacity", cmux_remote_protocol::SessionId([16; 16]));
+        let base = 0x8000_0000_0040_0000;
+        for index in 0..RESERVATION_LIMIT {
+            workspace
+                .subscribe_or_reserve_process(&scope, ProcessId::from_u128(base + index), 0, true)
+                .await
+                .expect("seed process reservation capacity");
+        }
+        let rejected = ProcessId::from_u128(base + RESERVATION_LIMIT);
+        assert_process_stream_open_rejected(
+            workspace.clone(),
+            scope.clone(),
+            BTreeMap::from([
+                ("process".into(), rejected.to_string()),
+                ("after".into(), "0".into()),
+                ("reserve".into(), "true".into()),
+            ]),
+            "resource-exhausted",
+            "pending process reservation limit of 256 reached",
+        )
+        .await;
+        for index in 0..RESERVATION_LIMIT {
+            workspace.release_process_reservation(&scope, ProcessId::from_u128(base + index)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_client_preserves_process_stream_rejection_code() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_multiplexer = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_multiplexer = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let daemon = daemon_multiplexer.clone();
+        let unknown = ProcessId::from_u128(0x8000_0000_0050_0000);
+        let server = tokio::spawn(async move {
+            let mut rpc_streams = Vec::new();
+            for _ in 0..5 {
+                let incoming = daemon
+                    .accept()
+                    .await
+                    .expect("accept workspace RPC stream")
+                    .expect("workspace RPC stream was not delivered");
+                assert_eq!(incoming.service, Service::WorkspaceRpc);
+                let lane = match incoming.metadata.get("lane").map(String::as_str) {
+                    Some("interactive") => Lane::Interactive,
+                    Some("bulk") => Lane::Bulk,
+                    Some("control") | None => Lane::Control,
+                    lane => panic!("unexpected workspace RPC lane {lane:?}"),
+                };
+                send_opened(&incoming.stream, lane)
+                    .await
+                    .expect("acknowledge workspace RPC stream");
+                rpc_streams.push(incoming.stream);
+            }
+
+            let incoming = daemon
+                .accept()
+                .await
+                .expect("accept process stream")
+                .expect("process stream was not delivered");
+            assert_eq!(incoming.service, Service::ProcessStream);
+            let result = DaemonServices::serve_process_stream(
+                WorkspaceService::new(),
+                ClientScope::new(
+                    "workspace-client-rejection",
+                    cmux_remote_protocol::SessionId([17; 16]),
+                ),
+                incoming.stream,
+                incoming.metadata,
+            )
+            .await;
+            drop(rpc_streams);
+            result
+        });
+
+        let client = WorkspaceClient::connect(client_multiplexer.clone())
+            .await
+            .expect("connect workspace client");
+        let error = match client.process_events(unknown, 0).await {
+            Err(error) => error,
+            Ok(_) => panic!("unknown process stream should be rejected"),
+        };
+        assert_eq!(error.code, "unknown-process");
+        assert_eq!(error.message, format!("unknown process {unknown}"));
+        server
+            .await
+            .expect("process-stream server panicked")
+            .expect("process-stream server returned an error after rejecting the open");
+
+        drop(client);
+        client_multiplexer.shutdown().await;
+        daemon_multiplexer.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn cancellation_rpc_codec_stays_inline_and_bounded() {
+        let workspace = WorkspaceService::new();
+        let request = RpcRequest {
+            id: cmux_remote_protocol::RequestId::from_u128(5),
+            timeout_ms: None,
+            request: WorkspaceRequest::CancelRequest {
+                request: cmux_remote_protocol::RequestId::from_u128(4),
+            },
+        };
+        let decoded = decode_workspace_request(
+            &workspace,
+            WorkspaceRpcPurpose::Cancellation,
+            Bytes::from(serde_json::to_vec(&request).unwrap()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(decoded.id, request.id);
+        assert!(matches!(decoded.request, WorkspaceRequest::CancelRequest { .. }));
+
+        let error = decode_workspace_request(
+            &workspace,
+            WorkspaceRpcPurpose::Cancellation,
+            Bytes::from(vec![b' '; RPC_CODEC_OFFLOAD_BYTES]),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, ServicesError::MessageTooLarge(RPC_CODEC_OFFLOAD_BYTES)));
+    }
+
+    #[tokio::test]
+    async fn oversized_escaped_workspace_response_returns_same_id_error() {
+        let escaped = "\u{1}".repeat(1024 * 1024);
+        let matches = (0..3)
+            .map(|index| cmux_remote_protocol::SearchMatch {
+                path: format!("file-{index}.txt"),
+                line: 1,
+                column: 1,
+                text: escaped.clone(),
+                before: Vec::new(),
+                after: Vec::new(),
+            })
+            .collect();
+        assert_oversized_response_falls_back(
+            RpcResponse {
+                id: cmux_remote_protocol::RequestId::from_u128(71),
+                result: Ok(WorkspaceResponse::Search {
+                    matches,
+                    truncated: true,
+                    next_cursor: Some(cmux_remote_protocol::PageCursor("next".into())),
+                }),
+            },
+            true,
+            true,
+        )
+        .await;
+    }
+
+    #[test]
+    fn escaped_rpc_errors_use_codec_offload() {
+        let response = RpcResponse {
+            id: cmux_remote_protocol::RequestId::from_u128(72),
+            result: Err(RpcError::new("invalid-data", "\u{1}".repeat(RPC_CODEC_OFFLOAD_BYTES / 4))),
+        };
+
+        assert!(workspace_response_needs_codec(&response));
+    }
+
+    #[tokio::test]
+    async fn oversized_error_response_returns_same_id_error() {
+        assert_oversized_response_falls_back(
+            RpcResponse {
+                id: cmux_remote_protocol::RequestId::from_u128(72),
+                result: Err(RpcError::new("invalid-data", "\u{1}".repeat(3 * 1024 * 1024))),
+            },
+            true,
+            false,
+        )
+        .await;
+    }
+
+    async fn assert_oversized_response_falls_back(
+        response: RpcResponse,
+        allow_offload: bool,
+        expected_retryable: bool,
+    ) {
+        let expected_id = response.id;
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream =
+            client.open(Service::WorkspaceRpc, BTreeMap::new()).await.expect("open RPC stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept RPC stream")
+            .expect("RPC stream was not delivered");
+        let outbound = MessageStream::with_lane(Arc::new(incoming.stream), Lane::Bulk);
+        let inbound = MessageStream::with_lane(Arc::new(client_stream), Lane::Bulk);
+        let workspace = WorkspaceService::new();
+
+        send_workspace_response(&workspace, &outbound, response, allow_offload)
+            .await
+            .expect("oversized response should be replaced with a bounded error");
+        let encoded = tokio::time::timeout(std::time::Duration::from_secs(2), inbound.receive())
+            .await
+            .expect("bounded fallback response timed out")
+            .expect("bounded fallback response failed")
+            .expect("bounded fallback response stream closed");
+        assert!(encoded.len() <= MAX_RPC_MESSAGE);
+        let fallback: RpcResponse =
+            serde_json::from_slice(&encoded).expect("decode bounded fallback response");
+        assert_eq!(fallback.id, expected_id);
+        let error = fallback.result.expect_err("oversized response should return an RPC error");
+        assert_eq!(error.code, "resource-exhausted");
+        assert_eq!(error.retryable, expected_retryable);
+
+        let next = RpcResponse {
+            id: cmux_remote_protocol::RequestId::from_u128(0xfeed),
+            result: Ok(WorkspaceResponse::Closed),
+        };
+        send_workspace_response(&workspace, &outbound, next.clone(), false)
+            .await
+            .expect("RPC stream should remain usable after the fallback");
+        let encoded = inbound
+            .receive()
+            .await
+            .expect("receive response after fallback")
+            .expect("RPC stream closed after fallback");
+        assert_eq!(
+            serde_json::from_slice::<RpcResponse>(&encoded)
+                .expect("decode response after fallback"),
+            next
+        );
+
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocked_process_input_does_not_delay_process_signal() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace.clone(), None);
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "process-control-test",
+                            cmux_remote_protocol::SessionId([8; 16]),
+                        );
+                        let request_slots = RequestAdmission::new();
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+                let started = client
+                    .request(WorkspaceRequest::SpawnProcess {
+                        workspace: WorkspaceId(workspace_id.0),
+                        argv: vec!["/bin/sleep".into(), "30".into()],
+                        cwd: None,
+                        env: BTreeMap::new(),
+                        io: ProcessIo::Pipes { stdin: true },
+                        lifetime: ProcessLifetime::Workspace,
+                        operation: None,
+                        timeout_ms: None,
+                        retained_output_bytes: None,
+                        environment: ProcessEnvironment::Inherit,
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::ProcessStarted { process, .. } = started else {
+                    panic!("spawn-process returned the wrong response")
+                };
+
+                let data = ByteString::from_bytes(&vec![b'x'; 32 * 1024]);
+                let mut blocked_write = None;
+                for write_id in 1..=64 {
+                    let pending = client
+                        .begin_request(WorkspaceRequest::WriteProcess {
+                            process,
+                            write_id,
+                            data: data.clone(),
+                            eof: false,
+                        })
+                        .await
+                        .unwrap();
+                    let mut write = tokio::spawn(async move { pending.receive().await });
+                    match tokio::time::timeout(std::time::Duration::from_secs(1), &mut write).await
+                    {
+                        Ok(Ok(Ok(WorkspaceResponse::ProcessWriteAccepted { .. }))) => {}
+                        Err(_) => {
+                            blocked_write = Some(write);
+                            break;
+                        }
+                        response => panic!("unexpected process-write response: {response:?}"),
+                    }
+                }
+                let blocked_write =
+                    blocked_write.expect("process stdin did not fill during the regression test");
+
+                let signal = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    client.request(WorkspaceRequest::SignalProcess {
+                        process,
+                        signal: ProcessSignal::Kill,
+                    }),
+                )
+                .await;
+                if !matches!(&signal, Ok(Ok(WorkspaceResponse::ProcessSignaled { .. }))) {
+                    let _ = workspace
+                        .handle_request(WorkspaceRequest::SignalProcess {
+                            process,
+                            signal: ProcessSignal::Kill,
+                        })
+                        .await;
+                }
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    workspace.handle_request(WorkspaceRequest::WaitProcess { process }),
+                )
+                .await
+                .expect("the regression-test process did not exit")
+                .expect("waiting for the regression-test process failed");
+                blocked_write.abort();
+                let _ = blocked_write.await;
+
+                let events = client
+                    .process_events(process, 0)
+                    .await
+                    .expect("opening the process event stream failed");
+                let exit =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), events.receive())
+                        .await
+                        .expect("process exit replay was delayed")
+                        .expect("process exit replay failed")
+                        .expect("process event stream closed before replaying exit");
+                assert!(matches!(exit.event, ProcessEvent::Exit { .. }));
+
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+
+                assert!(
+                    matches!(
+                        signal,
+                        Ok(Ok(WorkspaceResponse::ProcessSignaled {
+                            process: signaled,
+                            signal: ProcessSignal::Kill,
+                        })) if signaled == process
+                    ),
+                    "process signal stalled behind a blocked stdin write: {signal:?}"
+                );
+            })
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn dropped_wait_requests_release_control_admission() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace.clone(), None);
+                let request_slots = RequestAdmission::new();
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    let request_slots = request_slots.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "dropped-wait-test",
+                            cmux_remote_protocol::SessionId([32; 16]),
+                        );
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+                let started = client
+                    .request(WorkspaceRequest::SpawnProcess {
+                        workspace: workspace_id,
+                        argv: vec!["/bin/sleep".into(), "30".into()],
+                        cwd: None,
+                        env: BTreeMap::new(),
+                        io: ProcessIo::Pipes { stdin: false },
+                        lifetime: ProcessLifetime::Workspace,
+                        operation: None,
+                        timeout_ms: None,
+                        retained_output_bytes: None,
+                        environment: ProcessEnvironment::Inherit,
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::ProcessStarted { process, .. } = started else {
+                    panic!("spawn-process returned the wrong response")
+                };
+
+                let mut pending = Vec::with_capacity(MAX_CONTROL_RPC_REQUESTS);
+                for _ in 0..MAX_CONTROL_RPC_REQUESTS {
+                    pending.push(
+                        client
+                            .begin_request(WorkspaceRequest::WaitProcess { process })
+                            .await
+                            .unwrap(),
+                    );
+                }
+                let admission_filled =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        while request_slots.control.available_permits() != 0 {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .is_ok();
+                drop(pending);
+                let admission_recovered =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        while request_slots.control.available_permits() != MAX_CONTROL_RPC_REQUESTS
+                        {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .is_ok();
+                let capabilities_succeeded = if admission_recovered {
+                    matches!(
+                        tokio::time::timeout(
+                            std::time::Duration::from_secs(1),
+                            client.request(WorkspaceRequest::Capabilities),
+                        )
+                        .await,
+                        Ok(Ok(WorkspaceResponse::Capabilities { .. }))
+                    )
+                } else {
+                    false
+                };
+
+                workspace
+                    .handle_request(WorkspaceRequest::SignalProcess {
+                        process,
+                        signal: ProcessSignal::Kill,
+                    })
+                    .await
+                    .unwrap();
+                workspace.handle_request(WorkspaceRequest::WaitProcess { process }).await.unwrap();
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+
+                assert!(admission_filled, "48 wait requests never filled control admission");
+                assert!(
+                    admission_recovered,
+                    "dropping transmitted wait requests left server work and admission active"
+                );
+                assert!(
+                    capabilities_succeeded,
+                    "control RPC stayed unavailable after dropped waits were canceled"
+                );
+            })
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn predeclared_process_stream_never_silently_loses_immediate_large_output() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                const OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace, None);
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "large-output-test",
+                            cmux_remote_protocol::SessionId([9; 16]),
+                        );
+                        let request_slots = RequestAdmission::new();
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+
+                let process = client.allocate_process_handle();
+                let spawned = client
+                    .spawn_process_with_events(
+                        process,
+                        WorkspaceRequest::SpawnProcess {
+                            workspace: workspace_id,
+                            argv: vec![
+                                "/bin/sh".into(),
+                                "-c".into(),
+                                "dd if=/dev/zero bs=1048576 count=8 2>/dev/null".into(),
+                            ],
+                            cwd: None,
+                            env: BTreeMap::new(),
+                            io: ProcessIo::Pipes { stdin: false },
+                            lifetime: ProcessLifetime::Workspace,
+                            operation: None,
+                            timeout_ms: None,
+                            retained_output_bytes: None,
+                            environment: ProcessEnvironment::Inherit,
+                        },
+                    )
+                    .await
+                    .unwrap();
+
+                let mut received = 0usize;
+                let mut structured_loss = None;
+                loop {
+                    let event = tokio::time::timeout(
+                        std::time::Duration::from_secs(15),
+                        spawned.events.receive(),
+                    )
+                    .await
+                    .expect("large process output stream stalled")
+                    .expect("large process output stream failed")
+                    .expect("large process output stream closed without a terminal event");
+                    match event.event {
+                        ProcessEvent::Stdout { data, .. } => {
+                            let bytes = data.decode().unwrap();
+                            assert!(bytes.iter().all(|byte| *byte == 0));
+                            received += bytes.len();
+                        }
+                        ProcessEvent::OutputTruncated { reason, .. } => {
+                            structured_loss = Some(format!("output-truncated:{reason:?}"));
+                        }
+                        ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                            structured_loss =
+                                Some(format!("replay-gap:{requested_after}:{range:?}"));
+                            break;
+                        }
+                        ProcessEvent::Exit { .. } => break,
+                        ProcessEvent::Stderr { .. } => {}
+                    }
+                }
+                assert!(
+                    received == OUTPUT_BYTES || structured_loss.is_some(),
+                    "received {received} of {OUTPUT_BYTES} bytes without structured loss metadata"
+                );
+
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+            })
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn reconnect_process_stream_reports_a_structured_replay_gap() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                let workspace = WorkspaceService::new();
+                let services = DaemonServices::new(workspace, None);
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client_multiplexer =
+                    ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon_multiplexer =
+                    ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let server = tokio::task::spawn_local({
+                    let services = services.clone();
+                    let daemon_multiplexer = daemon_multiplexer.clone();
+                    async move {
+                        let scope = ClientScope::new(
+                            "replay-gap-test",
+                            cmux_remote_protocol::SessionId([10; 16]),
+                        );
+                        let request_slots = RequestAdmission::new();
+                        while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
+                            let services = services.clone();
+                            let scope = scope.clone();
+                            let request_slots = request_slots.clone();
+                            tokio::task::spawn_local(async move {
+                                let _ = services.serve_stream(scope, request_slots, incoming).await;
+                            });
+                        }
+                    }
+                });
+                let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+                let opened = client
+                    .request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!("open-workspace returned the wrong response")
+                };
+                let started = client
+                    .request(WorkspaceRequest::SpawnProcess {
+                        workspace: workspace_id,
+                        argv: vec![
+                            "/bin/sh".into(),
+                            "-c".into(),
+                            "dd if=/dev/zero bs=65536 count=2 2>/dev/null".into(),
+                        ],
+                        cwd: None,
+                        env: BTreeMap::new(),
+                        io: ProcessIo::Pipes { stdin: false },
+                        lifetime: ProcessLifetime::Workspace,
+                        operation: None,
+                        timeout_ms: None,
+                        retained_output_bytes: Some(1),
+                        environment: ProcessEnvironment::Inherit,
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::ProcessStarted { process, .. } = started else {
+                    panic!("spawn-process returned the wrong response")
+                };
+                client.request(WorkspaceRequest::WaitProcess { process }).await.unwrap();
+
+                let events = client.process_events(process, 0).await.unwrap();
+                let gap = events
+                    .receive()
+                    .await
+                    .unwrap()
+                    .expect("replay-gap stream closed without metadata");
+                assert!(matches!(
+                    gap.event,
+                    ProcessEvent::ReplayGap {
+                        process: gap_process,
+                        requested_after: 0,
+                        range: ProcessReplayRange {
+                            first_available: Some(first),
+                            ..
+                        },
+                    } if gap_process == process && first > 1
+                ));
+
+                drop(client);
+                client_multiplexer.shutdown().await;
+                daemon_multiplexer.shutdown().await;
+                server.abort();
+                let _ = server.await;
+            })
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocked_workspace_cpu_does_not_delay_mux_control_round_trip() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let directory = tempdir().unwrap();
+                tokio::fs::write(directory.path().join("entry.txt"), b"contents").await.unwrap();
+
+                let gate = BlockingGate::new();
+                let _release_on_drop = ReleaseOnDrop(gate.clone());
+                let (entered_tx, entered_rx) = oneshot::channel();
+                let entered_tx = Arc::new(StdMutex::new(Some(entered_tx)));
+                let hook = {
+                    let gate = gate.clone();
+                    let entered_tx = entered_tx.clone();
+                    Arc::new(move || {
+                        let Some(entered_tx) = entered_tx
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .take()
+                        else {
+                            return;
+                        };
+                        let _ = entered_tx.send(());
+                        gate.block_with_watchdog();
+                    })
+                };
+                let workspace = WorkspaceService::with_blocking_hook(1, hook);
+                let opened = workspace
+                    .handle_request(WorkspaceRequest::OpenWorkspace {
+                        root: directory.path().to_string_lossy().into_owned(),
+                    })
+                    .await
+                    .unwrap();
+                let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+                    panic!()
+                };
+
+                let (client_endpoint, daemon_endpoint) = endpoint_pair();
+                let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+                let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+                let workspace_stream = client
+                    .open(Service::WorkspaceRpc, BTreeMap::from([("lane".into(), "bulk".into())]))
+                    .await
+                    .unwrap();
+                let incoming = daemon.accept().await.unwrap().unwrap();
+                let workspace_handler =
+                    tokio::task::spawn_local(DaemonServices::serve_workspace_rpc(
+                        workspace.clone(),
+                        ClientScope::new("latency-test", cmux_remote_protocol::SessionId([7; 16])),
+                        RequestAdmission::new(),
+                        incoming.stream,
+                        incoming.metadata,
+                    ));
+                let opened = workspace_stream.receive().await.unwrap().unwrap();
+                assert!(matches!(
+                    serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
+                    ServiceControl::Opened { service: Service::WorkspaceRpc }
+                ));
+                let workspace_messages =
+                    MessageStream::with_lane(Arc::new(workspace_stream), Lane::Bulk);
+                let list = RpcRequest {
+                    id: cmux_remote_protocol::RequestId::from_u128(41),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListDirectory {
+                        workspace: workspace_id,
+                        path: String::new(),
+                        include_hidden: true,
+                        limit: 32,
+                        cursor: None,
+                    },
+                };
+                workspace_messages.send(&serde_json::to_vec(&list).unwrap()).await.unwrap();
+                tokio::time::timeout(std::time::Duration::from_secs(2), entered_rx)
+                    .await
+                    .expect("directory worker did not enter the blocking pool")
+                    .unwrap();
+
+                let socket_directory = tempdir().unwrap();
+                let socket_path = socket_directory.path().join("mux.sock");
+                let listener = tokio::net::UnixListener::bind(&socket_path).unwrap();
+                let mux_stream = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+                let incoming = daemon.accept().await.unwrap().unwrap();
+                let mux_handler = tokio::task::spawn_local(DaemonServices::serve_mux_control(
+                    Some(socket_path),
+                    incoming.stream,
+                ));
+
+                let mux_round_trip =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                        let (fake_core, _) = listener.accept().await.unwrap();
+                        for _ in 0..3 {
+                            let opened = mux_stream.receive().await.unwrap().unwrap();
+                            assert!(matches!(
+                                serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
+                                ServiceControl::Opened { service: Service::MuxControl }
+                            ));
+                        }
+
+                        let request = b"{\"id\":91,\"cmd\":\"ping\"}\n";
+                        for packet in crate::mux_codec::encode_line(1, request).unwrap() {
+                            mux_stream.send_on(Lane::Interactive, packet).await.unwrap();
+                        }
+                        let mut fake_core = BufReader::new(fake_core);
+                        let mut command = String::new();
+                        fake_core.read_line(&mut command).await.unwrap();
+                        assert_eq!(command.as_bytes(), request);
+                        fake_core.get_mut().write_all(b"{\"id\":91,\"ok\":true}\n").await.unwrap();
+
+                        let mut assembler = crate::mux_codec::MuxLineAssembler::default();
+                        loop {
+                            let chunk = mux_stream.receive().await.unwrap().unwrap();
+                            if let Some((_lane, response)) =
+                                assembler.push(chunk.lane, chunk.payload).unwrap()
+                            {
+                                break response;
+                            }
+                        }
+                    })
+                    .await;
+                gate.release();
+                let response = mux_round_trip
+                    .expect("mux-control round trip stalled behind a blocked workspace CPU worker");
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&response).unwrap(),
+                    serde_json::json!({"id": 91, "ok": true})
+                );
+                assert!(!gate.forced_timeout(), "workspace CPU hook blocked the LocalSet thread");
+
+                let response: RpcResponse = serde_json::from_slice(
+                    &tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        workspace_messages.receive(),
+                    )
+                    .await
+                    .expect("directory response did not resume after releasing its worker")
+                    .unwrap()
+                    .unwrap(),
+                )
+                .unwrap();
+                assert!(matches!(response.result, Ok(WorkspaceResponse::Directory { .. })));
+
+                workspace_handler.abort();
+                mux_handler.abort();
+                let _ = workspace_handler.await;
+                let _ = mux_handler.await;
+                client.shutdown().await;
+                daemon.shutdown().await;
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn partial_bulk_message_retains_composite_budget_reserves() {
+        const KIB: usize = 1024;
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            8 * KIB,
+        );
+        let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let bulk_id = bulk.id();
+        let additional_bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let bulk_messages = MessageStream::with_lane(Arc::new(bulk), Lane::Bulk);
+
+        let mut partial_message = BytesMut::with_capacity(5 * KIB);
+        partial_message.extend_from_slice(&0_u32.to_be_bytes());
+        partial_message.extend_from_slice(&(7_u32 * KIB as u32).to_be_bytes());
+        partial_message.resize(5 * KIB, b'b');
+        daemon_endpoint
+            .send_frame(None, Lane::Bulk, bulk_id, partial_message.freeze(), FrameFlags::empty())
+            .await
+            .unwrap();
+
+        assert!(bulk_messages.receive().await.unwrap().unwrap().is_empty());
+        {
+            let state = bulk_messages.read.lock().await;
+            assert_eq!(state.buffer.len(), 5 * KIB - size_of::<u32>());
+            assert_eq!(state.budgets.len(), 1);
+        }
+
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Bulk,
+                additional_bulk.id(),
+                Bytes::from_static(b"bulk-overflow"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                control.id(),
+                Bytes::from_static(b"control-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                interactive.id(),
+                Bytes::from_static(b"interactive-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let interactive_result =
+            tokio::time::timeout(std::time::Duration::from_secs(1), interactive.receive())
+                .await
+                .expect("reader stalled before applying the retained priority reserves");
+        let additional_bulk_result = additional_bulk.receive().await;
+        let control_result = control.receive().await;
+        let additional_bulk_was_reset = matches!(
+            &additional_bulk_result,
+            Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let control_was_delivered = matches!(
+            &control_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Control
+                    && chunk.payload == b"control-marker".as_slice()
+        );
+        let interactive_was_delivered = matches!(
+            &interactive_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Interactive
+                    && chunk.payload == b"interactive-marker".as_slice()
+        );
+        assert!(
+            additional_bulk_was_reset && control_was_delivered && interactive_was_delivered,
+            "partial-message priority reserve violation: \
+             additional_bulk={additional_bulk_result:?}, control={control_result:?}, \
+             interactive={interactive_result:?}"
+        );
+        assert_eq!(bulk_messages.read.lock().await.budgets.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn partial_mux_server_line_retains_budget_until_local_write_finishes() {
+        let line = vec![b'm'; cmux_remote_protocol::MAX_FRAME_PAYLOAD];
+        let packets = crate::mux_codec::encode_line(1, &line).unwrap();
+        assert_eq!(packets.len(), 2);
+        let incoming_budget =
+            packets.iter().map(|packet| packet.len().max(MIN_BUFFERED_MUX_MESSAGE_BYTES)).sum();
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new_with_incoming_budget(
+            daemon_endpoint,
+            EndpointRole::Daemon,
+            incoming_budget,
+        );
+        let mux = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let incoming_mux = daemon.accept().await.unwrap().unwrap();
+        let additional = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_incoming = daemon.accept().await.unwrap().unwrap();
+        let (pump_socket, mut local_core) = tokio::io::duplex(1);
+        let (reader, writer) = tokio::io::split(pump_socket);
+        let pump = tokio::spawn(pump_mux_server(Arc::new(incoming_mux.stream), reader, writer));
+
+        for packet in packets {
+            mux.send_on(Lane::Interactive, packet).await.unwrap();
+        }
+        let mut first_byte = [0_u8; 1];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            local_core.read_exact(&mut first_byte),
+        )
+        .await
+        .expect("assembled mux line never reached the blocked local writer")
+        .unwrap();
+        additional
+            .send_on(Lane::Interactive, Bytes::from_static(b"budget-overflow"))
+            .await
+            .unwrap();
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            additional_incoming.stream.receive(),
+        )
+        .await
+        .expect("additional mux stream did not resolve");
+        assert!(
+            matches!(result, Err(ServiceError::Reset(ref message)) if message.contains("byte budget")),
+            "partial mux line released its incoming budget before the local write: {result:?}"
+        );
+
+        pump.abort();
+        let _ = pump.await;
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn canceled_reserved_process_streams_do_not_exhaust_the_same_session() {
+        const RESERVATION_LIMIT: u128 = 256;
+
+        let workspace = WorkspaceService::new();
+        let scope = ClientScope::new(
+            "canceled-process-stream-test",
+            cmux_remote_protocol::SessionId([12; 16]),
+        );
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+
+        for index in 0..RESERVATION_LIMIT {
+            let process = ProcessId::from_u128(0x8000_0000_0010_0000 + index);
+            let client_stream = client
+                .open(
+                    Service::ProcessStream,
+                    BTreeMap::from([
+                        ("process".into(), process.to_string()),
+                        ("after".into(), "0".into()),
+                        ("reserve".into(), "true".into()),
+                    ]),
+                )
+                .await
+                .unwrap();
+            let incoming = daemon.accept().await.unwrap().unwrap();
+            let handler = tokio::spawn(DaemonServices::serve_process_stream(
+                workspace.clone(),
+                scope.clone(),
+                incoming.stream,
+                incoming.metadata,
+            ));
+            let opened = client_stream.receive().await.unwrap().unwrap();
+            assert!(matches!(
+                serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
+                ServiceControl::Opened { service: Service::ProcessStream }
+            ));
+            handler.abort();
+            let _ = handler.await;
+            drop(client_stream);
+        }
+
+        let fresh_reservations = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let mut reservations = Vec::with_capacity(RESERVATION_LIMIT as usize);
+            for index in 0..RESERVATION_LIMIT {
+                let process = ProcessId::from_u128(0x8000_0000_0020_0000 + index);
+                loop {
+                    match workspace.subscribe_or_reserve_process(&scope, process, 0, true).await {
+                        Ok(subscription) => {
+                            reservations.push((process, subscription));
+                            break;
+                        }
+                        Err(error) if error.code == "resource-exhausted" => {
+                            tokio::task::yield_now().await;
+                        }
+                        Err(error) => {
+                            panic!("fresh process reservation failed unexpectedly: {error}")
+                        }
+                    }
+                }
+            }
+            reservations
+        })
+        .await
+        .expect("canceled opens leaked at least one reservation slot");
+        assert_eq!(fresh_reservations.len(), RESERVATION_LIMIT as usize);
+        for (process, _) in fresh_reservations {
+            workspace.release_process_reservation(&scope, process).await;
+        }
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn completed_process_event_stream_uses_bulk_lane_then_finishes() {
+        let directory = tempdir().unwrap();
+        let workspace = WorkspaceService::new();
+        let opened = workspace
+            .handle_rpc(RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(1),
+                timeout_ms: None,
+                request: WorkspaceRequest::OpenWorkspace {
+                    root: directory.path().to_string_lossy().into_owned(),
+                },
+            })
+            .await
+            .result
+            .unwrap();
+        let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else { panic!() };
+        let started = workspace
+            .handle_rpc(RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(2),
+                timeout_ms: None,
+                request: WorkspaceRequest::SpawnProcess {
+                    workspace: WorkspaceId(workspace_id.0),
+                    argv: vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+                    cwd: None,
+                    env: BTreeMap::new(),
+                    io: ProcessIo::Pipes { stdin: false },
+                    lifetime: ProcessLifetime::Workspace,
+                    operation: None,
+                    timeout_ms: None,
+                    retained_output_bytes: None,
+                    environment: ProcessEnvironment::Inherit,
+                },
+            })
+            .await
+            .result
+            .unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = started else { panic!() };
+        workspace
+            .handle_rpc(RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(3),
+                timeout_ms: None,
+                request: WorkspaceRequest::WaitProcess { process },
+            })
+            .await
+            .result
+            .unwrap();
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client
+            .open(
+                Service::ProcessStream,
+                BTreeMap::from([
+                    ("process".into(), process.to_string()),
+                    ("after".into(), "0".into()),
+                ]),
+            )
+            .await
+            .unwrap();
+        let incoming = daemon.accept().await.unwrap().unwrap();
+        let handler = tokio::spawn(DaemonServices::serve_process_stream(
+            workspace,
+            ClientScope::new(
+                "completed-process-stream-test",
+                cmux_remote_protocol::SessionId([11; 16]),
+            ),
+            incoming.stream,
+            incoming.metadata,
+        ));
+        let opened = client_stream.receive().await.unwrap().unwrap();
+        assert_eq!(opened.lane, Lane::Bulk);
+        assert!(matches!(
+            serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
+            ServiceControl::Opened { service: Service::ProcessStream }
+        ));
+        let messages = MessageStream::with_lane(Arc::new(client_stream), Lane::Bulk);
+        let event: RpcEvent =
+            serde_json::from_slice(&messages.receive().await.unwrap().unwrap()).unwrap();
+        assert!(matches!(event.event, ProcessEvent::Exit { .. }));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), messages.receive())
+                .await
+                .expect("completed process stream should send FIN")
+                .unwrap()
+                .is_none()
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(1), handler)
+            .await
+            .expect("completed process stream handler should release its slot")
+            .unwrap()
+            .unwrap();
+    }
+}

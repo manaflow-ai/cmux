@@ -38,265 +38,6 @@ const AGENT_EVENT_KINDS: [&str; 13] = [
     "agent.plugin.exited",
 ];
 
-/// Longest prompt kept for the hover card's task line (characters).
-pub const LIVE_PROMPT_CHARS: usize = 200;
-
-/// The prompt a turn-start hook carries, for the hover card's task line and the phone's Feed
-/// quote: shown text with its line breaks (no other control or invisible formatting
-/// characters), trimmed, at most [`LIVE_MESSAGE_CHARS`] characters (the daemon cuts the hover
-/// card's copy to [`LIVE_PROMPT_CHARS`]). Read before redaction; it never enters the journal
-/// or a log (Lawrence 2026-10-14: memory only). `None` for other events and empty prompts.
-pub fn agent_hook_live_prompt(native_event: &str, native: &Value) -> Option<String> {
-    if semantic_key(native_event) != "userpromptsubmit" {
-        return None;
-    }
-    let text =
-        first_string_at(native, &[&["prompt"][..], &["user_prompt"][..], &["userPrompt"][..]])?;
-    live_message_text(text)
-}
-
-/// The agent's last message a finished turn carries (Claude's `last_assistant_message`, a
-/// provider's `message`/`response`/`summary`), or the error text a failed one carries, for
-/// the banner's preview and the phone's Feed: markdown with its line breaks, at most
-/// [`LIVE_MESSAGE_CHARS`] characters (the banner's preview is cut to [`LIVE_PROMPT_CHARS`],
-/// whitespace folded). Read before redaction; like the prompt it travels beside the event and
-/// is kept in memory only until its notification takes it (cx-kz6m0). `None` for other events
-/// and empty messages.
-pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -> Option<String> {
-    let normalized = normalized_fields(native);
-    let kind = semantic_kind(source, native_event, &normalized);
-    let message = normalized.get("message").and_then(Value::as_str);
-    match kind {
-        "agent.turn.completed" => live_message_text(message?),
-        // A failed tool or turn says what went wrong in `error` (Claude's PostToolUseFailure and
-        // StopFailure), not in `message`.
-        "agent.error.reported" => live_message_text(message.or_else(|| {
-            first_string_at(
-                native,
-                &[
-                    &["error"][..],
-                    &["error", "message"][..],
-                    &["error_message"][..],
-                    &["errorMessage"][..],
-                    &["reason"][..],
-                    &["event", "error"][..],
-                    &["event", "error", "message"][..],
-                    &["properties", "error", "message"][..],
-                    &["event", "properties", "error", "message"][..],
-                ],
-            )
-        })?),
-        // What the approval waits on (the tool, then the command or the file it touches), as a
-        // GUI chat's permission card shows it.
-        "agent.approval.requested" => live_message_text(&approval_text(native)?),
-        // The plan it asks the person to review (Claude's ExitPlanMode `plan`), in full.
-        "agent.plan_review.requested" => live_message_text(first_string_at(
-            native,
-            &[&["tool_input", "plan"][..], &["toolInput", "plan"][..], &["input", "plan"][..]],
-        )?),
-        _ => None,
-    }
-}
-
-/// What an approval hook waits on: the tool, the command it would run or the file, path or URL
-/// it would touch, and the agent's own description. Read before redaction (`tool_input` is
-/// redacted whole).
-pub(crate) struct Approval<'a> {
-    pub(crate) tool: &'a str,
-    pub(crate) command: Option<String>,
-    pub(crate) target: Option<&'a str>,
-    pub(crate) description: Option<&'a str>,
-}
-
-pub(crate) fn approval(native: &Value) -> Option<Approval<'_>> {
-    let tool = first_string_at(native, &[&["tool_name"][..], &["toolName"][..]])?.trim();
-    if tool.is_empty() {
-        return None;
-    }
-    let input = first_value_at(native, &[&["tool_input"][..], &["toolInput"][..], &["input"][..]]);
-    let field = |key: &str| {
-        input
-            .and_then(|input| input.get(key))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-    };
-    let command = input
-        .and_then(|input| input.get("command").or_else(|| input.get("cmd")))
-        .and_then(|command| match command {
-            Value::String(command) => Some(command.trim().to_owned()),
-            // Codex names a command as its argv.
-            Value::Array(parts) => {
-                Some(parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
-            }
-            _ => None,
-        })
-        .filter(|command| !command.is_empty());
-    let target = if command.is_some() {
-        None
-    } else {
-        ["file_path", "path", "url", "pattern"].into_iter().find_map(field)
-    };
-    Some(Approval { tool, command, target, description: field("description") })
-}
-
-/// What an approval hook waits on, as Feed text: the tool's name, then the command it would run
-/// (in a code block) or the file, path or URL it would touch, then the agent's own description.
-pub(crate) fn approval_text(native: &Value) -> Option<String> {
-    let Approval { tool, command, target, description } = approval(native)?;
-    let mut text = tool.to_owned();
-    if let Some(command) = command {
-        text.push_str("\n\n");
-        text.push_str(&fenced(&command));
-    } else if let Some(target) = target {
-        text.push_str(": `");
-        text.push_str(&target.replace('`', "'"));
-        text.push('`');
-    }
-    if let Some(description) = description {
-        text.push_str("\n\n");
-        text.push_str(description);
-    }
-    Some(text)
-}
-
-/// Longest command, path or description kept on a terminal approval for the phone (characters).
-const APPROVAL_TEXT_CHARS: usize = 2000;
-/// The whole kept approval as JSON text, at most.
-pub const MAX_APPROVAL_JSON_BYTES: usize = 16 * 1024;
-
-/// The approval a terminal agent waits on, for the phone's Allow / Deny card, as compact JSON
-/// text (`session.journal.append` `live_approval`, memory only like `live_question`):
-/// `{"harness":"claude","tool":"Bash","command":"…","target":"…","description":"…"}`.
-///
-/// Only Claude Code's `PermissionRequest` (the hook it fires as its approval screen opens) for a
-/// tool that is neither a question (AskUserQuestion has its own card) nor a plan review: the
-/// phone answers it by typing on that screen (cmux-next-ios `TerminalApprovalKeys`), which is
-/// mapped for Claude Code only. `None` for anything else.
-pub fn agent_hook_live_approval(
-    source: &str,
-    native_event: &str,
-    native: &Value,
-) -> Option<String> {
-    if !matches!(source, "claude" | "claude-code")
-        || semantic_key(native_event) != "permissionrequest"
-    {
-        return None;
-    }
-    let approval = approval(native)?;
-    if matches!(semantic_key(approval.tool).as_str(), "askuserquestion" | "exitplanmode") {
-        return None;
-    }
-    let kept = |text: &str| {
-        live_message_text(text)
-            .map(|text| text.chars().take(APPROVAL_TEXT_CHARS).collect::<String>())
-    };
-    let mut out = Map::new();
-    out.insert("harness".into(), Value::String("claude".into()));
-    out.insert("tool".into(), Value::String(crate::program_status::shown_text(approval.tool, 128)));
-    if let Some(command) = approval.command.as_deref().and_then(kept) {
-        out.insert("command".into(), Value::String(command));
-    }
-    if let Some(target) = approval.target.and_then(kept) {
-        out.insert("target".into(), Value::String(target));
-    }
-    if let Some(description) = approval.description.and_then(kept) {
-        out.insert("description".into(), Value::String(description));
-    }
-    let text = Value::Object(out).to_string();
-    (text.len() <= MAX_APPROVAL_JSON_BYTES).then_some(text)
-}
-
-/// `text` (a `live_approval`) as the approval the daemon keeps: a JSON object naming Claude Code
-/// and a tool, within the byte bound. A hook that skipped `agent_hook_live_approval` cannot
-/// plant anything else.
-pub(crate) fn kept_approval(text: &str) -> Option<Value> {
-    if text.len() > MAX_APPROVAL_JSON_BYTES {
-        return None;
-    }
-    let value: Value = serde_json::from_str(text).ok()?;
-    let named = value.get("harness").and_then(Value::as_str) == Some("claude")
-        && value.get("tool").and_then(Value::as_str).is_some_and(|tool| !tool.trim().is_empty());
-    let strings = value.as_object()?.iter().all(|(key, field)| {
-        matches!(key.as_str(), "harness" | "tool" | "command" | "target" | "description")
-            && field.is_string()
-    });
-    (named && strings).then_some(value)
-}
-
-/// `text` in a code block whose fence is longer than any run of backticks inside it.
-fn fenced(text: &str) -> String {
-    let (mut longest, mut run) = (0, 0);
-    for character in text.chars() {
-        run = if character == '`' { run + 1 } else { 0 };
-        longest = longest.max(run);
-    }
-    let fence = "`".repeat((longest + 1).max(3));
-    format!("{fence}\n{text}\n{fence}")
-}
-
-/// The texts a hook sends beside its journal event, memory only (`session.journal.append`
-/// `live_prompt`, `live_reply`, `live_question`, `live_approval`). Read them before the event redacts its payload.
-pub fn agent_hook_live_fields(
-    source: &str,
-    native_event: &str,
-    native: &Value,
-) -> Map<String, Value> {
-    let mut fields = Map::new();
-    if let Some(prompt) = agent_hook_live_prompt(native_event, native) {
-        fields.insert("live_prompt".into(), Value::String(prompt));
-    }
-    if let Some(reply) = agent_hook_live_reply(source, native_event, native) {
-        fields.insert("live_reply".into(), Value::String(reply));
-    }
-    if let Some(question) =
-        crate::agent_hook_question::agent_hook_live_question(native_event, native)
-    {
-        fields.insert("live_question".into(), Value::String(question));
-    }
-    if let Some(approval) = agent_hook_live_approval(source, native_event, native) {
-        fields.insert("live_approval".into(), Value::String(approval));
-    }
-    fields
-}
-
-/// Longest prompt or last message kept for the phone's Feed (characters): a terminal agent's
-/// card shows what a GUI chat's shows, memory only on the Mac.
-pub const LIVE_MESSAGE_CHARS: usize = 4000;
-
-/// `text` as a kept Feed text: markdown with its line breaks and tabs (no other control or
-/// invisible formatting characters), trimmed, cut to [`LIVE_MESSAGE_CHARS`].
-pub(crate) fn live_message_text(text: &str) -> Option<String> {
-    let lines = text.replace("\r\n", "\n").replace('\r', "\n");
-    let kept: String = lines
-        .chars()
-        .filter(|character| {
-            matches!(character, '\n' | '\t')
-                || (!character.is_control()
-                    && !crate::program_status::is_invisible_format(*character))
-        })
-        .collect();
-    let kept = kept.trim();
-    if kept.is_empty() {
-        return None;
-    }
-    let mut shown: String = kept.chars().take(LIVE_MESSAGE_CHARS).collect();
-    // A cut inside a code block would render the rest of the card as code: close it.
-    if shown.len() < kept.len()
-        && shown.lines().filter(|line| line.trim_start().starts_with("```")).count() % 2 == 1
-    {
-        shown.push_str("\n```");
-    }
-    Some(shown)
-}
-
-/// `text` as a kept prompt: shown text, whitespace folded, cut to [`LIVE_PROMPT_CHARS`].
-pub(crate) fn live_prompt_text(text: &str) -> Option<String> {
-    let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let shown = crate::program_status::shown_text(&folded, LIVE_PROMPT_CHARS);
-    (!shown.is_empty()).then_some(shown)
-}
-
 pub fn agent_hook_journal_ingress(
     source: &str,
     native_event: &str,
@@ -306,14 +47,10 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
-    // Read before redaction: `tool_input` is redacted whole, and live
-    // presence needs only its file target.
-    let tool_target = tool_target_fields(&native);
     // Read the structured reason before redaction replaces free-form strings.
     let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
-    normalized.extend(tool_target);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = if resumable_interruption {
         // OpenCode keeps a shutdown-interrupted execution and resumes it, so
@@ -355,25 +92,6 @@ pub fn agent_hook_journal_ingress(
     })
 }
 
-/// Stamp when the hook helper observed `ingress` (now, wall clock) as
-/// `normalized.observed_at_ms`. The hook session fence uses it to tell a late
-/// event of an ended incarnation from an event of a resumed session that
-/// reuses the same id. Call it once, where the agent invoked the hook.
-pub fn stamp_agent_hook_observed_now(ingress: &mut JournalIngress) {
-    if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        && let Ok(now_ms) = u64::try_from(now.as_millis())
-    {
-        stamp_agent_hook_observed_at(ingress, now_ms);
-    }
-}
-
-/// Stamp the original observation time when a plugin replays an unconfirmed handoff.
-pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
-    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
-        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
-    }
-}
-
 /// Build the core-owned lifecycle event for an unexpectedly exited userland
 /// plugin. The reducer uses the plugin subject to retire all entries owned by
 /// that producer in one deterministic fold.
@@ -406,76 +124,194 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
     })
 }
 
-const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
+/// When the hook that sent the event with `payload` started
+/// (`normalized.observed_at_ms`), if it said.
+pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
+    payload
+        .get("normalized")
+        .and_then(|normalized| normalized.get("observed_at_ms"))
+        .and_then(Value::as_str)
+        .and_then(|text| text.parse().ok())
+}
 
-/// The file a tool call targets, copied from the tool input before it is
-/// redacted: `tool_target_path` and, when the input names one,
-/// `tool_target_line`. Only these two values are kept. Commands, contents and
-/// patches stay redacted; a Codex `apply_patch` contributes only the first
-/// file header it names.
-fn tool_target_fields(native: &Value) -> Map<String, Value> {
-    const CONTAINERS: [&[&str]; 9] = [
-        &["tool_input"],
-        &["toolInput"],
-        &["input"],
-        &["args"],
-        &["arguments"],
-        &["params"],
-        &["event", "properties", "args"],
-        &["event", "properties", "input"],
-        &[],
-    ];
-    const PATH_KEYS: [&str; 6] =
-        ["file_path", "filePath", "notebook_path", "absolute_path", "path", "target_file"];
-    const LINE_KEYS: [&str; 5] = ["line", "offset", "start_line", "startLine", "line_number"];
-    let mut fields = Map::new();
-    for container in CONTAINERS {
-        let Some(Value::Object(input)) = value_at(native, container) else { continue };
-        let path = PATH_KEYS
-            .iter()
-            .find_map(|key| input.get(*key).and_then(Value::as_str))
-            .or_else(|| {
-                ["command", "patch", "input"]
-                    .iter()
-                    .find_map(|key| input.get(*key).and_then(Value::as_str))
-                    .and_then(apply_patch_first_path)
-            })
-            .filter(|path| tool_target_path_is_valid(path));
-        let Some(path) = path else { continue };
-        fields.insert("tool_target_path".into(), Value::String(path.to_owned()));
-        if let Some(line) = LINE_KEYS
-            .iter()
-            .find_map(|key| input.get(*key).and_then(Value::as_u64))
-            .filter(|line| *line > 0)
-        {
-            fields.insert("tool_target_line".into(), Value::from(line));
+/// The order key of one hook event, as its hook stamped it: the monotonic
+/// clock of the machine that ran the hook (`boot_id`, `monotonic_ns`). One
+/// agent session runs on one machine, so its events compare on that
+/// machine's clock. The wall clock (`observed_at_ms`) is kept for the record
+/// only; it does not order events.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct HookOrderStamp {
+    /// The boot of the machine whose monotonic clock `monotonic_ns` reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) boot_id: Option<String>,
+    /// Nanoseconds since that boot when the hook started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) monotonic_ns: Option<u64>,
+    /// Milliseconds since the epoch when the hook started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) observed_at_ms: Option<u64>,
+}
+
+impl HookOrderStamp {
+    /// The stamp of the hook event with `payload`.
+    pub(crate) fn of(payload: &Value) -> Self {
+        let normalized = payload.get("normalized");
+        let text = |key: &str| normalized.and_then(|value| value.get(key)).and_then(Value::as_str);
+        Self {
+            boot_id: text("boot_id").filter(|boot| !boot.is_empty()).map(str::to_owned),
+            monotonic_ns: text("monotonic_ns").and_then(|value| value.parse().ok()),
+            observed_at_ms: hook_observed_at_ms(payload),
         }
-        break;
     }
-    fields
+
+    fn monotonic(&self) -> Option<(&str, u64)> {
+        Some((self.boot_id.as_deref()?, self.monotonic_ns?))
+    }
+
+    /// Whether the stamp holds nothing.
+    pub(crate) fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The latest stamp of the session after an event stamped `self` applied
+    /// over `last`: on one boot the later monotonic stamp, on a new boot the
+    /// event's; and the later wall clock.
+    pub(crate) fn applied_over(&self, last: Option<&Self>) -> Self {
+        let Some(last) = last else { return self.clone() };
+        let (boot_id, monotonic_ns) = match (self.monotonic(), last.monotonic()) {
+            (Some((boot, now)), Some((last_boot, then))) if boot == last_boot => {
+                (Some(boot.to_owned()), Some(now.max(then)))
+            }
+            (Some((boot, now)), _) => (Some(boot.to_owned()), Some(now)),
+            (None, _) => (last.boot_id.clone(), last.monotonic_ns),
+        };
+        Self { boot_id, monotonic_ns, observed_at_ms: self.observed_at_ms.max(last.observed_at_ms) }
+    }
 }
 
-fn value_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
-    path.iter().try_fold(value, |value, key| value.get(*key))
+/// Whether a hook event of kind `kind` stamped `stamp` came after a
+/// later-stamped event of the same session (`last`, the latest stamp among
+/// its applied events), so it must not set the agent's state. The journal
+/// keeps it either way. The agent projection and the roster both ask this,
+/// so they agree.
+///
+/// On one boot of one machine the monotonic clock decides: a strictly
+/// earlier stamp is a reorder, however far apart. An equal stamp is not: the
+/// journal order decides. An event of another boot (a resume after a reboot)
+/// applies, whatever its clock reads. Without a monotonic stamp on both sides
+/// (an older hook helper, or a platform with no boot id) the event applies in
+/// journal order: the wall clock can step, so it decides nothing.
+///
+/// Never skipped: the session's start and end, and an event that opens a
+/// dialog (a permission, a question, a plan review): parallel subagents of
+/// one session can each open one, and it stays open until answered. An
+/// error report is a state like any other: a late one does not replace a
+/// newer state.
+pub(crate) fn hook_event_is_reordered(
+    kind: &str,
+    stamp: &HookOrderStamp,
+    last: Option<&HookOrderStamp>,
+) -> bool {
+    if matches!(
+        kind,
+        "agent.session.started"
+            | "agent.session.ended"
+            | "agent.approval.requested"
+            | "agent.question.requested"
+            | "agent.plan_review.requested"
+    ) {
+        return false;
+    }
+    let Some(last) = last else { return false };
+    match (stamp.monotonic(), last.monotonic()) {
+        (Some((boot, now)), Some((last_boot, then))) => boot == last_boot && now < then,
+        _ => false,
+    }
 }
 
-fn tool_target_path_is_valid(path: &str) -> bool {
-    !path.trim().is_empty()
-        && path.len() <= MAX_TOOL_TARGET_PATH_BYTES
-        && !path.chars().any(char::is_control)
+/// Records in `ingress` when the hook that saw the event started
+/// (`normalized.observed_at_ms`, ms since the epoch), for the record. The
+/// daemon orders one agent's events by the monotonic stamp
+/// ([`stamp_agent_hook_monotonic`]), never by this time.
+pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
+    }
 }
 
-/// The first file an `apply_patch` envelope adds, updates or deletes.
-fn apply_patch_first_path(patch: &str) -> Option<&str> {
-    if !patch.trim_start().starts_with("*** Begin Patch") {
+/// Records in `ingress` the monotonic clock reading `now` that
+/// [`hook_monotonic_now`] took when the hook started (`normalized.boot_id`,
+/// `normalized.monotonic_ns`). The daemon orders one agent session's events
+/// by it: it never steps back, and one session runs on one machine.
+pub fn stamp_agent_hook_monotonic(ingress: &mut JournalIngress, now: &(String, u64)) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("boot_id".into(), Value::String(now.0.clone()));
+        normalized.insert("monotonic_ns".into(), Value::String(now.1.to_string()));
+    }
+}
+
+/// This machine's monotonic clock now: its boot id and nanoseconds since
+/// that boot. `None` where the platform gives no boot id; those events
+/// apply in journal order.
+pub fn hook_monotonic_now() -> Option<(String, u64)> {
+    let boot_id = machine_boot_id()?;
+    monotonic_now_ns().map(|now| (boot_id, now))
+}
+
+/// `CLOCK_MONOTONIC`: one system-wide clock per boot. On macOS it is
+/// `mach_continuous_time` (it counts while the machine sleeps; not
+/// `CLOCK_UPTIME_RAW`, which stops). On Linux it stops during suspend but
+/// never steps back within one boot. Either way it only orders events of one
+/// boot, and the boot id tells boots apart.
+#[cfg(unix)]
+fn monotonic_now_ns() -> Option<u64> {
+    // SAFETY: a zeroed `timespec` is a valid value of this plain C struct.
+    let mut now: libc::timespec = unsafe { std::mem::zeroed() };
+    // SAFETY: `clock_gettime` writes one `timespec` through a valid pointer.
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) } != 0 {
         return None;
     }
-    patch.lines().find_map(|line| {
-        ["*** Update File: ", "*** Add File: ", "*** Delete File: "]
-            .iter()
-            .find_map(|header| line.strip_prefix(header))
-            .map(str::trim)
-    })
+    let seconds = u64::try_from(now.tv_sec).ok()?;
+    let nanos = u64::try_from(now.tv_nsec).ok()?;
+    seconds.checked_mul(1_000_000_000)?.checked_add(nanos)
+}
+
+#[cfg(not(unix))]
+fn monotonic_now_ns() -> Option<u64> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn machine_boot_id() -> Option<String> {
+    let text = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
+    Some(text.trim().to_owned()).filter(|boot| !boot.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn machine_boot_id() -> Option<String> {
+    let mut buffer = [0_u8; 64];
+    let mut length = buffer.len();
+    // SAFETY: `sysctlbyname` writes at most `length` bytes into `buffer`
+    // and stores the length it wrote; the name is a NUL-terminated literal.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"kern.bootsessionuuid".as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    let text = std::str::from_utf8(buffer.get(..length)?).ok()?;
+    Some(text.trim_end_matches('\0').trim().to_owned()).filter(|boot| !boot.is_empty())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn machine_boot_id() -> Option<String> {
+    None
 }
 
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
@@ -636,22 +472,6 @@ fn validate_native_event(native_event: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Whether `source`'s native hook event `native_event` starts a turn
-/// (`agent.turn.started`, which the roster shows as `working`): Claude's
-/// `UserPromptSubmit`, Cursor's `beforeSubmitPrompt`, Gemini's `BeforeAgent`.
-/// A harness none of whose hooks does reports no prompt it takes.
-pub fn agent_hook_event_starts_turn(source: &str, native_event: &str) -> bool {
-    semantic_kind(source, native_event, &Map::new()) == "agent.turn.started"
-}
-
-/// Whether `source`'s native hook event `native_event` reports a session
-/// start (`agent.session.started`, which the roster shows as `idle`):
-/// Claude's, Codex's and Gemini's `SessionStart`, Cursor's `sessionStart`.
-/// A harness none of whose hooks does reports nothing when it starts.
-pub fn agent_hook_event_starts_session(source: &str, native_event: &str) -> bool {
-    semantic_kind(source, native_event, &Map::new()) == "agent.session.started"
-}
-
 fn semantic_kind(
     source: &str,
     native_event: &str,
@@ -660,13 +480,10 @@ fn semantic_kind(
     let event = semantic_key(native_event);
     let tool =
         normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
-    // A question or plan review is asked when its tool call starts. The call's completion is the
-    // person's answer and the agent going on, so it is not another question.
-    let asks = !is_tool_completion(native_event);
-    if tool == "askuserquestion" && asks {
+    if tool == "askuserquestion" {
         return "agent.question.requested";
     }
-    if tool == "exitplanmode" && asks {
+    if tool == "exitplanmode" {
         return "agent.plan_review.requested";
     }
     if event == "questionasked" {
@@ -1209,7 +1026,7 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> String {
     value[..boundary].into()
 }
 
-pub(crate) fn semantic_key(value: &str) -> String {
+fn semantic_key(value: &str) -> String {
     value
         .bytes()
         .filter(|byte| byte.is_ascii_alphanumeric())
@@ -1217,8 +1034,589 @@ pub(crate) fn semantic_key(value: &str) -> String {
         .collect()
 }
 
-/// Whether a hook event says a tool call finished (Claude's `PostToolUse`, or its failure): the
-/// agent runs on in its turn after it, so a question or approval it waited on is answered.
-pub(crate) fn is_tool_completion(native_event: &str) -> bool {
-    matches!(semantic_key(native_event).as_str(), "posttooluse" | "posttoolusefailure")
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_source_uses_the_shared_component_grammar() {
+        assert!(agent_hook_journal_ingress("codex-agent", "Stop", None, json!({})).is_ok());
+        assert!(agent_hook_journal_ingress("-codex", "Stop", None, json!({})).is_err());
+        assert!(agent_hook_journal_ingress("codex.agent", "Stop", None, json!({})).is_err());
+    }
+
+    #[test]
+    fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {
+        for (source, event) in [
+            ("codex", "Stop"),
+            ("claude", "Stop"),
+            ("gemini", "AfterAgent"),
+            ("cursor", "afterAgentResponse"),
+            ("hermes-agent", "post_llm_call"),
+            ("rovodev", "on_complete"),
+        ] {
+            let native = json!({"session_id":"native-1","message":"done","opaque":{"v":42}});
+            let ingress = agent_hook_journal_ingress(source, event, None, native.clone()).unwrap();
+            assert_eq!(ingress.kind, "agent.turn.completed");
+            assert_eq!(ingress.payload["native"]["session_id"], native["session_id"]);
+            assert_eq!(ingress.payload["native"]["message"], REDACTED_AGENT_VALUE);
+            assert_eq!(ingress.payload["native"]["opaque"]["v"], 42);
+            assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-1");
+            assert_eq!(ingress.payload["adapter"]["id"], source);
+            assert_eq!(ingress.sensitivity, Some(JournalSensitivity::Sensitive));
+        }
+    }
+
+    #[test]
+    fn raw_input_and_credentials_are_redacted_before_ingress() {
+        let ingress = agent_hook_journal_ingress(
+            "pi",
+            "input",
+            None,
+            json!({
+                "input":"do not persist this prompt",
+                "context":{"session_id":"do not persist this token"}
+            }),
+        )
+        .unwrap();
+        assert_eq!(ingress.payload["native"]["redacted"], true);
+        let encoded = serde_json::to_string(&ingress.payload).unwrap();
+        assert!(!encoded.contains("do not persist this prompt"));
+        assert!(!encoded.contains("do not persist this token"));
+
+        let credential = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({
+                "session_id":"safe-session",
+                "api_token":"do not persist this credential",
+                "nested":{"tool_input":"do not persist this tool input","opaque":42}
+            }),
+        )
+        .unwrap();
+        assert_eq!(credential.payload["normalized"]["agent_session_id"], "safe-session");
+        assert_eq!(credential.payload["native"]["nested"]["opaque"], 42);
+        let encoded = serde_json::to_string(&credential.payload).unwrap();
+        assert!(!encoded.contains("do not persist this credential"));
+        assert!(!encoded.contains("do not persist this tool input"));
+        assert!(encoded.contains(REDACTED_AGENT_VALUE));
+    }
+
+    #[test]
+    fn dedicated_question_and_plan_tools_are_semantic_events() {
+        let question = agent_hook_journal_ingress(
+            "claude-code",
+            "PermissionRequest",
+            None,
+            json!({"tool_name":"AskUserQuestion"}),
+        )
+        .unwrap();
+        let plan = agent_hook_journal_ingress(
+            "claude-code",
+            "PermissionRequest",
+            None,
+            json!({"tool_name":"ExitPlanMode"}),
+        )
+        .unwrap();
+        assert_eq!(question.kind, "agent.question.requested");
+        assert_eq!(plan.kind, "agent.plan_review.requested");
+    }
+
+    #[test]
+    fn provider_specific_turn_boundaries_do_not_end_restorable_sessions() {
+        for (source, event) in [
+            ("antigravity", "SessionEnd"),
+            ("hermes-agent", "on_session_end"),
+            ("copilot", "Notification"),
+            ("codebuddy", "Notification"),
+            ("factory", "Notification"),
+        ] {
+            let ingress = agent_hook_journal_ingress(source, event, None, json!({})).unwrap();
+            assert_eq!(ingress.kind, "agent.turn.completed", "{source}:{event}");
+        }
+        let finalized =
+            agent_hook_journal_ingress("hermes-agent", "on_session_finalize", None, json!({}))
+                .unwrap();
+        assert_eq!(finalized.kind, "agent.session.ended");
+        let grok = agent_hook_journal_ingress("grok", "SessionEnd", None, json!({})).unwrap();
+        assert_eq!(grok.kind, "agent.session.ended");
+    }
+
+    #[test]
+    fn provider_envelopes_normalize_structural_fields_and_redact_message_data() {
+        let native = json!({
+            "event": {
+                "thread": {"id":"amp-thread-1"},
+                "turnId":"turn-7",
+                "tool":{"name":"Bash"},
+                "last_assistant_message":"done"
+            },
+            "context":{"cwd":"/tmp/project"},
+            "provider_only":{"opaque":42}
+        });
+        let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
+        assert_eq!(ingress.kind, "agent.turn.completed");
+        assert_eq!(ingress.payload["native"]["provider_only"], native["provider_only"]);
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
+        assert_eq!(ingress.payload["normalized"]["turn_id"], "turn-7");
+        assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
+        assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
+        assert_eq!(ingress.payload["normalized"]["message"], REDACTED_AGENT_VALUE);
+    }
+
+    #[test]
+    fn opencode_idle_is_a_completed_turn_not_a_session_end() {
+        let idle = agent_hook_journal_ingress("opencode", "session.idle", None, json!({})).unwrap();
+        assert_eq!(idle.kind, "agent.turn.completed");
+        let deleted =
+            agent_hook_journal_ingress("opencode", "session.deleted", None, json!({})).unwrap();
+        assert_eq!(deleted.kind, "agent.session.ended");
+    }
+
+    #[test]
+    fn current_opencode_failure_events_report_errors() {
+        for event in ["session.execution.failed", "session.next.step.failed", "session.error"] {
+            let ingress = agent_hook_journal_ingress(
+                "opencode",
+                event,
+                None,
+                json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+            )
+            .unwrap();
+            assert_eq!(ingress.kind, "agent.error.reported", "{event}");
+        }
+    }
+
+    #[test]
+    fn opencode_shutdown_interruption_keeps_the_turn_running() {
+        let interrupted = "session.execution.interrupted";
+        let kind = |field: &str, reason: &str| {
+            let native = json!({"event":{"type":interrupted,field:{"reason":reason}}});
+            agent_hook_journal_ingress("opencode", interrupted, None, native).unwrap().kind
+        };
+        assert_eq!(kind("data", "shutdown"), "agent.state.changed");
+        assert_eq!(kind("properties", "shutdown"), "agent.state.changed");
+        assert_eq!(kind("data", "user"), "agent.turn.completed");
+    }
+
+    #[test]
+    fn current_opencode_completion_events_report_completed_turns() {
+        for event in ["session.execution.succeeded", "session.execution.interrupted"] {
+            let ingress = agent_hook_journal_ingress("opencode", event, None, json!({})).unwrap();
+            assert_eq!(ingress.kind, "agent.turn.completed", "{event}");
+        }
+    }
+
+    #[test]
+    fn wrapped_opencode_events_keep_native_shape_and_normalize_properties() {
+        let native = json!({
+            "event": {
+                "type":"session.created",
+                "properties": {
+                    "info": {
+                        "id":"opencode-session",
+                        "directory":"/tmp/opencode"
+                    }
+                }
+            },
+            "context": {"worktree":"/tmp/opencode"}
+        });
+        let ingress =
+            agent_hook_journal_ingress("opencode", "session.created", None, native.clone())
+                .unwrap();
+        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "opencode-session");
+        assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/opencode");
+        assert_eq!(ingress.kind, "agent.session.started");
+
+        let approval = agent_hook_journal_ingress(
+            "opencode",
+            "permission.asked",
+            None,
+            json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+        )
+        .unwrap();
+        assert_eq!(approval.kind, "agent.approval.requested");
+        let question = agent_hook_journal_ingress(
+            "opencode",
+            "question.asked",
+            None,
+            json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+        )
+        .unwrap();
+        assert_eq!(question.kind, "agent.question.requested");
+    }
+
+    #[test]
+    fn nested_agent_edges_are_stable_and_indexable_without_payload_scans() {
+        let root = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "root_session_id":"tree-session",
+                "agent_id":"root-agent",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+        let parent = agent_hook_journal_ingress(
+            "codex",
+            "SubagentStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "root_session_id":"tree-session",
+                "agent_id":"child-a",
+                "parent_agent_id":"root-agent",
+                "root_agent_id":"root-agent",
+                "agent_depth":1
+            }),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SubagentStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "root_session_id":"tree-session",
+                "agent_id":"emitting-parent",
+                "child_agent_id":"child-b",
+                "parent_agent_id":"child-a",
+                "root_agent_id":"root-agent",
+                "agent_depth":2
+            }),
+        )
+        .unwrap();
+        let completed = agent_hook_journal_ingress(
+            "codex",
+            "subagent.completed",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "root_session_id":"tree-session",
+                "agent_id":"emitting-parent",
+                "child_agent_id":"child-b",
+                "parent_agent_id":"child-a",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(parent.kind, "agent.child.spawned");
+        assert_eq!(child.kind, "agent.child.spawned");
+        assert_eq!(completed.kind, "agent.child.completed");
+        assert_eq!(child.payload["normalized"]["agent_depth"], 2);
+        assert_eq!(child.payload["normalized"]["native_agent_id"], "emitting-parent");
+        assert_eq!(child.payload["normalized"]["native_child_agent_id"], "child-b");
+        assert_eq!(child.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(root.payload["normalized"]["agent_relation"], "root");
+        assert_eq!(
+            parent.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            parent.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            completed.payload["normalized"]["agent_node_id"],
+            child.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            child.payload["normalized"]["agent_tree_id"],
+            parent.payload["normalized"]["agent_tree_id"]
+        );
+        for (field, subject_kind) in [
+            ("agent_tree_id", "agent_tree"),
+            ("agent_node_id", "agent_node"),
+            ("parent_agent_node_id", "agent_parent"),
+        ] {
+            let id = child.payload["normalized"][field].as_str().unwrap();
+            assert!(
+                child
+                    .subjects
+                    .iter()
+                    .any(|subject| subject.kind == subject_kind && subject.id == id)
+            );
+        }
+    }
+
+    #[test]
+    fn progressive_root_identity_keeps_parent_and_child_in_one_tree() {
+        let root = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "agent_id":"root-agent",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SubagentStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "root_session_id":"tree-session",
+                "agent_id":"child-agent",
+                "parent_agent_id":"root-agent",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            child.payload["normalized"]["agent_tree_id"],
+            root.payload["normalized"]["agent_tree_id"]
+        );
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+    }
+
+    #[test]
+    fn nested_agent_sessions_form_one_tree_without_provider_agent_ids() {
+        let root = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({"session_id":"root-session","root_session_id":"root-session"}),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"child-session",
+                "parent_session_id":"root-session",
+                "root_session_id":"root-session"
+            }),
+        )
+        .unwrap();
+        let grandchild = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"grandchild-session",
+                "parent_session_id":"child-session",
+                "root_session_id":"root-session"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(child.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(grandchild.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            grandchild.payload["normalized"]["parent_agent_node_id"],
+            child.payload["normalized"]["agent_node_id"]
+        );
+        assert_ne!(
+            child.payload["normalized"]["agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+        assert_ne!(
+            grandchild.payload["normalized"]["agent_node_id"],
+            child.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            grandchild.payload["normalized"]["agent_tree_id"],
+            root.payload["normalized"]["agent_tree_id"]
+        );
+    }
+
+    #[test]
+    fn claude_direct_children_attach_to_the_shared_session_root() {
+        for source in ["claude", "claude-code"] {
+            let root = agent_hook_journal_ingress(
+                source,
+                "SessionStart",
+                None,
+                json!({"session_id":"claude-session"}),
+            )
+            .unwrap();
+            let child = agent_hook_journal_ingress(
+                source,
+                "SubagentStart",
+                None,
+                json!({"session_id":"claude-session","agent_id":"child-a"}),
+            )
+            .unwrap();
+
+            assert_eq!(child.payload["normalized"]["agent_relation"], "provider_root", "{source}");
+            assert_eq!(
+                child.payload["normalized"]["parent_agent_node_id"],
+                root.payload["normalized"]["agent_node_id"],
+                "{source}"
+            );
+            assert_eq!(
+                child.payload["normalized"]["agent_tree_id"],
+                root.payload["normalized"]["agent_tree_id"],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn absent_parent_metadata_stays_an_orphan_instead_of_inventing_an_edge() {
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SubagentStart",
+            None,
+            json!({"session_id":"child-session","agent_id":"child-a"}),
+        )
+        .unwrap();
+        assert_eq!(child.payload["normalized"]["agent_relation"], "unknown");
+        assert!(child.payload["normalized"].get("parent_agent_node_id").is_none());
+        assert!(!child.subjects.iter().any(|subject| subject.kind == "agent_parent"));
+
+        let ambiguous = agent_hook_journal_ingress(
+            "copilot",
+            "subagentStart",
+            None,
+            json!({"sessionId":"copilot-session","agentName":"Explore"}),
+        )
+        .unwrap();
+        assert_eq!(ambiguous.payload["normalized"]["agent_relation"], "unknown");
+        assert!(ambiguous.payload["normalized"].get("agent_node_id").is_none());
+        assert!(ambiguous.subjects.iter().any(|subject| subject.kind == "agent_tree"));
+    }
+
+    #[test]
+    fn terminal_identity_is_a_subject_and_unknown_events_remain_lossless() {
+        let terminal = "term_00000000000000000000000000000001";
+        let native = json!({"future":true});
+        let ingress = agent_hook_journal_ingress(
+            "future-agent",
+            "NewLifecycle",
+            Some(terminal),
+            native.clone(),
+        )
+        .unwrap();
+        assert_eq!(ingress.kind, "agent.state.changed");
+        assert_eq!(ingress.payload["native"], native);
+        assert!(
+            ingress
+                .subjects
+                .iter()
+                .any(|subject| subject.kind == "terminal" && subject.id == terminal)
+        );
+        assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_tree"));
+        assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_node"));
+    }
+
+    #[test]
+    fn built_in_agent_ingress_is_immediately_appendable_and_idempotent() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-hook-journal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = crate::Mux::open_persistent(
+            "agent-hook-journal",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let ingress = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({
+                "session_id":"native-session",
+                "api_token":"persistent-secret-sentinel",
+                "opaque":{"v":42,"prompt":"persistent-input-sentinel"}
+            }),
+        )
+        .unwrap();
+        let first = mux.append_journal_ingress(&ingress, "client_test", "agent_hook_once").unwrap();
+        let replay =
+            mux.append_journal_ingress(&ingress, "client_test", "agent_hook_once").unwrap();
+        assert!(!first.replayed);
+        assert!(replay.replayed);
+        assert_eq!(first.event_id, replay.event_id);
+
+        let record = mux
+            .session_journal_after(first.sequence.saturating_sub(1), 1)
+            .unwrap()
+            .records
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(record.kind, "agent.turn.completed");
+        assert_eq!(record.producer.kind, "agent_adapter");
+        assert_eq!(record.producer.id, AGENT_HOOK_PRODUCER_ID);
+        assert_eq!(record.authority.as_ref().unwrap().role, "agent.adapter");
+        assert_eq!(record.payload["native"]["opaque"]["v"], 42);
+        let encoded = serde_json::to_string(&record.payload).unwrap();
+        assert!(!encoded.contains("persistent-secret-sentinel"));
+        assert!(!encoded.contains("persistent-input-sentinel"));
+        assert!(encoded.contains(REDACTED_AGENT_VALUE));
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_agent_ingress_returns_every_durable_receipt() {
+        const AGENTS: usize = 32;
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-hook-concurrent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = crate::Mux::open_persistent(
+            "agent-hook-concurrent",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(AGENTS));
+        let handles = (0..AGENTS)
+            .map(|agent| {
+                let mux = mux.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let ingress = agent_hook_journal_ingress(
+                        "codex",
+                        "Stop",
+                        None,
+                        json!({"session_id":format!("agent-{agent}")}),
+                    )
+                    .unwrap();
+                    barrier.wait();
+                    mux.append_journal_ingress(
+                        &ingress,
+                        "client_test",
+                        &format!("agent_concurrent_{agent}"),
+                    )
+                    .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut sequences =
+            handles.into_iter().map(|handle| handle.join().unwrap().sequence).collect::<Vec<_>>();
+        sequences.sort_unstable();
+        sequences.dedup();
+        assert_eq!(sequences.len(), AGENTS);
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert_eq!(
+            records.iter().filter(|record| record.kind == "agent.turn.completed").count(),
+            AGENTS
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

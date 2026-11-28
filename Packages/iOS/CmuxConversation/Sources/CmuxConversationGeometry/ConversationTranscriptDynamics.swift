@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Foundation
 
 /// The math of ChatKit's transcript dynamics (`CKTranscriptCompositionalLayout`,

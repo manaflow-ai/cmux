@@ -3,44 +3,20 @@
 
 Enforcement is scoped to the pull request that causes the problem.
 
-A test that does not run -- a file with no registry entry, an entry on a
-runner lane no workflow invokes, or (with --pr-lanes) a test no pull request
-runs -- only ever warns, even in the pull request that added it. Leo, 2026-11-05:
-"There is no way that, like, the notion of not adding tests should block CI."
-The warning says whether this change added the file and prints the [[test]]
-block to paste.
+A test file with no registry entry is a hard failure only when this pull
+request is the one that added it (compared against the merge base). A test
+that was already unregistered on the base branch is reported as a warning:
+it is somebody else's oversight, and failing here would turn every open pull
+request red for a reason its author cannot fix.
 
-The linux-guard lane is the exception, because it is not a judgment: it means
-"a workflow step runs this file", so the workflows are its one source of truth
-and the registry's lane is derived from them (derived_lanes). Leo, 2026-11-16:
-"fewer sources of truth for individual things". An entry that disagrees with the
-workflows (#30360 registered linux-guard and added no step; base went red) fails
-the change that makes them disagree, and `--write` fixes it without asking for
-any test to run: a test no step runs becomes manual, with how to run it.
-
-What the runner cannot read -- malformed entries, unknown fields, entries
-pointing at files that no longer exist -- is judged against the base: with
---base-sha, a finding the base's tree already has warns (a direct push to the
-base made it, and no later pull request can fix it), and only a finding this
-change adds fails. A test this change renames counts as one it adds.
-
-Each warning about a test file names the commit that added the file, when the
-checkout's history has it. `--warn-only` (a push to the branch) turns every
-finding into a warning, so base-red-watch reads it from the run's annotations
-and the push stays green.
+Everything a pull request can only break by editing the registry itself --
+malformed entries, unknown fields, entries pointing at files that no longer
+exist, lanes no workflow runs -- stays a hard failure.
 
 `--write` registers every unregistered test whose lane can be derived (a
-workflow already runs the file), moves each entry whose linux-guard lane the
-workflows contradict, and leaves the rest for a person to place. The pre-commit
-hook runs it for the tests a commit adds and the tests whose workflow lines it
-adds or removes, so adding or removing the step is the only edit.
-
-`--pr-lanes BRANCH` also warns on a test no pull request into BRANCH runs
-(scripts/ci/pr_test_lanes.py reads the workflows as that event runs them),
-unless tests/pr-lane-exemptions.json lists it with a reason. A broken
-exemption list fails, with --base-sha only when this change broke it.
-cmux-next guards / tooling-tests runs it for feat-cmux-next. It needs PyYAML, so the
-pre-commit hook's copy never takes this path.
+workflow already runs the file) and leaves the rest for a person to place.
+The pre-commit hook runs it, so wiring a new test into ci-guards.yml is
+enough to register it.
 
 Duplicate registrations sit between the two. Two pull requests that each
 register the same test merge cleanly into a duplicate nobody wrote, so a
@@ -52,15 +28,11 @@ from __future__ import annotations
 
 import argparse
 import ast
-import io
-import json
 import os
 import re
 import shlex
 import subprocess
 import sys
-import tarfile
-import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -68,23 +40,12 @@ from pathlib import Path
 # to sys.path the way running it as a script does.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_execution_registry import (  # noqa: E402
-    FRAGMENTS, LEGACY, Fragments, layout_findings, load_tree, load_tree_at, registry_sources,
-)
+from test_execution_registry import load_registry, parse_registry  # noqa: E402
 import workload_entrypoints  # noqa: E402
-
-try:
-    from yaml import YAMLError as BaseYAMLError
-except ImportError:  # no YAML parser here: a workflow is never parsed, so none can fail to
-    BaseYAMLError = ValueError
-
-# A base whose workflow does not parse (feat-cmux-next dd8b867f7: a colon-space in nightly.yml's
-# plain scalar) cannot be judged, so its findings warn; the pull request that fixes it is never
-# turned red by the base it fixes.
-BASE_UNREADABLE = (OSError, ValueError, ImportError, tarfile.TarError, subprocess.CalledProcessError, BaseYAMLError)
 
 
 ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = ROOT / "tests" / "test-execution.toml"
 WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GUARDS = WORKFLOWS / "ci-guards.yml"
 # One invocation may run several lanes (`--lane a --lane b`), in any flag order.
@@ -93,16 +54,10 @@ RUNNER_LANE_RE = re.compile(r"--lane[=\s]+([A-Za-z0-9_.-]+)")
 TEST_PATH_RE = re.compile(r"^tests/test_[A-Za-z0-9_.-]+\.py$")
 ALLOWED_FIELDS = {"path", "lane", "requirements", "reason", "serial"}
 INVENTORY_LANES = {"legacy", "manual"}
-SUPPORTED_REQUIREMENTS = {"fish"}
+SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
 # A workflow that names a test file in a `run:` step executes it directly,
 # which is exactly what the linux-guard lane means.
 DIRECT_RUN_LANE = "linux-guard"
-# The workflows are the one source of truth for that lane; the registry entry is derived from
-# them (derived_lanes). --write gives a test no workflow runs `manual` with this reason, and moves
-# an entry with exactly this reason back to linux-guard once a workflow runs the file again. A
-# person's own manual reason is never touched.
-DERIVED_MANUAL_REASON = "No workflow step runs it (lane derived by --write). Run it yourself: python3 {path}"
-DERIVE_COMMAND = "python3 scripts/ci/validate_test_execution_registry.py --write"
 # A workflow step that runs the shared contributor preflight executes every test
 # its recipe (the CHECKS argv lists in scripts/verify-local.py) names, so those
 # tests are live on linux-guard without the workflow naming them itself.
@@ -112,15 +67,6 @@ RECIPE_TEST_RE = re.compile(r"tests/test_[A-Za-z0-9_.-]+\.py")
 RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
 # Options that keep the default selection or narrow it only through `--only`.
 RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt", "--jobs"}
-# The reviewed list of tests no pull request lane runs on purpose (--pr-lanes).
-PR_LANE_EXEMPTIONS = Path("tests") / "pr-lane-exemptions.json"
-# The pull request lane finding for a test nothing runs; pr_lane_findings warns on it.
-UNRUN_ON_PULL_REQUESTS = "no job a pull request into"
-# What validate_pr_lanes reads, extracted from the base to judge it there too.
-PR_LANE_BASE_PATHS = (".github", "tests", "scripts/ci", "scripts/verify-local.py")
-
-
-STEP_TABLE = "ci/steps.toml"
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -141,15 +87,12 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
 
     A Linux guard does not have to live in ci-guards.yml to be live. The
     routed CI lanes run guards too -- the Testbox checks now live in
-    ci-guards.yml's `ci` group, and ci-artifact-transport.yml owns its own -- so checking
+    ci-guards.yml's `ci` group, while testbox-broker-guard.yml deliberately has
+    no path filter, and ci-artifact-transport.yml owns its own -- so checking
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.
     """
     texts = [workflow.read_text(encoding="utf-8") for workflow in workflow_files(workflows)]
-    # The step table's steps run in pr-pipeline.yml through `ci/run` (ci/steps.toml): its text is workflow text.
-    table = workflows.parents[1] / STEP_TABLE
-    if table.is_file():
-        texts.append(table.read_text(encoding="utf-8"))
     text = "\n".join(texts)
     # A step that runs a workload profile runs that profile's entrypoint and
     # everything the entrypoint names. An unresolvable profile adds nothing,
@@ -247,9 +190,6 @@ def workflow_running(path: str, workflows: Path = WORKFLOWS) -> str | None:
     for workflow in workflow_files(workflows):
         if path in workflow.read_text(encoding="utf-8"):
             return workflow.name
-    table = workflows.parents[1] / STEP_TABLE
-    if table.is_file() and path in table.read_text(encoding="utf-8"):
-        return "pr-pipeline.yml"
     return None
 
 
@@ -271,22 +211,12 @@ def registration_hint(path: str, workflows: Path = WORKFLOWS, live_lanes: set[st
         )
     return (
         "\n      Run python3 scripts/ci/validate_test_execution_registry.py --write, or paste into\n"
-        f"      {registry_file_hint(path, workflows.parents[1])} (entries sorted by path):\n\n"
+        "      tests/test-execution.toml:\n\n"
         "          [[test]]\n"
         f'          path = "{path}"\n'
         f'          lane = "{lane}"\n\n'
         f"      {rationale}"
     )
-
-
-def registry_file_hint(path: str, root: Path = ROOT) -> str:
-    """The registry file a test's entry goes in: its area's fragment, or the old single file."""
-    if not (root / FRAGMENTS).is_dir():
-        return LEGACY
-    from test_execution_registry import fragment_for  # noqa: PLC0415
-
-    areas = {fragment.name.removesuffix(".toml") for fragment in (root / FRAGMENTS).glob("*.toml")}
-    return f"{FRAGMENTS}/{fragment_for(path, areas)}"
 
 
 def merge_base(base_sha: str, root: Path = ROOT) -> str | None:
@@ -315,119 +245,30 @@ def comparison_point(base_sha: str, root: Path = ROOT) -> str:
     return merge_base(base_sha, root) or base_sha
 
 
-def register_derivable(root: Path = ROOT, only: set[str] | None = None) -> list[str]:
-    """Append an entry for each unregistered test a workflow already runs; return their paths.
-    With `only`, consider just those repository-relative paths: the pre-commit hook passes the
-    commit's own tests, so it never writes the base's unregistered ones into a pull request."""
+def register_derivable(root: Path = ROOT) -> list[str]:
+    """Append an entry for each unregistered test a workflow already runs; return their paths."""
+    manifest = root / "tests" / "test-execution.toml"
     workflows = root / ".github" / "workflows"
-    registered = {entry.get("path") for entry in load_tree(root)}
+    registered = {entry.get("path") for entry in load_registry(manifest)}
     discovered = sorted(
         path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
     )
-    added = [path for path in discovered
-             if path not in registered and (only is None or path in only) and workflow_running(path, workflows)]
-    if added and (root / FRAGMENTS).is_dir():
-        # Each entry goes in its area's fragment, at its sorted place.
-        fragments = Fragments(root)
-        for path in added:
-            fragments.put(path, f'[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"')
-        fragments.write()
-    elif added:
-        manifest = root / LEGACY
+    added = [path for path in discovered if path not in registered and workflow_running(path, workflows)]
+    if added:
         text = manifest.read_text(encoding="utf-8")
         blocks = "".join(f'\n[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"\n' for path in added)
         manifest.write_text(text.rstrip("\n") + "\n" + blocks, encoding="utf-8")
     return added
 
 
-def derived_reason(path: str) -> str:
-    return DERIVED_MANUAL_REASON.format(path=path)
-
-
-def derived_lanes(entries: list[dict[str, object]], live_text: str) -> dict[str, str]:
-    """{path: the lane the workflows give it} for each entry whose stored lane disagrees with them.
-
-    `live_text` is all_workflow_text(): what the workflows run, directly or through the shared
-    recipe and workload profiles. #30360 registered a test as linux-guard and added no step that
-    runs it; the hand-kept lane and the workflows disagreed, and nothing caught it until base was red.
-    """
-    drift: dict[str, str] = {}
-    for entry in entries:
-        path, lane = entry.get("path"), entry.get("lane")
-        if not isinstance(path, str):
-            continue
-        runs = path in live_text
-        if lane == DIRECT_RUN_LANE and not runs:
-            drift[path] = "manual"
-        elif lane == "manual" and entry.get("reason") == derived_reason(path) and runs:
-            drift[path] = DIRECT_RUN_LANE
-    return drift
-
-
-def unrun_linux_guard(path: str) -> str:
-    return (f"{path}: linux-guard lane is not run by any workflow. The lane is derived from the workflows: "
-            f"run {DERIVE_COMMAND} (it makes the entry manual with how to run it), or add the step that runs it")
-
-
-def stale_derived_manual(path: str) -> str:
-    return (f"{path}: a workflow runs it now, but its entry is still the manual one --write derived. "
-            f"Run {DERIVE_COMMAND}")
-
-
-def relane_block(block: str, lane: str, reason: str | None) -> str:
-    """One [[test]] block with its lane replaced and its reason set (manual) or dropped."""
-    lines = [line for line in block.splitlines() if not re.match(r"\s*reason\s*=", line)]
-    out: list[str] = []
-    for line in lines:
-        if re.match(r"\s*lane\s*=", line):
-            out.append(f'lane = "{lane}"')
-            if reason is not None:
-                out.append(f"reason = {json.dumps(reason)}")
-        else:
-            out.append(line)
-    return "\n".join(out)
-
-
-def rederive_lanes(root: Path = ROOT, only: set[str] | None = None) -> list[tuple[str, str]]:
-    """Rewrite each registry entry whose lane disagrees with the workflows; return (path, new lane).
-
-    With `only`, just those paths (the pre-commit hook passes the tests its commit adds or whose
-    workflow lines it adds or removes). Every registry file is edited in place, block by block, so
-    comments, field order and the layout stay as they were.
-    """
-    from test_execution_registry import block_path, split_blocks  # noqa: PLC0415
-
-    drift = derived_lanes(load_tree(root), all_workflow_text(root / ".github" / "workflows"))
-    if only is not None:
-        drift = {path: lane for path, lane in drift.items() if path in only}
-    if not drift:
-        return []
-    changed: list[tuple[str, str]] = []
-    for name, text in registry_sources(root):
-        _, blocks, _ = split_blocks(text)
-        new_text = text
-        for block in blocks:
-            path = block_path(block)
-            if path not in drift:
-                continue
-            lane = drift[path]
-            new_block = relane_block(block, lane, derived_reason(path) if lane == "manual" else None)
-            new_text = new_text.replace(block, new_block, 1)
-            changed.append((path, lane))
-        if new_text != text:
-            (root / name).write_text(new_text, encoding="utf-8")
-    return changed
-
-
 def newly_added_tests(base_sha: str, root: Path = ROOT) -> set[str]:
-    """Test files this branch adds or renames, relative to the merge base with `base_sha`."""
+    """Test files this branch adds, relative to the merge base with `base_sha`."""
     output = subprocess.check_output(
         [
             "git",
             "diff",
             "--name-only",
-            "--diff-filter=AR",
-            "-M",
+            "--diff-filter=A",
             comparison_point(base_sha, root),
             "HEAD",
             "--",
@@ -454,7 +295,13 @@ def base_duplicated_paths(base_sha: str, root: Path = ROOT) -> set[str]:
     this branch's failure. `tests/test_sync_test_wiring.py` reached main this
     way through #13738 and #13739.
     """
-    return duplicated_paths(load_tree_at(root, comparison_point(base_sha, root)))
+    point = comparison_point(base_sha, root)
+    text = subprocess.check_output(
+        ["git", "show", f"{point}:tests/test-execution.toml"],
+        cwd=root,
+        text=True,
+    )
+    return duplicated_paths(parse_registry(text, f"{point}:tests/test-execution.toml"))
 
 
 def validate(
@@ -464,13 +311,13 @@ def validate(
     base_duplicates: set[str] | None = None,
 ) -> tuple[list[str], list[str], Counter[str]]:
     """Return (hard errors, warnings, lane counts) for the registry under `root`."""
+    manifest = root / "tests" / "test-execution.toml"
     workflows = root / ".github" / "workflows"
 
     errors: list[str] = []
-    # Where an entry sits never changes what runs, so a misplaced or unsorted one only warns.
-    warnings: list[str] = layout_findings(root)
+    warnings: list[str] = []
 
-    entries = load_tree(root)
+    entries = load_registry(manifest)
 
     discovered = {
         path.relative_to(root).as_posix()
@@ -524,7 +371,7 @@ def validate(
             warnings.append(
                 f"{path}: registered more than once. The duplicate is already on the base "
                 "branch, so this is a warning and does not fail the build. Delete one of "
-                "its [[test]] blocks in the registry (tests/test-execution.d/)."
+                "its [[test]] blocks in tests/test-execution.toml."
             )
         else:
             errors.append(f"{path}: registered more than once")
@@ -540,17 +387,17 @@ def validate(
         try:
             added = newly_added_tests(base_sha, root)
         except (OSError, subprocess.CalledProcessError) as error:
-            warnings.append(f"could not compare new tests against {base_sha}: {error}")
+            # Losing the comparison is an infrastructure problem, not something
+            # this pull request did. Warn instead of reddening it.
+            warnings.append(
+                f"could not compare new tests against {base_sha}: {error}; "
+                "unregistered tests are reported as warnings only"
+            )
 
-    # A test that does not run warns whoever added it: a missing entry or a
-    # dead lane leaves one test unrun, which is not worth a red build.
     for path in sorted(discovered - set(paths)):
         hint = registration_hint(path, workflows, live_runner_lanes)
         if added is not None and path in added:
-            warnings.append(
-                f"{path}: added by this pull request with no execution registry entry. "
-                f"This is a warning and does not fail the build.{hint}"
-            )
+            errors.append(f"{path}: added by this pull request with no execution registry entry.{hint}")
         else:
             warnings.append(
                 f"{path}: test exists but has no execution registry entry. "
@@ -558,19 +405,16 @@ def validate(
                 f"and does not fail the build.{hint}"
             )
 
-    # A linux-guard lane, or a manual one --write derived, that disagrees with the workflows is drift
-    # between two copies of one fact, so it fails (judged against the base: only the change that
-    # makes the copies disagree fails). --write fixes it, and it never asks for a test to run: a test
-    # no step runs becomes manual with how to run it.
     guard_text = all_workflow_text(workflows)
-    for path, lane in sorted(derived_lanes(list(by_path.values()), guard_text).items()):
-        errors.append(unrun_linux_guard(path) if lane == "manual" else stale_derived_manual(path))
     for path, entry in sorted(by_path.items()):
         lane = entry.get("lane")
-        if lane in INVENTORY_LANES or lane == DIRECT_RUN_LANE:
+        if lane in INVENTORY_LANES:
             continue
-        if lane not in live_runner_lanes:
-            warnings.append(f"{path}: lane {lane!r} has no workflow invocation")
+        if lane == DIRECT_RUN_LANE:
+            if path not in guard_text:
+                errors.append(f"{path}: linux-guard lane is not run by any workflow")
+        elif lane not in live_runner_lanes:
+            errors.append(f"{path}: lane {lane!r} has no workflow invocation")
 
     if added is not None:
         for path in sorted(added):
@@ -580,221 +424,6 @@ def validate(
 
     lane_counts = Counter(str(entry["lane"]) for entry in entries if "lane" in entry)
     return errors, warnings, lane_counts
-
-
-def pr_lane_exemptions(root: Path) -> tuple[dict[str, str], list[str]]:
-    """{test: reason} from the reviewed exemption list, and the list's own errors."""
-    path = root / PR_LANE_EXEMPTIONS
-    if not path.is_file():
-        return {}, []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        return {}, [f"{PR_LANE_EXEMPTIONS}: {error}"]
-    exempt: dict[str, str] = {}
-    errors: list[str] = []
-    groups = data.get("exemptions") if isinstance(data, dict) else None
-    if not isinstance(groups, list):
-        return {}, [f"{PR_LANE_EXEMPTIONS}: expected an \"exemptions\" list"]
-    for index, group in enumerate(groups, start=1):
-        reason = group.get("reason") if isinstance(group, dict) else None
-        tests = group.get("tests") if isinstance(group, dict) else None
-        if not isinstance(reason, str) or not reason.strip():
-            errors.append(f"{PR_LANE_EXEMPTIONS}: exemption {index} needs a reason")
-            continue
-        if not isinstance(tests, list) or not all(isinstance(test, str) for test in tests):
-            errors.append(f"{PR_LANE_EXEMPTIONS}: exemption {index} needs a list of tests")
-            continue
-        for test in tests:
-            if test in exempt:
-                errors.append(f"{PR_LANE_EXEMPTIONS}: {test} is listed more than once")
-            exempt[test] = reason
-    return exempt, errors
-
-
-def pr_lane_tests(root: Path, branch: str) -> tuple[str, set[str]]:
-    """The text a pull request into `branch` executes, and the runner lanes it invokes."""
-    import pr_test_lanes  # noqa: PLC0415 - needs PyYAML; the pre-commit hook copy never loads it
-
-    texts = pr_test_lanes.pull_request_texts(root, branch)
-    workflows = root / ".github" / "workflows"
-    reached = list(texts) + recipe_tests(texts, workflows)
-    for text in texts:
-        try:
-            reached += [script for _, script in workload_entrypoints.entrypoints(text, root)]
-        except (OSError, UnicodeError, ValueError, KeyError):
-            pass
-    lanes: set[str] = set()
-    for text in texts:
-        lanes.update(runner_lanes_from_workflow_text(text))
-    return "\n".join(reached), lanes
-
-
-def validate_pr_lanes(root: Path, branch: str) -> list[str]:
-    """Errors for tests no pull request into `branch` runs.
-
-    The linux-guard check above accepts a test any workflow names, including a
-    main-push job, a schedule or a `paths:` filter. a2d6b35 broke
-    tests/test_webviews_tests_per_file.py, which only web-validation.yml's
-    main-push job and the nightly car guards ran, and every feat-cmux-next pull
-    request stayed green (#23430). A test passes here when a job a pull request
-    into `branch` can run executes it (scripts/ci/pr_test_lanes.py), when its
-    registry lane is a runner lane such a job invokes, when it is a manual test
-    (the registry holds its reason), or when tests/pr-lane-exemptions.json
-    lists it with a reason.
-    """
-    exempt, errors = pr_lane_exemptions(root)
-    text, lanes = pr_lane_tests(root, branch)
-    lane_of = {str(entry.get("path")): entry.get("lane") for entry in load_tree(root)}
-    discovered = sorted(
-        path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
-    )
-    for path in sorted(set(exempt) - set(discovered)):
-        errors.append(f"{PR_LANE_EXEMPTIONS}: {path} does not exist; remove it from the list")
-    for path in discovered:
-        lane = lane_of.get(path)
-        runs = path in text or (isinstance(lane, str) and lane in lanes)
-        if runs and path in exempt:
-            errors.append(
-                f"{path}: a pull request into {branch} runs it now; remove it from {PR_LANE_EXEMPTIONS}"
-            )
-        elif not runs and path not in exempt and lane != "manual":
-            errors.append(
-                f"{path}: {UNRUN_ON_PULL_REQUESTS} {branch} runs executes it, so a change that breaks it "
-                "lands green. Run it from a step of a job that runs on those pull requests (routed by the "
-                "paths of the code it tests), or list it in "
-                f"{PR_LANE_EXEMPTIONS} with the reason it cannot run there."
-            )
-    return errors
-
-
-def base_tree_findings(root: Path, base_sha: str, judge) -> set[str]:
-    """`judge(tree)` on the base's tree (this checkout's code, the base's workflows and tests)."""
-    point = comparison_point(base_sha, root)
-    present = [
-        path for path in PR_LANE_BASE_PATHS
-        if subprocess.run(["git", "cat-file", "-e", f"{point}:{path}"], cwd=root, capture_output=True).returncode == 0
-    ]
-    if "tests" not in present:
-        return set()
-    archive = subprocess.run(["git", "archive", "--format=tar", point, "--", *present],
-                             cwd=root, capture_output=True, check=True).stdout
-    with tempfile.TemporaryDirectory(prefix="registry-base-") as directory:
-        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-            try:
-                tar.extractall(directory, filter="data")
-            except TypeError:  # Python without extraction filters
-                tar.extractall(directory)  # noqa: S202 - our own repository's archive
-        base = Path(directory)
-        try:
-            registry_sources(base)
-        except OSError:
-            return set()
-        return set(judge(base))
-
-
-def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
-    """validate_pr_lanes on the base's tree."""
-    return base_tree_findings(root, base_sha, lambda base: validate_pr_lanes(base, branch))
-
-
-def registry_findings(root: Path, base_sha: str = "") -> tuple[list[str], list[str], Counter[str]]:
-    """(errors, warnings, lane counts) of the registry, judged against the base.
-
-    A finding the base's tree already has warns; only one this change adds fails. An unregistered
-    test is judged by `validate` itself (added or renamed here, or not), so the base's own copy of
-    the check runs with nothing added.
-    """
-    errors, warnings, lane_counts = validate(root, base_sha)
-    if not base_sha or not errors:
-        return errors, warnings, lane_counts
-    try:
-        on_base = base_tree_findings(
-            root, base_sha, lambda base: validate(base, added=set(), base_duplicates=set())[0])
-    except BASE_UNREADABLE as error:
-        note = (f"could not judge the registry at the base {base_sha}: {error}; "
-                "every finding below is a warning")
-        return [], [note, *warnings, *errors], lane_counts
-    return (
-        [error for error in errors if error not in on_base],
-        [*warnings, *(f"{error} (already so on the base, so this warns)" for error in errors if error in on_base)],
-        lane_counts,
-    )
-
-
-def shallow_boundary(root: Path) -> set[str]:
-    """The commits a shallow clone cut its history at: each looks as if it added every file."""
-    try:
-        name = subprocess.check_output(["git", "rev-parse", "--git-path", "shallow"], cwd=root, text=True).strip()
-        return set((root / name).read_text(encoding="utf-8").split())
-    except (OSError, subprocess.CalledProcessError):
-        return set()
-
-
-def added_by_each(paths: set[str], root: Path, boundary: set[str]) -> dict[str, str]:
-    """`<sha> (<subject>)` of the commit that added each path; a path the history here lacks is absent.
-
-    One newest-first walk names them all: a `git log` per path walked the whole history each time
-    (138 walks, 12 s of the check's 20).
-    """
-    if not paths:
-        return {}
-    try:
-        out = subprocess.check_output(
-            ["git", "log", "--diff-filter=A", "--no-renames", "--name-only", "-z",
-             "--format=%x01%H%x09%s", "HEAD", "--", *sorted(paths)],
-            cwd=root, text=True, stderr=subprocess.DEVNULL)
-    except (OSError, subprocess.CalledProcessError):
-        return {}
-    found: dict[str, str] = {}
-    for record in out.split("\x01")[1:]:
-        header, _, names = record.partition("\n")
-        sha, _, subject = header.strip("\0\n").partition("\t")
-        for name in names.split("\0"):
-            name = name.strip("\n")
-            if name in paths and name not in found:
-                found[name] = "" if sha in boundary else f"{sha[:12]} ({subject})"
-        if len(found) == len(paths):
-            break
-    return {path: commit for path, commit in found.items() if commit}
-
-
-def attribute(warnings: list[str], root: Path) -> list[str]:
-    """Each warning about a test file, with the commit that added the file in its first line."""
-    split = [warning.partition("\n") for warning in warnings]
-    paths = {headline.split(":", 1)[0] for headline, _, _ in split}
-    commits = added_by_each({path for path in paths if TEST_PATH_RE.fullmatch(path)}, root,
-                            shallow_boundary(root))
-    out = []
-    for warning, (headline, newline, rest) in zip(warnings, split):
-        commit = commits.get(headline.split(":", 1)[0])
-        out.append(f"{headline} Added by {commit}.{newline}{rest}" if commit else warning)
-    return out
-
-
-def pr_lane_findings(root: Path, branch: str, base_sha: str = "") -> tuple[list[str], list[str]]:
-    """(errors, warnings) of the pull request lane check, judged against the base.
-
-    A test no pull request runs always warns: it is unrun, not broken. The exemption list's own
-    findings are judged against the base: feat-cmux-next takes direct-pushed main syncs and
-    safe-push commits that skip pull request checks, so an exemption such a push made stale is in
-    the base's findings too and warns. Only one this change adds fails. With no base they fail.
-    """
-    findings = validate_pr_lanes(root, branch)
-    unrun = [finding for finding in findings if UNRUN_ON_PULL_REQUESTS in finding.split("\n", 1)[0]]
-    errors = [finding for finding in findings if finding not in unrun]
-    if not base_sha or not errors:
-        return errors, unrun
-    try:
-        on_base = base_pr_lane_errors(root, branch, base_sha)
-    except BASE_UNREADABLE as error:
-        note = (f"could not judge the pull request lanes at the base {base_sha}: {error}; "
-                "every finding below is a warning")
-        return [], [*unrun, note, *errors]
-    return (
-        [error for error in errors if error not in on_base],
-        [*unrun, *(f"{error} (already so on the base, so this warns)" for error in errors if error in on_base)],
-    )
 
 
 def report_warnings(warnings: list[str]) -> None:
@@ -822,10 +451,8 @@ def report_warnings(warnings: list[str]) -> None:
     lines.extend(
         [
             "",
-            "These do not fail this run: a test that does not run only warns, and the rest were "
-            "already so on the base, or this is a push (--warn-only). "
-            "Register unregistered tests in `tests/test-execution.d/` (--write); route or exempt "
-            "(`tests/pr-lane-exemptions.json`) tests no pull request runs.",
+            "These tests are unregistered but were not added by this pull request, "
+            "so they do not fail it. Register them in `tests/test-execution.toml`.",
             "",
         ]
     )
@@ -847,43 +474,24 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--write", action="store_true",
                         help="register unregistered tests a workflow already runs, then validate")
-    parser.add_argument("--only", action="append", default=None, metavar="PATH",
-                        help="with --write, register only these tests (repeatable)")
-    parser.add_argument("--pr-lanes", metavar="BRANCH", default="",
-                        help="also warn on a test no pull request into BRANCH runs (needs PyYAML)")
-    parser.add_argument("--warn-only", action="store_true",
-                        help="report every finding as a warning and exit 0 (a push to the branch)")
     args = parser.parse_args(argv)
     root = args.repo_root.resolve()
 
     if args.write:
         try:
-            only = set(args.only) if args.only is not None else None
-            for path in register_derivable(root, only):
+            for path in register_derivable(root):
                 print(f"registered {path} on lane {DIRECT_RUN_LANE}")
-            for path, lane in rederive_lanes(root, only):
-                print(f"moved {path} to lane {lane}: the workflows say so")
         except (OSError, ValueError) as error:
             print(error, file=sys.stderr)
             return 1
 
     try:
-        errors, warnings, lane_counts = registry_findings(root, args.base_sha)
+        errors, warnings, lane_counts = validate(root, args.base_sha)
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
 
-    if args.pr_lanes:
-        try:
-            lane_errors, lane_warnings = pr_lane_findings(root, args.pr_lanes, args.base_sha)
-            errors += lane_errors
-            warnings += lane_warnings
-        except (OSError, ValueError, ImportError) as error:
-            errors.append(f"could not read the pull request lanes into {args.pr_lanes}: {error}")
-
-    if args.warn_only:
-        warnings, errors = [*warnings, *errors], []
-    report_warnings(attribute(warnings, root))
+    report_warnings(warnings)
 
     if errors:
         print("Python test execution registry validation failed:", file=sys.stderr)

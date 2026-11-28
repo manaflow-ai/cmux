@@ -8,19 +8,12 @@ public extension AuthCoordinator {
     /// request is bounded by the coordinator's network timeout.
     /// - Parameter id: A team id from ``availableTeams``.
     func selectTeam(id: String?) async throws {
-        guard !isCreatingTeam, !isDeletingTeam else {
+        guard !isCreatingTeam else {
             throw AuthTeamChangeInProgressError()
         }
         if let id, !availableTeams.contains(where: { $0.id == id }) {
             throw AuthClientError.teamNotAvailable
         }
-        try await persistTeamSelection(id: id)
-    }
-
-    /// Saves the selection a delete of the active team falls back to, under
-    /// the delete's own exclusion claim.
-    internal func persistDeleteFallback(id: String) async throws {
-        guard availableTeams.contains(where: { $0.id == id }) else { throw AuthClientError.teamNotAvailable }
         try await persistTeamSelection(id: id)
     }
 
@@ -57,7 +50,7 @@ public extension AuthCoordinator {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AuthClientError.invalidTeamName }
         guard isAuthenticated else { throw AuthError.unauthorized }
-        guard !isSelectingTeam, !isCreatingTeam, !isDeletingTeam else {
+        guard !isSelectingTeam, !isCreatingTeam else {
             throw AuthTeamChangeInProgressError()
         }
         isCreatingTeam = true

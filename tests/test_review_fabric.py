@@ -33,9 +33,13 @@ def _guard_router():
     guard_dir = str(ROOT / "scripts/ci")
     if guard_dir not in sys.path:
         sys.path.insert(0, guard_dir)
-    # Imported by name (guard_dir is on sys.path): the one module object other tests patch.
-    import detect_linux_guard_changes
-    return detect_linux_guard_changes
+    router_path = ROOT / "scripts/ci/detect_linux_guard_changes.py"
+    router_spec = importlib.util.spec_from_file_location(
+        "detect_linux_guard_changes", router_path
+    )
+    router = importlib.util.module_from_spec(router_spec)
+    router_spec.loader.exec_module(router)
+    return router
 
 
 def _groups_for_path(path):
@@ -345,23 +349,6 @@ class ReviewFabricTests(unittest.TestCase):
         )
         self.assertFalse(report["passed"])
         self.assertTrue(any("unknown run missing" in reason for reason in report["reasons"]))
-
-    def test_finding_head_must_match_referenced_run(self):
-        report = review_fabric.evaluate(
-            document(
-                [
-                    run("opus", "session-opus"),
-                    run("sol", "session-sol"),
-                ],
-                [finding("f1", "opus", head=OLD_HEAD)],
-            ),
-            policy(),
-        )
-        self.assertFalse(report["passed"])
-        self.assertIn(
-            "finding f1 head_sha does not match run opus head_sha",
-            report["reasons"],
-        )
 
     def test_repository_policy_is_provider_neutral(self):
         raw = POLICY.read_text(encoding="utf-8").lower()

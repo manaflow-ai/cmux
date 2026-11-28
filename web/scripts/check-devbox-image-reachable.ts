@@ -18,20 +18,18 @@
  * Usage:
  *   FREESTYLE_API_KEY=... bun scripts/check-devbox-image-reachable.ts [--image <id>]
  *                          [--kind base|desktop] [--size sm] [--keep]
- *                          [--expect-stamp "<exact /etc/cmux/image-stamp line>"]
  *   bun scripts/check-devbox-image-reachable.ts --print-key   # no VM, no key
  *
  * `--print-key` prints the identity of what would be tested (image ids plus
  * the live cmux-tui pin) so CI can skip a run that would test nothing new.
- * `--expect-stamp` also requires the booted guest's /etc/cmux/image-stamp to be
- * exactly that line (the rebake workflow's known-good marker for a new bake).
  */
 import { Freestyle, type FirewallSpec } from "freestyle";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { retryFreestyleOverload, cmuxTuiWebsocketSmokeCommand, devboxWaitForDaemonCommand, readImageManifest } from "./devbox-image-common";
+import { cmuxTuiWebsocketSmokeCommand, devboxWaitForDaemonCommand, readImageManifest } from "./devbox-image-common";
 import { resolveCmuxTuiSource } from "../services/vms/drivers/cmuxTuiDaemon";
+import { cleanupOnSignal, throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const argValue = (name: string): string | undefined => {
   const index = process.argv.indexOf(name);
@@ -85,8 +83,24 @@ async function main(): Promise<void> {
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
 
   console.log(`reaching ${kind}/${size} ${target} with client ${live.commit.slice(0, 10)} (${live.sha256.slice(0, 12)}…)`);
-  const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: target, displayName: "cmux devbox reachability", firewall: FIREWALL }));
+  // A throwaway machine: paused when idle, deleted at a deadline, and tagged
+  // with the CI run so the workflow's always() step deletes it after a cancel
+  // (cloud-vm/ci-leftovers.ts). --keep is for a person debugging by hand.
+  const { vm, vmId } = await fs.vms.create({
+    snapshotId: target,
+    displayName: "cmux devbox reachability",
+    firewall: FIREWALL,
+    ...(hasFlag("--keep") ? {} : throwawayVmOptions()),
+  });
   console.log(`${elapsed()} booted ${vmId}`);
+  let deleted = false;
+  const deleteVm = async () => {
+    if (deleted || hasFlag("--keep")) return;
+    deleted = true;
+    await vm.delete().catch(() => {});
+    console.log(`${elapsed()} deleted ${vmId}`);
+  };
+  const stopSignalCleanup = cleanupOnSignal(deleteVm);
   let failure: string | null = null;
   try {
     const sh = async (command: string, timeoutMs = 300_000) => {
@@ -100,15 +114,6 @@ async function main(): Promise<void> {
     const up = await sh(devboxWaitForDaemonCommand(120), 150_000);
     if (up.code !== 0) throw new Error(`the baked daemon never became ready: ${up.out.slice(-300)}`);
     console.log(`${elapsed()} baked daemon is ready on this machine`);
-
-    const expectedStamp = argValue("--expect-stamp");
-    if (expectedStamp !== undefined) {
-      const stamp = await sh("cat /etc/cmux/image-stamp", 30_000);
-      if (stamp.code !== 0 || stamp.out !== expectedStamp) {
-        throw new Error(`image-stamp is ${JSON.stringify(stamp.out)}, expected ${JSON.stringify(expectedStamp)}`);
-      }
-      console.log(`${elapsed()} image-stamp ok: ${stamp.out}`);
-    }
 
     const baked = await sh("cut -d' ' -f1 /etc/cmux/cmux-tui-pin", 30_000);
     const bakedSha = baked.out.trim();
@@ -141,11 +146,11 @@ async function main(): Promise<void> {
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   } finally {
+    stopSignalCleanup();
     if (hasFlag("--keep")) {
       console.log(`${elapsed()} keeping ${vmId} (--keep)`);
     } else {
-      await vm.delete().catch(() => {});
-      console.log(`${elapsed()} deleted ${vmId}`);
+      await deleteVm();
     }
   }
 

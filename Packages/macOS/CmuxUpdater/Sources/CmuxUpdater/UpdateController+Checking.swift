@@ -196,37 +196,34 @@ extension UpdateController {
         readyCheckTask = nil
     }
 
-    func describeLifecycleState(_ state: UpdateState) -> String {
-        state.lifecyclePhase.rawValue
+    private func describeLifecycleState(_ state: UpdateState) -> String {
+        switch state {
+        case .idle: return "idle"
+        case .permissionRequest: return "permissionRequest"
+        case .preparingCheck: return "preparingCheck"
+        case .checking: return "checking"
+        case .updateAvailable: return "updateAvailable"
+        case .notFound: return "notFound"
+        case .error: return "error"
+        case .startingDownload: return "startingDownload"
+        case .downloading: return "downloading"
+        case .extracting: return "extracting"
+        case .installing: return "installing"
+        }
     }
 }
 
 extension UpdateController: UpdateDriverEventDelegate {
-    func updateDriverNeedsSilentInstallResume() {
-        // Legacy/classic bundles can still reach this callback when their plist permits
-        // Sparkle's silent cycle. Resume it as a foreground cycle only after that callback, so
-        // the user driver gets a cancellable reply instead of trapping the updater in its
-        // private silent-install session. NEXT bundles disable that cycle at the bundle boundary.
-        pendingCheckIntent = pendingCheckIntent?.merged(with: .manual) ?? activeCheckIntent ?? .manual
-        showPreparingCheck()
-    }
-
     func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?) {
         let finishedIntent = activeCheckIntent
         activeCheckIntent = nil
-        onUpdateCycleFinished?()
         log.append(
             "controller observed cycle finish (check=\(updateCheck.rawValue), active=\(finishedIntent?.rawValue ?? "external"), pending=\(pendingCheckIntent?.rawValue ?? "none"), state=\(describeLifecycleState(model.state)), error=\(error?.code.description ?? "none"))"
         )
 
-        if let pendingCheckIntent {
+        if pendingCheckIntent != nil {
             cancelReadinessRetry()
-            beginCheckWhenReady(pendingCheckIntent)
-            return
-        }
-        if pendingBackgroundCheck {
-            pendingBackgroundCheck = false
-            checkInBackground()
+            beginCheckWhenReady(pendingCheckIntent!)
             return
         }
 

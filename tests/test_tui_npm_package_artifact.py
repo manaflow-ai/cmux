@@ -15,18 +15,12 @@ SCRIPT = ROOT / "cmux-tui/dist/scripts/package_npm_artifact.py"
 EXECUTABLES = (
     "cmux-tui-darwin-arm64/bin/cmux-tui",
     "cmux-tui-darwin-arm64/bin/cmux-tui-hook",
-    "cmux-tui-darwin-arm64/bin/cmux-agent-screen-detection",
     "cmux-tui-darwin-x64/bin/cmux-tui",
     "cmux-tui-darwin-x64/bin/cmux-tui-hook",
-    "cmux-tui-darwin-x64/bin/cmux-agent-screen-detection",
     "cmux-tui-linux-x64/bin/cmux-tui",
     "cmux-tui-linux-x64/bin/cmux-tui-hook",
-    "cmux-tui-linux-x64/bin/cmux-agent-screen-detection",
-    "cmux-tui-linux-x64/bin/cmux-tui-host",
     "cmux-tui-linux-arm64/bin/cmux-tui",
     "cmux-tui-linux-arm64/bin/cmux-tui-hook",
-    "cmux-tui-linux-arm64/bin/cmux-agent-screen-detection",
-    "cmux-tui-linux-arm64/bin/cmux-tui-host",
     "cmux/bin/cmux.js",
     "cmux-relay-darwin-arm64/bin/chatmux-relay",
     "cmux-relay-darwin-x64/bin/chatmux-relay",
@@ -104,17 +98,13 @@ def make_package_fixture(packages: Path) -> None:
                     "files": [
                         "bin/cmux-tui",
                         "bin/cmux-tui-hook",
-                        "bin/cmux-agent-screen-detection",
-                        *(["bin/cmux-tui-host"] if os_name == "linux" else []),
                         "bin/cmux-tui-ssh/manifest.json",
-                        "THIRD_PARTY_LICENSES.md",
                     ],
                 }
             )
             + "\n"
         )
-        companions = ("cmux-tui-host",) if os_name == "linux" else ()
-        for binary in ("cmux-tui", "cmux-tui-hook", "cmux-agent-screen-detection", *companions):
+        for binary in ("cmux-tui", "cmux-tui-hook"):
             executable = package / "bin" / binary
             executable.parent.mkdir(parents=True, exist_ok=True)
             executable.write_text("#!/bin/sh\nexit 0\n")
@@ -170,7 +160,7 @@ def make_package_fixture(packages: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/chatmux-relay", "bin/cmux-tui", "THIRD_PARTY_LICENSES.md"],
+                    "files": ["bin/chatmux-relay", "bin/cmux-tui"],
                 }
             )
             + "\n"
@@ -202,18 +192,6 @@ def make_package_fixture(packages: Path) -> None:
     relay_launcher_bin = relay_launcher / "bin" / "cmux-relay.js"
     relay_launcher_bin.parent.mkdir(parents=True, exist_ok=True)
     write_relay_launcher_fixture(relay_launcher_bin)
-    write_license_files(packages)
-
-
-def write_license_files(packages: Path) -> None:
-    """Every generated npm package ships the GPL text as LICENSE."""
-
-    for package in packages.iterdir():
-        if package.is_dir():
-            (package / "LICENSE").write_text("GPL-3.0-or-later\n")
-            # Platform packages also ship their third-party notices.
-            if package.name not in ("cmux", "cmux-relay"):
-                (package / "THIRD_PARTY_LICENSES.md").write_text(f"notices {package.name}\n")
 
 
 def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> None:
@@ -288,87 +266,6 @@ def test_extract_rejects_paths_outside_package_root(tmp_path: Path) -> None:
     assert not (tmp_path.parent / "outside").exists()
 
 
-def test_identical_binaries_ride_the_archive_once(tmp_path: Path) -> None:
-    """cmux-relay-<platform> carries the same cmux-tui as cmux-tui-<platform>: one copy."""
-    import tarfile
-
-    packages = tmp_path / "npm-packages"
-    make_package_fixture(packages)
-    runtime_bytes = (packages / "cmux-tui-linux-x64/bin/cmux-tui").read_bytes()
-    archive = tmp_path / "npm-packages.tar.gz"
-    created = run_helper("create", "--packages-dir", packages, "--archive", archive)
-    assert created.returncode == 0, created.stderr
-
-    with tarfile.open(archive, "r:gz") as tar:
-        members = tar.getmembers()
-        names = {m.name for m in members}
-        copies = [
-            m for m in members
-            if m.isfile() and tar.extractfile(m).read() == runtime_bytes
-        ]
-        links = {m.name: m for m in members if m.islnk()}
-    assert len(copies) == 1, [m.name for m in copies]
-    for name in RELAY_TARGETS:
-        runtime = links[f"npm-packages/{name}/bin/cmux-tui"]
-        assert runtime.size == 0
-        assert runtime.linkname in names and runtime.linkname == copies[0].name
-
-    shutil.rmtree(packages)
-    extracted = run_helper("extract", "--archive", archive, "--out", tmp_path)
-    assert extracted.returncode == 0, extracted.stderr
-    for name in (*TARGETS, *RELAY_TARGETS):
-        runtime = packages / name / "bin/cmux-tui"
-        assert runtime.read_bytes() == runtime_bytes, runtime
-        assert runtime.stat().st_mode & stat.S_IXUSR, runtime
-    # Each link is a second name of the first copy, never a second copy on disk: the
-    # expanded-size guard counts a link as no bytes.
-    inodes = {(packages / name / "bin/cmux-tui").stat().st_ino for name in (*TARGETS, *RELAY_TARGETS)}
-    assert len(inodes) == 1, inodes
-
-
-def test_extract_rejects_a_link_to_no_earlier_file(tmp_path: Path) -> None:
-    archive = tmp_path / "npm-packages.tar.gz"
-    import tarfile
-
-    with tarfile.open(archive, "w:gz") as tar:
-        root = tarfile.TarInfo("npm-packages")
-        root.type = tarfile.DIRTYPE
-        tar.addfile(root)
-        link = tarfile.TarInfo("npm-packages/cmux/bin/cmux.js")
-        link.type = tarfile.LNKTYPE
-        link.linkname = "npm-packages/missing"
-        tar.addfile(link)
-
-    extracted = run_helper("extract", "--archive", archive, "--out", tmp_path)
-    assert extracted.returncode != 0
-    assert "link must name an earlier file" in extracted.stderr, extracted.stderr
-
-
-def test_extract_rejects_a_link_named_other_than_its_file(tmp_path: Path) -> None:
-    """A link whose target only cleans to an earlier file's name ("file/") is refused: tarfile
-    finds no file at the raw name and would write a full copy the size guard never counted."""
-    archive = tmp_path / "npm-packages.tar.gz"
-    import io
-    import tarfile
-
-    with tarfile.open(archive, "w:gz") as tar:
-        root = tarfile.TarInfo("npm-packages")
-        root.type = tarfile.DIRTYPE
-        tar.addfile(root)
-        big = tarfile.TarInfo("npm-packages/big")
-        big.size = 4
-        tar.addfile(big, io.BytesIO(b"data"))
-        link = tarfile.TarInfo("npm-packages/copy")
-        link.type = tarfile.LNKTYPE
-        link.linkname = "npm-packages/big/"
-        tar.addfile(link)
-
-    extracted = run_helper("extract", "--archive", archive, "--out", tmp_path)
-    assert extracted.returncode != 0
-    assert "link must name an earlier file" in extracted.stderr, extracted.stderr
-    assert not (tmp_path / "npm-packages/copy").exists()
-
-
 def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
     build = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
     stable = (ROOT / ".github/workflows/tui-publish-npm.yml").read_text()
@@ -408,12 +305,6 @@ def main() -> None:
         test_archive_bytes_are_independent_of_modes_and_output_name(Path(directory))
     with tempfile.TemporaryDirectory() as directory:
         test_extract_rejects_paths_outside_package_root(Path(directory))
-    with tempfile.TemporaryDirectory() as directory:
-        test_identical_binaries_ride_the_archive_once(Path(directory))
-    with tempfile.TemporaryDirectory() as directory:
-        test_extract_rejects_a_link_to_no_earlier_file(Path(directory))
-    with tempfile.TemporaryDirectory() as directory:
-        test_extract_rejects_a_link_named_other_than_its_file(Path(directory))
     test_publish_workflows_restore_the_mode_preserving_archive()
     test_publish_workflows_smoke_install_machine_relay()
 

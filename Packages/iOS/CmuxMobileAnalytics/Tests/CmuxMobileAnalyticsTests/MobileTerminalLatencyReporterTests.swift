@@ -1,0 +1,236 @@
+import Foundation
+import Testing
+
+import CMUXMobileCore
+@testable import CmuxMobileAnalytics
+
+@MainActor private final class LatencyTestClock {
+    var value: UInt64 = 0
+}
+
+@Suite struct MobileTerminalLatencyReporterTests {
+    @Test @MainActor func flushEmitsCorrelatedWindowMetrics() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: FixedLatencyConsent(isTelemetryEnabled: true),
+            anonymousID: "latency-test"
+        )
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(
+            emitter: emitter,
+            window: .seconds(10),
+            now: { clock.value }
+        )
+
+        let sequence = reporter.inputStarted(surfaceID: "terminal", byteCount: 3)
+        reporter.inputSent(surfaceID: "terminal", sequence: sequence)
+        clock.value = 5_000_000
+        reporter.outputReceived(
+            surfaceID: "terminal",
+            appliedInputSequence: sequence,
+            byteCount: 4,
+            queueDepth: 2
+        )
+        clock.value = 10_000_000
+        reporter.outputApplied(surfaceID: "terminal")
+        reporter.framePresented(surfaceID: "terminal", inputSequence: sequence, receivedAtNanos: 5_000_000)
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        #expect(event?.properties["input_count"] == .int(1))
+        #expect(event?.properties["correlated_output_count"] == .int(1))
+        #expect(event?.properties["input_to_output_p50_ms"] == .int(8))
+        #expect(event?.properties["input_to_visible_p50_ms"] == .int(16))
+        #expect(event?.properties["render_p50_ms"] == .int(8))
+        #expect(event?.properties["max_queue_depth"] == .int(2))
+    }
+    @Test @MainActor func hostTimingAddsPerHopStagesAndPacerFieldsToTheWindow() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        // Phone sends at t=1s. Mac clock is 5s ahead; uplink 100ms, Mac work
+        // 3ms (accept 1ms, capture wait 1ms, dispatch 1ms), downlink 100ms.
+        clock.value = 1_000_000_000
+        let sequence = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        let macReceive: UInt64 = (1_000_000_000 + 5_000_000_000 + 100_000_000) / 1_000
+        let timing = MobileTerminalHostTiming(
+            inputReceivedMicros: macReceive,
+            inputAcceptedMicros: macReceive + 1_000,
+            frameCapturedMicros: macReceive + 2_000,
+            frameDispatchedMicros: macReceive + 3_000,
+            pacer: MobileTerminalPacerSample(periodMillis: 90, emitted: 11, coalesced: 16, sheds: 0)
+        )
+        let received: UInt64 = 1_000_000_000 + 203_000_000
+        clock.value = received
+        reporter.hostTimingReceived(surfaceID: "s", appliedInputSequence: sequence, timing: timing, receivedAtNanos: received)
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0, receivedAtNanos: received)
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        #expect(event?.properties["host_accept_p50_ms"] == .int(1))
+        #expect(event?.properties["network_round_trip_p50_ms"] == .int(256))
+        #expect(event?.properties["uplink_p50_ms"] == .int(128))
+        #expect(event?.properties["downlink_p50_ms"] == .int(128))
+        #expect(event?.properties["pacer_emitted_count"] == .int(11))
+        #expect(event?.properties["pacer_coalesced_count"] == .int(16))
+        #expect(event?.properties["pacer_period_max_ms"] == .int(90))
+        // Input-to-output is still recorded: the hook must not consume the send time.
+        #expect(event?.properties["correlated_output_count"] == .int(1))
+    }
+
+    @Test @MainActor func windowsWithoutHostTimingAddNoStageFields() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        let sequence = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 10_000_000
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0)
+        await reporter.flush()
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        let keys = event.map { Array($0.properties.keys) } ?? []
+        // Older Macs, and windows with no keystroke echo, cost no extra bytes.
+        #expect(!keys.contains { $0.hasPrefix("uplink") || $0.hasPrefix("pacer") || $0.hasPrefix("host_") })
+        #expect(event?.properties["input_to_output_histogram"] != nil)
+    }
+
+    @Test @MainActor func repeatedWatermarksDoNotCreateFalseSpikes() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        let sequence = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 10_000_000
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0)
+        clock.value = 120_000_000_000
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0)
+        await reporter.flush()
+        let events = await uploader.uploadedEvents
+        #expect(events.count == 1)
+        #expect(events[0].properties["correlated_output_count"] == .int(1))
+        #expect(events[0].properties["input_to_output_p99_ms"] == .int(16))
+    }
+
+    @Test @MainActor func cumulativeWatermarkIncludesEarlierWaitingInputs() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 2_000_000_000
+        let latest = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 2_010_000_000
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: latest, byteCount: 1, queueDepth: 0)
+        clock.value = 2_020_000_000
+        reporter.framePresented(surfaceID: "s", inputSequence: latest, receivedAtNanos: 2_010_000_000)
+        await reporter.flush()
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        #expect(event?.properties["correlated_output_count"] == .int(2))
+        #expect(event?.properties["input_to_visible_p95_ms"] == .int(2048))
+    }
+
+    @Test @MainActor func unmarkedInputsAreNotCorrelatedByLaterWatermarks() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+
+        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1, correlate: false)
+        clock.value = 2_000_000_000
+        let marked = reporter.inputStarted(surfaceID: "s", byteCount: 1, correlate: true)
+        clock.value = 2_010_000_000
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: marked, byteCount: 1, queueDepth: 0)
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        #expect(event?.properties["input_count"] == .int(2))
+        #expect(event?.properties["correlated_output_count"] == .int(1))
+    }
+
+    @Test @MainActor func backgroundTimeIsExcludedAndIncidentsAreRateLimited() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value }, onAnomaly: { duration in
+            emitter.capture("ios_test_incident", ["duration_ms": .int(Int(duration))])
+        })
+        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 1_000_000_000
+        reporter.setForeground(false)
+        clock.value = 90_000_000_000
+        reporter.setForeground(true)
+        reporter.framePresented(surfaceID: "s", inputSequence: nil, receivedAtNanos: 1)
+        for _ in 0..<6 {
+            let receipt = clock.value
+            reporter.outputReceived(surfaceID: "s", appliedInputSequence: nil, byteCount: 1, queueDepth: 0)
+            clock.value += 300_000_000
+            reporter.framePresented(surfaceID: "s", inputSequence: nil, receivedAtNanos: receipt)
+        }
+        await reporter.flush()
+        let events = await uploader.uploadedEvents
+        #expect(events.filter { $0.name == "ios_test_incident" }.count == 1)
+        #expect(events.first { $0.name == MobileTerminalLatencyReporter.windowEventName }?.properties["presented_count"] == .int(6))
+        #expect(events.first { $0.name == MobileTerminalLatencyReporter.windowEventName }?.properties["window_ms"] == .int(2800))
+        reporter.setEnabled(false)
+        #expect(reporter.inputStarted(surfaceID: "s", byteCount: 1) == 0)
+    }
+
+    @Test @MainActor func delayedBackgroundFlushAndResumeUseOnlyActiveDuration() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 1_000_000_000
+        reporter.setForeground(false)
+        clock.value = 30_000_000_000
+        await reporter.flush()
+        #expect(await uploader.uploadedEvents.last?.properties["window_ms"] == .int(1000))
+        clock.value = 100_000_000_000
+        reporter.setForeground(true)
+        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 102_000_000_000
+        await reporter.flush()
+        #expect(await uploader.uploadedEvents.last?.properties["window_ms"] == .int(2000))
+    }
+
+    @Test @MainActor func unknownAndFailedMarkersRemainUncorrelated() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter)
+        let sequence = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        reporter.inputFailed(surfaceID: "s", sequence: sequence)
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0)
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence + 1, byteCount: 1, queueDepth: 0)
+        await reporter.flush()
+        let event = await uploader.uploadedEvents.first
+        #expect(event?.properties["correlated_output_count"] == .int(0))
+        #expect(event?.properties["input_failed_count"] == .int(1))
+        #expect(event?.properties["render_histogram"] == .string("[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"))
+    }
+
+    @Test @MainActor func queueAckIsNotAPresentationAndRepeatedDrawIsCountedOnce() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        clock.value = 1_000_000
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: nil, byteCount: 1, queueDepth: 1)
+        reporter.outputApplied(surfaceID: "s")
+        await reporter.flush()
+        #expect(await uploader.uploadedEvents.first?.properties["presented_count"] == .int(0))
+        clock.value = 10_000_000
+        reporter.framePresented(surfaceID: "s", inputSequence: nil, receivedAtNanos: 1_000_000)
+        clock.value = 15_000_000
+        reporter.framePresented(surfaceID: "s", inputSequence: nil, receivedAtNanos: 1_000_000)
+        await reporter.flush()
+        #expect(await uploader.uploadedEvents.last?.properties["presented_count"] == .int(1))
+    }
+
+}
+
+private struct FixedLatencyConsent: AnalyticsConsentProviding {
+    let isTelemetryEnabled: Bool
+}

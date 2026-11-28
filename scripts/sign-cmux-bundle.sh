@@ -12,6 +12,9 @@
 #
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
+#   CMUX_TUNNEL_ENTITLEMENTS  entitlements for the Cloud tunnel system extension
+#                              (default: TunnelExtension/cmuxTunnelExtension.<release|nightly|rc>.entitlements,
+#                              picked from the app entitlements file name)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
 #   CMUX_SIGN_SKIP_NUCLEO_FFI  set to "1" for an app that embeds no command palette
 #                              Nucleo FFI (cmux NEXT DEV: cmux-next removed it)
@@ -21,51 +24,32 @@
 #                              sidecar handshake, and the workflow runs
 #                              scripts/verify-diff-sidecar-artifact.sh again
 #                              after the keychain is deleted.
-#   CMUX_NEXT_CEF_ON_DEMAND    "1" moves the signed Chromium engine into a runtime
-#                              pack (scripts/cmux-next/cef-runtime-pack.sh) written to
-#                              CMUX_NEXT_CEF_RUNTIME_OUT, pinned to
-#                              CMUX_NEXT_CEF_RUNTIME_BASE_URL, before the app is signed
-#   CMUX_NEXT_LANGUAGE_PACKS   "1" moves every non-English .lproj of the CmuxNext_*.bundle
-#                              resource bundles into language packs
-#                              (scripts/cmux-next/language-packs.py) written to
-#                              CMUX_NEXT_LANGUAGE_PACKS_OUT, pinned to
-#                              CMUX_NEXT_LANGUAGE_PACKS_BASE_URL (default
-#                              https://files-next.cmux.com/language-packs), before the app is sealed
-#   CMUX_NEXT_TOOL_PACKS       "1" moves bin/cmux-mobile-host (the iPhone host, off unless
-#                              Allow iPhone Connections is on) into a tool pack
-#                              (scripts/cmux-next/tool-packs.py) written to
-#                              CMUX_NEXT_LANGUAGE_PACKS_OUT/tools, pinned to
-#                              CMUX_NEXT_TOOL_PACKS_BASE_URL (default
-#                              https://files-next.cmux.com/tool-packs), before the app is sealed
-#   CMUX_SIGN_MODE             "all" (default) or "main-only" (re-seal only the
-#                              main bundle, keeping every nested signature).
+#   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
+#                              "main-only". The split Computer Use notarization
+#                              flow uses all-except-computer-use while Apple's
+#                              service processes the helper, then main-only after
+#                              stapling so the submitted helper CDHash survives.
 #
 # Signs in the Apple-documented inside-out order:
-#   0. scripts/sign-cmux-bundle-helpers.sh stamps the cmux server's launchd
-#      plists (Contents/Library/LaunchDaemons, LaunchAgents) from the final
-#      bundle id; the app signature seals them.
 #   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
-#      hardened-runtime entitlements (no application-identifier), through
-#      scripts/sign-cmux-bundle-helpers.sh; libexec/cmux-server-helper gets none.
+#      hardened-runtime entitlements (no application-identifier).
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
-#   2. The Screen Sharing helper app under Contents/Library, stamped for the
-#      app's final bundle id and name, hardened runtime, no entitlements.
+#   2. The nested cmux Computer Use app with the Developer ID identity.
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
-#   4. The embedded Chromium engine (CEF framework, its libraries, the shim
-#      and the five helper apps with their own entitlements) through
-#      scripts/cmux-next/sign-cef.sh, the remote browser host under
-#      Contents/Helpers (rbh_sign), then every other nested framework under
-#      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
-#      Updater.app, and Iroh).
+#   4. Each nested framework under Contents/Frameworks/* with --deep
+#      (covers Sparkle's XPCServices and Updater.app).
+#   4b. The Cloud tunnel system extension under
+#      Contents/Library/SystemExtensions/* with its own entitlements and its
+#      own embedded provisioning profile. The extension is signed with the
+#      hardened runtime and without the two runtime relaxations that macOS
+#      rejects when this extension is present. When the requested app entitlement is not granted by its
+#      profile, signing stops. Nightly and Stable must not ship without the
+#      browser tunnel.
 #   5. The main app bundle with the effective app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
-#
-# cmux-next ships no Cloud tunnel system extension (the userspace
-# `cmux-tui wg hub` replaced it). Signing fails when the bundle carries
-# Contents/Library/SystemExtensions or the entitlements request the tunnel.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -95,7 +79,7 @@ if [[ ! -f "$HELPER_ENTITLEMENTS" ]]; then
   exit 1
 fi
 case "$SIGN_MODE" in
-  all|main-only) ;;
+  all|all-except-computer-use|main-only) ;;
   *)
     echo "error: unsupported CMUX_SIGN_MODE: $SIGN_MODE" >&2
     exit 2
@@ -111,11 +95,21 @@ else
   TS_FLAG=(--timestamp)
 fi
 
+# The app and its normal nested code use the hardened runtime. A packet-tunnel
+# system extension is a separate launch domain. macOS requires its hardened
+# runtime, but rejects the two runtime-relaxation entitlements below. It gets
+# its own signing argument set so the extension has runtime without those keys.
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
+SYSTEM_EXTENSION_COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
+COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
-CEF_FRAMEWORK_NAME="Chromium Embedded Framework.framework"
-SHARE_EXTENSION=CmuxShare.appex
-SHARE_EXTENSION_ENTITLEMENTS="$SCRIPT_DIR/cmux-next/share-extension.entitlements"
+
+case "$(basename "$APP_ENTITLEMENTS")" in
+  *nightly*) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.nightly.entitlements" ;;
+  *.rc.*) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.rc.entitlements" ;;
+  *) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.release.entitlements" ;;
+esac
+TUNNEL_ENTITLEMENTS="${CMUX_TUNNEL_ENTITLEMENTS:-$DEFAULT_TUNNEL_ENTITLEMENTS}"
 
 # Effective app entitlements: the desired file reconciled against the embedded
 # provisioning profile. Deterministic, so every CMUX_SIGN_MODE pass agrees.
@@ -132,153 +126,101 @@ else
     --entitlements "$APP_ENTITLEMENTS" --no-profile \
     --output "$EFFECTIVE_APP_ENTITLEMENTS" --json > "$RECONCILE_SUMMARY"
 fi
+TUNNEL_SUPPORTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_supported"] else "0")' "$RECONCILE_SUMMARY")"
 TUNNEL_REQUESTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_requested"] else "0")' "$RECONCILE_SUMMARY")"
 
-if [[ "$TUNNEL_REQUESTED" == "1" ]]; then
-  echo "error: $(basename "$APP_ENTITLEMENTS") requests the Cloud tunnel system extension, which cmux-next does not ship; remove the NetworkExtension and system-extension entitlements" >&2
-  exit 1
-fi
-if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
-  echo "error: $SYSTEM_EXTENSIONS_DIR exists; cmux-next ships no system extension" >&2
+if [[ "$TUNNEL_REQUESTED" == "1" && "$TUNNEL_SUPPORTED" != "1" ]]; then
+  echo "error: app entitlements require the Cloud tunnel, but the embedded app profile does not grant it" >&2
   exit 1
 fi
 
-if [[ "$SIGN_MODE" == "all" ]]; then
-  # 0-1. The cmux server launchd plists, then the CLI and private helpers.
-  "$SCRIPT_DIR/sign-cmux-bundle-helpers.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
+if [[ "$TUNNEL_SUPPORTED" != "1" && -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
+  echo "==> removing Contents/Library/SystemExtensions: this entitlement set does not request the Cloud tunnel"
+  rm -rf "$SYSTEM_EXTENSIONS_DIR"
+fi
+
+if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
+  # 1. CLI and private helpers
+  for helper_dir in bin libexec; do
+    for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+      [[ -f "$helper" && -x "$helper" ]] || continue
+      # Scripts are sealed by the bundle signature. Code-signing them directly
+      # stores the signature in an extended attribute, which Sparkle's
+      # BinaryDelta refuses to diff, so it would block delta updates.
+      if ! /usr/bin/file -b "$helper" | grep -q 'Mach-O'; then
+        echo "==> leaving non-Mach-O helper $(basename "$helper") to the bundle seal"
+        continue
+      fi
+      echo "==> signing helper $(basename "$helper")"
+      /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+    done
+  done
   # cmux-tui builds for SSH hosts. Notarization requires the macOS ones to be
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
 
-  # 2. The Screen Sharing helper app ("<app> Helper.app" in Contents/Library, bundle-screen-sharing-helper.sh;
-  # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
-  # (nightly and RC rename the app after the build, and stable-next-identity.sh and
-  # nightly-next-legacy-identity.sh re-identify it), then signed as its own app with the
-  # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
-  # Screen Recording and Accessibility grants under, so a grant survives every update.
-  # A helper re-stamped here drops its old CodeResources; the app's notarization covers
-  # its new signature.
-  if [[ "$SIGN_MODE" == "all" ]]; then
-    "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
-    for screen_helper in "$APP_PATH/Contents/Library/"*" Helper.app"; do
-      [[ -e "$screen_helper/Contents/MacOS/cmux-screen-sharing" ]] || continue
-      echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
-      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
-    done
+  # 2. Computer Use helper app. An early notarization submission owns this
+  # signature in all-except-computer-use mode; changing it would invalidate the
+  # ticket that finish is waiting to staple.
+  if [[ "$SIGN_MODE" == "all" && -d "$COMPUTER_USE_HELPER" ]]; then
+    echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
+    /usr/bin/codesign \
+      "${COMMON[@]}" \
+      --entitlements "$HELPER_ENTITLEMENTS" \
+      "$COMPUTER_USE_HELPER"
   fi
 
-  # 3. Plugins. The Share extension (bundle-share-extension.sh) is stamped for this app's
-  # final bundle id, name and version first (nightly and RC rename the app after the build),
-  # then signed with the App Sandbox, without which macOS does not load an app extension.
+  # 3. Plugins
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
-    "$SCRIPT_DIR/cmux-next/bundle-share-extension.sh" --stamp "$APP_PATH"
     while IFS= read -r -d '' plugin; do
       echo "==> signing plugin $(basename "$plugin")"
-      if [[ "$(basename "$plugin")" == "$SHARE_EXTENSION" ]]; then
-        "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --entitlements "$SHARE_EXTENSION_ENTITLEMENTS" "$plugin"
-      else
-        "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$plugin"
-      fi
+      /usr/bin/codesign "${COMMON[@]}" --deep "$plugin"
     done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
   fi
 
-  # 4. Frameworks. The Chromium engine first, with its own per-helper
-  # entitlements; --deep would re-sign its helpers without them.
+  # 4. Frameworks
   if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
     "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
-    if [[ -d "$APP_PATH/Contents/Frameworks/$CEF_FRAMEWORK_NAME" ]]; then
-      echo "==> signing the Chromium engine (CEF framework, shim, helpers)"
-      "$SCRIPT_DIR/cmux-next/sign-cef.sh" "$APP_PATH" "$IDENTITY"
-      # Chromium on demand (plans/cmux-next/bundle-size-DESIGN.md 6.6): the
-      # signed engine leaves the app for a runtime pack, and the app gets its
-      # pin (Contents/Resources/cef-runtime.json) before step 5 seals it.
-      if [[ "${CMUX_NEXT_CEF_ON_DEMAND:-}" == 1 ]]; then
-        echo "==> moving the Chromium engine into its on-demand runtime pack"
-        "$SCRIPT_DIR/cmux-next/cef-runtime-pack.sh" split "$APP_PATH" \
-          "${CMUX_NEXT_CEF_RUNTIME_OUT:?CMUX_NEXT_CEF_ON_DEMAND=1 needs CMUX_NEXT_CEF_RUNTIME_OUT}" \
-          --base-url "${CMUX_NEXT_CEF_RUNTIME_BASE_URL:?CMUX_NEXT_CEF_ON_DEMAND=1 needs CMUX_NEXT_CEF_RUNTIME_BASE_URL}" \
-          --reuse-published
-      fi
-    fi
-    # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
-    # the app's CEF framework, which it links through a symlink: its five helper apps
-    # with CEF's per-helper entitlements (allow-jit for the plain, GPU and Renderer helpers, and disable-library-validation for the plain one, which loads the Widevine CDM), then the host
-    # app, all with the hardened runtime and a secure timestamp (rbh_sign).
-    for rb_host in "$APP_PATH/Contents/Helpers/"*.app; do
-      [[ -d "$rb_host" ]] || continue
-      echo "==> signing the remote browser host $(basename "$rb_host")"
-      ( source "$SCRIPT_DIR/cmux-next/remote-browser-host-layout.sh" && rbh_sign "$rb_host" "$IDENTITY" )
-    done
     while IFS= read -r -d '' framework; do
-      case "$(basename "$framework")" in
-        "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;
-      esac
       echo "==> signing framework $(basename "$framework")"
-      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$framework"
+      /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
   fi
 
-  # 4b. Languages download on first use (CMUX-570). The resource bundles carry no signature of
-  # their own (no _CodeSignature; language-packs.py refuses one that does), and .strings are not
-  # code, so their .lproj leave after the inner code is signed and step 5 seals what is left.
-  # A re-sign of an app already split (it has the pin) keeps its pin and packs.
-  if [[ "${CMUX_NEXT_LANGUAGE_PACKS:-}" == 1 ]]; then
-    if [[ -f "$APP_PATH/Contents/Resources/language-packs.json" ]]; then
-      echo "==> language packs: already split (Contents/Resources/language-packs.json)"
-    else
-      echo "==> moving non-English strings into language packs"
-      python3 -I "$SCRIPT_DIR/cmux-next/language-packs.py" split "$APP_PATH" \
-        "${CMUX_NEXT_LANGUAGE_PACKS_OUT:?CMUX_NEXT_LANGUAGE_PACKS=1 needs CMUX_NEXT_LANGUAGE_PACKS_OUT}" \
-        --base-url "${CMUX_NEXT_LANGUAGE_PACKS_BASE_URL:-https://files-next.cmux.com/language-packs}"
+  # 4b. Cloud tunnel system extension (only reaches here when the profile
+  # grants the capability; see the reconciliation above).
+  if [[ "$TUNNEL_SUPPORTED" == "1" && -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
+    if [[ ! -f "$TUNNEL_ENTITLEMENTS" ]]; then
+      echo "error: tunnel extension entitlements not found at $TUNNEL_ENTITLEMENTS" >&2
+      exit 1
     fi
-  fi
-
-  # 4c. Tools few people use download on first use (bundle size). Step 1 signed each one; its
-  # signature travels inside the pack, bin/<name> becomes a link to cmux (which answers to the
-  # name: cmux-tui-core tool_packs.rs) and step 5 seals the pin. Same re-sign rule as 4b.
-  if [[ "${CMUX_NEXT_TOOL_PACKS:-}" == 1 ]]; then
-    if [[ -f "$APP_PATH/Contents/Resources/tool-packs.json" ]]; then
-      echo "==> tool packs: already split (Contents/Resources/tool-packs.json)"
-    else
-      echo "==> moving tools few people use into tool packs"
-      python3 -I "$SCRIPT_DIR/cmux-next/tool-packs.py" split "$APP_PATH" \
-        "${CMUX_NEXT_LANGUAGE_PACKS_OUT:?CMUX_NEXT_TOOL_PACKS=1 needs CMUX_NEXT_LANGUAGE_PACKS_OUT}/tools" \
-        --base-url "${CMUX_NEXT_TOOL_PACKS_BASE_URL:-https://files-next.cmux.com/tool-packs}"
-    fi
+    while IFS= read -r -d '' sysext; do
+      name="$(basename "$sysext")"
+      binary="$sysext/Contents/MacOS/$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$sysext/Contents/Info.plist")"
+      if [[ ! -f "$sysext/Contents/embedded.provisionprofile" ]]; then
+        echo "error: $name has no embedded.provisionprofile. Embed its Developer ID Network Extension profile before signing." >&2
+        exit 1
+      fi
+      # Real engine or nothing: the stub cannot carry traffic (see the verifier
+      # for why a section check beats a marker symbol after stripping).
+      "$SCRIPT_DIR/verify-tunnel-extension-engine.sh" "$binary"
+      echo "==> signing system extension $name"
+      /usr/bin/codesign "${SYSTEM_EXTENSION_COMMON[@]}" --entitlements "$TUNNEL_ENTITLEMENTS" "$sysext"
+    done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)
   fi
 fi
 
 # 5. Main app bundle (no --deep), with the effective entitlements.
-echo "==> signing main bundle ($SIGN_MODE)"
-"$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
+echo "==> signing main bundle ($SIGN_MODE; Cloud tunnel capability: $([[ "$TUNNEL_SUPPORTED" == "1" ]] && echo granted || echo not requested))"
+/usr/bin/codesign "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-# The cmux CLI is one Mach-O: bin/cmux-tui and bin/acpmux must stay links to it.
-for alias in cmux-tui acpmux; do
-  alias_path="$APP_PATH/Contents/Resources/bin/$alias"
-  if [[ -e "$alias_path" || -L "$alias_path" ]] && [[ "$(readlink "$alias_path" || true)" != cmux ]]; then
-    echo "error: bin/$alias is not a symlink to cmux" >&2
-    exit 1
-  fi
-done
-for screen_helper in "$APP_PATH/Contents/Library/"*" Helper.app"; do
-  [[ -e "$screen_helper/Contents/MacOS/cmux-screen-sharing" ]] || continue
-  /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
-done
-# One Screen Recording holder whose bundle id and requirement stay the same between builds, so a
-# grant survives every update (an ad-hoc signing's requirement is a cdhash by design).
-if [[ "$SIGN_MODE" == "all" && "$IDENTITY" != "-" ]]; then
-  "$SCRIPT_DIR/ci/check-screen-share-identity.sh" "$APP_PATH"
+if [[ -d "$COMPUTER_USE_HELPER" ]]; then
+  /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
-# An unsandboxed app extension is one macOS never lists in the Share menu.
-share_extension="$APP_PATH/Contents/PlugIns/$SHARE_EXTENSION"
-if [[ -d "$share_extension" ]]; then
-  /usr/bin/codesign --verify --strict --verbose=2 "$share_extension"
-  /usr/bin/codesign -d --entitlements :- "$share_extension" 2>/dev/null | grep -q "com.apple.security.app-sandbox" || {
-    echo "error: $SHARE_EXTENSION is not signed with the App Sandbox; macOS would not load it" >&2
-    exit 1
-  }
+if [[ "${CMUX_SIGN_SKIP_NUCLEO_FFI:-}" != 1 ]]; then
+  "$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
 fi
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
@@ -292,12 +234,6 @@ fi
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
   "${SIDECAR_CHECK[@]}"
-
-# The browser host, when the bundle carries one, sits beside bin/cmux (the
-# daemon runs its sibling) and is signed like it: Developer ID, hardened runtime.
-"$SCRIPT_DIR/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" --hardened
-# The Chromium helpers that start pages, extensions and the GPU process can JIT.
-"$SCRIPT_DIR/cmux-next/check-cef-helper-jit.sh" "$APP_PATH"
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"
@@ -338,7 +274,6 @@ for entitlement in \
   com.apple.security.personal-information.calendars \
   com.apple.security.personal-information.location \
   com.apple.security.personal-information.photos-library; do
-  # plist-exists: codesign -d wrote $SIGNED_ENTITLEMENTS above or the script exited
   value="$(/usr/libexec/PlistBuddy -c "Print :$entitlement" "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
   if [[ "$value" != "true" ]]; then
     echo "error: signed app missing enabled $entitlement" >&2
@@ -346,18 +281,60 @@ for entitlement in \
   fi
 done
 
-# No NetworkExtension entitlement may reach the signed app: without a
-# provisioning profile that grants it and a bundled extension, it would not
-# launch.
-if grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
-  echo "error: signed app carries a NetworkExtension entitlement; cmux-next ships no Cloud tunnel system extension" >&2
-  exit 1
+# The signed app and the bundled extension must agree about the Cloud tunnel:
+# either both carry the capability, or neither exists in the bundle.
+if [[ "$TUNNEL_SUPPORTED" == "1" ]]; then
+  if ! grep -q "packet-tunnel-provider-systemextension" "$SIGNED_ENTITLEMENTS"; then
+    echo "error: profile grants the Cloud tunnel but the signed app lacks packet-tunnel-provider-systemextension" >&2
+    exit 1
+  fi
+  # These two entitlements are valid for the ordinary app, but macOS rejects
+  # them when the app bundle carries a packet-tunnel system extension. The
+  # reconciler removes them before signing; keep this check at the artifact
+  # boundary so a future signing change cannot recreate the launch failure.
+  for entitlement in \
+    com.apple.security.cs.allow-unsigned-executable-memory \
+    com.apple.security.cs.disable-library-validation; do
+    if grep "$entitlement" "$SIGNED_ENTITLEMENTS" >/dev/null; then
+      echo "error: signed app carries incompatible system-extension entitlement $entitlement" >&2
+      exit 1
+    fi
+  done
+  if [[ -z "$(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' 2>/dev/null)" ]]; then
+    echo "error: profile grants the Cloud tunnel but no system extension is bundled under Contents/Library/SystemExtensions" >&2
+    exit 1
+  fi
+  while IFS= read -r -d '' sysext; do
+    /usr/bin/codesign --verify --strict --verbose=2 "$sysext"
+    sysext_details="$(/usr/bin/codesign -d --verbose=4 "$sysext" 2>&1)"
+    if [[ "$sysext_details" != *"flags="*"runtime"* ]]; then
+      echo "error: system extension $(basename "$sysext") is missing the hardened runtime required for notarization" >&2
+      exit 1
+    fi
+    sysext_entitlements="$(/usr/bin/codesign -d --entitlements :- "$sysext" 2>&1)"
+    for entitlement in \
+      com.apple.security.cs.allow-unsigned-executable-memory \
+      com.apple.security.cs.disable-library-validation; do
+      if grep "$entitlement" <<<"$sysext_entitlements" >/dev/null; then
+        echo "error: system extension $(basename "$sysext") carries incompatible entitlement $entitlement" >&2
+        exit 1
+      fi
+    done
+  done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)
+else
+  if grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
+    echo "error: signed app carries a NetworkExtension entitlement its provisioning profile does not grant; it would not launch" >&2
+    exit 1
+  fi
+  if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
+    echo "error: Contents/Library/SystemExtensions is still present without the tunnel capability" >&2
+    exit 1
+  fi
 fi
 
 # Helpers must NOT carry the main app's application-identifier.
 for helper_dir in bin libexec; do
   for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
-    [[ ! -L "$helper" ]] || continue
     [[ -f "$helper" && -x "$helper" ]] || continue
     /usr/bin/file -b "$helper" | grep -q 'Mach-O' || continue
     if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
@@ -367,5 +344,12 @@ for helper_dir in bin libexec; do
     fi
   done
 done
+
+if [[ -d "$COMPUTER_USE_HELPER" ]] \
+   && /usr/bin/codesign -d --entitlements :- "$COMPUTER_USE_HELPER" 2>&1 \
+        | grep -q "application-identifier"; then
+  echo "error: nested Computer Use helper unexpectedly carries application-identifier" >&2
+  exit 1
+fi
 
 echo "==> signing OK: $APP_PATH"

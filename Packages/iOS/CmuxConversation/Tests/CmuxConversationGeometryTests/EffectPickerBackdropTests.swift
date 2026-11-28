@@ -1,9 +1,5 @@
 import CmuxConversationGeometry
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Testing
 
 /// Messages' Send with effect backdrop (iOS 26.5 and 27.0 simulators,

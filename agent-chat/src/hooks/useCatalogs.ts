@@ -1,26 +1,6 @@
 import { preferenceStorage } from "../browser-storage";
-import { useEffect, useRef } from "react";
-import type { CommandGroup, CwdCheck, CwdHarnessRequest, Provider, SessionOption, SessionState } from "../session";
-
-/** Check restored sessions once per cwd on each connection, independently of composer edits. */
-export function useSessionCwdCheck({ ready, connectionEpoch, phase, session, checkCwd }: Pick<SessionState,
-  "ready" | "connectionEpoch" | "phase" | "session" | "checkCwd"
->) {
-  const requested = useRef({ epoch: connectionEpoch, cwds: new Set<string>() });
-  // Keep the lifecycle check independent from the callback identity. A session
-  // render may replace the action object while a stream event is folded; that
-  // must not turn a once-per-connection check into one request per event.
-  const checkCwdRef = useRef(checkCwd);
-  checkCwdRef.current = checkCwd;
-  const cwd = session?.cwd;
-  useEffect(() => {
-    if (requested.current.epoch !== connectionEpoch) {
-      requested.current = { epoch: connectionEpoch, cwds: new Set() };
-    }
-    if (!ready || phase !== "chat" || !cwd || requested.current.cwds.has(cwd)) return;
-    if (checkCwdRef.current(cwd)) requested.current.cwds.add(cwd);
-  }, [connectionEpoch, cwd, phase, ready]);
-}
+import { useEffect } from "react";
+import type { CommandGroup, Provider, SessionOption } from "../session";
 
 export function useDefaultCwd(
   defaultCwd: string,
@@ -50,9 +30,7 @@ export function useProviderCatalogs(
   activeProvider: string,
   cwd: string,
   requestProviderOptions: (provider: string, cwd: string) => void,
-  // Chat receives command groups from the stream and has no use for the
-  // provider catalog. The composer passes this callback to opt into discovery.
-  requestProviderCommands?: (provider: string, cwd: string) => void,
+  requestProviderCommands: (provider: string, cwd: string) => void,
 ) {
   useEffect(() => {
     if (!ready || !cwd) return;
@@ -60,7 +38,7 @@ export function useProviderCatalogs(
       if (provider.installed === false) continue;
       requestProviderOptions(provider.id, cwd);
     }
-    if (requestProviderCommands && activeProvider && providers.some((p) => p.id === activeProvider && p.installed !== false)) {
+    if (activeProvider && providers.some((p) => p.id === activeProvider && p.installed !== false)) {
       requestProviderCommands(activeProvider, cwd);
     }
   }, [activeProvider, connectionEpoch, cwd, providers, ready, requestProviderCommands, requestProviderOptions]);
@@ -106,33 +84,23 @@ export function loadingProviderOptionIds(
 export function useCwdValidation(
   ready: boolean,
   connectionEpoch: number,
-  committedCwd: string,
-  draftCwd: string,
+  cwd: string,
   defaultCwd: string,
-  cwdChecks: Record<string, CwdCheck>,
-  checkCwd: (cwd: string) => CwdHarnessRequest | null,
+  cwdChecks: Record<string, { ok: boolean; message?: string }>,
+  checkCwd: (cwd: string) => void,
   setCwd: (cwd: string) => void,
   setCommittedCwd: (cwd: string) => void,
 ) {
-  const pendingRequest = useRef<CwdHarnessRequest | null>(null);
   useEffect(() => {
-    pendingRequest.current = ready && committedCwd ? checkCwd(committedCwd) : null;
-  }, [checkCwd, committedCwd, connectionEpoch, ready]);
+    if (ready && cwd) checkCwd(cwd);
+  }, [checkCwd, connectionEpoch, cwd, ready]);
   useEffect(() => {
-    const checked = cwdChecks[committedCwd];
-    const request = pendingRequest.current;
-    if (
-      !checked
-      || !request
-      || checked.requestId !== request.requestId
-      || checked.connectionEpoch !== request.connectionEpoch
-    ) return;
-    pendingRequest.current = null;
-    if (checked.ok || !defaultCwd || draftCwd !== committedCwd) return;
+    const checked = cwdChecks[cwd];
+    if (!checked || checked.ok || !defaultCwd) return;
     setCwd(defaultCwd);
     setCommittedCwd(defaultCwd);
     preferenceStorage.setItem("agentui.cwd", defaultCwd);
-  }, [committedCwd, cwdChecks, defaultCwd, draftCwd, setCommittedCwd, setCwd]);
+  }, [cwd, cwdChecks, defaultCwd, setCommittedCwd, setCwd]);
 }
 
 export function useCwdErrorFallback(

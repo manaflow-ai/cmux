@@ -1,11 +1,5 @@
 @testable import CmuxMobileSSH
-#if canImport(Darwin)
 import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#elseif canImport(Musl)
-import Musl
-#endif
 import Foundation
 import NIOCore
 import NIOEmbedded
@@ -100,7 +94,7 @@ private final class SilentListener {
     let port: Int
 
     init() throws {
-        let fd = socket(AF_INET, tcpStreamType, 0)
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw POSIXError(.EIO) }
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
@@ -118,20 +112,5 @@ private final class SilentListener {
         port = Int(UInt16(bigEndian: address.sin_port))
     }
 
-    func close() { sysClose(fd) }
+    func close() { Darwin.close(fd) }
 }
-
-// SOCK_STREAM is an Int32 on Darwin and an enum on Glibc.
-#if canImport(Darwin)
-private let tcpStreamType: Int32 = SOCK_STREAM
-#else
-private let tcpStreamType: Int32 = Int32(SOCK_STREAM.rawValue)
-#endif
-
-#if canImport(Darwin)
-private let sysClose = Darwin.close
-#elseif canImport(Glibc)
-private let sysClose = Glibc.close
-#else
-private let sysClose = Musl.close
-#endif

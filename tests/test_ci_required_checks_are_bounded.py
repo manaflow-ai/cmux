@@ -27,6 +27,7 @@ from pathlib import Path
 
 import yaml
 
+from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,21 +35,16 @@ WORKFLOWS = ROOT / ".github/workflows"
 
 # The required contexts on main, from the one in-tree mirror of the ruleset.
 # scripts/ci/required_status_checks.py reconciles that mirror against GitHub.
-# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
-if str(ROOT / "scripts/ci") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts/ci"))
-import required_status_checks as _required_status_checks  # noqa: E402
+_SPEC = importlib.util.spec_from_file_location(
+    "required_status_checks", ROOT / "scripts/ci/required_status_checks.py"
+)
+_required_status_checks = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+# Registered before execution: the module defines a dataclass.
+sys.modules["required_status_checks"] = _required_status_checks
+_SPEC.loader.exec_module(_required_status_checks)
 # A hung job wastes runners whether or not its check is required.
-ALWAYS_BOUNDED = ("ci-status", "web-validation")
-# pull_request workflows that end a superseded run themselves instead of with a
-# concurrency group, and why a group would be wrong there.
-OWN_SUPERSESSION = {
-    # Its pull_request and push runs only debounce: each waits for quiet (at
-    # most a few minutes) and exits 0 once it sees a newer event's run
-    # (next_batch.py `superseded`), within its 15-minute timeout. Cancelling one
-    # instead would read as a red run on the pull request.
-    "cmux-next-batch.yml": "debounce runs supersede themselves and exit 0",
-}
+ALWAYS_BOUNDED = ("ci-status", "web-validation", "Web complexity")
 # Every context whose workflows must be bounded. Tests patch this name.
 REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))
 
@@ -95,9 +91,30 @@ def reachable(roots: set[Path], workflows: dict[Path, dict]) -> set[Path]:
 
 def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
     name = job.get("name") or job_id
+    if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
+        # Interpret only the validated routing contract. Unknown expressions
+        # must remain unmatched instead of silently dropping timeout coverage.
+        try:
+            validate_metadata_routing(workflow)
+        except (AssertionError, KeyError, TypeError):
+            return name
+        return REQUIRED_CHECK
+    if path.name == "cla-policy-guard.yml" and job_id == "validate":
+        from test_cla_guard_metadata_routing import (
+            REQUIRED_CHECK as CLA_REQUIRED_CHECK,
+            validate_metadata_routing as validate_cla_metadata_routing,
+        )
+        try:
+            validate_cla_metadata_routing(workflow)
+        except (AssertionError, KeyError, TypeError) as error:
+            if "${{" in str(name) or "if" in job:
+                raise ValueError("CLA metadata route violates its condition/name contract") from error
+        else:
+            return CLA_REQUIRED_CHECK
     if isinstance(name, str) and "${{" in name:
-        # A name that differs only on a title or body edit (pattern pr-edit-fans-out-ci) is the check's
-        # name on a push. Unknown expressions stay unmatched rather than silently drop coverage.
+        # A name that differs only on an ignored edit or label (backend-migrations' gate) is the check's
+        # name on a push, as on feat-cmux-next. Unknown expressions stay unmatched rather than silently
+        # drop coverage.
         from test_ci_pr_runs_cancel_superseded import ExpressionError, pr_context, resolve
 
         try:
@@ -149,25 +166,16 @@ def main() -> int:
     for path, workflow in workflows.items():
         if "pull_request" not in triggers(workflow):
             continue
-        # Job-level groups also bound superseded work. Validate every job, including
-        # the explicitly preserved short gate, rather than exempt the whole workflow.
-        from test_ci_pr_runs_cancel_superseded import job_groups_problem
-
-        if not workflow.get("concurrency") and job_groups_problem(workflow, path.name, "pull_request") is None:
-            continue
-        if not workflow.get("concurrency") and path.name not in OWN_SUPERSESSION:
+        # A group is the requirement; what it does with a superseded run is
+        # the workflow's call. repair-nightly-appcast-content-types.yml sets
+        # cancel-in-progress: false on purpose because it writes to R2, and
+        # serializing is as good an answer as cancelling.
+        if not workflow.get("concurrency"):
             failures.append(
                 f"{path.relative_to(ROOT)} runs on pull_request with no "
                 "concurrency group, so every push leaves the superseded run "
                 "running"
             )
-
-    for name, reason in sorted(OWN_SUPERSESSION.items()):
-        workflow = workflows.get(WORKFLOWS / name)
-        if workflow is None or not reason.strip():
-            failures.append(f"OWN_SUPERSESSION names {name}, which no longer exists or has no reason")
-        elif "pull_request" not in triggers(workflow) or workflow.get("concurrency"):
-            failures.append(f"{name} no longer needs its OWN_SUPERSESSION entry; remove it")
 
     if failures:
         print("unbounded CI:", file=sys.stderr)
@@ -177,7 +185,7 @@ def main() -> int:
 
     print(
         f"{len(REQUIRED_CONTEXTS)} required and always-bounded checks are bounded; "
-        "every pull_request workflow bounds superseded work"
+        "every pull_request workflow has a concurrency group"
     )
     return 0
 

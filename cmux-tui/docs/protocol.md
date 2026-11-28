@@ -36,7 +36,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","shared-sizing-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","terminal-idle-close-v1","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","shared-sizing-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","terminal-idle-close-v1","terminal-read-unwrap-v1","terminal-wait-new-v1","terminal-exit-status-v1","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -66,8 +66,6 @@ Failed `clear-history` responses add `error_delivery`. `known-not-delivered` pro
 
 `browser-provider-v1` means browser tabs are attach-only: cmux-tui waits for cmux-browser to publish a connection-scoped loopback CDP endpoint and a target keyed by the tab's stable public id. It never discovers or launches an isolated Chrome process and never closes a provider-owned target. Endpoints and targets are available only to trusted-local `register-browser-provider` and `get-browser-provider` callers. Optional bearer credentials are accepted only during registration and are never returned. Multiple renderer clients may attach independently; presentation focus and scroll remain client-local. Provider disconnects leave canonical topology intact and reattach when a replacement lease appears.
 
-`browser-provider-native-hosting-v1` adds `hosting` to `register-browser-provider`. With `hosting:"native"` the provider presents each page in its own native view: cmux-tui never sends a geometry `Emulation.setDeviceMetricsOverride` (the page keeps its native viewport), never sends `Target.activateTarget` to recover a stalled frame stream, and screencasts a target only while a frame viewer is attached. The default `"daemon"` keeps the older behavior, where cmux-tui sizes each target to its own viewer and always screencasts it.
-
 cmux-browser starts the helper with its private agent-browser provider mode. New terminals use isolated upstream agent-browser daemon sessions; the `agent-browser.plugin.v1` adapter resolves the caller's containing workspace from its stable terminal id and returns one page-scoped provider target. This adapter is a control-plane bridge only—snapshotting, refs, actions, and policy remain upstream agent-browser behavior. It rejects bearer CDP leases because the current upstream direct-page provider response has no WebSocket-header field.
 
 `browser-pointer-frame-guard-v1` means browser attach state and frame events report authoritative `pointer_frame_seq` and `pointer_frame_floor_seq`, and the server accepts `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded`. Each admitted bitmap receives a new pointer sequence even when its document and dimensions match the previous bitmap. The reported floor through latest range proves only that a token belongs to the current document and coordinate mapping. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command also acknowledges its own token, so a dropped presentation message cannot strand input. Each connection retains one acknowledged token, while the browser input queue bounds actions admitted before a later presentation. Navigation or geometry changes reset the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A remote TUI sends the same capability in `set-client-info`; the server permits browser attach only when both peers advertise it. Clients and servers that omit it remain compatible for PTY surfaces. The legacy `browser-mouse` and `browser-wheel` JSON schemas still accept an omitted or null guard, but a guarded server rejects those requests before surface lookup instead of interpreting the current frame as authority.
@@ -92,95 +90,6 @@ the source workspace is removed first.
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
 ```
 
-`workspace-groups-v1` adds durable sidebar groups. `list-workspaces` gains an
-ordered top-level `groups` array (`{id,name,color,collapsed,index}`) and a
-`group` field on each workspace. `create-workspace-group`,
-`update-workspace-group`, `delete-workspace-group`, and `move-workspace-group`
-edit groups and emit `tree-changed`. `move-workspace-to-group` sets membership
-and an optional final index inside the section in one workspace-registry
-revision, so it takes the durable mutation envelope and emits
-`workspace-moved`:
-
-```json
-{"id":13,"cmd":"create-workspace-group","group":"agents","name":"Agents","color":"gray"}
-{"id":14,"cmd":"move-workspace-to-group","key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","group":"agents","index":0,"origin":"mac-1","mutation_id":"m-41"}
-```
-
-`workspace-metadata-v1` adds shared workspace presentation: `color` (a
-frontend palette token or `#RRGGBB[AA]`), `icon` (an SF Symbol name), and a
-custom `title` on every workspace. `set-workspace-metadata` treats an absent
-field as unchanged and `null` as clear, commits one workspace-registry
-revision, and emits `workspace-changed` with the full workspace entity.
-
-`workspace-pin-v1` adds `pinned` to every workspace and to
-`set-workspace-metadata`. An absent `pinned` is unchanged; `true` or `false`
-sets it. The daemon keeps the workspace order; frontends list pinned
-workspaces in a Pinned section at the top of the sidebar.
-
-`notification-mark-unread-v1` adds `marked_unread` to every workspace and to
-`set-workspace-metadata`, with the same absent-or-boolean rule. It is a manual
-mark (Mark Workspace as Unread), separate from notification markers and
-`unread_count`. The daemon keeps it until a frontend clears it, which the Mac
-app does when the user types into one of the workspace's terminals (on this Mac) or uses Mark
-as Read or Clear Notifications; focusing or opening the workspace keeps it.
-
-`tab-mark-unread-v1` adds `marked_unread` (boolean) to `tab.update` and, while
-set, `marked_unread: true` to the tab's `extra`. It is a manual mark (Mark Tab
-Unread) on any tab, separate from notification markers. The daemon keeps it on
-the tab record until a frontend clears it, which the Mac app does when the tab
-comes into view.
-
-`tab-attention-v1` adds `attention` (a one-line reason, or null to clear) to
-`tab.update` and, while set, `attention: {reason, at_ms}` to the tab's `extra`.
-An agent sets it when the person must act in that tab (confirm, log in,
-approve, pick); `cmux attention request --tab <tab_…> --reason <text>` and
-`cmux attention clear --tab <tab_…>` send it. It never moves focus. Viewing
-the tab keeps it; the agent's clear, a browser tab's navigation to another
-URL, or the tab's close clears it. The raw tree (`workspaces`) carries the same
-mark as the tab's `attention: {reason, at_ms}`, so a TUI client draws it and
-its `next-attention` key visits it; `cmux attention next|list` read the queue
-from `session.snapshot` with no new wire op.
-
-`tab-attention-request-id-v1` adds `extra.attention.request_id`: an opaque
-32-byte lowercase hexadecimal string issued by the owning daemon for each
-new mark, including identical reasons at the same time. It is persisted with
-the mark; clients compare equality only. `at_ms` is display time, never an
-identity or ordering guarantee. Existing valid tokenless marks receive an
-identity once when the store opens. Clearing, closing, reissuing, restarting,
-and clock rollback cannot reuse a prior identity (128 random bits; entropy
-failure aborts the write).
-
-A client acknowledging a captured request sends `tab.update` with
-`attention:null` and `attention_request_id` equal to the captured token. The
-daemon compares inside the write transaction. A mismatch or absent mark is a
-successful no-op; the result is the current tab snapshot, and unrelated fields
-still update. Null, malformed tokens, or a token without `attention:null` are
-validation errors. The legacy clear without a token remains unconditional for
-existing callers. New clients must require both this capability and a valid
-token; if either is absent, disable guarded actions rather than falling back
-to time matching or unconditional clearing. Older daemons do not advertise
-this capability. Older builds can still read the additive JSON; if they replace
-it without a token, the next upgrade issues a fresh identity. No FFI ABI change
-is needed: native consumers must use a daemon release containing this capability
-before enabling their actions. These core/protocol files are outside the derived
-CCmuxAppFFI inputs, so this change needs no app FFI release or binary-target repin.
-
-
-`workspace-description-v1` adds `description` (string, 1-4096 characters, line
-breaks allowed; null clears it) to `workspace.update` and, while set,
-`description` to the workspace's `extra`. `workspace-status-v1` adds
-`task_status` the same way: one of the classic cmux task lanes `todo`,
-`working`, `needs-attention`, `review`, `done`, or null for automatic. Both live
-in the shared workspace presentation, so every client shows them.
-
-`tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
-every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
-`move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
-OSC 7 (or the launch directory) and reads the repository's HEAD on the host
-that owns the PTY, so remote daemons report their own branches. `tab-changed`
-delivers the refreshed tab after a pin or directory change. A pinned browser
-tab also reports `pinned_url`, the page it showed when it was pinned.
-
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
 ```json
@@ -188,137 +97,6 @@ Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. 
 ```
 
 Ratios are clamped to `0.05..0.95`. A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
-
-`frontend-browser-tabs-v1` adds browser tabs whose page the frontend
-renders with WebKit or CEF. `new-frontend-browser-tab` creates one in the
-durable tree with `url`, `engine`, and optional `title`, `favicon_url`, and
-`profile_id`; `update-frontend-browser-tab` records navigation. The daemon
-persists and restores these tabs but never attaches a CDP target or renders
-frames for them, and `attach-surface` refuses them. Tabs report
-`browser_renderer:"frontend"` and `browser_engine`. CDP browser tabs keep
-their existing behavior and report `browser_renderer:"daemon"`.
-With `frontend-browser-tab-keys-v1`, `new-frontend-browser-tab` takes an
-optional `idempotency_key`: a retry after a lost reply returns the first
-tab (`replayed:true`) instead of creating a second one.
-
-`frontend-browser-history-v1` adds `set-frontend-browser-history` and
-`get-frontend-browser-history`: a frontend stores an opaque JSON object (at
-most 64 KiB) per frontend-rendered browser tab, such as its back/forward
-entries and scroll, and reads it back after a relaunch. `history:null`
-clears it. The daemon never journals it or puts it in the tree.
-
-`remote-terminal-tabs-v1` adds tabs that reference a terminal on another
-session, for frontends that federate several sessions. `new-remote-terminal-tab`
-stores `{session_id, terminal_id, session_name, title?}` in the durable tree;
-`update-remote-terminal-tab` records the title, session name, or a bounded
-text snapshot, which `remote-terminal-snapshot` reads back. The daemon never
-attaches or spawns anything for these tabs. They report
-`kind:"remote-terminal"` with a `remote` object and move, pin, group, and
-close like any tab. The TUI does not render them.
-
-`detached-terminals-v1` adds `detached:true` to `create-terminal`: the daemon
-creates a kept terminal with no workspace, pane, screen, or tab and returns
-its public `terminal_resource_id`, so another session's frontend can show it
-as a remote-terminal tab and attach by that id. Send it only to a daemon that
-advertises the capability; an older daemon ignores the field and creates a
-tab.
-
-`tab-drag-v1` makes every tab drag outcome one atomic command:
-`move-tab` (pane and index, across screens and workspaces),
-`move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),
-`move-tab-to-workspace`, and `move-tab-to-new-workspace` (optional group and
-index; returns the new workspace). Each takes an optional client
-`transaction`, echoed in the moved tab's `tab-changed` delta. Drags that stay
-on one screen and keep their source pane record a layout-undo entry that
-moves the tab back without closing anything:
-
-```json
-{"id":15,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","transaction":"drop-9"}
-{"id":16,"cmd":"undo-layout","pane":2}
-```
-
-`tab-split-keep-focus-v1` adds `keep_focus` to `move-tab-to-split` and
-`move-tab-to-column`: the new pane does not take focus, so an app can open a
-pane for an agent while the user types in another one.
-
-`tab-split-respawn-v1` adds `respawn` to `move-tab-to-split`. A pane's only
-tab dropped on that pane's own edge then splits the pane: the daemon leaves a
-fresh tab of the given kind (a new terminal, or a new browser tab) in the old
-pane and moves the dragged tab into the new one. The fresh tab copies the
-kind, never the state (no URL, scrollback, or session):
-
-```json
-{"id":17,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","respawn":{"kind":"terminal","cwd":"/src"}}
-```
-
-`notification-ack-v1` decouples notification acknowledgement from focus.
-`ack-tab-notifications {surface}` clears a tab's unread marker and records the
-acknowledgement durably, so it survives a daemon restart; frontends call it
-when the user has seen the tab instead of sending `select-tab`.
-`list-notifications` returns the retained ledger with `created_at_ms` and an
-`acknowledged` flag, and each workspace reports `unread_count`.
-
-`feed-local-owner-v1` makes the daemon the local owner of feed items
-(plans/cmux-next/feed.md section 9.1). Each notification is also a local item,
-committed in the same transaction. Selection and focus never clear unread: a
-client acknowledges with `ack-tab-notifications`, which also reads the tab's
-items. The app drives the move of an item to the cloud owner with
-`feed-local-handoff-begin` and `feed-local-handoff-done`, or takes it back
-with `feed-local-handoff-abort` after `feed.adopt.cancel` answered
-`cancelled: true` (the verified cmux app connection only), and rebuilds its
-queue at launch from `feed-local-list {state:"handing_off"}`. A moved item
-refuses reads with `owner.unreachable`, which is retryable; nothing queues.
-
-`tab-groups-v1` adds tab groups inside a pane's strip. Panes
-report `tab_groups` (id, name, color, collapsed, saved id, start, count,
-surfaces) and tabs report `group`. Members stay contiguous. Every change is
-one command: `create-tab-group`, `update-tab-group` (rename, recolor,
-collapse), `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`,
-`move-tab-group` (within or across strips), `move-tab-group-to-split`,
-`move-tab-group-to-column`, `move-tab-group-to-new-workspace`,
-`ungroup-tab-group`, and `close-tab-group`. Commands that move tabs take a
-`transaction` echoed in each member's `tab-changed`.
-
-`saved-tab-groups-v1` adds saved groups that outlive their placements:
-`save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`,
-`list-saved-tab-groups`, and `reopen-saved-tab-group`, which reattaches
-running terminals and starts the rest in their saved directories.
-
-```json
-{"id":17,"cmd":"create-tab-group","surfaces":[4,7],"name":"agents","color":"green","transaction":"g-1"}
-{"id":18,"cmd":"move-tab-group-to-split","group":"tgrp_0d4c...","pane":2,"edge":"right"}
-```
-
-`terminal-env-v1` lets `new-tab`, `split`, and `create-terminal` carry an
-`env` object for the new terminal's child only, so a frontend can pass the
-user's login-shell environment to a daemon that started with a minimal
-launchd environment:
-
-```json
-{"id":19,"cmd":"new-tab","pane":2,"cwd":"/Users/me/src","env":{"PATH":"/opt/homebrew/bin:/usr/bin:/bin"}}
-```
-
-`loopback-forward-v1` gives an opted-in Unix client TCP streams to this
-machine's loopback services (browser tabs whose machine is this daemon), with
-credit flow control in both directions. See "Loopback forwarding" in
-`spec/commands.md` for the full contract:
-
-```json
-{"id":21,"cmd":"set-client-info","capabilities":["loopback-forward-v1"]}
-{"id":22,"cmd":"loopback-open","stream":1,"host":"localhost","port":5173}
-{"id":22,"ok":true,"data":{"stream":1,"address":"127.0.0.1:5173","window":262144}}
-{"cmd":"loopback-data","stream":1,"data":"R0VUIC8gSFRUUC8xLjENCg0K"}
-{"event":"loopback-data","stream":1,"data":"SFRUUC8xLjEgMjAwIE9LDQo="}
-```
-
-`terminal-placement-env-v1` adds a caller-chosen `terminal_id` to `new-tab`,
-`split`, `new-pane`, and `new-pane-right` (and `cwd`/`env` to the last two),
-so the child starts with its own id in its environment:
-
-```json
-{"id":20,"cmd":"new-pane-right","pane":2,"width":0.5,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","env":{"CMUX_SURFACE_ID":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f"}}
-{"id":20,"ok":true,"data":{"surface":9,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","terminal_incarnation":"..."}}
-```
 
 ## Events
 
@@ -379,42 +157,20 @@ closed for idleness). The owner closes the terminal, through the same path as
 that long. The idle clock restarts at every attach and when the owner restarts,
 so a restart can delay a close but never make it early.
 
-When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
-that has had no tab placement for the reap grace period and emits
-`terminal-reaped`, but only when the owner was started with
-`--terminal-reap-grace-seconds` (`identify` then also advertises
-`terminal-reaper-active-v1`, from the first answer the owner's socket gives
-until the reaper stops). Every owner a local client starts (`cmux`,
-`cmux-tui`, `cmux daemon ensure`) gets the option, 30 seconds unless the
-client names another, and so do the mux owner `remote-link` starts on an
-SSH remote and the owner the chatmux relay starts (when its cmux-tui lists
-the option in its help). An owner reached through `--remote-mux-socket` is
-not started by `remote-link` and reaps only when its own supervisor passed
-the option; a daemon started directly with `--headless` and no option does
-not reap. Mark a
-terminal that must outlive its tabs with
-`{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
-`"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and
-updates the tree before its host exits; hosts of closed terminals end in
-parallel. For test teardown, `shutdown-daemon` with `"end_terminals":true`
-ends every terminal before the handoff; add `"keep_layout":true`
-(`end-terminals-keep-layout-v1`) to keep the tabs of placed terminals, dead,
-for the next owner (a quitting frontend that restarts shells in the same
-layout). Without `keep_layout`, the answer carries `session_dir`, the
-session's saved-state directory: nothing is left to resume, and
-`cmux daemon stop --end-terminals` removes its terminal and resume state (the
-launch snapshot and the terminal-host records) once the owner released its
-session locks. The registry, the Chief store, conversations, git checkpoints,
-diff comments and session settings stay (an older owner answers no
-`session_dir`, and all its state stays). `shutdown-daemon` with
-`"if_idle":true` (`daemon-stop-if-idle-v1`, `cmux daemon stop --if-idle`)
-stops only while no other client is connected and no terminal is live;
-else it refuses with `daemon_busy` and names what uses it, checked under the
-handoff reservation that refuses new clients. To close many tabs at once, send
-`{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
-commit (one journal fsync) removes every tab and ends every terminal left
-with no view that is not kept. The container closes take the same
-`end_terminals` field.
+When `identify` advertises `terminal-reaper-active-v1`, the owner was started
+with `--terminal-reap-grace-seconds <n>` and ends a terminal that has had no
+tab placement for `n` seconds, through the same path as `close-terminal`
+(capability absent: a terminal whose last tab closed runs until
+`close-terminal` or the end of the session). The owner keeps the time it
+first saw each terminal without a tab in the workspace registry, so the grace
+goes on across owner restarts. A placement restored within the grace cancels
+the reap, a terminal with an attach stream (or any terminal while the owner is
+in a shutdown handoff) is tried again one grace later, and
+at most 16 closed terminals without an attach stream wait out the grace (past
+that, the longest-closed ends at once). Such an owner lists the capability from
+the bind of its socket: its reaper makes its first pass once the owner holds
+its socket (possibly before `lifecycle_ready`), and a failed start or a failed
+later startup step ends the reaper and the capability.
 
 Then it sends ordered stream frames:
 
@@ -425,10 +181,6 @@ Then it sends ordered stream frames:
 
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
 
-Each PTY read is one `output` frame, so a busy terminal wakes the client hundreds or thousands of times a second. A client that renders at most once per display frame (a phone) declares `attach-output-coalesce-v1` in `set-client-info` before attaching, when `identify` advertises it. Its bytes attach then gets at most one `output` per frame (16.667 ms, or `output_coalesce_ms` on `attach-surface`, 0 to 1000, 0 off), with the bytes of that frame concatenated in order. The first bytes after an idle frame go out at once, so a typed key's echo is not delayed; an event holds at most about 1 MiB; any other frame first sends the held bytes. `scroll-changed` follows the same frame clock (newest position). Without the capability nothing changes. Details: `spec/commands.md` (`attach-surface`) and `spec/events.md` (`output`).
-
-An agent CLI's terminal (Claude Code, Codex, opencode) can reach a viewer as cell deltas instead of PTY bytes: a client that declares `agent-cli-hybrid-v1` in `set-client-info` gets `agent-cli-frame` events in place of `vt-state` and `output` on a bytes attach of such a terminal, at most one per 100 ms, and resumes after a drop with `hybrid_stream` and `hybrid_frame` from its last frame instead of the whole screen. With only that declared, every other program keeps the byte stream, as does a client that declares nothing. With `agent-cli-hybrid-v2` declared too, the frames come as `agent-cli-lean` events, which say only what the viewer does not know yet and cost fewer bytes than the PTY for every agent CLI. With `terminal-shell-lines-v1` declared too, every other terminal (a shell or any program) comes as the same lean frames, and only a full-screen program comes as `output` PTY bytes. With `terminal-full-screen-frames-v1` declared too, a full-screen program comes as lean frames as well (its modes as `output` bytes), at most one per display frame. Details: `spec/commands.md` (`attach-surface`) and `spec/events.md` (`agent-cli-frame`, `agent-cli-lean`).
-
 For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, `pointer_frame_seq`, and the latest PNG frame if one exists. A null pointer sequence keeps the retained image renderable but blocks pointer input. Later updates send `browser-state` and `frame` events. Each frame event couples the PNG with its authoritative `status`, `error`, and `pointer_frame_seq`; that sequence changes with every admitted replacement but authorizes input only after the client acknowledges presenting it. Clients must not infer pointer admission from the image sequence. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly.
 
 When the stream ends, it sends:
@@ -438,12 +190,8 @@ When the stream ends, it sends:
 ```
 
 A server-initiated detach adds `reason` (`network`, `disconnected-by` with
-an optional `by`, or `host-shutdown`). When a participant disconnects a whole
-client, the daemon first sends `{"event":"client-disconnected-by"}` on that
-client's control connection, even before its first attach. The optional `by`
-field identifies the participant. This notice stops automatic reconnection.
-On older daemons, a stream's `disconnected-by` reason also signals a whole-client
-disconnect unless the event identifies a single view with `view` or `scope:"view"`.
+`by`, or `host-shutdown`). Do not reconnect automatically after
+`disconnected-by`.
 
 ## Shared Terminal Sizing
 
@@ -464,9 +212,7 @@ forwarded input to that sub-view), relay sub-views (`resize-attached-view`
 with `view` and `identity`), and `detach-client` with a participant id and
 `by`. `user_id` is
 asserted by the client; the daemon does not verify it. The cmux-tui frontend
-opts in with `device_kind: "tui"` and its hostname as `device_name`. The GPUI
-desktop app sends `linux` or `windows` on those systems; only clients that send
-`open-device-kinds-v1` receive those kinds, others read them as `unknown`. See
+opts in with `device_kind: "tui"` and its hostname as `device_name`. See
 [`spec/commands.md`](../spec/commands.md#sizing).
 
 ## Client Compatibility

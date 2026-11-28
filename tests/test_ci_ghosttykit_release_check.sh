@@ -45,13 +45,6 @@ while [ "$#" -gt 0 ]; do
 done
 
 printf '%s\n' "$URL" >> "${TEST_URL_LOG:?}"
-case "$URL" in
-  https://api.github.com/*)
-    [ -n "${TEST_RELEASE_DIGEST:-}" ] || { echo "curl: simulated API failure" >&2; exit 22; }
-    printf '{"assets":[{"name":"GhosttyKit.xcframework.tar.gz","digest":"%s"}]}\n' "$TEST_RELEASE_DIGEST"
-    exit 0
-    ;;
-esac
 if [ "${TEST_RELEASE_PRESENT:-0}" != "1" ]; then
   echo "curl: simulated release not found" >&2
   exit 22
@@ -108,41 +101,5 @@ if ! grep -Fq "simulated release not found" "$MISSING_OUTPUT"; then
   cat "$MISSING_OUTPUT" >&2
   exit 1
 fi
-
-run_digest_check() {
-  : > "$URL_LOG"
-  PATH="$BIN_DIR:$PATH" \
-    TEST_URL_LOG="$URL_LOG" \
-    TEST_FIXTURE_ARCHIVE="$ARCHIVE" \
-    TEST_RELEASE_PRESENT=1 \
-    TEST_RELEASE_DIGEST="$1" \
-    GHOSTTY_SHA="$FIXTURE_SHA" \
-    GHOSTTYKIT_CHECKSUMS_FILE="$CHECKSUMS_FILE" \
-    GHOSTTYKIT_OUTPUT_DIR="$OUTPUT_DIR" \
-    GHOSTTYKIT_DOWNLOAD_RETRIES=0 \
-    GHOSTTYKIT_DOWNLOAD_RETRY_DELAY=0 \
-    GHOSTTYKIT_VERIFY_BY_DIGEST=1 \
-    "$SCRIPT" --verify-only
-}
-
-# A published digest equal to the pin verifies without downloading the archive.
-run_digest_check "sha256:$ARCHIVE_SHA256" > "$TMP_DIR/digest.out"
-if grep -Fxq "$EXPECTED_URL" "$URL_LOG"; then
-  echo "FAIL: a matching release digest still downloaded the archive" >&2
-  exit 1
-fi
-grep -Fq "release asset digest equals the pinned sha256" "$TMP_DIR/digest.out" || {
-  echo "FAIL: the digest path did not report its verdict" >&2
-  exit 1
-}
-
-# A different digest, or none (an API failure), falls through to the download and its checksum.
-for digest in "sha256:0000" ""; do
-  run_digest_check "$digest" > "$TMP_DIR/digest.out" 2>&1
-  if ! grep -Fxq "$EXPECTED_URL" "$URL_LOG"; then
-    echo "FAIL: digest '$digest' did not fall through to the download" >&2
-    exit 1
-  fi
-done
 
 echo "PASS: GhosttyKit release guard verifies the derived release and rejects a missing one"

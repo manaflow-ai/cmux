@@ -1,5 +1,0 @@
-# Same toolchain as cmux-tui (cmux-tui/rust-toolchain.toml).
-[toolchain]
-channel = "1.95.0"
-profile = "minimal"
-components = ["clippy", "rustfmt"]

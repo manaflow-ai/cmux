@@ -20,10 +20,7 @@ extension ChatController {
     /// `MessagesWindowView.displayChange` (followDisplay) the rows snap at the end of that pass, so the caller places
     /// the video layers after it.
     @discardableResult private func applyWindowScale() -> Bool {
-        // cmux: a zoomed Chief chat (HostView.contentZoom) draws its bitmaps at the window's scale times the zoom, so
-        // its magnified rows map one bitmap pixel to one device pixel.
-        guard let demo, let backing = host.window?.backingScaleFactor, backing > 0 else { return false }
-        let s = backing * host.contentZoom
+        guard let demo, let s = host.window?.backingScaleFactor, s > 0 else { return false }
         let changed = s != demo.renderScale
         if changed {
             DisplayScale.current = s  // the process fallback (code with no view), as Host.swift
@@ -33,7 +30,7 @@ extension ChatController {
             CATransaction.commit()
             ScaleKeeper.shared.setNeedsApply()
         }
-        demo.setRenderScale(s, contentZoom: host.contentZoom)
+        demo.setRenderScale(s)
         guard changed else { return false }
         demo.moveToWindowRecursively()
         picker?.rescale()
@@ -52,7 +49,7 @@ extension ChatController {
     /// Never `RowBitmaps.shared.removeAll()` and never a `setInactive` toggle here: cached bitmaps are keyed by scale
     /// and colour space (a move back finds them), and both dropped every pane's rows (258b385).
     func followDisplay(backingChanged: Bool = false) {
-        if backingChanged, let demo, host.window.map({ $0.backingScaleFactor * host.contentZoom }) == demo.renderScale,
+        if backingChanged, let demo, host.window?.backingScaleFactor == demo.renderScale,
            window?.screen?.colorSpace?.cgColorSpace.map({ $0 == DisplayScale.colorSpace }) ?? true { return }
         var scaled = false
         MessagesWindowView.displayChange {
@@ -82,16 +79,9 @@ extension ChatController {
 /// would otherwise keep Core Animation's default of 1. A layer with contents
 /// is left alone: whoever rasterized it set its scale (and the resolution
 /// audit checks it). NSView-managed layers belong to AppKit. Runs when the
-/// main run loop goes idle.
+/// main run loop goes idle; a walk is a few dozen pointer reads.
 final class ScaleKeeper {
     static let shared = ScaleKeeper()
-    /// What the next walk covers.
-    enum Scope: Equatable {
-        /// Every tree of every hosted Home tab.
-        case all
-        /// Only the compose trees of these tabs (a key that kept the field's frame changed no other layer).
-        case compose
-    }
     /// cmux: every hosted Home tab (weak: a closed tab drops out), each walked at its own window view's
     /// renderScale (MessagesLab 258b385: two panes can be at two scales).
     private let hosts = NSHashTable<HostView>.weakObjects()
@@ -102,20 +92,12 @@ final class ScaleKeeper {
     /// every main run loop pass: 7% of the main thread in the tab-switch
     /// bench, with Home hidden too.
     private var dirty = true
-    /// cmux: tabs whose compose tree alone could have new layers: a draft key that kept the field's frame (the window
-    /// view's commit then touches no row; WindowView `commit`). Walking every tree for each key was about 0.3 ms of
-    /// the key's main-thread work at a 3,000-character draft (cmux21 `sample`, 300 keys; a1250, 2026-11-20).
-    private let composeOnly = NSHashTable<HostView>.weakObjects()
     func setNeedsApply() { dirty = true }
-    /// Asks for a walk of `host`'s compose tree only (the field, its glass and overlay).
-    func setNeedsComposeApply(_ host: HostView) { composeOnly.add(host) }
-    /// What the next walk covers for `host`; nil when it needs none (tests).
-    func pendingScope(of host: HostView) -> Scope? { dirty ? .all : composeOnly.contains(host) ? .compose : nil }
 
     func start() {
         guard observer == nil else { return }
         let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { [weak self] _, _ in
-            guard let self, self.dirty || self.composeOnly.count > 0 else { return }
+            guard let self, self.dirty else { return }
             self.apply()
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
@@ -124,10 +106,7 @@ final class ScaleKeeper {
     }
 
     func apply() {
-        let all = dirty
-        let work = all ? hosts.allObjects : composeOnly.allObjects
         dirty = false
-        composeOnly.removeAllObjects()
         var changed = false
         func walk(_ l: CALayer, _ s: CGFloat) {
             if l.contentsScale != s, l.contents == nil, !(l.delegate is NSView) {
@@ -137,10 +116,9 @@ final class ScaleKeeper {
             if let m = l.mask { walk(m, s) }
             l.sublayers?.forEach { walk($0, s) }
         }
-        for host in work {
+        for host in hosts.allObjects {
             let s = host.demo?.renderScale ?? DisplayScale.current
-            let trees = all ? [host.below.root, host.morphHost.root, host.composeHost.root, host.above.root] : [host.composeHost.root]
-            trees.forEach { walk($0, s) }
+            [host.below.root, host.morphHost.root, host.composeHost.root, host.above.root].forEach { walk($0, s) }
         }
         if changed { CATransaction.commit() }
     }

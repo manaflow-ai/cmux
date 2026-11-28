@@ -66,12 +66,12 @@ type RenderTerminalViewAction =
   | { type: "bind"; client: CmuxClient; surface: Id }
   | { type: "reset"; client: CmuxClient; surface: Id }
   | {
-      type: "frame";
-      client: CmuxClient;
-      surface: Id;
-      model: RenderModel;
-      history: RenderHistoryView;
-    }
+    type: "frame";
+    client: CmuxClient;
+    surface: Id;
+    model: RenderModel;
+    history: RenderHistoryView;
+  }
   | { type: "focus"; client: CmuxClient; surface: Id; focused: boolean }
   | { type: "history"; client: CmuxClient; surface: Id; history: RenderHistoryView };
 
@@ -90,24 +90,17 @@ const initialState: RenderTerminalViewState = {
   history: emptyHistory,
 };
 
-export function renderTerminalViewReducer(
+function renderTerminalViewReducer(
   state: RenderTerminalViewState,
   action: RenderTerminalViewAction,
 ): RenderTerminalViewState {
   if (action.type === "bind") {
-    // The replacement transport has not delivered a frame yet. Keep the last
-    // frame for this surface until it does; a different surface starts empty.
-    return {
-      ...(state.surface === action.surface ? state : initialState),
-      client: action.client,
-      surface: action.surface,
-      focused: false,
-    };
+    return { ...initialState, client: action.client, surface: action.surface };
   }
   if (state.client !== action.client || state.surface !== action.surface) return state;
   switch (action.type) {
     case "reset":
-      return { ...state, client: null, focused: false };
+      return initialState;
     case "frame":
       return {
         ...state,
@@ -119,12 +112,6 @@ export function renderTerminalViewReducer(
     case "history":
       return { ...state, history: action.history };
   }
-}
-
-export function renderTerminalFrame(state: RenderTerminalViewState, surface: Id | null) {
-  return state.surface === surface
-    ? { model: state.model, history: state.history }
-    : { model: null, history: emptyHistory };
 }
 
 interface RenderTerminalController {
@@ -139,7 +126,13 @@ interface HistoryLoadOptions {
   request?: ScrollbackRequest;
 }
 
-export function useRenderTerminal({ client, surface, active, focusOnMount = false, onError }: RenderTerminalOptions) {
+export function useRenderTerminal({
+  client,
+  surface,
+  active,
+  focusOnMount = false,
+  onError,
+}: RenderTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [state, dispatch] = useReducer(renderTerminalViewReducer, initialState);
   const controllerRef = useRef<RenderTerminalController | null>(null);
@@ -194,11 +187,15 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
           resolve();
         }, delayMs);
       });
-    const unsubscribeGraphicsBudget = subscribeRenderModelGraphicsBudget(graphicsBudget, graphicsBudgetOwner, () => {
-      if (cancelled || graphicsResnapshotRequested) return;
-      graphicsResnapshotRequested = true;
-      stream?.close();
-    });
+    const unsubscribeGraphicsBudget = subscribeRenderModelGraphicsBudget(
+      graphicsBudget,
+      graphicsBudgetOwner,
+      () => {
+        if (cancelled || graphicsResnapshotRequested) return;
+        graphicsResnapshotRequested = true;
+        stream?.close();
+      },
+    );
 
     dispatch({ type: "bind", client, surface });
     const frameBatch = createFrameBatch<void>(() => {
@@ -279,14 +276,11 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       returnToLive();
     };
     const sendText = (text: string, paste = false) => {
-      // A replacement transport may show the cached frame before its first
-      // snapshot. Do not send input to that transport until it owns a frame.
-      if (text.length === 0 || currentModel === null) return;
+      if (text.length === 0) return;
       prepareInput();
       void client.send(surface, { text, ...(paste ? { paste: true } : {}) }).catch(onError);
     };
     const sendNamedKey = (key: string) => {
-      if (currentModel === null) return;
       prepareInput();
       void client.sendKey(surface, [key]).catch(onError);
     };
@@ -297,15 +291,16 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       cache = createScrollbackWindow(total);
       if (publish) publishHistory();
     };
-    const loadHistoryPage = async (direction: "latest" | "previous" | "next", options: HistoryLoadOptions = {}) => {
+    const loadHistoryPage = async (
+      direction: "latest" | "previous" | "next",
+      options: HistoryLoadOptions = {},
+    ) => {
       if (cancelled || historyLoading) return;
-      const request =
-        options.request ??
-        (direction === "latest"
-          ? latestScrollbackRequest(cache)
-          : direction === "previous"
-            ? previousScrollbackRequest(cache)
-            : nextScrollbackRequest(cache));
+      const request = options.request ?? (direction === "latest"
+        ? latestScrollbackRequest(cache)
+        : direction === "previous"
+          ? previousScrollbackRequest(cache)
+          : nextScrollbackRequest(cache));
       if (request === null) return;
       const generation = cacheGeneration;
       const requestTotal = cache.total;
@@ -314,15 +309,15 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       try {
         const page = await client.readScrollback(surface, request.start, request.count);
         if (cancelled || generation !== cacheGeneration) return;
-        const stablePage =
-          page.total < cache.total && cache.total > requestTotal ? { ...page, total: cache.total } : page;
+        const stablePage = page.total < cache.total && cache.total > requestTotal
+          ? { ...page, total: cache.total }
+          : page;
         const previousCache = cache;
         const anchorScrollTop = scroller?.scrollTop ?? 0;
         const nextCache = mergeScrollbackPage(previousCache, stablePage);
-        const anchorDelta =
-          direction === "latest" || options.preserveScrollAnchor
-            ? 0
-            : scrollbackAnchorDelta(previousCache, nextCache, direction);
+        const anchorDelta = direction === "latest" || options.preserveScrollAnchor
+          ? 0
+          : scrollbackAnchorDelta(previousCache, nextCache, direction);
         cache = nextCache;
         publishHistory();
         scheduleAfterRender(() => {
@@ -355,7 +350,8 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       historyRefreshScheduled = true;
       queueMicrotask(() => {
         historyRefreshScheduled = false;
-        if (cancelled || !historyActive || !historyRefreshPending || historyLoading || currentModel === null) return;
+        if (cancelled || !historyActive || !historyRefreshPending || historyLoading
+          || currentModel === null) return;
         if (cache.epoch === currentModel.historyEpoch) {
           historyRefreshPending = false;
           return;
@@ -390,11 +386,7 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       }
     };
 
-    const controller: RenderTerminalController = {
-      backToLive: returnToLive,
-      sendKey: sendNamedKey,
-      sendText,
-    };
+    const controller: RenderTerminalController = { backToLive: returnToLive, sendKey: sendNamedKey, sendText };
     controllerRef.current = controller;
     measureCells();
 
@@ -410,12 +402,7 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
     const handleBlur = () => {
       queueMicrotask(() => {
         if (!cancelled) {
-          dispatch({
-            type: "focus",
-            client,
-            surface,
-            focused: host.contains(document.activeElement),
-          });
+          dispatch({ type: "focus", client, surface, focused: host.contains(document.activeElement) });
         }
       });
     };
@@ -474,10 +461,9 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
     };
     const handleWheel = (event: WheelEvent) => {
       if (historyActive) {
-        const bottomDistance =
-          scroller === null
-            ? Number.POSITIVE_INFINITY
-            : scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+        const bottomDistance = scroller === null
+          ? Number.POSITIVE_INFINITY
+          : scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
         if (event.deltaY > 0 && bottomDistance <= metrics.height * 2 && nextScrollbackRequest(cache) !== null) {
           event.preventDefault();
           void loadHistoryPage("next");
@@ -496,10 +482,9 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       if (touchStartY === null || y === undefined) return;
       if (!historyActive && y - touchStartY > 8) enterHistory();
       if (historyActive && touchStartY - y > 8) {
-        const bottomDistance =
-          scroller === null
-            ? Number.POSITIVE_INFINITY
-            : scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+        const bottomDistance = scroller === null
+          ? Number.POSITIVE_INFINITY
+          : scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
         if (bottomDistance <= metrics.height * 2) void loadHistoryPage("next");
       }
     };
@@ -508,8 +493,8 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       if (scroller.scrollTop <= metrics.height * 2 && previousScrollbackRequest(cache) !== null) {
         void loadHistoryPage("previous");
       } else if (
-        scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= metrics.height * 2 &&
-        nextScrollbackRequest(cache) !== null
+        scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= metrics.height * 2
+        && nextScrollbackRequest(cache) !== null
       ) {
         void loadHistoryPage("next");
       }
@@ -538,9 +523,6 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       try {
         let recoveryAttempt = 0;
         for (;;) {
-          // Keep the cached frame visible while a replacement transport is
-          // attaching, but do not let input or resize target the old model.
-          currentModel = null;
           stream = await client.attachSurface(surface, { mode: "render" });
           if (cancelled) return;
           if (graphicsResnapshotRequested) {
@@ -569,7 +551,11 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
               return;
             }
             if (event.event === "render-state") {
-              currentModel = applySnapshot(event as RenderStateEvent, graphicsBudget, graphicsBudgetOwner);
+              currentModel = applySnapshot(
+                event as RenderStateEvent,
+                graphicsBudget,
+                graphicsBudgetOwner,
+              );
               resetHistoryCache(currentModel.scrollbackRows, false);
               applySurfaceBackground(currentModel.defaultBg);
               applyFit();
@@ -582,7 +568,12 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
             } else if (event.event === "render-delta" && currentModel !== null) {
               const renderDelta = event as RenderDeltaEvent;
               const previous: RenderModel = currentModel;
-              const nextModel: RenderModel = applyDelta(previous, renderDelta, graphicsBudget, graphicsBudgetOwner);
+              const nextModel: RenderModel = applyDelta(
+                previous,
+                renderDelta,
+                graphicsBudget,
+                graphicsBudgetOwner,
+              );
               currentModel = nextModel;
               if (nextModel === previous) continue;
               const reconciliation = reconcileScrollbackWindow(
@@ -600,8 +591,8 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
               } else if (reconciliation.window !== cache) {
                 cache = reconciliation.window;
               }
-              if (!reconciliation.invalidated && historyActive && cache.epoch !== nextModel.historyEpoch)
-                requestHistoryEpochRefresh();
+              if (!reconciliation.invalidated && historyActive
+                && cache.epoch !== nextModel.historyEpoch) requestHistoryEpochRefresh();
               applySurfaceBackground(nextModel.defaultBg);
               if (!historyActive) {
                 scheduleAfterRender(() => {
@@ -684,7 +675,15 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       if (controllerRef.current === controller) controllerRef.current = null;
       dispatch({ type: "reset", client, surface });
     };
-  }, [client, focusOnMount, graphicsBudget, graphicsBudgetOwner, host, onError, surface]);
+  }, [
+    client,
+    focusOnMount,
+    graphicsBudget,
+    graphicsBudgetOwner,
+    host,
+    onError,
+    surface,
+  ]);
 
   const backToLive = useCallback(() => controllerRef.current?.backToLive(), []);
   const sendKey = useCallback((key: string) => controllerRef.current?.sendKey(key), []);
@@ -693,9 +692,8 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
   return {
     terminalRef,
     focused: bound && state.focused,
-    // A client's handshake can finish before its first terminal snapshot.
-    // Transport identity gates input/focus, not the last displayed frame.
-    ...renderTerminalFrame(state, surface),
+    model: bound ? state.model : null,
+    history: bound ? state.history : emptyHistory,
     backToLive,
     sendKey,
     sendText,

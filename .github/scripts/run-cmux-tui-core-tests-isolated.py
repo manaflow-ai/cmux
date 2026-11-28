@@ -1,13 +1,30 @@
 #!/usr/bin/env python3
-"""Run each cmux-tui-core Rust test in a fresh process."""
+"""Run each cmux-tui-core Rust test in a fresh process, under the per-test deadline.
+
+Each test runs through scripts/ci/test_deadline.py, as every hosted cargo test
+does (scripts/ci/cargo-test-deadline.sh): a test that runs past its deadline
+(CMUX_TEST_DEADLINE_SECONDS, default 180 s) is named and ended, so the job does
+not wait for its timeout.
+"""
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
+
+DEADLINE_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "test_deadline.py"
+
+
+def load_deadline():
+    spec = importlib.util.spec_from_file_location("test_deadline", DEADLINE_SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,29 +120,17 @@ def partition_tests(all_tests: list[str], ignored_tests: list[str]) -> tuple[lis
     return runnable, ignored
 
 
-# Exit statuses of a test that a hangup, an interrupt or a terminate ended (a cancelled
-# job), as an exit code or as a signal. A crash (SIGABRT, SIGSEGV) is a red and does not stop.
-CANCEL_STATUSES = frozenset({129, 130, 143})
-
-
-def exit_status(returncode: int) -> int:
-    """A positive exit status: a signal-ended child (negative returncode) maps to 128 + signal."""
-    return 128 - returncode if returncode < 0 else returncode
-
-
 def main() -> int:
     args = parse_args()
     core_root = args.core_root.resolve()
     binaries = test_binaries(args.cargo_messages, core_root)
+    deadline = load_deadline()
+    seconds, slow = deadline.env_settings()
     total = 0
     skipped = 0
     # Every core test runs, so one run shows every red; the first red status is returned.
-    # A cancelled test stops the run: the next test must not start.
     failed: list[tuple[str, str, int]] = []
-    stopped = False
     for binary in binaries:
-        if stopped:
-            break
         all_tests = tests_in(binary)
         ignored_tests = tests_in(binary, ignored=True)
         try:
@@ -140,18 +145,13 @@ def main() -> int:
             skipped += len(ignored)
         for index, test_name in enumerate(tests, start=1):
             print(f"[{index}/{len(tests)}] {test_name}", flush=True)
-            returncode = subprocess.run(
+            status = deadline.run(
                 [str(binary), test_name, "--exact", "--test-threads=1"],
-                check=False,
-            ).returncode
-            status = exit_status(returncode)
+                deadline.Tracker(default_seconds=seconds, slow=slow),
+            )
             if status != 0:
                 print(f"::error::{test_name} in {binary.name} exited {status}", file=sys.stderr)
                 failed.append((binary.name, test_name, status))
-                if status in CANCEL_STATUSES:
-                    print(f"Stopping: {test_name} was cancelled (exit {status})", file=sys.stderr)
-                    stopped = True
-                    break
                 continue
             total += 1
     print(f"Passed {total} isolated cmux-tui-core tests")

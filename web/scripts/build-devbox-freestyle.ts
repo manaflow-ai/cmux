@@ -93,16 +93,11 @@ import {
   CMUX_TUI_HOOK_PROVIDERS,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
-  cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiRunCommand,
-  requireCmuxTuiAcpmux,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
-  retryFreestyleOverload,
-  devboxBakeStepBudgetMs,
-  devboxDaemonUnit,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
@@ -117,10 +112,6 @@ import {
   devboxBubblewrapSha256,
   devboxBubblewrapUrl,
   devboxBubblewrapVersion,
-  devboxAgentDesktopInstallCommand,
-  devboxAgentDesktopSha256,
-  devboxAgentDesktopUrl,
-  devboxAgentDesktopVersion,
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
@@ -132,13 +123,8 @@ import {
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
-  devboxClaudeTeamOnboardingCheckCommand,
-  devboxClaudeSettingsDefaultsCommand,
-  devboxWorkUserCmuxConfigDirCommand,
-  DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
-  devboxTeamKindDefaultCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   emitBakeResult,
@@ -161,15 +147,6 @@ import {
   DEVBOX_DESKTOP_UNIT,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import {
-  METADATA_GUARD_FILE,
-  METADATA_GUARD_UNIT,
-  metadataGuardEnableCommand,
-  metadataGuardRules,
-  metadataGuardUnit,
-} from "../services/vms/images/metadataGuard";
-import { machineHealthBakeCommand, machineHealthFiles } from "./cmux-vm-image/machine-health";
-import { detachedExec } from "./cmux-vm-image/detached-exec";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -193,20 +170,10 @@ const keepBuilder = hasFlag("--keep-builder");
 const replaceSlug = hasFlag("--replace-slug");
 
 const preflight = bakePreflight({ desktop: withDesktop });
-// Resolved before the builder exists so an outage, or a release file no trusted key signed,
-// fails the bake for free: the daemon and hook come from the baked commit's verified
-// release.json (resolveCmuxTuiSource), never from latest/manifest.json.
+// Resolved before the builder exists so a manifest outage fails the bake for free.
 const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
-// Every Cloud machine ships acpmux (cloud-subagents-DESIGN.md B9): refuse the bake before it
-// creates a VM when the pinned build has no acpmux.
-requireCmuxTuiAcpmux(cmuxTuiSource, `https://files.cmux.com/cmux-tui/${cmuxTuiSource.commit}/release.json`);
-console.log(
-  `cmux-tui ${cmuxTuiSource.commit.slice(0, 12)}: signed release verified (cmux-tui ${cmuxTuiSource.size} bytes); acpmux sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…${cmuxTuiSource.acpmuxSize ? "" : " (from manifest.json until the release file lists acpmux)"}`,
-);
 
-// A step that hangs past its budget fails the bake. Steps run detached
-// (short polls), so the exec API's 300 s cap does not bound them; a
-// downloading step gets longer (devboxBakeStepBudgetMs).
+// The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
 
 // Per-exec env (the API replays it into every step). The base's login PATH
@@ -229,11 +196,11 @@ const WORK_HOME = DEVBOX_WORK_HOME;
 const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
 
 const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
-const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({
+const { vm, vmId } = await fs.vms.create({
   snapshotId: builderSnapshot,
   displayName: `cmux-devbox-builder ${slug}`,
   firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
-}));
+});
 console.log(`builder VM ${vmId} (base ${builderSnapshot}, desktop=${withDesktop})`);
 
 async function deleteBuilder(): Promise<void> {
@@ -248,38 +215,26 @@ async function deleteBuilder(): Promise<void> {
 // step (npm and the installers all read it).
 const HOME_PREFIX = 'export HOME="${HOME:-$(getent passwd $(id -u) | cut -d: -f6)}"';
 
-let stepIndex = 0;
 async function step(label: string, command: string): Promise<void> {
   const t0 = Date.now();
-  const budgetMs = Math.max(STEP_TIMEOUT_MS, devboxBakeStepBudgetMs(command));
-  // Detached, with short polls (detached-exec.ts): one exec held open for a
-  // long step is what run 45920283687 lost in media-apt, with no step named.
-  let r: Awaited<ReturnType<typeof detachedExec>>;
-  try {
-    r = await detachedExec(vm, command, {
-      dir: `/var/tmp/cmux-bake-steps/${String(++stepIndex).padStart(3, "0")}-${label}`,
-      budgetMs,
-      env: BUILD_ENV,
-      prefix: HOME_PREFIX,
-      // The 0.2 API's default guest user is uid 1000 (the work user). Every
-      // build step writes to /usr/local and /etc, so the bake runs as root.
-      linuxUser: "root",
-    });
-  } catch (error) {
-    console.error(`STEP FAILED [${label}] ${String(error)} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
-    await deleteBuilder();
-    process.exit(1);
-  }
+  const r = await vm.exec({
+    command: `${HOME_PREFIX} && ${command}`,
+    env: BUILD_ENV,
+    timeoutMs: STEP_TIMEOUT_MS,
+    // The 0.2 API's default guest user is uid 1000 (the work user). Every
+    // build step writes to /usr/local and /etc, so the bake runs as root.
+    linuxUser: "root",
+  });
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
-  if (r.code !== 0) {
-    const why = r.code === 124 || r.code === 137 ? ` (its ${budgetMs / 1000} s budget ran out)` : "";
-    console.error(`STEP FAILED [${label}] status=${r.code}${why} (${secs}s)`);
-    console.error("stdout:", r.stdout.slice(-3000));
-    console.error("stderr:", r.stderr.slice(-3000));
+  const exitCode = r.statusCode ?? 124;
+  if (exitCode !== 0) {
+    console.error(`STEP FAILED [${label}] status=${exitCode} (${secs}s)`);
+    console.error("stdout:", (r.stdout ?? "").slice(-3000));
+    console.error("stderr:", (r.stderr ?? "").slice(-3000));
     await deleteBuilder();
     process.exit(1);
   }
-  const tail = r.stdout.trim().split("\n").slice(-3).join(" | ");
+  const tail = (r.stdout ?? "").trim().split("\n").slice(-3).join(" | ");
   console.log(`ok [${label}] ${secs}s :: ${tail}`);
 }
 
@@ -307,12 +262,10 @@ const pins = devboxAgentPins();
  * login either). Fails if the pane shows anything ble.sh or bash complained
  * about, the Ubuntu legal text, or (on the second run, once caches are seeded)
  * the tput-cache notice, and requires the cmux prompt. Runs as the work user
- * so nothing it creates is root-owned. Polls the pane for the prompt (up to
- * 20 s) instead of a fixed sleep: rebakes 45928043172 and 45937353738 read an
- * empty pane after a fixed 3 s while ble.sh was still loading.
+ * so nothing it creates is root-owned.
  */
 const interactiveShellProbe = (run: number): string =>
-  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 || exit 1; t=0; while :; do sleep 0.5; t=$((t+1)); pane="$(tmux -L probe${run} capture-pane -pt login)"; printf "%s\\n" "$pane" | grep -q "λ" && break; [ $t -ge 40 ] && break; done; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
+  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
 
 try {
   // TSC offsets can change across resized memory snapshots. Use the
@@ -338,7 +291,7 @@ try {
   // The Dockerfile's devtools list.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config locales jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs && locale-gen C.UTF-8 >/dev/null && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
   );
 
   // Muse needs the pinned upstream bubblewrap, rather than Ubuntu's 0.9.0.
@@ -354,7 +307,7 @@ try {
 
   await step(
     "media-apt",
-    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg imagemagick poppler-utils git-lfs xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && git lfs install --system --skip-repo && command -v Xvfb && command -v xdpyinfo && command -v xdotool && ffprobe -hide_banner -version >/dev/null && convert -version >/dev/null && command -v pdftotext",
+    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
   );
 
   await step(
@@ -375,15 +328,6 @@ try {
     `curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=${cuaVersion} CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version`,
   );
 
-  // agent-desktop: the Dockerfile's pinned release archive (URL and SHA-256)
-  // through the same install command (a test keeps them identical). It acts
-  // on the desktop through /etc/cmux/desktop-env.sh, like cua-driver; the
-  // verifier proves a snapshot of a desktop window.
-  await step(
-    "agent-desktop",
-    devboxAgentDesktopInstallCommand(devboxAgentDesktopUrl(), devboxAgentDesktopSha256(), devboxAgentDesktopVersion()),
-  );
-
   // Pinned coding agents on the base's Node: the exact Dockerfile pins
   // replace the base's own copies of claude/codex/opencode in nvm's global
   // node_modules, and every agent bin is symlinked into /usr/local/bin the
@@ -396,9 +340,10 @@ try {
     `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
   );
 
-  // Claude Code machine policy. Fresh first-run answers are seeded below,
-  // after the final public model-plane env exists; login and team-launch
-  // paths use the same helper for any later fresh config home.
+  // Claude Code machine policy. The first-run answers themselves are seeded
+  // per shell by agent-config.sh from the model-plane env, not baked: the
+  // bake's own login probes would otherwise freeze a seed that predates the
+  // env and ship it in the snapshot.
   await step(
     "claude-managed-settings",
     `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
@@ -417,11 +362,6 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
-  // agent-config.sh keeps a caller's model-plane env only on an `owner` record (an absent or
-  // team record is shared). The agent-config and agent-hooks checks below prove
-  // that owner path before /etc/cmux/model-plane.env exists. The bake holds
-  // `owner` through both checks, then writes the `team` boot default.
-  await step("vm-kind-bake-owner", "echo owner > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
@@ -437,11 +377,10 @@ try {
   await step("terminfo", devboxTerminfoInstallCommand);
   await step(
     "devshell",
-    `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && bash -n /etc/cmux/bashrc && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' > /tmp/blesh-seed-home/.bashrc && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do echo 'ble-bind -m emacs -P >/dev/null; exit' | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && chmod -R a+rX /etc/cmux/blesh-cache-seed && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && test -s /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
+    `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && bash -n /etc/cmux/bashrc && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' > /tmp/blesh-seed-home/.bashrc && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && chmod -R a+rX /etc/cmux/blesh-cache-seed && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
   );
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
-  await put("claude-onboarding.py", "/etc/cmux/claude-onboarding.py");
   // Agent sign-in launchers (Dockerfile parity): /usr/local/bin/<agent> is
   // /etc/cmux/<agent>, which resolves the team or own-login mode per launch
   // (agent-auth.sh) and execs /usr/local/libexec/cmux-<agent>-real. The base's
@@ -562,14 +501,6 @@ try {
   // bake and the attach-time heal can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
-  // Keep the guest daemon alive across logout and image resume. This writes
-  // the same canonical user unit as `acpmux host setup`, then enables it once
-  // the binary and its state home are present.
-  // The work user's ~/.config/cmux exists before the daemon starts, so no later
-  // step makes a folder on the way to its harness sources: that reloads the
-  // catalog, whose model probe starts Claude (devboxWorkUserCmuxConfigDirCommand).
-  await step("cmux-config-dir", devboxWorkUserCmuxConfigDirCommand());
-  await step("acpmux-service", cmuxTuiServiceInstallCommand());
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
@@ -611,27 +542,40 @@ try {
       "echo agent-hooks-ok",
     ].join(" && "),
   );
-  // The record every machine boots with (cmux-vm-kind-sync and the create replace it).
-  // It comes after agent-hooks: that step's hook-merge login shell needs the
-  // owner path too (a team record keeps no provider block).
-  // On a team record a login shell keeps none of a caller's model-plane env
-  // (cmux_prepare_shared_machine_model_env).
-  await step(
-    "vm-kind-default",
-    devboxTeamKindDefaultCommand(),
-  );
 
-  // The Ghostty .deb pin, recorded for the acpmux daemon launch
-  // (acpmuxPersonKey.ts); terminal panes carry cmux's own version.
+  // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
+  // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
   await step(
     "ghostty-version",
     `mkdir -p /etc/cmux && printf '%s\n' ${devboxGhosttyVersion()} > /etc/cmux/ghostty-version && cat /etc/cmux/ghostty-version`,
   );
 
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
-  const service = devboxDaemonUnit();
+  const service = [
+    "[Unit]",
+    "Description=cmux-tui session daemon supervisor",
+    "After=network.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "User=root",
+    // Freestyle machines are reached at a private VPC address by default, or
+    // their stable public IPv6 on the legacy public-network path, so the daemon
+    // listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
+    // defaults to 0.0.0.0 for the container providers, whose runtimes may have
+    // IPv6 disabled entirely.
+    "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    // Pane shells inherit this PATH; /usr/local/bin carries the base's Node
+    // and every pinned agent as symlinks, so no login shell is needed.
+    "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "ExecStart=/usr/local/bin/cmux-devbox-boot",
+    "Restart=always",
+    "RestartSec=2",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n");
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
-  await put("cmux-vm-kind-sync", "/usr/local/bin/cmux-vm-kind-sync", 0o755);
   await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);
   await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });
@@ -672,12 +616,6 @@ try {
     "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && " +
       "echo snapshot-resume-quiet-ok",
   );
-  // The metadata service for root only (services/vms/images/metadataGuard.ts),
-  // loaded now so the snapshot carries it live, and at every cold boot by its unit.
-  await vm.fs.writeFile(METADATA_GUARD_FILE, metadataGuardRules(), { mode: 0o644 });
-  await vm.fs.writeFile(`/etc/systemd/system/${METADATA_GUARD_UNIT}`, metadataGuardUnit(), { mode: 0o644 });
-  // Fails unless the work user is refused and root still reads the instance id.
-  await step("metadata-guard", `out=$(${metadataGuardEnableCommand(WORK_USER)}) && echo "$out" && echo "$out" | grep -qx user_blocked=yes && echo "$out" | grep -qx root_reads=yes`);
   // Reserve one GiB inside the existing root disk for cmux-tui's state. The
   // image is fully allocated before it is mounted, then the daemon's existing
   // state (including the warm template host) is copied into it. This protects
@@ -697,23 +635,9 @@ try {
   );
   // Prove the daemon contract on the builder: the supervisor started the
   // daemon on its own, the session answers, and the listener is dual-stack.
-  // Each condition is checked on its own, and a red names every one that
-  // failed with what it saw, after the daemon's processes, listener and unit
-  // log (the step keeps only the tail of stderr, so the summary prints last).
-  const daemonStatus = cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`);
   await step(
     "cmux-tui-daemon-up",
-    [
-      `{ for i in $(seq 1 30); do ${daemonStatus} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done`,
-      `fail=""`,
-      `${daemonStatus} || fail="$fail server-status"`,
-      `grep -qi ':0539 ' /proc/net/tcp6 || fail="$fail listener-1337-tcp6"`,
-      `bound="$(cat /etc/cmux/daemon-instance-id 2>/dev/null)"; metadata="$(${instanceIdCommand})"; [ -n "$bound" ] && [ "$bound" = "$metadata" ] || fail="$fail instance-id(bound=$bound,metadata=$metadata)"`,
-      `layout="$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH} 2>/dev/null)"; [ "$layout" = user ] || fail="$fail layout($layout)"`,
-      `users="$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u | paste -sd, -)"; [ "$users" = ${WORK_USER} ] || fail="$fail daemon-user($users)"`,
-      `if [ -n "$fail" ]; then ps -o pid=,ppid=,user=,comm=,args= -C cmux-tui -C exe | cut -c1-200 >&2; ss -ltnp 2>/dev/null | grep ':1337' >&2; systemctl status cmux-tui-daemon --no-pager -n 15 | cut -c1-200 >&2; echo "cmux-tui-daemon-up failed:$fail" | tee /dev/stderr; exit 1; fi`,
-      `echo daemon-up-bound-to-builder; }`,
-    ].join("; "),
+    `for i in $(seq 1 30); do ${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && ${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && [ "$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH})" = user ] && [ "$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u)" = ${WORK_USER} ] && echo daemon-up-bound-to-builder`,
   );
   // Wait after the daemon first reports ready, then exercise the real
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
@@ -731,17 +655,6 @@ try {
   // the machine's id equals the recorded bake id, and every per-machine file
   // is wiped except the template terminal's host record.
   await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
-
-  // cmux-machine-health (images/cmux-vm/machine-health), the same install as
-  // the cmux VM image: the script's own `install --no-start` (the 60 s timer
-  // enabled, not started; the guard drop-ins for login sessions, user.slice
-  // and the work user's manager) and one check-only pass, so no fix and no
-  // disk hygiene runs during the bake. Installed after the park, whose
-  // park_housekeeping already ran: the timer stays stopped into the snapshot
-  // and a clone starts it with the other HOUSEKEEPING_TIMERS
-  // (DEVBOX_MACHINE_HEALTH_PARKED_COMMAND).
-  for (const file of machineHealthFiles()) await vm.fs.writeFile(file.path, file.text, { mode: file.mode });
-  await step("machine-health", machineHealthBakeCommand());
 
   await step(
     "ghost-text-smoke",
@@ -780,20 +693,13 @@ try {
   // not with the base's boot as `freestyle-vm`.
   // The interactive bake probes above ran login shells for root and the work
   // user before the model-plane env was baked, so their ~/.claude.json seeds
-  // lack the placeholder key approval. Replace those bake-owned seeds using
-  // the final public model env, including Claude's isolated team config home.
-  // (The static codex config those shells wrote
+  // lack the placeholder key approval. Drop them: each machine's first shell
+  // seeds its own from the env. (The static codex config those shells wrote
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
-  await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
-  await step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
-  // After the bake's last shell: the timer is enabled but stopped and the
-  // bake pass's files are gone, so a clone runs no pass until its re-arm.
-  await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);
+  await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
   // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
-  // The seeded Claude team configs are still the seed after the settle: nothing
-  // started Claude on them during the bake (devboxClaudeTeamOnboardingCheckCommand).
-  await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);
+  await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
 } catch (error) {
   console.error(`bake failed: ${String(error)}`);
   await deleteBuilder();

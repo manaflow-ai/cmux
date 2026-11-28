@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/chief-routing.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+ChiefRouting.generated.swift",
-  "type": "ChiefRoutingSettingsSchema",
-  "lists": {
-    "chiefRouting": ["descriptors", "ChiefRoutingSettingsSchema"]
-  }
-}

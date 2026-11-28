@@ -8,5 +8,4 @@ enum UpdatePromptReplySource: String {
     case user
     case superseded
     case installAttempt
-    case background
 }

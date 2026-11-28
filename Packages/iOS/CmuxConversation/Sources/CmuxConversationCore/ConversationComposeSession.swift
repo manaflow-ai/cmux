@@ -9,8 +9,6 @@ public final class ConversationComposeSession {
     public enum Change: Sendable, Equatable {
         case recipients
         case suggestions
-        /// ``rows`` changed.
-        case rows
         case sending
     }
 
@@ -18,15 +16,6 @@ public final class ConversationComposeSession {
     public private(set) var draft = ConversationRecipientDraft()
     /// Autocomplete rows for `draft.query`, newest query only.
     public private(set) var suggestions: [ConversationContact] = []
-    /// The rows under To: (``ConversationComposeListing``): the listing's
-    /// sections while nobody is chosen and nothing is typed, else the
-    /// suggestions with the listing's actions among them. Without a listing,
-    /// the suggestions alone (Messages).
-    public private(set) var rows: [ConversationComposeRow] = []
-    /// cmux Home's sections and actions; nil for Messages' sheet.
-    public weak var listing: (any ConversationComposeListing)? {
-        didSet { refreshRows() }
-    }
     public private(set) var isSending = false
     public var onChange: (@MainActor (Change) -> Void)?
     public var suggestionLimit = 20
@@ -45,7 +34,6 @@ public final class ConversationComposeSession {
         draft.setText(text)
         onChange?(.recipients)
         search()
-        refreshRows()
     }
 
     /// Picks an autocomplete row (or a contact from the + picker).
@@ -53,7 +41,6 @@ public final class ConversationComposeSession {
         draft.add(contact)
         clearSuggestions()
         onChange?(.recipients)
-        refreshRows()
     }
 
     /// Return in the To: field. With suggestions showing, Return takes the
@@ -67,7 +54,6 @@ public final class ConversationComposeSession {
         guard let recipient = draft.commitText() else { return }
         clearSuggestions()
         onChange?(.recipients)
-        refreshRows()
         guard let handle = recipient.handle else { return }
         Task { [weak self, directory] in
             let lookup: ConversationHandleLookup
@@ -92,7 +78,6 @@ public final class ConversationComposeSession {
     public func remove(_ id: String) {
         draft.remove(id)
         onChange?(.recipients)
-        refreshRows()
     }
 
     /// Backspace; true when a token was selected or deleted.
@@ -100,7 +85,6 @@ public final class ConversationComposeSession {
     public func backspace() -> Bool {
         guard draft.backspace() else { return false }
         onChange?(.recipients)
-        refreshRows()
         return true
     }
 
@@ -130,29 +114,7 @@ public final class ConversationComposeSession {
             guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
             self.suggestions = found
             self.onChange?(.suggestions)
-            self.refreshRows()
         }
-    }
-
-    /// Rebuilds ``rows`` from the draft, the suggestions and the listing (the
-    /// host calls it when the listing's data changes: its Chiefs or team
-    /// arrived). Reports `.rows` only when they changed.
-    public func refreshRows() {
-        let next: [ConversationComposeRow]
-        if let listing {
-            if draft.recipients.isEmpty, draft.query.isEmpty {
-                next = listing.idleRows(excluding: draft.contactIDs)
-            } else if !draft.query.isEmpty {
-                next = listing.typedRows(matches: suggestions, query: draft.query)
-            } else {
-                next = []
-            }
-        } else {
-            next = suggestions.map(ConversationComposeRow.contact)
-        }
-        guard next != rows else { return }
-        rows = next
-        onChange?(.rows)
     }
 
     // MARK: First send
@@ -196,64 +158,29 @@ public struct ConversationComposeImage: Sendable, Hashable {
 public struct ConversationComposeMessage: Sendable, Hashable {
     public var text: String
     public var images: [ConversationComposeImage]
-    /// A recording made in New Message's composer: sent after the text and images, alone,
-    /// as Messages sends audio (``ConversationStore/sendAudio(data:info:replyToID:)``).
-    public var audio: ConversationComposeAudio?
-    /// Documents picked in Files, sent with the text and images.
-    public var files: [ConversationPendingFile]
 
-    public init(text: String, images: [ConversationComposeImage] = [], audio: ConversationComposeAudio? = nil,
-                files: [ConversationPendingFile] = []) {
+    public init(text: String, images: [ConversationComposeImage] = []) {
         self.text = text
         self.images = images
-        self.audio = audio
-        self.files = files
     }
 
-    /// Text, images or files, the part that goes as one message.
-    public var hasTextOrImages: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty
-    }
-
-    public var isEmpty: Bool { !hasTextOrImages && audio == nil }
-}
-
-/// A recorded audio message waiting to be sent (its bytes and what the recorder measured).
-public struct ConversationComposeAudio: Sendable, Hashable, Codable {
-    public var data: Data
-    public var info: ConversationAudioInfo
-
-    public init(data: Data, info: ConversationAudioInfo) {
-        self.data = data
-        self.info = info
-    }
+    public var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty }
 }
 
 extension ConversationStore {
     /// Sends `message` as soon as the session is connected: the first message
     /// of a conversation New Message just opened.
     public func sendWhenConnected(_ message: ConversationComposeMessage) {
-        // A kept transcript gives the store a sender before it connects: wait for the connection.
-        if meID != nil, connection == .connected {
-            deliver(message)
+        let images = message.images.map { (data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType) }
+        if meID != nil {
+            send(text: message.text, images: images)
             return
         }
-        // One observer per waiting message, removed once it sends (it ran on every change before).
-        var token: Int?
-        token = addObserver { [weak self] change in
-            guard change == .connection, let self, self.meID != nil, self.connection == .connected, let mine = token else { return }
-            token = nil
-            self.removeObserver(mine)
-            self.deliver(message)
+        var sent = false
+        addObserver { [weak self] change in
+            guard !sent, change == .connection, let self, self.meID != nil else { return }
+            sent = true
+            self.send(text: message.text, images: images)
         }
-    }
-
-    /// The text and images as one message, then the recording on its own.
-    private func deliver(_ message: ConversationComposeMessage) {
-        if message.hasTextOrImages {
-            let images = message.images.map { (data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType) }
-            send(text: message.text, images: images, files: message.files)
-        }
-        if let audio = message.audio { sendAudio(data: audio.data, info: audio.info) }
     }
 }

@@ -17,15 +17,22 @@ an artifact's contents:
 - channel: from the head branch (main and nightly-next: nightly; rc/*: rc);
 - variants: the successful `prepare-nightly-variant (<variant>)` jobs of the
   admitted attempt; a run whose build-nightly-app job passed but prepared no
-  app is refused, not skipped. That job is the fallback preparation: after a
-  successful `prepare-nightly-variant-primary (<variant>)` leg it reuses the
-  primary's upload and records nothing, so the digest is then the primary leg's;
+  app is refused, not skipped;
 - digests: each prepare job records the sha256 of the tarball it uploaded as a
   check-run annotation of that job (title nightly-prepared-app). The artifact
   zip must match the artifact digest the API records, and the tarball inside
   must match the producing job's sha256. The same record carries the run's
   publish decision; a run that does not publish (a fast dogfood build) is
-  skipped.
+  skipped;
+- builder: each producing job ran in the trusted build pool, read from the job
+  record's `labels` and `runner_name` (cmuxterm-hq docs/design/signer-service.md,
+  migration step 2). The signer signs what the builder made, so a builder that
+  shares a host with pull request code could hand it a tampered app. Every label
+  must be one of: an ephemeral vendor Mac label (a fresh VM per job), a
+  trusted-only owned pool label (glaeda-trusted-*, glaeda-nightly-*, whose hooks
+  admit only main's or nightly jobs), or a runner name label beside one of those.
+  An owned pull request pool label, a runner name label alone, or any other
+  label is refused.
 
 Exit 0 with `admitted=true` when every check passes, exit 0 with
 `admitted=false` when there is nothing to sign (the run failed, built no app,
@@ -47,10 +54,6 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-# nightly-sign.yml runs this as `python3 -I`, which leaves the script's folder off sys.path.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import deadline_http  # noqa: E402
-
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
 SOURCE_WORKFLOW_PATH = ".github/workflows/nightly.yml"
 SOURCE_WORKFLOW_FILE = "nightly.yml"
@@ -58,7 +61,6 @@ PUBLISHING_EVENTS = {"push", "schedule", "workflow_dispatch"}
 VARIANTS = ("universal", "arm64", "x86_64")
 PREPARE_JOB = "prepare-nightly-variant"
 PREPARE_JOB_NAME = re.compile(r"^prepare-nightly-variant \(([^()]*)\)$")
-PRIMARY_JOB_NAME = re.compile(r"^prepare-nightly-variant-primary \(([^()]*)\)$")
 DIGEST_TITLE = "nightly-prepared-app"
 DIGEST_MESSAGE = re.compile(
     r"^variant=(\S+) artifact=(\S+) sha256=([0-9a-f]{64}) publish=(true|false) fast=(true|false)$"
@@ -66,6 +68,22 @@ DIGEST_MESSAGE = re.compile(
 BUILD_JOB = "build-nightly-app"
 TARBALL = "cmux-prepared-app.tar.gz"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+# The trusted build pool (signer-service.md, step 2). Kept here, not imported:
+# the workflow runs this tool with `python3 -I`, which puts no sibling module on
+# sys.path. tests/test_nightly_sign_admit.py checks these shapes against
+# scripts/ci/runner_label_policy.py, which reads the workflow guard's patterns.
+# A vendor Mac label: a fresh VM per job, so no earlier pull request job shares it.
+EPHEMERAL_BUILDER_LABEL = re.compile(r"blacksmith-(?:6|12)vcpu-macos-(?:15|26|latest)")
+_OWNED_SHAPE = r"(?:aws-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*"
+# Owned pools whose runners take no pull request job: the trusted pool (main's
+# push and schedule only), the nightly slot (nightly jobs only), the classic
+# nightly's one mini and the NEXT signing runner.
+TRUSTED_POOL_LABEL = re.compile(
+    rf"glaeda-trusted-{_OWNED_SHAPE}|glaeda-nightly-{_OWNED_SHAPE}|glaeda-nightly-mini|glaeda-trusted-next-signing"
+)
+# A runner's own name label: trusted only beside a trusted pool label, since a
+# pull request runner has one too.
+RUNNER_NAME_LABEL = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9._-]*")
 PER_PAGE = 100
 CHUNK = 1 << 20
 
@@ -198,8 +216,7 @@ def check_ref(gh: GitHub, repo: str, run: dict) -> tuple[str, str, str, int]:
     return branch, channel, track, int(ahead_by) if isinstance(ahead_by, int) else -1
 
 
-def prepare_jobs(gh: GitHub, repo: str, run: dict) -> tuple[dict[str, dict], dict[str, dict]]:
-    """The successful prepare jobs by variant, and the successful primary legs by variant."""
+def prepare_jobs(gh: GitHub, repo: str, run: dict) -> dict[str, dict]:
     jobs = gh.pages(f"/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest", "jobs")
     attempt = int(run["run_attempt"])
     for job in jobs:
@@ -234,34 +251,34 @@ def prepare_jobs(gh: GitHub, repo: str, run: dict) -> tuple[dict[str, dict], dic
         if not has_prepare and any(job.get("name") == BUILD_JOB and job.get("conclusion") == "success" for job in jobs):
             fail(f"source run built an app ({BUILD_JOB} passed) but has no {PREPARE_JOB} job")
         raise Skipped("source run prepared no app (no successful prepare-nightly-variant job)")
-    primaries: dict[str, dict] = {}
-    for job in jobs:
-        match = PRIMARY_JOB_NAME.match(str(job.get("name", "")))
-        if not match or match.group(1) not in found or job.get("conclusion") != "success":
-            continue
-        if str(job.get("run_id")) != str(run["id"]) or job.get("head_sha") != run["head_sha"]:
-            fail(f"{PREPARE_JOB}-primary ({match.group(1)}) is not a job of the source run")
-        if match.group(1) in primaries:
-            fail(f"source run has two {PREPARE_JOB}-primary jobs for {match.group(1)}")
-        primaries[match.group(1)] = job
-    return found, primaries
+    return found
 
 
-def digest_records(gh: GitHub, repo: str, job: dict) -> list:
+def check_builder(job: dict, variant: str) -> dict:
+    """The producing job ran in the trusted build pool; its runner, for the record."""
+    labels = job.get("labels")
+    runner = job.get("runner_name")
+    if not isinstance(runner, str) or not runner:
+        fail(f"{PREPARE_JOB} ({variant}) has no runner_name; the builder cannot be checked")
+    if not isinstance(labels, list) or not labels or not all(isinstance(label, str) for label in labels):
+        fail(f"{PREPARE_JOB} ({variant}) has no runner labels; the builder cannot be checked")
+    pool = []
+    for label in labels:
+        if EPHEMERAL_BUILDER_LABEL.fullmatch(label) or TRUSTED_POOL_LABEL.fullmatch(label):
+            pool.append(label)
+        elif not RUNNER_NAME_LABEL.fullmatch(label):
+            fail(
+                f"{PREPARE_JOB} ({variant}) ran on runner {runner!r} with label {label!r}, "
+                "which is not in the trusted build pool (an ephemeral vendor Mac or a trusted-only owned pool)"
+            )
+    if not pool:
+        fail(f"{PREPARE_JOB} ({variant}) ran on runner {runner!r} with labels {labels}, none of them a trusted build pool")
+    return {"runner_name": runner, "labels": labels}
+
+
+def producer_digest(gh: GitHub, repo: str, job: dict, variant: str, channel: str) -> tuple[str, str, bool]:
     annotations = gh.pages(f"/repos/{repo}/check-runs/{job['id']}/annotations", None)
-    return [a for a in annotations if a.get("title") == DIGEST_TITLE]
-
-
-def producer_digest(gh: GitHub, repo: str, job: dict, variant: str, channel: str,
-                    primary: dict | None = None) -> tuple[str, str, bool, dict]:
-    """The digest record of the job that uploaded the variant's tarball, and that job.
-
-    The prepare job records it when it prepared the app itself. After a successful
-    primary leg it reused the primary's upload and records nothing; the primary leg's
-    record is then the producer's."""
-    records = digest_records(gh, repo, job)
-    if not records and primary is not None:
-        job, records = primary, digest_records(gh, repo, primary)
+    records = [a for a in annotations if a.get("title") == DIGEST_TITLE]
     if len(records) != 1:
         fail(f"{PREPARE_JOB} ({variant}) recorded {len(records)} prepared app digests, not 1")
     record = records[0]
@@ -275,7 +292,7 @@ def producer_digest(gh: GitHub, repo: str, job: dict, variant: str, channel: str
         fail(f"{PREPARE_JOB} ({variant}) recorded a digest for {recorded_variant}")
     if not re.fullmatch(rf"cmux-{re.escape(channel)}-prepared-app-{re.escape(variant)}-[0-9a-f]{{7,40}}", artifact):
         fail(f"{PREPARE_JOB} ({variant}) names artifact {artifact!r}, not a {channel} {variant} prepared app")
-    return artifact, sha256, publish == "true" and fast == "false", job
+    return artifact, sha256, publish == "true" and fast == "false"
 
 
 def find_artifact(gh: GitHub, repo: str, run: dict, name: str) -> dict:
@@ -305,10 +322,7 @@ def fetch_tarball(gh: GitHub, artifact: dict, expected_tarball: str, dest: Path)
     limit = int(artifact.get("size_in_bytes") or 0) + (64 << 20)
     written = 0
     try:
-        # Each wait ends after 300 s of silence, as urlopen(timeout=300) did, and the whole download within the
-        # admit job's own 30-minute limit (nightly-sign.yml), which nothing short of the job bounded before.
-        with deadline_http.stream(urllib.request.Request(url), 30 * 60, stall=300, raise_errors=True) as resp, \
-                zip_path.open("wb") as out:
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=300) as resp, zip_path.open("wb") as out:
             while chunk := resp.read(CHUNK):
                 written += len(chunk)
                 if written > limit:
@@ -344,21 +358,23 @@ def fetch_tarball(gh: GitHub, artifact: dict, expected_tarball: str, dest: Path)
 def admit(gh: GitHub, repo: str, run_id: str, attempt: str, out: Path) -> dict:
     run = check_identity(gh, repo, run_id, attempt)
     branch, channel, track, ahead_by = check_ref(gh, repo, run)
-    jobs, primaries = prepare_jobs(gh, repo, run)
+    jobs = prepare_jobs(gh, repo, run)
+    builders = {variant: check_builder(job, variant) for variant, job in jobs.items()}
     records = {}
     for variant in VARIANTS:
         if variant in jobs:
-            records[variant] = producer_digest(gh, repo, jobs[variant], variant, channel, primaries.get(variant))
-    publishes = {publish for _, _, publish, _ in records.values()}
+            records[variant] = producer_digest(gh, repo, jobs[variant], variant, channel)
+    publishes = {publish for _, _, publish in records.values()}
     if publishes != {True}:
         if publishes == {False}:
             raise Skipped("source run does not publish (should_publish is false or it is a fast build)")
         fail("prepare jobs of one run disagree on whether the run publishes")
     variants = []
-    for variant, (artifact_name, sha256, _, producer) in records.items():
+    for variant, (artifact_name, sha256, _) in records.items():
         artifact = find_artifact(gh, repo, run, artifact_name)
         fetch_tarball(gh, artifact, sha256, out / variant / TARBALL)
-        variants.append({"variant": variant, "artifact": artifact_name, "sha256": sha256, "job_id": producer["id"]})
+        variants.append({"variant": variant, "artifact": artifact_name, "sha256": sha256, "job_id": jobs[variant]["id"],
+                         "builder": builders[variant]})
     # The attempt must still be the latest after the downloads.
     latest = gh.get(f"/repos/{repo}/actions/runs/{run_id}")
     if str((latest or {}).get("run_attempt")) != attempt:
@@ -401,7 +417,10 @@ def write_outputs(result: dict) -> None:
                     f"`{result['source_branch']}` at `{result['source_head_sha']}`, channel {result['channel']}.\n\n"
                 )
                 for v in result["variants"]:
-                    handle.write(f"- {v['variant']}: `{v['artifact']}` sha256 `{v['sha256']}` (job {v['job_id']})\n")
+                    handle.write(
+                        f"- {v['variant']}: `{v['artifact']}` sha256 `{v['sha256']}` (job {v['job_id']}, "
+                        f"runner `{v['builder']['runner_name']}`)\n"
+                    )
             else:
                 handle.write(f"{result.get('verdict', 'not admitted')}: {result.get('reason', '')}\n")
 

@@ -33,23 +33,6 @@ public enum UpdateState: Equatable {
     /// The update is installing (and may relaunch the app).
     case installing(Installing)
 
-    /// The phase shared by the install coordinator, watchdog and lifecycle diagnostics.
-    var lifecyclePhase: UpdateLifecyclePhase {
-        switch self {
-        case .idle: .idle
-        case .permissionRequest: .permissionRequest
-        case .preparingCheck: .preparingCheck
-        case .checking: .checking
-        case .updateAvailable: .updateAvailable
-        case .notFound: .notFound
-        case .error: .error
-        case .startingDownload: .startingDownload
-        case .downloading: .downloading
-        case .extracting: .extracting
-        case .installing: .installing
-        }
-    }
-
     /// Whether this is the ``idle`` case.
     public var isIdle: Bool {
         if case .idle = self { return true }
@@ -139,7 +122,6 @@ public enum UpdateState: Equatable {
             return lExt.progress == rExt.progress
         case (.installing(let lInstall), .installing(let rInstall)):
             return lInstall.isAutoUpdate == rInstall.isAutoUpdate
-                && lInstall.relaunchBlockers == rInstall.relaunchBlockers
         default:
             return false
         }
@@ -350,20 +332,14 @@ public enum UpdateState: Equatable {
         public let retryTerminatingApplication: () -> Void
         /// Dismisses the installing state.
         public let dismiss: () -> Void
-        /// When set, the update is ready but its relaunch is held because it would interrupt
-        /// these agents or commands. `retryTerminatingApplication` installs now anyway and
-        /// `dismiss` defers the install.
-        public var relaunchBlockers: UpdateRelaunchBlockers?
 
         /// Creates the payload.
         public init(isAutoUpdate: Bool = false,
                     retryTerminatingApplication: @escaping () -> Void,
-                    dismiss: @escaping () -> Void,
-                    relaunchBlockers: UpdateRelaunchBlockers? = nil) {
+                    dismiss: @escaping () -> Void) {
             self.isAutoUpdate = isAutoUpdate
             self.retryTerminatingApplication = retryTerminatingApplication
             self.dismiss = dismiss
-            self.relaunchBlockers = relaunchBlockers
         }
     }
 }

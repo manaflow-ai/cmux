@@ -1,5 +1,0 @@
-# nightly.yml: workflow `env`, CARGO_NET_RETRY / CARGO_HTTP_TIMEOUT / CARGO_HTTP_MULTIPLEXING
-
-Every cargo call in every nightly job (optchat-chief, the daemon, cmux-tui pieces built in-job) reads these, the same three the other Rust workflows set (cmux-tui-build-package.yml, backend.yml, cmux-tui.yml's daemon tests).
-
-Why: nightly-next run 7d3e572079's `nightly-next-one` (job 140875083765, 2026-11-28 05:37Z) failed with `optchat-chief failed (status 101)`: cargo's default 3 retries of `https://index.crates.io/se/rd/serde_json` all hit `[28] Timeout was reached (Less than 10 bytes/sec transferred the last 30 seconds)`, so one slow crates.io minute blanked the build. nightly.yml set none of these, so it ran on cargo's defaults (3 retries, 30 s low-speed timeout, HTTP/2 multiplexing, which shares one stalled connection across every download). Ten retries with exponential backoff span several minutes of a crates.io blip; 120 s and no multiplexing keep one slow stream from timing out every queued crate at once. Leo-ask ask-bedbdb1917.

@@ -1,4 +1,0 @@
-{
-  "agent": "settable",
-  "why": "Opt-in timing of the chat list shared with new tabs (when a page writes it), off by default."
-}

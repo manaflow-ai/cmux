@@ -21,24 +21,15 @@ enum RowDraw {
 
     /// Horizontal span that needs pixels (cell bitmaps stay small).
     static func drawSpan(_ spec: RowSpec) -> ClosedRange<CGFloat> {
-        if case .typing = spec.kind { return span(0, min(spec.width, 140)) }
-        if case .receipt = spec.kind { return span(max(0, spec.metrics.receiptRight - 170), spec.width) }
-        guard case let .part(p) = spec.kind else { return span(0, spec.width) }
-        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: a group's incoming bubbles sit right of the avatar column
-        // cmux: media no longer carry a drawn save button beside them (HomeMediaSaveHover shows a real one on hover,
-        // inside the picture), so their span is the bubble's like any other row's.
-        // cmux: the span starts at the avatar column when the row draws an avatar.
-        let lower = min(x - 36, p.cmuxAvatar == nil ? .infinity : SenderAvatar.left - 1)
-        return span(max(0, lower), min(spec.width, x + p.size.width + 20))
-    }
-
-    /// cmux: `lower...upper`, empty at `lower` when the row is narrower than where its content starts
-    /// (a collapsed or zero-width pane, a negative or NaN width mid-layout). `lower...upper` trapped there
-    /// ("Range requires lowerBound <= upperBound", nightly 4115843934401, cmux issue 28977). An empty span
-    /// draws a 1 px transparent bitmap (UIGraphicsImageRenderer's minimum).
-    static func span(_ lower: CGFloat, _ upper: CGFloat) -> ClosedRange<CGFloat> {
-        let lo = lower.isFinite ? lower : 0
-        return lo...(upper.isFinite ? max(lo, upper) : lo)
+        if case .typing = spec.kind { return 0...min(spec.width, 140) }
+        if case .receipt = spec.kind { return max(0, spec.metrics.receiptRight - 170)...spec.width }
+        guard case let .part(p) = spec.kind else { return 0...spec.width }
+        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
+        // Media carry a save button 14 + 28 pt beside them.
+        var media = false
+        if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
+        let extra: CGFloat = media ? 46 : 0
+        return max(0, x - 36 - (p.outgoing ? extra : 0))...min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra))
     }
 
     /// Whether a row's bitmap is the same at every row width: its drawn span is the same size at
@@ -59,10 +50,13 @@ enum RowDraw {
         if case .receipt = spec.kind { return fixedSpanKeys && spec.metrics.receiptRight - 170 >= 0 }
         guard case let .part(p) = spec.kind else { return false }
         if case .custom = p.part { return false }
-        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: group indent
-        let rightFits = x + p.size.width + 20 <= spec.width
+        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
+        var media = false
+        if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
+        let extra: CGFloat = media ? 46 : 0
+        let rightFits = x + p.size.width + 20 + (p.outgoing ? 0 : extra) <= spec.width
         if !p.outgoing, fixedSpanKeys { return rightFits }
-        return x - 36 >= 0 && rightFits
+        return x - 36 - (p.outgoing ? extra : 0) >= 0 && rightFits
     }
     /// Whether row `b` draws exactly the pixels of row `a`'s bitmap, counted from each one's span start
     /// (`drawSpan`), with nothing but transparent columns past the narrower span's end: a live resize keeps
@@ -106,7 +100,7 @@ enum RowDraw {
     /// Body rect of a part row in row coordinates (window width, margin above).
     static func bodyRect(_ spec: RowSpec) -> CGRect {
         guard case let .part(p) = spec.kind else { return .zero }
-        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: group indent
+        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
         return CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
     }
 
@@ -180,7 +174,7 @@ enum RowDraw {
         guard case let .part(p) = spec.kind, p.outgoing else { return false }
         switch p.part {
         case .text: return true
-        case let .attachment(a): return !["image", "video"].contains(a.kind) && !HomeFileCard.isCard(a) // cmux: file cards are neutral (#26395)
+        case let .attachment(a): return !["image", "video"].contains(a.kind)
         case let .custom(c): return CustomRows.needsFill(c, outgoing: true)
         default: return false
         }
@@ -202,9 +196,11 @@ enum RowDraw {
             }
         case let .notice(s):
             // As the unsent notice below (ask 9, HostHooks.swift).
-            // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
-            // cmux: one row per line, each cut to the column (HomeNoticeRows; one line draws as upstream's).
-            HomeNoticeRows.draw(s, x: noticeLeft(spec), baseline: top + 12, maxWidth: m.receiptRight - noticeLeft(spec), in: ctx)
+            // cmux-classic: Home's status line ("Waiting for you") in its own font and ink (HomeStatusLine), at the
+            // incoming bubbles' left edge under the approval card it speaks for, its capitals 6 pt under the card
+            // (Layout's 4 pt gap plus 2 pt).
+            let f = HomeStatusLine.font
+            TextDraw.line(s, font: f, color: HomeStatusLine.ink, x: Fixture.labelLeft, baseline: top + 2 + ceil(f.capHeight), in: ctx)
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
@@ -213,25 +209,19 @@ enum RowDraw {
         case let .label(text, outgoing, color):
             let f = HomeFonts.system(ofSize: 10, weight: .medium) // HomeFonts (cx-qpqs)
             let c: UIColor = color == .failure ? UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1)
-                : color == .link ? Fixture.labelLink : Fixture.secondaryText // cmux: themed link tint
+                : color == .link ? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) : Fixture.secondaryText
             let w = TextDraw.width(text, font: f)
-            TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft + spec.cmuxIndent, baseline: top + 11, in: ctx) // cmux: group indent
+            TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 11, in: ctx)
         case let .replies(count, _, outgoing):
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             let s = Strings.replies(count)
             let w = TextDraw.width(s, font: f, kern: captionKern)
-            TextDraw.line(s, font: f, color: Fixture.repliesTint, // cmux: themed link tint
-                          x: outgoing ? m.receiptRight - w : Fixture.labelLeft + spec.cmuxIndent, baseline: top + 14, in: ctx, kern: captionKern) // cmux: group indent
+            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue,
+                          x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 14, in: ctx, kern: captionKern)
         case let .part(p):
-            let x = p.cmuxBodyX(rightEdge: m.rightEdge) // cmux: group indent
-            let body = CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
-            PartRenderer.draw(ctx, row: p, body: body, windowY: windowY, highlight: highlight)
-            // cmux: a group chat's sender avatar beside the last bubble of their run.
-            if !p.outgoing, let avatar = p.cmuxAvatar { avatar.draw(in: ctx, rect: SenderAvatar.rect(beside: body)) }
-        case let .senderName(name):
-            // cmux: a group chat's sender name, at the indented incoming bubble's text edge (iMessage).
-            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
-            TextDraw.line(name, font: f, color: Fixture.secondaryText, x: senderNameLeft, baseline: top + 11, in: ctx)
+            let x = p.outgoing ? m.rightEdge - p.size.width : Fixture.leftEdge
+            PartRenderer.draw(ctx, row: p, body: CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height),
+                              windowY: windowY, highlight: highlight)
         case let .receipt(bold, rest):
             drawReceipt(ctx, bold, rest, receiptRight: m.receiptRight, top: top)
         case .typing:
@@ -245,7 +235,7 @@ enum RowDraw {
             if pv.outgoing {
                 PartRenderer.drawOutgoingThreadPreview(ctx, pv, top: top, rightEdge: m.rightEdge)
             } else {
-                PartRenderer.drawThreadPreview(ctx, pv, top: top, width: spec.width, rowHeight: spec.height)
+                PartRenderer.drawThreadPreview(ctx, pv, top: top, width: spec.width)
             }
         }
     }
@@ -270,12 +260,6 @@ enum RowDraw {
     /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
     /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
     static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
-    /// cmux: a group chat's sender name's left edge (row coordinates): the indented incoming bubble's text.
-    static var senderNameLeft: CGFloat { Fixture.leftEdge + SenderAvatar.bubbleInset + Fixture.bubblePadX }
-    /// cmux: the host status line's left edge (row coordinates): the typing bubble's, a point in.
-    static var noticeLeft: CGFloat { typingBubble.minX + 1 }
-    /// cmux: the status line's left edge in `spec`'s row: in a group, the bubbles' column (the typing bubble moves too).
-    static func noticeLeft(_ spec: RowSpec) -> CGFloat { noticeLeft + spec.cmuxIndent }
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
@@ -286,10 +270,9 @@ enum RowDraw {
     /// circles against the bubble's pixel edges; window places within 0.04 pt of cx-3cb typing-breath's).
     static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.27 - 4.59, width: 9.18, height: 9.18),
                               CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.40 - 2.375, width: 4.75, height: 4.75)]
-    /// iOS only (its row bitmap): one palette there, so the active colours (no view state reaches a bitmap).
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
         let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
-        Fixture.typingColors(inactive: false).fill.setFill()
+        Fixture.typingFill.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {
@@ -313,7 +296,8 @@ enum PartRenderer {
                 ctx.drawLinearGradient(Fixture.outgoingGradient, start: CGPoint(x: 0, y: -windowY),
                                        end: CGPoint(x: 0, y: Fixture.gradientHeight - windowY), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
             } else {
-                BubbleView.drawBubble(ctx, shape: BubblePath.balloon(frame: body, row: p), outgoing: p.outgoing, windowY: windowY) // cmux: shared outline
+                BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
+                                      cornersOf: body.size, circularEnds: RowDraw.circularEnds(p))
             }
             ctx.restoreGState()
             _ = lines
@@ -364,7 +348,8 @@ enum PartRenderer {
             if p.outgoing, SoftBalloon.clip(ctx, frame: body, row: p) {
                 ctx.fill(ctx.boundingBoxOfClipPath)
             } else {
-                BubblePath.balloon(frame: body, row: p).fill() // cmux: shared outline
+                BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size,
+                                circularEnds: RowDraw.circularEnds(p)).fill()
             }
             ctx.restoreGState()
         }
@@ -381,16 +366,13 @@ enum PartRenderer {
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
         // An outgoing link is the bubble's text colour (white; a themed host's own colour).
-        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
+        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
         let attr = tl.attributed(color: color, linkColor: link)
         for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
             let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
-            let origin = CGPoint(x: body.minX + Fixture.bubblePadX, y: body.minY + Fixture.textBaseline + tl.lineOffset(i, hard: outgoing ? TextLayout.hardBreakAdvance : Fixture.lineHeight))
-            // cmux: link chips (HomeLinkChip) under the line's text.
-            HomeLinkChip.drawSpans(ctx, tl.chipSpans(line: i, attr: attr), origin: origin, tint: link, outgoing: outgoing, scale: Fixture.renderScale)
             ctx.saveGState()
             ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-            ctx.textPosition = origin
+            ctx.textPosition = CGPoint(x: body.minX + Fixture.bubblePadX, y: body.minY + Fixture.textBaseline + tl.lineOffset(i, hard: outgoing ? TextLayout.hardBreakAdvance : Fixture.lineHeight))
             CTLineDraw(l, ctx)
             ctx.restoreGState()
         }
@@ -429,20 +411,12 @@ enum PartRenderer {
         case "image", "video":
             ctx.saveGState()
             shape.addClip()
-            // cmux: until the picture arrives, the received bubble's own color (light and dark themes), not a fixed
-            // dark gray that read as an empty box on a light chat.
-            Fixture.incoming.setFill()
+            UIColor(white: 0.2, alpha: 1).setFill()
             ctx.fill(body)
             if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
                 let s = max(body.width / img.size.width, body.height / img.size.height)
                 let w = img.size.width * s, h = img.size.height * s
                 img.draw(in: CGRect(x: body.midX - w / 2, y: body.midY - h / 2, width: w, height: h))
-                // cmux: a 1 pt edge inside the picture (black 10 % light, white 10 % dark), so a picture whose edge is
-                // the chat's own color (a screenshot of a dark window on a dark chat) still reads as one shape.
-                ctx.addPath(shape.cgPath)
-                ctx.setLineWidth(2) // half of it is inside the clip
-                ctx.setStrokeColor((Fixture.lightAppearance ? UIColor(white: 0, alpha: 0.1) : UIColor(white: 1, alpha: 0.1)).cgColor)
-                ctx.strokePath()
             }
             ctx.restoreGState()
             if a.kind == "video" {
@@ -457,8 +431,8 @@ enum PartRenderer {
                 UIColor(white: 1, alpha: 0.85).setFill()
                 tri.fill()
             }
-            // cmux: no save button drawn beside the picture: it did nothing when clicked and sat at a different x for
-            // every width (user 2026-11-16). Save As… is on hover (HomeMediaSaveHover) and in the menu.
+            // An undelivered photo shows only the red badge (Messages); the button sat under it.
+            if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
         case "voiceMemo":
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
             let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
@@ -482,11 +456,8 @@ enum PartRenderer {
             TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                           baseline: body.midY + 4, in: ctx)
         default:
-            // cmux: a file is a neutral card with its type's icon and kind (HomeFileCard, #26395).
-            if HomeFileCard.isCard(a) { HomeFileCard.draw(ctx, a, shape: shape, body: body); return }
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
             let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
-            let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
             if a.kind == "contact" {
                 UIColor(white: 0.55, alpha: 1).setFill()
                 UIBezierPath(ovalIn: CGRect(x: body.minX + 9, y: body.minY + 10, width: 36, height: 36)).fill()
@@ -576,141 +547,137 @@ enum PartRenderer {
         TextDraw.line(sub, font: HomeFonts.system(ofSize: 11), color: fg.withAlphaComponent(0.6), x: x, baseline: body.minY + 58.5, in: ctx) // HomeFonts (cx-qpqs)
     }
 
-    /// cmux: thread preview: the quoted root (a copy of its bubble, `drawQuoteBubble`) at the left edge, then a 2.5 pt
-    /// stub at x 33.75 and "N Replies" (2 or more replies).
-    /// cmux: a group quote (`ThreadPreview.cmuxGroup`, 2026-10-29 Messages group reference) sits at the bubble column with
-    /// the quoted person's avatar small and faded in the avatar column, and a line from under it down to the reply's bubble
-    /// (`cmuxLineBelow` under the row's `rowHeight`) instead of the stub.
-    static func drawThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, width: CGFloat, rowHeight: CGFloat? = nil) {
-        let box = CGRect(x: pv.cmuxLeft, y: top, width: pv.box.width, height: pv.box.height)
-        drawQuoteBubble(ctx, pv, box: box)
-        Fixture.connector.setFill()
-        if pv.cmuxGroup {
-            let disc = ThreadPreview.cmuxSenderRect(below: box)
-            if let avatar = pv.cmuxSender {
-                ctx.saveGState()
-                ctx.setAlpha(ThreadPreview.cmuxSenderOpacity)
-                ctx.beginTransparencyLayer(in: disc.insetBy(dx: -1, dy: -1), auxiliaryInfo: nil)
-                // The full avatar scaled down, so its monogram keeps its size relative to the disc.
-                ctx.translateBy(x: disc.minX, y: disc.minY)
-                ctx.scaleBy(x: disc.width / SenderAvatar.diameter, y: disc.height / SenderAvatar.diameter)
-                avatar.draw(in: ctx, rect: CGRect(x: 0, y: 0, width: SenderAvatar.diameter, height: SenderAvatar.diameter))
-                ctx.endTransparencyLayer()
-                ctx.restoreGState()
+    /// The round save button beside a photo or video (measured: 28 pt, 14 pt
+    /// from the media, vertically centred).
+    static let saveButtonOffset: CGFloat = 14
+    static func drawSaveButton(_ ctx: CGContext, body: CGRect, outgoing: Bool) {
+        let d: CGFloat = 28
+        let x = outgoing ? body.minX - saveButtonOffset - d : body.maxX + saveButtonOffset
+        let r = CGRect(x: x, y: body.midY - d / 2, width: d, height: d)
+        Fixture.badge.setFill()
+        UIBezierPath(ovalIn: r).fill()
+        let cfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        if let g = UIImage(systemName: "square.and.arrow.down", withConfiguration: cfg)?.withTintColor(UIColor(white: 0.66, alpha: 1), renderingMode: .alwaysOriginal) {
+            let s = g.size
+            g.draw(in: CGRect(x: r.midX - s.width / 2, y: r.midY - s.height / 2 - 0.5, width: s.width, height: s.height))
+        }
+    }
+
+    /// Thread preview (measured, macOS 26): an outlined bubble with the root's
+    /// thumbnail, title and site; or, for a photo, a small thumbnail bubble.
+    /// Then a 2.5 pt stub at x 33.75 and "N Replies" (2 or more replies).
+    static func drawThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, width: CGFloat) {
+        let left = Fixture.leftEdge
+        let box = CGRect(x: left, y: top, width: pv.box.width, height: pv.box.height)
+        if pv.isThumbnail, case let .attachment(a) = pv.part {
+            ctx.saveGState()
+            BubblePath.make(body: box, outgoing: false, tail: true).addClip()
+            Fixture.incoming.setFill()
+            ctx.fill(box.insetBy(dx: -10, dy: -10))
+            if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
+                let s = max(box.width / img.size.width, box.height / img.size.height)
+                let w = img.size.width * s, h = img.size.height * s
+                // The tail shows the image too: draw it a little past the body.
+                img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h + 6))
             }
-            let lineTop = disc.maxY + ThreadPreview.cmuxLineGap
-            let lineEnd = top + (rowHeight ?? pv.height) + pv.cmuxLineBelow
-            if pv.cmuxLineBelow > 0, lineEnd > lineTop {
-                let w = ThreadPreview.cmuxLineWidth
-                Fixture.connector.setFill()
-                UIBezierPath(roundedRect: CGRect(x: disc.midX - w / 2, y: lineTop, width: w, height: lineEnd - lineTop), cornerRadius: w / 2).fill()
+            ctx.restoreGState()
+        } else if pv.isText {
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: false, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.stroke.setStroke()
+            path.stroke()
+            for (i, line) in pv.textLines.enumerated() {
+                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.textGray, x: box.minX + 8,
+                              baseline: box.minY + 16.5 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
             }
         } else {
-            UIBezierPath(roundedRect: CGRect(x: 32.5, y: box.maxY + pv.stubGap, width: 2.5, height: pv.stubHeight), cornerRadius: 1.25).fill()
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: false, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.stroke.setStroke()
+            path.stroke()
+            let thumb = CGRect(x: box.minX + 6.5, y: box.minY + 10.5, width: 26, height: 26)
+            ctx.saveGState()
+            UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
+            UIColor(white: 0.56, alpha: 1).setFill()
+            ctx.fill(thumb)
+            if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
+                let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
+                let w = img.size.width * s, h = img.size.height * s
+                img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+            }
+            ctx.restoreGState()
+            let (title, sub) = pv.lines
+            TextDraw.line(title, font: ThreadPreview.titleFont, color: PreviewStyle.title, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
+            TextDraw.line(sub, font: ThreadPreview.subFont, color: PreviewStyle.subtitle, x: box.minX + 39, baseline: box.minY + 34, in: ctx)
         }
+        let stubTop = box.maxY + pv.stubGap
+        let stubH = pv.stubHeight
+        Fixture.connector.setFill()
+        UIBezierPath(roundedRect: CGRect(x: 32.5, y: stubTop, width: 2.5, height: stubH), cornerRadius: 1.25).fill()
         if pv.count >= 2 {
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
-            TextDraw.line(Strings.replies(pv.count), font: f, color: Fixture.repliesTint, x: box.minX + 24.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx, // cmux: themed link tint
+            TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx,
                           kern: RowDraw.captionKern)
         }
     }
 
-    /// cmux: the preview of my own root at the right edge (the side of its root, not of the reply), with
-    /// "N Replies" 10 pt semibold, right-aligned 10.5 pt left of the edge (its ink ends 11 pt in), baseline 14 pt
-    /// under a text quote (macOS 27 Messages, 2x reference of 2026-10-28); no stub. The Chief's reply under it draws
-    /// the arc from its own cell (`RowSpec.connectorAnchorY`).
+    /// The preview of my own root (macOS 27, outgoing-thread-reply-take4, 2x window capture of
+    /// "Maybe: Instinct", 2026-10-11): the outlined bubble with an outgoing tail at the right edge
+    /// (outline outside 225-608 pt, its colour 44, 77, 121), the text 8.5 pt in from the outline, its
+    /// baseline 16 pt under the outline's top (32 px at 2x in both captures after this), in blue
+    /// (glyph core 48, 102, 203); "N Replies" right-aligned at 6 pt left of the edge (602 pt),
+    /// baseline 13.75 pt under the outline's bottom; no stub. Media and card roots take the same side,
+    /// tail and label (not measured: the take has a text root).
     static func drawOutgoingThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, rightEdge: CGFloat) {
         let box = CGRect(x: rightEdge - pv.box.width, y: top, width: pv.box.width, height: pv.box.height)
-        drawQuoteBubble(ctx, pv, box: box)
+        if pv.isThumbnail, case let .attachment(a) = pv.part {
+            ctx.saveGState()
+            BubblePath.make(body: box, outgoing: true, tail: true).addClip()
+            Fixture.incoming.setFill()
+            ctx.fill(box.insetBy(dx: -10, dy: -10))
+            if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
+                let s = max(box.width / img.size.width, box.height / img.size.height)
+                let w = img.size.width * s, h = img.size.height * s
+                img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h + 6))
+            }
+            ctx.restoreGState()
+        } else if pv.isText {
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.outgoingStroke.setStroke()
+            path.stroke()
+            // A long root wraps: the next line's baseline is 11 pt lower (27 pt under the top, measured).
+            for (i, line) in pv.textLines.enumerated() {
+                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.outgoingText, x: box.minX + 8.5,
+                              baseline: box.minY + 16 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
+            }
+        } else {
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.outgoingStroke.setStroke()
+            path.stroke()
+            let thumb = CGRect(x: box.minX + 6.5, y: box.minY + 10.5, width: 26, height: 26)
+            ctx.saveGState()
+            UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
+            UIColor(white: 0.56, alpha: 1).setFill()
+            ctx.fill(thumb)
+            if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
+                let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
+                let w = img.size.width * s, h = img.size.height * s
+                img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+            }
+            ctx.restoreGState()
+            let (title, sub) = pv.lines
+            TextDraw.line(title, font: ThreadPreview.titleFont, color: PreviewStyle.title, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
+            TextDraw.line(sub, font: ThreadPreview.subFont, color: PreviewStyle.subtitle, x: box.minX + 39, baseline: box.minY + 34, in: ctx)
+        }
         if pv.count >= 2 {
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             let s = Strings.replies(pv.count)
             let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
-            TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - (pv.isText ? 10.5 : 6) - w, baseline: box.maxY + (pv.isText ? 14 : 12.75), in: ctx, // cmux: themed link tint
+            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx,
                           kern: RowDraw.captionKern)
         }
-    }
-
-    /// cmux: (2026-10-20, plans/cmux-next/reply-thread-gallery.html variant A): a quoted root is its own bubble,
-    /// smaller. The same fill and text colour as the root's bubble (`Fixture.outgoing`/`outgoingText` for mine,
-    /// `incoming`/`incomingText` for others; themed), the same outline as every bubble (`BubblePath.balloon` of
-    /// `ThreadPreview.shapeRow`: half-circle ends on one line, the 15 pt continuous corner when taller), no tail, all drawn in one transparency layer at
-    /// `ThreadPreview.quoteOpacity` so the text does not show the fill through it. Replaces the 1 pt outline with
-    /// blue or gray text and a full-size tail on a 24 pt body, which did not match the quoted message.
-    static func drawQuoteBubble(_ ctx: CGContext, _ pv: ThreadPreview, box: CGRect) {
-        var out = pv.outgoing
-        // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
-        if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
-        // cmux (2026-10-29, Messages group reference): a group's quote of another person is outlined too, in grey.
-        let outlined = out || pv.cmuxGroup
-        let fill = out ? Fixture.quoteOutline : pv.cmuxGroup ? Fixture.groupQuoteOutline : Fixture.incoming
-        // cmux (2026-10-27, Lawrence's 5:54 PM reference; 2026-10-28, macOS 27 Messages at 2x): my root is outlined
-        // 1 pt in Messages' dim quote blue with its blue text, a small tail on its side; the Chief's root keeps its gray fill.
-        let ink = out ? Fixture.quoteText : Fixture.incomingText
-        let shape = pv.outline(in: outlined ? box.insetBy(dx: 0.5, dy: 0.5) : box)
-        ctx.saveGState()
-        ctx.setAlpha(out ? 1 : pv.cmuxGroup ? ThreadPreview.cmuxGroupOpacity : ThreadPreview.quoteOpacity)
-        // The tail hangs 4 pt under the quote.
-        ctx.beginTransparencyLayer(in: box.insetBy(dx: -2, dy: -2).union(box.offsetBy(dx: 0, dy: 6)), auxiliaryInfo: nil)
-        if outlined {
-            fill.setStroke()
-            shape.lineWidth = 1
-            shape.stroke()
-        } else {
-            fill.setFill()
-            shape.fill()
-        }
-        if pv.isThumbnail, case let .attachment(a) = pv.part {
-            ctx.saveGState()
-            shape.addClip()
-            if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
-                let s = max(box.width / img.size.width, box.height / img.size.height)
-                let w = img.size.width * s, h = img.size.height * s
-                img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h))
-            }
-            ctx.restoreGState()
-        } else if pv.isText {
-            let first = pv.textFirstBaseline()
-            for (i, line) in pv.textLines.enumerated() {
-                TextDraw.line(line, font: ThreadPreview.textFont, color: ink, x: box.minX + ThreadPreview.textLeft,
-                              baseline: box.minY + first + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
-            }
-        } else {
-            // cmux (Lawrence 2026-11-20): the square shows a real picture (a link's image, a table's first shot) or is
-            // not drawn at all; an empty grey box read as broken. A one-line card centres its line (HomeQuotePreview).
-            let thumb = CGRect(x: box.minX + 8, y: box.minY + 11.25, width: 26, height: 26)
-            if HomeQuotePreview.hasPicture(pv.part) {
-                ctx.saveGState()
-                UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
-                ink.withAlphaComponent(0.25).setFill()
-                ctx.fill(thumb)
-                if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
-                    let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-                    let w = img.size.width * s, h = img.size.height * s
-                    img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
-                } else if let picture = HomeQuotePreview.thumbnail(pv.part) {
-                    let pw = CGFloat(picture.width), ph = CGFloat(picture.height)
-                    let s = max(thumb.width / pw, thumb.height / ph)
-                    let w = pw * s, h = ph * s
-                    // Flipped context: draw the picture upright.
-                    ctx.translateBy(x: 0, y: thumb.midY * 2)
-                    ctx.scaleBy(x: 1, y: -1)
-                    ctx.interpolationQuality = .high
-                    ctx.draw(picture, in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
-                }
-                ctx.restoreGState()
-            }
-            let (title, sub) = pv.lines
-            let x = box.minX + HomeQuotePreview.textInset(pv.part)
-            if sub.isEmpty {
-                TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: x, baseline: box.minY + 28.5, in: ctx)
-            } else {
-                TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: x, baseline: box.minY + 21, in: ctx)
-                TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: x, baseline: box.minY + 34, in: ctx)
-            }
-        }
-        ctx.endTransparencyLayer()
-        ctx.restoreGState()
     }
 
     private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
@@ -922,12 +889,7 @@ final class RowBitmaps {
     static let shared = RowBitmaps()
     /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
     /// process-wide). Bitmaps of another display stay cached for a move back (cx-3cb scale-redraw).
-    /// cmux: `palette`, the palette generation the bitmap is drawn in (a view's Chat Colors, PaletteScope): two chats
-    /// with different colours keep separate bitmaps of rows that are otherwise equal.
-    struct Key: Hashable {
-        var spec: RowSpec; var scale: CGFloat; var space: CGColorSpace? = WideBitmap.drawSpace
-        var palette: Int = Fixture.paletteGeneration
-    }
+    struct Key: Hashable { var spec: RowSpec; var scale: CGFloat; var space: CGColorSpace? = WideBitmap.drawSpace }
     private var cache: [Key: CGImage] = [:]
     private var order: [Key] = []
     private var waiters: [Key: [(CGImage) -> Void]] = [:]
@@ -946,12 +908,11 @@ final class RowBitmaps {
     /// (RowDraw.widthInvariant), so a divider drag or live resize shows the bitmap drawn at the
     /// previous width instead of drawing the same pixels again (the visible rows' bitmaps were
     /// about 6 % of main in a divider drag).
-    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, space: CGColorSpace? = WideBitmap.drawSpace,
-                    palette: Int = Fixture.paletteGeneration) -> Key {
-        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale, space: space, palette: palette) }
+    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, space: CGColorSpace? = WideBitmap.drawSpace) -> Key {
+        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale, space: space) }
         var k = spec
         k.width = 0
-        return Key(spec: k, scale: scale, space: space, palette: palette)
+        return Key(spec: k, scale: scale, space: space)
     }
     func image(for spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { cache.value(for: RowBitmaps.key(spec, scale: scale)) } // dictionary read
     func has(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Bool {
@@ -968,18 +929,16 @@ final class RowBitmaps {
         if waiters[w] != nil { if let done { waiters[w]?.append(done) }; return } // no force unwrap
         waiters[w] = done.map { [$0] } ?? []
         let gen = Fixture.paletteGeneration
-        // cmux: the asking view's palette goes with the job (a task local does not follow the queue).
-        let box = PaletteScope.current
         // Newest first: older pending renders drop a priority step (a fling's rows that left
         // the screen render after the rows now on it).
         for op in queue.operations where !op.isExecuting {
             switch op.queuePriority { case .veryHigh: op.queuePriority = .high; case .high: op.queuePriority = .normal
             case .normal: op.queuePriority = .low; default: op.queuePriority = .veryLow }
         }
-        enqueue(w, gen, box, prefetch: done == nil)
+        enqueue(w, gen, prefetch: done == nil)
     }
 
-    private func enqueue(_ w: Key, _ gen: Int, _ box: PaletteBox?, prefetch: Bool) {
+    private func enqueue(_ w: Key, _ gen: Int, prefetch: Bool) {
         let asked = CACurrentMediaTime()
         let spec = w.spec
         let op = BlockOperation {
@@ -989,18 +948,18 @@ final class RowBitmaps {
                 DispatchQueue.main.async {
                     RowBitmaps.skipped += 1
                     // A cell may have asked again meanwhile: render for it, else forget the waiters.
-                    if self.isWanted(spec), self.waiters[w] != nil { self.enqueue(w, gen, box, prefetch: false) }
+                    if self.isWanted(spec), self.waiters[w] != nil { self.enqueue(w, gen, prefetch: false) }
                     else { self.waiters[w] = nil }
                 }
                 return
             }
             // a bitmap that could not be allocated is not delivered; the waiters are dropped
             // and the row shows no bitmap (BitmapFailure logged it).
-            guard let img = PaletteScope.with(box, { RowBitmaps.render(spec, scale: w.scale) }) else {
+            guard let img = RowBitmaps.render(spec, scale: w.scale) else {
                 DispatchQueue.main.async { self.waiters[w] = nil }
                 return
             }
-            self.deliver(w, img, gen, box)
+            self.deliver(w, img, gen)
         }
         op.queuePriority = .veryHigh
         queue.addOperation(op)
@@ -1021,11 +980,11 @@ final class RowBitmaps {
     /// Finished bitmaps reach the main thread in batches: one main-queue
     /// block applies everything rendered since the last one.
     private let pendingLock = NSLock()
-    private var pending: [(Key, CGImage, Int, PaletteBox?)] = []
-    private func deliver(_ w: Key, _ img: CGImage, _ gen: Int, _ box: PaletteBox?) {
+    private var pending: [(Key, CGImage, Int)] = []
+    private func deliver(_ w: Key, _ img: CGImage, _ gen: Int) {
         pendingLock.lock()
         let first = pending.isEmpty
-        pending.append((w, img, gen, box))
+        pending.append((w, img, gen))
         pendingLock.unlock()
         guard first else { return }
         DispatchQueue.main.async {
@@ -1043,8 +1002,7 @@ final class RowBitmaps {
     /// holds them during each page slide, so rows slide in without text and the bench's empty-row
     /// check must find them.
     static var testHold = false
-    /// The finished bitmaps held while `testHold` is set, in the order they finished (a test may reorder them).
-    var held: [(Key, CGImage, Int, PaletteBox?)] = []
+    private var held: [(Key, CGImage, Int)] = []
     func releaseHeld() {
         guard !held.isEmpty else { return }
         let batch = held
@@ -1052,26 +1010,24 @@ final class RowBitmaps {
         apply(batch)
     }
 
-    private func apply(_ batch: [(Key, CGImage, Int, PaletteBox?)]) {
-        for (w, img, gen, box) in batch {
+    private func apply(_ batch: [(Key, CGImage, Int)]) {
+        for (w, img, gen) in batch {
             // Rendered with an older palette, or asked in another colour space than the current one (a display change
-            // since the request): drop it and render again (in the current space). cmux: in the asking view's palette.
-            guard Fixture.generationIsLive(gen), w.space == WideBitmap.drawSpace else {
+            // since the request): drop it and render again (in the current space).
+            guard gen == Fixture.paletteGeneration, w.space == WideBitmap.drawSpace else {
                 let ws = waiters.removeValue(forKey: w) ?? []
-                PaletteScope.with(box) {
-                    for d in ws { request(w.spec, scale: w.scale, d) }
-                    if ws.isEmpty { request(w.spec, scale: w.scale) }
-                }
+                for d in ws { request(w.spec, scale: w.scale, d) }
+                if ws.isEmpty { request(w.spec, scale: w.scale) }
                 continue
             }
-            store(w.spec, img, scale: w.scale, space: w.space, palette: w.palette)
+            store(w.spec, img, scale: w.scale, space: w.space)
             waiters.removeValue(forKey: w)?.forEach { $0(img) }
         }
     }
 
-    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat, space: CGColorSpace?, palette: Int) {
+    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat, space: CGColorSpace?) {
         if TiledBubble.applies(s) { return }
-        let spec = RowBitmaps.key(s, scale: scale, space: space, palette: palette)
+        let spec = RowBitmaps.key(s, scale: scale, space: space)
         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
         cache.updateValue(img, forKey: spec) // dictionary write
         bytes += img.bytesPerRow * img.height
@@ -1109,8 +1065,8 @@ final class RowBitmaps {
     /// drawn at (off main, before this call); a palette or colour space change since drops them (they are drawn again
     /// when asked).
     func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale, generation: Int = Fixture.paletteGeneration) {
-        guard Fixture.generationIsLive(generation) else { return }
-        items.forEach { store($0.0, $0.1, scale: scale, space: WideBitmap.drawSpace, palette: generation) }
+        guard generation == Fixture.paletteGeneration else { return }
+        items.forEach { store($0.0, $0.1, scale: scale, space: WideBitmap.drawSpace) }
     }
 
     /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
@@ -1190,11 +1146,7 @@ enum Reclaimer {
 enum BubbleView {
     static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                            cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
-        drawBubble(ctx, shape: BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds),
-                   outgoing: outgoing, windowY: windowY)
-    }
-    /// cmux: fills `shape` (a part's `BubblePath.balloon`) as a bubble of its side.
-    static func drawBubble(_ ctx: CGContext, shape: UIBezierPath, outgoing: Bool, windowY: CGFloat = 0) {
+        let shape = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds)
         if outgoing {
             if windowY.isNaN { return }     // filled by the row's gradient layer
             ctx.saveGState()
@@ -1209,9 +1161,18 @@ enum BubbleView {
     }
 }
 
-/// Thread preview colours. Here, not in `Fixture`, because ios/ compiles this file with its own `Fixture`.
-/// (cmux: the quote's own colours are its source bubble's, `PartRenderer.drawQuoteBubble`.)
+/// Thread preview colours, measured in an inactive macOS 26 window (outline
+/// 80, title 143, site 86, "N Replies" blue). Here, not in `Fixture`, because
+/// ios/ compiles this file with its own `Fixture`.
 enum PreviewStyle {
+    static let stroke = UIColor(white: 80 / 255, alpha: 1)
+    static let title = UIColor(white: 143 / 255, alpha: 1)
+    static let subtitle = UIColor(white: 86 / 255, alpha: 1)
     /// "N Replies" (thread previews and reply labels), Display P3 (screencapture -l).
     static let repliesBlue = Fixture.p3(63, 143, 247)
+    /// A text root's line (screencapture -l, macOS 27: glyph core 129).
+    static let textGray = UIColor(white: 129 / 255, alpha: 1)
+    /// My root's preview (outgoing-thread-reply-take4, screencapture -l, macOS 27): outline and glyph core.
+    static let outgoingStroke = Fixture.p3(44, 77, 121)
+    static let outgoingText = Fixture.p3(48, 102, 203)
 }

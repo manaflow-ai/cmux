@@ -39,17 +39,8 @@ networking cannot turn this into a direct-path test.
 `backend` and `mac-ios-e2e` start together after `route`. The macOS job does
 not `needs: backend`, because the backend must stay alive for it; it polls the
 backend's health endpoints right before sign-in, by which time the app builds
-have hidden the backend's start-up. Pull requests into `feat-cmux-next` run
-the workflow (Leo, 2026-11-14: "ios e2e yes on feat next"), and
-`workflow_dispatch` still runs it on any allowed branch. On a pull request,
-`route` skips the Mac job when the diff only touches prose and images
-(`*.md`, `docs/`, `plans/`, `release-notes/`, `images/`, `art/`).
-Until the federated identity admits `pull_request` runs
-([Secrets and tailnet identity](#secrets-and-tailnet-identity)), `route` also
-skips the backend and Mac jobs on every pull request unless the repository
-variable `IOS_E2E_PR_TAILNET` is `true`: without it every PR run's tailnet
-join was refused 403 and every PR into `feat-cmux-next` went red (since
-#42973). Dispatch the workflow to run the lane meanwhile.
+have hidden the backend's start-up. The workflow has only a `workflow_dispatch`
+trigger until the owner approves promotion.
 
 ## Per-run backend
 
@@ -141,9 +132,7 @@ gh workflow run ios-e2e.yml --repo manaflow-ai/cmux --ref <branch> -f backend_on
 
 ## Secrets and tailnet identity
 
-A dispatch needs write access. A pull request runs the secret-fenced jobs
-only when its head branch is in this repository; a fork PR is a neutral
-skip. Both jobs
+Only `workflow_dispatch` runs the lane, which needs write access. Both jobs
 that join the tailnet or read a secret run in the GitHub environment
 `ios-e2e`; its deployment branch policy is the allow-list of branches that may
 run it.
@@ -152,8 +141,7 @@ No stored Tailscale secret is used. Jobs join with GitHub OIDC against the
 federated identity "cmux iOS E2E protected manual runs", which trusts only
 this repository, `.github/workflows/ios-e2e.yml`, `workflow_dispatch`, and the
 `ios-e2e` environment. It has the `auth_keys` scope and `tag:ci`, which owns
-`tag:e2e-backend`. Pull-request runs need that identity and the environment's
-branch policy to admit the `pull_request` event as well. The workflow reads its client ID and audience from the
+`tag:e2e-backend`. The workflow reads its client ID and audience from the
 repository variables `TS_E2E_OIDC_CLIENT_ID` and `TS_E2E_OIDC_AUDIENCE`.
 
 | Secret | Scope | Job | Purpose |
@@ -210,18 +198,17 @@ terminal step.
 Tailnet join, backend start-up, backend serving, missing runner tools,
 simulator boot, and cleanup failures emit `[infra-preflight]` when the failure
 is outside the product path. A driver failure ends with `E2E FAIL step=<id>`
-and is treated as a product-path result. Evidence is uploaded with three-day
+and is treated as a product-path result. Evidence is uploaded with seven-day
 retention on every run.
 
 ## Promotion plan
 
 1. Run the workflow manually with the final ACL and confirm one complete
    relay-only pass, including the uploaded evidence artifact.
-2. Done: `route` skips the Mac job for prose-only diffs while
-   `ios-e2e-status` still concludes. A finer split through
-   `scripts/ci/detect_ci_change_areas.py` is still open.
-3. Done for `feat-cmux-next`: the `pull_request` trigger is on. Requiring
-   `ios-e2e-status` in branch protection waits for a stable pass rate.
+2. Integrate `scripts/ci/detect_ci_change_areas.py` into `route` so unrelated
+   changes skip the expensive Mac job while `ios-e2e-status` still concludes.
+3. Enable the `pull_request` trigger and require `ios-e2e-status` after the
+   lane has a stable pass rate and infrastructure failures are understood.
 
 Dictionary: **Tailscale SSH** means SSH authorization supplied by the
 Tailscale ACL and node identity instead of a private key; **TLS front** means

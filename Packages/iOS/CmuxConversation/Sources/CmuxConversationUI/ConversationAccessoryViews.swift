@@ -11,11 +11,17 @@ final class ConversationAvatarView: UIView {
     /// layer does: iOS 27's scroll edge pocket treats a label under the
     /// header as content to keep clear and stops its blur above the avatar.
     private let monogram = ConversationMonogramLayer()
+    private let imageView = UIImageView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.addSublayer(gradient)
         layer.addSublayer(monogram)
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.isUserInteractionEnabled = false
+        imageView.isHidden = true
+        addSubview(imageView)
         // The disc clips itself: a rounded view clipping its sublayers
         // renders them offscreen every frame it moves (scrolling), a rounded
         // leaf layer does not. The initials sit well inside the circle.
@@ -31,12 +37,16 @@ final class ConversationAvatarView: UIView {
     private(set) var initials = ""
     private var usesMonogramGradient = false
 
-    func configure(initials: String, colorHex: String?) {
+    func configure(initials: String, colorHex: String?, image: UIImage? = nil) {
         self.initials = initials
         monogram.text = initials
-        usesMonogramGradient = colorHex == nil
-        guard let colorHex else {
-            applyMonogramGradient()
+        imageView.image = image
+        imageView.isHidden = image == nil
+        monogram.isHidden = image != nil
+        gradient.isHidden = image != nil
+        usesMonogramGradient = colorHex == nil && image == nil
+        guard image == nil, let colorHex else {
+            if image == nil { applyMonogramGradient() }
             return
         }
         let base = ConversationTheme.color(hex: colorHex)
@@ -67,6 +77,8 @@ final class ConversationAvatarView: UIView {
         // tints the border's outer edge.
         let inset = layer.borderWidth / 2
         gradient.frame = bounds.insetBy(dx: inset, dy: inset)
+        imageView.frame = gradient.frame
+        imageView.layer.cornerRadius = imageView.bounds.width / 2
         gradient.cornerRadius = gradient.frame.width / 2
         monogram.contentsScale = window?.screen.scale ?? traitCollection.displayScale
         monogram.frame = bounds.insetBy(dx: bounds.width * 0.08, dy: 0)
@@ -131,6 +143,14 @@ enum TapbackGlyph {
         }
     }
 
+    nonisolated private static let chatKit: Bundle? = {
+        var path = "/System/Library/PrivateFrameworks/ChatKit.framework"
+        #if targetEnvironment(simulator)
+        if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { path = root + path }
+        #endif
+        return Bundle(path: path)
+    }()
+
     /// ChatKit's HA HA comes per script; Japanese gets its own, others English.
     nonisolated private static var hahaVariant: String {
         let language = Locale.preferredLanguages.first.map { Locale(identifier: $0).language.languageCode?.identifier ?? "" } ?? ""
@@ -162,7 +182,7 @@ enum TapbackGlyph {
     }
 
     nonisolated static func chatKitImage(for reaction: ConversationReaction) -> UIImage? {
-        guard let chatKit = ConversationSystemArt.bundle, let name = chatKitImageName(for: reaction) else { return nil }
+        guard let chatKit, let name = chatKitImageName(for: reaction) else { return nil }
         return UIImage(named: name, in: chatKit, compatibleWith: nil)
     }
 
@@ -533,9 +553,6 @@ final class TypingIndicatorView: UIView {
             CATransaction.setDisableActions(true)
             dot.opacity = 0.2
             CATransaction.commit()
-            // The dots' gentle opacity change says "typing" and stays under
-            // Reduce Motion; the breathing pulse below does not.
-            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0.2
             fade.toValue = 0.45
@@ -551,9 +568,7 @@ final class TypingIndicatorView: UIView {
 
     /// ChatKit's pulse (`kCKAnimationKeyPulse`): each part breathes from its
     /// own start, `delay` after now.
-    /// None under Reduce Motion (a decorative scale loop): the circles hold still.
     private func addPulses(after delay: CFTimeInterval) {
-        guard !UIView.reducesMotion else { return }
         let now = CACurrentMediaTime()
         for part in parts where part.view.layer.animation(forKey: "pulse") == nil {
             let pulse = CAKeyframeAnimation(keyPath: "transform.scale.xy")
@@ -578,12 +593,7 @@ final class TypingIndicatorView: UIView {
     /// 0.25 s `hidden` animation from the start, so the first visible frame
     /// already shows the grow under way. Each part's pulse begins as its
     /// scale-up ends (0.25 / 0.315 / 0.37 s).
-    /// Under Reduce Motion the parts appear at rest at once, with no scale-up or swing.
     func grow() {
-        guard !UIView.reducesMotion else {
-            for part in parts { part.view.layer.removeAnimation(forKey: "pulse") }
-            return
-        }
         let now = CACurrentMediaTime()
         let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
         for part in parts {

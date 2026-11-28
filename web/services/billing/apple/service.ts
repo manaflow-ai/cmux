@@ -12,13 +12,22 @@ import type {
 
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
 import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
-import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
+import { applyEntitlements, captureEntitlementGranted, errorText, tokenOwner } from "./effects";
+import { activeAppleEntitlementForUser, type AppleEntitlementRow, type ApplePlanFamily } from "./entitlement";
+import {
+  isProductionLocked,
+  productionAccessOf,
+  withProductionAccess,
+  type AppleProductionAccessTracker,
+} from "./productionAccess";
+import { runRenewalCheck, sweepLapsedSubscriptions, type AppleRecheckBudget } from "./recheck";
 import { appleServerApi, type AppleServerApi } from "./serverApi";
 import {
   appleRevenueEstimate,
   appleSubscriptionStateFrom,
   appleTransactionRowFrom,
   AppleStateError,
+  isFamilySharedAppleTransaction,
   lifecycleEventForNotification,
   type AppleSubscriptionState,
 } from "./state";
@@ -34,7 +43,8 @@ import {
 import { appleSignedDataVerifier, AppleVerificationError, type AppleSignedDataVerifier } from "./verifier";
 
 const AUTO_RENEWABLE_TYPE = "Auto-Renewable Subscription";
-const LAPSE_SWEEP_LIMIT = 200;
+/** App Store Server API status lookups one cron run may spend on re-checks. */
+const RECHECK_CALLS_PER_RUN = 150;
 
 export type AppleIapDependencies = {
   readonly store: AppleIapStore;
@@ -47,8 +57,16 @@ export type AppleIapDependencies = {
    * The user's granting Apple subscription after a write, used to report
    * `subscription_entitlement_granted`. Without it no grant event is sent.
    */
-  readonly activeEntitlement?: (userId: string) => Promise<AppleEntitlementRow | null>;
+  /** The user's granting subscription of one plan family (classic when omitted). */
+  readonly activeEntitlement?: (userId: string, family?: ApplePlanFamily) => Promise<AppleEntitlementRow | null>;
   readonly now: () => Date;
+  /** Configuration source; defaults to `process.env`. */
+  readonly env?: Record<string, string | undefined>;
+  /**
+   * What this run learned about Production access (productionAccess.ts);
+   * the cron shares one across its steps. Without it each request asks anew.
+   */
+  readonly productionAccess?: AppleProductionAccessTracker;
 };
 
 /** A request the client can fix or must not retry; mapped to a 4xx. */
@@ -58,24 +76,12 @@ export class AppleTransactionRejectedError extends Error {
       | "invalid_transaction"
       | "not_subscription"
       | "unknown_product"
-      | "account_mismatch",
+      | "account_mismatch"
+      | "family_shared",
   ) {
     super(`Apple transaction rejected: ${reason}`);
     this.name = "AppleTransactionRejectedError";
   }
-}
-
-async function tokenOwner(token: string | null | undefined, store: AppleIapStore): Promise<string | null> {
-  return token ? await store.userIdForAccountToken(token) : null;
-}
-
-/**
- * Re-derives the plan of the subscription's owner and, after an ownership
- * move, of the previous owner, who falls back to Stripe or free.
- */
-async function applyEntitlements(write: AppleSubscriptionWrite, deps: AppleIapDependencies): Promise<void> {
-  await deps.applyEntitlement(write.current.userId);
-  if (write.transferredFrom) await deps.applyEntitlement(write.transferredFrom);
 }
 
 let defaultDependencies: AppleIapDependencies | null = null;
@@ -90,7 +96,7 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
       await applyPersonalPlanEntitlement(userId);
     },
     captureEvent: (input) => captureServerEvent(input),
-    activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
+    activeEntitlement: (userId, family) => activeAppleEntitlementForUser(userId, { family }),
     now: () => new Date(),
   };
   return defaultDependencies;
@@ -106,6 +112,8 @@ type FreshAppleState = {
   readonly transaction: JWSTransactionDecodedPayload;
   readonly renewal: JWSRenewalInfoDecodedPayload | null;
   readonly appleStatus: number | null;
+  /** True when Apple's current status answered; false for the fallback to the caller's own transaction. */
+  readonly fromAppleStatus: boolean;
 };
 
 /**
@@ -118,31 +126,78 @@ async function freshAppleState(
   transaction: JWSTransactionDecodedPayload,
   deps: AppleIapDependencies,
 ): Promise<FreshAppleState> {
-  const fallback = { transaction, renewal: null, appleStatus: null };
+  const fallbackState = { transaction, renewal: null, appleStatus: null, fromAppleStatus: false };
+  const fallback = (reason: AppleClientFallbackReason, error?: unknown) => {
+    reportClientTransactionFallback(transaction, reason, error);
+    return fallbackState;
+  };
   const environment = transaction.environment;
-  if (!deps.serverApi || !isSignedAppleEnvironment(environment)) return fallback;
+  if (!deps.serverApi) return fallback("server_api_not_configured");
+  if (!isSignedAppleEnvironment(environment)) return fallback("unsigned_environment");
+  const access = environment === "Production" ? productionAccessOf(deps) : null;
+  if (access?.isLocked(transaction.bundleId!)) return fallback("production_api_locked_until_release");
   try {
     const snapshot = await deps.serverApi.subscriptionStatus({
       originalTransactionId: transaction.originalTransactionId!,
       bundleId: transaction.bundleId!,
       environment,
     });
-    if (!snapshot) return fallback;
+    access?.markOk(transaction.bundleId!);
+    if (!snapshot) return fallback("no_status");
     const fresh = await deps.verifier.verifyTransaction(snapshot.signedTransactionInfo);
-    if (fresh.originalTransactionId !== transaction.originalTransactionId) return fallback;
+    if (fresh.originalTransactionId !== transaction.originalTransactionId) return fallback("transaction_mismatch");
     const renewal = snapshot.signedRenewalInfo
       ? await deps.verifier.verifyRenewalInfo(snapshot.signedRenewalInfo, {
           environment,
           bundleId: transaction.bundleId!,
         })
       : null;
-    return { transaction: fresh, renewal, appleStatus: snapshot.status };
+    return { transaction: fresh, renewal, appleStatus: snapshot.status, fromAppleStatus: true };
   } catch (error) {
-    console.warn("Apple Server API status lookup failed; using the client transaction", {
-      error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
-    });
-    return fallback;
+    // Before the first App Store release Production refuses every call: the
+    // same fallback, under its own reason so the metric can leave it out.
+    if (await isProductionLocked(access, error, transaction.bundleId!)) return fallback("production_api_locked_until_release");
+    return fallback("lookup_failed", error);
   }
+}
+
+export type AppleClientFallbackReason =
+  | "server_api_not_configured"
+  | "unsigned_environment"
+  | "no_status"
+  | "transaction_mismatch"
+  | "lookup_failed"
+  /** Production answered 401 while the Sandbox accepts the key: no App Store release yet. */
+  | "production_api_locked_until_release";
+
+/**
+ * Every time a path trusts the client's (or a notification's) own signed
+ * transaction instead of Apple's current status, this structured warning is
+ * logged under one stable name, so a log metric can count and alert on it.
+ */
+function reportClientTransactionFallback(
+  transaction: JWSTransactionDecodedPayload,
+  reason: AppleClientFallbackReason,
+  error?: unknown,
+): void {
+  console.warn("apple_iap.client_transaction_fallback", {
+    metric: "apple_iap.client_transaction_fallback",
+    reason,
+    environment: transaction.environment,
+    bundleId: transaction.bundleId,
+    originalTransactionId: transaction.originalTransactionId,
+    ...(error === undefined ? {} : { error: errorText(error) }),
+  });
+}
+
+function reportFamilyShared(transaction: JWSTransactionDecodedPayload, source: "client" | "notification"): void {
+  console.warn("apple_iap.family_shared_refused", {
+    metric: "apple_iap.family_shared_refused",
+    source,
+    environment: transaction.environment,
+    bundleId: transaction.bundleId,
+    originalTransactionId: transaction.originalTransactionId,
+  });
 }
 
 /**
@@ -190,6 +245,13 @@ export async function recordClientAppleTransaction(
   }
   await assertTransactionOwner(transaction, input.userId, deps.store);
   const fresh = await freshAppleState(transaction, deps);
+  if (isFamilySharedAppleTransaction(transaction) || isFamilySharedAppleTransaction(fresh.transaction)) {
+    // Audit only, attributed to the account that posted it (its token, if
+    // any, already matched); never a grant.
+    await deps.store.recordTransaction(appleTransactionRowFrom(transaction, input.userId));
+    reportFamilyShared(transaction, "client");
+    throw new AppleTransactionRejectedError("family_shared");
+  }
   const state = stateOrReject(() => appleSubscriptionStateFrom({ ...fresh, now: deps.now() }));
   let write: AppleSubscriptionWrite;
   try {
@@ -327,202 +389,7 @@ async function applyNotification(
     return { kind: "skip", reason: "not_subscription" };
   }
   const owner = await tokenOwner(transaction.appAccountToken, deps.store);
-  const existing = await deps.store.subscription(transaction.originalTransactionId);
-  if (!owner && !existing) return { kind: "skip", reason: "unlinked_account" };
-  let state: AppleSubscriptionState;
-  try {
-    state = appleSubscriptionStateFrom({
-      transaction,
-      renewal: data.renewalInfo ?? null,
-      appleStatus: data.status ?? null,
-      notificationType: row.notificationType,
-      subtype: row.subtype,
-      signedAt: row.signedDate,
-      now: deps.now(),
-    });
-  } catch (error) {
-    if (error instanceof AppleStateError) return { kind: "skip", reason: error.reason };
-    throw error;
-  }
-  // An older notification still records its transaction; the state write
-  // ignores it when the stored state is newer or describes a newer
-  // transaction. A newer purchase whose token maps to another user moves the
-  // subscription to that user.
-  const current = await currentSubscriptionState(state, transaction, existing, deps);
-  const write = await deps.store.writeSubscriptionState(current.state, {
-    tokenOwner: current.transaction === transaction ? owner : await tokenOwner(current.state.appAccountToken, deps.store),
-  });
-  const userId = write.current.userId;
-  // The ledger row belongs to whoever bought that transaction.
-  await deps.store.recordTransaction(appleTransactionRowFrom(transaction, owner ?? userId));
-  if (current.transaction !== transaction) {
-    await deps.store.recordTransaction(appleTransactionRowFrom(current.transaction, userId));
-  }
-  await applyEntitlements(write, deps);
-  return { kind: "applied", userId, state, written: write.current };
-}
-
-/**
- * The state to write for a notification. A notification about an older
- * transaction than the stored one (a refund or refund decision about a past
- * period) says nothing about the current period, so Apple's current status
- * is fetched when the Server API is configured. Without it, the notification's
- * own state goes to the store, which keeps the newer row.
- */
-async function currentSubscriptionState(
-  notified: AppleSubscriptionState,
-  transaction: JWSTransactionDecodedPayload,
-  existing: AppleSubscriptionRow | null,
-  deps: AppleIapDependencies,
-): Promise<{ readonly state: AppleSubscriptionState; readonly transaction: JWSTransactionDecodedPayload }> {
-  const unchanged = { state: notified, transaction };
-  if (!existing || !deps.serverApi || !isOlderAppleTransaction(notified, existing)) return unchanged;
-  const fresh = await freshAppleState(transaction, deps);
-  if (fresh.transaction === transaction) return unchanged;
-  try {
-    return { state: appleSubscriptionStateFrom({ ...fresh, now: deps.now() }), transaction: fresh.transaction };
-  } catch (error) {
-    if (error instanceof AppleStateError) return unchanged;
-    throw error;
-  }
-}
-
-/** Applies one ledger row; shared by the webhook and the retry job. */
-export async function processAppleNotification(
-  row: AppleNotificationRow,
-  deps: AppleIapDependencies = defaultAppleIapDependencies(),
-): Promise<AppleNotificationOutcome> {
-  let application: NotificationApplication;
-  try {
-    application = await applyNotification(row, deps);
-  } catch (error) {
-    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    await deps.store.markNotificationFailed(row.notificationUuid, message).catch(() => undefined);
-    console.error("Apple notification application failed; the retry job will re-apply it", {
-      notificationUuid: row.notificationUuid,
-      notificationType: row.notificationType,
-      error: message.slice(0, 200),
-    });
-    return "failed";
-  }
-  if (application.kind === "skip") {
-    await deps.store.markNotificationSkipped(row.notificationUuid, application.reason, deps.now());
-    return "skipped";
-  }
-  await deps.store.markNotificationProcessed(row.notificationUuid, deps.now());
-  await captureLifecycleEvent(row, application.userId, application.state, deps);
-  await captureEntitlementGranted(application.written, deps);
-  return "processed";
-}
-
-/**
- * `subscription_entitlement_granted` once the written subscription is the
- * plan the user now holds through Apple. Sent from both the app-posted
- * transaction and the notification for the same transaction; the shared
- * insert ID keeps one event per transaction (a purchase, then each renewal).
- * Best effort: analytics never fails a purchase.
- */
-async function captureEntitlementGranted(
-  written: AppleSubscriptionRow,
-  deps: AppleIapDependencies,
-): Promise<void> {
-  if (!deps.activeEntitlement) return;
-  try {
-    const granting = await deps.activeEntitlement(written.userId);
-    if (granting?.originalTransactionId !== written.originalTransactionId) return;
-    await deps.captureEvent({
-      event: "subscription_entitlement_granted",
-      distinctId: written.userId,
-      insertId: `apple_entitlement:${written.lastTransactionId ?? written.originalTransactionId}`,
-      properties: {
-        source: "apple",
-        plan_id: written.planId,
-        product_id: written.productId,
-        billing_period: appleBillingPeriodForProduct(written.productId, written.bundleId),
-        environment: written.environment,
-        original_transaction_id: written.originalTransactionId,
-        transaction_id: written.lastTransactionId,
-        status: written.status,
-        expires_at: written.expiresAt?.toISOString() ?? null,
-      },
-    });
-  } catch (error) {
-    console.warn("Apple entitlement analytics failed", {
-      originalTransactionId: written.originalTransactionId,
-      error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
-    });
-  }
-}
-
-async function captureLifecycleEvent(
-  row: AppleNotificationRow,
-  userId: string,
-  state: AppleSubscriptionState,
-  deps: AppleIapDependencies,
-): Promise<void> {
-  const event = lifecycleEventForNotification(row.notificationType, row.subtype);
-  if (!event) return;
-  const revenue = appleRevenueEstimate(state);
-  await deps.captureEvent({
-    event,
-    distinctId: userId,
-    // The notification UUID dedupes a retried application.
-    insertId: `apple:${row.notificationUuid}`,
-    timestamp: row.signedDate,
-    properties: {
-      source: "apple",
-      plan_id: state.planId,
-      product_id: state.productId,
-      billing_period: appleBillingPeriodForProduct(state.productId, state.bundleId),
-      storefront: state.storefront,
-      currency: state.currency,
-      price: revenue.price,
-      price_usd_estimate: revenue.priceUsd,
-      net_usd_estimate: revenue.netUsd,
-      environment: state.environment,
-      original_transaction_id: state.originalTransactionId,
-      notification_type: row.notificationType,
-      notification_subtype: row.subtype,
-      auto_renew_product_id: state.autoRenewProductId,
-    },
-  }).catch(() => undefined);
-}
-
-export type AppleRetryResult = {
-  readonly notifications: Record<AppleNotificationOutcome, number>;
-  readonly lapsedUsers: number;
-  readonly lapsedFailures: number;
-};
-
-/**
- * Re-applies ledger rows that never finished, then re-derives the plan for
- * users whose Apple subscription passed its expiry or grace period without a
- * notification (a missed EXPIRED or GRACE_PERIOD_EXPIRED), so time alone
- * ends a grant. A lapse is marked swept only after its user's plan was
- * re-derived, so a failure is retried on the next run.
- */
-export async function retryAppleNotifications(
-  options: { readonly limit?: number } = {},
-  deps: AppleIapDependencies = defaultAppleIapDependencies(),
-): Promise<AppleRetryResult> {
-  const counts: Record<AppleNotificationOutcome, number> = { processed: 0, duplicate: 0, skipped: 0, failed: 0 };
-  const pending = await deps.store.pendingNotifications(options.limit ?? 100);
-  for (const row of pending) {
-    counts[await processAppleNotification(row, deps)] += 1;
-  }
-  const now = deps.now();
-  const lapsedByUser = new Map<string, string[]>();
-  for (const row of await deps.store.lapsedSubscriptions(now, LAPSE_SWEEP_LIMIT)) {
-    lapsedByUser.set(row.userId, [...(lapsedByUser.get(row.userId) ?? []), row.originalTransactionId]);
-  }
-  let lapsedFailures = 0;
-  for (const [userId, originalTransactionIds] of lapsedByUser) {
-    try {
-      await deps.applyEntitlement(userId);
-      await deps.store.markLapseSwept(originalTransactionIds, now);
-    } catch {
-      lapsedFailures += 1;
-    }
-  }
-  return { notifications: counts, lapsedUsers: lapsedByUser.size, lapsedFailures };
-}
+  if (isFamilySharedAppleTransaction(transaction)) {
+    // Never touches a subscription row, not even the purchaser's (a REVOKE
+    // of a family member's access must not revoke the purchaser).
+    if (owner

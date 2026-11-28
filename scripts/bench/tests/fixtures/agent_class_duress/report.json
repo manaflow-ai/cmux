@@ -1,3 +1,0 @@
-{"host":"mini-x","model":"Mac16,10","cores":10,"rounds":4,"jobs":4,"iters":600000000,"cap_s":900,
- "cells":[{"load":"idle","arm":"background","wall_s":"9.10"},{"load":"idle","arm":"dynamic","wall_s":"3.20"},{"load":"full","arm":"background","wall_s":"cap"},{"load":"full","arm":"dynamic","wall_s":"12.50"}],
- "probes":[{"load":"idle","spinners":0,"readings":"probe busy=0.050 late_p90_ms=0.100;probe busy=0.060 late_p90_ms=0.120;"},{"load":"full","spinners":20,"readings":"probe busy=1.000 late_p90_ms=3.000;probe busy=0.990 late_p90_ms=2.500;"}]}

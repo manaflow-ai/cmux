@@ -1,33 +1,0 @@
-$ cargo build
-[K   [1;32mCompiling[0m crate-00 v0.0.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-00)
-[1;36m    Building[0m [>                              ] 0/30: crate-00, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-01 v0.1.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-01)
-[1;36m    Building[0m [=>                             ] 1/30: crate-01, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-02 v0.2.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-02)
-[1;36m    Building[0m [==>                            ] 2/30: crate-02, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-03 v0.3.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-03)
-[1;36m    Building[0m [===>                           ] 3/30: crate-03, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-04 v0.4.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-04)
-[1;36m    Building[0m [====>                          ] 4/30: crate-04, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-05 v0.5.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-05)
-[1;36m    Building[0m [=====>                         ] 5/30: crate-05, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-06 v0.6.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-06)
-[1;36m    Building[0m [======>                        ] 6/30: crate-06, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-07 v0.7.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-07)
-[1;36m    Building[0m [=======>                       ] 7/30: crate-07, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-08 v0.8.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-08)
-[1;36m    Building[0m [========>                      ] 8/30: crate-08, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-09 v0.9.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-09)
-[1;36m    Building[0m [=========>                     ] 9/30: crate-09, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-10 v0.10.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-10)
-[1;36m    Building[0m [==========>                    ] 10/30: crate-10, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-11 v0.11.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-11)
-[1;36m    Building[0m [===========>                   ] 11/30: crate-11, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-12 v0.12.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-12)
-[1;36m    Building[0m [============>                  ] 12/30: crate-12, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-13 v0.13.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-13)
-[1;36m    Building[0m [=============>                 ] 13/30: crate-13, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-14 v0.14.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-14)
-[1;36m    Building[0m [==============>                ] 14/30: crate-14, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-15 v0.15.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-15)
-[1;36m    Building[0m [===============>               ] 15/30: crate-15, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-16 v0.16.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-16)
-[1;36m    Building[0m [================>              ] 16/30: crate-16, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-17 v0.17.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-17)
-[1;36m    Building[0m [=================>             ] 17/30: crate-17, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-18 v0.18.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-18)
-[1;36m    Building[0m [==================>            ] 18/30: crate-18, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-19 v0.19.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-19)
-[1;36m    Building[0m [===================>           ] 19/30: crate-19, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-20 v0.20.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-20)
-[1;36m    Building[0m [====================>          ] 20/30: crate-20, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-21 v0.21.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-21)
-[1;36m    Building[0m [=====================>         ] 21/30: crate-21, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-22 v0.22.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-22)
-[1;36m    Building[0m [======================>        ] 22/30: crate-22, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-23 v0.23.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-23)
-[1;36m    Building[0m [=======================>       ] 23/30: crate-23, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-24 v0.24.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-24)
-[1;36m    Building[0m [========================>      ] 24/30: crate-24, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-25 v0.25.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-25)
-[1;36m    Building[0m [=========================>     ] 25/30: crate-25, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-26 v0.26.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-26)
-[1;36m    Building[0m [==========================>    ] 26/30: crate-26, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-27 v0.27.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-27)
-[1;36m    Building[0m [===========================>   ] 27/30: crate-27, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-28 v0.28.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-28)
-[1;36m    Building[0m [============================>  ] 28/30: crate-28, cmux-tui, cmux-terminal-projection[K   [1;32mCompiling[0m crate-29 v0.29.0 (/Users/leo/Projects/cmux/cmux-tui/crates/crate-29)
-[1;36m    Building[0m [=============================> ] 29/30: crate-29, cmux-tui, cmux-terminal-projection[K[K⠋ Thinking about what the build printed and what to do next with it…[K⠙ Thinking about what the build printed and what to do next with it…[K⠹ Thinking about what the build printed and what to do next with it…[K⠸ Thinking about what the build printed and what to do next with it…[K[1;32m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 41.2s
-$ 

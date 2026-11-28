@@ -122,6 +122,23 @@ import Testing
         }
     }
 
+    @Test func wrappedCodexAppliesModelAndEffortAfterAgent() {
+        let template = MobileTaskTemplate(
+            name: "Codex",
+            icon: "agent:codex",
+            command: "sr codex -- \"$CMUX_TASK_PROMPT\""
+        )
+
+        let result = composer.compose(
+            template: template,
+            prompt: "Fix the race",
+            modelID: "gpt-5.5",
+            effortID: "high"
+        )
+
+        #expect(result.initialCommand == "sr codex -c model_reasoning_effort='high' -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\"")
+    }
+
     @Test func defaultModelEffortLeavesModelUnpinned() {
         let seeds = MobileTaskTemplate.seedDefaults(
             claudeName: "Claude",

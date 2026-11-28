@@ -15,16 +15,9 @@ let package = Package(
             targets: ["CMUXMobileCore"]
         ),
     ],
-    dependencies: [
-        // The egress gate (docs/privacy.md), on every platform the package builds for.
-        .package(path: "../CmuxEgress"),
-    ],
     targets: [
         .target(
             name: "CMUXMobileCore",
-            dependencies: [
-                .product(name: "CmuxEgress", package: "CmuxEgress"),
-            ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

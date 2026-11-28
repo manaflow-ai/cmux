@@ -19,16 +19,6 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
-    public final Object addScreensToScreenGroup(AddScreensToScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.ADD_SCREENS_TO_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final TabGroupOutcome addTabsToTabGroup(AddTabsToTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.ADD_TABS_TO_TAB_GROUP, request.toWire());
-        return TabGroupOutcome.fromWire(result);
-    }
-
     public final ApplyLayoutResult applyLayout(ApplyLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.APPLY_LAYOUT, request.toWire());
         return ApplyLayoutResult.fromWire(result);
@@ -36,11 +26,6 @@ public abstract class GeneratedCmuxClient {
 
     public final CmuxStream<ProtocolEvent> attachSurface(AttachSurfaceRequest request) throws CmuxException {
         return openStream(Commands.ATTACH_SURFACE, request.toWire());
-    }
-
-    public final BindConversationTabSessionResult bindConversationTabSession(BindConversationTabSessionRequest request) throws CmuxException {
-        Object result = execute(Commands.BIND_CONVERSATION_TAB_SESSION, request.toWire());
-        return BindConversationTabSessionResult.fromWire(result);
     }
 
     public final EmptyResult browserActivate(BrowserActivateRequest request) throws CmuxException {
@@ -61,11 +46,6 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult browserFramePresented(BrowserFramePresentedRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_FRAME_PRESENTED, request.toWire());
         return EmptyResult.fromWire(result);
-    }
-
-    public final BrowserHostProviderResult browserHostProvider() throws CmuxException {
-        Object result = execute(Commands.BROWSER_HOST_PROVIDER, Map.of());
-        return BrowserHostProviderResult.fromWire(result);
     }
 
     public final EmptyResult browserInsertText(BrowserInsertTextRequest request) throws CmuxException {
@@ -113,21 +93,6 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final CancelCreatingInputResult cancelCreatingInput(CancelCreatingInputRequest request) throws CmuxException {
-        Object result = execute(Commands.CANCEL_CREATING_INPUT, request.toWire());
-        return CancelCreatingInputResult.fromWire(result);
-    }
-
-    public final ChiefInspectResult chiefInspect(ChiefInspectRequest request) throws CmuxException {
-        Object result = execute(Commands.CHIEF_INSPECT, request.toWire());
-        return ChiefInspectResult.fromWire(result);
-    }
-
-    public final ChiefWorkResult chiefWork(ChiefWorkRequest request) throws CmuxException {
-        Object result = execute(Commands.CHIEF_WORK, request.toWire());
-        return ChiefWorkResult.fromWire(result);
-    }
-
     public final EmptyResult clearHistory(ClearHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CLEAR_HISTORY, request.toWire());
         return EmptyResult.fromWire(result);
@@ -158,24 +123,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final Object closeScreenGroup(CloseScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOSE_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final EmptyResult closeSurface(CloseSurfaceRequest request) throws CmuxException {
         Object result = execute(Commands.CLOSE_SURFACE, request.toWire());
         return EmptyResult.fromWire(result);
-    }
-
-    public final CloseTabGroupResult closeTabGroup(CloseTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOSE_TAB_GROUP, request.toWire());
-        return CloseTabGroupResult.fromWire(result);
-    }
-
-    public final Object closeTabs(CloseTabsRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOSE_TABS, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final CloseTerminalResult closeTerminal(CloseTerminalRequest request) throws CmuxException {
@@ -188,334 +138,14 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
-    public final CloudAttachmentLinkResult cloudAttachmentLink(CloudAttachmentLinkRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_ATTACHMENT_LINK, request.toWire());
-        return CloudAttachmentLinkResult.fromWire(result);
-    }
-
-    public final CloudAttachmentReadResult cloudAttachmentRead(CloudAttachmentReadRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_ATTACHMENT_READ, request.toWire());
-        return CloudAttachmentReadResult.fromWire(result);
-    }
-
-    public final CloudAttachmentUploadResult cloudAttachmentUpload(CloudAttachmentUploadRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_ATTACHMENT_UPLOAD, request.toWire());
-        return CloudAttachmentUploadResult.fromWire(result);
-    }
-
-    public final Object cloudConversationHistory(CloudConversationHistoryRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_HISTORY, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationLive(CloudConversationLiveRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_LIVE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationOp(CloudConversationOpRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_OP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationPresence(CloudConversationPresenceRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_PRESENCE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationRun(CloudConversationRunRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_RUN, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationRuns(CloudConversationRunsRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_RUNS, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationSnapshot(CloudConversationSnapshotRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_SNAPSHOT, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationSubscribe(CloudConversationSubscribeRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_SUBSCRIBE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationThread(CloudConversationThreadRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_THREAD, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationTyping(CloudConversationTypingRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_TYPING, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudConversationUnsubscribe(CloudConversationUnsubscribeRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_CONVERSATION_UNSUBSCRIBE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudEnvironment(CloudEnvironmentRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_ENVIRONMENT, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudHostReplicaClear(CloudHostReplicaClearRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_HOST_REPLICA_CLEAR, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudHostReplicaSet(CloudHostReplicaSetRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_HOST_REPLICA_SET, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudHostReplicaStatus() throws CmuxException {
-        Object result = execute(Commands.CLOUD_HOST_REPLICA_STATUS, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudInboxList(CloudInboxListRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_INBOX_LIST, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudInboxOp(CloudInboxOpRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_INBOX_OP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudInboxSubscribe() throws CmuxException {
-        Object result = execute(Commands.CLOUD_INBOX_SUBSCRIBE, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudInboxUnsubscribe() throws CmuxException {
-        Object result = execute(Commands.CLOUD_INBOX_UNSUBSCRIBE, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudMuxAck(CloudMuxAckRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_MUX_ACK, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudMuxSubscribe() throws CmuxException {
-        Object result = execute(Commands.CLOUD_MUX_SUBSCRIBE, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudMuxUnsubscribe() throws CmuxException {
-        Object result = execute(Commands.CLOUD_MUX_UNSUBSCRIBE, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudParticipantAvatarGet(CloudParticipantAvatarGetRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_PARTICIPANT_AVATAR_GET, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudRequestsList() throws CmuxException {
-        Object result = execute(Commands.CLOUD_REQUESTS_LIST, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudSelfhostInfo() throws CmuxException {
-        Object result = execute(Commands.CLOUD_SELFHOST_INFO, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudSessionClear() throws CmuxException {
-        Object result = execute(Commands.CLOUD_SESSION_CLEAR, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudSessionSet(CloudSessionSetRequest request) throws CmuxException {
-        Object result = execute(Commands.CLOUD_SESSION_SET, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object cloudSessionStatus() throws CmuxException {
-        Object result = execute(Commands.CLOUD_SESSION_STATUS, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object computerUseApprovals(ComputerUseApprovalsRequest request) throws CmuxException {
-        Object result = execute(Commands.COMPUTER_USE_APPROVALS, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object computerUseConfig(ComputerUseConfigRequest request) throws CmuxException {
-        Object result = execute(Commands.COMPUTER_USE_CONFIG, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object computerUseEndpoint() throws CmuxException {
-        Object result = execute(Commands.COMPUTER_USE_ENDPOINT, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final ConversationAgentTokenResult conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
-        return ConversationAgentTokenResult.fromWire(result);
-    }
-
-    public final ConversationAttachmentLinkResult conversationAttachmentLink(ConversationAttachmentLinkRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_ATTACHMENT_LINK, request.toWire());
-        return ConversationAttachmentLinkResult.fromWire(result);
-    }
-
-    public final ConversationAttachmentReadResult conversationAttachmentRead(ConversationAttachmentReadRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_ATTACHMENT_READ, request.toWire());
-        return ConversationAttachmentReadResult.fromWire(result);
-    }
-
-    public final ConversationAttachmentUploadResult conversationAttachmentUpload(ConversationAttachmentUploadRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_ATTACHMENT_UPLOAD, request.toWire());
-        return ConversationAttachmentUploadResult.fromWire(result);
-    }
-
-    public final ConversationBindResult conversationBind(ConversationBindRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_BIND, request.toWire());
-        return ConversationBindResult.fromWire(result);
-    }
-
-    public final ConversationCreateResult conversationCreate(ConversationCreateRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_CREATE, request.toWire());
-        return ConversationCreateResult.fromWire(result);
-    }
-
-    public final ConversationDraftResult conversationDraft(ConversationDraftRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_DRAFT, request.toWire());
-        return ConversationDraftResult.fromWire(result);
-    }
-
-    public final ConversationHistoryResult conversationHistory(ConversationHistoryRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_HISTORY, request.toWire());
-        return ConversationHistoryResult.fromWire(result);
-    }
-
-    public final ConversationImportResult conversationImport(ConversationImportRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_IMPORT, request.toWire());
-        return ConversationImportResult.fromWire(result);
-    }
-
-    public final ConversationInboxOpResult conversationInboxOp(ConversationInboxOpRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_INBOX_OP, request.toWire());
-        return ConversationInboxOpResult.fromWire(result);
-    }
-
-    public final ConversationLinkResolveResult conversationLinkResolve(ConversationLinkResolveRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_LINK_RESOLVE, request.toWire());
-        return ConversationLinkResolveResult.fromWire(result);
-    }
-
-    public final ConversationListResult conversationList() throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_LIST, Map.of());
-        return ConversationListResult.fromWire(result);
-    }
-
-    public final ConversationLiveResult conversationLive(ConversationLiveRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_LIVE, request.toWire());
-        return ConversationLiveResult.fromWire(result);
-    }
-
-    public final EmptyResult conversationLivePublish(ConversationLivePublishRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_LIVE_PUBLISH, request.toWire());
-        return EmptyResult.fromWire(result);
-    }
-
-    public final ConversationOpResult conversationOp(ConversationOpRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_OP, request.toWire());
-        return ConversationOpResult.fromWire(result);
-    }
-
-    public final ConversationRunResult conversationRun(ConversationRunRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_RUN, request.toWire());
-        return ConversationRunResult.fromWire(result);
-    }
-
-    public final ConversationRunAppendResult conversationRunAppend(ConversationRunAppendRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_RUN_APPEND, request.toWire());
-        return ConversationRunAppendResult.fromWire(result);
-    }
-
-    public final ConversationRunsResult conversationRuns(ConversationRunsRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_RUNS, request.toWire());
-        return ConversationRunsResult.fromWire(result);
-    }
-
-    public final ConversationScheduledListResult conversationScheduledList(ConversationScheduledListRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_SCHEDULED_LIST, request.toWire());
-        return ConversationScheduledListResult.fromWire(result);
-    }
-
-    public final ConversationScheduledOpResult conversationScheduledOp(ConversationScheduledOpRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_SCHEDULED_OP, request.toWire());
-        return ConversationScheduledOpResult.fromWire(result);
-    }
-
-    public final ConversationSearchResult conversationSearch(ConversationSearchRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_SEARCH, request.toWire());
-        return ConversationSearchResult.fromWire(result);
-    }
-
-    public final ConversationSnapshotResult conversationSnapshot(ConversationSnapshotRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_SNAPSHOT, request.toWire());
-        return ConversationSnapshotResult.fromWire(result);
-    }
-
-    public final ConversationThreadResult conversationThread(ConversationThreadRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_THREAD, request.toWire());
-        return ConversationThreadResult.fromWire(result);
-    }
-
-    public final EmptyResult conversationTyping(ConversationTypingRequest request) throws CmuxException {
-        Object result = execute(Commands.CONVERSATION_TYPING, request.toWire());
-        return EmptyResult.fromWire(result);
-    }
-
     public final CopyResult copy(CopyRequest request) throws CmuxException {
         Object result = execute(Commands.COPY, request.toWire());
         return CopyResult.fromWire(result);
     }
 
-    public final BookmarkChangeResult createBookmark(CreateBookmarkRequest request) throws CmuxException {
-        Object result = execute(Commands.CREATE_BOOKMARK, request.toWire());
-        return BookmarkChangeResult.fromWire(result);
-    }
-
-    public final Object createBrowserProfile(CreateBrowserProfileRequest request) throws CmuxException {
-        Object result = execute(Commands.CREATE_BROWSER_PROFILE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object createPersonalGroup(CreatePersonalGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.CREATE_PERSONAL_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object createProfile(CreateProfileRequest request) throws CmuxException {
-        Object result = execute(Commands.CREATE_PROFILE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object createScreenGroup(CreateScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.CREATE_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final Object createSurfaceWithReceipt(CreateSurfaceWithReceiptRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_SURFACE_WITH_RECEIPT, request.toWire());
         return Wire.immutableJson(result);
-    }
-
-    public final TabGroupOutcome createTabGroup(CreateTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.CREATE_TAB_GROUP, request.toWire());
-        return TabGroupOutcome.fromWire(result);
     }
 
     public final TerminalPlacement createTerminal(CreateTerminalRequest request) throws CmuxException {
@@ -528,51 +158,6 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
-    public final Object createWorkspaceGroup(CreateWorkspaceGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.CREATE_WORKSPACE_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final DeleteBookmarkResult deleteBookmark(DeleteBookmarkRequest request) throws CmuxException {
-        Object result = execute(Commands.DELETE_BOOKMARK, request.toWire());
-        return DeleteBookmarkResult.fromWire(result);
-    }
-
-    public final Object deleteBrowserProfile(DeleteBrowserProfileRequest request) throws CmuxException {
-        Object result = execute(Commands.DELETE_BROWSER_PROFILE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object deletePersonalGroup(DeletePersonalGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.DELETE_PERSONAL_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object deleteProfile(DeleteProfileRequest request) throws CmuxException {
-        Object result = execute(Commands.DELETE_PROFILE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object deleteSavedScreenGroup(DeleteSavedScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.DELETE_SAVED_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final DeleteSavedTabGroupResult deleteSavedTabGroup(DeleteSavedTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.DELETE_SAVED_TAB_GROUP, request.toWire());
-        return DeleteSavedTabGroupResult.fromWire(result);
-    }
-
-    public final TerminalCommandDeleteResult deleteTerminalCommands(DeleteTerminalCommandsRequest request) throws CmuxException {
-        Object result = execute(Commands.DELETE_TERMINAL_COMMANDS, request.toWire());
-        return TerminalCommandDeleteResult.fromWire(result);
-    }
-
-    public final Object deleteWorkspaceGroup(DeleteWorkspaceGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.DELETE_WORKSPACE_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final AttachedViewOutcomeResult detachAttachedView(DetachAttachedViewRequest request) throws CmuxException {
         Object result = execute(Commands.DETACH_ATTACHED_VIEW, request.toWire());
         return AttachedViewOutcomeResult.fromWire(result);
@@ -583,49 +168,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final Object deviceSetup(DeviceSetupRequest request) throws CmuxException {
-        Object result = execute(Commands.DEVICE_SETUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final ExportLayoutResult exportLayout(ExportLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.EXPORT_LAYOUT, request.toWire());
         return ExportLayoutResult.fromWire(result);
-    }
-
-    public final Object feedLocalHandoffAbort(FeedLocalHandoffAbortRequest request) throws CmuxException {
-        Object result = execute(Commands.FEED_LOCAL_HANDOFF_ABORT, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object feedLocalHandoffBegin(FeedLocalHandoffBeginRequest request) throws CmuxException {
-        Object result = execute(Commands.FEED_LOCAL_HANDOFF_BEGIN, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object feedLocalHandoffDone(FeedLocalHandoffDoneRequest request) throws CmuxException {
-        Object result = execute(Commands.FEED_LOCAL_HANDOFF_DONE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object feedLocalList(FeedLocalListRequest request) throws CmuxException {
-        Object result = execute(Commands.FEED_LOCAL_LIST, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object feedLocalRead(FeedLocalReadRequest request) throws CmuxException {
-        Object result = execute(Commands.FEED_LOCAL_READ, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object floatPane(FloatPaneRequest request) throws CmuxException {
-        Object result = execute(Commands.FLOAT_PANE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final FlushLaunchSnapshotResult flushLaunchSnapshot() throws CmuxException {
-        Object result = execute(Commands.FLUSH_LAUNCH_SNAPSHOT, Map.of());
-        return FlushLaunchSnapshotResult.fromWire(result);
     }
 
     public final FocusDirectionResult focusDirection(FocusDirectionRequest request) throws CmuxException {
@@ -638,16 +183,6 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final Object forgetSession(ForgetSessionRequest request) throws CmuxException {
-        Object result = execute(Commands.FORGET_SESSION, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object getBlob(GetBlobRequest request) throws CmuxException {
-        Object result = execute(Commands.GET_BLOB, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final BrowserProviderSnapshot getBrowserProvider() throws CmuxException {
         Object result = execute(Commands.GET_BROWSER_PROVIDER, Map.of());
         return BrowserProviderSnapshot.fromWire(result);
@@ -658,19 +193,9 @@ public abstract class GeneratedCmuxClient {
         return GetCellPixelsResult.fromWire(result);
     }
 
-    public final Object getFrontendBrowserHistory(GetFrontendBrowserHistoryRequest request) throws CmuxException {
-        Object result = execute(Commands.GET_FRONTEND_BROWSER_HISTORY, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final FrontendProjection getFrontendProjection(GetFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.GET_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);
-    }
-
-    public final GetHostSizePolicyResult getHostSizePolicy(GetHostSizePolicyRequest request) throws CmuxException {
-        Object result = execute(Commands.GET_HOST_SIZE_POLICY, request.toWire());
-        return GetHostSizePolicyResult.fromWire(result);
     }
 
     public final GetSizeStateResult getSizeState(GetSizeStateRequest request) throws CmuxException {
@@ -678,38 +203,14 @@ public abstract class GeneratedCmuxClient {
         return GetSizeStateResult.fromWire(result);
     }
 
-    public final HistorySearchResult historySearch(HistorySearchRequest request) throws CmuxException {
-        Object result = execute(Commands.HISTORY_SEARCH, request.toWire());
-        return HistorySearchResult.fromWire(result);
-    }
-
-    public final HomeInboxResult homeInbox(HomeInboxRequest request) throws CmuxException {
-        Object result = execute(Commands.HOME_INBOX, request.toWire());
-        return HomeInboxResult.fromWire(result);
-    }
-
-    public final IdentifyResult identify(IdentifyRequest request) throws CmuxException {
-        Object result = execute(Commands.IDENTIFY, request.toWire());
-        return IdentifyResult.fromWire(result);
-    }
-
     public final IdentifyResult identify() throws CmuxException {
-        return identify(IdentifyRequest.builder().build());
+        Object result = execute(Commands.IDENTIFY, Map.of());
+        return IdentifyResult.fromWire(result);
     }
 
     public final IdsResult ids(IdsRequest request) throws CmuxException {
         Object result = execute(Commands.IDS, request.toWire());
         return IdsResult.fromWire(result);
-    }
-
-    public final ImportBookmarksResult importBookmarks(ImportBookmarksRequest request) throws CmuxException {
-        Object result = execute(Commands.IMPORT_BOOKMARKS, request.toWire());
-        return ImportBookmarksResult.fromWire(result);
-    }
-
-    public final Object importSessionOrganization(ImportSessionOrganizationRequest request) throws CmuxException {
-        Object result = execute(Commands.IMPORT_SESSION_ORGANIZATION, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final JournalFrontendEventResult journalFrontendEvent(JournalFrontendEventRequest request) throws CmuxException {
@@ -722,44 +223,9 @@ public abstract class GeneratedCmuxClient {
         return ListAgentsResult.fromWire(result);
     }
 
-    public final ListBookmarksResult listBookmarks(ListBookmarksRequest request) throws CmuxException {
-        Object result = execute(Commands.LIST_BOOKMARKS, request.toWire());
-        return ListBookmarksResult.fromWire(result);
-    }
-
     public final List<ClientInfo> listClients() throws CmuxException {
         Object result = execute(Commands.LIST_CLIENTS, Map.of());
         return Wire.array(result, "list-clients result", item -> ClientInfo.fromWire(item));
-    }
-
-    public final Object listNotifications(ListNotificationsRequest request) throws CmuxException {
-        Object result = execute(Commands.LIST_NOTIFICATIONS, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object listPersonal() throws CmuxException {
-        Object result = execute(Commands.LIST_PERSONAL, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object listSavedScreenGroups() throws CmuxException {
-        Object result = execute(Commands.LIST_SAVED_SCREEN_GROUPS, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final ListSavedTabGroupsResult listSavedTabGroups() throws CmuxException {
-        Object result = execute(Commands.LIST_SAVED_TAB_GROUPS, Map.of());
-        return ListSavedTabGroupsResult.fromWire(result);
-    }
-
-    public final ListTabGroupsResult listTabGroups() throws CmuxException {
-        Object result = execute(Commands.LIST_TAB_GROUPS, Map.of());
-        return ListTabGroupsResult.fromWire(result);
-    }
-
-    public final TerminalCommandList listTerminalCommands(ListTerminalCommandsRequest request) throws CmuxException {
-        Object result = execute(Commands.LIST_TERMINAL_COMMANDS, request.toWire());
-        return TerminalCommandList.fromWire(result);
     }
 
     public final ListTerminalsResult listTerminals() throws CmuxException {
@@ -767,18 +233,9 @@ public abstract class GeneratedCmuxClient {
         return ListTerminalsResult.fromWire(result);
     }
 
-    public final Object listWorkspaceGroups() throws CmuxException {
-        Object result = execute(Commands.LIST_WORKSPACE_GROUPS, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Tree listWorkspaces(ListWorkspacesRequest request) throws CmuxException {
-        Object result = execute(Commands.LIST_WORKSPACES, request.toWire());
-        return Tree.fromWire(result);
-    }
-
     public final Tree listWorkspaces() throws CmuxException {
-        return listWorkspaces(ListWorkspacesRequest.builder().build());
+        Object result = execute(Commands.LIST_WORKSPACES, Map.of());
+        return Tree.fromWire(result);
     }
 
     public final MachineListeningTcpResult machineListeningTcp() throws CmuxException {
@@ -806,79 +263,9 @@ public abstract class GeneratedCmuxClient {
         return MintTerminalRendererResult.fromWire(result);
     }
 
-    public final BookmarkChangeResult moveBookmark(MoveBookmarkRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_BOOKMARK, request.toWire());
-        return BookmarkChangeResult.fromWire(result);
-    }
-
-    public final Object moveBrowserProfile(MoveBrowserProfileRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_BROWSER_PROFILE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object moveColumn(MoveColumnRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_COLUMN, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object movePersonalGroup(MovePersonalGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_PERSONAL_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object moveProfile(MoveProfileRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_PROFILE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object moveScreen(MoveScreenRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_SCREEN, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object moveScreenGroup(MoveScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final EmptyResult moveTab(MoveTabRequest request) throws CmuxException {
         Object result = execute(Commands.MOVE_TAB, request.toWire());
         return EmptyResult.fromWire(result);
-    }
-
-    public final TabGroupOutcome moveTabGroup(MoveTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_TAB_GROUP, request.toWire());
-        return TabGroupOutcome.fromWire(result);
-    }
-
-    public final TabGroupOutcome moveTabGroupToColumn(MoveTabGroupToColumnRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_TAB_GROUP_TO_COLUMN, request.toWire());
-        return TabGroupOutcome.fromWire(result);
-    }
-
-    public final TabGroupOutcome moveTabGroupToNewWorkspace(MoveTabGroupToNewWorkspaceRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_TAB_GROUP_TO_NEW_WORKSPACE, request.toWire());
-        return TabGroupOutcome.fromWire(result);
-    }
-
-    public final TabGroupOutcome moveTabGroupToSplit(MoveTabGroupToSplitRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_TAB_GROUP_TO_SPLIT, request.toWire());
-        return TabGroupOutcome.fromWire(result);
-    }
-
-    public final Object moveTabToColumn(MoveTabToColumnRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_TAB_TO_COLUMN, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object moveTabToNewWorkspace(MoveTabToNewWorkspaceRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_TAB_TO_NEW_WORKSPACE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object moveTabToSplit(MoveTabToSplitRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_TAB_TO_SPLIT, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final EmptyResult moveTabToWorkspace(MoveTabToWorkspaceRequest request) throws CmuxException {
@@ -896,49 +283,19 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
-    public final Object moveWorkspaceGroup(MoveWorkspaceGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_WORKSPACE_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object moveWorkspaceToGroup(MoveWorkspaceToGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.MOVE_WORKSPACE_TO_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final SurfaceResult newBrowserTab(NewBrowserTabRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_BROWSER_TAB, request.toWire());
         return SurfaceResult.fromWire(result);
     }
 
-    public final NewConversationTabResult newConversationTab(NewConversationTabRequest request) throws CmuxException {
-        Object result = execute(Commands.NEW_CONVERSATION_TAB, request.toWire());
-        return NewConversationTabResult.fromWire(result);
-    }
-
-    public final Object newFrontendBrowserTab(NewFrontendBrowserTabRequest request) throws CmuxException {
-        Object result = execute(Commands.NEW_FRONTEND_BROWSER_TAB, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final PaneSurfaceResult newPane(NewPaneRequest request) throws CmuxException {
+    public final SurfaceResult newPane(NewPaneRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_PANE, request.toWire());
-        return PaneSurfaceResult.fromWire(result);
+        return SurfaceResult.fromWire(result);
     }
 
-    public final PaneSurfaceResult newPaneRight(NewPaneRightRequest request) throws CmuxException {
+    public final SurfaceResult newPaneRight(NewPaneRightRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_PANE_RIGHT, request.toWire());
-        return PaneSurfaceResult.fromWire(result);
-    }
-
-    public final Object newRemoteTerminalTab(NewRemoteTerminalTabRequest request) throws CmuxException {
-        Object result = execute(Commands.NEW_REMOTE_TERMINAL_TAB, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final NewRowResult newRow(NewRowRequest request) throws CmuxException {
-        Object result = execute(Commands.NEW_ROW, request.toWire());
-        return NewRowResult.fromWire(result);
+        return SurfaceResult.fromWire(result);
     }
 
     public final SurfaceResult newScreen(NewScreenRequest request) throws CmuxException {
@@ -966,16 +323,6 @@ public abstract class GeneratedCmuxClient {
         return NotifyResult.fromWire(result);
     }
 
-    public final PhoneLinkOfferResult offerLinkToPhone(OfferLinkToPhoneRequest request) throws CmuxException {
-        Object result = execute(Commands.OFFER_LINK_TO_PHONE, request.toWire());
-        return PhoneLinkOfferResult.fromWire(result);
-    }
-
-    public final Object pageCredential(PageCredentialRequest request) throws CmuxException {
-        Object result = execute(Commands.PAGE_CREDENTIAL, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final EmptyResult pairingResponse(PairingResponseRequest request) throws CmuxException {
         Object result = execute(Commands.PAIRING_RESPONSE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -986,19 +333,9 @@ public abstract class GeneratedCmuxClient {
         return PaneNeighborResult.fromWire(result);
     }
 
-    public final Object parkTabs(ParkTabsRequest request) throws CmuxException {
-        Object result = execute(Commands.PARK_TABS, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final PasteImageResult pasteImage(PasteImageRequest request) throws CmuxException {
         Object result = execute(Commands.PASTE_IMAGE, request.toWire());
         return PasteImageResult.fromWire(result);
-    }
-
-    public final Object pinWorkspace(PinWorkspaceRequest request) throws CmuxException {
-        Object result = execute(Commands.PIN_WORKSPACE, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final PingResult ping() throws CmuxException {
@@ -1006,34 +343,14 @@ public abstract class GeneratedCmuxClient {
         return PingResult.fromWire(result);
     }
 
-    public final Object processCensus() throws CmuxException {
-        Object result = execute(Commands.PROCESS_CENSUS, Map.of());
-        return Wire.immutableJson(result);
-    }
-
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
         Object result = execute(Commands.PROCESS_INFO, request.toWire());
         return ProcessInfoResult.fromWire(result);
     }
 
-    public final Object putBlob(PutBlobRequest request) throws CmuxException {
-        Object result = execute(Commands.PUT_BLOB, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final FrontendProjection putFrontendProjection(PutFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.PUT_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);
-    }
-
-    public final Object putSession(PutSessionRequest request) throws CmuxException {
-        Object result = execute(Commands.PUT_SESSION, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object quickTerminal(QuickTerminalRequest request) throws CmuxException {
-        Object result = execute(Commands.QUICK_TERMINAL, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final ReadScreenResult readScreen(ReadScreenRequest request) throws CmuxException {
@@ -1066,49 +383,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final ReleaseWorkspaceNamesResult releaseWorkspaceNames() throws CmuxException {
-        Object result = execute(Commands.RELEASE_WORKSPACE_NAMES, Map.of());
-        return ReleaseWorkspaceNamesResult.fromWire(result);
-    }
-
     public final ReloadConfigResult reloadConfig() throws CmuxException {
         Object result = execute(Commands.RELOAD_CONFIG, Map.of());
         return ReloadConfigResult.fromWire(result);
-    }
-
-    public final RemoteHostAppResult remoteHostApp() throws CmuxException {
-        Object result = execute(Commands.REMOTE_HOST_APP, Map.of());
-        return RemoteHostAppResult.fromWire(result);
-    }
-
-    public final Object remoteHostCall(RemoteHostCallRequest request) throws CmuxException {
-        Object result = execute(Commands.REMOTE_HOST_CALL, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object remoteHostConfig(RemoteHostConfigRequest request) throws CmuxException {
-        Object result = execute(Commands.REMOTE_HOST_CONFIG, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object remoteHostStatus() throws CmuxException {
-        Object result = execute(Commands.REMOTE_HOST_STATUS, Map.of());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object remoteTerminalSnapshot(RemoteTerminalSnapshotRequest request) throws CmuxException {
-        Object result = execute(Commands.REMOTE_TERMINAL_SNAPSHOT, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object removeScreensFromScreenGroup(RemoveScreensFromScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.REMOVE_SCREENS_FROM_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final RemoveTabsFromTabGroupResult removeTabsFromTabGroup(RemoveTabsFromTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.REMOVE_TABS_FROM_TAB_GROUP, request.toWire());
-        return RemoveTabsFromTabGroupResult.fromWire(result);
     }
 
     public final EmptyResult renamePane(RenamePaneRequest request) throws CmuxException {
@@ -1136,16 +413,6 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
-    public final Object reopenSavedScreenGroup(ReopenSavedScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.REOPEN_SAVED_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final TabGroupOutcome reopenSavedTabGroup(ReopenSavedTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.REOPEN_SAVED_TAB_GROUP, request.toWire());
-        return TabGroupOutcome.fromWire(result);
-    }
-
     public final ReportAgentResult reportAgent(ReportAgentRequest request) throws CmuxException {
         Object result = execute(Commands.REPORT_AGENT, request.toWire());
         return ReportAgentResult.fromWire(result);
@@ -1171,24 +438,9 @@ public abstract class GeneratedCmuxClient {
         return ResolveTerminalResult.fromWire(result);
     }
 
-    public final Object restartTab(RestartTabRequest request) throws CmuxException {
-        Object result = execute(Commands.RESTART_TAB, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final RunResult run(RunRequest request) throws CmuxException {
         Object result = execute(Commands.RUN, request.toWire());
         return RunResult.fromWire(result);
-    }
-
-    public final Object saveScreenGroup(SaveScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.SAVE_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final SaveTabGroupResult saveTabGroup(SaveTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.SAVE_TAB_GROUP, request.toWire());
-        return SaveTabGroupResult.fromWire(result);
     }
 
     public final EmptyResult scrollSurface(ScrollSurfaceRequest request) throws CmuxException {
@@ -1211,9 +463,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final SendResult send(SendRequest request) throws CmuxException {
+    public final EmptyResult send(SendRequest request) throws CmuxException {
         Object result = execute(Commands.SEND, request.toWire());
-        return SendResult.fromWire(result);
+        return EmptyResult.fromWire(result);
     }
 
     public final EmptyResult sendKey(SendKeyRequest request) throws CmuxException {
@@ -1221,14 +473,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final ServerStatsResult serverStats(ServerStatsRequest request) throws CmuxException {
-        Object result = execute(Commands.SERVER_STATS, request.toWire());
+    public final ServerStatsResult serverStats() throws CmuxException {
+        Object result = execute(Commands.SERVER_STATS, Map.of());
         return ServerStatsResult.fromWire(result);
-    }
-
-    public final SetAttachVisibilityResult setAttachVisibility(SetAttachVisibilityRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_ATTACH_VISIBILITY, request.toWire());
-        return SetAttachVisibilityResult.fromWire(result);
     }
 
     public final SetCellPixelsResult setCellPixels(SetCellPixelsRequest request) throws CmuxException {
@@ -1236,9 +483,9 @@ public abstract class GeneratedCmuxClient {
         return SetCellPixelsResult.fromWire(result);
     }
 
-    public final SetClientInfoResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
+    public final EmptyResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
         Object result = execute(Commands.SET_CLIENT_INFO, request.toWire());
-        return SetClientInfoResult.fromWire(result);
+        return EmptyResult.fromWire(result);
     }
 
     public final EmptyResult setClientSizing(SetClientSizingRequest request) throws CmuxException {
@@ -1246,74 +493,14 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final Object setColumnDock(SetColumnDockRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_COLUMN_DOCK, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final EmptyResult setDefaultColors(SetDefaultColorsRequest request) throws CmuxException {
         Object result = execute(Commands.SET_DEFAULT_COLORS, request.toWire());
         return EmptyResult.fromWire(result);
     }
 
-    public final EmptyResult setDividerVisible(SetDividerVisibleRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_DIVIDER_VISIBLE, request.toWire());
-        return EmptyResult.fromWire(result);
-    }
-
-    public final Object setFrontendBrowserHistory(SetFrontendBrowserHistoryRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_FRONTEND_BROWSER_HISTORY, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final SetHostSizePolicyResult setHostSizePolicy(SetHostSizePolicyRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_HOST_SIZE_POLICY, request.toWire());
-        return SetHostSizePolicyResult.fromWire(result);
-    }
-
-    public final EmptyResult setLayoutSizes(SetLayoutSizesRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_LAYOUT_SIZES, request.toWire());
-        return EmptyResult.fromWire(result);
-    }
-
-    public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_PERSONAL_TERMINAL, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object setPersonalWorkspace(SetPersonalWorkspaceRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_PERSONAL_WORKSPACE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object setProfileFollows(SetProfileFollowsRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_PROFILE_FOLLOWS, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final EmptyResult setRatio(SetRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
-    }
-
-    public final Object setRowHeights(SetRowHeightsRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_ROW_HEIGHTS, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object setScreenMetadata(SetScreenMetadataRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_SCREEN_METADATA, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object setScreenPinned(SetScreenPinnedRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_SCREEN_PINNED, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object setSessionIcon(SetSessionIconRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_SESSION_ICON, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final SetSizeCountsResult setSizeCounts(SetSizeCountsRequest request) throws CmuxException {
@@ -1331,59 +518,19 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final Object setTabPinned(SetTabPinnedRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_TAB_PINNED, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final TerminalCommandHistoryResult setTerminalCommandHistory(SetTerminalCommandHistoryRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_TERMINAL_COMMAND_HISTORY, request.toWire());
-        return TerminalCommandHistoryResult.fromWire(result);
-    }
-
     public final SetTerminalIdlePolicyResult setTerminalIdlePolicy(SetTerminalIdlePolicyRequest request) throws CmuxException {
         Object result = execute(Commands.SET_TERMINAL_IDLE_POLICY, request.toWire());
         return SetTerminalIdlePolicyResult.fromWire(result);
     }
 
-    public final SetTerminalKeepResult setTerminalKeep(SetTerminalKeepRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_TERMINAL_KEEP, request.toWire());
-        return SetTerminalKeepResult.fromWire(result);
-    }
-
-    public final SetTerminalTailPinResult setTerminalTailPin(SetTerminalTailPinRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_TERMINAL_TAIL_PIN, request.toWire());
-        return SetTerminalTailPinResult.fromWire(result);
-    }
-
-    public final ViewportPaneWidthResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
+    public final EmptyResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
         Object result = execute(Commands.SET_VIEWPORT_PANE_WIDTH, request.toWire());
-        return ViewportPaneWidthResult.fromWire(result);
+        return EmptyResult.fromWire(result);
     }
 
     public final EmptyResult setWindowTitle(SetWindowTitleRequest request) throws CmuxException {
         Object result = execute(Commands.SET_WINDOW_TITLE, request.toWire());
         return EmptyResult.fromWire(result);
-    }
-
-    public final Object setWorkspaceMetadata(SetWorkspaceMetadataRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_WORKSPACE_METADATA, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object shellRead(ShellReadRequest request) throws CmuxException {
-        Object result = execute(Commands.SHELL_READ, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object shellRun(ShellRunRequest request) throws CmuxException {
-        Object result = execute(Commands.SHELL_RUN, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object shellStop(ShellStopRequest request) throws CmuxException {
-        Object result = execute(Commands.SHELL_STOP, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final ShutdownDaemonResult shutdownDaemon(ShutdownDaemonRequest request) throws CmuxException {
@@ -1396,22 +543,13 @@ public abstract class GeneratedCmuxClient {
         return SidebarPluginResult.fromWire(result);
     }
 
-    public final SnapshotRequestResult snapshotRequest(SnapshotRequestRequest request) throws CmuxException {
-        Object result = execute(Commands.SNAPSHOT_REQUEST, request.toWire());
-        return SnapshotRequestResult.fromWire(result);
-    }
-
-    public final PaneSurfaceResult split(SplitRequest request) throws CmuxException {
+    public final SurfaceResult split(SplitRequest request) throws CmuxException {
         Object result = execute(Commands.SPLIT, request.toWire());
-        return PaneSurfaceResult.fromWire(result);
+        return SurfaceResult.fromWire(result);
     }
 
     public final CmuxStream<ProtocolEvent> subscribe(SubscribeRequest request) throws CmuxException {
         return openStream(Commands.SUBSCRIBE, request.toWire());
-    }
-
-    public final CmuxStream<ProtocolEvent> subscribeActivity() throws CmuxException {
-        return openStream(Commands.SUBSCRIBE_ACTIVITY, Map.of());
     }
 
     public final EmptyResult swapPane(SwapPaneRequest request) throws CmuxException {
@@ -1419,58 +557,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final TerminalClipboardReplyResult terminalClipboardReply(TerminalClipboardReplyRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_CLIPBOARD_REPLY, request.toWire());
-        return TerminalClipboardReplyResult.fromWire(result);
-    }
-
-    public final CmuxStream<ProtocolEvent> terminalClipboardSubscribe(TerminalClipboardSubscribeRequest request) throws CmuxException {
-        return openStream(Commands.TERMINAL_CLIPBOARD_SUBSCRIBE, request.toWire());
-    }
-
-    public final TerminalCommandContextResult terminalCommandContext(TerminalCommandContextRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_COMMAND_CONTEXT, request.toWire());
-        return TerminalCommandContextResult.fromWire(result);
-    }
-
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);
-    }
-
-    public final Object terminalFind(TerminalFindRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_FIND, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_HISTORY, request.toWire());
-        return TerminalHistoryPagesResult.fromWire(result);
-    }
-
-    public final TerminalLastCommandResult terminalLastCommand(TerminalLastCommandRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_LAST_COMMAND, request.toWire());
-        return TerminalLastCommandResult.fromWire(result);
-    }
-
-    public final TerminalPortsResult terminalPorts(TerminalPortsRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_PORTS, request.toWire());
-        return TerminalPortsResult.fromWire(result);
-    }
-
-    public final TerminalReadRangeResult terminalReadRange(TerminalReadRangeRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_READ_RANGE, request.toWire());
-        return TerminalReadRangeResult.fromWire(result);
-    }
-
-    public final TerminalResourcesResult terminalResources(TerminalResourcesRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_RESOURCES, request.toWire());
-        return TerminalResourcesResult.fromWire(result);
-    }
-
-    public final TerminalResumeCommandResult terminalResumeCommand(TerminalResumeCommandRequest request) throws CmuxException {
-        Object result = execute(Commands.TERMINAL_RESUME_COMMAND, request.toWire());
-        return TerminalResumeCommandResult.fromWire(result);
     }
 
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {
@@ -1478,79 +567,9 @@ public abstract class GeneratedCmuxClient {
         return LayoutUndoResult.fromWire(result);
     }
 
-    public final Object ungroupScreenGroup(UngroupScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.UNGROUP_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final UngroupTabGroupResult ungroupTabGroup(UngroupTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.UNGROUP_TAB_GROUP, request.toWire());
-        return UngroupTabGroupResult.fromWire(result);
-    }
-
-    public final Object unpinWorkspace(UnpinWorkspaceRequest request) throws CmuxException {
-        Object result = execute(Commands.UNPIN_WORKSPACE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
     public final BrowserProviderUnregisterResult unregisterBrowserProvider() throws CmuxException {
         Object result = execute(Commands.UNREGISTER_BROWSER_PROVIDER, Map.of());
         return BrowserProviderUnregisterResult.fromWire(result);
-    }
-
-    public final Object unsaveScreenGroup(UnsaveScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.UNSAVE_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final UnsaveTabGroupResult unsaveTabGroup(UnsaveTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.UNSAVE_TAB_GROUP, request.toWire());
-        return UnsaveTabGroupResult.fromWire(result);
-    }
-
-    public final BookmarkChangeResult updateBookmark(UpdateBookmarkRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_BOOKMARK, request.toWire());
-        return BookmarkChangeResult.fromWire(result);
-    }
-
-    public final Object updateBrowserProfile(UpdateBrowserProfileRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_BROWSER_PROFILE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object updateFrontendBrowserTab(UpdateFrontendBrowserTabRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_FRONTEND_BROWSER_TAB, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object updatePersonalGroup(UpdatePersonalGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_PERSONAL_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object updateProfile(UpdateProfileRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_PROFILE, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object updateRemoteTerminalTab(UpdateRemoteTerminalTabRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_REMOTE_TERMINAL_TAB, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final Object updateScreenGroup(UpdateScreenGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_SCREEN_GROUP, request.toWire());
-        return Wire.immutableJson(result);
-    }
-
-    public final TabGroupOutcome updateTabGroup(UpdateTabGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_TAB_GROUP, request.toWire());
-        return TabGroupOutcome.fromWire(result);
-    }
-
-    public final Object updateWorkspaceGroup(UpdateWorkspaceGroupRequest request) throws CmuxException {
-        Object result = execute(Commands.UPDATE_WORKSPACE_GROUP, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final GuestUrlOpenResult urlOpen(UrlOpenRequest request) throws CmuxException {
@@ -1580,11 +599,6 @@ public abstract class GeneratedCmuxClient {
     public final WaitForResult waitFor(WaitForRequest request) throws CmuxException {
         Object result = execute(Commands.WAIT_FOR, request.toWire());
         return WaitForResult.fromWire(result);
-    }
-
-    public final Object wsListen(WsListenRequest request) throws CmuxException {
-        Object result = execute(Commands.WS_LISTEN, request.toWire());
-        return Wire.immutableJson(result);
     }
 
     public final ZoomPaneResult zoomPane(ZoomPaneRequest request) throws CmuxException {

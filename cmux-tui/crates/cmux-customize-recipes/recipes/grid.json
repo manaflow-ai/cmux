@@ -1,9 +1,0 @@
-{
-  "cmuxProfile": 1,
-  "name": "grid",
-  "description": "A Swiss grid: zero corners, 1 px rules instead of shadows, one signal-yellow accent on black, no glass, heavy grotesk type.",
-  "settings": {
-    "appearance.themeFile": "grid",
-    "agentPane.display.font.ui": "hanken"
-  }
-}

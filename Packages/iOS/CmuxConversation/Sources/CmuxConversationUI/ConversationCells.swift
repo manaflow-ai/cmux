@@ -1,7 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
-import CmuxSpinner
 import UIKit
 
 /// One message: optional sender name, reply quote, images, text bubble or
@@ -31,8 +30,6 @@ final class MessageCell: UICollectionViewCell {
     let footerLabel = UILabel()
     let editedLabel = UILabel()
     let repliesLabel = UILabel()
-    /// "N Replies" under the quote: the quoted message's own thread.
-    let quoteRepliesLabel = UILabel()
     let translationLabel = UILabel()
     let failedBadge = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
     let timeLabel = UILabel()
@@ -63,13 +60,6 @@ final class MessageCell: UICollectionViewCell {
     private(set) lazy var accessibility = MessageCellAccessibility(cell: self)
 
     private(set) var model: MessageRowModel?
-    weak var activeTextSelection: BubbleTextSelectionView?
-    var selectableLabel: UILabel? {
-        if !textLabel.isHidden, (textLabel.attributedText?.length ?? 0) > 0 { return textLabel }
-        if !emojiLabel.isHidden, !(emojiLabel.text ?? "").isEmpty { return emojiLabel }
-        return nil
-    }
-
     private var previousRowID: String?
     /// The row's send flight is in the air (see `setFlightHidden`).
     var isFlightHidden = false
@@ -89,13 +79,6 @@ final class MessageCell: UICollectionViewCell {
     var replyDrag: CGFloat = 0 { didSet { applyShifts() } }
     /// Select mode leading shift for incoming rows.
     var selectionShift: CGFloat = 0 { didSet { applyShifts() } }
-    /// Where the reply line starts above the row (negative: in the gap over
-    /// it), for a reply that joins the thread block above; the transcript
-    /// sets it from the row spacing before `configure`.
-    var threadLeadIn: CGFloat = 0
-    /// Clips the line at a row edge it runs on across, so it does not
-    /// overlap the neighbor's (the color is translucent).
-    private let threadClip = CALayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -103,17 +86,13 @@ final class MessageCell: UICollectionViewCell {
         shiftable.addSubview(replyPinned)
         replyPinned.layer.addSublayer(threadLine)
         threadLine.fillColor = nil
-        threadLine.lineWidth = ConversationReplyThread.lineWidth
+        threadLine.lineWidth = 2.5
         threadLine.lineCap = .round
         senderLabel.font = ConversationTheme.senderNameFont
         senderLabel.textColor = ConversationTheme.secondaryText
-        // Messages' quote is one line, truncated (`replyBalloon…`).
-        quoteLabel.numberOfLines = 1
+        quoteLabel.numberOfLines = 2
         quoteLabel.lineBreakMode = .byTruncatingTail
         textLabel.numberOfLines = 0
-        // A row scrolled on before its effect glyphs were rendered ahead
-        // shows them when ready instead of typesetting them in the frame.
-        textLabel.rendersEffectsOffMainThread = true
         emojiLabel.font = .systemFont(ofSize: ConversationTheme.emojiOnlyFontSize)
         emojiLabel.numberOfLines = 0
         footerLabel.font = ConversationTheme.footerFont
@@ -121,17 +100,15 @@ final class MessageCell: UICollectionViewCell {
         footerLabel.textAlignment = .right
         editedLabel.font = ConversationTheme.editedFont
         editedLabel.textColor = .systemBlue
-        repliesLabel.font = ConversationTheme.footerFont
+        repliesLabel.font = ConversationTheme.editedFont
         repliesLabel.textColor = .systemBlue
-        quoteRepliesLabel.font = ConversationTheme.footerFont
-        quoteRepliesLabel.textColor = .systemBlue
         failedBadge.tintColor = ConversationTheme.notDelivered
         failedBadge.contentMode = .scaleAspectFit
         timeLabel.font = ConversationTheme.timestampDrawerFont
         timeLabel.textColor = ConversationTheme.timestampText
         timeLabel.alpha = 0
         translationLabel.accessibilityIdentifier = "conversation.message.translation"
-        for view in [senderLabel, quoteBubble, quoteLabel, quoteRepliesLabel, avatar] {
+        for view in [senderLabel, quoteBubble, quoteLabel, avatar] {
             replyPinned.addSubview(view)
         }
         for view in [bubble, textLabel, emojiLabel, reactionBadge, editedLabel, repliesLabel, translationLabel] {
@@ -150,7 +127,6 @@ final class MessageCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        activeTextSelection?.end()
         imageTasks.forEach { $0.cancel() }
         imageTasks = []
         previousRowID = nil
@@ -190,11 +166,6 @@ final class MessageCell: UICollectionViewCell {
     }
 
     private func configureContents(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
-        if let selection = activeTextSelection, selection.rowID != model.rowID ||
-            selection.frame != (layout.textFrame ?? layout.emojiFrame.map { MessageCellLayout.emojiGlyphFrame(in: $0) }) ||
-            selection.text != (layout.textFrame == nil ? model.message.text : text.string) {
-            selection.end()
-        }
         let wasScheduled = self.model?.rowID == model.rowID && self.model?.message.isScheduled == true
         self.model = model
         self.cellLayout = layout
@@ -212,26 +183,20 @@ final class MessageCell: UICollectionViewCell {
             quoteLabel.isHidden = false
             quoteBubble.side = quote.isOutgoing ? .trailing : .leading
             quoteBubble.hasTail = true
-            // Quotes are outline-only (ChatKit's unfilled reply balloon), the
-            // outline and text in the original bubble's reply colors.
+            // Quotes are outline-only, stroked in the original bubble's color.
             quoteBubble.fillColor = .clear
-            quoteBubble.strokeColor = quote.isOutgoing ? ConversationTheme.quoteOutgoingStroke : ConversationTheme.quoteStroke
+            quoteBubble.strokeColor = quote.isOutgoing ? ConversationTheme.outgoingBubble : ConversationTheme.quoteStroke
             quoteBubble.frame = quoteFrame
             quoteLabel.font = ConversationTheme.quoteFont
             quoteLabel.text = quote.text
-            quoteLabel.textColor = quote.isOutgoing ? ConversationTheme.quoteOutgoingText : ConversationTheme.quoteText
+            quoteLabel.textColor = quote.isOutgoing ? ConversationTheme.outgoingBubble : ConversationTheme.secondaryText
             quoteLabel.frame = quoteTextFrame
         } else {
             quoteBubble.isHidden = true
             quoteLabel.isHidden = true
         }
-        quoteRepliesLabel.isHidden = layout.quoteRepliesFrame == nil
-        if let frame = layout.quoteRepliesFrame, let count = model.replyQuote?.replyCount {
-            quoteRepliesLabel.text = Self.repliesText(count)
-            quoteRepliesLabel.frame = frame
-            quoteRepliesLabel.textAlignment = model.replyQuote?.isOutgoing == true ? .right : .left
-        }
-        applyThreadLine(layout)
+        threadLine.path = layout.threadPath
+        threadLine.isHidden = layout.threadPath == nil
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
 
         configureImages(model: model, layout: layout)
@@ -244,10 +209,10 @@ final class MessageCell: UICollectionViewCell {
             bubble.side = model.isOutgoing ? .trailing : .leading
             bubble.hasTail = model.showsTail && !layout.linkCardIsLast
             bubble.fillColor = model.isOutgoing
-                ? (message.delivery?.isFailed == true && ConversationTheme.bubbleColors?.sent == nil ? ConversationTheme.failedBubble : ConversationTheme.sentFill)
-                : ConversationTheme.receivedFill
-            bubble.screenGradient = model.isOutgoing ? ConversationTheme.sentFillGradient : nil
-            bubble.adaptsToBackdrop = !model.isOutgoing && ConversationTheme.receivedFillAdaptsToBackdrop
+                ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.outgoingBubble)
+                : ConversationTheme.incomingBubble
+            bubble.screenGradient = model.isOutgoing ? ConversationTheme.iMessageGradient : nil
+            bubble.adaptsToBackdrop = !model.isOutgoing
             bubble.frame = bubbleFrame
             textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
             textLabel.attributedText = text
@@ -368,17 +333,15 @@ final class MessageCell: UICollectionViewCell {
             UIView.performWithoutAnimation { failedBadge.setUntransformedFrame(frame) }
         }
         if sameRow, badgeWasHidden, !failedBadge.isHidden {
-            // A send failing on this row: the red badge pops in (under
-            // Reduce Motion it only fades in, at its full size).
+            // A send failing on this row: the red badge pops in.
             let pop = CABasicAnimation(keyPath: "transform.scale")
             pop.fromValue = 0.3
             pop.toValue = 1
-            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
             let group = CAAnimationGroup()
-            group.animations = UIView.reducesMotion ? [fade] : [pop, fade]
+            group.animations = [pop, fade]
             group.duration = 0.25
             group.timingFunction = CAMediaTimingFunction(name: .easeOut)
             failedBadge.layer.add(group, forKey: "failedPop")
@@ -392,7 +355,9 @@ final class MessageCell: UICollectionViewCell {
         }
         repliesLabel.isHidden = layout.repliesFrame == nil
         if let frame = layout.repliesFrame {
-            repliesLabel.text = Self.repliesText(message.replyCount)
+            repliesLabel.text = message.replyCount == 1
+                ? String(localized: "conversation.message.oneReply", defaultValue: "1 Reply", bundle: .module)
+                : String(format: String(localized: "conversation.message.replies", defaultValue: "%d Replies", bundle: .module), message.replyCount)
             repliesLabel.frame = frame
             repliesLabel.textAlignment = model.isOutgoing ? .right : .left
         }
@@ -498,7 +463,6 @@ final class MessageCell: UICollectionViewCell {
             imageTasks.append(Task { @MainActor [weak self, weak view] in
                 let image = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: pixelWidth)
                 guard let self, let view, self.model?.rowID == rowID, !Task.isCancelled else { return }
-                // motion: allow crossfade, the Reduce Motion form
                 UIView.transition(with: view, duration: 0.18, options: .transitionCrossDissolve) {
                     view.image = image
                 }
@@ -576,11 +540,9 @@ final class MessageCell: UICollectionViewCell {
 
     /// Appearing: grows from its center on a critically damped spring
     /// (response 0.52 s) while fading in over 0.25 s; leaving: fades and
-    /// shrinks to 0.9 in 0.1 s. Under Reduce Motion only the fades run, at
-    /// full size.
+    /// shrinks to 0.9 in 0.1 s.
     static func statusAnimation(appearing: Bool) -> CAAnimation {
         let group = CAAnimationGroup()
-        let reducesMotion = UIView.reducesMotion
         if appearing {
             let scale = CASpringAnimation(keyPath: "transform")
             scale.isAdditive = true
@@ -590,24 +552,22 @@ final class MessageCell: UICollectionViewCell {
             scale.fromValue = CATransform3DMakeScale(0.01, 0.01, 1)
             scale.toValue = CATransform3DIdentity
             scale.duration = scale.settlingDuration
-            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
             fade.duration = 0.25
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            group.animations = reducesMotion ? [fade] : [scale, fade]
-            group.duration = reducesMotion ? fade.duration : scale.duration
+            group.animations = [scale, fade]
+            group.duration = scale.duration
         } else {
             let scale = CABasicAnimation(keyPath: "transform")
             scale.isAdditive = true
             scale.fromValue = CATransform3DIdentity
             scale.toValue = CATransform3DMakeScale(0.9, 0.9, 1)
-            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 1
             fade.toValue = 0
-            group.animations = reducesMotion ? [fade] : [scale, fade]
+            group.animations = [scale, fade]
             group.duration = 0.1
         }
         return group
@@ -662,57 +622,12 @@ final class MessageCell: UICollectionViewCell {
         return TimestampDrawerPhysics.drawerWidth(widestReferenceTime: widest, margin: timestampDrawerMargin)
     }
 
-    static func repliesText(_ count: Int) -> String {
-        count == 1
-            ? String(localized: "conversation.message.oneReply", defaultValue: "1 Reply", bundle: .module)
-            : String(format: String(localized: "conversation.message.replies", defaultValue: "%d Replies", bundle: .module), count)
-    }
-
     /// 58 pt with "11:00 AM" at 50.07 pt, as Messages on an iPhone 17 Pro.
     static let timestampDrawerMargin: CGFloat = 7
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
-    }
-
-    /// The reply line of one row of a thread block: a reply joining the
-    /// block above starts at `threadLeadIn`, one with the block running on
-    /// below ends at its bottom edge, and each such edge clips the round cap
-    /// so the rows' lines meet without overlapping.
-    private func applyThreadLine(_ layout: MessageCellLayout) {
-        guard var thread = layout.thread else {
-            threadLine.path = nil
-            threadLine.isHidden = true
-            threadLine.mask = nil
-            return
-        }
-        if layout.threadArrival != nil {
-            // Between two grouped replies of theirs there is no room: no line.
-            guard threadLeadIn < thread.bottom.y else {
-                threadLine.path = nil
-                threadLine.isHidden = true
-                threadLine.mask = nil
-                return
-            }
-            thread.top = .cap(y: threadLeadIn)
-        }
-        threadLine.path = thread.path
-        threadLine.isHidden = false
-        let clipsTop = layout.threadArrival == .line
-        guard clipsTop || layout.threadRunsBelow else {
-            threadLine.mask = nil
-            return
-        }
-        // Generous sideways: only the clipped edges matter.
-        let top = clipsTop ? thread.top.y : -10_000
-        let bottom = layout.threadRunsBelow ? layout.height : layout.height + 10_000
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        threadClip.backgroundColor = UIColor.black.cgColor
-        threadClip.frame = CGRect(x: -10_000, y: top, width: 20_000, height: bottom - top)
-        threadLine.mask = threadClip
-        CATransaction.commit()
     }
 }
 
@@ -725,7 +640,6 @@ extension MessageCell {
             bubble.strokeColor = nil
             if wasScheduled {
                 bubble.animateFill(from: .clear, duration: 0.3)
-                // motion: allow crossfade, the Reduce Motion form
                 UIView.transition(with: textLabel, duration: 0.3, options: [.transitionCrossDissolve, .allowUserInteraction], animations: nil)
             }
             return
@@ -873,7 +787,7 @@ final class LoadingCell: UICollectionViewCell {
     static let reuseID = "loading"
     /// ChatKit's load-more row (CKTranscriptHeaderCell.defaultCellHeight).
     static let height: CGFloat = 20
-    let spinner = CmuxSpinnerView(side: 20)
+    let spinner = UIActivityIndicatorView(style: .medium)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -931,11 +845,9 @@ final class ConversationStartCell: UICollectionViewCell {
     static func text(title: String, subtitle: String, color: UIColor) -> NSAttributedString {
         let centered = NSMutableParagraphStyle()
         centered.alignment = .center
-        let text = NSMutableAttributedString(string: subtitle.isEmpty ? title : title + "\n", attributes: [
+        let text = NSMutableAttributedString(string: title + "\n", attributes: [
             .font: ConversationTheme.timestampBoldFont, .foregroundColor: color, .paragraphStyle: centered,
         ])
-        // A service line without a subtitle (no encryption claim): no lock.
-        guard !subtitle.isEmpty else { return text }
         let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .bold))!
         let lockAttachment = NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal))
         // A 9.33 pt tall lock on the baseline at the symbol's own proportions

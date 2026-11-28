@@ -118,18 +118,7 @@ def _string(value: str) -> str:
 def _doc(text: str | None, indent: str = "") -> list[str]:
     if not text:
         return []
-    # Escape what rustdoc would read as markup: a backtick, `<` (an `<hex>` in a schema
-    # description became an unclosed HTML tag and failed `cargo doc -D warnings`, #20129), and
-    # `[` and `]` (a `[::1]` read as an intra-doc link to nothing and failed the same way). A
-    # backslash goes first, or one already in the text would cancel the escape after it.
-    words = (
-        " ".join(str(text).split())
-        .replace("\\", "\\\\")
-        .replace("`", "\\`")
-        .replace("<", "\\<")
-        .replace("[", "\\[")
-        .replace("]", "\\]")
-    )
+    words = " ".join(str(text).split()).replace("`", "\\`")
     return [f"{indent}/// {words}"]
 
 
@@ -157,7 +146,7 @@ def _serde_field_options(
 def _header(ir: SdkIR) -> str:
     return (
         "// This file is generated. Do not edit by hand.\n"
-        f"// cmux-tui mux protocol {ir.mux_protocol}; the IR SHA-256 is SDK_IR_SHA256 in metadata.rs.\n"
+        f"// cmux-tui mux protocol {ir.mux_protocol}, IR {ir.ir_sha256}.\n"
         "// The emitter owns this layout so generation is independent of the installed rustfmt.\n"
         "\n"
     )
@@ -274,16 +263,12 @@ class _Definitions:
             f"pub enum {name} {{",
         ]
         used: set[str] = set()
-        fallback = expression.get("fallback")
         for index, value in enumerate(values, start=1):
             variant = _pascal(value)
             if variant in used:
                 variant = f"{variant}{index}"
             used.add(variant)
-            # The fallback variant also takes every string value this SDK
-            # does not know, so a newer daemon's value still decodes.
-            other = ", other" if value == fallback else ""
-            lines.append(f"    #[serde(rename = {_string(value)}{other})]")
+            lines.append(f"    #[serde(rename = {_string(value)})]")
             lines.append(f"    {variant},")
         lines.append("}")
         self.definitions[name] = "\n".join(lines) + "\n"

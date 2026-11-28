@@ -4,7 +4,8 @@
 Runs the real `decide` github-script under Node with a mocked GitHub API and
 checks that only pushes to main are throttled, by the age of the commit the
 `nightly` tag points at; that a push whose changed paths cannot reach the app
-skips the build; and that every lookup failure builds. The build-input check
+skips the build; and that lookup failures before the first in-flight page build
+while partial reads skip the tick. The build-input check
 runs the real `scripts/ci/nightly_build_inputs.py`, so the classification it
 asserts is the one the workflow gets.
 """
@@ -13,10 +14,7 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
@@ -58,7 +56,6 @@ const summary = {
 };
 const core = {
   setOutput: (k, v) => { outputs[k] = v; },
-  setFailed: (message) => { outputs.failed = message; },
   notice: (m) => notices.push(m),
   warning: (m) => warnings.push(m),
   summary,
@@ -71,7 +68,25 @@ const context = {
   repo: { owner: 'manaflow-ai', repo: 'cmux' },
 };
 const notFound = () => Object.assign(new Error('Not Found'), { status: 404 });
-const github = { rest: {
+// scenario.runs (main nightly runs, each with a status) and scenario.jobs (by run id)
+// answer the in-flight read; an omitted list means the API answered with no runs.
+const actions = {
+  listWorkflowRuns: async ({ status, branch }) => {
+    if (branch !== 'main') throw new Error(`expected main's runs, got ${branch}`);
+    if (scenario.failStatus === status) throw new Error(`failed listing ${status} runs`);
+    return { data: (scenario.runs || []).filter((run) => run.status === status) };
+  },
+  listJobsForWorkflowRun: async ({ run_id }) => ({ data: scenario.jobs[String(run_id)] || [] }),
+};
+const github = { paginate: async (fn, params, mapFn) => {
+  const page = await fn(params);
+  const mapped = mapFn ? mapFn(page, 0) : page.data;
+  if (scenario.failAfterFirstPageStatus === params.status) {
+    throw new Error(`failed listing the next ${params.status} page`);
+  }
+  return mapped;
+}, rest: {
+  actions,
   git: {
     getRef: async () => {
       if (!scenario.tagSha) throw notFound();
@@ -94,29 +109,6 @@ const github = { rest: {
     },
   },
 } };
-// limitedFor: {'group.method': seconds}. Each named read is rate limited (primary
-// quota dry) for that long after its first call; setTimeout advances the clock.
-const waits = [];
-if (scenario.limitedFor) {
-  global.setTimeout = (resolve, ms) => { waits.push(ms); scenario.nowMs += ms; resolve(); };
-  github.hook = { wrap: (_event, wrapper) => {
-    for (const [name, seconds] of Object.entries(scenario.limitedFor)) {
-      const [group, method] = name.split('.');
-      const original = github.rest[group][method];
-      let resetMs = null;
-      github.rest[group][method] = (...args) => wrapper(async () => {
-        if (resetMs === null) resetMs = Date.now() + seconds * 1000;
-        if (Date.now() < resetMs) {
-          throw Object.assign(new Error('API rate limit exceeded for installation'), {
-            status: 403,
-            response: { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetMs / 1000) } },
-          });
-        }
-        return original(...args);
-      }, { method: 'GET', url: name });
-    }
-  } };
-}
 // Classify with the real script in the real checkout, so the workflow and this
 // contract cannot disagree about what reaches the app.
 const exec = { getExecOutput: async (command, args, options) => {
@@ -135,13 +127,13 @@ const exec = { getExecOutput: async (command, args, options) => {
 const run = new Function('github', 'context', 'core', 'process', 'exec',
   `return (async () => {\n${scenario.script}\n})();`);
 run(github, context, core, process, exec).then(() => {
-  console.log(JSON.stringify({ outputs, notices, warnings, tables, waits }));
+  console.log(JSON.stringify({ outputs, notices, warnings, tables }));
 }).catch((e) => { console.error(e); process.exit(1); });
 """
 
 
 def decide_script() -> str:
-    lines = nightly_expand(WORKFLOW.read_text(encoding="utf-8")).splitlines()
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
     start = lines.index("      - name: Decide whether a nightly build is needed")
     script_at = next(
         i for i in range(start, len(lines)) if lines[i].strip() == "script: |"
@@ -155,7 +147,7 @@ def decide_script() -> str:
 
 
 def env_value(name: str) -> str:
-    text = nightly_expand(WORKFLOW.read_text(encoding="utf-8"))
+    text = WORKFLOW.read_text(encoding="utf-8")
     marker = f"          {name}: "
     return next(l for l in text.splitlines() if l.startswith(marker))[len(marker) :]
 
@@ -168,11 +160,17 @@ def run_decide(
     tag_age_hours: float = 0.5,
     interval: str = "2",
     get_commit_fails: bool = False,
-    limited_for=None,
-    schedule: str = "47 8 * * *",
+    schedule: str = "2,17,32,47 * * * *",
     extra_env=None,
     comparison=None,
     classifier=None,
+    now_ms: int = 1700000000000,
+    main_push_builds: str = "1",
+    runs=None,
+    jobs=None,
+    max_in_flight: str = "3",
+    fail_status=None,
+    fail_after_first_page_status=None,
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -182,23 +180,26 @@ def run_decide(
         "SEED_ONLY": "false",
         "COLD_CACHE": "false",
         "PUSH_MIN_INTERVAL_HOURS": interval,
-        # The live repository value; a test that checks the writer gate overrides it.
-        "NIGHTLY_NEXT_WRITER": "mac",
+        "MAIN_PUSH_BUILDS": main_push_builds,
+        "MAX_IN_FLIGHT": max_in_flight,
         "SCENARIO": json.dumps(
             {
                 "script": decide_script(),
-                "nowMs": 1700000000000,
+                "nowMs": now_ms,
                 "ref": ref,
                 "headSha": HEAD_SHA,
                 "eventName": event,
                 "tagSha": tag_sha,
                 "tagAgeHours": tag_age_hours,
                 "getCommitFails": get_commit_fails,
-                "limitedFor": limited_for,
                 "schedule": schedule,
                 "compare": APP_CHANGE if comparison is None else comparison,
                 "classifier": classifier,
                 "root": str(ROOT),
+                "runs": runs,
+                "jobs": jobs or {},
+                "failStatus": fail_status,
+                "failAfterFirstPageStatus": fail_after_first_page_status,
             }
         ),
     }
@@ -241,26 +242,6 @@ def ci_scripts():
     return detect, nightly
 
 
-def test_decide_waits_once_through_an_hourly_reset() -> None:
-    # Run 44849687076: the core budget was dry for 29 minutes; the old 20-minute
-    # cap gave up first. One read limited for 50 minutes now waits it out.
-    result = run_decide(event="workflow_dispatch", limited_for={"git.getRef": 3000})
-    assert sum(result["waits"]) >= 3000 * 1000
-    assert should_build(result)
-
-
-def test_decide_rate_limit_waits_share_one_decision_window() -> None:
-    # A push reads the tag, then compares paths. Each read is limited for 50
-    # minutes: 100 minutes of waiting with a cap per request. With one 65-minute
-    # window for the decision, the comparison gives up when it closes, and a
-    # failed lookup builds, as before.
-    result = run_decide(event="push", tag_age_hours=3,
-                        limited_for={"git.getRef": 3000,
-                                     "repos.compareCommitsWithBasehead": 3000})
-    assert sum(result["waits"]) <= 65 * 60 * 1000, result["waits"]
-    assert should_build(result)
-
-
 def test_decision_summary_distinguishes_push_throttle_from_manual_build() -> None:
     push = run_decide(event="push", tag_age_hours=0.5)
     assert summary_values(push)["app build selected"] == "false"
@@ -295,7 +276,7 @@ def test_cache_only_modes_explain_why_no_app_is_built() -> None:
     assert summary_values(warm)["app build selected"] == "false"
     assert summary_values(warm)["publish app this run"] == "false"
     assert "cache warmup" in summary_values(warm)["reason"]
-    daily = run_decide(event="schedule", schedule="47 8 * * *")
+    daily = run_decide(event="schedule", schedule="2,17,32,47 * * * *")
     assert summary_values(daily)["app build selected"] == "true"
 
 
@@ -315,9 +296,9 @@ def test_paths_that_reach_the_app_still_build() -> None:
         "Resources/bin/open-app",
         "cmux.xcodeproj/project.pbxproj",
         "package.json",
-        # The app bundles skills/cmux-computer-use as a folder resource, so its
+        # The app bundles skills/cmux-cua as a folder resource, so its
         # Markdown ships while other skills' Markdown does not.
-        "skills/cmux-computer-use/SKILL.md",
+        "skills/cmux-cua/SKILL.md",
         # Nightly signs and publishes; those helpers run in no PR lane.
         "scripts/sign-cmux-bundle.sh",
         "scripts/sparkle_generate_appcast.sh",
@@ -342,20 +323,6 @@ def test_skill_markdown_outside_the_bundled_skill_is_neutral() -> None:
                                        comparison=comparison(["skills/cmux-testing/SKILL.md"])))
 
 
-def test_paths_no_build_reads_are_neutral() -> None:
-    """The Cloud VM image roll (images/cmux-vm/inputs.lock.json, about 100 commits a day on
-    feat-cmux-next) and the other paths cmux_next_route.NO_APP_INPUT proves no build reads publish
-    no new app; a path the workflow or the bundle names still builds."""
-    _, nightly = ci_scripts()
-    for path in ["images/cmux-vm/inputs.lock.json", "services/example/main.go", ".claude/settings.json"]:
-        changed, reason = nightly.build_inputs_changed([path])
-        assert not changed, f"{path} reaches no build but rebuilt the app: {reason}"
-    roll = run_decide(event="push", interval="0",
-                      comparison=comparison(["images/cmux-vm/inputs.lock.json", "workers/cmux-vm/wrangler.jsonc"]))
-    assert not should_build(roll)
-    assert nightly.build_inputs_changed(["images/cmux-vm/inputs.lock.json", "Sources/AppDelegate.swift"])[0]
-
-
 def test_renames_are_classified_by_both_names() -> None:
     moved_out = comparison(["docs/moved.md"], files=[
         {"filename": "docs/moved.md", "status": "renamed",
@@ -378,14 +345,25 @@ def test_force_and_manual_dispatch_bypass_the_input_check() -> None:
     assert summary_values(manual)["app build inputs changed"] == "(not checked)"
 
 
+# 2026-11-25T08:17:00Z, 08:37:00Z and 09:17:00Z.
+AT_0817 = 1795594620000
+AT_0837 = AT_0817 + 20 * 60_000
+AT_0917 = 1795598220000
+BACKSTOP = "5 8 * * *"
+
+
 def test_the_daily_catch_up_still_builds_as_a_backstop() -> None:
-    """One build a day bounds the cost of a path this check gets wrong."""
-    daily = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
-                       comparison=NEUTRAL_CHANGE)
+    """One delayed daily backstop bounds the cost of a path this check gets wrong."""
+    daily = run_decide(event="schedule", schedule=BACKSTOP, interval="0",
+                       comparison=NEUTRAL_CHANGE, now_ms=AT_0817)
     assert should_build(daily)
     assert summary_values(daily)["app build inputs changed"] == "(not checked)"
+    delayed = run_decide(event="schedule", schedule=BACKSTOP, interval="0",
+                         comparison=NEUTRAL_CHANGE, now_ms=AT_0837)
+    assert should_build(delayed)
+    assert summary_values(delayed)["app build inputs changed"] == "(not checked)"
     # Nothing at all changed: the published-commit check skips it as before.
-    idle = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
+    idle = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
                       tag_sha=HEAD_SHA)
     assert not should_build(idle)
     assert "already published" in summary_values(idle)["reason"]
@@ -399,12 +377,21 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
     """The bundled set is derived, not listed, so a new resource cannot slip."""
     detect, nightly = ci_scripts()
 
-    # The cmux-next target bundles built products, package resources and a
-    # few SOURCE_ROOT resources. Every bundled path must exist and rebuild.
     bundled = nightly.bundled_paths(ROOT)
-    for path in bundled:
-        assert (ROOT / path).exists(), f"{path} is bundled but missing"
-        assert nightly.build_inputs_changed([path])[0], f"{path} is bundled but does not rebuild"
+    # The derivation finds the folder resource the router already knows about,
+    # which is what shows it reads the real bundling phases.
+    assert "skills/cmux-cua" in bundled
+    # And it finds the two the router calls neutral: each needs no Release
+    # compile, so `release_build` alone would let a change to them skip.
+    for path in ("Resources/bin/open", "Resources/bin/cmux-claude-wrapper"):
+        assert path in bundled, f"{path} is bundled but was not derived"
+        assert not detect.classify_files([path]).release_build
+        assert nightly.build_inputs_changed([path])[0]
+
+    # The cmux-cli product is copied into the bundle, so CLI sources ship
+    # without a Release compile ever covering them.
+    assert not detect.classify_files(["CLI/cmux_open.swift"]).release_build
+    assert nightly.build_inputs_changed(["CLI/cmux_open.swift"])[0]
 
     # The resolver's path list decides which client gets bundled.
     tui = nightly.tui_client_paths(ROOT)
@@ -415,78 +402,21 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
 
     consumer = "scripts/build_remote_daemon_release_assets.sh"
     assert nightly.NIGHTLY_SHIPPED_SOURCES == ("daemon/remote/",)
-    assert consumer in nightly_expand(WORKFLOW.read_text(encoding="utf-8")), (
+    assert consumer in WORKFLOW.read_text(encoding="utf-8"), (
         f"the Nightly no longer runs {consumer}; drop daemon/remote/"
     )
     assert not detect.classify_files(["daemon/remote/src/lib.rs"]).release_build
     assert nightly.build_inputs_changed(["daemon/remote/src/lib.rs"])[0]
 
 
-def test_an_embedded_package_product_is_not_a_bundled_file() -> None:
-    """A copy-files entry for a Swift package product (productRef, no fileRef) is built from package sources.
-
-    81b17999 (CMUX-629) embeds CmuxNextApp.framework that way; reading every entry as a file reference
-    raised "missing pbx field fileRef" and broke every nightly input decision on feat-cmux-next.
-    """
-    _, nightly = ci_scripts()
-    with tempfile.TemporaryDirectory() as temp:
-        root = Path(temp)
-        project = (ROOT / "cmux.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
-        (root / "cmux.xcodeproj").mkdir()
-        (root / "cmux.xcodeproj/project.pbxproj").write_text(project, encoding="utf-8")
-        bundled = nightly.bundled_paths(root)
-    assert "CmuxNextApp" not in " ".join(bundled), bundled
-
-
 def test_decide_checks_out_before_it_classifies() -> None:
     """Without the checkout the gate silently never fires."""
     import yaml
 
-    steps = yaml.safe_load(nightly_expand(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["decide"]["steps"]
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
     names = [step.get("id") or step.get("uses", "") for step in steps]
     checkout = next(i for i, n in enumerate(names) if n.startswith("actions/checkout@"))
     assert checkout < names.index("decide"), "decide must classify a checked-out tree"
-
-
-def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
-    """NEXT needs only its controls; other branches still classify the full tree."""
-    import yaml
-
-    steps = yaml.safe_load(nightly_expand(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["decide"]["steps"]
-    checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
-    assert len(checkouts) == 2
-    sparse = next(step for step in checkouts if "sparse-checkout" in step["with"])
-    full = next(step for step in checkouts if "sparse-checkout" not in step["with"])
-    assert sparse["if"] == "github.ref == 'refs/heads/nightly-next'"
-    assert full["if"] == "github.ref != 'refs/heads/nightly-next'"
-    assert sparse["with"]["sparse-checkout-cone-mode"] is False
-    for checkout in checkouts:
-        assert checkout["with"]["ref"] == "${{ github.sha }}"
-        assert checkout["with"]["fetch-depth"] == 1
-        assert checkout["with"]["persist-credentials"] is False
-        assert steps.index(checkout) < next(i for i, step in enumerate(steps) if step.get("id") == "decide")
-
-    # Execute from precisely the declared files, without the full checkout on sys.path.
-    paths = sparse["with"]["sparse-checkout"].split()
-    # /.gitmodules: actions/checkout's submodule foreach reads it (test_sparse_checkout_keeps_gitmodules.py).
-    # The shadow app-input digest step runs decide-shadow-app-input-digest.sh, which bounds
-    # scripts/ci/app_input_digest.py (stdlib only) through scripts/ci/timeout.sh.
-    assert paths == ["/scripts/ci/nightly-publication-marker.py", "/scripts/ci/app_input_digest.py",
-                     "/scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh", "/scripts/ci/timeout.sh",
-                     "/.gitmodules"]
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        for path in paths:
-            relative = path.lstrip("/")
-            target = root / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / relative, target)
-        marker = subprocess.run(
-            [sys.executable, "scripts/ci/nightly-publication-marker.py"],
-            cwd=root, input=f"<!-- cmux-published-sha: {HEAD_SHA} -->", text=True,
-            capture_output=True, check=True,
-        )
-        assert marker.stdout.strip() == HEAD_SHA
 
 
 def test_a_failing_classifier_builds() -> None:
@@ -496,6 +426,30 @@ def test_a_failing_classifier_builds() -> None:
                             classifier=command)
         assert should_build(result), f"{command} must rebuild the app"
         assert result["warnings"]
+
+
+def test_a_partial_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(
+        event="schedule",
+        schedule="2,17,32,47 * * * *",
+        runs=[],
+        comparison=APP_CHANGE,
+        fail_after_first_page_status="in_progress",
+    )
+    assert not should_build(result)
+    assert "finish enumerating main nightly runs" in result["warnings"][0]
+
+
+def test_a_first_page_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(
+        event="schedule",
+        schedule="2,17,32,47 * * * *",
+        runs=[],
+        comparison=APP_CHANGE,
+        fail_status="in_progress",
+    )
+    assert not should_build(result)
+    assert "finish enumerating main nightly runs" in result["warnings"][0]
 
 
 def test_an_unproven_comparison_builds() -> None:
@@ -569,100 +523,221 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     )
 
 
-NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next", "NIGHTLY_NEXT_WRITER": "mac"}
+def test_main_push_builds_nothing_and_the_hourly_tick_publishes() -> None:
+    """Leo, 2026-11-25: NIGHTLY should move at evenly spaced cutovers, not bunch up after a stall."""
+    assert env_value("MAIN_PUSH_BUILDS") == "${{ vars.NIGHTLY_MAIN_PUSH_BUILDS || '0' }}"
+    push = run_decide(event="push", interval="0", tag_age_hours=5, main_push_builds="0")
+    assert not should_build(push)
+    assert push["outputs"]["should_publish"] == "true"
+    assert "15-minute tick" in summary_values(push)["reason"]
+    # RC pushes still publish every push; force and manual dispatch still build.
+    assert should_build(run_decide(event="push", ref="refs/heads/rc/v1.2.3", main_push_builds="0"))
+    assert should_build(run_decide(event="push", interval="0", main_push_builds="0",
+                                   extra_env={"FORCE_BUILD": "true"}))
+    assert should_build(run_decide(event="workflow_dispatch", main_push_builds="0"))
+    tick = run_decide(event="schedule", schedule="2,17,32,47 * * * *", main_push_builds="0", now_ms=AT_0917)
+    assert should_build(tick)
+    assert summary_values(tick)["app build selected"] == "true"
 
 
-def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
-    # cx-f76kf: one writer, NIGHTLY_NEXT_WRITER (mac, linux or none). A
-    # nightly-next run that publishes builds only while it is mac; the main
-    # track ignores it. publish-nightly reads it again live.
-    for writer in ("linux", "none", " mac-mini"):
-        result = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
-                            extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=writer))
-        assert not should_build(result), writer
-    padded = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
-                        extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=" mac\n"))
-    assert should_build(padded)
-    # Unset is mac. The vars context gives '' for a variable that does not
-    # exist, so decide cannot tell it from an empty value; the final gate,
-    # which reads the variable live, refuses an empty one before any write.
-    unset = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
-                       extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=""))
-    assert should_build(unset)
-    main_track = run_decide(event="push", tag_age_hours=2.5, extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER="linux"))
-    assert should_build(main_track)
+def test_the_hourly_tick_skips_when_no_app_input_changed() -> None:
+    tick = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
+                      comparison=NEUTRAL_CHANGE, now_ms=AT_0917)
+    assert not should_build(tick)
+    assert "nothing that reaches the app changed" in summary_values(tick)["reason"]
 
 
-def test_nightly_next_publishes_its_own_track() -> None:
-    # A push to nightly-next (moved only by the promote workflow) builds and
-    # publishes the cmux-next track: signed once as cmux NIGHTLY, the app the
-    # team runs, with its Developer ID profile (hq#7156), on its own release,
-    # feed and environment, and no main push throttle.
-    result = run_decide(event="push", ref="refs/heads/nightly-next",
-                        tag_age_hours=0.1, extra_env=NEXT_ENV)
-    outputs = result["outputs"]
-    assert should_build(result)
-    assert outputs["should_publish"] == "true"
-    assert outputs["track"] == "nightly-next"
-    assert outputs["channel"] == "nightly"
-    assert outputs["environment"] == "release-next"
-    assert outputs["bundle_id"] == "com.cmuxterm.app.nightly"
-    assert outputs["app_name"] == "cmux NIGHTLY"
-    assert outputs["url_scheme"] == "cmux-nightly"
-    assert outputs["entitlements"] == "cmux.nightly.entitlements"
-    assert outputs["sign_channel"] == "nightly"
-    assert outputs["profile_channel"] == "NIGHTLY"
-    assert outputs["release_tag"] == "nightly-next"
-    assert outputs["dmg_prefix"] == "cmux-nightly-next-macos"
-    assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next"
-    # The same commit is not rebuilt.
-    assert not should_build(run_decide(event="push", ref="refs/heads/nightly-next",
-                                       tag_sha=HEAD_SHA, extra_env=NEXT_ENV))
+def test_the_workflow_runs_main_app_builds_on_the_hourly_tick() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert 'cron: "2,17,32,47 * * * *"' in text
+    assert "47 8 * * *" not in text
 
 
-def test_nightly_next_summary_ignores_the_retired_hold_and_explains_the_notary_exemption() -> None:
-    held = run_decide(
-        event="push",
-        ref="refs/heads/nightly-next",
-        extra_env={
-            **NEXT_ENV,
-            "NIGHTLY_NEXT_HOLD": "1",
-            "NIGHTLY_NEXT_BROWSER_DATA_IMPORT": "compiled-out",
-        },
-    )
-    assert should_build(held)
-    held_summary = summary_values(held)
-    assert "publication hold" not in held_summary
-    assert "deterministic checks" in held_summary["required hold verification"]
-    assert not any("SIGTRAP" in warning for warning in held["warnings"]), held["warnings"]
-
-    compiled_out = run_decide(
-        event="push",
-        ref="refs/heads/nightly-next",
-        extra_env={
-            **NEXT_ENV,
-            "NIGHTLY_NEXT_NOTARY_PAUSED": "1",
-            "NIGHTLY_NEXT_BROWSER_DATA_IMPORT": "compiled-out",
-        },
-    )
-    assert should_build(compiled_out)
-    assert compiled_out["outputs"]["notary_paused"] == "false"
-    assert "bypassed" in summary_values(compiled_out)["NIGHTLY_NEXT_NOTARY_PAUSED"]
+TICK = "2,17,32,47 * * * *"
 
 
-def test_main_and_rc_keep_the_release_environment_and_feeds() -> None:
-    main_outputs = run_decide(event="push", tag_age_hours=2.5, extra_env=NEXT_ENV)["outputs"]
-    assert main_outputs["track"] == "nightly"
-    assert main_outputs["environment"] == "release"
-    assert main_outputs["feed_base"] == "https://files.cmux.com/nightly"
-    assert main_outputs["release_tag"] == "nightly"
-    rc_outputs = run_decide(event="push", ref="refs/heads/rc/v1.2.3", extra_env=NEXT_ENV)["outputs"]
-    assert rc_outputs["environment"] == "release"
-    assert rc_outputs["feed_base"] == "https://files.cmux.com/rc"
-    # Any other branch is an unpublished dogfood run.
-    other = run_decide(event="workflow_dispatch", ref="refs/heads/feat-cmux-next", extra_env=NEXT_ENV)["outputs"]
-    assert other["should_publish"] == "false"
-    assert other["environment"] == "release"
+def building_run(run_id: int, sha: str, status: str = "in_progress") -> tuple[dict, list]:
+    """A main tick run whose app build is under way, and its jobs."""
+    run = {"id": run_id, "head_branch": "main", "event": "schedule", "head_sha": sha, "status": status}
+    return run, [{"name": "build-nightly-app", "status": "in_progress", "conclusion": None}]
+
+
+def in_flight(*specs) -> dict:
+    runs, jobs = [], {}
+    for run_id, sha in specs:
+        run, run_jobs = building_run(run_id, sha)
+        runs.append(run)
+        jobs[str(run_id)] = run_jobs
+    return {"runs": runs, "jobs": jobs}
+
+
+def tick_minutes() -> list[int]:
+    """The minutes past the hour the main app tick fires, read from the workflow."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert f'cron: "{TICK}"' in text
+    return sorted(int(m) for m in TICK.split()[0].split(","))
+
+
+def main_push_starts_a_run() -> bool:
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = lines.index("  push:")
+    block = []
+    for line in lines[start + 1:]:
+        if line and not line.startswith("    "):
+            break
+        block.append(line.strip())
+    return "- main" in block
+
+
+def test_a_burst_of_ten_pushes_in_five_minutes_starts_exactly_one_run() -> None:
+    """Leo, 2026-11-25: "every commit to main starts its own nightly run, so 7 or more run at once.
+    but why? prevent dumb shit like this" and "shouldnt we have like a 10 or 15 or 20 or 30 minute
+    timer per?". A push to main starts no run; the 15-minute tick starts one, for the newest commit."""
+    assert not main_push_starts_a_run(), "a push to main must not start a Nightly run"
+    minutes = tick_minutes()
+    gaps = [(b - a) for a, b in zip(minutes, minutes[1:] + [minutes[0] + 60])]
+    assert gaps == [15] * len(gaps), gaps
+    # Ten pushes from every starting second of the hour, one each 30 s: the runs
+    # started from the first push until the build after them are the pushes'
+    # (none) plus the ticks in that 15-minute window, exactly one, wherever it falls.
+    for first in range(0, 3600, 30):
+        pushes = [first + 30 * i for i in range(10)]
+        assert pushes[-1] - pushes[0] <= 300
+        window = range(first, first + 15 * 60)
+        ticks = [s for s in window if s % 60 == 0 and (s // 60) % 60 in minutes]
+        assert len(ticks) == 1, (first, ticks)
+    # That one tick builds the newest commit.
+    tick = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **in_flight())
+    assert should_build(tick)
+    assert summary_values(tick)["main app builds in flight"] == "0 (at most 3)"
+
+
+def test_a_requested_main_run_counts_toward_the_in_flight_cap() -> None:
+    runs = in_flight((1, "c" * 40))
+    # GitHub exposes a newly accepted scheduled run as `requested` before it
+    # becomes queued. It still owns a future app build and must reserve one
+    # of the cap's slots.
+    runs["runs"][0]["status"] = "requested"
+    result = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                        max_in_flight="1", **runs)
+    assert not should_build(result)
+    assert "1 main app builds are already in flight" in summary_values(result)["reason"]
+
+
+def test_a_tick_builds_nothing_while_three_main_builds_are_in_flight() -> None:
+    full = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                      **in_flight((1, "c" * 40), (2, "d" * 40), (3, "e" * 40)))
+    assert not should_build(full)
+    reason = summary_values(full)["reason"]
+    assert "3 main app builds are already in flight" in reason and "runs 1, 2, 3" in reason
+    assert "next 15-minute tick" in reason
+    two = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                     **in_flight((1, "c" * 40), (2, "d" * 40)))
+    assert should_build(two)
+    # The cap is a variable; `0` turns it off.
+    off = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, max_in_flight="0",
+                     **in_flight((1, "c" * 40), (2, "d" * 40), (3, "e" * 40)))
+    assert should_build(off)
+    assert env_value("MAX_IN_FLIGHT") == "${{ vars.NIGHTLY_MAIN_MAX_IN_FLIGHT || '3' }}"
+
+
+def test_a_run_that_built_nothing_or_failed_is_not_in_flight() -> None:
+    runs = in_flight((1, "c" * 40), (2, "d" * 40), (3, "e" * 40))
+    runs["jobs"]["2"] = [{"name": "build-nightly-app", "status": "completed", "conclusion": "skipped"}]
+    runs["jobs"]["3"] = [{"name": "build-nightly-app", "status": "completed", "conclusion": "failure"}]
+    assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **runs))
+
+
+def test_a_tick_of_a_commit_already_building_is_a_duplicate_not_a_cap() -> None:
+    dup = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **in_flight((7, HEAD_SHA)))
+    assert not should_build(dup)
+    assert summary_values(dup)["duplicate of run"] == "7"
+
+
+def test_a_failed_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                        runs=in_flight((1, "c" * 40))["runs"],
+                        jobs={"1": in_flight((1, "c" * 40))["jobs"]["1"]},
+                        fail_status="queued")
+    assert not should_build(result)
+    assert "complete main-run list" in summary_values(result)["reason"]
+    assert result["warnings"]
+
+
+def test_an_unavailable_in_flight_read_does_not_change_non_tick_liveness() -> None:
+    assert should_build(run_decide(event="push", interval="0"))
+
+
+def waiting_for_runner(run_id: int, sha: str) -> tuple[dict, list]:
+    """A run decide chose to build whose app job does not exist yet: its runner pick waits on a Mac."""
+    run = {"id": run_id, "head_branch": "main", "event": "schedule", "head_sha": sha, "status": "queued"}
+    return run, [
+        {"name": "decide", "status": "completed", "conclusion": "success"},
+        {"name": "pick-nightly-app-runner", "status": "queued", "conclusion": None},
+        {"name": "build-nightly-ghostty-cli-helper", "status": "queued", "conclusion": None},
+    ]
+
+
+def test_a_run_still_waiting_for_its_runner_counts_as_building() -> None:
+    """11-25 17:49Z: ticks at 17:35 and 17:49 both started builds of a06e5975, because the first
+    had no build-nightly-app job yet (pick-nightly-app-runner was waiting on the Mac pool)."""
+    run, jobs = waiting_for_runner(7, HEAD_SHA)
+    dup = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs})
+    assert not should_build(dup)
+    assert summary_values(dup)["duplicate of run"] == "7"
+    runs = in_flight((1, "c" * 40), (2, "d" * 40))
+    run, jobs = waiting_for_runner(3, "e" * 40)
+    runs["runs"].append(run)
+    runs["jobs"]["3"] = jobs
+    assert not should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **runs))
+    # A run that chose not to build has its pick job skipped: it is not in flight.
+    run, jobs = waiting_for_runner(7, HEAD_SHA)
+    jobs[1] = {"name": "pick-nightly-app-runner", "status": "completed", "conclusion": "skipped"}
+    assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs}))
+
+
+def test_a_run_between_its_decide_and_its_pick_job_counts_as_building() -> None:
+    """Run 45668811281's decide ended at 17:54Z and GitHub created its pick job seconds later. A
+    tick reading in that gap saw a run with only `decide` and counted nothing."""
+    run, jobs = waiting_for_runner(7, HEAD_SHA)
+    decided_only = jobs[:1]
+    dup = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": decided_only})
+    assert not should_build(dup)
+    assert summary_values(dup)["duplicate of run"] == "7"
+    runs = in_flight((1, "c" * 40), (2, "d" * 40))
+    run, jobs = waiting_for_runner(3, "e" * 40)
+    runs["runs"].append(run)
+    runs["jobs"]["3"] = jobs[:1]
+    assert not should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **runs))
+    # A run whose decide is still queued or failed has started nothing.
+    for state in ({"status": "queued", "conclusion": None}, {"status": "completed", "conclusion": "failure"}):
+        run, jobs = waiting_for_runner(7, HEAD_SHA)
+        jobs = [{"name": "decide", **state}]
+        assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs}))
+
+
+def test_main_app_ticks_decide_one_at_a_time() -> None:
+    """11-25: with the decide runner pool stalled, ticks queued with decide pending, then decided
+    together; none saw the others' app jobs, so five main runs were in flight against a cap of 3.
+    The main app ticks share one decide concurrency group (one running, one pending, nothing running
+    cancelled); every other run, including the six-hour cache warmup, keeps a group of its own."""
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = lines.index("  decide:")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("  ") and not lines[i].startswith("   "))
+    block = lines[start:end]
+    group = next(line for line in block if line.startswith("      group:"))
+    assert "'nightly-main-tick-decide'" in group
+    assert "github.event_name == 'schedule' && github.ref == 'refs/heads/main'" in group
+    assert "github.event.schedule != '17 */6 * * *'" in group
+    assert "format('nightly-decide-{0}', github.run_id)" in group
+    i = block.index(group)
+    assert block[i - 1] == "    concurrency:" and block[i + 1] == "      cancel-in-progress: false"
+
+
+def test_each_main_tick_has_its_own_concurrency_group() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "github.event_name == 'schedule' && format('main-tick-{0}', github.run_id)" in text
+    assert f'cron: "{BACKSTOP}"' in text
 
 
 def main() -> None:

@@ -13,7 +13,6 @@ add_library(cmux_tui_sdk
     src/base64.cpp
     src/json.cpp
     src/resource.cpp
-    src/machine_catalog.cpp
     src/resource_models.cpp
     src/raw/attachment.cpp
     src/raw/client_core.cpp
@@ -78,10 +77,13 @@ if(CMUX_BUILD_TESTS)
     target_compile_definitions(cmux_tui_sdk PRIVATE CMUX_CPP_TESTING=1)
     add_executable(cmux_cpp_tests
         tests/test_main.cpp
-        tests/test_machine_catalog.cpp
-        tests/test_layout_rows.cpp
+        tests/test_attachment.cpp
+        tests/test_base64.cpp
+        tests/test_client.cpp
+        tests/test_generated.cpp
+        tests/test_json.cpp
         tests/test_macro_collision.cpp
-        tests/test_opaque_null.cpp
+        tests/test_resource.cpp
         tests/test_unix_transport.cpp
     )
     target_link_libraries(cmux_cpp_tests PRIVATE cmux::sdk Threads::Threads)

@@ -62,8 +62,7 @@ enum MockHomeSeed {
             conversations.append(ConversationSummary(
                 id: conversation, title: title, participants: participants, lastSeq: last, rev: last,
                 createdAt: start.addingTimeInterval(-86_400), updatedAt: list.last?.createdAt ?? start,
-                lastMessage: list.last, readCursors: [me.id: last - Seq(min(unread, Int(last)))],
-                declaredKind: participants.count > 2 ? .group : nil
+                lastMessage: list.last, readCursors: [me.id: last - Seq(min(unread, Int(last)))]
             ))
         }
 
@@ -117,7 +116,7 @@ enum MockHomeSeed {
         "I opened a draft PR with the plan. Want me to request review?",
         "Summary: the shell builds, sign-in works, Home renders from the mock source.",
         "The Mac is asleep; I will continue on the team VM.",
-        "A user asked for variants. I prepared two list densities.",
+        "Lawrence asked for variants. I prepared two list densities.",
         "Done. The device install passed the auth gate.",
     ]
 

@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
 """Adopting main's DerivedData must rebuild exactly the inputs that changed."""
+import io
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import e2e_warm_derived_data as warm
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 BUILD_TIME_NS = 1_700_000_000_000_000_000
+PRODUCER = "a" * 40
+TESTED = "b" * 40
 
 
 class ReplayTimes(unittest.TestCase):
@@ -117,53 +115,188 @@ class ReplayTimes(unittest.TestCase):
         self.assertEqual(outside.stat().st_mtime_ns, BUILD_TIME_NS)
 
 
-class TrackedWorkspace(unittest.TestCase):
-    """In a git checkout only tracked files are inputs, and build trees are never walked."""
+class GitTrackedInputs(unittest.TestCase):
+    def test_ignored_files_in_a_submodule_are_not_recorded_as_inputs(self):
+        root = Path(tempfile.mkdtemp())
+        child = root / "child"
+        workspace = root / "workspace"
+        (child / "Sources").mkdir(parents=True)
+        workspace.mkdir()
+        (child / ".gitignore").write_text("Sources/generated.swift\n")
+        (child / "Sources/App.swift").write_text("let app = 1\n")
 
-    def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
-        self.repo = self.root / "repo"
-        (self.repo / "Sources").mkdir(parents=True)
-        (self.repo / "Sources/App.swift").write_text("let app = 1\n")
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
-        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
-        # A restored build tree: untracked, and large on a real runner.
-        (self.repo / "Package/.build/debug").mkdir(parents=True)
-        (self.repo / "Package/.build/debug/App.o").write_text("object")
+        def git_environment():
+            return {
+                name: value
+                for name, value in os.environ.items()
+                if name not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"}
+            }
 
-    def test_untracked_build_trees_are_not_walked(self):
-        visited = []
-        real_walk = os.walk
+        def git(repository, *arguments):
+            subprocess.run(
+                ["git", "-C", str(repository), *arguments],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=git_environment(),
+            )
 
-        def walk(top, *args, **kwargs):
-            for entry in real_walk(top, *args, **kwargs):
-                visited.append(Path(entry[0]).relative_to(self.repo).as_posix())
-                yield entry
+        git(child, "init", "-q")
+        git(child, "add", ".gitignore", "Sources/App.swift")
+        git(child, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "init")
+        git(workspace, "init", "-q")
+        git(
+            workspace,
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(child),
+            "vendor/child",
+        )
+        git(workspace, "add", ".gitmodules", "vendor/child")
+        git(workspace, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "init")
+        (workspace / "vendor/child/Sources/generated.swift").write_text("let generated = 1\n")
 
-        warm.os.walk = walk
-        try:
-            recorded = warm.record(self.repo)
-            warm.replay(self.repo, recorded)
-        finally:
-            warm.os.walk = real_walk
-        self.assertIn("Sources/App.swift", recorded)
-        self.assertFalse([path for path in visited if path.startswith("Package")], visited)
+        with mock.patch.dict(os.environ, {"GIT_INDEX_FILE": str(root / "foreign-index")}, clear=False):
+            recorded = warm.record(workspace)
 
-    def test_replay_refuses_a_workspace_it_cannot_list(self):
-        """Outside a git checkout every file would be an input, build products included:
-        the command line refuses rather than stamping old times onto them."""
-        plain = self.root / "plain"
-        (plain / ".build").mkdir(parents=True)
-        product = plain / ".build/App.o"
-        product.write_text("object")
-        os.utime(product, ns=(BUILD_TIME_NS, BUILD_TIME_NS))
-        manifest = self.root / "manifest.json"
-        manifest.write_text('{".build/App.o": ["%s", 1]}' % warm.digest(product))
-        script = Path(__file__).resolve().parents[1] / "scripts/ci/e2e_warm_derived_data.py"
-        result = subprocess.run([sys.executable, "-I", str(script), "replay", str(plain), str(manifest)],
-                                capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(product.stat().st_mtime_ns, BUILD_TIME_NS)
+        self.assertIn("vendor/child/Sources/App.swift", recorded)
+        self.assertNotIn("vendor/child/.git", recorded)
+        self.assertNotIn("vendor/child/Sources/generated.swift", recorded)
+
+
+class TrustedProducers(unittest.TestCase):
+    def artifact(self, branch="main", expired=False):
+        return {"expired": expired, "workflow_run": {"id": 7, "head_branch": branch, "repository_id": 1, "head_repository_id": 1}}
+
+    def test_only_main_dispatches_of_this_workflow_are_adopted(self):
+        run = {"path": warm.WORKFLOW_PATH, "event": "workflow_dispatch"}
+        with mock.patch.object(warm, "api", return_value=run):
+            self.assertTrue(warm.trusted(self.artifact(), "o/r"))
+            self.assertFalse(warm.trusted(self.artifact(branch="feature"), "o/r"))
+            self.assertFalse(warm.trusted(self.artifact(expired=True), "o/r"))
+        with mock.patch.object(warm, "api", return_value={**run, "path": ".github/workflows/other.yml"}):
+            self.assertFalse(warm.trusted(self.artifact(), "o/r"))
+
+
+class ProviderDigest(unittest.TestCase):
+    def test_an_archive_that_does_not_match_its_digest_is_never_unpacked(self):
+        derived = Path(tempfile.mkdtemp())
+        artifact = {"id": 3, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 7}}
+
+        def download(repository, artifact_id, target, size):
+            Path(target).write_bytes(b"zip!")
+
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+                mock.patch.object(warm, "candidates", return_value=iter([artifact])), \
+                mock.patch.object(warm, "api", return_value={"display_title": "t on r @ " + PRODUCER}), \
+                mock.patch.object(warm, "tested_revision", return_value=PRODUCER), \
+                mock.patch.object(warm.transport, "download_zip", side_effect=download), \
+                mock.patch.object(warm, "extract") as extract:
+            with self.assertRaises(ValueError):
+                warm.restore(derived, derived, "key")
+        extract.assert_not_called()
+
+
+class ProducerDistance(unittest.TestCase):
+    """A producer whose app sources differ recompiles the whole app anyway."""
+
+    def restore_with(self, title, files, older=None):
+        """`older` is (title, files) for a second, older candidate."""
+        runs = {7: (title, files)}
+        artifacts = [{"id": 3, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 7}}]
+        if older is not None:
+            runs[8] = older
+            artifacts.append({"id": 4, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 8}})
+        producers = {7: PRODUCER, 8: "c" * 40}
+
+        def api(path):
+            if "/compare/" in path:
+                run_id = next(r for r, sha in producers.items() if sha in path)
+                return {"files": [{"filename": name} for name in runs[run_id][1]]}
+            run_id = int(path.rsplit("/", 1)[1])
+            return {"display_title": runs[run_id][0].replace("PRODUCER", producers[run_id]), "head_sha": producers[run_id]}
+
+        derived = Path(tempfile.mkdtemp())
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+                mock.patch.object(warm, "candidates", return_value=iter(artifacts)), \
+                mock.patch.object(warm, "api", side_effect=api), \
+                mock.patch.object(warm, "tested_revision", return_value=TESTED), \
+                mock.patch.object(warm.transport, "download_zip") as download:
+            try:
+                result = warm.restore(derived, derived, "key")
+            except Exception:  # the download mock leaves nothing to verify
+                result = {"hit": "attempted"}
+        self.downloaded_ids = [call.args[1] for call in download.call_args_list]
+        return result, download.called
+
+    def test_an_app_source_change_since_the_producer_skips_the_download(self):
+        result, downloaded = self.restore_with(
+            "t on r @ PRODUCER", ["cmuxTests/AppTests.swift", "Packages/macOS/CmuxFoundation/Sources/A.swift"],
+        )
+        self.assertFalse(downloaded)
+        self.assertEqual(result["hit"], "false")
+        self.assertIn("app-build-changed-since-producer", result["reason"])
+
+    def test_a_test_only_difference_adopts(self):
+        _, downloaded = self.restore_with("t on r @ PRODUCER", ["cmuxTests/AppTests.swift", "docs/x.md"])
+        self.assertTrue(downloaded)
+
+    def test_a_producer_built_from_main_uses_the_run_head(self):
+        _, downloaded = self.restore_with("t on r @ main [seed]", ["cmuxTests/AppTests.swift"])
+        self.assertTrue(downloaded)
+
+    def test_an_older_matching_seed_is_adopted_past_a_newer_distant_one(self):
+        _, downloaded = self.restore_with(
+            "t on r @ PRODUCER", ["Sources/App.swift"], older=("t on r @ PRODUCER", ["cmuxTests/A.swift"]),
+        )
+        self.assertTrue(downloaded)
+        self.assertEqual(self.downloaded_ids, [4])
+
+    def test_a_truncated_title_starts_cold(self):
+        result, downloaded = self.restore_with("t on r @ 8994e2989013a19c5bb1614ddcfc...", [])
+        self.assertEqual((result["reason"], downloaded), ("producer-revision-unknown", False))
+
+    def test_an_unknown_producer_revision_or_huge_diff_starts_cold(self):
+        result, downloaded = self.restore_with("t on r @ some-branch", [])
+        self.assertEqual((result["reason"], downloaded), ("producer-revision-unknown", False))
+        result, downloaded = self.restore_with("t on r @ PRODUCER", [f"cmuxTests/T{i}.swift" for i in range(300)])
+        self.assertEqual((result["reason"], downloaded), ("producer-too-far", False))
+
+
+class ArchiveBounds(unittest.TestCase):
+    def archive(self, name, link=None):
+        path = Path(tempfile.mkdtemp(), "derived-data.tar.gz")
+        with tarfile.open(path, "w:gz") as bundle:
+            member = tarfile.TarInfo(name)
+            if link is not None:
+                member.type, member.linkname = tarfile.SYMTYPE, link
+                bundle.addfile(member)
+            else:
+                member.size = 1
+                bundle.addfile(member, io.BytesIO(b"x"))
+        return path
+
+    def test_members_outside_derived_data_are_rejected(self):
+        destination = Path(tempfile.mkdtemp())
+        for archive in (self.archive("../escape"), self.archive("link", link="/etc/passwd")):
+            with self.assertRaises(ValueError):
+                warm.extract(archive, destination)
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_an_absolute_link_inside_derived_data_is_accepted(self):
+        destination = Path(tempfile.mkdtemp())
+        target = str(destination / "Build/Products/Debug/PackageFrameworks")
+        warm.extract(self.archive("Build/Products/link", link=target), destination)
+        self.assertTrue((destination / "Build/Products/link").is_symlink())
+
+    def test_a_contained_archive_extracts(self):
+        destination = Path(tempfile.mkdtemp())
+        warm.extract(self.archive("Build/Intermediates.noindex/a.o"), destination)
+        self.assertTrue((destination / "Build/Intermediates.noindex/a.o").is_file())
+
 
 
 if __name__ == "__main__":

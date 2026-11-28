@@ -20,17 +20,11 @@ literal ephemeral Linux or Windows label need nothing. A composite action under
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import yaml
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RUST_CACHE = "swatinem/rust-cache@"
@@ -45,16 +39,38 @@ EPHEMERAL_LABEL = re.compile(
     r"^(ubuntu-(\d{2}\.\d{2}|latest)(-arm)?|windows-(\d{4}|latest)"
     r"|blacksmith-\d+vcpu-(ubuntu-\d{4}(-arm)?|windows-\d{4}))$"
 )
+MATRIX_REF = re.compile(r"^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$")
 
 
 def is_rust_cache(step: object) -> bool:
     return isinstance(step, dict) and str(step.get("uses", "")).lower().startswith(RUST_CACHE)
 
 
-def runner_labels(job: dict) -> list[str] | None:
-    """The job's runs-on as each matrix cell writes it (a label list joined by ", "), or None when a matrix value
-    is not static (a guard counts that job as able to take a persistent runner)."""
-    return workflow_jobs.runs_on_cells(job)
+def runner_labels(job: dict) -> list[object] | None:
+    """Every label the job's runs-on can be, or None when that is not static."""
+    runs_on = job.get("runs-on")
+    if isinstance(runs_on, dict):
+        return None
+    labels = runs_on if isinstance(runs_on, list) else [runs_on]
+    resolved: list[object] = []
+    for label in labels:
+        match = MATRIX_REF.match(str(label).strip())
+        if not match:
+            resolved.append(label)
+            continue
+        matrix = (job.get("strategy") or {}).get("matrix")
+        if not isinstance(matrix, dict):
+            return None
+        key = match.group(1)
+        values = matrix.get(key, [])
+        include = matrix.get("include", [])
+        if not isinstance(values, list) or not isinstance(include, list):
+            return None
+        values = list(values) + [entry[key] for entry in include if isinstance(entry, dict) and key in entry]
+        if not values:
+            return None
+        resolved.extend(values)
+    return resolved
 
 
 def ephemeral_only(job: dict) -> bool:
@@ -114,7 +130,7 @@ def workflow_failures(path: Path, document: dict) -> tuple[int, list[str]]:
     for job_name, job in (document.get("jobs") or {}).items():
         if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
             continue
-        covered = ephemeral_only(job) or sets_cargo_home(workflow_jobs.effective_env(document, job))
+        covered = ephemeral_only(job) or sets_cargo_home(job.get("env")) or sets_cargo_home(document.get("env"))
         n, errors = steps_failures(f"{path} {job_name}", job["steps"], covered)
         found += n
         failures += errors
@@ -154,7 +170,7 @@ def self_test() -> list[str]:
           "strategy": {"matrix": {"include": [{"runner": "ubuntu-24.04"}, {"runner": "macos-26"}]}}}, False),
     ]:
         if ephemeral_only(job) is not expected:
-            errors.append(f"self-test: ephemeral_only({workflow_jobs.runs_on_cells(job)!r}) should be {expected}")
+            errors.append(f"self-test: ephemeral_only({job['runs-on']!r}) should be {expected}")
     cache = {"uses": "Swatinem/rust-cache@abc"}
     cases = [
         ("bare rust-cache on a mini", [{"uses": "x/rust-toolchain@1"}, cache], 1),
@@ -181,40 +197,8 @@ def self_test() -> list[str]:
     return errors
 
 
-def script_self_test() -> list[str]:
-    """A one-runner host whose ~/.cargo has a directory this runner cannot write gets a CARGO_HOME
-    of its own; one with a writable ~/.cargo keeps the default. rust-cache's restore stops at the
-    first crate it cannot write into ~/.cargo/registry/cache, and cargo then cannot open it
-    (session move tests on hetzner-2-3, -12, -26, -29, 2026-11-27)."""
-    if os.geteuid() == 0:
-        return []  # root writes everything; the unwritable case cannot be made here
-    errors = []
-    script = ROOT / ".github/actions" / SCRIPT
-    with tempfile.TemporaryDirectory() as tmp:
-        t = Path(tmp)
-        idx = t / "home/.cargo/registry/cache/index"
-        idx.mkdir(parents=True)
-        (t / "r1/_work/_temp").mkdir(parents=True)
-        (t / "r1/.runner").touch()
-        for writable in (True, False):
-            idx.chmod(0o755 if writable else 0o555)
-            env_file = t / "env"
-            env_file.write_text("")
-            env = dict(os.environ, HOME=str(t / "home"), RUNNER_TEMP=str(t / "r1/_work/_temp"),
-                       RUNNER_OS="Linux", GITHUB_ENV=str(env_file), GITHUB_PATH=str(t / "path"))
-            env.pop("CARGO_HOME", None)
-            done = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
-            got = env_file.read_text()
-            want = "" if writable else f"CARGO_HOME={t / 'r1/_work/.cargo-home'}\n"
-            if done.returncode != 0 or got != want:
-                errors.append(f"self-test: {SCRIPT} with a {'writable' if writable else 'read-only'} "
-                              f"~/.cargo wrote {got!r}, expected {want!r} (exit {done.returncode}: {done.stderr})")
-        idx.chmod(0o755)
-    return errors
-
-
 def main() -> int:
-    failures = self_test() + script_self_test() + provider_failures()
+    failures = self_test() + provider_failures()
     total = 0
     for path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

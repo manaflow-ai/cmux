@@ -1,7 +1,5 @@
 # Agent Session Tracking — Single Source of Truth (Technical Spec)
 
-> The Swift `cmux` CLI verbs named here were removed in the Rust CLI cutover ([plans/cmux-next/cli.md](../plans/cmux-next/cli.md)). This is a design record. Agent hooks now install with `cmux agent hook install [provider...]`.
-
 Status: DRAFT, living doc. Owner: Aziz. Last updated: 2026-06-22.
 
 Tracks the redesign of how cmux tracks whether a terminal surface has a coding
@@ -305,7 +303,7 @@ panel UUIDs and re-consults the JSON store to re-bind):
 Phase 1 audit is DONE (see "Phase 1 audit findings"). The reliable binding
 already exists, so the remaining work is additive-then-subtractive, in
 reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff,
-then merges under the [merge rule](ci/landing.md#review-and-merge).
+then merges under the [CLAUDE.md merge rule](../CLAUDE.md#ci-review-and-merge).
 
 - **Slice A — Versioning + pull snapshot (additive, no deletes). DONE.** Added a
   monotonic `version` to each session descriptor, bumped at one registry

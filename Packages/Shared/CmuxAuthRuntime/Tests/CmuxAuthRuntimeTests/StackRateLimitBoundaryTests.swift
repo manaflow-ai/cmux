@@ -1,4 +1,3 @@
-#if canImport(Network)
 import CMUXAuthCore
 import Foundation
 import Observation
@@ -291,4 +290,3 @@ private final class TelemetryRecorder: Sendable {
 
     var events: [StackRateLimitTelemetryEvent] { recorded.withLock { $0 } }
 }
-#endif

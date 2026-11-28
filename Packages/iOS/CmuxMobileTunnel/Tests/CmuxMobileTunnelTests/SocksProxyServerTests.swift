@@ -1,10 +1,4 @@
-#if canImport(Darwin)
 import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#elseif canImport(Musl)
-import Musl
-#endif
 import Foundation
 import Testing
 @testable import CmuxMobileTunnel
@@ -67,7 +61,7 @@ import Testing
         let echoed = try await Task.detached {
             RawClient.send(fd, payload)
             // Half-close: the exit sees end of input, answers, and finishes.
-            shutdown(fd, Int32(SHUT_WR))
+            shutdown(fd, SHUT_WR)
             return RawClient.receiveAll(fd)
         }.value
         #expect(echoed == payload + Array("<eof>".utf8))
@@ -85,7 +79,7 @@ import Testing
             // Greeting, request, and payload in one write (optimistic client).
             RawClient.send(fd, [5, 1, 0] + RawClient.socksConnect(host: "localhost", port: 80) + Array("early".utf8))
             _ = RawClient.receive(fd, count: 2 + 10)
-            shutdown(fd, Int32(SHUT_WR))
+            shutdown(fd, SHUT_WR)
             return RawClient.receiveAll(fd)
         }.value
         #expect(echoed == Array("early<eof>".utf8))
@@ -152,9 +146,6 @@ import Testing
         await proxy.stop()
         let rest = await Task.detached { RawClient.receiveAll(fd) }.value
         #expect(rest.isEmpty)
-        // The relay's cancel handler closes the browser side first and the exit right after, on its own
-        // task: the client can see end of input before the exit is marked closed.
-        for _ in 0..<200 where backend.exits.first?.closed != true { try await Task.sleep(for: .milliseconds(10)) }
         #expect(backend.exits.first?.closed == true)
         #expect(!proxy.isListening)
     }

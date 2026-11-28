@@ -1,8 +1,8 @@
-//! The text a `terminal.wait` pattern matches: the live screen, or with
-//! `new` (`terminal-wait-new-v1`) only what is printed below the cursor's
-//! line as the wait starts, so the echo of a just-typed command and older
-//! output never match. Both the daemon's wait worker and the router's wait
-//! read through this one type.
+//! The text a `terminal.wait` pattern matches: the rendered viewport, or
+//! with `new` (`terminal-wait-new-v1`) only what is printed below the
+//! cursor's line as the wait starts, so the echo of a just-typed command and
+//! older output never match. Both the daemon's wait worker and the router's
+//! wait read through this one type.
 
 use ghostty_vt::TrackedScreenPoint;
 use serde_json::{Map, Value};
@@ -21,7 +21,7 @@ pub(crate) struct WaitText<'a> {
 
 impl<'a> WaitText<'a> {
     /// The wait's text source for the request `fields`: an anchor on the
-    /// cursor's line now when `new` is true, else the live screen.
+    /// cursor's line now when `new` is true, else the rendered viewport.
     pub(crate) fn start(
         surface: &'a Surface,
         fields: &Map<String, Value>,
@@ -39,13 +39,13 @@ impl<'a> WaitText<'a> {
         Ok(Self { surface, anchor })
     }
 
-    /// The text to match now: the live screen's rows, or the logical lines
+    /// The text to match now: the viewport's rows, or the logical lines
     /// printed after the anchored line.
     pub(crate) fn read(&self) -> Result<String, ResourceError> {
         self.surface
             .try_with_terminal(|terminal| match &self.anchor {
                 Some(anchor) => terminal.text_after_anchor(anchor),
-                None => terminal.active_text(),
+                None => terminal.viewport_text(),
             })
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))

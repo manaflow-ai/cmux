@@ -94,17 +94,7 @@ export async function backfillHexclaveMirror(options: HexclaveBackfillOptions): 
     const staleUsers = mirrored.userIds.filter((id) => !seenUsers.has(id));
     const locked = options.reconcileSource ?? source;
     await runBounded(staleTeams, concurrency, (id) => store.reconcileTeam(id, () => locked.getTeam(id)));
-    await runBounded(staleUsers, concurrency, async (id) => {
-      const state = await readHexclaveUserState(locked, id);
-      if (state.kind === "gone") {
-        await store.reconcileUser(id, async () => state);
-      } else {
-        // A point read that finds a newly-created user is another backfill
-        // snapshot, not a webhook ordering signal. Route it through the same
-        // pending-revocation and freshness fence as the bulk snapshot.
-        skipUnlessApplied(await store.applySnapshotUser(state, snapshotStartedAt));
-      }
-    });
+    await runBounded(staleUsers, concurrency, (id) => store.reconcileUser(id, () => readHexclaveUserState(locked, id)));
     counts.pruned = staleTeams.length + staleUsers.length;
   }
   return { ...counts, dryRun: store === null };

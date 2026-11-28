@@ -137,9 +137,7 @@ public struct CmuxTUITerminal: Sendable, Equatable, Identifiable {
     public var resourceID: String?
     public var terminalID: String?
     public var name: String?
-    /// What the tab shows of the program's OSC title: the daemon's
-    /// `title_text`, without an agent's status glyphs (D2). The raw title
-    /// keeps a spinner frame the daemon does not announce.
+    /// Latest OSC title reported by the program.
     public var title: String
     public var cols: Int?
     public var rows: Int?
@@ -228,7 +226,6 @@ public enum CmuxTUIAttachEvent: Sendable, Equatable {
 public enum CmuxTUIControlEvent: Sendable, Equatable {
     /// Workspaces, panes, or tabs changed; call `listWorkspaces()`.
     case treeChanged
-    /// `title` is what the tab shows (the event's `text`), see ``CmuxTUITerminal/title``.
     case titleChanged(surface: Int, title: String)
     case surfaceExited(surface: Int)
     case surfaceResized(surface: Int, cols: Int, rows: Int)

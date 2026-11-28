@@ -106,9 +106,9 @@ final class ComposeLayer {
     /// The glass as a stretchable image (its middle row stretches with the height).
     private func renderGlass() {
         let w = Self.fieldWidth(size.width), h: CGFloat = 31
-        let fill = palette.composeGlass, stroke = palette.composeStroke
+        let fill = palette.composeGlass
         glass.contents = Canvas.image(size: CGSize(width: w, height: h)) { ctx in
-            Glass.draw(ctx, rect: CGRect(x: 0, y: 0, width: w, height: h), radius: 15, fill: fill, stroke: stroke)
+            Glass.draw(ctx, rect: CGRect(x: 0, y: 0, width: w, height: h), radius: 15, fill: fill)
         }
         glass.contentsCenter = CGRect(x: 0, y: 15 / h, width: 1, height: 1 / h)
     }

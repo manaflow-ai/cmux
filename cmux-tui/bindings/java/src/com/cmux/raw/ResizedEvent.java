@@ -16,7 +16,6 @@ public final class ResizedEvent implements WireValue, ByteAttachEvent, ProtocolE
     private final int cols;
     /** Protocol 6 compatibility field. */
     private final Field<Bytes> data;
-    private final Field<UInt64> historyRowsOmitted;
     private final Field<KittyGraphicsState> kittyGraphicsState;
     private final Field<List<KittyImageAlias>> kittyImageAliases;
     private final Field<Bytes> replay;
@@ -28,7 +27,6 @@ public final class ResizedEvent implements WireValue, ByteAttachEvent, ProtocolE
         if (!builder.colsSet) throw new IllegalArgumentException("cols is required");
         this.cols = builder.cols;
         this.data = builder.data;
-        this.historyRowsOmitted = builder.historyRowsOmitted;
         this.kittyGraphicsState = builder.kittyGraphicsState;
         this.kittyImageAliases = builder.kittyImageAliases.map(value -> List.copyOf(value));
         this.replay = builder.replay;
@@ -43,7 +41,6 @@ public final class ResizedEvent implements WireValue, ByteAttachEvent, ProtocolE
     public Field<TerminalColors> colors() { return colors; }
     public int cols() { return cols; }
     public Field<Bytes> data() { return data; }
-    public Field<UInt64> historyRowsOmitted() { return historyRowsOmitted; }
     public Field<KittyGraphicsState> kittyGraphicsState() { return kittyGraphicsState; }
     public Field<List<KittyImageAlias>> kittyImageAliases() { return kittyImageAliases; }
     public Field<Bytes> replay() { return replay; }
@@ -64,10 +61,6 @@ public final class ResizedEvent implements WireValue, ByteAttachEvent, ProtocolE
         Object rawData = Wire.optional(object, "data");
         if (!Wire.isMissing(rawData)) {
             builder.data(Wire.bytes(rawData, "ResizedEvent.data"));
-        }
-        Object rawHistoryRowsOmitted = Wire.optional(object, "history_rows_omitted");
-        if (!Wire.isMissing(rawHistoryRowsOmitted)) {
-            builder.historyRowsOmitted(Wire.uint64(rawHistoryRowsOmitted, "ResizedEvent.history_rows_omitted"));
         }
         Object rawKittyGraphicsState = Wire.optional(object, "kitty_graphics_state");
         if (!Wire.isMissing(rawKittyGraphicsState)) {
@@ -95,7 +88,6 @@ public final class ResizedEvent implements WireValue, ByteAttachEvent, ProtocolE
         Wire.put(object, "colors", colors);
         Wire.put(object, "cols", cols);
         Wire.put(object, "data", data);
-        Wire.put(object, "history_rows_omitted", historyRowsOmitted);
         Wire.put(object, "kitty_graphics_state", kittyGraphicsState);
         Wire.put(object, "kitty_image_aliases", kittyImageAliases);
         Wire.put(object, "replay", replay);
@@ -107,11 +99,11 @@ public final class ResizedEvent implements WireValue, ByteAttachEvent, ProtocolE
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ResizedEvent that)) return false;
-        return Objects.equals(colors, that.colors) && Objects.equals(cols, that.cols) && Objects.equals(data, that.data) && Objects.equals(historyRowsOmitted, that.historyRowsOmitted) && Objects.equals(kittyGraphicsState, that.kittyGraphicsState) && Objects.equals(kittyImageAliases, that.kittyImageAliases) && Objects.equals(replay, that.replay) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
+        return Objects.equals(colors, that.colors) && Objects.equals(cols, that.cols) && Objects.equals(data, that.data) && Objects.equals(kittyGraphicsState, that.kittyGraphicsState) && Objects.equals(kittyImageAliases, that.kittyImageAliases) && Objects.equals(replay, that.replay) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(colors, cols, data, historyRowsOmitted, kittyGraphicsState, kittyImageAliases, replay, rows, surface); }
+    public int hashCode() { return Objects.hash(colors, cols, data, kittyGraphicsState, kittyImageAliases, replay, rows, surface); }
 
     @Override
     public String toString() { return "ResizedEvent" + toWire(); }
@@ -121,7 +113,6 @@ public final class ResizedEvent implements WireValue, ByteAttachEvent, ProtocolE
         private Integer cols;
         private boolean colsSet;
         private Field<Bytes> data = Field.omitted();
-        private Field<UInt64> historyRowsOmitted = Field.omitted();
         private Field<KittyGraphicsState> kittyGraphicsState = Field.omitted();
         private Field<List<KittyImageAlias>> kittyImageAliases = Field.omitted();
         private Field<Bytes> replay = Field.omitted();
@@ -141,10 +132,6 @@ public final class ResizedEvent implements WireValue, ByteAttachEvent, ProtocolE
         }
         public Builder data(Bytes value) {
             this.data = Field.of(value);
-            return this;
-        }
-        public Builder historyRowsOmitted(UInt64 value) {
-            this.historyRowsOmitted = Field.of(value);
             return this;
         }
         public Builder kittyGraphicsState(KittyGraphicsState value) {

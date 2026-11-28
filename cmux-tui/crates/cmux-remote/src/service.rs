@@ -42,11 +42,6 @@ const LANE_BULK_BIT: u8 = 1 << 2;
 const LANE_TUNNEL_BIT: u8 = 1 << 3;
 const MULTI_LANE_TERMINAL_MASK: u8 = LANE_INTERACTIVE_BIT | LANE_CONTROL_BIT | LANE_BULK_BIT;
 const TERMINAL_RESET_DEADLINE: Duration = Duration::from_secs(2);
-/// How long a terminal RESET waits on a carrier the endpoint is recovering
-/// before the session is closed instead ([`SessionEndpoint::carrier_recovering`]):
-/// past any resume window (the carrier's is 25 s with an ssh route), so the
-/// recovery's own end decides, and still bounded.
-const TERMINAL_RESET_RECOVERY_DEADLINE: Duration = Duration::from_secs(60);
 const MAX_TERMINAL_CLEANUPS: usize = 64;
 
 #[async_trait]
@@ -62,14 +57,6 @@ pub trait SessionEndpoint: Send + Sync {
     async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError>;
     fn subscribe_generation(&self) -> watch::Receiver<u64>;
     async fn close_session(&self) -> Result<(), ServiceError>;
-    /// True while the endpoint redials a carrier it lost: a send waits for the
-    /// resume, which is not a wedged peer. A terminal RESET held up by it is
-    /// not escalated to [`Self::close_session`]: that close would end the very
-    /// session the resume is bringing back (a stream dropped while the relay
-    /// failed over onto ssh closed the session 2 s into the failover).
-    fn carrier_recovering(&self) -> bool {
-        false
-    }
 }
 
 #[async_trait]
@@ -97,10 +84,6 @@ impl SessionEndpoint for ClientConnection {
 
     async fn close_session(&self) -> Result<(), ServiceError> {
         self.close().await.map_err(Into::into)
-    }
-
-    fn carrier_recovering(&self) -> bool {
-        ClientConnection::carrier_recovering(self)
     }
 }
 
@@ -146,9 +129,6 @@ pub struct ServiceMultiplexer {
     next_stream: AtomicU64,
     generation: watch::Receiver<u64>,
     fatal: watch::Receiver<Option<String>>,
-    /// Set (before `fatal`) when the reader stopped because the daemon no
-    /// longer has the session, so every failure reports that typed end.
-    session_unavailable: Arc<AtomicBool>,
     reader: ReaderTask,
     cleanup: Arc<TerminalCleanup>,
 }
@@ -308,7 +288,6 @@ struct ReaderLoop {
     cleanup: Arc<TerminalCleanup>,
     accepted: mpsc::Sender<IncomingStream>,
     fatal: watch::Sender<Option<String>>,
-    session_unavailable: Arc<AtomicBool>,
     generation: watch::Receiver<u64>,
     shutdown: watch::Receiver<bool>,
     role: EndpointRole,
@@ -388,8 +367,6 @@ enum StreamFailure {
     GenerationChanged(u64),
     Reset(String),
     Transport(String),
-    /// The daemon no longer has the session: no reconnect can resume it.
-    SessionUnavailable,
 }
 
 impl fmt::Debug for ServiceMultiplexer {
@@ -416,7 +393,6 @@ impl ServiceMultiplexer {
         let cleanup = TerminalCleanup::new();
         let (accepted_tx, accepted) = mpsc::channel(128);
         let (fatal_tx, fatal) = watch::channel(None);
-        let session_unavailable = Arc::new(AtomicBool::new(false));
         let incoming_budget = IncomingBudget::new(incoming_budget_bytes);
         let generation = endpoint.subscribe_generation();
         let (shutdown, shutdown_rx) = watch::channel(false);
@@ -427,7 +403,6 @@ impl ServiceMultiplexer {
             cleanup: cleanup.clone(),
             accepted: accepted_tx,
             fatal: fatal_tx,
-            session_unavailable: session_unavailable.clone(),
             generation: generation.clone(),
             shutdown: shutdown_rx,
             role,
@@ -444,7 +419,6 @@ impl ServiceMultiplexer {
             }),
             generation,
             fatal,
-            session_unavailable,
             reader: ReaderTask { shutdown, handle: StdMutex::new(Some(handle)) },
             cleanup,
         })
@@ -466,7 +440,7 @@ impl ServiceMultiplexer {
         let terminal = LaneTerminalState::new(service);
         let mut streams = self.streams.lock().await;
         if let Some(message) = self.fatal.borrow().clone() {
-            return Err(self.fatal_error(message));
+            return Err(ServiceError::Transport(message));
         }
         if streams.len() >= MAX_OPEN_STREAMS {
             return Err(ServiceError::TooManyStreams);
@@ -533,30 +507,15 @@ impl ServiceMultiplexer {
 
     pub async fn accept(&self) -> Result<Option<IncomingStream>, ServiceError> {
         if let Some(message) = self.fatal.borrow().clone() {
-            return Err(self.fatal_error(message));
+            return Err(ServiceError::Transport(message));
         }
         let incoming = self.accepted.lock().await.recv().await;
         if incoming.is_none()
             && let Some(message) = self.fatal.borrow().clone()
         {
-            return Err(self.fatal_error(message));
+            return Err(ServiceError::Transport(message));
         }
         Ok(incoming)
-    }
-
-    /// Whether the reader stopped because the daemon no longer has the
-    /// session (it expired or was closed). Permanent for this multiplexer:
-    /// the caller should stop redialing and offer a new session.
-    pub fn session_unavailable(&self) -> bool {
-        self.session_unavailable.load(Ordering::Acquire)
-    }
-
-    fn fatal_error(&self, message: String) -> ServiceError {
-        if self.session_unavailable() {
-            ServiceError::SessionUnavailable
-        } else {
-            ServiceError::Transport(message)
-        }
     }
 
     /// Observe terminal reader failures without polling an application stream.
@@ -726,14 +685,14 @@ impl ServiceStream {
     }
 
     pub async fn send_on(&self, lane: Lane, payload: Bytes) -> Result<(), ServiceError> {
-        let lane = if is_tunnel(self.service) { Lane::Tunnel } else { lane };
+        let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
         let _outbound = self.outbound[lane as usize].lock().await;
         self.require_active()?;
         if self.terminal.closing.load(Ordering::Acquire) {
             return Err(ServiceError::Closed);
         }
         let state = self.state.load(Ordering::Acquire);
-        let closed = if is_tunnel(self.service) {
+        let closed = if self.service == Service::TcpTunnel {
             state & (STREAM_LOCAL_FIN | STREAM_RESET) != 0
         } else {
             state != 0
@@ -815,7 +774,7 @@ impl ServiceStream {
             && (chunk.finished || chunk.reset)
         {
             receiver.remote_finished_delivered = true;
-            if is_tunnel(self.service) {
+            if self.service == Service::TcpTunnel {
                 let flag =
                     if chunk.reset { STREAM_REMOTE_FIN | STREAM_RESET } else { STREAM_REMOTE_FIN };
                 self.state.fetch_or(flag, Ordering::AcqRel);
@@ -839,7 +798,7 @@ impl ServiceStream {
             return Ok(());
         }
         self.terminal.closing.store(true, Ordering::Release);
-        let lane = if is_tunnel(self.service) { Lane::Tunnel } else { lane };
+        let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
         let lanes = close_lanes(self.service, &lane);
         for lane in lanes {
             let _outbound = self.outbound[*lane as usize].lock().await;
@@ -853,13 +812,13 @@ impl ServiceStream {
             self.terminal.local.fetch_or(bit, Ordering::AcqRel);
         }
         self.require_active()?;
-        let committed = if is_tunnel(self.service) {
+        let committed = if self.service == Service::TcpTunnel {
             STREAM_LOCAL_FIN
         } else {
             STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
         };
         let previous = self.state.fetch_or(committed, Ordering::AcqRel);
-        if !is_tunnel(self.service) || previous & STREAM_REMOTE_FIN != 0 {
+        if self.service != Service::TcpTunnel || previous & STREAM_REMOTE_FIN != 0 {
             let lane_mask = lanes.iter().fold(0, |mask, lane| mask | lane_bit(*lane));
             self.closed.lock().await.insert_on(self.id, lane_mask);
             self.registrations.lock().await.remove(&self.id);
@@ -869,19 +828,10 @@ impl ServiceStream {
 
     pub async fn reject(&self, code: String, message: String) -> Result<(), ServiceError> {
         let payload = serde_json::to_vec(&ServiceControl::Rejected { code, message })?;
-        let lane = reset_lane(self.service);
-        self.send_on(lane, Bytes::from(payload)).await?;
-        // Rejection and its terminal FIN share one ordered lane so a split
-        // carrier cannot deliver FIN ahead of the reason. Tunnel streams must
-        // use the tunnel lane for both frames.
-        self.close_on(lane).await?;
-        if is_tunnel(self.service) {
-            // A rejected OPEN is terminal; unlike an accepted tunnel, it does
-            // not wait for the peer's half-close. Mark it complete so Drop
-            // does not send a RESET after the ordered rejection and FIN.
-            self.state.fetch_or(STREAM_REMOTE_FIN, Ordering::AcqRel);
-        }
-        Ok(())
+        self.send_on(Lane::Control, Bytes::from(payload)).await?;
+        // Rejection and its terminal FIN share the control lane so an isolated
+        // interactive carrier cannot deliver FIN ahead of the reason.
+        self.close_on(Lane::Control).await
     }
 
     fn require_active(&self) -> Result<(), ServiceError> {
@@ -892,7 +842,7 @@ impl ServiceStream {
         }
     }
 
-    pub async fn wait_for_failure(&self) -> ServiceError {
+    pub(crate) async fn wait_for_failure(&self) -> ServiceError {
         let mut failure = self.failure.subscribe();
         loop {
             if let Some(failure) = failure.borrow().clone() {
@@ -909,7 +859,6 @@ impl ServiceStream {
             StreamFailure::GenerationChanged(actual) => self.generation_error(actual),
             StreamFailure::Reset(message) => ServiceError::Reset(message),
             StreamFailure::Transport(message) => ServiceError::Transport(message),
-            StreamFailure::SessionUnavailable => ServiceError::SessionUnavailable,
         }
     }
 
@@ -926,7 +875,7 @@ fn drain_failed_receiver(receiver: &mut StreamReceiver) {
 impl Drop for ServiceStream {
     fn drop(&mut self) {
         let previous = self.state.fetch_or(STREAM_RESET, Ordering::AcqRel);
-        let complete = if is_tunnel(self.service) {
+        let complete = if self.service == Service::TcpTunnel {
             previous & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN)
                 == STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
         } else {
@@ -987,7 +936,6 @@ async fn reader_loop(reader: ReaderLoop) {
         cleanup,
         accepted,
         fatal,
-        session_unavailable,
         mut generation,
         mut shutdown,
         role,
@@ -1014,9 +962,6 @@ async fn reader_loop(reader: ReaderLoop) {
                 break;
             }
             Err(error) => {
-                if error.is_session_unavailable() {
-                    session_unavailable.store(true, Ordering::Release);
-                }
                 let _ = fatal.send(Some(error.to_string()));
                 break;
             }
@@ -1040,8 +985,8 @@ async fn reader_loop(reader: ReaderLoop) {
                     break;
                 }
             };
-            if (is_tunnel(control.0) && frame.lane != Lane::Tunnel)
-                || (!is_tunnel(control.0) && frame.lane == Lane::Tunnel)
+            if (control.0 == Service::TcpTunnel && frame.lane != Lane::Tunnel)
+                || (control.0 != Service::TcpTunnel && frame.lane == Lane::Tunnel)
             {
                 let _ = fatal.send(Some("service open frame used an invalid lane".into()));
                 break;
@@ -1166,7 +1111,7 @@ async fn reader_loop(reader: ReaderLoop) {
             let _ = fatal.send(Some(format!("frame for unknown stream {}", frame.stream)));
             break;
         };
-        if is_tunnel(service)
+        if service == Service::TcpTunnel
             && (frame.lane != Lane::Tunnel || stream_generation != Some(frame.generation))
         {
             let _ = fatal.send(Some("tunnel stream frame crossed its generation boundary".into()));
@@ -1267,7 +1212,11 @@ async fn reader_loop(reader: ReaderLoop) {
         };
         match sender.try_send(chunk) {
             Ok(()) if !finished => {}
-            Ok(()) if !is_tunnel(service) || reset || prior_state & STREAM_LOCAL_FIN != 0 => {
+            Ok(())
+                if service != Service::TcpTunnel
+                    || reset
+                    || prior_state & STREAM_LOCAL_FIN != 0 =>
+            {
                 streams.lock().await.remove(&frame.stream);
                 closed
                     .lock()
@@ -1298,12 +1247,7 @@ async fn reader_loop(reader: ReaderLoop) {
     let message =
         fatal.borrow().clone().unwrap_or_else(|| "service multiplexer reader stopped".into());
     fatal.send_replace(Some(message.clone()));
-    let failure = if session_unavailable.load(Ordering::Acquire) {
-        StreamFailure::SessionUnavailable
-    } else {
-        StreamFailure::Transport(message)
-    };
-    fail_all_streams(&streams, failure).await;
+    fail_all_streams(&streams, StreamFailure::Transport(message)).await;
 }
 
 async fn reset_registered_stream(
@@ -1357,10 +1301,7 @@ async fn send_reset_or_close_session(
     escalating: &AtomicBool,
     reset_deadline: Duration,
 ) {
-    let started = tokio::time::Instant::now();
-    let deadline = started + reset_deadline;
-    // A send held up by a carrier recovery waits for it: never past this.
-    let recovery_deadline = started + reset_deadline.max(TERMINAL_RESET_RECOVERY_DEADLINE);
+    let deadline = tokio::time::Instant::now() + reset_deadline;
     let mut backoff = Duration::from_millis(2);
     loop {
         if escalating.load(Ordering::Acquire) {
@@ -1370,27 +1311,7 @@ async fn send_reset_or_close_session(
             return;
         }
         let send = endpoint.send_frame(generation, lane, stream, Bytes::new(), FrameFlags::RESET);
-        tokio::pin!(send);
-        // The same send goes on past the deadline while the endpoint recovers
-        // its carrier: dropping it would also drop a recovery it runs, and
-        // closing the session would end the resume. Checked at each
-        // `reset_deadline`, so a wedged peer still closes the session then.
-        let mut bound = deadline;
-        let sent = loop {
-            match tokio::time::timeout_at(bound, &mut send).await {
-                Ok(sent) => break Ok(sent),
-                Err(_)
-                    if endpoint.carrier_recovering()
-                        && tokio::time::Instant::now() < recovery_deadline
-                        && !escalating.load(Ordering::Acquire)
-                        && !reset_no_longer_needed(completion.as_ref()) =>
-                {
-                    bound = (tokio::time::Instant::now() + reset_deadline).min(recovery_deadline);
-                }
-                Err(elapsed) => break Err(elapsed),
-            }
-        };
-        match sent {
+        match tokio::time::timeout_at(deadline, send).await {
             Ok(Ok(_)) => return,
             Ok(Err(error)) if terminal_send_is_retryable(&error) => {
                 if tokio::time::Instant::now() >= deadline {
@@ -1418,7 +1339,7 @@ async fn send_reset_or_close_session(
 fn reset_no_longer_needed(completion: Option<&(Arc<AtomicU8>, Service)>) -> bool {
     let Some((state, service)) = completion else { return false };
     let state = state.load(Ordering::Acquire);
-    if is_tunnel(*service) {
+    if *service == Service::TcpTunnel {
         state & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN) == STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
     } else {
         state & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN) != 0
@@ -1485,7 +1406,8 @@ async fn reset_tunnel_streams(streams: &Mutex<HashMap<u64, StreamRegistration>>,
         let stale = streams
             .iter()
             .filter(|(_, registration)| {
-                is_tunnel(registration.service) && registration.generation != Some(generation)
+                registration.service == Service::TcpTunnel
+                    && registration.generation != Some(generation)
             })
             .map(|(stream, _)| *stream)
             .collect::<Vec<_>>();
@@ -1496,19 +1418,14 @@ async fn reset_tunnel_streams(streams: &Mutex<HashMap<u64, StreamRegistration>>,
     }
 }
 
-/// The lane a stream uses when its caller names none. It must match
-/// `MessageStream::new` in services.rs: a stream's tombstone guards this lane,
-/// so a mismatch leaves the lane its frames really use unguarded after close.
-pub(crate) fn default_lane(service: Service) -> Lane {
+fn default_lane(service: Service) -> Lane {
     match service {
-        Service::MuxControl | Service::TerminalBytes => Lane::Interactive,
-        // Process output replays and event pages are large; they never queue
-        // ahead of keystrokes (both ends already open it with Bulk).
-        Service::ProcessStream => Lane::Bulk,
-        // Computer use runs over workspace RPC on Control; this stream is
-        // refused, and a screenshot-sized answer has no place on Interactive.
-        Service::WorkspaceRpc | Service::ComputerUse => Lane::Control,
-        Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
+        Service::MuxControl
+        | Service::ProcessStream
+        | Service::TerminalBytes
+        | Service::ComputerUse => Lane::Interactive,
+        Service::WorkspaceRpc => Lane::Control,
+        Service::TcpTunnel => Lane::Tunnel,
     }
 }
 
@@ -1547,23 +1464,16 @@ fn rejected_open_tombstone_lane_mask(service: Service, open_lane: Lane) -> u8 {
     tombstone_lane_mask(service, open_lane) | legal_tombstone_lane_mask(service)
 }
 
-/// A raw byte stream on the Tunnel lane, bound to its generation and never
-/// replayed: [`Service::TcpTunnel`], [`Service::LocalSocket`] and
-/// [`Service::Acpmux`].
-fn is_tunnel(service: Service) -> bool {
-    matches!(service, Service::TcpTunnel | Service::LocalSocket | Service::Acpmux)
-}
-
 fn open_lane(service: Service) -> Lane {
-    if is_tunnel(service) { Lane::Tunnel } else { Lane::Control }
+    if service == Service::TcpTunnel { Lane::Tunnel } else { Lane::Control }
 }
 
 fn reset_lane(service: Service) -> Lane {
-    if is_tunnel(service) { Lane::Tunnel } else { Lane::Control }
+    if service == Service::TcpTunnel { Lane::Tunnel } else { Lane::Control }
 }
 
 fn generation_for_service(service: Service, generation: u64) -> Option<u64> {
-    is_tunnel(service).then_some(generation)
+    (service == Service::TcpTunnel).then_some(generation)
 }
 
 #[derive(Debug)]
@@ -1576,26 +1486,7 @@ pub enum ServiceError {
     TooManyStreams,
     Closed,
     Reset(String),
-    GenerationChanged {
-        expected: u64,
-        actual: u64,
-    },
-    /// The daemon no longer has the session (it outlived its resume lease or
-    /// was closed): nothing on it can be resumed, and redialing cannot help.
-    SessionUnavailable,
-}
-
-impl ServiceError {
-    /// Whether the error is the typed end of the session (see
-    /// [`ConnectionError::SessionUnavailable`]), at any layer.
-    pub fn is_session_unavailable(&self) -> bool {
-        matches!(
-            self,
-            Self::SessionUnavailable
-                | Self::Client(ConnectionError::SessionUnavailable)
-                | Self::Daemon(DaemonError::Connection(ConnectionError::SessionUnavailable))
-        )
-    }
+    GenerationChanged { expected: u64, actual: u64 },
 }
 
 impl fmt::Display for ServiceError {
@@ -1612,9 +1503,6 @@ impl fmt::Display for ServiceError {
             Self::GenerationChanged { expected, actual } => {
                 write!(formatter, "service stream generation changed from {expected} to {actual}")
             }
-            Self::SessionUnavailable => formatter.write_str(
-                "the remote session ended: the daemon no longer has it (it expired or was closed)",
-            ),
         }
     }
 }
@@ -1640,5 +1528,1700 @@ impl From<serde_json::Error> for ServiceError {
 }
 
 #[cfg(test)]
-#[path = "service_tests.rs"]
-mod tests;
+mod tests {
+    use std::future::pending;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::time::Duration;
+
+    use super::*;
+    use tokio::sync::Notify;
+
+    struct TestEndpoint {
+        outgoing: mpsc::Sender<ReceivedFrame>,
+        incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
+        next_sequence: AtomicU64,
+        generation: watch::Sender<u64>,
+    }
+
+    impl TestEndpoint {
+        fn advance_generation(&self, generation: u64) {
+            self.generation.send_replace(generation);
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for TestEndpoint {
+        async fn send_frame(
+            &self,
+            expected_generation: Option<u64>,
+            lane: Lane,
+            stream: u64,
+            payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            let generation = *self.generation.borrow();
+            if let Some(expected) = expected_generation
+                && expected != generation
+            {
+                return Err(ServiceError::GenerationChanged { expected, actual: generation });
+            }
+            let sequence = self.next_sequence.fetch_add(1, Ordering::Relaxed) + 1;
+            self.outgoing
+                .send(ReceivedFrame { generation, lane, stream, sequence, flags, payload })
+                .await
+                .map_err(|_| ServiceError::Transport("test peer closed".into()))?;
+            Ok(sequence)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            Ok(self.incoming.lock().await.recv().await)
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
+        let (left_tx, left_rx) = mpsc::channel(32);
+        let (right_tx, right_rx) = mpsc::channel(32);
+        let (left_generation, _) = watch::channel(0);
+        let (right_generation, _) = watch::channel(0);
+        (
+            Arc::new(TestEndpoint {
+                outgoing: left_tx,
+                incoming: Mutex::new(right_rx),
+                next_sequence: AtomicU64::new(0),
+                generation: left_generation,
+            }),
+            Arc::new(TestEndpoint {
+                outgoing: right_tx,
+                incoming: Mutex::new(left_rx),
+                next_sequence: AtomicU64::new(0),
+                generation: right_generation,
+            }),
+        )
+    }
+
+    #[tokio::test]
+    async fn stream_chunk_queue_is_bounded_and_reset_drains_capacity() {
+        let (sender, receiver) = mpsc::channel(STREAM_CHUNK_CHANNEL_CAPACITY);
+        let mut stream_receiver = StreamReceiver {
+            chunks: receiver,
+            failure_changed: watch::channel(None).1,
+            remote_finished_delivered: false,
+        };
+        let chunk = || StreamChunk {
+            lane: Lane::Control,
+            sequence: 1,
+            payload: Bytes::new(),
+            finished: false,
+            reset: false,
+            budget: None,
+        };
+        for _ in 0..STREAM_CHUNK_CHANNEL_CAPACITY {
+            sender.try_send(chunk()).expect("queue accepts up to its configured cap");
+        }
+        assert!(sender.try_send(chunk()).is_err(), "queue must reject saturation");
+        drop(sender);
+        drain_failed_receiver(&mut stream_receiver);
+        assert!(stream_receiver.chunks.is_empty());
+    }
+
+    #[test]
+    fn stream_budget_permits_release_when_chunk_is_reset_or_consumed() {
+        let budget = IncomingBudget::new(8);
+        let mut chunk = StreamChunk {
+            lane: Lane::Interactive,
+            sequence: 1,
+            payload: Bytes::from_static(b"1234"),
+            finished: false,
+            reset: false,
+            budget: budget.try_acquire(Lane::Interactive, 4),
+        };
+        assert_eq!(budget.total.available_permits(), 4);
+        drop(chunk.take_budget());
+        assert_eq!(budget.total.available_permits(), 8);
+    }
+
+    struct ClosedEndpoint {
+        generation: watch::Sender<u64>,
+    }
+
+    struct BlockingEndpoint {
+        generation: watch::Sender<u64>,
+        open_active: AtomicBool,
+        receive_active: AtomicBool,
+        activity_changed: Notify,
+        sent: Mutex<Vec<FrameFlags>>,
+    }
+
+    struct LaneBlockingEndpoint {
+        generation: watch::Sender<u64>,
+        bulk_active: AtomicBool,
+        bulk_released: AtomicBool,
+        interactive_frames: AtomicUsize,
+        activity_changed: Notify,
+    }
+
+    struct FlakyEndpoint {
+        generation: watch::Sender<u64>,
+        fin_attempts: AtomicUsize,
+        reset_attempts: AtomicUsize,
+        reset_failures: usize,
+        close_count: AtomicUsize,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum LostCarrierFailure {
+        LinkClosed,
+        LinkTransport,
+        LinkMessage,
+        SchedulerClosed,
+        LinkProtocol,
+    }
+
+    struct LostCarrierEndpoint {
+        generation: watch::Sender<u64>,
+        failure: LostCarrierFailure,
+        reset_attempts: AtomicUsize,
+        close_count: AtomicUsize,
+    }
+
+    impl LostCarrierEndpoint {
+        fn new(failure: LostCarrierFailure) -> Arc<Self> {
+            let (generation, _) = watch::channel(0);
+            Arc::new(Self {
+                generation,
+                failure,
+                reset_attempts: AtomicUsize::new(0),
+                close_count: AtomicUsize::new(0),
+            })
+        }
+    }
+
+    impl FlakyEndpoint {
+        fn new(reset_failures: usize) -> Arc<Self> {
+            let (generation, _) = watch::channel(0);
+            Arc::new(Self {
+                generation,
+                fin_attempts: AtomicUsize::new(0),
+                reset_attempts: AtomicUsize::new(0),
+                reset_failures,
+                close_count: AtomicUsize::new(0),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for FlakyEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            use crate::session::SessionError;
+
+            if flags.contains(FrameFlags::FIN) {
+                let attempt = self.fin_attempts.fetch_add(1, Ordering::AcqRel);
+                if attempt == 0 {
+                    return Err(ConnectionError::Session(SessionError::QueueFull(lane)).into());
+                }
+            }
+            if flags.contains(FrameFlags::RESET) {
+                let attempt = self.reset_attempts.fetch_add(1, Ordering::AcqRel);
+                if attempt < self.reset_failures {
+                    return Err(ConnectionError::Session(SessionError::QueueFull(lane)).into());
+                }
+            }
+            Ok(1)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            pending().await
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            self.close_count.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for LostCarrierEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            _lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            if flags.contains(FrameFlags::RESET) {
+                self.reset_attempts.fetch_add(1, Ordering::AcqRel);
+            }
+            let error = match self.failure {
+                LostCarrierFailure::LinkClosed => {
+                    crate::session::SessionError::Link(crate::link::LinkError::Closed)
+                }
+                LostCarrierFailure::LinkTransport => crate::session::SessionError::Link(
+                    crate::link::LinkError::Transport("carrier lost".into()),
+                ),
+                LostCarrierFailure::LinkMessage => {
+                    crate::session::SessionError::LinkMessage("carrier lost".into())
+                }
+                LostCarrierFailure::SchedulerClosed => {
+                    crate::session::SessionError::SchedulerClosed
+                }
+                LostCarrierFailure::LinkProtocol => crate::session::SessionError::Link(
+                    crate::link::LinkError::Protocol("invalid carrier frame".into()),
+                ),
+            };
+            Err(DaemonError::Session(error).into())
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            pending().await
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            self.close_count.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }
+    }
+
+    struct ActivityGuard<'a> {
+        active: &'a AtomicBool,
+        changed: &'a Notify,
+    }
+
+    impl Drop for ActivityGuard<'_> {
+        fn drop(&mut self) {
+            self.active.store(false, Ordering::Release);
+            self.changed.notify_waiters();
+        }
+    }
+
+    impl BlockingEndpoint {
+        fn new() -> Arc<Self> {
+            let (generation, _) = watch::channel(0);
+            Arc::new(Self {
+                generation,
+                open_active: AtomicBool::new(false),
+                receive_active: AtomicBool::new(false),
+                activity_changed: Notify::new(),
+                sent: Mutex::new(Vec::new()),
+            })
+        }
+
+        async fn wait_for(&self, active: &AtomicBool, expected: bool) {
+            tokio::time::timeout(Duration::from_secs(1), async {
+                loop {
+                    let notified = self.activity_changed.notified();
+                    if active.load(Ordering::Acquire) == expected {
+                        break;
+                    }
+                    notified.await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+    }
+
+    impl LaneBlockingEndpoint {
+        fn new() -> Arc<Self> {
+            let (generation, _) = watch::channel(0);
+            Arc::new(Self {
+                generation,
+                bulk_active: AtomicBool::new(false),
+                bulk_released: AtomicBool::new(false),
+                interactive_frames: AtomicUsize::new(0),
+                activity_changed: Notify::new(),
+            })
+        }
+
+        async fn wait_for_bulk(&self) {
+            tokio::time::timeout(Duration::from_secs(1), async {
+                loop {
+                    let notified = self.activity_changed.notified();
+                    if self.bulk_active.load(Ordering::Acquire) {
+                        break;
+                    }
+                    notified.await;
+                }
+            })
+            .await
+            .expect("Bulk send never reached the backpressured endpoint");
+        }
+
+        async fn wait_for_interactive(&self) {
+            loop {
+                let notified = self.activity_changed.notified();
+                if self.interactive_frames.load(Ordering::Acquire) != 0 {
+                    break;
+                }
+                notified.await;
+            }
+        }
+
+        fn release_bulk(&self) {
+            self.bulk_released.store(true, Ordering::Release);
+            self.activity_changed.notify_waiters();
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for LaneBlockingEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            if flags.contains(FrameFlags::OPEN) {
+                return Ok(1);
+            }
+            match lane {
+                Lane::Bulk => {
+                    self.bulk_active.store(true, Ordering::Release);
+                    self.activity_changed.notify_waiters();
+                    loop {
+                        let notified = self.activity_changed.notified();
+                        if self.bulk_released.load(Ordering::Acquire) {
+                            break;
+                        }
+                        notified.await;
+                    }
+                }
+                Lane::Interactive => {
+                    self.interactive_frames.fetch_add(1, Ordering::AcqRel);
+                    self.activity_changed.notify_waiters();
+                }
+                Lane::Control | Lane::Tunnel => {}
+            }
+            Ok(1)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            pending().await
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for BlockingEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            _lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            self.sent.lock().await.push(flags);
+            if flags.contains(FrameFlags::OPEN) {
+                self.open_active.store(true, Ordering::Release);
+                self.activity_changed.notify_waiters();
+                let _guard =
+                    ActivityGuard { active: &self.open_active, changed: &self.activity_changed };
+                pending::<()>().await;
+            }
+            Ok(1)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            self.receive_active.store(true, Ordering::Release);
+            self.activity_changed.notify_waiters();
+            let _guard =
+                ActivityGuard { active: &self.receive_active, changed: &self.activity_changed };
+            pending::<()>().await;
+            unreachable!()
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for ClosedEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            _lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            _flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            Err(ServiceError::Closed)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            Ok(None)
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn clean_session_eof_is_published_as_a_terminal_failure() {
+        let (generation, _) = watch::channel(0);
+        let multiplexer =
+            ServiceMultiplexer::new(Arc::new(ClosedEndpoint { generation }), EndpointRole::Client);
+        let mut fatal = multiplexer.subscribe_fatal();
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while fatal.borrow().is_none() {
+                fatal.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(fatal.borrow().as_deref(), Some("remote session closed"));
+    }
+
+    #[tokio::test]
+    async fn mux_service_lanes_send_independently_under_bulk_backpressure() {
+        let endpoint = LaneBlockingEndpoint::new();
+        let multiplexer = ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Daemon);
+        let stream =
+            Arc::new(multiplexer.open(Service::MuxControl, BTreeMap::new()).await.unwrap());
+
+        let bulk = tokio::spawn({
+            let stream = stream.clone();
+            async move { stream.send_on(Lane::Bulk, Bytes::from_static(b"bulk")).await }
+        });
+        endpoint.wait_for_bulk().await;
+        let interactive = tokio::time::timeout(
+            Duration::from_millis(100),
+            stream.send_on(Lane::Interactive, Bytes::from_static(b"interactive")),
+        )
+        .await;
+        endpoint.release_bulk();
+        bulk.await.unwrap().unwrap();
+
+        interactive
+            .expect("Interactive send was serialized behind a backpressured Bulk lane")
+            .unwrap();
+        endpoint.wait_for_interactive().await;
+        multiplexer.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn open_after_reader_failure_is_rejected_without_a_registration() {
+        let (generation, _) = watch::channel(0);
+        let multiplexer =
+            ServiceMultiplexer::new(Arc::new(ClosedEndpoint { generation }), EndpointRole::Client);
+        let mut fatal = multiplexer.subscribe_fatal();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while fatal.borrow().is_none() {
+                fatal.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+
+        let error = multiplexer.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap_err();
+        assert!(matches!(error, ServiceError::Transport(_)));
+        assert!(multiplexer.streams.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dropping_multiplexer_cancels_an_idle_reader() {
+        let endpoint = BlockingEndpoint::new();
+        let multiplexer = ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Client);
+        endpoint.wait_for(&endpoint.receive_active, true).await;
+
+        drop(multiplexer);
+
+        endpoint.wait_for(&endpoint.receive_active, false).await;
+    }
+
+    #[tokio::test]
+    async fn cancelling_open_resets_and_deregisters_the_pending_stream() {
+        let endpoint = BlockingEndpoint::new();
+        let multiplexer = ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Client);
+        let open = tokio::spawn({
+            let multiplexer = multiplexer.clone();
+            async move { multiplexer.open(Service::ProcessStream, BTreeMap::new()).await }
+        });
+        endpoint.wait_for(&endpoint.open_active, true).await;
+
+        open.abort();
+        assert!(open.await.unwrap_err().is_cancelled());
+        endpoint.wait_for(&endpoint.open_active, false).await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let reset_sent = endpoint
+                    .sent
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|flags| flags.contains(FrameFlags::RESET));
+                if multiplexer.streams.lock().await.is_empty() && reset_sent {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let closed = multiplexer.closed.lock().await;
+        assert!(closed.contains_on(1, Lane::Control));
+        assert!(closed.contains_on(1, Lane::Interactive));
+    }
+
+    #[tokio::test]
+    async fn failed_fin_can_be_retried_and_blocks_later_payload() {
+        let endpoint = FlakyEndpoint::new(0);
+        let multiplexer = ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Client);
+        let stream =
+            Arc::new(multiplexer.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap());
+
+        let (first, second) = tokio::join!(stream.close(), stream.close());
+        assert!(matches!(first, Err(ServiceError::Client(ConnectionError::Session(_)))));
+        assert!(second.is_ok());
+        assert_eq!(endpoint.fin_attempts.load(Ordering::Acquire), 2);
+        assert!(matches!(
+            stream.send(Bytes::from_static(b"after-fin")).await,
+            Err(ServiceError::Closed)
+        ));
+        assert!(multiplexer.streams.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn terminal_reset_retries_queue_pressure_before_closing_the_session() {
+        let endpoint = FlakyEndpoint::new(2);
+        let cleanup = TerminalCleanup::new();
+        cleanup.spawn(endpoint.clone(), None, Lane::Control, 9, None);
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while endpoint.reset_attempts.load(Ordering::Acquire) < 3 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(endpoint.close_count.load(Ordering::Acquire), 0);
+    }
+
+    #[tokio::test]
+    async fn terminal_reset_pressure_fails_closed_once_after_its_deadline() {
+        let endpoint = FlakyEndpoint::new(usize::MAX);
+        let cleanup = TerminalCleanup::with_deadline(Duration::from_millis(10));
+        cleanup.spawn(endpoint.clone(), None, Lane::Control, 9, None);
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while endpoint.close_count.load(Ordering::Acquire) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(endpoint.close_count.load(Ordering::Acquire), 1);
+    }
+
+    #[tokio::test]
+    async fn generation_bound_terminal_reset_does_not_close_session_after_carrier_loss() {
+        for failure in [
+            LostCarrierFailure::LinkClosed,
+            LostCarrierFailure::LinkTransport,
+            LostCarrierFailure::LinkMessage,
+            LostCarrierFailure::SchedulerClosed,
+        ] {
+            let endpoint = LostCarrierEndpoint::new(failure);
+            let escalating = AtomicBool::new(false);
+
+            send_reset_or_close_session(
+                endpoint.clone(),
+                Some(0),
+                Lane::Tunnel,
+                9,
+                None,
+                &escalating,
+                Duration::from_millis(10),
+            )
+            .await;
+
+            assert_eq!(
+                endpoint.reset_attempts.load(Ordering::Acquire),
+                1,
+                "terminal RESET was not attempted for {failure:?}"
+            );
+            assert_eq!(
+                endpoint.close_count.load(Ordering::Acquire),
+                0,
+                "losing one generation-bound carrier must not destroy resumable session state \
+                 for {failure:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_reset_still_closes_session_outside_generation_bound_carrier_loss() {
+        for (failure, generation, lane) in [
+            (LostCarrierFailure::LinkMessage, None, Lane::Control),
+            (LostCarrierFailure::LinkProtocol, Some(0), Lane::Tunnel),
+        ] {
+            let endpoint = LostCarrierEndpoint::new(failure);
+            let escalating = AtomicBool::new(false);
+
+            send_reset_or_close_session(
+                endpoint.clone(),
+                generation,
+                lane,
+                9,
+                None,
+                &escalating,
+                Duration::from_millis(10),
+            )
+            .await;
+
+            assert_eq!(
+                endpoint.reset_attempts.load(Ordering::Acquire),
+                1,
+                "terminal RESET was not attempted for {failure:?}"
+            );
+            assert_eq!(
+                endpoint.close_count.load(Ordering::Acquire),
+                1,
+                "terminal cleanup failed open for {failure:?}, {generation:?}, {lane:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn reader_failure_errors_active_stream_instead_of_reporting_eof() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+
+        drop(daemon_endpoint);
+
+        let error = tokio::time::timeout(Duration::from_secs(1), stream.receive())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, ServiceError::Transport(_)));
+        assert!(client.streams.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn byte_budget_reset_errors_the_local_stream() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client =
+            ServiceMultiplexer::new_with_incoming_budget(client_endpoint, EndpointRole::Client, 1);
+        let stream = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                stream.id(),
+                Bytes::from_static(b"xx"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let error = tokio::time::timeout(Duration::from_secs(1), stream.receive())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, ServiceError::Reset(message) if message.contains("byte budget")));
+        assert!(matches!(
+            stream.send(Bytes::from_static(b"late")).await,
+            Err(ServiceError::Reset(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn tiny_frame_respects_minimum_aggregate_budget_charge() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            1023,
+        );
+        let stream = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                stream.id(),
+                Bytes::from_static(b"x"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let error = tokio::time::timeout(Duration::from_secs(1), stream.receive())
+            .await
+            .expect("reader stalled while enforcing the aggregate byte budget")
+            .expect_err("a one-byte frame must consume at least one KiB of aggregate budget");
+        assert!(matches!(error, ServiceError::Reset(message) if message.contains("byte budget")));
+        assert!(client.streams.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn undrained_bulk_stream_does_not_reset_or_block_interactive_stream() {
+        const FRAME_COUNT: u64 = 1024;
+        const FRAME_BYTES: usize = 1024;
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            2 * 1024 * 1024,
+        );
+        let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+
+        for index in 0..FRAME_COUNT {
+            let mut payload = vec![0; FRAME_BYTES];
+            payload[..size_of::<u64>()].copy_from_slice(&index.to_le_bytes());
+            daemon_endpoint
+                .send_frame(None, Lane::Bulk, bulk.id(), Bytes::from(payload), FrameFlags::empty())
+                .await
+                .unwrap();
+        }
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                interactive.id(),
+                Bytes::from_static(b"interactive-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let marker = tokio::time::timeout(Duration::from_secs(1), interactive.receive())
+            .await
+            .expect("interactive stream was blocked behind the undrained bulk stream")
+            .expect("interactive stream reset while the bulk stream was undrained")
+            .expect("interactive stream ended before delivering its marker");
+        assert_eq!(marker.lane, Lane::Interactive);
+        assert_eq!(marker.payload, b"interactive-marker".as_slice());
+        assert_eq!(bulk.failure.borrow().clone(), None, "undrained bulk stream was reset");
+        assert_eq!(interactive.failure.borrow().clone(), None, "interactive stream was reset");
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            for expected in 0..FRAME_COUNT {
+                let chunk = bulk
+                    .receive()
+                    .await
+                    .expect("bulk stream reset while draining its backlog")
+                    .expect("bulk stream ended before its backlog was drained");
+                assert_eq!(chunk.lane, Lane::Bulk);
+                assert_eq!(chunk.payload.len(), FRAME_BYTES);
+                assert!(!chunk.finished);
+                assert!(!chunk.reset);
+                let sequence = u64::from_le_bytes(
+                    chunk.payload[..size_of::<u64>()]
+                        .try_into()
+                        .expect("sequence prefix must be eight bytes"),
+                );
+                assert_eq!(sequence, expected);
+            }
+        })
+        .await
+        .expect("bulk backlog did not drain within one second");
+        assert_eq!(bulk.failure.borrow().clone(), None, "bulk stream reset after draining");
+        assert_eq!(client.streams.lock().await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn priority_reserves_keep_control_and_interactive_available_under_bulk_pressure() {
+        const KIB: usize = 1024;
+        const TOTAL_BUDGET: usize = 8 * KIB;
+        const BULK_CEILING: usize = 5 * KIB;
+        const BULK_TUNNEL_CEILING: usize = 6 * KIB;
+        const NON_INTERACTIVE_CEILING: usize = 7 * KIB;
+
+        // This 8 KiB model fixes the production 20/24/28/32 MiB hierarchy.
+        assert_eq!(BULK_TUNNEL_CEILING - BULK_CEILING, KIB);
+        assert_eq!(TOTAL_BUDGET - BULK_TUNNEL_CEILING, 2 * KIB);
+        assert_eq!(TOTAL_BUDGET - NON_INTERACTIVE_CEILING, KIB);
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            TOTAL_BUDGET,
+        );
+        let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let tunnel = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let additional_bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+
+        for _ in 0..BULK_CEILING / KIB {
+            daemon_endpoint
+                .send_frame(
+                    None,
+                    Lane::Bulk,
+                    bulk.id(),
+                    Bytes::from(vec![b'b'; KIB]),
+                    FrameFlags::empty(),
+                )
+                .await
+                .unwrap();
+        }
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Tunnel,
+                tunnel.id(),
+                Bytes::from_static(b"tunnel-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Bulk,
+                additional_bulk.id(),
+                Bytes::from_static(b"bulk-overflow"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                control.id(),
+                Bytes::from_static(b"control-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                additional_control.id(),
+                Bytes::from_static(b"control-overflow"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                interactive.id(),
+                Bytes::from_static(b"interactive-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        // Receiving the last frame synchronizes with all earlier inbound
+        // frames. Keep every returned chunk alive so no permit is released
+        // before all tier outcomes have been observed.
+        let interactive_result =
+            tokio::time::timeout(Duration::from_secs(1), interactive.receive())
+                .await
+                .expect("reader stalled before applying the priority reserve policy");
+        assert_eq!(
+            bulk.receiver.lock().await.chunks.len(),
+            BULK_CEILING / KIB,
+            "the original Bulk backlog must remain undrained"
+        );
+        assert_eq!(bulk.failure.borrow().clone(), None, "the admitted Bulk stream was reset");
+        let tunnel_result = tunnel.receive().await;
+        let additional_bulk_result = additional_bulk.receive().await;
+        let control_result = control.receive().await;
+        let additional_control_result = additional_control.receive().await;
+
+        let additional_bulk_was_reset = matches!(
+            &additional_bulk_result,
+            Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let tunnel_was_delivered = matches!(
+            &tunnel_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Tunnel
+                    && chunk.payload == b"tunnel-marker".as_slice()
+        );
+        let control_was_delivered = matches!(
+            &control_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Control
+                    && chunk.payload == b"control-marker".as_slice()
+        );
+        let additional_control_was_reset = matches!(
+            &additional_control_result,
+            Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let interactive_was_delivered = matches!(
+            &interactive_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Interactive
+                    && chunk.payload == b"interactive-marker".as_slice()
+        );
+        assert!(
+            tunnel_was_delivered
+                && additional_bulk_was_reset
+                && control_was_delivered
+                && additional_control_was_reset
+                && interactive_was_delivered,
+            "priority reserve violation: tunnel={tunnel_result:?}, \
+             additional_bulk={additional_bulk_result:?}, control={control_result:?}, \
+             additional_control={additional_control_result:?}, interactive={interactive_result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bulk_reserve_keeps_tunnel_control_and_interactive_available() {
+        const KIB: usize = 1024;
+        const TOTAL_BUDGET: usize = 8 * KIB;
+        const BULK_CEILING: usize = 5 * KIB;
+        const BULK_TUNNEL_CEILING: usize = 6 * KIB;
+        const NON_INTERACTIVE_CEILING: usize = 7 * KIB;
+
+        // The scaled 5/6/7/8 KiB limits model 20/24/28/32 MiB in production,
+        // preserving a non-borrowable tier for each higher-priority lane.
+        assert_eq!(BULK_TUNNEL_CEILING - BULK_CEILING, KIB);
+        assert_eq!(NON_INTERACTIVE_CEILING - BULK_TUNNEL_CEILING, KIB);
+        assert_eq!(TOTAL_BUDGET - NON_INTERACTIVE_CEILING, KIB);
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            TOTAL_BUDGET,
+        );
+        let bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_bulk = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let tunnel = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let control = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let interactive = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+
+        for _ in 0..BULK_CEILING / KIB {
+            daemon_endpoint
+                .send_frame(
+                    None,
+                    Lane::Bulk,
+                    bulk.id(),
+                    Bytes::from(vec![b'b'; KIB]),
+                    FrameFlags::empty(),
+                )
+                .await
+                .unwrap();
+        }
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Bulk,
+                additional_bulk.id(),
+                Bytes::from_static(b"bulk-overflow"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Tunnel,
+                tunnel.id(),
+                Bytes::from_static(b"tunnel-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                control.id(),
+                Bytes::from_static(b"control-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                interactive.id(),
+                Bytes::from_static(b"interactive-marker"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let interactive_result =
+            tokio::time::timeout(Duration::from_secs(1), interactive.receive())
+                .await
+                .expect("reader stalled before applying the Bulk reserve policy");
+        assert_eq!(
+            bulk.receiver.lock().await.chunks.len(),
+            BULK_CEILING / KIB,
+            "the admitted Bulk backlog must remain undrained"
+        );
+        assert_eq!(bulk.failure.borrow().clone(), None, "the admitted Bulk stream was reset");
+        let additional_bulk_result = additional_bulk.receive().await;
+        let tunnel_result = tunnel.receive().await;
+        let control_result = control.receive().await;
+
+        let additional_bulk_was_reset = matches!(
+            &additional_bulk_result,
+            Err(ServiceError::Reset(message)) if message.contains("byte budget")
+        );
+        let tunnel_was_delivered = matches!(
+            &tunnel_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Tunnel
+                    && chunk.payload == b"tunnel-marker".as_slice()
+        );
+        let control_was_delivered = matches!(
+            &control_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Control
+                    && chunk.payload == b"control-marker".as_slice()
+        );
+        let interactive_was_delivered = matches!(
+            &interactive_result,
+            Ok(Some(chunk))
+                if chunk.lane == Lane::Interactive
+                    && chunk.payload == b"interactive-marker".as_slice()
+        );
+        assert!(
+            additional_bulk_was_reset
+                && tunnel_was_delivered
+                && control_was_delivered
+                && interactive_was_delivered,
+            "Bulk reserve violation: additional_bulk={additional_bulk_result:?}, \
+             tunnel={tunnel_result:?}, control={control_result:?}, \
+             interactive={interactive_result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_stream_does_not_poison_the_next_stream() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+
+        let first = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let first_peer = daemon.accept().await.unwrap().unwrap().stream;
+        first.close().await.unwrap();
+        let finished = first_peer.receive().await.unwrap().unwrap();
+        assert!(finished.finished);
+        assert!(first.receive().await.unwrap().is_none());
+        drop(first_peer);
+
+        let second = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        let second_peer = tokio::time::timeout(Duration::from_secs(1), daemon.accept())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(second_peer.service, Service::WorkspaceRpc);
+        second.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mux_fin_is_a_three_lane_barrier_and_late_tombstoned_frames_are_ignored() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+        let mut fatal = client.subscribe_fatal();
+        let client_stream = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+
+        daemon_stream.send_on(Lane::Bulk, Bytes::from_static(b"last")).await.unwrap();
+        daemon_stream.close().await.unwrap();
+        assert_eq!(client_stream.receive().await.unwrap().unwrap().payload, b"last".as_slice());
+        assert!(client_stream.receive().await.unwrap().unwrap().finished);
+        assert!(client_stream.receive().await.unwrap().is_none());
+
+        daemon_endpoint
+            .send_frame(None, Lane::Bulk, stream_id, Bytes::new(), FrameFlags::FIN)
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Bulk,
+                stream_id,
+                Bytes::from_static(b"late"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+    }
+
+    #[tokio::test]
+    async fn delayed_frame_survives_cross_lane_real_close_churn() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+        let client_stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+        daemon_stream.close().await.unwrap();
+        assert!(client_stream.receive().await.unwrap().unwrap().finished);
+        assert!(client_stream.receive().await.unwrap().is_none());
+
+        // Churn real remote closes on Control while the Interactive tombstone
+        // waits for a delayed frame.
+        for _ in 0..TOMBSTONES_PER_LANE {
+            let churn_client = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+            let churn_daemon = daemon.accept().await.unwrap().unwrap().stream;
+            churn_daemon.close().await.unwrap();
+            assert!(churn_client.receive().await.unwrap().unwrap().finished);
+            assert!(churn_client.receive().await.unwrap().is_none());
+        }
+
+        assert!(client.closed.lock().await.contains_on(stream_id, Lane::Interactive));
+
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                stream_id,
+                Bytes::from_static(b"delayed"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let mut fatal = client.subscribe_fatal();
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn delayed_tunnel_frame_survives_tombstone_churn() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+
+        client_stream.close().await.unwrap();
+        assert!(daemon_stream.receive().await.unwrap().unwrap().finished);
+        daemon_stream.close().await.unwrap();
+        assert!(client_stream.receive().await.unwrap().unwrap().finished);
+        assert!(client_stream.receive().await.unwrap().is_none());
+
+        let mut closed = client.closed.lock().await;
+        for id in 100_000..100_000 + TOMBSTONES_PER_LANE as u64 + 1 {
+            closed.insert_on(id * 2 + 1, LANE_TUNNEL_BIT);
+        }
+        assert!(!closed.contains_on(stream_id, Lane::Tunnel));
+        drop(closed);
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                Some(0),
+                Lane::Tunnel,
+                stream_id,
+                Bytes::from_static(b"delayed tunnel"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.unwrap().unwrap();
+        assert!(
+            fatal.borrow().as_deref().is_some_and(|message| message.contains("unknown stream"))
+        );
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn unknown_stream_tombstone_is_lane_specific() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream_id = 77;
+        client.closed.lock().await.insert_on(stream_id, LANE_INTERACTIVE_BIT);
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                stream_id,
+                Bytes::from_static(b"wrong lane"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), fatal.changed()).await.unwrap().unwrap();
+        assert!(
+            fatal.borrow().as_deref().is_some_and(|message| message.contains("unknown stream"))
+        );
+        client.shutdown().await;
+    }
+
+    fn test_registration(service: Service) -> StreamRegistration {
+        let (chunks, _receiver) = mpsc::channel(1);
+        let (failure, _failure_changed) = watch::channel(None);
+        StreamRegistration {
+            service,
+            generation: generation_for_service(service, 0),
+            chunks,
+            failure,
+            state: Arc::new(AtomicU8::new(0)),
+            terminal: LaneTerminalState::new(service),
+        }
+    }
+
+    #[tokio::test]
+    async fn reset_tombstone_is_lane_specific() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
+        let stream_id = stream.id();
+        let _peer = daemon_endpoint.receive_frame().await.unwrap().expect("open frame");
+        daemon_endpoint
+            .send_frame(None, Lane::Control, stream_id, Bytes::new(), FrameFlags::RESET)
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), stream.wait_for_failure())
+            .await
+            .expect("reset was not delivered");
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                stream_id,
+                Bytes::from_static(b"late reset"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                stream_id,
+                Bytes::from_static(b"late reset data"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn queue_full_tombstone_is_lane_specific() {
+        let streams = Mutex::new(HashMap::from([(1, test_registration(Service::ProcessStream))]));
+        let closed = Mutex::new(ClosedStreams::default());
+        reset_registered_stream(&streams, &closed, 1, Lane::Control, "queue full").await;
+        let closed = closed.lock().await;
+        assert!(closed.contains_on(1, Lane::Control));
+        assert!(closed.contains_on(1, Lane::Interactive));
+        assert!(!closed.contains_on(1, Lane::Bulk));
+    }
+
+    #[tokio::test]
+    async fn open_limit_tombstone_is_lane_specific() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        {
+            let mut streams = client.streams.lock().await;
+            for id in 1..=MAX_OPEN_STREAMS as u64 {
+                streams.insert(id * 2, test_registration(Service::ProcessStream));
+            }
+        }
+        let stream_id = 2 * (MAX_OPEN_STREAMS as u64 + 1);
+        let payload = serde_json::to_vec(&ServiceControl::Open {
+            service: Service::ProcessStream,
+            metadata: BTreeMap::new(),
+        })
+        .unwrap();
+        daemon_endpoint
+            .send_frame(None, Lane::Control, stream_id, Bytes::from(payload), FrameFlags::OPEN)
+            .await
+            .unwrap();
+        tokio::task::yield_now().await;
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                stream_id,
+                Bytes::from_static(b"late open-limit"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                stream_id,
+                Bytes::from_static(b"late open-limit data"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn dropped_stream_tombstone_covers_its_default_lane() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream = client.open(Service::ProcessStream, BTreeMap::new()).await.unwrap();
+        let stream_id = stream.id();
+        drop(stream);
+        tokio::task::yield_now().await;
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Interactive,
+                stream_id,
+                Bytes::from_static(b"late drop"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn dropped_stream_tombstone_is_lane_specific() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        let stream_id = stream.id();
+        drop(stream);
+        tokio::task::yield_now().await;
+
+        let mut fatal = client.subscribe_fatal();
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Control,
+                stream_id,
+                Bytes::from_static(b"late control drop"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(tokio::time::timeout(Duration::from_millis(25), fatal.changed()).await.is_err());
+        assert!(fatal.borrow().is_none());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn mux_payload_after_a_lane_fin_resets_before_the_aggregate_fin() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let stream = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+
+        daemon_endpoint
+            .send_frame(None, Lane::Bulk, stream.id(), Bytes::new(), FrameFlags::FIN)
+            .await
+            .unwrap();
+        daemon_endpoint
+            .send_frame(None, Lane::Bulk, stream.id(), Bytes::new(), FrameFlags::FIN)
+            .await
+            .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(25), stream.receive()).await.is_err());
+        daemon_endpoint
+            .send_frame(
+                None,
+                Lane::Bulk,
+                stream.id(),
+                Bytes::from_static(b"after-fin"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let error = tokio::time::timeout(Duration::from_secs(1), stream.receive())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, ServiceError::Reset(message) if message.contains("same lane")));
+    }
+
+    #[tokio::test]
+    async fn local_close_and_drop_deregister_streams_without_waiting_for_peer_fin() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+
+        let explicitly_closed = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        let _peer = daemon.accept().await.unwrap().unwrap();
+        assert_eq!(client.streams.lock().await.len(), 1);
+        explicitly_closed.close().await.unwrap();
+        assert!(client.streams.lock().await.is_empty());
+
+        let dropped = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        let _peer = daemon.accept().await.unwrap().unwrap();
+        assert_eq!(client.streams.lock().await.len(), 1);
+        drop(dropped);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if client.streams.lock().await.is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn tcp_fin_half_closes_one_direction_until_the_response_fin_arrives() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+        client_stream.send(Bytes::from_static(b"request")).await.unwrap();
+        client_stream.close().await.unwrap();
+        assert_eq!(client.streams.lock().await.len(), 1);
+
+        let request = daemon_stream.receive().await.unwrap().unwrap();
+        assert_eq!(request.payload, b"request".as_slice());
+        let request_fin = daemon_stream.receive().await.unwrap().unwrap();
+        assert!(request_fin.finished);
+        assert!(!request_fin.reset);
+        assert!(daemon_stream.receive().await.unwrap().is_none());
+
+        daemon_stream.send(Bytes::from_static(b"response")).await.unwrap();
+        daemon_stream.close().await.unwrap();
+        let response = client_stream.receive().await.unwrap().unwrap();
+        assert_eq!(response.payload, b"response".as_slice());
+        let response_fin = client_stream.receive().await.unwrap().unwrap();
+        assert!(response_fin.finished);
+        assert!(!response_fin.reset);
+        assert!(client_stream.receive().await.unwrap().is_none());
+
+        assert!(client.streams.lock().await.is_empty());
+        assert!(daemon.streams.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn tcp_payload_after_fin_resets_the_stream() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+
+        client_stream.close().await.unwrap();
+        assert!(daemon_stream.receive().await.unwrap().unwrap().finished);
+        client_endpoint
+            .send_frame(
+                Some(0),
+                Lane::Tunnel,
+                stream_id,
+                Bytes::from_static(b"after-fin"),
+                FrameFlags::empty(),
+            )
+            .await
+            .unwrap();
+
+        let reset = tokio::time::timeout(Duration::from_secs(1), client_stream.receive())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(reset, ServiceError::Reset(_)));
+        assert!(client.streams.lock().await.is_empty());
+        assert!(daemon.streams.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn tcp_reset_after_fin_replaces_previously_graceful_eof_with_an_error() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+
+        daemon_stream.close().await.unwrap();
+        assert!(client_stream.receive().await.unwrap().unwrap().finished);
+        assert!(client_stream.receive().await.unwrap().is_none());
+        daemon_endpoint
+            .send_frame(Some(0), Lane::Tunnel, stream_id, Bytes::new(), FrameFlags::RESET)
+            .await
+            .unwrap();
+
+        let failure =
+            tokio::time::timeout(Duration::from_secs(1), client_stream.wait_for_failure())
+                .await
+                .unwrap();
+        assert!(matches!(failure, ServiceError::Reset(_)));
+        let error = tokio::time::timeout(Duration::from_secs(1), client_stream.receive())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, ServiceError::Reset(_)));
+        assert!(matches!(
+            client_stream.send(Bytes::from_static(b"late")).await,
+            Err(ServiceError::Reset(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn generation_change_after_fin_replaces_previously_graceful_eof_with_an_error() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+
+        daemon_stream.close().await.unwrap();
+        assert!(client_stream.receive().await.unwrap().unwrap().finished);
+        assert!(client_stream.receive().await.unwrap().is_none());
+        client_endpoint.advance_generation(1);
+
+        let failure =
+            tokio::time::timeout(Duration::from_secs(1), client_stream.wait_for_failure())
+                .await
+                .unwrap();
+        assert!(matches!(failure, ServiceError::GenerationChanged { expected: 0, actual: 1 }));
+        let error = tokio::time::timeout(Duration::from_secs(1), client_stream.receive())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, ServiceError::GenerationChanged { expected: 0, actual: 1 }));
+    }
+
+    #[tokio::test]
+    async fn message_stream_rejects_frames_outside_its_declared_lane() {
+        use bytes::{BufMut, BytesMut};
+
+        use crate::services::{MessageStream, ServicesError};
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client
+            .open(Service::WorkspaceRpc, BTreeMap::from([("lane".into(), "bulk".into())]))
+            .await
+            .unwrap();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+        let messages = MessageStream::with_lane(Arc::new(daemon_stream), Lane::Bulk);
+        let mut encoded = BytesMut::new();
+        encoded.put_u32(3);
+        encoded.extend_from_slice(b"bad");
+        client_stream.send_on(Lane::Control, encoded.freeze()).await.unwrap();
+        assert!(matches!(
+            messages.receive().await,
+            Err(ServicesError::UnexpectedLane { expected: Lane::Bulk, actual: Lane::Control })
+        ));
+        assert!(messages.receive().await.unwrap().is_none());
+        client_stream.close_on(Lane::Bulk).await.unwrap();
+
+        let client_stream = client
+            .open(Service::WorkspaceRpc, BTreeMap::from([("lane".into(), "bulk".into())]))
+            .await
+            .unwrap();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+        let messages = MessageStream::with_lane(Arc::new(daemon_stream), Lane::Bulk);
+        let mut encoded = BytesMut::new();
+        encoded.put_u32(4);
+        encoded.extend_from_slice(b"good");
+        client_stream.send_on(Lane::Bulk, encoded.freeze()).await.unwrap();
+        assert_eq!(messages.receive().await.unwrap().unwrap(), b"good".as_slice());
+        client_stream.close_on(Lane::Bulk).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reconnect_resets_tunnels_on_both_sides_but_keeps_resumable_streams() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+
+        let client_tunnel = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let daemon_tunnel = daemon.accept().await.unwrap().unwrap().stream;
+        let client_workspace = client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
+        let daemon_workspace = daemon.accept().await.unwrap().unwrap().stream;
+
+        client_endpoint.advance_generation(1);
+        daemon_endpoint.advance_generation(1);
+
+        for stream in [&client_tunnel, &daemon_tunnel] {
+            let error = tokio::time::timeout(Duration::from_secs(1), stream.receive())
+                .await
+                .expect("tunnel stream did not reset after reconnect")
+                .unwrap_err();
+            assert!(matches!(error, ServiceError::GenerationChanged { expected: 0, actual: 1 }));
+            assert!(matches!(
+                stream.send(Bytes::from_static(b"stale")).await,
+                Err(ServiceError::GenerationChanged { expected: 0, actual: 1 })
+            ));
+        }
+
+        client_workspace.send(Bytes::from_static(b"resumed")).await.unwrap();
+        let chunk = tokio::time::timeout(Duration::from_secs(1), daemon_workspace.receive())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(chunk.payload, b"resumed".as_slice());
+        assert_eq!(chunk.lane, Lane::Control);
+    }
+}

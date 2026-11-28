@@ -8,7 +8,7 @@ import { CliAuthConfirmation, type CliAuthIdentityMessages } from "../cli-auth-c
 import { CmuxOAuthCallback, CmuxSignIn, type CmuxSignInMessages } from "../cmux-sign-in";
 import { chatGPTSignInEnabled } from "../chatgpt/chatgpt-enabled";
 import { EndSavedSessions } from "../end-saved-sessions";
-import { Spinner } from "../../components/spinner";
+import { SignInSpinner } from "../sign-in-spinner";
 import { hostedAuthErrorRedirect } from "../sign-in-entry";
 import hosted from "../hosted.module.css";
 import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
@@ -112,7 +112,7 @@ function StackHandlerLoading() {
       aria-busy="true"
       className="flex min-h-screen items-center justify-center"
     >
-      <Spinner className="h-5 w-5 text-muted" />
+      <SignInSpinner className="h-5 w-5" />
     </main>
   );
 }

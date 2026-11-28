@@ -14,6 +14,7 @@
 </p>
 
 <p align="center">
+  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -383,7 +384,7 @@ tmux는 어떤 터미널 안에서든 실행되는 터미널 멀티플렉서예�
 
 ### cmux를 어떻게 지원할 수 있나요?
 
-cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요.
+cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 후원하고 cmux AI, iOS 앱, Cloud VMs를 포함해 다음에 나올 것들에 먼저 접근하고 싶다면, [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)을 확인해주세요.
 
 ### 기능 요청이 있거나 버그를 발견했어요?
 
@@ -403,7 +404,7 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요.
 
 참여 방법:
 
-- X에서 팔로우해주세요: [@lawrencecchen](https://x.com/lawrencecchen), [@austinywang](https://x.com/austinywang)
+- X에서 팔로우해주세요: [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), [@austinywang](https://x.com/austinywang)
 - [Discord](https://discord.gg/xsgFEVrWCZ)에서 대화에 참여해주세요
 - [GitHub Issues](https://github.com/manaflow-ai/cmux/issues)와 [토론](https://github.com/manaflow-ai/cmux/discussions)에 참여해주세요
 - cmux로 무엇을 만들고 있는지 알려주세요
@@ -413,6 +414,7 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요.
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
+- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -421,6 +423,12 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요.
   <strong>WeChat:</strong> QR 코드를 스캔해 커뮤니티에 참여하세요.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux 커뮤니티에 참여하기 위한 WeChat QR 코드" width="240" />
 </p>
+
+## cmux Pro
+
+cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 지원하고 다음에 나올 기능에 먼저 접근하고 싶다면:
+
+**[cmux Pro 구매하기](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## 라이선스
 

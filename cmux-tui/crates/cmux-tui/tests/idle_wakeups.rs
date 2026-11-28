@@ -6,12 +6,7 @@
 //! The test starts a headless daemon with one terminal running `cat`, keeps
 //! the streams the cmux app keeps open (an event subscription and a terminal
 //! attach), lets it settle, and then counts context switches and CPU time of
-//! the daemon and the terminal host over a quiet window. It also follows each
-//! daemon thread across the windows: a thread that runs in every window wakes
-//! on a timer, however cheap each wake is (issue 23087: an idle owner retried
-//! a missing acpmux every 10 s and ran journal maintenance every 30 s for
-//! good). acpmux is not running for these daemons, as on most machines, and
-//! journal maintenance runs at a test interval of half a second.
+//! the daemon and the terminal host over a quiet window.
 #![cfg(unix)]
 
 use std::fs;
@@ -22,48 +17,26 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-/// Quiet window over which wakeups are counted. Longer than the 10 s retry
-/// cap of the daemon's reconnect loops, so a thread on such a loop runs in
-/// every window.
-const WINDOW: Duration = Duration::from_secs(12);
-/// Consecutive windows measured; a process is judged by its median window, so
-/// a one-off event (one window) passes and a periodic wake (every window) fails.
-const WINDOWS: u32 = 3;
+/// Quiet window over which wakeups are counted.
+const WINDOW: Duration = Duration::from_secs(10);
 /// Time after setup for one-shot work (first render, journal flushes) to end.
 const SETTLE: Duration = Duration::from_secs(3);
-/// Context switches allowed per process in its median window. Any periodic
-/// wake of 1 Hz or faster gives at least 12 in every window; a stray one-shot
-/// event (a late journal fsync, a deadline set during setup, one write below a
-/// watched folder) gives a few in one window.
+/// Context switches allowed per process in the window. Any periodic wake of
+/// 1 Hz or faster gives at least 10; a stray one-shot event (a late journal
+/// fsync, a deadline set during setup) gives one or two.
 const MAX_SWITCHES_PER_WINDOW: u64 = 5;
-/// CPU allowed per process in its median window: about 0.4% of one core.
+/// CPU allowed per process in the window: 0.5% of one core.
 const MAX_CPU_PER_WINDOW: Duration = Duration::from_millis(50);
-/// The journal maintenance interval of these daemons (debug builds read it):
-/// a worker that ticks on its interval while nothing changed runs in every
-/// window.
-const MAINTENANCE_INTERVAL_MS: &str = "500";
 
 struct Daemon {
     child: Child,
     socket: PathBuf,
     state: PathBuf,
     dir: PathBuf,
-    acpmux: PathBuf,
 }
 
 impl Daemon {
     fn start(name: &str) -> Self {
-        Self::start_with_settings(name, Path::new("cmux-next.json"))
-    }
-
-    /// `settings` is relative to the test's folder; its folders are created
-    /// only when the file is at the top.
-    fn start_with_settings(name: &str, settings: &Path) -> Self {
-        Self::start_with_env(name, settings, &[])
-    }
-
-    /// [`Daemon::start_with_settings`] with `env` added to the daemon's environment.
-    fn start_with_env(name: &str, settings: &Path, env: &[(&str, &std::ffi::OsStr)]) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-idle-{name}-{}-{stamp}", std::process::id()));
@@ -71,40 +44,12 @@ impl Daemon {
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
         let config = dir.join("config.json");
-        // This daemon's own acpmux socket, which nothing serves until a test
-        // binds it (never the machine's acpmux).
-        let acpmux = dir.join("acpmux").join("acpmux.sock");
-        // The daemon's own settings file exists, as on a configured machine: its
-        // watcher must not wake on the daemon's own reads of it (a Linux inotify
-        // open event once fed a reload loop of ~40k reloads/s).
-        let settings = dir.join(settings);
-        if settings.parent() == Some(dir.as_path()) {
-            fs::write(&settings, "{}\n").unwrap();
-        }
-        // The daemon's own home folder. It watches folders there (the editor
-        // and Codex project sources); the machine's real home is busy on a
-        // host where Codex runs (a write to ~/.codex several times a second
-        // woke the watch in every window), and the test judges the daemon,
-        // not the host. The Codex folder exists, so the watch is still set up.
-        let home = dir.join("home");
-        fs::create_dir_all(home.join(".codex")).unwrap();
         let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
-            .env("HOME", &home)
-            .env_remove("CODEX_HOME")
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("XDG_DATA_HOME")
             .env("CMUX_TUI_CONFIG", &config)
-            .env("CMUX_NEXT_CONFIG_FILE", &settings)
-            .env("ACPMUX_SOCKET", &acpmux)
-            .env("CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS", MAINTENANCE_INTERVAL_MS)
-            // The settings file decides whether usage patterns are counted,
-            // not the host's environment (a test turns it on through `env`).
-            .env_remove("CMUX_USAGE_PATTERNS")
-            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -114,7 +59,7 @@ impl Daemon {
             assert!(Instant::now() < deadline, "daemon did not create {}", socket.display());
             std::thread::sleep(Duration::from_millis(25));
         }
-        Self { child, socket, state, dir, acpmux }
+        Self { child, socket, state, dir }
     }
 
     fn host_pids(&self) -> Vec<u32> {
@@ -336,433 +281,9 @@ fn delta(before: Usage, after: Usage) -> Usage {
     }
 }
 
-/// Each thread of `pid` by id: its name and a counter that grows whenever the
-/// thread runs (context switches on Linux, CPU time in nanoseconds on macOS,
-/// which has no per-thread switch count).
-#[cfg(target_os = "linux")]
-fn thread_activity(pid: u32) -> std::collections::HashMap<u64, (String, u64)> {
-    fs::read_dir(format!("/proc/{pid}/task"))
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter_map(|task| {
-            let tid = task.file_name().to_str()?.parse::<u64>().ok()?;
-            let name = fs::read_to_string(task.path().join("comm")).ok()?.trim().to_string();
-            let switches = fs::read_to_string(task.path().join("status"))
-                .ok()?
-                .lines()
-                .filter(|line| line.contains("ctxt_switches:"))
-                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
-                .sum();
-            Some((tid, (name, switches)))
-        })
-        .collect()
-}
-
-#[cfg(target_os = "macos")]
-fn thread_activity(pid: u32) -> std::collections::HashMap<u64, (String, u64)> {
-    use std::os::raw::{c_char, c_int, c_void};
-
-    #[repr(C)]
-    struct ThreadInfo {
-        user_time: u64,
-        system_time: u64,
-        cpu_usage: i32,
-        policy: i32,
-        run_state: i32,
-        flags: i32,
-        sleep_time: i32,
-        current_priority: i32,
-        priority: i32,
-        max_priority: i32,
-        name: [c_char; 64],
-    }
-
-    unsafe extern "C" {
-        fn proc_pidinfo(
-            pid: c_int,
-            flavor: c_int,
-            arg: u64,
-            buffer: *mut c_void,
-            size: c_int,
-        ) -> c_int;
-    }
-    const PROC_PIDLISTTHREADS: c_int = 6;
-    const PROC_PIDTHREADINFO: c_int = 5;
-
-    let mut handles = vec![0_u64; 4096];
-    let size = (handles.len() * size_of::<u64>()) as c_int;
-    // SAFETY: the buffer holds `size` bytes of thread handles.
-    let filled = unsafe {
-        proc_pidinfo(pid as c_int, PROC_PIDLISTTHREADS, 0, handles.as_mut_ptr().cast(), size)
-    };
-    handles.truncate(usize::try_from(filled).unwrap_or(0) / size_of::<u64>());
-    handles
-        .into_iter()
-        .filter_map(|handle| {
-            // SAFETY: zeroed is a valid ThreadInfo (integers and a C string).
-            let mut info: ThreadInfo = unsafe { std::mem::zeroed() };
-            let size = size_of::<ThreadInfo>() as c_int;
-            // SAFETY: the buffer matches the PROC_PIDTHREADINFO layout and size.
-            let read = unsafe {
-                proc_pidinfo(pid as c_int, PROC_PIDTHREADINFO, handle, (&raw mut info).cast(), size)
-            };
-            (read == size).then(|| {
-                // SAFETY: the kernel NUL-terminates the thread name.
-                let name = unsafe { std::ffi::CStr::from_ptr(info.name.as_ptr()) };
-                (handle, (name.to_string_lossy().into_owned(), info.user_time + info.system_time))
-            })
-        })
-        .collect()
-}
-
-/// Threads of the daemon that ran in every window: a timer wakes them, not
-/// an event, however little each wake costs. A one-off event (a late journal
-/// fsync, a deadline set during setup) runs a thread in one window.
-fn periodic_threads(marks: &[std::collections::HashMap<u64, (String, u64)>]) -> Vec<String> {
-    let Some(first) = marks.first() else { return Vec::new() };
-    let mut periodic: Vec<String> = first
-        .iter()
-        .filter(|(id, _)| {
-            marks.windows(2).all(|pair| match (pair[0].get(id), pair[1].get(id)) {
-                (Some((_, before)), Some((_, after))) => after > before,
-                _ => false,
-            })
-        })
-        .map(|(id, (name, _))| format!("{name} (thread {id})"))
-        .collect();
-    periodic.sort();
-    periodic
-}
-
-/// Whether a process woke up over the measured windows: its median window
-/// (switches and CPU taken separately) is over the limit.
-fn woke(windows: &[Usage]) -> bool {
-    let mut switches: Vec<u64> = windows.iter().map(|used| used.switches).collect();
-    let mut cpu: Vec<Duration> = windows.iter().map(|used| used.cpu).collect();
-    switches.sort_unstable();
-    cpu.sort_unstable();
-    switches[switches.len() / 2] > MAX_SWITCHES_PER_WINDOW
-        || cpu[cpu.len() / 2] > MAX_CPU_PER_WINDOW
-}
-
-#[test]
-fn cmux_next_idle_verdict_ignores_a_one_off_burst_but_not_a_periodic_wake() {
-    let window =
-        |switches, cpu_ms| Usage { cpu: Duration::from_millis(cpu_ms), switches, wakeups: 0 };
-    // A stray event in one window (a late fsync, one write below a watched folder): 6 switches.
-    assert!(!woke(&[window(1, 1), window(6, 2), window(0, 0)]));
-    // The 0789ec3f class: 2 to 130 switches a second, in every window.
-    assert!(woke(&[window(20, 1), window(25, 1), window(21, 1)]));
-    assert!(woke(&[window(1300, 30), window(1250, 28), window(1310, 31)]));
-    // A periodic wake that starts during the measurement still fails.
-    assert!(woke(&[window(0, 0), window(12, 1), window(11, 1)]));
-    // So does steady CPU use.
-    assert!(woke(&[window(2, 60), window(2, 70), window(1, 65)]));
-}
-
 #[test]
 fn cmux_next_daemon_idle_has_no_periodic_wakeups() {
     let daemon = Daemon::start("daemon");
-    // acpmux's folder is there from an earlier run; only its socket is not.
-    fs::create_dir_all(daemon.acpmux.parent().unwrap()).unwrap();
-    assert_idle(&daemon, || {});
-    // The daemon waited for acpmux without retrying on a timer; it still
-    // reaches acpmux as soon as acpmux binds its socket.
-    assert_follows_acpmux_when_it_appears(&daemon);
-}
-
-/// Binds the daemon's acpmux socket the way acpmux does (creating its folder
-/// first when it is missing) and expects the daemon's agent chat watch to
-/// connect and start its watch at once, not at a later retry (those were up
-/// to 10 s apart).
-fn assert_follows_acpmux_when_it_appears(daemon: &Daemon) {
-    let directory = daemon.acpmux.parent().unwrap();
-    fs::create_dir_all(directory).unwrap();
-    let listener = std::os::unix::net::UnixListener::bind(&daemon.acpmux).unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let bound = Instant::now();
-    let deadline = bound + Duration::from_secs(3);
-    let stream = loop {
-        match listener.accept() {
-            Ok((stream, _)) => break stream,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                assert!(
-                    Instant::now() < deadline,
-                    "the daemon did not connect to acpmux within 3 s of its socket appearing"
-                );
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(error) => panic!("accept on the acpmux socket: {error}"),
-        }
-    };
-    stream.set_nonblocking(false).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    let mut reader = BufReader::new(stream);
-    let mut first = String::new();
-    reader.read_line(&mut first).unwrap();
-    let initialize: serde_json::Value = serde_json::from_str(&first).unwrap();
-    assert_eq!(initialize["method"], "initialize", "{first}");
-    assert_eq!(initialize["params"]["clientInfo"]["name"], "cmux-tui-agent-chat-notices");
-    let mut second = String::new();
-    reader.read_line(&mut second).unwrap();
-    let watch: serde_json::Value = serde_json::from_str(&second).unwrap();
-    assert_eq!(watch["method"], "_acpmux/watch", "{second}");
-    let _ = writeln!(
-        std::io::stderr(),
-        "acpmux socket bound: the daemon connected after {:?}",
-        bound.elapsed()
-    );
-}
-
-/// Before the first save the settings folder does not exist, so the daemon
-/// watches its nearest existing ancestor (the home folder or ~/.config for a
-/// real install; /Library while /Library/Managed Preferences is missing on
-/// every unmanaged Mac). Writes anywhere below that ancestor must not wake
-/// the daemon: only the missing folder appearing matters (on macOS, an
-/// FSEvents watch of /Library woke it for every write under /Library, 2-130
-/// context switches/s on busy CI minis).
-#[test]
-fn cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder() {
-    let daemon = Daemon::start_with_settings("ancestor", Path::new("config/cmux/cmux-next.json"));
-    let busy = daemon.dir.join("busy/deep/er");
-    fs::create_dir_all(&busy).unwrap();
-    assert_idle(&daemon, move || {
-        // About 20 writes a second through the windows, in a folder beside
-        // the missing one.
-        let end = Instant::now() + WINDOW * WINDOWS - Duration::from_millis(100);
-        let mut round = 0u64;
-        while Instant::now() < end {
-            fs::write(busy.join(format!("file-{}", round % 8)), round.to_string()).unwrap();
-            round += 1;
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    });
-    assert!(!daemon.dir.join("config").exists(), "the daemon created the settings folder");
-    // acpmux has never run here: its folder appears with its socket.
-    assert!(!daemon.acpmux.parent().unwrap().exists());
-    assert_follows_acpmux_when_it_appears(&daemon);
-}
-
-/// Usage patterns (opt-in counters) are written by a thread that must not
-/// wake an idle daemon, so it writes a count some time after it was made.
-/// A count made just before the daemon stops (an update's SIGTERM) must
-/// still be on disk after the stop: the shutdown writes it. The request comes
-/// after the first write of the 5-second loop the thread had before, which
-/// then wrote again only 30 s later and lost every count of the last
-/// 5-35 s of a daemon's life.
-#[test]
-fn cmux_next_daemon_writes_its_usage_counts_when_it_stops() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let counts = PathBuf::from("/tmp").join(format!("cmux-usage-{}-{stamp}", std::process::id()));
-    let mut daemon = Daemon::start_with_env(
-        "usage",
-        Path::new("cmux-next.json"),
-        &[
-            ("CMUX_USAGE_PATTERNS", std::ffi::OsStr::new("1")),
-            ("CMUX_USAGE_PATTERNS_DIR", counts.as_os_str()),
-        ],
-    );
-    std::thread::sleep(Duration::from_secs(6));
-    request(&daemon.socket, serde_json::json!({"id": 1, "cmd": "list-workspaces"}))
-        .expect("list-workspaces");
-    // SAFETY: the pid is this test's own daemon, still running.
-    unsafe { libc::kill(daemon.child.id() as libc::pid_t, libc::SIGTERM) };
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while daemon.child.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < deadline, "the daemon did not stop on SIGTERM");
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    let commands: u64 = fs::read_dir(&counts)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
-        .filter_map(|entry| fs::read(entry.path()).ok())
-        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .flat_map(|rollup| {
-            rollup["counts"]["command"]
-                .as_object()
-                .into_iter()
-                .flat_map(|keys| {
-                    keys.values().filter_map(serde_json::Value::as_u64).collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>()
-        })
-        .sum();
-    let _ = fs::remove_dir_all(&counts);
-    assert!(commands >= 1, "the command counted before the stop was not written");
-}
-
-/// A folder for one test's usage pattern files, outside the daemon's own
-/// folder (the settings watch covers that one). Removed when the test ends.
-struct UsageFiles(PathBuf);
-
-impl UsageFiles {
-    fn new(name: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        Self(
-            PathBuf::from("/tmp").join(format!("cmux-usage-{name}-{}-{stamp}", std::process::id())),
-        )
-    }
-
-    /// The commands counted in the files written so far.
-    fn commands(&self) -> u64 {
-        cmux_usage_patterns::read_dir(&self.0)
-            .rollup
-            .counts
-            .get("command")
-            .map_or(0, |keys| keys.values().sum())
-    }
-}
-
-impl Drop for UsageFiles {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-/// A person turns `diagnostics.usagePatterns` on and off in the settings
-/// file while the daemon runs. The daemon reads the setting through a watch
-/// of that file and not only when it starts: it counts the commands that
-/// come after the setting went on, writes them when the setting goes off
-/// (not at the next timed write), and counts nothing after that.
-///
-/// This test and the next one are not named `cmux_next_`: that prefix puts
-/// a test in the `cmux_next_ daemon tests` job (cmux-tui-artifacts.yml),
-/// which gates the feat-cmux-next channel. These two run with the file and
-/// by name.
-#[test]
-fn daemon_usage_patterns_follow_the_setting_while_it_runs() {
-    /// How long the setting stays on. The daemon cannot say when it read the
-    /// change, so commands come through all of it; the watch reads a change
-    /// about 0.1 s after the write.
-    const ON: Duration = Duration::from_secs(5);
-    /// From the write that turns the setting on to the file on disk. The
-    /// first timed write comes `FLUSH_EVERY` after the first command that
-    /// the daemon counts, so a file inside this limit was written because
-    /// the setting went off.
-    const LIMIT: Duration = Duration::from_secs(20);
-    const { assert!(LIMIT.as_secs() < cmux_usage_patterns::FLUSH_EVERY.as_secs()) };
-
-    let files = UsageFiles::new("follow");
-    let mut daemon = Daemon::start_with_env(
-        "usage-follow",
-        Path::new("cmux-next.json"),
-        &[("CMUX_USAGE_PATTERNS_DIR", files.0.as_os_str())],
-    );
-    let settings = daemon.dir.join("cmux-next.json");
-    let ask = |id: u64| {
-        request(&daemon.socket, serde_json::json!({"id": id, "cmd": "list-workspaces"}))
-            .expect("list-workspaces");
-    };
-    ask(10);
-
-    let deadline = Instant::now() + LIMIT;
-    fs::write(&settings, "{ \"diagnostics\": { \"usagePatterns\": true } }\n").unwrap();
-    let on = Instant::now() + ON;
-    let mut id = 11;
-    while Instant::now() < on {
-        std::thread::sleep(Duration::from_millis(100));
-        ask(id);
-        id += 1;
-    }
-    fs::write(&settings, "{ \"diagnostics\": { \"usagePatterns\": false } }\n").unwrap();
-    while files.commands() == 0 {
-        assert!(
-            Instant::now() < deadline,
-            "the running daemon did not count commands after the setting went on, or did not \
-             write them when it went off"
-        );
-        std::thread::sleep(Duration::from_millis(25));
-    }
-
-    // The file is there, so the daemon read the off setting. The commands
-    // from here on are not counted: the write at the stop has nothing to add.
-    let counted = files.commands();
-    for _ in 0..5 {
-        ask(id);
-        id += 1;
-    }
-    // SAFETY: the pid is this test's own daemon, still running.
-    unsafe { libc::kill(daemon.child.id() as libc::pid_t, libc::SIGTERM) };
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while daemon.child.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < deadline, "the daemon did not stop on SIGTERM");
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    assert_eq!(files.commands(), counted, "the daemon counted commands after the setting went off");
-}
-
-/// A daemon that counts usage patterns has no thread that runs in every
-/// window, and its timed write happens: counting is on from the start, the
-/// writer writes the counts of the start `FLUSH_EVERY` later, inside the
-/// windows, and the file is on disk after them.
-///
-/// Not shown here: a writer that would wake each `FLUSH_EVERY` with nothing
-/// to write. That is one wake in the 3 windows, which the median allows.
-#[test]
-fn daemon_usage_patterns_on_has_no_periodic_wakeups() {
-    // The timed write is due before the last window ends.
-    const {
-        assert!(
-            cmux_usage_patterns::FLUSH_EVERY.as_secs()
-                < SETTLE.as_secs() + WINDOW.as_secs() * WINDOWS as u64
-        );
-    }
-    let files = UsageFiles::new("idle");
-    let daemon = Daemon::start_with_env(
-        "usage-idle",
-        Path::new("cmux-next.json"),
-        &[
-            ("CMUX_USAGE_PATTERNS", std::ffi::OsStr::new("1")),
-            ("CMUX_USAGE_PATTERNS_DIR", files.0.as_os_str()),
-        ],
-    );
-    assert_idle(&daemon, || {});
-    // Counting was on through the windows: the commands of the start are on
-    // disk (the timed write was due inside the windows).
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while files.commands() == 0 {
-        assert!(Instant::now() < deadline, "the daemon wrote no usage patterns");
-        std::thread::sleep(Duration::from_millis(25));
-    }
-}
-
-/// The daemon watches the folders its project sources read (~/.codex among
-/// them), and on a machine that runs Codex agents that folder is busy: Codex
-/// appends to its logs and other databases there several times a second. The
-/// daemon reads none of those files, so the writes must not wake it (a watch
-/// of the whole folder woke it for each write: about 230 context switches per
-/// window at 20 writes a second).
-#[test]
-fn cmux_next_daemon_idle_ignores_writes_to_unread_files_in_a_watched_project_folder() {
-    let daemon = Daemon::start("project-folder");
-    let codex = daemon.dir.join("home/.codex");
-    let unread = ["logs_2.sqlite", "logs_2.sqlite-wal", "goals_1.sqlite-wal", "history.jsonl"];
-    for name in unread {
-        fs::write(codex.join(name), "").unwrap();
-    }
-    assert_idle(&daemon, move || {
-        // About 20 writes a second through the windows, in place, as a
-        // database or log appends.
-        let end = Instant::now() + WINDOW * WINDOWS - Duration::from_millis(100);
-        let mut round = 0usize;
-        while Instant::now() < end {
-            let mut file = fs::OpenOptions::new()
-                .append(true)
-                .open(codex.join(unread[round % unread.len()]))
-                .unwrap();
-            file.write_all(format!("{round}\n").as_bytes()).unwrap();
-            round += 1;
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    });
-}
-
-/// Starts a terminal, keeps the app's streams open, settles, then runs
-/// `during` across the quiet windows and fails when the daemon or a terminal
-/// host woke up (see [`woke`]).
-fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
     let created = request(
         &daemon.socket,
         serde_json::json!({
@@ -807,51 +328,26 @@ fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
     let processes: Vec<(String, u32)> = std::iter::once(("daemon".to_string(), daemon.child.id()))
         .chain(hosts.iter().map(|pid| (format!("terminal host {pid}"), *pid)))
         .collect();
-    let daemon_pid = daemon.child.id();
-    let mut marks = vec![processes.iter().map(|(_, pid)| usage(*pid)).collect::<Vec<Usage>>()];
-    let mut threads = vec![thread_activity(daemon_pid)];
-    let started = Instant::now();
-    let activity = std::thread::spawn(during);
-    for _ in 0..WINDOWS {
-        std::thread::sleep(WINDOW);
-        marks.push(processes.iter().map(|(_, pid)| usage(*pid)).collect());
-        threads.push(thread_activity(daemon_pid));
-    }
-    activity.join().unwrap();
-    assert!(
-        started.elapsed() < WINDOW * WINDOWS + Duration::from_secs(2),
-        "the activity outlived the windows"
-    );
+    let before: Vec<Usage> = processes.iter().map(|(_, pid)| usage(*pid)).collect();
+    std::thread::sleep(WINDOW);
+    let after: Vec<Usage> = processes.iter().map(|(_, pid)| usage(*pid)).collect();
 
     let mut failures = Vec::new();
-    for (index, (name, _)) in processes.iter().enumerate() {
-        let windows: Vec<Usage> =
-            marks.windows(2).map(|pair| delta(pair[0][index], pair[1][index])).collect();
+    for ((name, _), (before, after)) in processes.iter().zip(before.into_iter().zip(after)) {
+        let used = delta(before, after);
         let line = format!(
-            "idle {name}: {} ({WINDOWS} windows of {WINDOW:?})",
-            windows
-                .iter()
-                .map(|used| format!(
-                    "cpu {:.1} ms, {} context switches, {} wakeups",
-                    used.cpu.as_secs_f64() * 1000.0,
-                    used.switches,
-                    used.wakeups
-                ))
-                .collect::<Vec<_>>()
-                .join(" | "),
+            "idle {name}: cpu {:.1} ms, {} context switches, {} wakeups in {:?} ({:.2}/s)",
+            used.cpu.as_secs_f64() * 1000.0,
+            used.switches,
+            used.wakeups,
+            WINDOW,
+            used.switches as f64 / WINDOW.as_secs_f64(),
         );
         // Not captured by libtest, so CI logs carry the numbers on success too.
         let _ = writeln!(std::io::stderr(), "{line}");
-        if woke(&windows) {
+        if used.switches > MAX_SWITCHES_PER_WINDOW || used.cpu > MAX_CPU_PER_WINDOW {
             failures.push(line);
         }
-    }
-    let periodic = periodic_threads(&threads);
-    if !periodic.is_empty() {
-        failures.push(format!(
-            "daemon threads that ran in each of the {WINDOWS} windows of {WINDOW:?}: {}",
-            periodic.join(", ")
-        ));
     }
     assert!(failures.is_empty(), "idle processes woke up:\n{}", failures.join("\n"));
 }

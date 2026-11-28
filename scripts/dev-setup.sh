@@ -1,24 +1,28 @@
 #!/usr/bin/env bash
 # Turnkey dev-build entrypoint: build + launch the macOS dev app auto-signed-in,
-# and (optionally) the iOS dev build signed in, with no manual sign-in.
+# and (optionally) the iOS dev build auto-paired to it, with no QR scan and no
+# manual sign-in. Wraps the P1 macOS auto-sign-in path and the P2 iOS auto-pair.
 #
 # Everything here is DEBUG-only and targets the TAGGED app/socket/bundle id, so
 # it never touches the user's stable cmux instance.
 #
 # Flow (--surface both):
 #   1. Select exactly one auth profile for both surfaces.
-#   2. Build + launch the macOS dev app via reload.sh --tag <t> --launch. It
+#   2. Enable the iOS pairing host on the tagged build (opt-in, default OFF):
+#        defaults write com.cmuxterm.app.debug.<tag-id> mobile.iOSPairingHost.enabled -bool true
+#      Written BEFORE the macOS launch so a single build binds the NWListener on
+#      first launch. NOTE: the first bind per bundle id triggers a one-time macOS
+#      "Local Network" permission prompt; click Allow.
+#   3. Build + launch the macOS dev app via reload.sh --tag <t> --launch. It
 #      auto-signs-in from ~/.secrets/cmuxterm-dev.env (DebugDogfoodCredentialResolver).
-#   3. Build the iOS dev app, then let mobile-dev-launch.sh launch it signed in.
-#      The gate is the app's own signed-in receipt (--readiness app-receipt).
-#      The iOS app does not pair with the Mac: the cmux-next Mac app no longer
-#      runs the iroh phone listener, so there is no pairing host to enable and
-#      no attach ticket to mint. Simulator and device policies stay distinct.
+#   4. Build the iOS dev app, then let mobile-dev-launch.sh mint a target-specific
+#      ticket and launch the app. Simulator and device policies stay distinct.
 #
 # Usage:
-#   scripts/dev-setup.sh --tag grid                 # macOS + iOS
+#   scripts/dev-setup.sh --tag grid                 # macOS + iOS, auto-pair
 #   scripts/dev-setup.sh --tag grid --surface mac   # macOS only
-#   scripts/dev-setup.sh --tag grid --surface ios   # iOS only
+#   scripts/dev-setup.sh --tag grid --surface ios   # iOS only (needs Mac listener up)
+#   scripts/dev-setup.sh --tag grid --no-pair       # build both, skip auto-pair
 #   scripts/dev-setup.sh --tag grid --agent         # sign in as the agent account
 #   scripts/dev-setup.sh --tag grid --device        # physical iPhone, hosted DEV backend
 #
@@ -30,8 +34,7 @@
 #                       socket (composer, notif, browser, groups, multi-mac, ...).
 #                       Accepts a comma-list to compose (e.g. composer,browser).
 #                       Run `scripts/dev-profiles/replay-cli.mjs --list` for names.
-#   --no-pair           accepted for older callers and ignored: there is no
-#                       Mac pairing.
+#   --no-pair           skip enabling the host + minting + auto-pair.
 #   --simulator <name>  iOS simulator name (default "iPhone 17").
 #   --device            target a connected iPhone instead of the simulator.
 #   --agent             use the shared agent account for both Mac and Simulator.
@@ -42,18 +45,19 @@ set -euo pipefail
 TAG=""
 SURFACE="both"            # mac | ios | both
 PROFILE=""
+NO_PAIR=0
 AGENT=0
 SIMULATOR_NAME="iPhone 17"
 IOS_TARGET="simulator"   # simulator | device
 
-usage() { sed -n '2,38p' "$0"; }
+usage() { sed -n '2,40p' "$0"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag) TAG="${2:-}"; shift 2 ;;
     --surface) SURFACE="${2:-}"; shift 2 ;;
     --profile) PROFILE="${2:-}"; shift 2 ;;
-    --no-pair) shift ;;  # accepted and ignored: there is no Mac pairing
+    --no-pair) NO_PAIR=1; shift ;;
     --simulator) SIMULATOR_NAME="${2:-}"; shift 2 ;;
     --device) IOS_TARGET="device"; shift ;;
     --agent) AGENT=1; shift ;;
@@ -79,7 +83,8 @@ PROFILE_REPLAY="$SCRIPT_DIR/dev-profiles/replay-cli.mjs"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 
-# Validate before loading credentials or starting either build. The shared validator also rejects the stable instance sentinel.
+# Validate before loading credentials, enabling the host, or starting either
+# build. The shared validator also rejects the stable instance sentinel.
 if ! cmux_attach_validate_dev_tag "$TAG"; then
   exit 2
 fi
@@ -158,7 +163,20 @@ TAG_ID="$(dev_setup__sanitize_bundle "$TAG")"
 BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
 SOCKET_PATH="/tmp/cmux-debug-${TAG_SLUG}.sock"
 
+# --- enable the iOS pairing host (must precede the macOS launch) -------------
+enable_pairing_host() {
+  echo "==> enabling iOS pairing host on $BUNDLE_ID (opt-in, default OFF)"
+  echo "    (first bind per bundle id triggers a one-time macOS Local Network prompt; click Allow)"
+  # The host listener is opt-in. createAttachTicket returns empty routes unless
+  # the NWListener is bound. MobileHostService.start() reads this default at app
+  # launch (applicationDidFinishLaunching), so it must be written BEFORE the
+  # macOS launch below. The tagged bundle id is targeted, never the stable app.
+  cmux_attach_enable_pairing_host "$TAG"
+}
+
 # --- macOS build + launch (P1 auto-sign-in) ---------------------------------
+# Writing the pairing default first means a single reload.sh build binds the
+# listener on its first launch (no double build).
 build_and_launch_mac() {
   echo "==> building + launching macOS dev app (tag: $TAG)"
   local reload_args=(
@@ -174,13 +192,14 @@ build_and_launch_mac() {
 
 # --- iOS build + target-aware launch ----------------------------------------
 build_and_launch_ios() {
+  local auto_pair="${1:-0}"
   echo "==> building iOS dev app (tag: $TAG)"
   # --no-launch: build + install only. mobile-dev-launch.sh below does the launch
-  # with the sign-in env, so a plain reload launch would be redundant (and
-  # would launch signed-out).
+  # with the sign-in + auto-pair env, so a plain reload launch would be redundant
+  # (and would launch signed-out).
   # The iOS reload interface owns build/install flags only. Auth identity is
   # deliberately passed to the separate mobile-dev-launch invocation below,
-  # which is the one that injects credentials.
+  # which is the one that injects credentials and performs pairing.
   local ios_reload_args=(--tag "$TAG" --no-launch)
   if [[ "$IOS_TARGET" == "device" ]]; then
     # --device-only skips the simulator build/boot entirely (--device would also
@@ -193,17 +212,17 @@ build_and_launch_ios() {
   fi
   "$REPO_ROOT/ios/scripts/reload.sh" "${ios_reload_args[@]}"
 
-  echo "==> launching iOS dev app signed in"
-  # The iOS app declares CMUXDogfoodReadiness = app-receipt-v1. Name the gate
-  # explicitly: a physical device does not expose the installed Info.plist, so
-  # `auto` would find nothing to read there.
-  local mobile_launch_args=(--tag "$TAG" --readiness app-receipt)
+  echo "==> launching iOS dev app$([[ "$auto_pair" -eq 1 ]] && printf ' (auto-pairing)')"
+  local mobile_launch_args=(--tag "$TAG")
   mobile_launch_args+=(
     --auth-profile "$AUTH_PROFILE"
     --expected-account "$AUTH_ACCOUNT"
   )
   [[ -n "$AUTH_CREDENTIALS_FILE" ]] \
     && mobile_launch_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
+  if [[ "$auto_pair" -eq 1 ]]; then
+    mobile_launch_args+=(--attach)
+  fi
   if [[ "$IOS_TARGET" == "device" ]]; then
     mobile_launch_args+=(--device)
   else
@@ -220,8 +239,9 @@ build_and_launch_ios() {
 # This must run BEFORE build_and_launch_ios: the simulator launch path
 # (mobile-dev-launch.sh -> `simctl launch --console-pty`) attaches to the app
 # console and blocks until the app exits, so anything after it would never run.
-# Profiles only need the Mac socket anyway. For --surface ios the tagged Mac app
-# must already be running.
+# Profiles only need the Mac socket anyway, and seeding before the phone attaches
+# means the phone sees the seeded workspaces/groups immediately. For --surface
+# ios the tagged Mac app must already be running.
 apply_profile() {
   echo "==> applying profile(s) '$PROFILE' against $SOCKET_PATH"
   # The Mac app needs its socket bound before the debug CLI can connect. Poll
@@ -240,18 +260,31 @@ apply_profile() {
 }
 
 # --- orchestrate ------------------------------------------------------------
+AUTO_PAIR=0
+
+# Enable the pairing host BEFORE the macOS launch so a single build binds the
+# listener on first launch (the default is read in applicationDidFinishLaunching).
+if [[ "$NO_PAIR" -eq 0 && ( "$SURFACE" == "mac" || "$SURFACE" == "both" ) ]]; then
+  enable_pairing_host
+fi
+
 if [[ "$SURFACE" == "mac" || "$SURFACE" == "both" ]]; then
   build_and_launch_mac
 fi
 
+if [[ "$NO_PAIR" -eq 0 && ( "$SURFACE" == "ios" || "$SURFACE" == "both" ) ]]; then
+  AUTO_PAIR=1
+fi
+
 # Apply environment profile(s) BEFORE the (blocking) iOS launch. Profiles target
-# the Mac socket, so they only need the Mac app up.
+# the Mac socket, so they only need the Mac app up; seeding here means the phone
+# sees the seeded state the moment it attaches.
 if [[ -n "$PROFILE" ]]; then
   apply_profile
 fi
 
 if [[ "$SURFACE" == "ios" || "$SURFACE" == "both" ]]; then
-  build_and_launch_ios
+  build_and_launch_ios "$AUTO_PAIR"
 fi
 
 echo "==> dev-setup complete (tag: $TAG, surface: $SURFACE)"

@@ -24,8 +24,7 @@ cd ../../frontends/web && npm ci
 このディレクトリから2つのターミナルで次のコマンドを実行します。
 
 ```bash
-~/.local/bin/cmux-tui --headless --session webfront --ws 127.0.0.1:7681 --ws-token change-me \
-  --ws-allow-origin http://localhost:5173
+~/.local/bin/cmux-tui --headless --session webfront --ws 127.0.0.1:7681 --ws-token change-me
 ```
 
 ```bash
@@ -35,10 +34,6 @@ npm run dev
 `http://localhost:5173`を開き、既定のWebSocket URLのまま接続します。ブラウザと
 TUIに同じ6桁のコードが表示されます。TUIでEnterを押して承認します。
 `--ws-token <token>`は自動化用の非対話バイパスとして引き続き利用できます。
-リスナーは他のオリジンのブラウザページと、`Host`がループバックでない要求を拒否します。
-`--ws-allow-origin`で開発サーバーのページを、`--ws-allow-host`で`tailscale serve`の
-ホスト名などを追加します。`tailscale serve --https=8443`の背後では
-`--ws-allow-origin https://<name>.ts.net:8443 --ws-allow-host <name>.ts.net`の両方を指定します。
 
 ## スクリーンショット
 
@@ -61,14 +56,6 @@ TUIに同じ6桁のコードが表示されます。TUIでEnterを押して承�
 
 - ブラウザ固有のattachイベントを利用したブラウザサーフェスの表示。
 - 接続プロファイルの保存と、ユーザーが操作できる切断アクション。
-
-## デーモンから配信する(URL ひとつ、開発サーバーなし)
-
-```bash
-scripts/serve-from-daemon.sh --session web --port 7690
-```
-
-このアプリをページ `web` としてページバンドルフォルダーにビルドし、そのフォルダーも配信するループバックリスナー付きのヘッドレスデーモンを起動して(`CMUX_TUI_PAGES_DIR`、spec/transports.md「App listener and page files」)、`http://127.0.0.1:7690/pages/web/#token=…` を表示します。`/pages/` 配下のページは自分のオリジンに接続し、フラグメントにトークンがあればすぐに接続します。Cloud やレーンの VM では `ssh -L 7690:127.0.0.1:7690 HOST` を実行してから、手元のマシンで URL を開きます。`scripts/measure-in-browser.mjs URL OUTDIR` はヘッドレス Chrome で初回描画、キー入力からエコーまでの時間、スクリーンショット 2 枚を記録します。
 
 ## リモートアクセスとワンタップリンク
 

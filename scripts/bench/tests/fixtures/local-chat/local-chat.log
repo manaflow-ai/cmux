@@ -1,3 +1,0 @@
-LOCAL-CHAT-MACHINE host=mini cores=10 macos=26.1 harness_rev=abc build=harness model=claude-haiku-5-5 rounds=2
-local-chat-first-reply: round 1 {"ok": true, "ms": 4100}
-LOCAL-CHAT-FIRST-REPLY {"ref": "abc", "model": "claude-haiku-5-5", "n": 2, "failed": 1, "select_to_first_text_ms": {"p50": 4000, "samples": [3900, 4100]}, "stages_p50": {"before_turn_ms": 900, "turn_ms": 2900, "after_turn_ms": 200}, "turn_marks_p50": {"first_model_ms": 1800, "to_agent_ms": 40}, "spare_ready": [true, true, false], "created_by": ["person"]}

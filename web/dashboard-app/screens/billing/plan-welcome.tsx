@@ -3,7 +3,6 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
-import { cloudIntroOfferFacts } from "@/services/billing/cloudIntroOffer";
 
 export type WelcomePlan = "go" | "pro" | "max";
 
@@ -25,26 +24,9 @@ export function PlanWelcome({ plan }: { readonly plan: WelcomePlan }) {
       </ul>
       <div className="mt-3 flex flex-wrap gap-2">
         <Link to="/dashboard/testflight" className={settingsButtonClass("primary", "sm")}>{t("welcome.ios")}</Link>
+        <Link to="/dashboard/cloud" className={settingsButtonClass("secondary", "sm")}>{t("welcome.cloud")}</Link>
         <Link to="/dashboard/teams/new" className={settingsButtonClass("secondary", "sm")}>{t("welcome.team")}</Link>
       </div>
-    </section>
-  );
-}
-
-/** Plan & billing after the $1 pass checkout (`?welcome=intro`). */
-export function CloudIntroWelcome() {
-  const t = useTranslations("dashboard.billing");
-  const facts = cloudIntroOfferFacts();
-  return (
-    <section data-testid="cloud-intro-welcome" className="mb-3 border border-foreground p-3">
-      <h2 className="text-sm font-medium">{t("welcome.introTitle")}</h2>
-      <p className="mt-1 text-xs text-muted">
-        {t("welcome.introBody", {
-          days: facts.termDays,
-          hours: facts.chiefHoursWeekly,
-          minutes: facts.machineMinutesWeekly.toLocaleString("en-US"),
-        })}
-      </p>
     </section>
   );
 }

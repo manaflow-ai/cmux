@@ -19,8 +19,10 @@ FAKE_BIN="$TMP_DIR/bin"
 # other case keeps one DMG submission.
 export CMUX_STAPLE_APP_IN_DMG=false
 LOG="$TMP_DIR/calls.log"
+HELPER_STATE="$TMP_DIR/helper-notarization.state"
 mkdir -p "$APP/Contents/MacOS" "$FAKE_BIN"
 printf 'signed-app-fixture\n' > "$APP/Contents/MacOS/cmux"
+printf 'submission_id=fixture-id\ncdhash=fixture-cdhash\n' > "$HELPER_STATE"
 
 cat > "$FAKE_BIN/create-dmg" <<'EOF'
 #!/usr/bin/env bash
@@ -36,15 +38,6 @@ cat > "$FAKE_BIN/codesign" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'codesign %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
-if [ "${1:-}" = "-d" ]; then
-  # codesign -d -a <arch> --verbose=4 <bundle>: one CDHash per slice.
-  printf 'CDHash=%s\n' "$(printf '%s' "$3" | shasum | cut -c1-40)" >&2
-fi
-EOF
-
-cat > "$FAKE_BIN/lipo" <<'EOF'
-#!/usr/bin/env bash
-printf 'arm64\n'
 EOF
 
 cat > "$FAKE_BIN/xcrun" <<'EOF'
@@ -74,38 +67,28 @@ if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "wait" ]; then
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ] && [[ "${3:-}" == */stapled-app/* ]]; then
   # The second submission: the DMG rebuilt around the stapled app.
-  if [ "${CMUX_TEST_STAPLED_TIMEOUT:-0}" = 1 ]; then
-    printf '{"message":"Timeout of 25m reached before processing completed.","id":"fixture-stapled-id"}\n' >&2
-    exit 1
-  fi
   printf '{"id":"fixture-stapled-id","status":"%s"}\n' "${CMUX_TEST_STAPLED_STATUS:-Accepted}"
   exit 0
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
   if [ "${CMUX_TEST_NOTARY_TIMEOUT:-0}" = 1 ]; then
-    # notarytool writes timeout diagnostics, including the id, on stderr.
+    # notarytool writes a timeout response to stderr. The submission remains
+    # In Progress and must never reach the stapling or publication path.
     printf '{"message":"Timeout of 25m reached before processing completed.","id":"fixture-id"}\n' >&2
     exit 1
   fi
-  printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
-fi
-if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "info" ]; then
-  if [ "${3:-}" = fixture-first-id ]; then
-    # The accepted first DMG of a handed-off stapled-app DMG.
-    printf '{"id":"%s","status":"Accepted"}\n' "${3:-}"
-  else
-    printf '{"id":"%s","status":"%s"}\n' "${3:-}" "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
+  if [ "${CMUX_TEST_NOTARY_FAILURE:-0}" = 1 ]; then
+    printf 'network failure while uploading submission\n' >&2
+    exit 7
   fi
-fi
-if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "history" ]; then
-  if [ -n "${CMUX_TEST_HISTORY_JSON:-}" ]; then printf '%s\n' "$CMUX_TEST_HISTORY_JSON"; else printf '{"history":[]}\n'; fi
+  printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ] && [ "${3:-}" = fixture-stapled-id ]; then
   printf '{"id":"fixture-stapled-id","status":"%s"}\n' "${CMUX_TEST_WAIT_STATUS:-Accepted}"
   exit 0
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ]; then
-  printf '{"status":"Accepted","ticketContents":%s}\n' "${CMUX_TEST_DMG_TICKET:-[]}"
+  printf '{"id":"fixture-id","status":"In Progress","message":"still processing"}\n' >&2
 fi
 EOF
 
@@ -141,10 +124,14 @@ for tool in spctl smoke metadata licenses; do
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s %s\n' "$(basename "$0")" "$*" >> "$CMUX_TEST_CALL_LOG"
-[ "${CMUX_TEST_FAIL_TOOL:-}" != "$(basename "$0")" ]
 EOF
 done
 
+cat > "$FAKE_BIN/notarize-computer-use-helper" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'notarize-helper %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+EOF
 chmod +x "$FAKE_BIN"/*
 
 FIXTURE_P8_BASE64="$(printf 'fixture-p8' | base64)"
@@ -157,17 +144,18 @@ run_helper() {
   CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-nightly-mount" \
   CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
   CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
-  CMUX_LIPO_TOOL="$FAKE_BIN/lipo" \
   CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
   CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
   CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
   CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
   CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+  CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
+  CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
   CMUX_NOTARY_SUBMIT_ONLY="${TEST_NOTARY_SUBMIT_ONLY:-false}" \
-  CMUX_NOTARY_PENDING_ON_TIMEOUT="${TEST_NOTARY_PENDING_ON_TIMEOUT:-false}" \
   CMUX_STAPLE_APP_IN_DMG="${TEST_STAPLE_APP_IN_DMG:-false}" \
   GITHUB_OUTPUT="${GITHUB_OUTPUT:-}" \
+  CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   ASC_API_KEY_ID="${TEST_ASC_API_KEY_ID-FIXTUREKEY}" \
   ASC_API_ISSUER_ID="${TEST_ASC_API_ISSUER_ID-fixture-issuer}" \
   ASC_API_KEY_P8_BASE64="${TEST_ASC_API_KEY_P8_BASE64-$FIXTURE_P8_BASE64}" \
@@ -177,6 +165,17 @@ run_helper() {
 
 run_helper
 
+if [ -e "$DMG.notarization.state" ] || [ -e "$DMG.notarization.log" ]; then
+  echo "FAIL: accepted notarization must not leave resumable sidecars" >&2
+  exit 1
+fi
+
+if ! grep -Fxq \
+  "notarize-helper --finish $HELPER_STATE $APP $TMP_DIR/cmux.nightly.entitlements Developer ID Application: Fixture" \
+  "$LOG"; then
+  echo "FAIL: nightly packaging did not finish the early Computer Use notarization" >&2
+  exit 1
+fi
 if ! grep -q '^notary-key ' "$LOG"; then
   echo "FAIL: notarytool did not authenticate with the team API key" >&2
   exit 1
@@ -199,6 +198,18 @@ for missing in TEST_ASC_API_KEY_ID TEST_ASC_API_ISSUER_ID TEST_ASC_API_KEY_P8_BA
     exit 1
   fi
 done
+before_custom_sidecar_submit="$(grep -c '^xcrun notarytool submit ' "$LOG" || true)"
+if CMUX_NOTARY_SUBMISSION_FILE="$TMP_DIR/missing-notary/state" \
+  CMUX_NOTARY_OUTPUT_FILE="$TMP_DIR/missing-notary/output" \
+  run_helper >/dev/null 2>&1; then
+  echo "FAIL: missing custom notary sidecar directory unexpectedly succeeded" >&2
+  exit 1
+fi
+after_custom_sidecar_submit="$(grep -c '^xcrun notarytool submit ' "$LOG" || true)"
+if [ "$after_custom_sidecar_submit" != "$before_custom_sidecar_submit" ]; then
+  echo "FAIL: custom sidecar path must be validated before submission" >&2
+  exit 1
+fi
 echo "PASS: nightly notarization uses the team API key and deletes it"
 if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 1 ]; then
   echo "FAIL: expected exactly one notarization submission" >&2
@@ -213,19 +224,12 @@ line_of() {
   grep -nF "$1" "$LOG" | head -n 1 | cut -d: -f1
 }
 submit_line="$(line_of "xcrun notarytool submit $DMG")"
+helper_notary_line="$(line_of "notarize-helper --finish $HELPER_STATE $APP")"
 create_dmg_line="$(line_of "create-dmg --no-code-sign $APP")"
 convert_line="$(line_of "hdiutil convert ")"
 dmg_sign_line="$(line_of "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $DMG")"
 if [ -z "$convert_line" ] || [ -z "$dmg_sign_line" ] || ! [ "$create_dmg_line" -lt "$convert_line" ] || ! [ "$convert_line" -lt "$dmg_sign_line" ]; then
   echo "FAIL: DMG must be re-encoded to LZMA between create-dmg and DMG signing" >&2
-  exit 1
-fi
-# The DMG Apple gets is packaged once: a second create-dmg, convert and
-# signature of the same app before the submission cost about 1.8 minutes of
-# every nightly sign job (run 39395352101, 09:09:10 and 09:10:58).
-before_submit="$(head -n "$submit_line" "$LOG" | grep -c "^hdiutil convert .* -o $DMG\$" || true)"
-if [ "$before_submit" != 1 ]; then
-  echo "FAIL: the DMG must be packaged once before its submission, got $before_submit" >&2
   exit 1
 fi
 if ! grep -Fq "hdiutil convert" "$LOG" || ! grep -Eq "hdiutil convert .* -format ULMO .* -o $DMG\$" "$LOG"; then
@@ -236,7 +240,8 @@ app_staple_line="$(line_of "xcrun stapler staple $APP")"
 dmg_staple_line="$(line_of "xcrun stapler staple $DMG")"
 attach_line="$(line_of "hdiutil attach $DMG")"
 mounted_spctl_line="$(line_of "spctl -a -vv --type execute $TMP_DIR/cmux-nightly-mount")"
-if ! [ "$submit_line" -lt "$app_staple_line" ] \
+if ! [ "$helper_notary_line" -lt "$create_dmg_line" ] \
+  || ! [ "$submit_line" -lt "$app_staple_line" ] \
   || ! [ "$app_staple_line" -lt "$dmg_staple_line" ] \
   || ! [ "$dmg_staple_line" -lt "$attach_line" ] \
   || ! [ "$attach_line" -lt "$mounted_spctl_line" ]; then
@@ -269,13 +274,8 @@ if [ ! -f "$IMMUTABLE" ] || ! cmp -s "$DMG" "$IMMUTABLE"; then
 fi
 
 : > "$LOG"
-if CMUX_TEST_NOTARY_STATUS=Rejected run_helper 2>"$TMP_DIR/rejected.err"; then
+if CMUX_TEST_NOTARY_STATUS=Rejected run_helper; then
   echo "FAIL: rejected notarization unexpectedly succeeded" >&2
-  exit 1
-fi
-if ! grep -q "fixture-id" "$TMP_DIR/rejected.err"; then
-  echo "FAIL: a rejected notarization must name its submission id" >&2
-  cat "$TMP_DIR/rejected.err" >&2
   exit 1
 fi
 if grep -Fq 'xcrun stapler staple' "$LOG"; then
@@ -283,23 +283,37 @@ if grep -Fq 'xcrun stapler staple' "$LOG"; then
   exit 1
 fi
 
-# Run 37620073632 waited 78 minutes on a notary submission that never
-# finished, until the job was cancelled. The wait is bounded, and a timed-out
-# submission fails at once with its id, before anything is stapled.
+# A timeout response is emitted on stderr by notarytool. Preserve that output,
+# extract its submission id, and retain a state file for a follow-up wait. The
+# current job must still fail closed because no Accepted ticket exists yet.
 : > "$LOG"
-if ! grep -Eq "^xcrun notarytool submit $DMG .*--wait --timeout [0-9]+m" <(CMUX_TEST_NOTARY_STATUS=Accepted run_helper >/dev/null 2>&1; cat "$LOG"); then
-  echo "FAIL: the DMG notarization wait must have a --timeout" >&2
-  exit 1
-fi
-: > "$LOG"
+TIMEOUT_STATE="$TMP_DIR/cmux-nightly-timeout.state"
+TIMEOUT_OUTPUT="$TMP_DIR/cmux-nightly-timeout.log"
+rm -f "$TIMEOUT_STATE" "$TIMEOUT_OUTPUT"
 rm -rf "$TMP_DIR/cmux-nightly-mount"
-if CMUX_TEST_NOTARY_TIMEOUT=1 run_helper >/dev/null 2>"$TMP_DIR/timeout.err"; then
-  echo "FAIL: a notarization that timed out unexpectedly succeeded" >&2
+if CMUX_TEST_NOTARY_TIMEOUT=1 \
+  CMUX_NOTARY_SUBMISSION_FILE="$TIMEOUT_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$TIMEOUT_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/timeout.err"; then
+  echo "FAIL: a timed-out notarization unexpectedly succeeded" >&2
   exit 1
 fi
-if ! grep -q "did not finish" "$TMP_DIR/timeout.err" || ! grep -q "fixture-id" "$TMP_DIR/timeout.err"; then
-  echo "FAIL: a timed-out notarization must say so and name its submission" >&2
-  cat "$TMP_DIR/timeout.err" >&2
+if ! grep -q "submission fixture-id" "$TMP_DIR/timeout.err" \
+  || ! grep -q "Timeout of 25m reached" "$TIMEOUT_OUTPUT" \
+  || ! grep -q "still processing" "$TIMEOUT_OUTPUT"; then
+  echo "FAIL: timed-out notarization did not preserve its id and diagnostics" >&2
+  cat "$TMP_DIR/timeout.err" "$TIMEOUT_OUTPUT" >&2
+  exit 1
+fi
+if ! grep -Fxq "submission_id=fixture-id" "$TIMEOUT_STATE" \
+  || ! grep -Fxq "status=unknown" "$TIMEOUT_STATE" \
+  || ! grep -Fxq "dmg_path=$DMG" "$TIMEOUT_STATE"; then
+  echo "FAIL: timed-out notarization state was not persisted" >&2
+  cat "$TIMEOUT_STATE" >&2
+  exit 1
+fi
+if ! grep -q '^xcrun notarytool log fixture-id ' "$LOG"; then
+  echo "FAIL: timeout path did not request the Apple notarization log" >&2
   exit 1
 fi
 if grep -Fq 'xcrun stapler staple' "$LOG"; then
@@ -307,140 +321,9 @@ if grep -Fq 'xcrun stapler staple' "$LOG"; then
   exit 1
 fi
 
-# The shipped DMG carries the stapled app (CMUX_STAPLE_APP_IN_DMG=true, the
-# default). After Apple accepts the first DMG, the app is stapled from that
-# ticket, a new DMG is built around it, signed with a fresh keychain that is
-# deleted before the second submission, notarized, stapled and only then put
-# at the release path. A second submission that fails or times out leaves the
-# first DMG and its accepted state for a later run.
-cat > "$FAKE_BIN/keychain" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'keychain %s cert=%s\n' "$*" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
-EOF
-chmod +x "$FAKE_BIN/keychain"
-run_stapled() {
-  TEST_STAPLE_APP_IN_DMG=true \
-  CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" \
-  APPLE_CERTIFICATE_BASE64="$(printf 'fixture-p12' | base64)" \
-  APPLE_CERTIFICATE_PASSWORD=fixture-password \
-  run_helper "$@"
-}
-: > "$LOG"
-rm -rf "$TMP_DIR/cmux-nightly-mount" "$TMP_DIR/detach-retried" "$IMMUTABLE" "$DMG.notarization.state"
-if ! run_stapled >/dev/null 2>"$TMP_DIR/stapled.err"; then
-  echo "FAIL: packaging the stapled app into the DMG failed" >&2
-  cat "$TMP_DIR/stapled.err" >&2
-  exit 1
-fi
-if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 2 ] \
-  || [ "$(grep -c '^xcrun notarytool submit .*/stapled-app/cmux-nightly-immutable-stapled-app.dmg ' "$LOG")" -ne 1 ]; then
-  echo "FAIL: expected the first DMG and the stapled-app DMG as the only two submissions" >&2
-  cat "$LOG" >&2
-  exit 1
-fi
-first_submit="$(line_of "xcrun notarytool submit $DMG ")"
-app_staple="$(line_of "xcrun stapler staple $APP")"
-create2="$(grep -n "^keychain create" "$LOG" | head -n 1 | cut -d: -f1)"
-dmg2="$(grep -n "^create-dmg --no-code-sign $APP .*/stapled-app/work\$" "$LOG" | head -n 1 | cut -d: -f1)"
-sign2="$(grep -n "^codesign --force --timestamp --keychain build.keychain .*/stapled-app/cmux-nightly-immutable-stapled-app.dmg\$" "$LOG" | head -n 1 | cut -d: -f1)"
-delete2="$(grep -n '^keychain delete' "$LOG" | awk -F: -v after="${sign2:-0}" '$1 > after {print $1; exit}')"
-submit2="$(grep -n '^xcrun notarytool submit .*/stapled-app/' "$LOG" | head -n 1 | cut -d: -f1)"
-staple2="$(grep -n '^xcrun stapler staple .*/stapled-app/cmux-nightly-immutable-stapled-app.dmg$' "$LOG" | head -n 1 | cut -d: -f1)"
-attach2="$(grep -n '^hdiutil attach .*/stapled-app/cmux-nightly-immutable-stapled-app.dmg ' "$LOG" | head -n 1 | cut -d: -f1)"
-mounted_staple="$(line_of "xcrun stapler validate $TMP_DIR/cmux-nightly-mount/cmux NIGHTLY.app")"
-for n in first_submit app_staple create2 dmg2 sign2 delete2 submit2 staple2 attach2 mounted_staple; do
-  if [ -z "${!n}" ]; then
-    echo "FAIL: stapled-app packaging step missing: $n" >&2
-    cat "$LOG" >&2
-    exit 1
-  fi
-done
-if ! [ "$first_submit" -lt "$app_staple" ] || ! [ "$app_staple" -lt "$dmg2" ] || ! [ "$dmg2" -lt "$create2" ] \
-  || ! [ "$create2" -lt "$sign2" ] || ! [ "$sign2" -lt "$delete2" ] || ! [ "$delete2" -lt "$submit2" ] \
-  || ! [ "$submit2" -lt "$staple2" ] || ! [ "$staple2" -lt "$attach2" ] || ! [ "$attach2" -lt "$mounted_staple" ]; then
-  echo "FAIL: stapled-app DMG steps ran out of order" >&2
-  cat "$LOG" >&2
-  exit 1
-fi
-if grep -q '^xcrun stapler staple '"$DMG"'$' "$LOG"; then
-  echo "FAIL: the first DMG (without the stapled app) must not be stapled" >&2
-  exit 1
-fi
-if ! grep -Fxq 'keychain create cert=set' "$LOG" || grep -v '^create-dmg-umask 0022$' "$LOG" | grep -q '^create-dmg-umask '; then
-  echo "FAIL: the stapled-app DMG keychain needs the certificate, and create-dmg must copy the app with umask 022 (the notary sidecars set 077)" >&2
-  grep -E '^(keychain|create-dmg-umask) ' "$LOG" >&2
-  exit 1
-fi
-if [ ! -f "$DMG" ] || [ ! -f "$IMMUTABLE" ] || ! cmp -s "$DMG" "$IMMUTABLE" || [ -e "$DMG.notarization.state" ]; then
-  echo "FAIL: the stapled-app DMG must replace the release DMG, be copied to the immutable path, and leave no pending state" >&2
-  exit 1
-fi
-echo "PASS: the shipped DMG carries the stapled app and its own ticket"
-
-: > "$LOG"
-rm -rf "$TMP_DIR/cmux-nightly-mount" "$TMP_DIR/detach-retried" "$IMMUTABLE" "$DMG.notarization.state" "$DMG.notarization.log"
-STAPLED_GITHUB_OUTPUT="$TMP_DIR/stapled.github-output"
-: > "$STAPLED_GITHUB_OUTPUT"
-first_dmg_sha=""
-if ! CMUX_TEST_STAPLED_TIMEOUT=1 TEST_NOTARY_PENDING_ON_TIMEOUT=true GITHUB_OUTPUT="$STAPLED_GITHUB_OUTPUT" \
-  run_stapled >/dev/null 2>"$TMP_DIR/stapled-timeout.err"; then
-  echo "FAIL: a stapled-app DMG still in Apple's queue must hand off, not fail" >&2
-  cat "$TMP_DIR/stapled-timeout.err" >&2
-  exit 1
-fi
-handed_dmg_sha="$(shasum -a 256 "$DMG" | awk '{print $1}')"
-# The second submission itself is handed off: its DMG takes the release path
-# and the state names it, so a later run continues it without a new one.
-if ! grep -Fxq "submission_pending=true" "$STAPLED_GITHUB_OUTPUT" \
-  || ! grep -Fxq "stapled_app_pending=true" "$STAPLED_GITHUB_OUTPUT" \
-  || ! grep -Fxq "submission_id=fixture-stapled-id" "$DMG.notarization.state" \
-  || ! grep -Fxq "status=In Progress" "$DMG.notarization.state" \
-  || ! grep -Fxq "stapled_app=true" "$DMG.notarization.state" \
-  || ! grep -Fxq "wait_timed_out=true" "$DMG.notarization.state" \
-  || ! grep -Fxq "dmg_sha256=$handed_dmg_sha" "$DMG.notarization.state" \
-  || ! grep -Fxq "first_submission_id=fixture-id" "$DMG.notarization.state" \
-  || ! grep -Eq '^stapled_submitted_at=[0-9]+$' "$DMG.notarization.state" \
-  || [ ! -f "${DMG%.dmg}.first.dmg" ] \
-  || ! grep -Fxq "first_dmg_sha256=$(shasum -a 256 "${DMG%.dmg}.first.dmg" | awk '{print $1}')" "$DMG.notarization.state" \
-  || ! grep -q '^xcrun notarytool submit .*/stapled-app/cmux-nightly-immutable-stapled-app.dmg ' "$LOG" \
-  || [ ! -s "$DMG.notarization.log" ] \
-  || ! grep -q 'fixture-stapled-id' "$DMG.notarization.log" \
-  || grep -q '^xcrun stapler staple .*\.dmg$' "$LOG" \
-  || [ -e "$IMMUTABLE" ]; then
-  echo "FAIL: a pending stapled-app DMG must hand off its own submission and DMG for a later run" >&2
-  cat "$LOG" "$DMG.notarization.state" >&2
-  exit 1
-fi
-: > "$LOG"
-rm -rf "$TMP_DIR/cmux-nightly-mount" "$TMP_DIR/detach-retried" "$IMMUTABLE" "$DMG.notarization.state"
-if CMUX_TEST_STAPLED_STATUS=Invalid run_stapled >/dev/null 2>"$TMP_DIR/stapled-rejected.err"; then
-  echo "FAIL: a rejected stapled-app DMG unexpectedly succeeded" >&2
-  exit 1
-fi
-if ! grep -Fxq "submission_id=fixture-id" "$DMG.notarization.state" || grep -Fxq "stapled_app=true" "$DMG.notarization.state"; then
-  echo "FAIL: a rejected stapled-app DMG must leave the accepted first submission as the state" >&2
-  exit 1
-fi
-if grep -q '^xcrun stapler staple .*\.dmg$' "$LOG" || [ -e "$IMMUTABLE" ] || ! grep -Fxq "status=Accepted" "$DMG.notarization.state"; then
-  echo "FAIL: a rejected stapled-app DMG must publish nothing and keep the first submission continuable" >&2
-  exit 1
-fi
-: > "$LOG"
-for missing in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD; do
-  : > "$LOG"
-  if (export APPLE_CERTIFICATE_BASE64=fixture APPLE_CERTIFICATE_PASSWORD=fixture; unset "$missing"
-      TEST_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" run_helper) >/dev/null 2>&1 \
-    || grep -q '^xcrun notarytool submit ' "$LOG"; then
-    echo "FAIL: without $missing the stapled-app DMG cannot be signed; fail before any submission" >&2
-    exit 1
-  fi
-done
-echo "PASS: a stapled-app DMG that Apple has not accepted publishes nothing and keeps the first submission"
-
-# Published nightly-next submits without waiting on Apple's queue. The exact
-# state and output sidecars are the handoff; no ticket, staple, or immutable
-# publication artifact is allowed before a later Accepted result.
+# Published variants submit once and leave Apple's asynchronous processing to
+# the continuation workflow. The build lane must retain the exact state while
+# refusing to staple or publish before a later Accepted result.
 : > "$LOG"
 ASYNC_STATE="$TMP_DIR/cmux-nightly-async.state"
 ASYNC_OUTPUT="$TMP_DIR/cmux-nightly-async.log"
@@ -465,400 +348,47 @@ if ! grep -Fxq "submission_id=fixture-id" "$ASYNC_STATE" \
   exit 1
 fi
 
-# Published nightly-next waits a bounded time in the job. A wait that runs out
-# hands the exact submission to the next nightly-next run instead of failing;
-# it never staples or produces the immutable publication artifact.
-: > "$LOG"
-PENDING_STATE="$TMP_DIR/cmux-nightly-pending.state"
-PENDING_OUTPUT="$TMP_DIR/cmux-nightly-pending.log"
-PENDING_GITHUB_OUTPUT="$TMP_DIR/pending.github-output"
-rm -f "$PENDING_STATE" "$PENDING_OUTPUT" "$PENDING_GITHUB_OUTPUT" "$IMMUTABLE"
-if ! TEST_NOTARY_PENDING_ON_TIMEOUT=true CMUX_TEST_NOTARY_TIMEOUT=1 \
-  CMUX_NOTARY_SUBMISSION_FILE="$PENDING_STATE" \
-  CMUX_NOTARY_OUTPUT_FILE="$PENDING_OUTPUT" \
-  GITHUB_OUTPUT="$PENDING_GITHUB_OUTPUT" \
-  run_helper >/dev/null 2>"$TMP_DIR/pending.err"; then
-  echo "FAIL: a bounded nightly-next wait that ran out must hand off the submission, not fail" >&2
-  cat "$TMP_DIR/pending.err" >&2
+FAILED_ASYNC_STATE="$TMP_DIR/cmux-nightly-submit-failed.state"
+FAILED_ASYNC_OUTPUT="$TMP_DIR/cmux-nightly-submit-failed.log"
+rm -f "$FAILED_ASYNC_STATE" "$FAILED_ASYNC_OUTPUT"
+if TEST_NOTARY_SUBMIT_ONLY=true CMUX_TEST_NOTARY_TIMEOUT=1 \
+  CMUX_NOTARY_SUBMISSION_FILE="$FAILED_ASYNC_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$FAILED_ASYNC_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/async-failed.err"; then
+  echo "FAIL: failed submit was reported as an asynchronous handoff" >&2
   exit 1
 fi
-if ! grep -Fxq "submission_id=fixture-id" "$PENDING_STATE" \
-  || ! grep -Fxq "wait_timed_out=true" "$PENDING_STATE" \
-  || ! grep -Fxq "submission_pending=true" "$PENDING_GITHUB_OUTPUT" \
-  || ! grep -q '^xcrun notarytool submit .*--wait --timeout ' "$LOG" \
-  || grep -Fq 'xcrun stapler staple' "$LOG" \
-  || [ -e "$IMMUTABLE" ]; then
-  echo "FAIL: a timed-out bounded wait did not hand off a pending ticket without stapling" >&2
-  cat "$LOG" "$PENDING_STATE" "$PENDING_GITHUB_OUTPUT" >&2
+if ! grep -q "refusing continuation" "$TMP_DIR/async-failed.err" \
+  || ! grep -Fxq "submission_id=fixture-id" "$FAILED_ASYNC_STATE"; then
+  echo "FAIL: nonzero submit did not preserve evidence without claiming handoff" >&2
+  cat "$TMP_DIR/async-failed.err" "$FAILED_ASYNC_STATE" >&2
   exit 1
 fi
 
-# The same mode still fails a rejected submission, and still staples and
-# validates an accepted one in the job.
+# The exact recovery artifact can be resumed without rebuilding or submitting
+# a second Apple request. The saved SHA and submission id gate all stapling and
+# publication work.
 : > "$LOG"
-rm -f "$PENDING_GITHUB_OUTPUT" "$IMMUTABLE"
-if TEST_NOTARY_PENDING_ON_TIMEOUT=true CMUX_TEST_NOTARY_STATUS=Invalid \
-  GITHUB_OUTPUT="$PENDING_GITHUB_OUTPUT" run_helper >/dev/null 2>"$TMP_DIR/pending-invalid.err"; then
-  echo "FAIL: an Invalid submission must fail even when timeouts hand off" >&2
-  exit 1
-fi
-if [ -s "$PENDING_GITHUB_OUTPUT" ] && grep -Fq "submission_pending=true" "$PENDING_GITHUB_OUTPUT"; then
-  echo "FAIL: an Invalid submission must not be handed off as pending" >&2
-  exit 1
-fi
-: > "$LOG"
-rm -f "$PENDING_GITHUB_OUTPUT" "$IMMUTABLE"
+GENERIC_STATE="$TMP_DIR/cmux-nightly-generic.state"
+GENERIC_OUTPUT="$TMP_DIR/cmux-nightly-generic.log"
+rm -f "$GENERIC_STATE" "$GENERIC_OUTPUT"
 rm -rf "$TMP_DIR/cmux-nightly-mount"
-if ! TEST_NOTARY_PENDING_ON_TIMEOUT=true GITHUB_OUTPUT="$PENDING_GITHUB_OUTPUT" \
-  run_helper >/dev/null 2>"$TMP_DIR/pending-accepted.err"; then
-  echo "FAIL: an Accepted submission failed when timeouts hand off" >&2
-  cat "$TMP_DIR/pending-accepted.err" >&2
+if CMUX_TEST_NOTARY_FAILURE=1 \
+  CMUX_NOTARY_SUBMISSION_FILE="$GENERIC_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$GENERIC_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/generic.err"; then
+  echo "FAIL: a generic notarization submit failure unexpectedly succeeded" >&2
   exit 1
 fi
-if ! grep -Fq 'xcrun stapler staple' "$LOG" || [ ! -e "$IMMUTABLE" ] \
-  || { [ -e "$PENDING_GITHUB_OUTPUT" ] && grep -Fq "submission_pending=true" "$PENDING_GITHUB_OUTPUT"; }; then
-  echo "FAIL: an Accepted submission must be stapled and published in the job" >&2
-  cat "$LOG" >&2
-  exit 1
-fi
-
-# The next nightly-next run continues a saved submission: it checks the exact
-# DMG against the state, asks Apple for the status instead of submitting, and
-# staples and validates only an Accepted one.
-continue_state() {
-  local state="$1" dmg="$2"
-  {
-    printf 'submission_id=fixture-saved-id\n'
-    printf 'status=In Progress\n'
-    printf 'dmg_path=%s\n' "$dmg"
-    printf 'dmg_sha256=%s\n' "$(shasum -a 256 "$dmg" | awk '{print $1}')"
-    printf 'submit_exit=1\n'
-    printf 'wait_timed_out=true\n'
-  } > "$state"
-}
-CONTINUE_DMG="$TMP_DIR/cmux-nightly-continue.dmg"
-CONTINUE_STATE="$TMP_DIR/cmux-nightly-continue.state"
-CONTINUE_IMMUTABLE="$TMP_DIR/cmux-nightly-continue-1.dmg"
-CONTINUE_GITHUB_OUTPUT="$TMP_DIR/continue.github-output"
-run_continue() {
-  CMUX_TEST_CALL_LOG="$LOG" \
-  CMUX_TEST_SOURCE_APP="$APP" \
-  CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried" \
-  CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-nightly-mount" \
-  CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
-  CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
-  CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
-  CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
-  CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
-  CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
-  CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
-  CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
-  CMUX_NOTARY_CONTINUE_STATE="$CONTINUE_STATE" \
-  GITHUB_OUTPUT="$CONTINUE_GITHUB_OUTPUT" \
-  ASC_API_KEY_ID=FIXTUREKEY \
-  ASC_API_ISSUER_ID=fixture-issuer \
-  ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
-  "$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh" "$APP" "$CONTINUE_DMG" "$CONTINUE_IMMUTABLE"
-}
-reset_continue() {
-  : > "$LOG"
-  rm -f "$CONTINUE_GITHUB_OUTPUT" "$CONTINUE_IMMUTABLE"
-  rm -rf "$TMP_DIR/cmux-nightly-mount"
-  printf 'signed dmg from an earlier run\n' > "$CONTINUE_DMG"
-  continue_state "$CONTINUE_STATE" "$CONTINUE_DMG"
-}
-
-reset_continue
-if ! run_continue >/dev/null 2>"$TMP_DIR/continue.err"; then
-  echo "FAIL: continuing an Accepted saved submission failed" >&2
-  cat "$TMP_DIR/continue.err" >&2
-  exit 1
-fi
-if ! grep -q '^xcrun notarytool info fixture-saved-id ' "$LOG" \
-  || grep -q '^xcrun notarytool submit' "$LOG" \
-  || grep -q '^create-dmg' "$LOG" \
-  || grep -q '^codesign' "$LOG" \
-  || ! grep -Fq "xcrun stapler staple $APP" "$LOG" \
-  || ! grep -Fq "xcrun stapler staple $CONTINUE_DMG" "$LOG" \
-  || ! grep -Fq "spctl -a -vv --type execute $TMP_DIR/cmux-nightly-mount" "$LOG" \
-  || [ ! -e "$CONTINUE_IMMUTABLE" ] \
-  || { [ -e "$CONTINUE_GITHUB_OUTPUT" ] && grep -Fq "submission_pending=true" "$CONTINUE_GITHUB_OUTPUT"; }; then
-  echo "FAIL: an Accepted saved submission must be stapled and validated without resubmitting or rebuilding" >&2
-  cat "$LOG" >&2
-  exit 1
-fi
-
-# The recovery job continues an accepted first DMG and builds, signs and
-# notarizes the DMG around the stapled app; that DMG replaces the saved one.
-reset_continue
-saved_state="$(cat "$CONTINUE_STATE")"
-if ! CMUX_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" \
-  APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
-  APPLE_CERTIFICATE_BASE64=fixture APPLE_CERTIFICATE_PASSWORD=fixture \
-  run_continue >/dev/null 2>"$TMP_DIR/continue-stapled.err"; then
-  echo "FAIL: continuing an Accepted saved submission with the stapled-app DMG failed" >&2
-  cat "$TMP_DIR/continue-stapled.err" >&2
-  exit 1
-fi
-if ! grep -q '^xcrun notarytool info fixture-saved-id ' "$LOG" \
-  || grep -q "^xcrun notarytool submit $CONTINUE_DMG " "$LOG" \
-  || [ "$(grep -c '^xcrun notarytool submit .*/stapled-app/cmux-nightly-continue-1-stapled-app.dmg ' "$LOG")" -ne 1 ] \
-  || ! grep -q '^xcrun stapler staple .*/stapled-app/cmux-nightly-continue-1-stapled-app.dmg$' "$LOG" \
-  || ! grep -Fq "xcrun stapler validate $TMP_DIR/cmux-nightly-mount/cmux NIGHTLY.app" "$LOG" \
-  || ! grep -Fxq 'notary_status=Accepted' "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -Fxq 'submission_pending=true' "$CONTINUE_GITHUB_OUTPUT" \
-  || [ "$(cat "$CONTINUE_STATE")" != "$saved_state" ] \
-  || [ ! -e "$CONTINUE_IMMUTABLE" ] || ! cmp -s "$CONTINUE_DMG" "$CONTINUE_IMMUTABLE"; then
-  echo "FAIL: a continuation must ship the stapled-app DMG without resubmitting the saved DMG" >&2
-  cat "$LOG" >&2
-  exit 1
-fi
-
-# A handed-off stapled-app submission (stapled_app=true) is stapled and shipped
-# as it is: no further DMG is built or submitted.
-reset_continue
-printf 'stapled_app=true\n' >> "$CONTINUE_STATE"
-if ! CMUX_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" \
-  APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
-  APPLE_CERTIFICATE_BASE64=fixture APPLE_CERTIFICATE_PASSWORD=fixture \
-  run_continue >/dev/null 2>"$TMP_DIR/continue-stapled-handoff.err"; then
-  echo "FAIL: continuing a handed-off stapled-app submission failed" >&2
-  cat "$TMP_DIR/continue-stapled-handoff.err" >&2
-  exit 1
-fi
-if grep -q '^xcrun notarytool submit' "$LOG" || grep -q '^create-dmg ' "$LOG" || grep -q '^keychain create' "$LOG" \
-  || ! grep -Fxq "xcrun stapler staple $CONTINUE_DMG" "$LOG" \
-  || ! grep -Fq "xcrun stapler validate $TMP_DIR/cmux-nightly-mount/cmux NIGHTLY.app" "$LOG" \
-  || [ ! -e "$CONTINUE_IMMUTABLE" ]; then
-  echo "FAIL: a handed-off stapled-app submission must be stapled and shipped without a new DMG" >&2
-  cat "$LOG" >&2
-  exit 1
-fi
-
-# A handed-off stapled-app submission still in Apple's queue says so, so the
-# recovery job does not move on to an older build.
-reset_continue
-printf 'stapled_app=true\n' >> "$CONTINUE_STATE"
-if ! CMUX_TEST_NOTARY_STATUS="In Progress" CMUX_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" \
-  APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
-  APPLE_CERTIFICATE_BASE64=fixture APPLE_CERTIFICATE_PASSWORD=fixture \
-  run_continue >/dev/null 2>"$TMP_DIR/continue-stapled-pending.err" \
-  || ! grep -Fxq "submission_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || ! grep -Fxq "stapled_app_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -q '^xcrun stapler staple' "$LOG"; then
-  echo "FAIL: a queued handed-off stapled-app submission must stay pending and say stapled_app_pending" >&2
-  cat "$TMP_DIR/continue-stapled-pending.err" "$LOG" >&2
-  exit 1
-fi
-
-# The 6 h fallback (chief 2026-10-16). A handed-off stapled-app DMG that
-# Apple has not accepted 6 h after its recorded submit time: the accepted
-# first DMG beside it is stapled and ships, with a warning that names the
-# pending submission. Before 6 h it stays pending.
-run_fallback_continue() {
-  CMUX_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" \
-  APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
-  APPLE_CERTIFICATE_BASE64=fixture APPLE_CERTIFICATE_PASSWORD=fixture \
-  run_continue
-}
-first_continue_dmg="${CONTINUE_DMG%.dmg}.first.dmg"
-stage2_state() {
-  printf 'accepted first dmg\n' > "$first_continue_dmg"
-  {
-    printf 'stapled_app=true\n'
-    printf 'first_submission_id=fixture-first-id\n'
-    printf 'first_dmg_sha256=%s\n' "$(shasum -a 256 "$first_continue_dmg" | awk '{print $1}')"
-    printf 'stapled_submitted_at=%s\n' "$1"
-  } >> "$CONTINUE_STATE"
-}
-reset_continue
-stage2_state "$(( $(date +%s) - 7 * 3600 ))"
-if ! CMUX_TEST_NOTARY_STATUS="In Progress" run_fallback_continue >"$TMP_DIR/fallback.out" 2>"$TMP_DIR/fallback.err"; then
-  echo "FAIL: the 6 h fallback must ship the accepted first DMG" >&2
-  cat "$TMP_DIR/fallback.err" >&2
-  exit 1
-fi
-if ! grep -Fxq "stapled_app_fallback=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || ! grep -Fxq "stapled_app_pending_id=fixture-saved-id" "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -Fxq "submission_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -q '^xcrun notarytool submit' "$LOG" \
-  || ! grep -Fxq "xcrun stapler staple $first_continue_dmg" "$LOG" \
-  || grep -Fq "xcrun stapler validate $TMP_DIR/cmux-nightly-mount/cmux NIGHTLY.app" "$LOG" \
-  || [ "$(cat "$CONTINUE_DMG")" != "accepted first dmg" ] \
-  || ! cmp -s "$CONTINUE_DMG" "$CONTINUE_IMMUTABLE" \
-  || [ -e "$first_continue_dmg" ] \
-  || ! grep -q '::warning title=App shipped without its own ticket::.*fixture-saved-id' "$TMP_DIR/fallback.out"; then
-  echo "FAIL: the 6 h fallback must staple and ship the first DMG, name the pending submission, and submit nothing" >&2
-  cat "$LOG" "$CONTINUE_GITHUB_OUTPUT" >&2
-  exit 1
-fi
-reset_continue
-stage2_state "$(( $(date +%s) - 3600 ))"
-if ! CMUX_TEST_NOTARY_STATUS="In Progress" run_fallback_continue >/dev/null 2>&1 \
-  || ! grep -Fxq "stapled_app_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -Fxq "stapled_app_fallback=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -q '^xcrun stapler staple' "$LOG"; then
-  echo "FAIL: before 6 h a handed-off stapled-app DMG stays pending" >&2
-  exit 1
-fi
-# The tampered first DMG is never published.
-reset_continue
-stage2_state "$(( $(date +%s) - 7 * 3600 ))"
-printf 'tampered\n' > "$first_continue_dmg"
-if CMUX_TEST_NOTARY_STATUS="In Progress" run_fallback_continue >/dev/null 2>&1 || [ -e "$CONTINUE_IMMUTABLE" ]; then
-  echo "FAIL: a first DMG whose SHA-256 differs from its record must not ship" >&2
-  exit 1
-fi
-rm -f "$first_continue_dmg"
-# A continuation of the accepted first DMG (the recovery path, which cannot
-# hand off) counts from Apple's earliest submission of this build's
-# stapled-app DMG name: past 6 h the first DMG ships without a new submission.
-reset_continue
-old_created="$(python3 -c 'import datetime; print((datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=7)).strftime("%Y-%m-%dT%H:%M:%S.000Z"))')"
-if ! CMUX_TEST_HISTORY_JSON="{\"history\":[{\"id\":\"fixture-old-stapled-id\",\"name\":\"cmux-nightly-continue-1-stapled-app.dmg\",\"createdDate\":\"$old_created\",\"status\":\"In Progress\"},{\"id\":\"other\",\"name\":\"other.dmg\",\"createdDate\":\"$old_created\",\"status\":\"Accepted\"}]}" \
-  run_fallback_continue >/dev/null 2>"$TMP_DIR/fallback-stage1.err" \
-  || ! grep -Fxq "stapled_app_fallback=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || ! grep -Fxq "stapled_app_pending_id=fixture-old-stapled-id" "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -q '^xcrun notarytool submit' "$LOG" \
-  || ! grep -Fxq "xcrun stapler staple $CONTINUE_DMG" "$LOG" \
-  || [ ! -e "$CONTINUE_IMMUTABLE" ]; then
-  echo "FAIL: a recovery continuation past 6 h of Apple's first stapled-app submission must ship the first DMG" >&2
-  cat "$TMP_DIR/fallback-stage1.err" "$LOG" >&2
-  exit 1
-fi
-# A refused stapled-app DMG (Invalid) also ships the first DMG once 6 h passed,
-# and waits before that.
-reset_continue
-stage2_state "$(( $(date +%s) - 7 * 3600 ))"
-if ! CMUX_TEST_NOTARY_STATUS=Invalid run_fallback_continue >/dev/null 2>&1 \
-  || ! grep -Fxq "stapled_app_fallback=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || [ "$(cat "$CONTINUE_DMG")" != "accepted first dmg" ]; then
-  echo "FAIL: a refused stapled-app DMG past 6 h must ship the accepted first DMG" >&2
-  exit 1
-fi
-reset_continue
-stage2_state "$(( $(date +%s) - 3600 ))"
-if ! CMUX_TEST_NOTARY_STATUS=Invalid run_fallback_continue >/dev/null 2>&1 \
-  || ! grep -Fxq "stapled_app_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -q '^xcrun stapler staple' "$LOG"; then
-  echo "FAIL: a refused stapled-app DMG before 6 h waits for the fallback" >&2
-  exit 1
-fi
-rm -f "$first_continue_dmg"
-# While a newer build's stapled-app DMG waits, an older accepted build makes
-# no new submission; a date without a fraction still counts.
-reset_continue
-if ! CMUX_STAPLED_APP_NO_NEW_SUBMISSION=true run_fallback_continue >/dev/null 2>&1 \
-  || grep -q '^xcrun notarytool submit' "$LOG" \
-  || ! grep -Fxq "stapled_app_pending=true" "$CONTINUE_GITHUB_OUTPUT"; then
-  echo "FAIL: an older build behind a pending stapled-app DMG must not submit a new one" >&2
-  exit 1
-fi
-reset_continue
-old_plain="$(python3 -c 'import datetime; print((datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=7)).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
-if ! CMUX_STAPLED_APP_NO_NEW_SUBMISSION=true CMUX_TEST_HISTORY_JSON="{\"history\":[{\"id\":\"fixture-plain-id\",\"name\":\"cmux-nightly-continue-1-stapled-app.dmg\",\"createdDate\":\"$old_plain\"}]}" \
-  run_fallback_continue >/dev/null 2>&1 \
-  || ! grep -Fxq "stapled_app_pending_id=fixture-plain-id" "$CONTINUE_GITHUB_OUTPUT"; then
-  echo "FAIL: an older build past its own 6 h ships its first DMG even behind a pending newer build" >&2
-  exit 1
-fi
-echo "PASS: the 6 h stapled-app fallback ships only the accepted first DMG and names the pending submission"
-
-reset_continue
-if ! CMUX_TEST_NOTARY_STATUS="In Progress" run_continue >/dev/null 2>"$TMP_DIR/continue-pending.err"; then
-  echo "FAIL: a saved submission still in progress must stay pending, not fail" >&2
-  cat "$TMP_DIR/continue-pending.err" >&2
-  exit 1
-fi
-if ! grep -Fxq "submission_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
-  || grep -Fq 'xcrun stapler staple' "$LOG" || [ -e "$CONTINUE_IMMUTABLE" ] \
-  || ! grep -Fxq "submission_id=fixture-saved-id" "$CONTINUE_STATE"; then
-  echo "FAIL: a saved submission in progress must stay pending, unstapled and unchanged" >&2
-  cat "$LOG" "$CONTINUE_STATE" >&2
-  exit 1
-fi
-
-reset_continue
-if CMUX_TEST_NOTARY_STATUS=Invalid run_continue >/dev/null 2>"$TMP_DIR/continue-invalid.err"; then
-  echo "FAIL: an Invalid saved submission must fail" >&2
-  exit 1
-fi
-if grep -Fq 'xcrun stapler staple' "$LOG" || [ -e "$CONTINUE_IMMUTABLE" ]; then
-  echo "FAIL: an Invalid saved submission must not be stapled" >&2
-  exit 1
-fi
-if ! grep -Fxq "notary_status=Invalid" "$CONTINUE_GITHUB_OUTPUT"; then
-  echo "FAIL: a continued submission must report Apple's verdict (Invalid) to the recovery step" >&2
-  exit 1
-fi
-
-# Run 38677509707: Apple accepted five continued submissions, but the bundle
-# notice check failed afterwards. The recovery step must be told Apple accepted
-# so it does not report a local failure as Apple's.
-reset_continue
-if CMUX_TEST_FAIL_TOOL=licenses run_continue >/dev/null 2>"$TMP_DIR/continue-licenses.err"; then
-  echo "FAIL: a failed check after acceptance must fail the continuation" >&2
-  exit 1
-fi
-if [ -e "$CONTINUE_IMMUTABLE" ] || ! grep -Fxq "notary_status=Accepted" "$CONTINUE_GITHUB_OUTPUT"; then
-  echo "FAIL: a continued submission Apple accepted must report Accepted even when a later check fails" >&2
-  cat "$LOG" "$TMP_DIR/continue-licenses.err" >&2
-  exit 1
-fi
-
-reset_continue
-printf 'a different dmg\n' > "$CONTINUE_DMG"
-if run_continue >/dev/null 2>"$TMP_DIR/continue-sha.err"; then
-  echo "FAIL: a DMG that is not the submitted one must be refused" >&2
-  exit 1
-fi
-if grep -q '^xcrun notarytool' "$LOG" || ! grep -q 'SHA-256' "$TMP_DIR/continue-sha.err"; then
-  echo "FAIL: a DMG mismatch must be refused before asking Apple, naming the SHA-256" >&2
-  cat "$LOG" "$TMP_DIR/continue-sha.err" >&2
+if ! grep -q "submit exited 7" "$TMP_DIR/generic.err" \
+  || grep -q "did not finish within" "$TMP_DIR/generic.err" \
+  || ! grep -q "network failure while uploading submission" "$GENERIC_OUTPUT"; then
+  echo "FAIL: generic submit failure was mislabeled as a timeout" >&2
+  cat "$TMP_DIR/generic.err" "$GENERIC_OUTPUT" >&2
   exit 1
 fi
 
 echo "PASS: single DMG submission validates app ticket and delivered artifact"
-
-# The bounded notary wait only helps if the step and the job outlive it: the
-# step allows the wait plus DMG creation and the post-notary verification,
-# and the job allows the step plus the steps before and after it.
-if ! python3 - "$ROOT_DIR/.github/workflows/nightly.yml" <<'PY'
-import re, sys
-text = open(sys.argv[1]).read()
-job = re.search(r"\n  build-sign-notarize-nightly:\n(.*?)(?=\n  [A-Za-z0-9_-]+:\n)", text, re.S)
-assert job, "no build-sign-notarize-nightly job"
-job = job.group(1)
-# Timeouts may be `${{ <notary test> && 200 || 80 }}`: the first value is the
-# cx-f58x notary test's, the last one every other build's. Check both pairs.
-job_timeouts = [int(v) for v in re.findall(r"\b(\d+)\b", re.search(r"^    timeout-minutes: (.+)$", job, re.M).group(1))]
-step = re.search(r"- name: Notarize app ticket through final DMG\n(.*?)(?=\n      - name:)", job, re.S)
-assert step, "no notarize step"
-step = step.group(1)
-step_timeout = re.search(r"^        timeout-minutes: (.+)$", step, re.M)
-assert step_timeout, "the notarize step needs its own timeout-minutes"
-step_timeouts = [int(v) for v in re.findall(r"\b(\d+)\b", step_timeout.group(1))]
-wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (.+)$", step, re.M)
-assert wait, "the notarize step must set CMUX_NOTARY_WAIT_TIMEOUT"
-# `${{ <nightly-next> && '20m' || '40m' }}`: the last value is main's and RC's.
-waits = [int(value) for value in re.findall(r"\b(\d+)m\b", wait.group(1))]
-assert waits, f"no wait in {wait.group(1)!r}"
-# Run 37648507383: Apple had not finished any of the 3 DMGs after 25m, so
-# nothing published. A healthy submission returns in minutes; wait 40m.
-# Published nightly-next waits less: it hands a slow one to its next run.
-assert waits[-1] >= 40, f"the {waits[-1]}m notary wait gives up before Apple usually finishes a stalled DMG"
-# A notary test (the max pair) makes one DMG submission; every other build two
-# (CMUX_STAPLE_APP_IN_DMG: the DMG around the stapled app waits as long again).
-assert "CMUX_STAPLE_APP_IN_DMG: ${{ needs.decide.outputs.notary_test == 'true' && 'false' || 'true' }}" in step
-for submissions, wait, step_timeout, job_timeout in ((1, max(waits), max(step_timeouts), max(job_timeouts)), (2, waits[-1], step_timeouts[-1], job_timeouts[-1])):
-    assert step_timeout >= submissions * wait + 10, f"step {step_timeout}m must cover {submissions} x {wait}m waits plus 10m of DMG work and verification"
-    assert job_timeout >= step_timeout + 20, f"job {job_timeout}m must cover the {step_timeout}m notarize step plus 20m of other steps"
-PY
-then
-  echo "FAIL: the notarize step and job timeouts must clearly exceed the notary wait" >&2
-  exit 1
-fi
-echo "PASS: notarize step and job timeouts outlive the bounded notary wait"
 
 # The RC channel reuses the same packaging path and only switches the
 # entitlements default and the bundle-metadata channel argument.
@@ -879,12 +409,14 @@ CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
 CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
 CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
 CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
 ASC_API_KEY_ID=FIXTUREKEY \
 ASC_API_ISSUER_ID=fixture-issuer \
 ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
 APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
 "$SCRIPT" "$RC_APP" "$TMP_DIR/cmux-rc-macos.dmg" "$TMP_DIR/cmux-rc-immutable.dmg"
 for expected in \
+  "notarize-helper $RC_APP $ROOT_DIR/cmux.rc.entitlements Developer ID Application: Fixture" \
   "metadata $RC_APP rc" \
   "metadata $TMP_DIR/cmux-rc-mount/cmux NIGHTLY.app rc"; do
   if ! grep -Fxq "$expected" "$LOG"; then
@@ -896,7 +428,7 @@ if CMUX_CHANNEL=beta run_helper 2>/dev/null; then
   echo "FAIL: unknown channel must be rejected" >&2
   exit 1
 fi
-echo "PASS: rc channel packaging selects rc metadata checks"
+echo "PASS: rc channel packaging selects rc entitlements and metadata checks"
 
 # Stable packages through the same path with the release entitlements, so the
 # stable release can ship per-architecture DMGs the way nightly does.
@@ -917,19 +449,21 @@ CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
 CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
 CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
 CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
 ASC_API_KEY_ID=FIXTUREKEY \
 ASC_API_ISSUER_ID=fixture-issuer \
 ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
 APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
 "$SCRIPT" "$STABLE_APP" "$TMP_DIR/cmux-macos-arm64.dmg" "$TMP_DIR/cmux-stable-immutable.dmg"
 for expected in \
+  "notarize-helper $STABLE_APP $ROOT_DIR/cmux.release.entitlements Developer ID Application: Fixture" \
   "metadata $STABLE_APP stable"; do
   if ! grep -Fxq "$expected" "$LOG"; then
     echo "FAIL: stable channel packaging missed: $expected" >&2
     exit 1
   fi
 done
-echo "PASS: stable channel packaging selects stable metadata checks"
+echo "PASS: stable channel packaging selects release entitlements and metadata checks"
 
 # Resuming a stable submission passes the channel gate and stops at the next
 # check (here a deliberate SHA-256 mismatch), never at "Unsupported channel".
@@ -958,8 +492,8 @@ if grep -Fq 'Unsupported recovery channel' <<<"$resume_output" \
 fi
 echo "PASS: stable notarization state resumes past the channel gate"
 
-# Fast dogfood keeps Developer ID signing and DMG creation but bypasses
-# notarization. It must work without Apple API secrets,
+# Fast dogfood keeps Developer ID signing and DMG creation but bypasses both
+# Computer Use and outer notarization. It must work without Apple API secrets,
 # and the signed image still becomes the internal immutable artifact.
 : > "$LOG"
 FAST_DMG="$TMP_DIR/cmux-fast-dogfood.dmg"
@@ -974,8 +508,8 @@ if ! (
   echo "FAIL: fast dogfood packaging should sign without notarization secrets" >&2
   exit 1
 fi
-if grep -q '^xcrun notarytool ' "$LOG"; then
-  echo "FAIL: fast dogfood packaging must skip notarization" >&2
+if grep -q '^xcrun notarytool ' "$LOG" || grep -q '^notarize-helper ' "$LOG"; then
+  echo "FAIL: fast dogfood packaging must skip helper and outer notarization" >&2
   exit 1
 fi
 if ! grep -q "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $FAST_DMG" "$LOG"; then
@@ -987,6 +521,88 @@ if [ ! -f "$FAST_IMMUTABLE" ] || ! cmp -s "$FAST_DMG" "$FAST_IMMUTABLE"; then
   exit 1
 fi
 echo "PASS: fast dogfood packaging skips notarization but retains signing"
+
+# The shipped DMG carries the stapled app (CMUX_STAPLE_APP_IN_DMG=true, the
+# default). After Apple accepts the first DMG, the app is stapled from that
+# ticket, a new DMG is built around it, signed with a fresh keychain that is
+# deleted before the second submission, notarized, stapled and only then put
+# at the release path. A second submission Apple does not accept publishes nothing.
+cat > "$FAKE_BIN/keychain" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'keychain %s cert=%s\n' "$*" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
+EOF
+chmod +x "$FAKE_BIN/keychain"
+run_stapled() {
+  TEST_STAPLE_APP_IN_DMG=true \
+  CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" \
+  APPLE_CERTIFICATE_BASE64="$(printf 'fixture-p12' | base64)" \
+  APPLE_CERTIFICATE_PASSWORD=fixture-password \
+  run_helper "$@"
+}
+: > "$LOG"
+rm -rf "$TMP_DIR/cmux-nightly-mount" "$TMP_DIR/detach-retried" "$IMMUTABLE"
+if ! run_stapled >/dev/null 2>"$TMP_DIR/stapled.err"; then
+  echo "FAIL: packaging the stapled app into the DMG failed" >&2
+  cat "$TMP_DIR/stapled.err" >&2
+  exit 1
+fi
+if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 2 ] \
+  || [ "$(grep -c '^xcrun notarytool submit .*/stapled-app/cmux-nightly-macos.dmg ' "$LOG")" -ne 1 ]; then
+  echo "FAIL: expected the first DMG and the stapled-app DMG as the only two submissions" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+first_submit="$(grep -nF "xcrun notarytool submit $DMG " "$LOG" | head -n 1 | cut -d: -f1)"
+app_staple="$(grep -nF "xcrun stapler staple $APP" "$LOG" | head -n 1 | cut -d: -f1)"
+create2="$(grep -n '^keychain create cert=set$' "$LOG" | head -n 1 | cut -d: -f1)"
+dmg2="$(grep -n "^create-dmg --no-code-sign $APP .*/stapled-app/work\$" "$LOG" | head -n 1 | cut -d: -f1)"
+sign2="$(grep -n '^codesign --force --timestamp --keychain build.keychain .*/stapled-app/cmux-nightly-macos.dmg$' "$LOG" | head -n 1 | cut -d: -f1)"
+delete2="$(grep -n '^keychain delete' "$LOG" | awk -F: -v after="${sign2:-0}" '$1 > after {print $1; exit}')"
+submit2="$(grep -n '^xcrun notarytool submit .*/stapled-app/' "$LOG" | head -n 1 | cut -d: -f1)"
+staple2="$(grep -n '^xcrun stapler staple .*/stapled-app/cmux-nightly-macos.dmg$' "$LOG" | head -n 1 | cut -d: -f1)"
+attach2="$(grep -n '^hdiutil attach .*/stapled-app/cmux-nightly-macos.dmg ' "$LOG" | head -n 1 | cut -d: -f1)"
+mounted_staple="$(grep -nF "xcrun stapler validate $TMP_DIR/cmux-nightly-mount/cmux NIGHTLY.app" "$LOG" | head -n 1 | cut -d: -f1)"
+for n in first_submit app_staple create2 dmg2 sign2 delete2 submit2 staple2 attach2 mounted_staple; do
+  if [ -z "${!n}" ]; then
+    echo "FAIL: stapled-app packaging step missing: $n" >&2
+    cat "$LOG" >&2
+    exit 1
+  fi
+done
+if ! [ "$first_submit" -lt "$app_staple" ] || ! [ "$app_staple" -lt "$dmg2" ] || ! [ "$dmg2" -lt "$create2" ] \
+  || ! [ "$create2" -lt "$sign2" ] || ! [ "$sign2" -lt "$delete2" ] || ! [ "$delete2" -lt "$submit2" ] \
+  || ! [ "$submit2" -lt "$staple2" ] || ! [ "$staple2" -lt "$attach2" ] || ! [ "$attach2" -lt "$mounted_staple" ]; then
+  echo "FAIL: stapled-app DMG steps ran out of order" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+if grep -v '^create-dmg-umask 0022$' "$LOG" | grep '^create-dmg-umask ' >/dev/null; then
+  echo "FAIL: create-dmg must copy the app with umask 022" >&2
+  exit 1
+fi
+if grep -q '^xcrun stapler staple '"$DMG"'$' "$LOG" || [ ! -f "$IMMUTABLE" ] || ! cmp -s "$DMG" "$IMMUTABLE"; then
+  echo "FAIL: only the stapled-app DMG is stapled, put at the release path and copied to the immutable path" >&2
+  exit 1
+fi
+: > "$LOG"
+rm -rf "$TMP_DIR/cmux-nightly-mount" "$TMP_DIR/detach-retried" "$IMMUTABLE"
+if CMUX_TEST_STAPLED_STATUS=Invalid run_stapled >/dev/null 2>&1 \
+  || grep -q '^xcrun stapler staple .*\.dmg$' "$LOG" || [ -e "$IMMUTABLE" ]; then
+  echo "FAIL: a rejected stapled-app DMG must fail and publish nothing" >&2
+  exit 1
+fi
+: > "$LOG"
+for missing in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD; do
+  : > "$LOG"
+  if (export APPLE_CERTIFICATE_BASE64=fixture APPLE_CERTIFICATE_PASSWORD=fixture; unset "$missing"
+      TEST_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" run_helper) >/dev/null 2>&1 \
+    || grep -q '^xcrun notarytool submit ' "$LOG"; then
+    echo "FAIL: without $missing the stapled-app DMG cannot be signed; fail before any submission" >&2
+    exit 1
+  fi
+done
+echo "PASS: the shipped DMG carries the stapled app and its own ticket"
 
 # release.yml's thin variants submit the DMG around the stapled app without a
 # wait (CMUX_STAPLED_DMG_HANDOFF_FILE); finish-stapled-app-dmgs.sh then waits
@@ -1016,7 +632,7 @@ for case in accepted rejected; do
     cat "$TMP_DIR/handoff.err" >&2
     exit 1
   fi
-  if ! grep -q '^xcrun notarytool submit .*/stapled-app/[^ /]*-stapled-app\.dmg .*--output-format json$' "$LOG" \
+  if ! grep -q '^xcrun notarytool submit .*/stapled-app/cmux-nightly-macos.dmg .*--output-format json$' "$LOG" \
     || grep -q '^xcrun notarytool submit .*/stapled-app/.*--wait' "$LOG" \
     || ! grep -Fxq 'submission_id=fixture-stapled-id' "$HANDOFF" \
     || [ ! -f "$DMG.stapled-app.dmg" ] || [ -e "$IMMUTABLE" ] \
@@ -1093,7 +709,7 @@ EOF
 cat > "$W/bin/resume" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'resume %s %s app_only=%s wait=%s cert=%s\n' "$(basename "$1")" "$3" "${CMUX_RESUME_APP_ONLY:-false}" "${CMUX_NOTARY_WAIT_TIMEOUT:-}" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
+printf 'resume %s %s app_only=%s helper_recheck_skipped=%s wait=%s cert=%s\n' "$(basename "$1")" "$3" "${CMUX_RESUME_APP_ONLY:-false}" "${CMUX_SKIP_HELPER_RECHECK:-false}" "${CMUX_NOTARY_WAIT_TIMEOUT:-}" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
 if grep -Fxq 'stapled_app=true' "$1"; then
   case "${CMUX_TEST_SECOND:-Accepted}" in
     Accepted) cp "$3" "$4" ;;
@@ -1129,10 +745,10 @@ reset_wrapper() {
 }
 expected="$(cat <<EOF
 keychain delete cert=
-resume first.state $W/recovery/cmux-nightly-macos.dmg app_only=true wait=2m cert=
+resume first.state $W/recovery/cmux-nightly-macos.dmg app_only=true helper_recheck_skipped=false wait=2m cert=
 package $W/recovery/stapled-app/cmux-nightly-macos.dmg cert=set creates_keychain=true submit_only=true marker=true
 keychain delete cert=
-resume outer.state $W/recovery/stapled-app/cmux-nightly-macos.dmg app_only=false wait=40m cert=
+resume outer.state $W/recovery/stapled-app/cmux-nightly-macos.dmg app_only=false helper_recheck_skipped=true wait=40m cert=
 EOF
 )"
 # Before 6 h (the default limit): Accepted ships the stapled-app DMG; queued
@@ -1289,7 +905,7 @@ if ! stage staged --require-stapled-app >/dev/null 2>"$P/err" \
   || [ "$(cat "$P/staged/cmux-nightly-macos-arm64.dmg")" != second ] \
   || [ "$(cat "$P/staged/cmux-nightly-macos-arm64.dmg.first.dmg")" != first ] \
   || ! grep -Fxq 'stapled_app=true' "$P/staged/cmux-nightly-macos-arm64.dmg.notarization.state" \
-  || ! tar -tzf "$P/staged/cmux-nightly-notarization-recovery-app.tar.gz" | grep -q '^cmux NIGHTLY.app/' \
+  || ! tar -tzf "$P/staged/cmux-nightly-notarization-recovery-app.tar.gz" | grep '^cmux NIGHTLY.app/' >/dev/null \
   || ! python3 "$ROOT_DIR/scripts/ci/resolve-notarization-recovery.py" "$P/staged/cmux-nightly-notarization-recovery.json" \
     123 "$HEAD_SHA" nightly arm64 --run-attempt 1 --strict --extract-app >/dev/null; then
   echo "FAIL: a stapled-app hand-off must carry the state, the DMG, the first DMG and the current app, and resolve strictly" >&2

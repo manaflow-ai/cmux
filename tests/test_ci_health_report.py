@@ -27,11 +27,11 @@ WORKFLOW = ROOT / ".github/workflows/ci-health-report.yml"
 DOC = ROOT / "docs/ci/health-report.md"
 FIXTURES = ROOT / "tests/fixtures/ci-health-report"
 
-# Imported by name, never loaded by path: one module object per file, so a test that patches it
-# patches what every other test reads (tests/test_script_module_loads.py).
-if str(ROOT / "scripts/ci") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts/ci"))
-import ci_health_report as report  # noqa: E402
+SPEC = importlib.util.spec_from_file_location("ci_health_report", SCRIPT)
+report = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+sys.modules["ci_health_report"] = report
+SPEC.loader.exec_module(report)
 
 NOW = dt.datetime(2026, 9, 22, 18, 0, tzinfo=dt.timezone.utc)
 REPO = "manaflow-ai/cmux"
@@ -64,8 +64,6 @@ def metrics_from(fixture: dict[str, Any], window: Any, partial: tuple[str, ...] 
 
 CURRENT_WINDOW, PREVIOUS_WINDOW = report.windows(NOW, 6)
 
-
-ONE_LINUX_LABEL = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}"
 
 class JobRowTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -213,6 +211,12 @@ class QueueWaitTests(unittest.TestCase):
         self.assertEqual(self.stats[0].label, MAC)
 
 
+def link(number: int, head: str, repo: str = REPO, head_repo: str = REPO) -> dict[str, Any]:
+    """A `pull_requests` entry as GitHub's run listing has it (each repo named by its url)."""
+    side = lambda r: {"url": f"https://api.github.com/repos/{r}", "name": r.split("/")[1]}
+    return {"number": number, "head": {"sha": head, "repo": side(head_repo)}, "base": {"repo": side(repo)}}
+
+
 class WastePatternTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = load("window.json")
@@ -249,6 +253,175 @@ class WastePatternTests(unittest.TestCase):
     def test_one_pull_request_failing_repeatedly_is_not_a_main_signal(self):
         one_head = [row for row in self.rows if row.head_sha == "bbb2bbb2bbb2"] * 5
         self.assertEqual(report.repeated_job_failures(one_head), [])
+
+    @staticmethod
+    def linked(run, number, head):
+        """The run as GitHub lists it for pull request `number`, whose head is `head` now."""
+        return dict(run, pull_requests=[link(number, head)])
+
+    def failing(self, run, name="lint", conclusion="failure"):
+        job = {"name": name, "labels": [LINUX], "status": "completed", "conclusion": conclusion,
+               "created_at": "2026-09-22T10:00:00Z", "started_at": "2026-09-22T10:00:10Z",
+               "completed_at": "2026-09-22T10:01:00Z"}
+        return report.job_rows(run, [job], REPO)
+
+    def test_a_failure_at_a_superseded_pull_request_head_is_not_counted(self):
+        # feature-c and feature-d were each pushed again: their failures are at heads the pull requests no
+        # longer have, so only feature-b's failure (still its head) is left.
+        heads = {"feature-b": "bbb2bbb2bbb2", "feature-c": "c-newer", "feature-d": "d-newer"}
+        numbers = {"feature-b": 2, "feature-c": 3, "feature-d": 4}
+        runs = [self.linked(run, numbers[run["head_branch"]], heads[run["head_branch"]])
+                if run["head_branch"] in heads else run for run in self.fixture["runs"]]
+        rows = rows_from(dict(self.fixture, runs=runs))
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO), [])
+        self.assertEqual(report.repeated_job_failures(rows, min_heads=1, runs=runs, repo=REPO)[0].heads, 1)
+
+    def test_a_failure_still_at_each_pull_requests_head_counts(self):
+        numbers = {"feature-b": 2, "feature-c": 3, "feature-d": 4}
+        runs = [self.linked(run, numbers[run["head_branch"]], run["head_sha"])
+                if run["head_branch"] in numbers else run for run in self.fixture["runs"]]
+        rows = rows_from(dict(self.fixture, runs=runs))
+        repeated = report.repeated_job_failures(rows, runs=runs, repo=REPO)
+        self.assertEqual([(item.job, item.heads) for item in repeated], [("macOS / app-host tests", 3)])
+
+    def test_a_stale_pull_request_target_event_is_not_counted(self):
+        # The CLA policy guard shape: a pull_request_target run for a head already replaced fails
+        # ("identity mismatch") while the newer head's run passes.
+        base = dict(self.fixture["runs"][2], event="pull_request_target", path=".github/workflows/cla-policy-guard.yml")
+        runs, rows = [], []
+        for n in range(3):
+            stale = self.linked(dict(base, id=5000 + n, head_branch=f"pr-{n}", head_sha=f"old{n}",
+                                     created_at="2026-09-22T16:00:00Z", conclusion="failure"), 10 + n, f"new{n}")
+            fresh = dict(stale, id=6000 + n, head_sha=f"new{n}", created_at="2026-09-22T16:01:00Z", conclusion="success")
+            runs += [stale, fresh]
+            rows += self.failing(stale, "CLA policy guard") + self.failing(fresh, "CLA policy guard", "success")
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO), [])
+        # Without the runs (no head to compare with), every failure still counts, as before.
+        self.assertEqual(report.repeated_job_failures(rows)[0].heads, 3)
+
+    def test_a_renamed_branch_cannot_hide_a_superseded_head(self):
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            old = self.linked(dict(base, id=9000 + n, head_branch=f"old-name-{n}", head_sha=f"before{n}",
+                                   created_at="2026-09-22T10:00:00Z"), 100 + n, f"renamed{n}")
+            new = dict(old, id=9100 + n, head_branch=f"new-name-{n}", head_sha=f"renamed{n}",
+                       created_at="2026-09-22T11:00:00Z", conclusion="success")
+            runs += [old, new]
+            rows += self.failing(old) + self.failing(new, conclusion="success")
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO), [])
+        at_head = [row for run in runs if run["id"] >= 9100 for row in self.failing(run)]
+        self.assertEqual(report.repeated_job_failures(at_head, runs=runs, repo=REPO)[0].heads, 3)
+
+    def test_runs_with_an_unknown_head_repository_never_supersede_each_other(self):
+        # Two deleted forks' pull requests on the same branch name: no link, so no shared identity, and the
+        # older failure is not hidden as stale by the newer one.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            older = dict(base, id=8000 + n, head_branch="patch-1", head_sha=f"gone-a{n}", head_repository=None,
+                         pull_requests=[], created_at=f"2026-09-22T1{n}:00:00Z", conclusion="failure")
+            newer = dict(older, id=8100 + n, head_sha=f"gone-b{n}", created_at=f"2026-09-22T1{n}:30:00Z")
+            runs += [older, newer]
+            rows += self.failing(older) + self.failing(newer)
+        self.assertEqual(report.pull_request_heads(runs, REPO), {})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 6)
+
+    def test_a_fork_pull_requests_runs_are_never_superseded(self):
+        # GitHub lists no pull request on a fork's run; a same-named branch of ours with a link must not
+        # supersede it.
+        fork = dict(self.fixture["runs"][-1], conclusion="failure")  # outsider/cmux, contributor-fix
+        ours = self.linked(dict(self.fixture["runs"][2], id=7100, head_branch="contributor-fix", head_sha="ours"),
+                           50, "ours")
+        runs = [dict(fork, id=7000 + n, head_sha=f"fork{n}") for n in range(3)] + [ours]
+        rows = [row for run in runs[:3] for row in self.failing(run)]
+        self.assertEqual(report.pull_request_heads(runs, REPO), {50: "ours"})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
+
+    def test_a_run_two_pull_requests_share_is_kept_while_one_is_still_at_it(self):
+        # One commit, two pull requests (a stack's base and its top): #20 moved on, #21 did not. The failure is
+        # still #21's, so it counts; once both moved past it, it does not.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            run = dict(base, id=9500 + n, head_branch=f"stack-{n}", head_sha=f"shared{n}",
+                       pull_requests=[link(20 + 10 * n, f"moved{n}"), link(21 + 10 * n, f"shared{n}")])
+            runs.append(run)
+            rows += self.failing(run)
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
+        moved = [dict(run, pull_requests=[link(p["number"], "elsewhere") for p in run["pull_requests"]]) for run in runs]
+        rows = [row for run in moved for row in self.failing(run)]
+        self.assertEqual(report.repeated_job_failures(rows, runs=moved, repo=REPO), [])
+
+    def test_a_same_numbered_pull_request_in_another_repository_names_no_head_here(self):
+        # #7 here is still at its head; #7 in a fork of the same name moved on. The fork's link must not
+        # supersede ours, in the head map or in the row.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            ours = dict(base, id=9600 + n, head_branch=f"b{n}", head_sha=f"here{n}", pull_requests=[link(7 + n, f"here{n}")])
+            theirs = dict(base, id=9700 + n, head_branch=f"b{n}", head_sha=f"there{n}",
+                          created_at="2026-09-22T17:59:00Z", pull_requests=[link(7 + n, f"there{n}", "outsider/cmux")])
+            runs += [ours, theirs]
+            rows += self.failing(ours)
+        self.assertEqual(report.pull_request_heads(runs, REPO), {7: "here0", 8: "here1", 9: "here2"})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
+        self.assertEqual(report.link_repo(link(1, "x", "Manaflow-AI/cmux")), "manaflow-ai/cmux")
+        self.assertEqual(report.link_repo({"base": {"repo": {"name": "cmux"}}}), "")
+
+    def test_a_linked_workflow_run_is_judged_by_its_pull_requests_head(self):
+        # A workflow_run (or review, comment) run that links its pull request is as superseded as the
+        # pull_request run it follows; push and schedule runs never are.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            run = dict(base, id=9800 + n, event="workflow_run", head_branch=f"w{n}", head_sha=f"old{n}",
+                       pull_requests=[link(60 + n, f"new{n}")])
+            runs.append(run)
+            rows += self.failing(run)
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO), [])
+        pushed = [dict(run, event="push") for run in runs]
+        rows = [row for run in pushed for row in self.failing(run)]
+        self.assertEqual(report.repeated_job_failures(rows, runs=pushed, repo=REPO)[0].heads, 3)
+
+    def test_a_fork_pull_request_linked_to_a_main_dispatch_is_not_its_own(self):
+        # GitHub links a dispatch run on main to a fork pull request whose head commit matches; that fork
+        # pull request moving on must not hide main's failures.
+        base = dict(self.fixture["runs"][5], event="workflow_dispatch")
+        runs = [dict(base, id=9900 + n, head_sha=f"main{n}",
+                     pull_requests=[link(70 + n, "fork-moved", head_repo="outsider/cmux")]) for n in range(3)]
+        rows = [row for run in runs for row in self.failing(run)]
+        self.assertEqual(report.pull_request_heads(runs, REPO), {})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
+
+    def test_a_linked_push_run_still_names_its_pull_requests_head(self):
+        # The pull request's newest run is a push on its branch with no head sha in its link: it still names
+        # the head, so the older pull_request run's failure there is superseded (the push row itself never is).
+        base = self.fixture["runs"][2]
+        headless = dict(link(5, ""), head={"repo": link(5, "")["head"]["repo"]})
+        old = dict(base, id=1, head_sha="old", created_at="2026-09-22T10:00:00Z", pull_requests=[headless])
+        pushed = dict(base, id=2, event="push", head_sha="new", created_at="2026-09-22T11:00:00Z",
+                      pull_requests=[headless])
+        self.assertEqual(report.pull_request_heads([old, pushed], REPO), {5: "new"})
+        self.assertTrue(report.superseded(self.failing(old)[0], {5: "new"}))
+        self.assertFalse(report.superseded(self.failing(pushed)[0], {5: "other"}))
+
+    def test_the_links_head_wins_over_the_newest_run(self):
+        # An old head's run created later (a re-dispatch) does not decide: the link names the head now.
+        base = self.fixture["runs"][2]
+        old = self.linked(dict(base, id=1, head_sha="old", created_at="2026-09-22T12:00:00Z"), 9, "new")
+        new = self.linked(dict(base, id=2, head_sha="new", created_at="2026-09-22T11:00:00Z"), 9, "new")
+        self.assertEqual(report.pull_request_heads([old, new], REPO), {9: "new"})
+        unlinked = dict(old, pull_requests=[dict(link(9, ""), head={"repo": link(9, "")["head"]["repo"]})])
+        headless = dict(new, pull_requests=[dict(link(9, ""), head={"repo": link(9, "")["head"]["repo"]})])
+        self.assertEqual(report.pull_request_heads([unlinked, headless], REPO), {9: "old"})
+
+    def test_base_branch_failures_across_commits_still_count(self):
+        base = self.fixture["runs"][5]
+        runs = [dict(base, id=7000 + n, head_sha=f"main{n}", created_at=f"2026-09-22T1{n}:00:00Z",
+                     conclusion="failure") for n in range(3)]
+        rows = [row for run in runs for row in self.failing(run, "build")]
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
 
     def test_a_workflow_whose_runs_are_all_skipped_is_surfaced(self):
         skipped = report.mostly_skipped_workflows(self.fixture["runs"], min_runs=5)
@@ -478,6 +651,51 @@ class SliceTests(unittest.TestCase):
         self.assertLess(metrics.covered_hours, CURRENT_WINDOW.hours)
 
 
+class SpentBudgetTests(unittest.TestCase):
+    def test_a_spent_budget_stops_further_run_listings(self):
+        github = report.GitHub("token", REPO)
+        calls = []
+
+        def refused(window, max_pages):
+            calls.append(window)
+            github.spent = True
+            return report.SliceResult(window=window, runs=[], capped=True), ["rate limited (403)"]
+
+        github.runs_in_slice = refused
+        window, _ = report.windows(NOW, 6)
+        runs, results, partial = github.runs_in_window(window, max_pages=3, slices=12)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(runs, [])
+        self.assertEqual(len(results), 12)
+        self.assertTrue(all(result.capped for result in results))
+        self.assertEqual(sum("skipped" in reason for reason in partial), 11)
+
+    def test_main_reads_on_the_read_token_and_publishes_on_gh_token(self):
+        import os
+        from unittest import mock
+
+        made = []
+
+        class Recorder:
+            def __init__(self, token, repo):
+                self.token, self.repo, self.calls = token, repo, 0
+                made.append(self)
+
+        published = []
+        empty = mock.MagicMock()
+        with mock.patch.object(report, "GitHub", Recorder), \
+                mock.patch.object(report, "collect_window", return_value=empty), \
+                mock.patch.object(report, "collect_cache_section", return_value=""), \
+                mock.patch.object(report, "render_report", return_value="report"), \
+                mock.patch.object(report, "publish_to_issue",
+                                  side_effect=lambda gh, n, body: published.append(gh.token) or "ok"), \
+                mock.patch.dict(os.environ, {"GH_TOKEN": "workflow", "CI_HEALTH_READ_TOKEN": "app",
+                                             "GH_REPO": REPO}, clear=False):
+            self.assertEqual(report.main(["--issue", "5"]), 0)
+        self.assertEqual(made[0].token, "app")
+        self.assertEqual(published, ["workflow"])
+
+
 class RenderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.current = metrics_from(load("window.json"), CURRENT_WINDOW)
@@ -539,6 +757,169 @@ class RenderTests(unittest.TestCase):
             window=CURRENT_WINDOW, runs=load("window.json")["runs"], rows=rows, sampled_runs=1, partial=()
         )
         self.assertIn("web \\| lint", report.render_report(metrics, self.previous, repo=REPO, now=NOW, api_calls=1))
+
+    def test_the_cache_section_renders_before_the_footer(self):
+        text = report.render_report(
+            self.current, self.previous, repo=REPO, now=NOW, api_calls=1,
+            cache_section=["### Actions cache", "", "cache body", ""],
+        )
+        self.assertIn("### Actions cache", text)
+        self.assertLess(text.index("cache body"), text.index("_This report only measures."))
+
+    def test_a_failed_cache_read_leaves_a_note_and_keeps_what_was_read(self):
+        class CacheGitHub:
+            def caches(self, max_pages):
+                raise RuntimeError("GET /actions/caches failed (500)")
+
+            def cache_usage(self):
+                return {}
+
+            def job_log(self, job_id):
+                if job_id == 2:
+                    raise report.RateLimited("rate limited on logs (403)")
+                return "##[group]Run actions/cache@abc\n  key: k-1-deadbeefcafe\nCache not found for input keys: k-1-deadbeefcafe\n"
+
+        lines = report.collect_cache_section(
+            CacheGitHub(), [("a.yml", "x", 1), ("b.yml", "y", 2)], log_sample=5
+        )
+        text = "\n".join(lines)
+        self.assertIn("GitHub cache store not read", text)
+        self.assertIn("log sampling stopped after 1 jobs", text)
+        self.assertIn("| a.yml | `k-1` | 1 | 1 | 0 | 0 | 1 | 0 | 0% | 0 |", text)
+
+    def test_a_usage_failure_keeps_the_listing_and_one_bad_log_does_not_stop_the_sample(self):
+        class CacheGitHub:
+            truncated_logs: set = set()
+
+            def caches(self, max_pages):
+                return [{"key": "k-1-deadbeefcafe", "ref": "refs/heads/main", "size_in_bytes": 1024**3}]
+
+            def cache_usage(self):
+                raise RuntimeError("GET /actions/cache/usage failed (500)")
+
+            def job_log(self, job_id):
+                if job_id == 1:
+                    raise RuntimeError("job 1 log download failed (404)")
+                if job_id == 2:
+                    self.truncated_logs.add(2)
+                return "##[group]Run actions/cache@abc\n  key: k-1-deadbeefcafe\nCache not found for input keys: k-1-deadbeefcafe\n"
+
+        lines = report.collect_cache_section(
+            CacheGitHub(), [("a.yml", "x", 1), ("b.yml", "y", 2)], log_sample=5
+        )
+        text = "\n".join(lines)
+        self.assertIn("**GitHub store:**", text)
+        self.assertIn("cache usage not read", text)
+        self.assertIn("job 1 log download failed (404)", text)
+        self.assertIn("| b.yml | `k-1` | 1 | 1 | 0 | 0 | 1 | 0 | 0% | 0 |", text)
+        self.assertIn("job 2 log was cut", text)
+
+    def test_a_job_log_past_the_cap_is_cut_and_recorded(self):
+        import gzip as gz
+        import io
+        from unittest import mock
+
+        class Response(io.BytesIO):
+            def __init__(self, body, encoding=None):
+                super().__init__(body)
+                self.headers = {"Content-Encoding": encoding} if encoding else {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        github = report.GitHub("token", REPO)
+        for body, encoding in ((b"x" * 5000, None), (gz.compress(b"x" * 5000), "gzip")):
+            github.truncated_logs.clear()
+            with mock.patch("urllib.request.OpenerDirector.open", return_value=Response(body, encoding)):
+                self.assertEqual(len(github.job_log(7, max_bytes=1000)), 1000)
+            self.assertEqual(github.truncated_logs, {7})
+        github.truncated_logs.clear()
+        with mock.patch("urllib.request.OpenerDirector.open", return_value=Response(gz.compress(b"short"), "gzip")):
+            self.assertEqual(github.job_log(8, max_bytes=1000), "short")
+        self.assertEqual(github.truncated_logs, set())
+
+    def test_the_job_log_redirect_is_fetched_without_the_token(self):
+        import email.message
+        import io
+        import urllib.error
+        from unittest import mock
+
+        headers = email.message.Message()
+        headers["Location"] = "https://blob.example/log?sig=1"
+        redirect = urllib.error.HTTPError("https://api.github.com/x", 302, "Found", headers, None)
+        fetched = []
+
+        def blob(request, timeout):
+            fetched.append(request)
+            body = io.BytesIO(b"log text")
+            return body
+
+        github = report.GitHub("secret-token", REPO)
+        with mock.patch("urllib.request.OpenerDirector.open", side_effect=redirect), \
+                mock.patch("urllib.request.urlopen", side_effect=blob):
+            self.assertEqual(github.job_log(9), "log text")
+        self.assertEqual(fetched[0].full_url, "https://blob.example/log?sig=1")
+        self.assertFalse(any("secret-token" in str(value) for value in fetched[0].header_items()))
+        self.assertIsNone(fetched[0].get_header("Authorization"))
+
+    def test_a_failed_log_download_never_names_the_signed_url(self):
+        import email.message
+        import urllib.error
+        from unittest import mock
+
+        signed = "https://blob.example/log?sig=SECRET"
+        headers = email.message.Message()
+        headers["Location"] = signed
+        redirect = urllib.error.HTTPError("https://api.github.com/x", 302, "Found", headers, None)
+        failures = (
+            urllib.error.URLError(OSError(f"cannot reach {signed}")),
+            urllib.error.HTTPError(signed, 403, "Forbidden", email.message.Message(), None),
+            TimeoutError(f"timed out reading {signed}"),
+        )
+        github = report.GitHub("token", REPO)
+        for failure in failures:
+            with mock.patch("urllib.request.OpenerDirector.open", side_effect=redirect), \
+                    mock.patch("urllib.request.urlopen", side_effect=failure):
+                with self.assertRaises(RuntimeError) as raised:
+                    github.job_log(9)
+            self.assertNotIn("SECRET", str(raised.exception))
+            self.assertNotIn("blob.example", str(raised.exception))
+
+    def test_raw_transport_errors_and_the_time_budget_leave_notes(self):
+        class CacheGitHub:
+            def __init__(self):
+                self.now = 0.0
+
+            def caches(self, max_pages):
+                raise TimeoutError("The read operation timed out")
+
+            def cache_usage(self):
+                return {}
+
+            def job_log(self, job_id):
+                self.now += 200.0
+                if job_id == 1:
+                    raise ConnectionResetError("reset")
+                return "##[group]Run actions/cache@abc\n  key: k-1-deadbeefcafe\nCache not found for input keys: k-1-deadbeefcafe\n"
+
+        github = CacheGitHub()
+        lines = report.collect_cache_section(
+            github, [("a.yml", "x", 1), ("b.yml", "y", 2), ("c.yml", "z", 3)], log_sample=5,
+            budget_s=300.0, clock=lambda: github.now,
+        )
+        text = "\n".join(lines)
+        self.assertIn("GitHub cache store not read: The read operation timed out", text)
+        self.assertIn("a log was skipped: reset", text)
+        self.assertIn("stopped after 1 jobs: the 300s budget ran out", text)
+        self.assertIn("| b.yml | `k-1` |", text)
+        self.assertNotIn("c.yml", text)
+
+    def test_fork_runs_are_not_sampled_for_cache_logs(self):
+        self.assertFalse(report.cache_log_candidate({"head_repository": {"full_name": "someone/cmux"}}, REPO))
+        self.assertTrue(report.cache_log_candidate({"head_repository": {"full_name": REPO}}, REPO))
 
     def test_the_report_says_it_only_measures(self):
         self.assertIn("only measures", self.text)
@@ -636,9 +1017,13 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('- cron: "37 2,8,14,20 * * *"', self.text)
         self.assertIn("workflow_dispatch:", self.text)
 
-    def test_the_runner_is_the_one_linux_label(self):
-        # scripts/ci/one_linux_label.py: no size picked in the workflow; a fork pull request takes its own variable.
-        self.assertIn("runs-on: " + ONE_LINUX_LABEL, self.text)
+    def test_the_runner_is_the_one_job_secret_jit_no_variable_moves(self):
+        # The job holds App keys for its read token, so no variable may route it.
+        self.assertIn(
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' "
+            "|| 'cmux-gcp-secret-jit-x64' }}",
+            self.text,
+        )
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):
         self.assertIn("\npermissions: {}\n", self.text)
@@ -667,6 +1052,16 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_it_allows_enough_time_for_a_few_hundred_api_calls(self):
         self.assertIn("timeout-minutes: 30", self.text)
+
+    def test_reads_use_the_spread_app_token_and_the_comment_github_token(self):
+        # On github.token alone every run listing was refused 403 (2026-11-26, three runs, 0 runs fetched).
+        self.assertIn("uses: ./.github/actions/app-token-spread", self.text)
+        self.assertIn("CI_HEALTH_READ_TOKEN: ${{ steps.read-token.outputs.token }}", self.text)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", self.text)
+        mint = self.text.split("id: read-token", 1)[1].split("- name:", 1)[0]
+        self.assertIn("continue-on-error: true", mint)
+        self.assertIn("permission-actions: read", mint)
+        self.assertNotIn("permission-issues", mint)
 
     def test_it_never_opens_an_issue(self):
         self.assertNotIn("create-issue", self.text)

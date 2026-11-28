@@ -1,4 +1,3 @@
-import { machineCatalogParams } from "./internal/machine-catalog.js";
 import { CmuxProtocolError } from "./errors.js";
 import { decodeBase64, encodeBase64 } from "./base64.js";
 import {
@@ -63,8 +62,6 @@ import {
   type Document,
   type FrontendProjectionSnapshot,
   type LayoutColumn,
-  type LayoutColumnDock,
-  type LayoutRow,
   type LayoutDocument,
   type LayoutNode,
   type MachineSnapshot,
@@ -151,7 +148,6 @@ import type {
   MutationOptions,
   NotificationOptions,
   ProjectionPutOptions,
-  MachineReadOptions,
   RequestOptions,
   RunOptions,
   SessionEventsOptions,
@@ -475,30 +471,12 @@ function snapshotFields<Id extends string>(
 
 function machineSnapshot(value: unknown): MachineSnapshot {
   const payload = unwrap(value, ["machine"]);
-  const rawPlatform = payload.platform;
-  let platform: MachineSnapshot["platform"];
-  if (rawPlatform === undefined || rawPlatform === null) {
-    platform = rawPlatform;
-  } else {
-    const fields = document(rawPlatform, "machine platform");
-    strictObject(fields, ["os", "arch"], "machine platform");
-    for (const key of ["os", "arch"]) {
-      if (fields[key] !== undefined && fields[key] !== null && typeof fields[key] !== "string") {
-        throw new CmuxProtocolError(`machine platform ${key} must be a string or null`);
-      }
-    }
-    platform = Object.freeze({ ...fields }) as MachineSnapshot["platform"];
-  }
-  const capabilities = payload.capabilities === undefined ? [] : payload.capabilities;
-  if (!Array.isArray(capabilities) || capabilities.some((item) => typeof item !== "string")) {
-    throw new CmuxProtocolError("machine capabilities must be a string array");
-  }
   return Object.freeze({
     ...snapshotFields(payload, machineId, [
-      "name", "origin", "status", "connectable", "deleted", "recoverable", "platform", "capabilities",
+      "name", "origin", "status", "connectable", "deleted", "recoverable",
     ]),
     name: requiredString(payload, "name"),
-    origin: requiredEnum(payload, "origin", ["local", "cloud", "ssh", "server"] as const),
+    origin: requiredEnum(payload, "origin", ["local"] as const),
     status: requiredEnum(
       payload,
       "status",
@@ -507,8 +485,6 @@ function machineSnapshot(value: unknown): MachineSnapshot {
     connectable: requiredBoolean(payload, "connectable"),
     deleted: requiredBoolean(payload, "deleted"),
     recoverable: requiredBoolean(payload, "recoverable"),
-    ...optionalProperty("platform", platform),
-    capabilities: Object.freeze([...capabilities]),
   });
 }
 
@@ -750,30 +726,6 @@ function clientTerminalSize(value: unknown): ClientTerminalSize {
   });
 }
 
-/** An omitted or null flag reads as absent (the column scrolls). */
-function layoutColumnDock(value: unknown): LayoutColumnDock | undefined {
-  if (value === undefined || value === null) return undefined;
-  const dock = record(value, "layout column dock");
-  strictObject(dock, ["edge", "mode"], "layout column dock");
-  return Object.freeze({
-    edge: requiredEnum(dock, "edge", ["left", "right", "top", "bottom"] as const),
-    mode: requiredEnum(dock, "mode", ["docked", "overlay"] as const),
-  });
-}
-
-function layoutRow(value: unknown): LayoutRow {
-  const row = record(value, "layout row");
-  strictObject(row, ["row_id", "height"], "layout row");
-  const height = requiredNumber(row, "height");
-  if (!Number.isInteger(height) || height < 100 || height > 1000) {
-    throw new CmuxProtocolError("layout row height must be an integer from 100 to 1000");
-  }
-  return Object.freeze({
-    ...optionalProperty("rowId", optionalId(row, ["row_id"], splitId)),
-    height,
-  });
-}
-
 function layoutNode(value: unknown): LayoutNode {
   const payload = record(value, "layout node");
   const kind = requiredString(payload, "kind");
@@ -854,30 +806,15 @@ function layoutNode(value: unknown): LayoutNode {
     }
     const columns: LayoutColumn[] = payload.columns.map((item) => {
       const column = record(item, "layout column");
-      strictObject(
-        column,
-        ["column_id", "width", "root", "dock", "sticky", "rows"],
-        "layout column",
-      );
+      strictObject(column, ["column_id", "width", "root"], "layout column");
       const width = requiredNumber(column, "width");
       if (width < 0.1 || width > 1) {
         throw new CmuxProtocolError("layout column width must be between 0.1 and 1");
       }
-      // `sticky` is the pre-R87 name of `dock`: a replayed or older result
-      // still decodes; `dock` wins when both are present.
-      const dock = layoutColumnDock("dock" in column ? column.dock : column.sticky);
-      if (column.rows !== undefined && !Array.isArray(column.rows)) {
-        throw new CmuxProtocolError("layout column rows must be an array");
-      }
-      const rows = column.rows === undefined
-        ? undefined
-        : Object.freeze(column.rows.map(layoutRow));
       return Object.freeze({
         columnId: requiredId(column, ["column_id"], splitId),
         width,
         root: layoutNode(column.root),
-        ...(dock !== undefined ? { dock } : {}),
-        ...(rows !== undefined ? { rows } : {}),
       });
     });
     return Object.freeze({
@@ -1384,17 +1321,6 @@ function layoutNodeFields(node: LayoutNode): Record<string, unknown> {
           column_id: column.columnId,
           width: column.width,
           root: layoutNodeFields(column.root),
-          ...(column.dock !== undefined
-            ? { dock: { edge: column.dock.edge, mode: column.dock.mode } }
-            : {}),
-          ...(column.rows !== undefined
-            ? {
-              rows: column.rows.map((row) => ({
-                ...(row.rowId !== undefined ? { row_id: row.rowId } : {}),
-                height: row.height,
-              })),
-            }
-            : {}),
         })),
       };
   }
@@ -2657,9 +2583,8 @@ abstract class Handle<Id extends string, Value extends Snapshot<Id>> {
     operation: Operation,
     decode: SnapshotDecoder<Value>,
     options: RequestOptions = {},
-    params: Readonly<Record<string, unknown>> = this.params(),
   ): Promise<Value> {
-    const result = await this.client[readOperation](operation, params, options);
+    const result = await this.client[readOperation](operation, this.params(), options);
     const snapshot = decode(result);
     this.cached = snapshot;
     return snapshot;
@@ -2792,15 +2717,15 @@ export class Client {
     );
   }
 
-  async listMachines(options: MachineReadOptions = {}): Promise<Machine[]> {
-    const values = listPayload(await this[readOperation](operations.machineList, machineCatalogParams(options.catalog), options), "machines");
+  async listMachines(options: RequestOptions = {}): Promise<Machine[]> {
+    const values = listPayload(await this[readOperation](operations.machineList, {}, options), "machines");
     return values.map((value) => {
       const snapshot = machineSnapshot(value);
       return new Machine(this, selectId(snapshot.id), {}, snapshot);
     });
   }
 
-  async findMachinesByName(name: string, options: MachineReadOptions = {}): Promise<Machine[]> {
+  async findMachinesByName(name: string, options: RequestOptions = {}): Promise<Machine[]> {
     return (await this.listMachines(options)).filter((item) => item.snapshot?.name === name);
   }
 
@@ -3150,9 +3075,8 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
     return new Session(this.client, selector, { machine: encodeSelector(this.selector) });
   }
 
-  refresh(options: MachineReadOptions = {}): Promise<MachineSnapshot> {
-    return this.refreshWith(operations.machineGet, machineSnapshot, options,
-      { ...this.params(), ...machineCatalogParams(options.catalog) });
+  refresh(options: RequestOptions = {}): Promise<MachineSnapshot> {
+    return this.refreshWith(operations.machineGet, machineSnapshot, options);
   }
 
   async listSessions(options: RequestOptions = {}): Promise<Session[]> {
@@ -3676,36 +3600,6 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
 
   clearName(options: MutationOptions = {}): Promise<MutationResult<Screen>> {
     return this.rename(null, options);
-  }
-
-  /**
-   * Pins, unpins, or resizes one viewport column (`column.update`). `column`
-   * is the column's split ID. Set `dock`, `width`, or both; `edge` and
-   * `mode` apply only with `dock: true`.
-   */
-  updateColumn(
-    column: string,
-    update: {
-      dock?: boolean;
-      edge?: "left" | "right" | "top" | "bottom";
-      mode?: "docked" | "overlay";
-      width?: number;
-    },
-    options: MutationOptions = {},
-  ): Promise<MutationResult<Screen>> {
-    const fields: Record<string, unknown> = { ...this.params(), column };
-    for (const [name, value] of Object.entries(update)) {
-      if (value !== undefined) {
-        fields[name] = value;
-      }
-    }
-    return this.client[mutateOperation](
-      operations.screenColumnUpdate,
-      fields,
-      options,
-      screenSnapshot,
-      (snapshot) => this.acceptSnapshot(snapshot),
-    );
   }
 
   focus(options: MutationOptions = {}): Promise<MutationResult<Screen>> {

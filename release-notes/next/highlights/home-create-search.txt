@@ -1,4 +1,0 @@
-title: Create tabs and chats from the composer search
-category: improved
-
-Search for New terminal, New browser tab or New chat in the home composer. These commands appear only when your search matches.

@@ -1,0 +1,54 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.placeholder" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Message" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メッセージ" } }
+      }
+    },
+    "PIN GAP %@ pt" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "PIN GAP %1$@ pt" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "固定間隔 %1$@ pt" } }
+      }
+    },
+    "shortcut.escape" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Esc" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Esc" } }
+      }
+    },
+    "stress.accessibility" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Rapidly toggle keyboard 20 times" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キーボードを20回すばやく切り替える" } }
+      }
+    },
+    "shortcut.tab" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tab" } }
+      }
+    },
+    "terminal.sample" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Last login: Fri Aug 7 19:45:12 on ttys006\n\n~/cmux  git:(feat/keyboard-pinning-lab)\n❯" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最終ログイン: 8月7日 金 19:45:12 ttys006\n\n~/cmux  git:(feat/keyboard-pinning-lab)\n❯" } }
+      }
+    },
+    "terminal.accessibility" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal. Tap to show keyboard." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル。タップしてキーボードを表示します。" } }
+      }
+    },
+    "workspace.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux DEV lab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux DEV ラボ" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

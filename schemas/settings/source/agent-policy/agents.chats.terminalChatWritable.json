@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Whether a chat writes into the person's own terminal session (its harness runs with that terminal's permissions): theirs to turn on or off."
-}

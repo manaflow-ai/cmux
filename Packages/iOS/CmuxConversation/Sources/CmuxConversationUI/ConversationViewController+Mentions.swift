@@ -18,7 +18,6 @@ extension ConversationViewController: UIPopoverPresentationControllerDelegate {
         let suggestions = composer.mentionController.suggestions
         guard let query, !query.matches.isEmpty, composer.textView.isFirstResponder else {
             guard !suggestions.isHidden else { return }
-            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.15, delay: 0, options: [.beginFromCurrentState]) {
                 suggestions.alpha = 0
             } completion: { finished in
@@ -33,7 +32,6 @@ extension ConversationViewController: UIPopoverPresentationControllerDelegate {
         view.bringSubviewToFront(suggestions)
         guard suggestions.isHidden || suggestions.alpha < 1 else { return }
         suggestions.isHidden = false
-        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             suggestions.alpha = 1
         }

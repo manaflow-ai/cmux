@@ -1,5 +1,4 @@
 {
-  "jobs": [],
-  "per_run": true,
-  "_why": "CI v2 step 9: the job ids (cmux-next.yml, and action-exports in cmux-next-pr-autofix.yml) whose same-repository pull request runs take a scheduler grant (plain cmux-mac, or the per-run label with per_run true) instead of a glaeda pool. Empty is off. Heaviest Mac runner job first. scripts/ci/mac_grants.py reads it from the trusted base (macos-placement; action-areas for action-exports). Off 2026-11-21 22:45Z: 43 per-run jobs waited up to 2.5 h with no grant; on again once a granted run is read back."
+  "on": false,
+  "_why": "CI v2 step 9 (cmuxterm-hq#16502): with on=true every same-repository Mac pull request job runs on plain cmux-mac (plus xcode-<version>), which the controller grants and sizes, not on a glaeda pool. Flip once every PR mini runs an asker. It moves the jobs behind simple_pool_picker.py (ci.yml, ci-macos.yml, remote-daemon.yml); the Mac workflows with no picker (auth-refresh-tests, billing, cloud-command-deadlines, cloud-machine-tests, cloud-task-local-tests, iroh-v2, relay-tls, terminal-hang-diagnostics) move to cmux-mac inline in the pull request that flips this. The per-run label cmux-<run_id>-<run_attempt>-mac stays an opt-in. scripts/ci/mac_grants.py reads this file."
 }

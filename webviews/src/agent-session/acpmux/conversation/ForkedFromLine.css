@@ -1,6 +1,0 @@
-/* The chat's name in a fork's "Forked from <chat>" line: the session link chip (AgentTag.css),
-   sat in the line's words, given room for a long title before it ellipsizes. */
-.cv-forked-from .cv-forked-from__chat {
-  max-width: 60%;
-  vertical-align: middle;
-}

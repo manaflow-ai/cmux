@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Whether the person's agent memory (CLAUDE.md, AGENTS.md, skills, Claude's notes) is copied to the cloud: only the person opts in or out; off deletes their cloud copy."
-}

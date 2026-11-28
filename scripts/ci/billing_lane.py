@@ -6,8 +6,8 @@ test as its own check. This file is the one list of what "touches billing"
 means. The workflow's `on.pull_request.paths` must equal the union of the
 pattern lists below; tests/test_ci_billing_lane.py fails when they drift.
 
-    billing_lane.py route              # writes web=, ios=, storekit=, storekit_kind=,
-                                       # storekit_path= to $GITHUB_OUTPUT
+    billing_lane.py route              # writes web= and ios= to $GITHUB_OUTPUT
+                                       # (every job on a dispatch or the nightly)
     billing_lane.py web-tests          # every billing web test file, one per line
     billing_lane.py web-tests --db     # the CMUX_DB_TEST-gated subset of those
 
@@ -32,9 +32,11 @@ LANE_PATTERNS = (
     ".github/workflows/billing.yml",
     "scripts/ci/billing_lane.py",
     "tests/test_ci_billing_lane.py",
-    # billing.yml reads the iOS billing packages from it.
-    "scripts/ci/swift-linux-packages.txt",
     "web/scripts/run-db-behavior-tests.sh",
+    # The nightly calls this lane; billing-changes runs its guard test.
+    ".github/workflows/billing-nightly.yml",
+    "scripts/ci/billing_nightly.py",
+    "tests/test_ci_billing_nightly.py",
 )
 
 WEB_PATTERNS = (
@@ -92,42 +94,16 @@ WEB_PATTERNS = (
     "web/**/*apple-iap*",
 )
 
-# The SwiftPM billing packages ios-billing runs `swift test` for (any
-# Packages/iOS/*Billing* package), their dependencies, and the classic app's
-# billing composition and StoreKit config, whose closest test is that package.
-IOS_PACKAGE_PATTERNS = (
+IOS_PATTERNS = (
     "Packages/iOS/CmuxMobileBilling/**",
-    "Packages/iOS/*Billing*/**",
+    # Its dependencies: the shared wire types and the support package.
     "Packages/Shared/CMUXMobileCore/**",
     "Packages/iOS/CmuxMobileSupport/**",
+    # The app's billing composition, recovery actions and StoreKit config.
     "Packages/iOS/**/*Billing*",
     "ios/**/*Billing*",
     "ios/**/*.storekit",
 )
-
-# The cmux-next iPhone app's billing client (being rewritten) and its StoreKit
-# configuration files. These route only the StoreKit Testing slot; the rest of
-# CmuxMobileKit is tested by cmux-next-ios-kit.yml.
-IOS_APP_PATTERNS = (
-    "cmux-next-ios/CmuxMobileKit/Sources/**/Billing*",
-    "cmux-next-ios/**/*Billing*/**",
-    "cmux-next-ios/**/*.storekit",
-    # Where a BillingStoreKitTests target gets declared.
-    "cmux-next-ios/project.yml",
-    "cmux-next-ios/*/Package.swift",
-)
-
-IOS_PATTERNS = (*IOS_PACKAGE_PATTERNS, *IOS_APP_PATTERNS)
-
-# StoreKit Testing slot: an SKTestSession suite backed by a .storekit file, as
-# a target named BillingStoreKitTests. The iPhone app's billing client lives in
-# Packages/iOS/CmuxMobileBilling, and its suite is the xcodegen project
-# Packages/iOS/CmuxMobileBilling/StoreKitTests/project.yml: an app-hosted test
-# bundle, because storekitd serves a StoreKit configuration only to an app
-# installed for development, never to SwiftPM's xctest runner. A SwiftPM test
-# directory (cmux-next-ios/<Package>/Tests/BillingStoreKitTests) or an xcodegen
-# target in cmux-next-ios/project.yml is found too. With none the slot skips.
-STOREKIT_TARGET = "BillingStoreKitTests"
 
 # Billing test files by name. Tests that exercise billing under another name
 # are found by what they import (BILLING_IMPORT below).
@@ -160,6 +136,11 @@ BILLING_IMPORT = re.compile(
 )
 TEST_FILE = re.compile(r"(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$")
 DB_GATE = "process.env.CMUX_DB_TEST"
+
+
+# A dispatch, and billing-nightly.yml's schedule (a called workflow sees its
+# caller's event), run every job: main's last commit must not narrow them.
+FULL_RUN_EVENTS = ("workflow_dispatch", "schedule")
 
 
 def workflow_paths() -> list[str]:
@@ -199,51 +180,13 @@ def classify(paths: list[str]) -> dict[str, bool]:
     lane = any(matches(path, LANE_PATTERNS) for path in paths)
     return {
         "web": lane or any(matches(path, WEB_PATTERNS) for path in paths),
-        "ios": lane or any(matches(path, IOS_PACKAGE_PATTERNS) for path in paths),
-        "storekit": lane or any(matches(path, IOS_PATTERNS) for path in paths),
+        "ios": lane or any(matches(path, IOS_PATTERNS) for path in paths),
     }
 
 
-def declares_storekit_target(project: Path) -> bool:
-    """True when an xcodegen project.yml declares the BillingStoreKitTests target."""
-    return project.is_file() and re.search(
-        rf"^[ \t]+[\"']?{STOREKIT_TARGET}[\"']?[ \t]*:", project.read_text(encoding="utf-8"), re.MULTILINE
-    ) is not None
-
-
-def storekit_target(root: Path = ROOT) -> tuple[str, str]:
-    """("package", <package dir>), ("project", <project dir>) or ("", "").
-
-    A billing package's own xcodegen project
-    (Packages/iOS/*Billing*/*/project.yml) comes first: that is where the
-    iPhone app's billing client and its suite live.
-    """
-    for project in sorted((root / "Packages/iOS").glob("*Billing*/*/project.yml")):
-        if declares_storekit_target(project):
-            return "project", project.parent.relative_to(root).as_posix()
-    app = root / "cmux-next-ios"
-    if not app.is_dir():
-        return "", ""
-    for directory, subdirs, _ in os.walk(app):
-        subdirs[:] = sorted(d for d in subdirs if not d.startswith(".") and d not in ("node_modules", "target"))
-        if Path(directory).name != STOREKIT_TARGET:
-            continue
-        for parent in Path(directory).parents:
-            if (parent / "Package.swift").is_file():
-                return "package", parent.relative_to(root).as_posix()
-            if parent == app:
-                break
-    if declares_storekit_target(app / "project.yml"):
-        return "project", "cmux-next-ios"
-    return "", ""
-
-
 def changed_paths() -> list[str] | None:
-    # A push routes from its `before` (the workflow fetches it); a pull
-    # request from HEAD^1, the base its merge commit sits on.
-    base = os.environ.get("PUSH_BASE", "").strip() or "HEAD^1"
     parent = subprocess.run(
-        ["git", "rev-parse", "-q", "--verify", f"{base}^{{commit}}"],
+        ["git", "rev-parse", "-q", "--verify", "HEAD^1"],
         cwd=ROOT, text=True, capture_output=True,
     )
     if parent.returncode != 0:
@@ -258,8 +201,8 @@ def changed_paths() -> list[str] | None:
 
 
 def route() -> int:
-    every = {"web": True, "ios": True, "storekit": True}
-    if os.environ.get("EVENT_NAME") == "workflow_dispatch":
+    every = {"web": True, "ios": True}
+    if os.environ.get("EVENT_NAME") in FULL_RUN_EVENTS:
         areas = every
     else:
         paths = changed_paths()
@@ -269,7 +212,7 @@ def route() -> int:
             areas = every
         else:
             areas = classify(paths)
-            if os.environ.get("EVENT_NAME") in ("pull_request", "push") and not any(areas.values()):
+            if os.environ.get("EVENT_NAME") in ("pull_request",) and not any(areas.values()):
                 # GitHub's path filter started this run, so some billing path
                 # changed even though these patterns disagree: run everything.
                 print("GitHub's path filter matched but no billing route did; running every billing job")
@@ -279,10 +222,6 @@ def route() -> int:
             for path in touched:
                 print(f"  {path}")
     lines = "".join(f"{name}={'true' if value else 'false'}\n" for name, value in areas.items())
-    kind, path = storekit_target() if areas["storekit"] else ("", "")
-    if areas["storekit"] and not kind:
-        print(f"no {STOREKIT_TARGET} target in Packages/iOS/*Billing* or cmux-next-ios; the StoreKit slot skips")
-    lines += f"storekit_kind={kind}\nstorekit_path={path}\n"
     print(lines, end="")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:

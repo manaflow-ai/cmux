@@ -1,2 +1,0 @@
-# The gates whose tests write the design doc's row 7c (`v2.pr07c.*`). A line is GROUP FILTER; see run-v2-gates.sh.
-tui-core-lib v2_pr07c_update_plan

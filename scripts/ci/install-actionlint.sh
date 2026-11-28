@@ -7,7 +7,7 @@ set -euo pipefail
 : "${ACTIONLINT_ASSET_ID:?ACTIONLINT_ASSET_ID must be set}"
 : "${RUNNER_TEMP:?RUNNER_TEMP must be set}"
 
-if [[ ! "$ACTIONLINT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-manaflow\.[0-9]+)?$ ]]; then
+if [[ ! "$ACTIONLINT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "invalid actionlint version: $ACTIONLINT_VERSION" >&2
   exit 2
 fi
@@ -23,13 +23,11 @@ fi
 archive="$RUNNER_TEMP/actionlint.tar.gz"
 binary="$RUNNER_TEMP/actionlint"
 asset_name="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-# The manaflow-ai fork publishes the pinned build (rhysd/actionlint has no
-# release with the shellcheck stdin deadlock fix yet).
-release_url="https://github.com/manaflow-ai/actionlint/releases/download/v${ACTIONLINT_VERSION}/${asset_name}"
-# The asset ID names one upload of the release asset (a re-upload gets a new ID). This
+release_url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${asset_name}"
+# The asset ID is immutable for the lifetime of a GitHub release asset. This
 # endpoint is a separate GitHub API path from the browser download redirect;
 # the SHA-256 below still authenticates the bytes before they are extracted.
-api_url="https://api.github.com/repos/manaflow-ai/actionlint/releases/assets/${ACTIONLINT_ASSET_ID}"
+api_url="https://api.github.com/repos/rhysd/actionlint/releases/assets/${ACTIONLINT_ASSET_ID}"
 
 download() {
   local url="$1"
@@ -54,23 +52,8 @@ download() {
   curl "${curl_args[@]}" "$url"
 }
 
-# The machine's GitHub release and archive cache (cmux-git-cache, RFD 0155), when it listens:
-# it answers with GitHub's own bytes or a redirect to GitHub, and any failure here retries GitHub
-# directly. CMUX_TRANSPORT_REWRITE=0 turns it off.
-cmux_cached_url() {
-  case "$1" in https://github.com/*/releases/download/* | https://codeload.github.com/*) ;; *) return 1 ;; esac
-  [ "${CMUX_TRANSPORT_REWRITE:-1}" != 0 ] && [ -r /run/cmux/git-cache/base ] || return 1
-  local proxy
-  proxy="$(cat /run/cmux/git-cache/base)" || return 1
-  case "$proxy" in http://127.0.0.1:[0-9]*) ;; *) return 1 ;; esac
-  printf '%s/%s\n' "$proxy" "${1#https://}"
-}
-
 rm -f "$archive" "$binary"
-if cached_url="$(cmux_cached_url "$release_url")" &&
-  download "$cached_url" --proto '=http,https' --retry 0; then
-  echo "actionlint through the machine cache" >&2
-elif rm -f "$archive" && ! download "$release_url"; then
+if ! download "$release_url"; then
   echo "actionlint release download failed; trying immutable asset API endpoint" >&2
   rm -f "$archive"
   if ! download "$api_url" --header 'Accept: application/octet-stream'; then

@@ -47,21 +47,7 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-    # A running cmux.exe can be renamed but not replaced: set it aside, and
-    # sweep the set-aside copies no longer running.
-    Get-ChildItem -LiteralPath $BinDir -Filter "cmux.*.old.exe" -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
-    $Aside = $null
-    if (Test-Path -LiteralPath $Destination) {
-        $Aside = Join-Path $BinDir ("cmux.{0}.old.exe" -f [System.Guid]::NewGuid().ToString("N"))
-        Move-Item -Force -LiteralPath $Destination -Destination $Aside
-    }
-    try {
-        Move-Item -Force $Temporary $Destination
-    } catch {
-        if ($Aside) { Move-Item -Force -LiteralPath $Aside -Destination $Destination -ErrorAction SilentlyContinue }
-        throw
-    }
+    Move-Item -Force $Temporary $Destination
 } finally {
     if (Test-Path $Temporary) {
         Remove-Item -Force $Temporary
@@ -79,20 +65,6 @@ if (($env:Path -split ";") -notcontains $BinDir) {
 }
 
 Write-Host "Installed cmux to $Destination"
-
-# Remote hosting (plans/cmux-next/remote-hosts.md): with CMUX_HOST=1 this
-# machine serves its cmux sessions to its owner's other machines over the
-# tailnet. A tagged machine names its owner with CMUX_HOST_OWNER=<login>.
-if ($env:CMUX_HOST -eq "1") {
-    if ($env:CMUX_HOST_OWNER) {
-        & $Destination host enable --owner $env:CMUX_HOST_OWNER
-    } else {
-        & $Destination host enable
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "cmux: remote hosting could not be turned on (see above)"
-    }
-}
 
 try {
     $Telemetry = @{

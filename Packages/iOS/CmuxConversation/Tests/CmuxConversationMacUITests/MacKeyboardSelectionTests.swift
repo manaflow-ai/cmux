@@ -253,16 +253,14 @@ import Testing
 /// A conversation window (never ordered on screen) over in-memory backends.
 @MainActor
 final class Lab {
-    let backend: MemoryBackend
+    let backend = MemoryBackend(id: "direct", kind: .direct)
     let window: MacConversationWindow
     let split: MacConversationSplitController
     private(set) var scrollOrigin: CGFloat = 0
     var controller: MacConversationViewController { split.selected!.controller }
 
-    /// `extra` messages follow the direct conversation's usual six.
-    init(extra: [ConversationMessage] = []) async throws {
+    init() async throws {
         _ = NSApplication.shared
-        backend = MemoryBackend(id: "direct", kind: .direct, extra: extra)
         // `reopen` backs File > Open Conversation in New Window.
         let entries = [
             MacConversationEntry(id: "direct", store: ConversationStore(backend: backend),
@@ -362,7 +360,7 @@ final class MemoryBackend: ConversationBackend, @unchecked Sendable {
     private var _reactions: [(messageID: String, reaction: ConversationReaction?)] = []
     private var messages: [ConversationMessage]
 
-    init(id: String, kind: ConversationKind, extra: [ConversationMessage] = []) {
+    init(id: String, kind: ConversationKind) {
         info = ConversationInfo(id: id, title: id == "direct" ? "Lawrence Chen" : "cmux", kind: kind, participants: [
             ConversationParticipant(id: "me", name: "Me", initials: "ME", colorHex: "#0A84FF", isMe: true),
             ConversationParticipant(id: "lc", name: "Lawrence Chen", initials: "LC", colorHex: "#30B0C7", isMe: false),
@@ -379,7 +377,7 @@ final class MemoryBackend: ConversationBackend, @unchecked Sendable {
         messages = texts.enumerated().map { index, entry in
             ConversationMessage(id: "m\(index + 1)", seq: index + 1, clientMessageID: nil, senderID: entry.0,
                                 sentAt: now.addingTimeInterval(TimeInterval(index - texts.count) * 30), text: entry.1)
-        } + extra
+        }
     }
 
     var sentTexts: [String] { lock.withLock { _sentTexts } }

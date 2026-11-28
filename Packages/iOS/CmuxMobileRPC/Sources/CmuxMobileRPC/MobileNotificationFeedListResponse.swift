@@ -36,20 +36,16 @@ public struct MobileNotificationFeedListResponse: Decodable, Equatable, Sendable
     ) throws {
         try Task.checkCancellation()
         let decoder = JSONDecoder()
-        if let key = CodingUserInfoKey.mobileNotificationFeedListBoundedDecodeOptions {
-            decoder.userInfo[key] = MobileNotificationFeedListBoundedDecodeOptions(
-                maxNotifications: max(0, maxNotifications),
-                stringLimits: stringLimits
-            )
-        }
+        decoder.userInfo[.mobileNotificationFeedListBoundedDecodeOptions] = MobileNotificationFeedListBoundedDecodeOptions(
+            maxNotifications: max(0, maxNotifications),
+            stringLimits: stringLimits
+        )
         self = try decoder.decode(MobileNotificationFeedListBoundedResponse.self, from: data).response
     }
 }
 
 extension CodingUserInfoKey {
-    /// Optional because `init?(rawValue:)` is failable (it never fails for this literal; a
-    /// test pins that). Without it, a bounded decode throws its missing-options error.
     static let mobileNotificationFeedListBoundedDecodeOptions = CodingUserInfoKey(
         rawValue: "dev.cmux.mobileNotificationFeedListBoundedDecodeOptions"
-    )
+    )!
 }

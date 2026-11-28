@@ -4,10 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use cmux_remote_protocol::{
-    MUX_CONTROL_LINE_CODECS, MUX_INPUT_V1_FEATURE, MUX_LINE_CODEC_ZLIB, MUX_LINE_ZLIB_V1_FEATURE,
-    RouteId, Service, ServiceControl,
-};
+use cmux_remote_protocol::{MUX_INPUT_V1_FEATURE, RouteId, Service, ServiceControl};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, Semaphore, oneshot, watch};
 
@@ -192,14 +189,14 @@ pub async fn serve_mux_bridge(
                 let Ok((socket, _)) = accepted else { break };
                 let multiplexer = multiplexer.clone();
                 connections.spawn(async move {
-                    let Ok(stream) = multiplexer.open(Service::MuxControl, mux_control_open_metadata()).await else { return };
+                    let Ok(stream) = multiplexer.open(Service::MuxControl, BTreeMap::new()).await else { return };
                     let Ok(opened) = await_opened(&stream).await else { return };
                     let (reader, writer) = socket.into_split();
                     let _ = pump_mux_client_buffered(
                         Arc::new(stream),
                         reader,
                         writer,
-                        opened.features,
+                        opened.features.mux_input_v1,
                         opened.buffered,
                     )
                     .await;
@@ -210,66 +207,9 @@ pub async fn serve_mux_bridge(
     connections.shutdown().await;
 }
 
-/// A mux control stream the daemon has opened: its `cmux.protocol/2` lines
-/// are ready to carry. A caller that reports success before it carries them
-/// (`cmux carrier dial`) opens it first, so a daemon that refuses the
-/// service is a failure, not a stream that ends at once.
-pub struct OpenedMuxControl {
-    stream: ServiceStream,
-    opened: OpenedStream,
-}
-
-impl OpenedMuxControl {
-    /// Opens a mux control stream and waits for the daemon's answer.
-    pub async fn open(multiplexer: &Arc<ServiceMultiplexer>) -> Result<Self, BridgeError> {
-        let stream = multiplexer.open(Service::MuxControl, mux_control_open_metadata()).await?;
-        match await_opened(&stream).await {
-            Ok(opened) => Ok(Self { stream, opened }),
-            Err(error) => {
-                let _ = stream.close().await;
-                Err(error)
-            }
-        }
-    }
-
-    /// Close the stream without carrying it (a dial that carries another
-    /// service on the same session).
-    pub async fn close(self) {
-        let _ = self.stream.close().await;
-    }
-
-    /// Carry one local `cmux.protocol/2` line stream (`reader`, `writer`):
-    /// the same bytes the Mac's bridge socket carries, for a caller that has
-    /// the stream on its own pipes. Returns when either side ends.
-    pub async fn bridge<R, W>(self, reader: R, writer: W) -> Result<(), BridgeError>
-    where
-        R: AsyncRead + Unpin,
-        W: AsyncWrite + Unpin,
-    {
-        pump_mux_client_buffered(
-            Arc::new(self.stream),
-            reader,
-            writer,
-            self.opened.features,
-            self.opened.buffered,
-        )
-        .await
-    }
-}
-
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ServiceOpenFeatures {
     pub(crate) mux_input_v1: bool,
-    /// The daemon compresses this stream's large lines (`CMXZ`), because the
-    /// open asked for it ([`mux_control_open_metadata`]).
-    pub(crate) mux_line_zlib_v1: bool,
-}
-
-/// The open metadata of every `mux-control` stream this client carries: it
-/// reads zlib lines. A daemon from before the key ignores it and sends plain
-/// lines.
-pub(crate) fn mux_control_open_metadata() -> BTreeMap<String, String> {
-    BTreeMap::from([(MUX_CONTROL_LINE_CODECS.to_owned(), MUX_LINE_CODEC_ZLIB.to_owned())])
 }
 
 pub(crate) struct OpenedStream {
@@ -330,17 +270,13 @@ pub(crate) async fn await_opened(stream: &ServiceStream) -> Result<OpenedStream,
 
 fn decode_opened(payload: &[u8], expected: Service) -> Result<ServiceOpenFeatures, BridgeError> {
     let value = serde_json::from_slice::<serde_json::Value>(payload)?;
-    let listed = |name: &str| {
-        value
-            .get("features")
-            .and_then(serde_json::Value::as_array)
-            .is_some_and(|features| features.iter().any(|feature| feature.as_str() == Some(name)))
-    };
-    let mux_input_v1 = listed(MUX_INPUT_V1_FEATURE);
-    let mux_line_zlib_v1 = listed(MUX_LINE_ZLIB_V1_FEATURE);
+    let mux_input_v1 =
+        value.get("features").and_then(serde_json::Value::as_array).is_some_and(|features| {
+            features.iter().any(|feature| feature.as_str() == Some(MUX_INPUT_V1_FEATURE))
+        });
     match serde_json::from_value::<ServiceControl>(value)? {
         ServiceControl::Opened { service } if service == expected => {
-            Ok(ServiceOpenFeatures { mux_input_v1, mux_line_zlib_v1 })
+            Ok(ServiceOpenFeatures { mux_input_v1 })
         }
         ServiceControl::Rejected { message, .. } => Err(BridgeError::Rejected(message)),
         _ => Err(BridgeError::Rejected("invalid service-open response".into())),
@@ -397,11 +333,26 @@ where
     }
 }
 
+#[cfg(test)]
+async fn pump_mux_client<R, W>(
+    remote: Arc<ServiceStream>,
+    local_reader: R,
+    local_writer: W,
+    mux_input_v1: bool,
+) -> Result<(), BridgeError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    pump_mux_client_buffered(remote, local_reader, local_writer, mux_input_v1, VecDeque::new())
+        .await
+}
+
 async fn pump_mux_client_buffered<R, W>(
     remote: Arc<ServiceStream>,
     local_reader: R,
     mut local_writer: W,
-    features: ServiceOpenFeatures,
+    mux_input_v1: bool,
     mut initial: VecDeque<crate::service::StreamChunk>,
 ) -> Result<(), BridgeError>
 where
@@ -409,7 +360,6 @@ where
     W: AsyncWrite + Unpin,
 {
     use tokio::io::{AsyncWriteExt, BufReader};
-    let ServiceOpenFeatures { mux_input_v1, mux_line_zlib_v1 } = features;
     let upload = {
         let remote = remote.clone();
         async move {
@@ -441,8 +391,7 @@ where
     let download = async move {
         let mut assembler = crate::mux_codec::MuxLineAssembler::<
             Option<crate::service::StreamBudget>,
-        >::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES)
-        .accepting_zlib(mux_line_zlib_v1);
+        >::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES);
         loop {
             let chunk = if let Some(chunk) = initial.pop_front() {
                 Some(chunk)
@@ -470,119 +419,6 @@ where
         result = &mut download => result?,
     }
     Ok(())
-}
-
-/// A Cloud machine's desktop socket (`cmux-agent-rd.socket`, the `cmux.rd/1`
-/// host on the agent display): the one path a Cloud daemon allows for
-/// [`Service::LocalSocket`].
-pub const CLOUD_DESKTOP_SOCKET: &str = "/run/cmux-rd/desktop.sock";
-
-/// Opens [`Service::LocalSocket`] to `path` and waits for the daemon's
-/// answer: the opened stream, or [`BridgeError::Rejected`] with the daemon's
-/// reason (not the owner's session, a path off its allowlist, no allowlist,
-/// or the socket did not answer).
-pub async fn open_local_socket(
-    multiplexer: &Arc<ServiceMultiplexer>,
-    path: &str,
-) -> Result<Arc<ServiceStream>, BridgeError> {
-    let metadata = BTreeMap::from([("path".to_owned(), path.to_owned())]);
-    let stream = multiplexer.open(Service::LocalSocket, metadata).await?;
-    if let Err(error) = await_opened(&stream).await {
-        let _ = stream.close().await;
-        return Err(error);
-    }
-    Ok(Arc::new(stream))
-}
-
-/// Copies raw bytes both ways between an opened stream (from
-/// [`open_local_socket`]) and `reader` / `writer` until either side ends.
-pub async fn bridge_raw_stream<R, W>(
-    stream: Arc<ServiceStream>,
-    reader: R,
-    writer: W,
-) -> Result<(), BridgeError>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    pump_client(stream, reader, writer).await
-}
-
-/// Opens one [`Service::TcpTunnel`] stream to `route` and copies bytes
-/// between it and `reader` / `writer`, the way an ssh `ProxyCommand` needs:
-/// EOF on `reader` half-closes the stream and the remote side keeps sending,
-/// and the call returns once the remote closes, without waiting for more
-/// local input. Every chunk is flushed, so a buffered `writer` (stdout)
-/// never holds a protocol message back. A remote reset is an error.
-pub async fn dial_tcp_route<R, W>(
-    multiplexer: &Arc<ServiceMultiplexer>,
-    route: RouteId,
-    mut local_reader: R,
-    mut local_writer: W,
-) -> Result<(), BridgeError>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let metadata = BTreeMap::from([("route".to_owned(), route.0.to_string())]);
-    let stream = multiplexer.open(Service::TcpTunnel, metadata).await?;
-    if let Err(error) = await_opened(&stream).await {
-        let _ = stream.close().await;
-        return Err(error);
-    }
-    let remote = Arc::new(stream);
-    let upload = {
-        let remote = remote.clone();
-        async move {
-            let mut buffer = vec![0_u8; 32 * 1024];
-            loop {
-                let size = local_reader.read(&mut buffer).await?;
-                let Some(bytes) = buffer.get(..size).filter(|bytes| !bytes.is_empty()) else {
-                    remote.close().await?;
-                    break;
-                };
-                remote.send(Bytes::copy_from_slice(bytes)).await?;
-            }
-            Ok::<_, BridgeError>(())
-        }
-    };
-    let download = {
-        let remote = remote.clone();
-        async move {
-            while let Some(chunk) = remote.receive().await? {
-                if !chunk.payload.is_empty() {
-                    local_writer.write_all(&chunk.payload).await?;
-                    local_writer.flush().await?;
-                }
-                if chunk.reset {
-                    return Err(BridgeError::Rejected("the remote reset the connection".into()));
-                }
-                if chunk.finished {
-                    break;
-                }
-            }
-            local_writer.shutdown().await?;
-            Ok::<_, BridgeError>(())
-        }
-    };
-    tokio::pin!(upload);
-    tokio::pin!(download);
-    let failure = remote.wait_for_failure();
-    tokio::pin!(failure);
-    // Stops when the remote closes or fails; local EOF only ends the upload.
-    let mut uploading = true;
-    loop {
-        tokio::select! {
-            biased;
-            error = &mut failure => return Err(error.into()),
-            result = &mut download => return result,
-            result = &mut upload, if uploading => {
-                result?;
-                uploading = false;
-            }
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -671,5 +507,551 @@ impl From<crate::mux_input::MuxInputError> for BridgeError {
 }
 
 #[cfg(test)]
-#[path = "bridge_tests.rs"]
-mod tests;
+mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    use async_trait::async_trait;
+    use cmux_remote_protocol::{FrameFlags, Lane};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split};
+    use tokio::sync::{Mutex, mpsc, oneshot, watch};
+
+    use super::*;
+    use crate::service::{EndpointRole, SessionEndpoint};
+    use crate::session::ReceivedFrame;
+
+    struct TestEndpoint {
+        outgoing: mpsc::Sender<ReceivedFrame>,
+        incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
+        sequence: AtomicU64,
+        generation: watch::Sender<u64>,
+        sent: Mutex<Vec<ReceivedFrame>>,
+    }
+
+    impl TestEndpoint {
+        fn advance_generation(&self, generation: u64) {
+            self.generation.send_replace(generation);
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for TestEndpoint {
+        async fn send_frame(
+            &self,
+            expected_generation: Option<u64>,
+            lane: Lane,
+            stream: u64,
+            payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            let generation = *self.generation.borrow();
+            if let Some(expected) = expected_generation
+                && expected != generation
+            {
+                return Err(ServiceError::GenerationChanged { expected, actual: generation });
+            }
+            let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
+            let frame = ReceivedFrame { generation, lane, stream, sequence, flags, payload };
+            self.sent.lock().await.push(frame.clone());
+            self.outgoing
+                .send(frame)
+                .await
+                .map_err(|_| ServiceError::Transport("test endpoint closed".into()))?;
+            Ok(sequence)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            Ok(self.incoming.lock().await.recv().await)
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
+        let (left_tx, left_rx) = mpsc::channel(32);
+        let (right_tx, right_rx) = mpsc::channel(32);
+        let (left_generation, _) = watch::channel(0);
+        let (right_generation, _) = watch::channel(0);
+        (
+            Arc::new(TestEndpoint {
+                outgoing: left_tx,
+                incoming: Mutex::new(right_rx),
+                sequence: AtomicU64::new(0),
+                generation: left_generation,
+                sent: Mutex::new(Vec::new()),
+            }),
+            Arc::new(TestEndpoint {
+                outgoing: right_tx,
+                incoming: Mutex::new(left_rx),
+                sequence: AtomicU64::new(0),
+                generation: right_generation,
+                sent: Mutex::new(Vec::new()),
+            }),
+        )
+    }
+
+    #[test]
+    fn mux_input_requires_an_explicit_backward_compatible_feature() {
+        assert_eq!(
+            decode_opened(br#"{"type":"opened","service":"mux-control"}"#, Service::MuxControl)
+                .unwrap(),
+            ServiceOpenFeatures { mux_input_v1: false }
+        );
+        assert_eq!(
+            decode_opened(
+                br#"{"type":"opened","service":"mux-control","features":["mux-input-v1"]}"#,
+                Service::MuxControl,
+            )
+            .unwrap(),
+            ServiceOpenFeatures { mux_input_v1: true }
+        );
+    }
+
+    #[tokio::test]
+    async fn mux_open_barrier_buffers_data_from_a_ready_lane_until_all_lanes_are_ready() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+        let marker = Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "type": "opened",
+                "service": Service::MuxControl,
+                "features": [MUX_INPUT_V1_FEATURE],
+            }))
+            .unwrap(),
+        );
+
+        let opened = await_opened(&client_stream);
+        let send = async {
+            daemon_stream.send_on(Lane::Bulk, marker.clone()).await.unwrap();
+            daemon_stream
+                .send_on(Lane::Bulk, Bytes::from_static(b"buffered-after-bulk-ready"))
+                .await
+                .unwrap();
+            daemon_stream.send_on(Lane::Control, marker.clone()).await.unwrap();
+            daemon_stream.send_on(Lane::Interactive, marker).await.unwrap();
+        };
+        let (opened, ()) = tokio::join!(opened, send);
+        let opened = opened.unwrap();
+
+        assert!(opened.features.mux_input_v1);
+        assert_eq!(opened.buffered.len(), 1);
+        assert_eq!(opened.buffered[0].lane, Lane::Bulk);
+        assert_eq!(opened.buffered[0].payload, b"buffered-after-bulk-ready".as_slice());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mux_bridge_shutdown_aborts_and_joins_blocked_socket_tasks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mux.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let (client_endpoint, _daemon_endpoint) = endpoint_pair();
+        let multiplexer = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            serve_mux_bridge(multiplexer, &listener, shutdown_rx).await;
+        });
+        let mut socket = tokio::net::UnixStream::connect(path).await.unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if client_endpoint
+                    .sent
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|frame| frame.flags.contains(FrameFlags::OPEN))
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        shutdown_tx.send(()).unwrap();
+        server.await.unwrap();
+
+        let mut byte = [0_u8; 1];
+        assert_eq!(socket.read(&mut byte).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn generation_change_drops_local_and_target_tunnel_sockets() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+
+        let (client_pump_socket, mut local_socket) = tokio::io::duplex(1024);
+        let (client_reader, client_writer) = split(client_pump_socket);
+        let client_pump =
+            tokio::spawn(pump_client(Arc::new(client_stream), client_reader, client_writer));
+        let (daemon_pump_socket, mut target_socket) = tokio::io::duplex(1024);
+        let (daemon_reader, daemon_writer) = split(daemon_pump_socket);
+        let daemon_pump =
+            tokio::spawn(pump_client(Arc::new(daemon_stream), daemon_reader, daemon_writer));
+
+        client_endpoint.advance_generation(1);
+        daemon_endpoint.advance_generation(1);
+        for pump in [client_pump, daemon_pump] {
+            let error = tokio::time::timeout(std::time::Duration::from_secs(1), pump)
+                .await
+                .expect("tunnel socket pump survived reconnect")
+                .unwrap()
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                BridgeError::Service(ServiceError::GenerationChanged { expected: 0, actual: 1 })
+            ));
+        }
+
+        let mut byte = [0_u8; 1];
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), local_socket.read(&mut byte))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), target_socket.read(&mut byte))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn reset_after_remote_fin_cancels_the_still_blocked_upload() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint.clone(), EndpointRole::Daemon);
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+        let (pump_socket, mut local_socket) = tokio::io::duplex(1024);
+        let (reader, writer) = split(pump_socket);
+        let pump = tokio::spawn(pump_client(Arc::new(client_stream), reader, writer));
+
+        daemon_stream.close().await.unwrap();
+        let mut byte = [0_u8; 1];
+        assert_eq!(local_socket.read(&mut byte).await.unwrap(), 0);
+        daemon_endpoint
+            .send_frame(Some(0), Lane::Tunnel, stream_id, Bytes::new(), FrameFlags::RESET)
+            .await
+            .unwrap();
+
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), pump)
+            .await
+            .expect("upload survived RESET after FIN")
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, BridgeError::Service(ServiceError::Reset(_))));
+    }
+
+    #[tokio::test]
+    async fn generation_change_after_remote_fin_cancels_the_still_blocked_upload() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+        let (pump_socket, mut local_socket) = tokio::io::duplex(1024);
+        let (reader, writer) = split(pump_socket);
+        let pump = tokio::spawn(pump_client(Arc::new(client_stream), reader, writer));
+
+        daemon_stream.close().await.unwrap();
+        let mut byte = [0_u8; 1];
+        assert_eq!(local_socket.read(&mut byte).await.unwrap(), 0);
+        client_endpoint.advance_generation(1);
+
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), pump)
+            .await
+            .expect("upload survived generation change after FIN")
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            BridgeError::Service(ServiceError::GenerationChanged { expected: 0, actual: 1 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn compact_input_preserves_mux_order_and_suppresses_local_responses() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let stream_id = client_stream.id();
+        let daemon_stream = daemon.accept().await.unwrap().unwrap().stream;
+
+        let (client_bridge, mut local_tui) = tokio::io::duplex(16 * 1024);
+        let (client_reader, client_writer) = split(client_bridge);
+        let client_pump = tokio::spawn(pump_mux_client(
+            Arc::new(client_stream),
+            client_reader,
+            client_writer,
+            true,
+        ));
+        let (daemon_bridge, fake_core) = tokio::io::duplex(16 * 1024);
+        let (daemon_reader, daemon_writer) = split(daemon_bridge);
+        let daemon_pump = tokio::spawn(crate::services::pump_mux_server(
+            Arc::new(daemon_stream),
+            daemon_reader,
+            daemon_writer,
+        ));
+
+        local_tui
+            .write_all(
+                concat!(
+                    "{\"id\":1,\"cmd\":\"send\",\"surface\":7,",
+                    "\"bytes\":\"YQ==\",\"no_reply\":true}\n",
+                    "{\"id\":2,\"cmd\":\"close-surface\",\"surface\":9}\n",
+                    "{\"id\":3,\"cmd\":\"send\",\"surface\":7,",
+                    "\"bytes\":\"Yg==\",\"no_reply\":true}\n",
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+
+        let mut fake_core = BufReader::new(fake_core);
+        let mut commands = Vec::new();
+        for _ in 0..3 {
+            let mut line = String::new();
+            tokio::time::timeout(std::time::Duration::from_secs(1), fake_core.read_line(&mut line))
+                .await
+                .expect("ordered mux command timed out")
+                .unwrap();
+            commands.push(serde_json::from_str::<serde_json::Value>(&line).unwrap());
+        }
+        assert_eq!(
+            commands[0],
+            serde_json::json!({
+                "id": 1,
+                "cmd": "send",
+                "surface": 7,
+                "bytes": "YQ==",
+            })
+        );
+        assert_eq!(commands[1]["id"], 2);
+        assert_eq!(commands[1]["cmd"], "close-surface");
+        assert_eq!(
+            commands[2],
+            serde_json::json!({
+                "id": 3,
+                "cmd": "send",
+                "surface": 7,
+                "bytes": "Yg==",
+            })
+        );
+
+        fake_core
+            .get_mut()
+            .write_all(b"{\"id\":1,\"ok\":true}\n{\"id\":2,\"ok\":true}\n{\"id\":3,\"ok\":true}\n")
+            .await
+            .unwrap();
+        let mut local_tui = BufReader::new(local_tui);
+        let mut response = String::new();
+        tokio::time::timeout(std::time::Duration::from_secs(1), local_tui.read_line(&mut response))
+            .await
+            .expect("control response timed out")
+            .unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&response).unwrap()["id"], 2);
+        response.clear();
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(50),
+                local_tui.read_line(&mut response),
+            )
+            .await
+            .is_err(),
+            "one-way input response leaked back to the local mux client"
+        );
+
+        let sent = client_endpoint.sent.lock().await;
+        let compact = sent
+            .iter()
+            .filter(|frame| {
+                frame.stream == stream_id
+                    && crate::mux_input::decode_packet(&frame.payload).ok().flatten().is_some()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(compact.len(), 2);
+        assert!(compact.iter().all(|frame| frame.lane == Lane::Interactive));
+        let mutation = sent.iter().find(|frame| {
+            frame.stream == stream_id
+                && crate::mux_codec::MuxLineAssembler::default()
+                    .push(frame.lane, frame.payload.clone())
+                    .ok()
+                    .flatten()
+                    .is_some_and(|(_, line)| {
+                        line.windows(13).any(|bytes| bytes == b"close-surface")
+                    })
+        });
+        assert!(mutation.is_some_and(|frame| frame.lane == Lane::Interactive));
+
+        client_pump.abort();
+        daemon_pump.abort();
+    }
+
+    #[tokio::test]
+    async fn partial_mux_client_line_retains_budget_until_local_write_finishes() {
+        const MIN_FRAME_CHARGE: usize = 1024;
+
+        let line = vec![b'm'; cmux_remote_protocol::MAX_FRAME_PAYLOAD];
+        let packets = crate::mux_codec::encode_line(1, &line).unwrap();
+        assert_eq!(packets.len(), 2);
+        let incoming_budget = packets.iter().map(|packet| packet.len().max(MIN_FRAME_CHARGE)).sum();
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            incoming_budget,
+        );
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let mux = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let outgoing_mux = daemon.accept().await.unwrap().unwrap().stream;
+        let additional = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_outgoing = daemon.accept().await.unwrap().unwrap().stream;
+        let (pump_socket, mut local_tui) = tokio::io::duplex(1);
+        let (reader, writer) = split(pump_socket);
+        let pump = tokio::spawn(pump_mux_client(Arc::new(mux), reader, writer, false));
+
+        for packet in packets {
+            outgoing_mux.send_on(Lane::Interactive, packet).await.unwrap();
+        }
+        let mut first_byte = [0_u8; 1];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            local_tui.read_exact(&mut first_byte),
+        )
+        .await
+        .expect("assembled mux line never reached the blocked local writer")
+        .unwrap();
+        additional_outgoing
+            .send_on(Lane::Interactive, Bytes::from_static(b"budget-overflow"))
+            .await
+            .unwrap();
+
+        let result = tokio::time::timeout(std::time::Duration::from_secs(1), additional.receive())
+            .await
+            .expect("additional mux stream did not resolve");
+        assert!(
+            matches!(result, Err(ServiceError::Reset(ref message)) if message.contains("byte budget")),
+            "partial mux line released its incoming budget before the local write: {result:?}"
+        );
+
+        pump.abort();
+        let _ = pump.await;
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn forward_connection_limit_defers_additional_tunnel_opens() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let forward = LocalPortForward::bind_with_limit(
+            client,
+            RouteId(11),
+            "127.0.0.1:0".parse().unwrap(),
+            1,
+        )
+        .await
+        .unwrap();
+
+        let first_socket = tokio::net::TcpStream::connect(forward.local_addr()).await.unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(1), daemon.accept())
+            .await
+            .expect("first tunnel was not admitted")
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.service, Service::TcpTunnel);
+
+        let second_socket = tokio::net::TcpStream::connect(forward.local_addr()).await.unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), daemon.accept())
+                .await
+                .is_err(),
+            "second tunnel exceeded its forward's connection limit"
+        );
+
+        first.stream.reject("test".into(), "release admission permit".into()).await.unwrap();
+        let second = tokio::time::timeout(std::time::Duration::from_secs(1), daemon.accept())
+            .await
+            .expect("second tunnel was not admitted after permit release")
+            .unwrap()
+            .unwrap();
+        second.stream.reject("test".into(), "done".into()).await.unwrap();
+
+        drop(first_socket);
+        drop(second_socket);
+        forward.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn emergency_forward_cleanup_aborts_active_tunnel_handlers() {
+        struct DropFlag(Arc<AtomicBool>);
+
+        impl Drop for DropFlag {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let connections = ForwardConnections::new();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let (started_tx, started_rx) = oneshot::channel();
+        connections.tasks.lock().await.spawn({
+            let dropped = dropped.clone();
+            async move {
+                let _flag = DropFlag(dropped);
+                let _ = started_tx.send(());
+                std::future::pending::<()>().await;
+            }
+        });
+
+        started_rx.await.unwrap();
+        connections.abort_all();
+        connections.shutdown().await;
+        assert!(dropped.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn forward_rejects_zero_connection_limit() {
+        let (client_endpoint, _) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let result = LocalPortForward::bind_with_limit(
+            client,
+            RouteId(1),
+            "127.0.0.1:0".parse().unwrap(),
+            0,
+        )
+        .await;
+        let Err(error) = result else { panic!("zero connection limit was accepted") };
+        assert!(matches!(error, BridgeError::InvalidConnectionLimit));
+    }
+
+    #[tokio::test]
+    async fn accepted_forward_socket_disables_nagle() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = tokio::spawn(tokio::net::TcpStream::connect(listener.local_addr().unwrap()));
+        let (server, _) = listener.accept().await.unwrap();
+        configure_forward_socket(&server).unwrap();
+        assert!(server.nodelay().unwrap());
+        client.await.unwrap().unwrap();
+    }
+}
