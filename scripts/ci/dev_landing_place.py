@@ -56,7 +56,8 @@ else, and never waits:
    started nothing for 93 minutes, while glaeda-std-xcode-26.6's p90 wait was 54 s;
 5. with nothing owned idle, the Blacksmith macOS label whose queue moves (blacksmith_overflow(): the nightly
    signer's pick, nightly_sign_runner.pick(), from the queue janitor's pool snapshot), the routing order's last
-   resort, as nightly-next's app build overflows (nightly_build_runner.blacksmith_route()). The DEV slot label
+   resort, as nightly-next's app build overflows (nightly_build_runner.blacksmith_route()); 12 vCPU only while no
+   Blacksmith macOS job queues (large_blocked(), the cascade's shared-pool rule: hosted#1014). The DEV slot label
    is one or two runners (glaeda-dev-std-xcode-26.6: one busy with feed work and one offline from 10:12Z
    on 2026-11-02, when 15 DEV daily compiles queued there for up to 1.5 h), so a busy slot is no fallback;
 6. only while a fresh snapshot sees every Blacksmith macOS label stalled, the shared DEV slot label while a DEV
@@ -384,7 +385,37 @@ def blacksmith_overflow(variable: str, snapshot: Mapping[str, Any] | None, now: 
         if not other:
             return "", f"every Blacksmith macOS label is queued at its slot count ({', '.join(sorted(full))})", True
         label, why = other, f"`{other}`, past `{label}` queued at its slot count"
+    # 12 vCPU starts a job only while nothing queues on any Blacksmith macOS label (next_macos_cascade's pool
+    # rule, pool_queued()): the labels share one organization pool and the 6 vCPU jobs take each freed slot first.
+    # 2026-11-27: five DEV daily compiles placed here from 19:29Z, past 6 vCPU queued at its slot count, still
+    # queued at 22:53Z (202 min) with 12 vCPU running 0 while 6 vCPU ran 17 (hosted#1014).
+    waiting = large_blocked(snapshot, now)
+    if label == picker.cascade.LARGE and waiting:
+        other = next((candidate for candidate in labels if candidate != label
+                      and candidate not in full and candidate not in (stuck or ())), "")
+        if not other:
+            return "", (f"`{label}` starts nothing while {waiting} Blacksmith macOS job(s) queue in its shared pool, "
+                        "and no other size moves"), True
+        label, why = other, f"`{other}`, past `{label}` ({waiting} job(s) queued in its shared pool)"
     return label, why, bool(stuck) and all(candidate in stuck for candidate in labels)
+
+
+def large_blocked(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> int:
+    """The jobs a snapshot at most RESERVED_SNAPSHOT_MINUTES old (the slot count's bound) shows queued on every
+    Blacksmith macOS label, 0 without one: while any queue, a 12 vCPU job waits for twelve vCPUs freed at once."""
+    import next_macos_cascade as cascade  # noqa: PLC0415 - the checked-out base's pool rule
+
+    if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
+        return 0
+    try:
+        generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if generated.tzinfo is None or not -5 <= (now - generated).total_seconds() / 60 <= cascade.RESERVED_SNAPSHOT_MINUTES:
+        return 0
+    pools = snapshot["pools"]
+    return cascade.pool_queued({label: cascade._field(pools, label, "queued")  # noqa: SLF001 - its own reader
+                                for label in pools if cascade.pool_label(str(label))})
 
 
 def owned_room(class_label: str, online: Sequence[Mapping[str, Any]], snapshot: Mapping[str, Any] | None,

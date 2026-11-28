@@ -38,10 +38,10 @@ await requireBrowserLane("started-line-no-jump-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  const chips = (count: number, width: number) =>
+  const chips = (count: number, width: number, short = false) =>
     page.evaluate(
-      ([count, width]) => {
-        (window as unknown as { show(count: number, width: number): void }).show(count, width);
+      ([count, width, short]) => {
+        (window as unknown as { show(count: number, width: number, short: boolean): void }).show(count, width, short);
         return [...document.querySelectorAll<HTMLElement>(".cv-subagent-started__name")].map((chip) => {
           const label = chip.querySelector<HTMLElement>(".cv-agent-tag__label")!;
           return {
@@ -52,7 +52,7 @@ await requireBrowserLane("started-line-no-jump-browser.test.ts", async () => {
           };
         });
       },
-      [count, width] as const,
+      [count, width, short] as const,
     );
 
   describe("a subagent start line", () => {
@@ -80,6 +80,31 @@ await requireBrowserLane("started-line-no-jump-browser.test.ts", async () => {
         return { right: sentence.getBoundingClientRect().right, edge: node.getBoundingClientRect().right };
       });
       expect(row.right).toBeLessThanOrEqual(row.edge + 0.5);
+    });
+
+    // Leo, 2026-11-22, on "Foxtrot ▯ and Golf ▯ starte" over his steer: it should not draw like this. A name shorter than the floor is as wide as its
+    // words, and the sentence ends whole while the row has room.
+    test("short names are as wide as their words and the line ends whole", async () => {
+      const pair = await chips(2, 600, true);
+      expect(pair).toHaveLength(2);
+      for (const chip of pair) expect(chip.cut).toBe(false);
+      const line = await page.getByTestId("row").evaluate((node) => {
+        const sentence = node.querySelector<HTMLElement>(".cv-agent-activity__sentence")!;
+        const words = [...node.querySelectorAll<HTMLElement>(".cv-subagent-started__name .cv-agent-tag__label")];
+        const chips = [...node.querySelectorAll<HTMLElement>(".cv-subagent-started__name")];
+        return {
+          cut: sentence.scrollWidth > sentence.clientWidth + 0.5,
+          text: sentence.textContent,
+          slack: chips.map((chip, index) => {
+            const pad =
+              parseFloat(getComputedStyle(chip).paddingLeft) + parseFloat(getComputedStyle(chip).paddingRight);
+            return chip.getBoundingClientRect().width - pad - words[index]!.scrollWidth;
+          }),
+        };
+      });
+      expect(line.text).toBe("Foxtrot and Golf started working");
+      expect(line.cut).toBe(false);
+      for (const slack of line.slack) expect(Math.abs(slack)).toBeLessThanOrEqual(1);
     });
 
     test("a chip drawn under a resting pointer is not lit until the pointer moves on it", async () => {
