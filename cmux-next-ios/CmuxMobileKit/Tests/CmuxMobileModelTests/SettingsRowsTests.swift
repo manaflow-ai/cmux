@@ -107,6 +107,7 @@ import Testing
         #expect(SignInMethod.google.detail(accountEmail: "a@b.c") == nil)
     }
 
+    #if os(iOS)  // The same-name tags are Rust's mac_name_tags (cmux-mobile-link-ffi), linked on iOS only.
     @Test func sameNameTagReadsTheSameEverywhere() {
         let names = MacNameDisambiguation([(id: "8c41e0d2-3f2a", name: "Aziz's MacBook Pro"), (id: "5b97a6f1-91c7", name: "Aziz's MacBook Pro"),
                                            (id: "solo", name: "Studio")])
@@ -117,6 +118,7 @@ import Testing
         #expect(names.added(for: "solo", addedAt: Date()) == nil)
         #expect(names.added(for: "5b97a6f1-91c7", addedAt: Date())?.hasPrefix("Added ") == true)
     }
+    #endif
 
     #if DEBUG
     @Test func mockSwitchFollowsTheEnvironment() {

@@ -18,6 +18,7 @@ import Testing
         ]),
     ]
 
+    #if os(iOS)  // The same-name tags are Rust's mac_name_tags (cmux-mobile-link-ffi), linked on iOS only.
     @Test func workspacesAndSettingsTagEveryMacAlike() {
         let account = Self.teams.flatMap(\.macs)
         // Workspaces: the active team's filter, tagged over the account.
@@ -37,6 +38,7 @@ import Testing
         #expect(entries.first { $0.id == "mini-4" }?.title == "mini 4")
         #expect(settings.displayName(id: "5b97a6f1-91c7", name: "Aziz's MacBook Pro") == "Aziz's MacBook Pro 91C7")
     }
+    #endif
 
     @Test func aMacOnlyTheServiceListsChangesNoTag() {
         // Devices lists a Mac no team holds (a team left), named like one in a

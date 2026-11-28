@@ -81,6 +81,7 @@ let package = Package(
         // CmuxMobileLinkFFI: New Workspace's rules (WorkspaceCreationRules) are Rust's workspace_creation.
         // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves; the workspace row menu's rules are workspace_row_actions; RowSpill's pages on disk are RowSpillPages (row_spill.rs).
         // CmuxMobileLinkFFI (iOS only): Mac reachability and Retry steps (MacReachability) are Rust's mac_reachability.
+        // CmuxMobileLinkFFI (iOS only): the same-name Mac tags (MacNameDisambiguation) are Rust's mac_name_tags.
         // CmuxMobileLinkFFI: the terminal sizing view's rules (TerminalSizingPresentation) are Rust's terminal_sizing_view.
         .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),

@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 /// Tells apart Macs that share a name ("Aziz's MacBook Pro" twice). Only
 /// Macs whose name collides with another in the same list get a tag; a
@@ -8,7 +11,8 @@ import Foundation
 /// identifier every list has (the team's Macs, presence frames and
 /// `GET /v1/me/devices`), so the same Mac carries the same tag in Settings,
 /// the Workspaces filter and the remove confirmation. A tag is at least
-/// four characters, and longer only when two colliding ids end alike.
+/// four characters, and longer only when two colliding ids end alike. The
+/// rules are Rust's `mac_name_tags` (cmux-mobile-link-ffi).
 public struct MacNameDisambiguation: Sendable, Equatable {
     /// Tag by device id, for Macs whose name collides.
     public let tags: [String: String]
@@ -16,15 +20,11 @@ public struct MacNameDisambiguation: Sendable, Equatable {
     /// One entry per Mac: its device id and display name. Duplicate ids
     /// (the same Mac listed twice) count once.
     public init(_ macs: [(id: String, name: String)]) {
-        var seen = Set<String>()
-        let unique = macs.filter { seen.insert($0.id).inserted }
-        let groups = Dictionary(grouping: unique, by: { Self.key($0.name) })
-        var tags: [String: String] = [:]
-        for group in groups.values where group.count > 1 {
-            let ids = group.map(\.id)
-            for (id, tag) in zip(ids, Self.suffixes(ids)) { tags[id] = tag }
-        }
-        self.tags = tags
+        #if os(iOS)
+        tags = macNameTags(macs: macs.map { MacNameEntry(id: $0.id, name: $0.name) })
+        #else
+        tags = [:]  // The rules are Rust's mac_name_tags (cmux-mobile-link-ffi), linked on iOS only.
+        #endif
     }
 
     public init(_ macs: [MacDevice]) {
@@ -62,28 +62,5 @@ public struct MacNameDisambiguation: Sendable, Equatable {
     public func added(for id: String, addedAt: Date?) -> String? {
         guard tags[id] != nil, let addedAt else { return nil }
         return "Added \(addedAt.formatted(.dateTime.month(.abbreviated).day()))"
-    }
-
-    /// Names that differ only by case or surrounding spaces read the same.
-    static func key(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    /// The shortest id endings (at least four characters, alphanumerics
-    /// only, uppercased) that differ across `ids`; an id too short for
-    /// that is used whole.
-    static func suffixes(_ ids: [String]) -> [String] {
-        let cleaned = ids.map { id in
-            let chars = id.uppercased().filter { $0.isLetter || $0.isNumber }
-            return chars.isEmpty ? id.uppercased() : chars
-        }
-        let longest = cleaned.map(\.count).max() ?? 0
-        var length = 4
-        while length < longest {
-            let tags = cleaned.map { String($0.suffix(length)) }
-            if Set(tags).count == tags.count { return tags }
-            length += 1
-        }
-        return cleaned.map { String($0.suffix(max(length, 4))) }
     }
 }

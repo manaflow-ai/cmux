@@ -13843,6 +13843,63 @@ public func FfiConverterTypeLocalTxt_lower(_ value: LocalTxt) -> RustBuffer {
 
 
 /**
+ * One Mac in the list: its device id and display name.
+ */
+public struct MacNameEntry: Equatable, Hashable {
+    public var id: String
+    public var name: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MacNameEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacNameEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacNameEntry {
+        return
+            try MacNameEntry(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MacNameEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacNameEntry_lift(_ buf: RustBuffer) throws -> MacNameEntry {
+    return try FfiConverterTypeMacNameEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacNameEntry_lower(_ value: MacNameEntry) -> RustBuffer {
+    return FfiConverterTypeMacNameEntry.lower(value)
+}
+
+
+/**
  * What `mac_reachability_resolve` reads.
  */
 public struct MacReachabilityInput: Equatable, Hashable {
@@ -26596,6 +26653,31 @@ fileprivate struct FfiConverterSequenceTypeLocalTxt: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeMacNameEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [MacNameEntry]
+
+    public static func write(_ value: [MacNameEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMacNameEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MacNameEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MacNameEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMacNameEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeMacRecoveryAttemptState: FfiConverterRustBuffer {
     typealias SwiftType = [MacRecoveryAttemptState]
 
@@ -28211,6 +28293,18 @@ public func localLinkWantsResolve(instance: String, txt: [LocalTxt]) -> Bool  {
 })
 }
 /**
+ * Tag by device id, for the Macs whose name collides with another's. The same id listed twice
+ * (the same Mac in two lists) counts once; names that differ only by case or surrounding
+ * whitespace read the same.
+ */
+public func macNameTags(macs: [MacNameEntry]) -> [String: String]  {
+    return try!  FfiConverterDictionaryStringString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_name_tags(
+        FfiConverterSequenceTypeMacNameEntry.lower(macs),$0
+    )
+})
+}
+/**
  * Retry or Sign In; nil while it is connected or on its way.
  */
 public func macReachabilityAction(state: MacReachabilityKind) -> MacRecoveryActionKind?  {
@@ -29579,6 +29673,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_wants_resolve() != 31019) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_name_tags() != 35390) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_action() != 9011) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29648,7 +29745,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_decode() != 25789) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 6491) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 37152) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_encode() != 63147) {

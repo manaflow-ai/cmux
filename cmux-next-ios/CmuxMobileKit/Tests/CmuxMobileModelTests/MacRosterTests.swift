@@ -26,6 +26,7 @@ import Testing
 
     /// Two builds that registered the same name (an older host that sends no lane) stay two
     /// Macs and get the same-name tag.
+    #if os(iOS)  // The same-name tags are Rust's mac_name_tags (cmux-mobile-link-ffi), linked on iOS only.
     @Test func sameNamedBuildsOnOneMacAreTaggedApart() {
         let first = MacDevice(id: "a", name: "Mini", isOnline: true, lastSeenAt: now - 60, machineID: machine)
         let second = MacDevice(id: "b", name: "Mini", isOnline: false, lastSeenAt: now, machineID: machine)
@@ -34,6 +35,7 @@ import Testing
         let names = MacNameDisambiguation(roster.visible)
         #expect(names.tag(for: "a") != nil && names.tag(for: "b") != nil)
     }
+    #endif
 
     /// Same-named Macs on different computers are two Macs, tagged apart.
     @Test func sameNamedMacsOnDifferentComputersBothStay() {
