@@ -787,15 +787,15 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
             has_tests = parts[-2] == "Tests" or (root / pkg / "Tests" / target).is_dir()
             add(f"swift:{module}", d, [f"swift test --package-path {pkg} --filter {target}"] if has_tests else [])
         # webviews/src/<folder>: its colocated tests.
-        elif len(parts) == 3 and parts[:2] == ["webviews", "src"] and (root / d).is_dir():
+        elif len(parts) == 3 and parts[:2] == ["webviews", "src"]:
             add(f"web:{parts[2]}", d, [f"bash scripts/ci/run-webviews-tests.sh src/{parts[2]}"])
         # Second-level folders of the tooling trees.
-        elif len(parts) == 2 and parts[0] in TOOLING_TREES and (root / d).is_dir():
+        elif len(parts) == 2 and parts[0] in TOOLING_TREES:
             add(f"{parts[0].lstrip('.')}:{parts[1]}", d)
         # Rust workspace roots and language bindings.
-        elif len(parts) == 2 and parts[0] == "cmux-tui" and (root / d).is_dir() and parts[1] != "crates":
+        elif len(parts) == 2 and parts[0] == "cmux-tui" and parts[1] != "crates":
             add(f"cmux-tui:{parts[1]}", d)
-        elif len(parts) == 3 and parts[:2] == ["cmux-tui", "bindings"] and (root / d).is_dir():
+        elif len(parts) == 3 and parts[:2] == ["cmux-tui", "bindings"]:
             add(f"binding:{parts[2]}", d)
         # Package roots: a folder with its own manifest owns everything under it that no narrower unit takes
         # (Package.swift, Package.resolved, CEFShim/, Plugins/, Demo/, go.mod, ...), so a manifest or resources
@@ -818,6 +818,22 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         if any(f.startswith(tree + "/") and f.count("/") == 1 for f in files) and tree != "tests":
             units.append({"name": f"{tree.lstrip('.')}:(top level)", "paths": [tree + "/*"], "tests": [],
                           "dependents": []})
+    # Every other top-level folder (cmux-next-ios/, Resources/, ios/, art/, ...): one unit per second-level folder
+    # and one for its top-level files, and one for the repo root's files, so no tracked file falls back to a
+    # default. A narrower unit (a crate, a Swift module, a package root) still wins on specificity.
+    have = {p for u in units for p in u["paths"]}
+    tops = sorted({f.split("/", 1)[0] for f in files if "/" in f})
+    for top in tops:
+        if top in TOOLING_TREES or top == "cmux-tui":
+            continue
+        name = top.lstrip(".")
+        for d in sorted(x for x in dirs if x.startswith(top + "/") and x.count("/") == 1):
+            if f"{d}/**" not in have:
+                add(f"{name}:{d.split('/', 1)[1]}", d)
+        if any(f.startswith(top + "/") and f.count("/") == 1 for f in files):
+            units.append({"name": f"{name}:(top level)", "paths": [top + "/*"], "tests": [], "dependents": []})
+    if any("/" not in f for f in files):
+        units.append({"name": "(repo root)", "paths": ["*"], "tests": [], "dependents": []})
     return units
 
 
