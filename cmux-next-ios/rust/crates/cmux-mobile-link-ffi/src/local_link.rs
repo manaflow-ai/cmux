@@ -233,7 +233,7 @@ pub async fn dial_local(
 ) -> Option<(cmux_mobile_link::Connected, Arc<WarmSocket>)> {
     // A simulated distant network (relay only, UDP blocked, proxy only, WireGuard dropped, HTTPS relay
     // only; the app's option or the rig's variable) is a test of the paths this one skips.
-    if crate::simulation::Simulation::of(request).direct_paths_off() {
+    if request.relay_only || request.block_udp || crate::simulation::Simulation::of(request).proxy_only {
         return None;
     }
     if request.device_id.trim().is_empty() || request.mac_device_id.trim().is_empty() {
