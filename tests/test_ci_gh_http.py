@@ -120,6 +120,32 @@ class Request(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(slept, [])
 
+    def test_env_rate_budget_zero_gives_up_for_every_reader_in_a_short_job(self):
+        # pr-pipeline's 5-min `ios fast verdict runner` sets GH_HTTP_RATE_BUDGET_S=0: its plan's statuses read
+        # (no rate_budget_s argument) slept 900 s on the run token's 403 and the job was cancelled at its timeout.
+        limited = answer(403, b'{"message":"API rate limit exceeded for installation"}',
+                         x_ratelimit_remaining="0", x_ratelimit_reset="1900")
+        with mock.patch.dict("os.environ", {gh_http.RATE_BUDGET_ENV: "0"}):
+            (status, _, _), calls, slept = self.run_with([limited] * 3)
+        self.assertEqual((status, len(calls), slept), (403, 1, []))
+
+    def test_env_rate_budget_unset_or_bad_keeps_the_long_wait(self):
+        for env in ({}, {gh_http.RATE_BUDGET_ENV: "soon"}, {gh_http.RATE_BUDGET_ENV: "-1"}):
+            with mock.patch.dict("os.environ", env, clear=False):
+                if not env:
+                    import os
+                    os.environ.pop(gh_http.RATE_BUDGET_ENV, None)
+                self.assertEqual(gh_http.env_rate_budget_s(), gh_http.RATE_BUDGET_S)
+        with mock.patch.dict("os.environ", {gh_http.RATE_BUDGET_ENV: "1200"}):
+            self.assertEqual(gh_http.env_rate_budget_s(), 1200.0)
+
+    def test_an_explicit_rate_budget_wins_over_the_env(self):
+        limited = answer(403, b'{"message":"API rate limit exceeded for installation"}',
+                         x_ratelimit_remaining="0", x_ratelimit_reset="1100")
+        with mock.patch.dict("os.environ", {gh_http.RATE_BUDGET_ENV: "0"}):
+            (status, _, _), calls, _ = self.run_with([limited, answer(200)], rate_budget_s=1200)
+        self.assertEqual((status, len(calls)), (200, 2))
+
     def test_a_rate_limit_past_the_budget_gives_up_naming_when_it_ends(self):
         limited = answer(403, b'{"message":"API rate limit exceeded for installation"}',
                          x_ratelimit_remaining="0", x_ratelimit_reset="1900")

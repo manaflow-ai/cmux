@@ -794,6 +794,12 @@ jobs:
     if: ${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
+    # A 5-min job never waits out a named rate limit (gh_http's 900 s): the plan's statuses read on the run token
+    # answered 403 and slept to the timeout, and the job was cancelled, ~70 runner-h/day on 11-28 04Z (Leo: "de
+    # facto, im asking for 99% fewer minutes of ci time, period."). 0 gives up at once and the plan builds, as it
+    # already does on any unread status. vars.CI_SHORT_JOB_GH_RATE_BUDGET_S=1200 restores the old wait.
+    env:
+      GH_HTTP_RATE_BUDGET_S: ${{ vars.CI_SHORT_JOB_GH_RATE_BUDGET_S || '0' }}
     permissions:
       contents: read
       actions: read
