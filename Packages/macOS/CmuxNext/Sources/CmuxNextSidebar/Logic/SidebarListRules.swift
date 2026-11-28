@@ -4,9 +4,15 @@ nonisolated struct ListEntry: Codable { var index: Int, depth: Int }
 nonisolated struct ListGap: Encodable { var section: String, group: String?, index: Int }
 nonisolated struct ListMatchGroup: Encodable { var id: String, parent: String?, visible: Bool }
 nonisolated struct ListRule: Encodable {
-    var rule: String, drawn: [ListEntry]?, workspaces: [ListWorkspace?]?, limits: [Bool]?
-    var options: ListOptions?, dragged: [ListWorkspace]?, gap: ListGap?, section: String?
-    var group: String?, count: Int?, groups: [ListMatchGroup]?
+    var rule: String, drawn: [ListEntry]?, workspaces: [ListWorkspace?]?, limits: [Bool]?, options: ListOptions?
+    var dragged: [ListWorkspace]?, gap: ListGap?, section: String?, group: String?, count: Int?, groups: [ListMatchGroup]?
+
+    init(rule: String, drawn: [ListEntry]? = nil, workspaces: [ListWorkspace?]? = nil, limits: [Bool]? = nil,
+         options: ListOptions? = nil, dragged: [ListWorkspace]? = nil, gap: ListGap? = nil, section: String? = nil,
+         group: String? = nil, count: Int? = nil, groups: [ListMatchGroup]? = nil) {
+        (self.rule, self.drawn, self.workspaces, self.limits, self.options) = (rule, drawn, workspaces, limits, options)
+        (self.dragged, self.gap, self.section, self.group, self.count, self.groups) = (dragged, gap, section, group, count, groups)
+    }
 }
 /// Every rule's answer: the fields of the one asked.
 nonisolated struct ListReply: Decodable { var drawn: [ListEntry]?, unfolds: Bool?, entry: Int?, atEnd: Bool?, path: [String]? }
