@@ -10,8 +10,11 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { ChatCard } from "../src/agent-session/acpmux/newtab/screenModel";
-import { pageSwitch, type PageSwitch } from "./support/pageSwitch";
+import type { PageSwitch } from "./support/pageSwitch";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { pageSwitch } = await importWithDom(() => import("./support/pageSwitch"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

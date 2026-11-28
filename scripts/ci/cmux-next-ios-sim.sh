@@ -57,6 +57,8 @@
 #               A suite named *ColdUITests or *ColdLiveUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
 #               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl.
+#             coldruns=N   runs of each cold suite's tests, one fresh boot each (1-30;
+#               default CMUX_LAUNCH_COLD_RUNS or 10), e.g. ReadFirstColdUITests
 #               LaunchColdLiveUITests also accepts repeatable net=lte|lossy-3|off
 #               and runs against the paired live daemon (the duress link knob shapes
 #               replay delivery when duress= is enabled).
@@ -188,6 +190,13 @@
 #           reconnect-drops=10,60 (FlowSuite's reconnect-after-drop: the Mac app and
 #           its hostd freeze for each drop; the phone must reattach within 30 s
 #           with no tap; reconnect-after-drop.mp4 records the phone).
+#   open-live [runs=N]   (also `pair-e2e open-live=N`, `shots open-live=N`)
+#           pair-e2e, then one Claude chat on the paired Mac and N (5-20, default 5)
+#           launches of the phone into it (CMUX_MOBILE_OPEN_URL=cmux://tab/ID): launch
+#           to the chat's latest output line on screen, in ms (LaunchMarks
+#           chat_latest_output_frame), idle fixture and duress (the chat streams a
+#           long reply as the phone opens); open-live.mp4 and open-live.json. Send it
+#           with `cmux-ci run --sign-in agent`.
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -364,6 +373,23 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == try=dev ]]; then
   set -- try
   mode=try
 fi
+# open-live: pair-e2e (the tagged Mac app, QR pairing with no seed), then one Claude chat on that Mac
+# and RUNS launches of the phone straight into it, each timed from process start to the chat's latest
+# output line on screen (LaunchMarks chat_latest_output_frame), at rest (idle fixture) and while the
+# chat streams a long reply (duress), with the screen recorded (open-live.mp4, open-live.json).
+# Forms: `open-live [runs=N]`, and `pair-e2e open-live=N` / `shots open-live=N` while the fleet
+# controller's MODE list does not name open-live. N is 5-20 (default 5). Send it with
+# `cmux-ci run --sign-in agent`: both apps sign in from the step's agent session.
+if [[ "$mode" == open-live || ( ( "$mode" == pair-e2e || "$mode" == shots ) && $# -eq 2 && "${2:-}" == open-live=* ) ]]; then
+  open_live_runs=5
+  [[ "${2:-}" == open-live=* ]] && open_live_runs="${2#open-live=}"
+  [[ "$mode" == open-live && "${2:-}" == runs=* ]] && open_live_runs="${2#runs=}"
+  [[ "$open_live_runs" =~ ^[0-9]+$ && $open_live_runs -ge 5 && $open_live_runs -le 20 ]] ||
+    { echo "cmux-next-ios-sim.sh: open-live wants runs=N (or open-live=N), N from 5 to 20, got '$open_live_runs'" >&2; exit 2; }
+  export CMUX_PAIR_E2E_OPEN_LIVE_RUNS="$open_live_runs"
+  set -- pair-e2e
+  mode=pair-e2e
+fi
 case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try|theme-relaunch|ui-build) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, ui-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff, try or theme-relaunch, got '$mode'" >&2; exit 2 ;; esac
 if [[ ( "$mode" == release-build || "$mode" == try ) && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: $mode takes no further arguments" >&2; exit 2
@@ -488,6 +514,10 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         [[ "${sel#duress=}" =~ ^[a-z][a-z0-9_-]*(,[a-z_]+=[A-Za-z0-9._-]+)*$ ]] ||
           { echo "cmux-next-ios-sim.sh: duress= wants off or PRESET[,knob=value...], got '$sel'" >&2; exit 2; }
         duress_specs+=("${sel#duress=}") ;;
+      coldruns=?*)
+        [[ "${sel#coldruns=}" =~ ^[0-9]+$ ]] && (( ${sel#coldruns=} >= 1 && ${sel#coldruns=} <= 30 )) ||
+          { echo "cmux-next-ios-sim.sh: coldruns= is 1-30, got '$sel'" >&2; exit 2; }
+        export CMUX_LAUNCH_COLD_RUNS="${sel#coldruns=}" ;;
       net=?*)
         [[ "${sel#net=}" =~ ^(off|lte|lossy-3)$ ]] ||
           { echo "cmux-next-ios-sim.sh: net= wants off, lte or lossy-3, got '$sel'" >&2; exit 2; }
@@ -500,7 +530,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           { echo "cmux-next-ios-sim.sh: products= wants a ui-build step's job id (24 hex), got '$ui_products_job'" >&2; exit 2; } ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, net=PROFILE, config=debug|demo, products=JOB, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, coldruns=N, net=PROFILE, config=debug|demo, products=JOB, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
   if [[ -n "$ui_products_job" ]]; then
@@ -676,6 +706,14 @@ rm -rf "$out" "$work"
 mkdir -p "$out/screens" "$out/bench" "$work"
 summary="$out/SUMMARY.md"
 note() { printf '%s\n' "$*" | tee -a "$summary"; }
+# compile_open / compile_close: the step log's compile group (cmux-ci's STEP_COMPILE_GROUP, `::group::xcodebuild`
+# with a build action). cmux-ci run leaves the time inside one out of --timeout (up to CMUX_CI_STEP_COMPILE_BUDGET,
+# default 5400 s), so a cold FFI and app build no longer eats the run's own bound. Without a group the whole
+# compile counted: the nightly iPhone clips 46060009038 (attempt 2) were all cancelled at --timeout 3600 s after
+# an FFI cache miss (740 s), the Demo app (1118 s with the FFI) and a before app, before one clip was recorded.
+compile_group=""
+compile_open() { [[ -z "$compile_group" ]] || compile_close; compile_group="$1"; printf '::group::xcodebuild build (%s)\n' "$1"; }
+compile_close() { [[ -z "$compile_group" ]] || { printf '::endgroup::\n'; compile_group=""; }; }
 
 # Steps run with a per-step HOME; Homebrew tools live outside it. Appended, not
 # prepended: on a fleet worker the first PATH entry is the worker's rustup shim,
@@ -704,6 +742,7 @@ sims=""
 perf_udid=""
 cleanup() {
   local result=$?
+  rm -f "${TMPDIR:-/tmp}/cmux-sim-display.$$."* 2>/dev/null || true  # sim_display's answers
   # A cancelled UI test profile: stop xctrace before its simulator goes.
   if [[ -n "${profile_waiter:-}" ]]; then kill "$profile_waiter" 2>/dev/null || true; fi
   if [[ -n "${profiler:-}" ]]; then stop_profiler "$profiler" 60; fi
@@ -763,6 +802,10 @@ cleanup() {
       (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip) || result=1
     fi
   fi
+  # try: a host that could not set up (exit 3) is no verdict on the head. cmux-next-ios-try-ahead.yml hands the
+  # verdict to the controller (report_check.go), which posts 69 as neutral and 3 as failure, and the picker
+  # (try.sh list) would then call a head that builds "failed".
+  if [[ "$mode" == try && "$result" == 3 ]]; then result=69; fi
   if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" || "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" == 1 ]]; then
     python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
   fi
@@ -903,7 +946,35 @@ if [[ "$mode" != release-build && "$mode" != try && "$mode" != ui-build ]]; then
   fi
   udid="$(sim_create "$sim_name" "$device_type" "$runtime" "$sims")"
 fi
-simctl() { xcrun simctl --set "$sims" "$@"; }
+# A device type with two displays (iPhone Duo, the iOS 27.2 runtime's fallback phone) refuses
+# `io UDID screenshot` and `recordVideo` with "Cannot choose between 2 displays" (exit 22) unless
+# --display names one. sim_display prints the primary's flag for a device that has two (once per
+# device and set, then cached), else nothing: every screenshot and recording here means the primary.
+sim_display() {  # UDID [SET]
+  # The answer is kept in a file named for this script's pid ($$ is the same in every subshell, and
+  # most calls run in one) and only once known: a probe of a device not yet booted keeps nothing.
+  local cache="${TMPDIR:-/tmp}/cmux-sim-display.$$.$1" probe err display=""
+  if [[ ! -f "$cache" ]]; then
+    probe="$(mktemp "${TMPDIR:-/tmp}/sim-display.XXXXXX")"
+    if err="$(xcrun simctl ${2:+--set "$2"} io "$1" screenshot "$probe.png" 2>&1 >/dev/null)"; then
+      : >"$cache"
+    else
+      display="$(sed -n 's/^ *--display=\([0-9][0-9]*\) .*(primary).*/\1/p' <<<"$err" | head -n 1)"
+      [[ -z "$display" ]] || printf -- '--display=%s' "$display" >"$cache"
+    fi
+    rm -f "$probe" "$probe.png"
+  fi
+  [[ ! -f "$cache" ]] || cat "$cache"
+}
+simctl() {
+  if [[ "${1-}" == io && ( "${3-}" == screenshot || "${3-}" == recordVideo ) && " $* " != *" --display"* ]]; then
+    local display
+    display="$(sim_display "$2" "$sims")"
+    xcrun simctl --set "$sims" io "$2" "$3" ${display:+"$display"} "${@:4}"
+    return
+  fi
+  xcrun simctl --set "$sims" "$@"
+}
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -939,6 +1010,7 @@ if [[ -z "$ui_products_job" ]]; then  # (not indented) the build and the app's l
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
+compile_open "FFI, xcodegen and the apps"
 # The FFI comes from the worker's source-keyed cache when an earlier step built the same
 # inputs with the same toolchain (scripts/ci/ios_ffi_cache.py: key, verified restore). A
 # miss builds it and publishes it under its own key for the next step with the same inputs,
@@ -970,7 +1042,8 @@ ffi_swift=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFF
 ffi_how=""
 if [[ -n "$ffi_key" ]]; then
   ffi_rc=0
-  "${ffi_cache[@]}" restore "$root" "$ffi_key" >>"$ffi_log" 2>&1 || ffi_rc=$?
+  # With the inputs, a miss claims the key at the controller, or waits for the step that claimed it (one build per key).
+  "${ffi_cache[@]}" restore "$root" "$ffi_key" "$work/ffi-inputs.json" >>"$ffi_log" 2>&1 || ffi_rc=$?
   if [[ $ffi_rc -eq 0 && -f "$ffi_xcf/Info.plist" && -s "$ffi_swift" ]]; then
     ffi_how="cache hit ${ffi_key:0:12}"
   elif [[ $ffi_rc -eq 0 ]]; then
@@ -1258,6 +1331,7 @@ if [[ -n "$ui_prebuild_pid" ]]; then
     cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true
   fi
 fi
+compile_close
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
 if [[ "${CMUX_CI_SIM_SLIM:-0}" == 1 && -f "${CMUX_CI_SIM_STATE:-/nonexistent}/fallback" ]]; then
@@ -1342,7 +1416,7 @@ if [[ "$mode" == handoff ]]; then
     # xcrun itself in the background, never the simctl() wrapper: `wrapper &` is a subshell, which
     # ignores SIGINT (an async command in a non-interactive shell) and waits on its xcrun, so the
     # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
-    xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
+    simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
     # Until the recorder says "Recording started" (simctl prints it once its first frame is in), at most 10 s.
     for _ in $(seq 100); do
@@ -1717,8 +1791,10 @@ ui_cold_matrix() {
 ui_duress_runs() {
   local spec slug dir status bundle t1
   t1=$SECONDS
+  compile_open "UI suites, build-for-testing"
   xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
   ui_status=$?
+  compile_close
   note "- UI test build (build-for-testing, for duress= runs): exit $ui_status, $((SECONDS - t1)) s"
   if [[ $ui_status -ne 0 ]]; then
     tail -40 "$work/ui-build.log"; cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true; return
@@ -1809,8 +1885,10 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     # Cold suites run test-without-building once per fresh boot: built once, first.
     ui_t0=$SECONDS
     set +e
+    compile_open "UI suites, build-for-testing"
     xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
     ui_status=$?
+    compile_close
     set -e
     note "- UI test build (build-for-testing, for the cold suites): exit $ui_status, $((SECONDS - ui_t0)) s"
     if [[ $ui_status -ne 0 ]]; then
@@ -1824,8 +1902,10 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     # Built first, so the recording (every host process) holds the tests and not the compiler.
     ui_t0=$SECONDS
     set +e
+    compile_open "UI suites, build-for-testing"
     xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
     ui_status=$?
+    compile_close
     set -e
     note "- UI test build (build-for-testing, before the profile): exit $ui_status, $((SECONDS - ui_t0)) s"
     if [[ $ui_status -ne 0 ]]; then
@@ -1838,7 +1918,7 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     fi
   fi
   if [[ $ui_video -eq 1 ]]; then
-    xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
+    xcrun simctl io "$ui_udid" recordVideo $(sim_display "$ui_udid") --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
     # The wall-clock time of the recording's first frame, for scripts/mobile-bench/cut.py: simctl prints
     # "Recording started" once it writes frames (bounded: 10 s). Without that line the time is the launch's,
@@ -2523,7 +2603,18 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
   cp "$work/mac-build.log" "$out/mac-build.log"
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
-  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  if [[ $status -ne 0 || ! -d "$mac_app" ]]; then
+    # xcodebuild's failing step is often thousands of lines above its "BUILD FAILED" tail (run
+    # 46162159864: the tail named only plug-in steps), and the log stays on the runner, so print
+    # every compiler/tool error line first, then the tail.
+    echo "== Mac app build errors (reload.sh exit $status):"
+    grep -n -E '(^|[[:space:]:])(fatal )?error:|^error\[|Command .* failed with a nonzero exit code' "$work/mac-build.log" \
+      | grep -v 'tagged cmux NEXT Mac app build failed' | head -80 || true
+    echo "== last 60 lines:"
+    tail -60 "$work/mac-build.log"
+    echo "error: tagged cmux NEXT Mac app build failed" >&2
+    exit 1
+  fi
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \

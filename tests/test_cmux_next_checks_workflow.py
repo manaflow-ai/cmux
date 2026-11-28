@@ -993,7 +993,7 @@ class PathRoutingStructure(unittest.TestCase):
         for job_id in HEAVY_COMPILES:
             self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && "
                           "contains(needs.path_route.outputs.labels, ',full-ci,')", jobs[job_id]["if"], job_id)
-        self.assertIn("(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
+        self.assertIn("(github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')))",
                       jobs["swift-test"]["if"])
         for job_id in (*HEAVY_COMPILES, "swift-test"):
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)
@@ -1059,7 +1059,8 @@ class PathRoutingStructure(unittest.TestCase):
         # A reused pass (JobsReuseAPassOnTheSameInputs) skips both.
         # 2026-10-26: or this run's Linux web-bundles artifact, which the minis can
         # read when they cannot read Blacksmith's cache.
-        self.assertEqual(build["if"], "${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && {REUSE_GUARD} }}".replace("{REUSE_GUARD}", REUSE_GUARD))
+        miss = "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success'"
+        self.assertEqual(build["if"], "${{ (github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped') && " + miss + " && " + REUSE_GUARD + " }}")
         install = next(step for step in steps if step.get("name") == "Install the restored web bundles")
         self.assertEqual(install["if"], "${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && {REUSE_GUARD} }}".replace("{REUSE_GUARD}", REUSE_GUARD))
 
@@ -1072,7 +1073,7 @@ class PathRoutingStructure(unittest.TestCase):
                 build = next(step for step in steps if step.get("name") == "Build the web bundles")
                 # swift-test also skips it on a reused pass (JobsReuseAPassOnTheSameInputs).
                 miss = "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success'"
-                self.assertIn(build["if"], (miss, "${{ (" + miss + ") && " + REUSE_GUARD + " }}"))
+                self.assertEqual(build["if"], "${{ (github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped') && " + miss + " && " + REUSE_GUARD + " }}")
 
     def test_mac_jobs_install_the_run_s_linux_web_bundles(self):
         """2026-10-26: the minis cannot read Blacksmith's cache, so they rebuilt the
@@ -1139,6 +1140,14 @@ class PathRoutingStructure(unittest.TestCase):
                 needs = jobs[job_id]["needs"]
                 self.assertIn("web-bundles", needs)
                 self.assertIn("needs.web-bundles.result == 'skipped'", jobs[job_id]["if"])
+
+    def test_scheme_compile_rejects_a_failed_web_bundle_producer(self):
+        jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
+        scheme = jobs["cmux-scheme-compile"]
+        self.assertIn("web-bundles", scheme["needs"])
+        self.assertIn("needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped'", scheme["if"])
+        self.assertIn("github.event_name != 'pull_request' || needs.web-bundles.result == 'skipped'",
+                      next(step for step in scheme["steps"] if step.get("name") == "Build the web bundles")["if"])
 
     def test_web_bundles_job_only_produces_the_bundles(self):
         """swift test, daemon tests and generated files run only when web-bundles succeeds. Its
@@ -1253,12 +1262,26 @@ class PathRoutingStructure(unittest.TestCase):
             needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
             with self.subTest(job=job_id):
                 self.assertIn("push-head-preflight", needs)
-                self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
+                self.assertIn("(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')", job["if"])
         # Superseded pushes skip before queueing; a started compile has its own
         # run group so a newer push cannot evict it.
         self.assertNotIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
                          jobs["release-compile"]["if"])
-        self.assertIn("needs.push-head-preflight.outputs.current == 'true'", jobs["release-compile"]["if"])
+        self.assertIn("(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')", jobs["release-compile"]["if"])
+
+    def test_push_head_preflight_takes_no_runner_on_a_pull_request(self):
+        """Its step only asks about a feat-cmux-next push; a pull request skips it and dependents take a pull request as current."""
+        jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
+        condition = jobs["push-head-preflight"]["if"]
+        self.assertIn("github.event_name != 'pull_request'", condition)
+        current = "(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')"
+        for job_id, job in jobs.items():
+            needs = job.get("needs", [])
+            needs = needs if isinstance(needs, list) else [needs]
+            text = str(job.get("if", "")).replace(current, "")
+            with self.subTest(job=job_id):
+                if "push-head-preflight" in needs:
+                    self.assertNotIn("push-head-preflight.outputs.current", text)
 
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
         """The rescue's attempts (2 on) must use the Blacksmith fallback instead of a stale mini label."""
@@ -2036,7 +2059,10 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         cargo_size = sizes["linux_sizes"]["jobs"]["cmux-next.yml#fast-tier-cargo"]
         self.assertEqual(cargo_size.get("size"), 16)
         self.assertNotIn("failover", cargo_size)
-        self.assertIn("|| 'cmux-fleet-linux-x64' }}", runs_on)
+        # Beside the frozen label it asks for a cap only pool VMs register, so no fsr-* runner (which registers
+        # cmux-fleet-linux-x64 too) can start it: 255 of 387 fsr runs timed out on 2026-11-27 (note-206).
+        self.assertIn("|| fromJSON('[\"cmux-fleet-linux-x64\",\"cmux-has-netem\"]') }}", runs_on)
+        self.assertEqual(str(cargo["timeout-minutes"]), "30")  # the fix is the runner, not a longer timeout
         self.assertNotIn("vars.", runs_on, "no variable picks the cargo job's runner")
         # The same gate, except that the Mac half follows the Mac route (MacFastTierFollowsTheRoute) and a pull
         # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
@@ -2363,7 +2389,7 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         token = steps[ids.index("reuse-token")]
         # The mirror's candidate lookup runs inside the fingerprint step, so the token comes first.
         self.assertLess(ids.index("reuse-token"), ids.index("reuse-key"))
-        self.assertIn("vars.CI_FAST_TIER_CARGO_BOT_READ != '0'", token["if"])
+        self.assertIn("(vars.CI_FAST_TIER_CARGO_BOT_READ || '1') != '0'", token["if"])
         self.assertIn("inputs.no_reuse != true", token["if"])
         self.assertEqual(token.get("timeout-minutes"), 1)
         for step_id in ("reuse-key", "reuse", "planner-reuse"):
@@ -2794,6 +2820,34 @@ class FastTierStartsWarm(unittest.TestCase):
             git("update-index", "--cacheinfo", "160000,2222222222222222222222222222222222222222,ghostty-next")
             commit("ghostty")
             self.assertEqual(keys()["swift-prefix"], before)
+
+    def test_a_cold_seed_root_with_no_git_still_keys(self):
+        """A cold owned seed root (owned_spm_scratch.py lease: "starts cold") is a build directory with no .git. The
+        mac job passed it as ROOT, and `git ls-files` there failed "Compute fast-tier cache keys" with "fatal: not a
+        git repository" (cmux run 46113542594, cmux13s-mac-mini-glaeda-11, 2026-11-28). The key reads the manifests
+        from the checkout the step runs in and still keys the seed root's path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, seed = Path(tmp) / "repo", Path(tmp) / "seed-root"
+            (repo / "Packages/macOS/A").mkdir(parents=True)
+            (repo / "scripts/ci").mkdir(parents=True)
+            seed.mkdir()
+            (repo / "Packages/macOS/A/Package.swift").write_text("// swift-tools-version:6.0\n")
+            (repo / "Packages/macOS/A/Package.resolved").write_text("{}\n")
+            (repo / "scripts/ci/swiftpm-cache-layout").write_text("2\n")
+            git = lambda *args: subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+            git("init", "-q")
+            git("add", ".")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "RUNNER_", "CMUX_FAST_CACHE_"))}
+            env.update({"CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 27.2", "PATH": "/usr/bin:/bin", "RUNNER_OS": "macOS",
+                        "RUNNER_ARCH": "ARM64", "GITHUB_SHA": "abc123", "GITHUB_WORKSPACE": str(repo),
+                        "CMUX_FAST_CACHE_WORKSPACE": str(seed)})
+            run = lambda root: subprocess.run(["bash", str(CACHE_KEY_SCRIPT), str(root)], cwd=repo, env=env,
+                                              capture_output=True, text=True)
+            cold, warm = run(seed), run(repo)
+            self.assertEqual(cold.returncode, 0, cold.stderr)
+            self.assertIn("no git work tree", cold.stderr)
+            self.assertEqual(cold.stdout, warm.stdout, "same commit, same place: the same key from either tree")
 
     def test_seed_is_due_only_when_the_newest_seed_is_old(self):
         def due(objects: list[dict], now: str = "2026-10-19T22:00:00Z") -> str:
@@ -3325,6 +3379,26 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.mac_release == 'true' && !(needs.app-compile-placement.outputs.gateway_attempt",
                       place["env"]["CASCADE_RUNS"])
 
+    def test_a_full_ci_pr_head_the_fleet_compiled_takes_no_mac(self):
+        """docs/ci/cmux-next-workflow-notes/2026-11-27-release-compile-pr-fleet-pass.md: with full-ci the build
+        fleet's app compile is skipped, so a compile-status pass at the exact head stands in for the Mac."""
+        self.assertIn("compile-status", self.job()["needs"])
+        context = self.context(["Packages/macOS/CmuxNext/Package.swift"], labels=("full-ci",))
+        context["github.event.pull_request.base.ref"] = "feat-cmux-next"
+        context["needs.app-compile-fleet.outputs.verdict"] = ""
+        for state in ("", "none", "fail", "awaiting_land", "running", "unavailable"):
+            with self.subTest(state=state):
+                context["needs.compile-status.outputs.state"] = state
+                self.assertTrue(self.runs(context))
+        context["needs.compile-status.outputs.state"] = "pass"
+        self.assertFalse(self.runs(context))
+        context["vars.CMUX_NEXT_PR_FLEET_PASS_SKIPS_MAC"] = "0"
+        self.assertTrue(self.runs(context))
+        # A fork never reads compile-status, and keeps its Mac compile.
+        fork = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"], head_repo="someone/cmux")
+        fork["needs.compile-status.outputs.state"] = "pass"
+        self.assertTrue(self.runs(fork))
+
     def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
         jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
         fast = jobs["release-compile-fast"]
@@ -3367,7 +3441,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", one_runs_on(jobs[name]))
 
-    def run_fast_linux_read(self, codes: list[str], reply: dict | None) -> tuple[str, str, float]:
+    def run_fast_linux_read(self, codes: list[str], reply: dict | None, remote_head: str = "a" * 40) -> tuple[str, str, float]:
         """Run the fast check's Linux route with a fake curl: each probe read prints the next code;
         the blocking read writes `reply` and prints 200 (or prints 404 when None)."""
         jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
@@ -3389,10 +3463,16 @@ while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift;
 printf 200
 """)
             curl.chmod(0o755)
+            # No-verdict reads also check the branch tip. Keep that read offline and
+            # current by default, independent of the live branch and runner environment.
+            git = bin_dir / "git"
+            git.write_text(f"#!/bin/bash\nprintf '%s\\trefs/heads/feat-cmux-next\\n' '{remote_head}'\n")
+            git.chmod(0o755)
             output = Path(temp) / "out"
             env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": temp,
                    "GITHUB_OUTPUT": str(output), "GATEWAY": "", "REF": "a" * 40, "REPO": "manaflow-ai/cmux",
-                   "RESULTS": "https://results.invalid/compile-checks/v1", "PROBE_GAP": "0", "WAIT_SECONDS": "90"}
+                   "RESULTS": "https://results.invalid/compile-checks/v1", "PROBE_GAP": "0", "WAIT_SECONDS": "90",
+                   "SEEN": "", "SUPERSEDED_GATE": "1", "STALE_PUSH_GATE": "1"}
             started = time.monotonic()
             # GitHub runs a `run:` step as `bash -e {0}`.
             result = subprocess.run(["bash", "-e", "-c", run], env=env, capture_output=True, text=True, timeout=60)
@@ -3411,6 +3491,11 @@ printf 200
         out, log, _ = self.run_fast_linux_read(["000", "000"], None)
         self.assertIn("verdict=unavailable", out)
         self.assertIn("results service down (HTTP 000)", log)
+
+    def test_fast_check_down_service_skips_a_superseded_push(self):
+        out, log, _ = self.run_fast_linux_read(["530", "530"], None, remote_head="b" * 40)
+        self.assertIn("verdict=superseded", out)
+        self.assertIn("no Mac fallback", log)
 
     def test_fast_check_still_waits_for_a_live_results_service(self):
         verdict = {"sha": "a" * 40, "repo": "manaflow-ai/cmux", "recipe_version": 2,
@@ -3602,6 +3687,10 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
                             # path_route hands the jobs its labels as ",a,b," (note-97).
                             "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
                             "github.event.pull_request.author_association": "CONTRIBUTOR"})
+            if "full-ci" in labels:
+                # The full-ci run is the labeled event's (CI_FULL_CI_ONE_SHOT: a later push into feat-cmux-next
+                # runs the cheap tier).
+                context.update({"github.event.action": "labeled", "github.event.label.name": "full-ci"})
         context.update({f"inputs.{key}": value for key, value in inputs.items()})
         return context
 
@@ -3839,6 +3928,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
             "needs.app-compile-fleet.outputs.verdict": fleet,
             # The cheap gate (note-cheap-gate): Linux cargo is not red.
             "needs.fast-tier-cargo.result": "success",
+            # The shared web producer completed before the scheme consumer.
+            "needs.web-bundles.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
             # The cheap gate is not red: a pull request's heavy jobs start (#58899).

@@ -23,6 +23,8 @@ export type JourneyFixture = {
    * `agentTurn: "fail"` makes the agent's GitHub turn fail at its send.
    */
   github?: { status?: unknown; repos?: unknown; lookup?: Record<string, unknown>; sandbox?: string; script?: { live: string[]; agent: string[] }; agentTurn?: "fail" };
+  /** The fs/write of cloud-github-e2e.sh throws (the request never answers), a raw call outside any step. */
+  scriptWriteThrows?: boolean;
   /**
    * The cold create cell: the size line its own machine's guest answers (`cpu=4 mem_mib=7900 disk_mib=32000`).
    * Without one the run passes `--skip cold`.
@@ -34,10 +36,18 @@ export type JourneyFixture = {
   grownSize?: { cpu: number; memory_mb: number; disk_mb: number };
   /** cloud.plan.get's answer for the capacity preflight; unset, a team with room (5 active, none in use). */
   plan?: unknown;
+  /** The create also leaves a second, paused machine under the run's own name (FIXTURE_TWIN_MACHINE), as the
+   * 2026-11-27 production run 46059808882 did: listed from create on, until the run deletes it. */
+  twin?: boolean;
+  /** CMUX_JOURNEY_CLAUDE_OAUTH_POOL (one login per line). */
+  pool?: string;
+  /** What the login preflight (POST /v1/messages) answers per login: an HTTP status, and a unified reset (epoch s) on 429. Unset: 200. */
+  loginAnswers?: Record<string, { status: number; reset?: number }>;
 };
 
 export const FIXTURE_MACHINE = "vm_01JFIXTURE7Q";
 export const FIXTURE_COLD_MACHINE = "vm_01JFIXTURECOLD";
+export const FIXTURE_TWIN_MACHINE = "vm_01JFIXTURETWIN";
 export const FIXTURE_LOGIN = `sk-ant-oat01-${"a".repeat(40)}`;
 /** client-config's platform_origin: the only host the fake cmux-tui takes a warm-spare for. The API host answers an
  * empty 404, as cloud-api.cmux.dev does for /v1/machines/reservations. */
@@ -73,6 +83,9 @@ export function runJourney(fixture: JourneyFixture): { steps: Step[]; probe: any
 const fixture = ${JSON.stringify({ spare: "report", exec: "ok", ...fixture })};
 const MACHINE = ${JSON.stringify(FIXTURE_MACHINE)};
 const COLD = ${JSON.stringify(FIXTURE_COLD_MACHINE)};
+const TWIN = ${JSON.stringify(FIXTURE_TWIN_MACHINE)};
+let createdName = "";
+let twinDeleted = false;
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 const log = (line: string) => console.log("@@fake " + line);
 let createdAt = 0;
@@ -90,6 +103,8 @@ const exec = (command: string) => {
   if (command.includes("cmux-vm-kind-sync")) return answer("vm-kind=owner\\n");
   // A later turn: history lists the last sent prompt's marker, so the turn reads as started.
   if (command.includes("acp send")) agentSent = true;
+  // A Claude start with its first prompt on the start's own link (launchCredentialStartProgram): one exec, both done.
+  if (command.includes("CMUX_JOURNEY_START")) { agentSent = true; return answer("@@session fixture-session\\n@@prompted\\n"); }
   if (command.includes("acp send")) lastMarker = /\\[journey turn [^\\]]+\\]/.exec(command)?.[0] ?? lastMarker;
   if (command.includes("acp --json history")) return answer(JSON.stringify({ turns: lastMarker ? [{ prompt: lastMarker + " ..." }] : [] }));
   const script = fixture.github?.script;
@@ -120,6 +135,14 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   const url = new URL(String(input));
   const body = init.body ? JSON.parse(String(init.body)) : {};
   const route = url.pathname;
+  if (url.hostname === "api.anthropic.com" && route === "/v1/messages") {
+    const token = String((init.headers as Record<string, string>)?.authorization ?? "").replace(/^Bearer /, "");
+    const answer = (${JSON.stringify(fixture.loginAnswers ?? {})} as Record<string, { status: number; reset?: number }>)[token] ?? { status: 200 };
+    log("login preflight " + answer.status + " max_tokens=" + body.max_tokens + " beta=" + (init.headers as Record<string, string>)?.["anthropic-beta"]);
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (answer.status === 429) { headers["anthropic-ratelimit-unified-status"] = "rejected"; if (answer.reset) headers["anthropic-ratelimit-unified-reset"] = String(answer.reset); }
+    return new Response(JSON.stringify(answer.status === 200 ? { content: [] } : { error: { type: answer.status === 429 ? "rate_limit_error" : "authentication_error" } }), { status: answer.status, headers });
+  }
   if (route === "/v1/health") return json({ commit: "fixture" });
   if (route === "/v1/client-config") return json({ platform_origin: ${JSON.stringify(FIXTURE_PLATFORM)} });
   if (route === "/api/v1/auth/password/sign-in") return json({ access_token: "fake-access", refresh_token: "fake-refresh" });
@@ -133,6 +156,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   if (route.endsWith("/exec")) { log("exec " + (String(body.command).includes("guest_now") ? "timeline" : "command")); return exec(String(body.command)); }
   if (route.endsWith("/fs/write")) {
     if (String(body.path).includes("/credential-transfer/")) { log("fs/write credential"); return json({ ok: true, value: {} }); }
+    if (fixture.scriptWriteThrows && String(body.path).endsWith("/cloud-github-e2e.sh")) throw new TypeError("fetch failed (fixture)");
     if (fixture.github?.script && String(body.path).endsWith("/cloud-github-e2e.sh")) return json({ ok: true, value: {} });
     return json({ ok: false, error: { code: "not_found" } }, 404);
   }
@@ -156,7 +180,12 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   if (op === "cloud.plan.get") return json({ ok: true, value: fixture.plan ?? { limits: { max_active: 5 }, usage: { active: 0 } } });
   if (op === "user.ensure") return json({ ok: true, value: { id: "fixture-user" } });
   if (op === "install.register") return json({ ok: true, value: { id: "fixture-install", user: "fixture-user" } });
-  if (op === "cloud.machine.list") return json({ ok: true, value: { machines: createdAt && !deleted ? [{ id: MACHINE, name: "fixture", status: "running" }] : [] } });
+  if (op === "cloud.machine.list") {
+    const own = createdAt && !deleted ? [{ id: MACHINE, name: "fixture", status: "running" }] : [];
+    const twin = fixture.twin && createdAt && !twinDeleted ? [{ id: TWIN, name: createdName, status: "paused" }] : [];
+    return json({ ok: true, value: { machines: [...own, ...twin] } });
+  }
+  if (op === "cloud.machine.delete" && body.params.machine === TWIN) { log("delete twin"); twinDeleted = true; return json({ ok: true, value: {} }); }
   if (op === "cloud.machine.create" && String(body.params.name).endsWith(" cold")) {
     log("create cold size " + JSON.stringify(body.params.size));
     return json({ ok: true, value: { machine: { id: COLD, status: "creating" } } });
@@ -169,6 +198,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
     log("create");
     log("create size " + JSON.stringify(body.params.size));
     createdSize = body.params.size ?? null;
+    createdName = String(body.params.name);
     createdAt = Date.now();
     const report = fixture.spare === "report" ? { spare_fallback: "all_skipped", spare_skips: { restarting: 1, image: 1 } } : {};
     return json({ ok: true, value: { machine: { id: MACHINE, status: "creating" }, ...report } });
@@ -194,6 +224,7 @@ process.exit(await main(${JSON.stringify(args)}));
         // The fake has no platform spans to wait for: the journey's 5 s send-trace settle would eat bun's 5 s test budget.
         CMUX_JOURNEY_SEND_TRACE_SETTLE_MS: "0",
         ...(fixture.login ? { CLAUDE_CODE_OAUTH_TOKEN: fixture.login } : {}),
+        ...(fixture.pool ? { CMUX_JOURNEY_CLAUDE_OAUTH_POOL: fixture.pool } : {}),
         ...(fixture.github?.sandbox ? { CMUX_JOURNEY_GITHUB_REPO: fixture.github.sandbox } : {}),
       },
     });

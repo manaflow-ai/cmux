@@ -23,7 +23,7 @@ final class AgentChatLoadingUITests: XCTestCase {
         let loading = app.descendants(matching: .any)["agentChat.loadingHistory"]
         XCTAssertTrue(loading.waitForExistence(timeout: 30), "the existing chat opens on its loading state\n\(app.debugDescription)")
         let newChat = app.staticTexts["What should Claude do?"]
-        let reply = app.buttons["Reply to Claude"]
+        let reply = app.buttons["agentChat.composer.collapsed"]
         // Frames across the 4 s the history is held back and after it lands (the evidence video is
         // made of these). The waits only pace the captures.
         var sawRows = false

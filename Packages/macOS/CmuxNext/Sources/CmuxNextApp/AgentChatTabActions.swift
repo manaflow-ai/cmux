@@ -22,6 +22,9 @@ struct AgentChatTabActions {
     var local: @MainActor () -> Bool = { true }
     /// Opens the header's Terminal or Browser on the chat's right (AgentTabStore.openTool); false when the chat is not shown.
     var openTool: @MainActor (_ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool = { _, _ in false }
+    /// Split Down's terminal on a Cloud chat's machine when a Mac tab shows the chat in place (AgentTabStore.openCloudTerminalScoped,
+    /// cmux#55413): a split of that Mac tab would run on this Mac. False for any other chat, whose own split runs where it runs.
+    var cloudTerminal: @MainActor (_ cwd: String?) -> Bool = { _ in false }
 
     /// A header action, with the folder it names when it names one, on the chat's tab or on tab
     /// `target`; the header's Terminal and Browser on the chat's tab go through ``openTool`` first.
@@ -36,6 +39,7 @@ struct AgentChatTabActions {
         // pane that holds that kind, a split below for the other kind, never a third column (Leo, 2026-10-31).
         if target == nil, let kind = ["splitRight": RightColumnPlacement.Kind.terminal, "splitBrowserRight": .browser][id],
            openTool(kind, cwd) { return }
+        if target == nil, id == "splitDown", cloudTerminal(cwd) { return }
         let arguments: [String: ActionValue] = cwd.map { ["cwd": .string($0)] } ?? [:]
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user).onMachine(machine)
         // The header's Terminal and Split Down open a terminal, not the New Tab page a person's split from a chat opens.

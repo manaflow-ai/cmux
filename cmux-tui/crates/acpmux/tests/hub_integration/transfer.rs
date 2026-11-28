@@ -479,6 +479,53 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
     assert_eq!(info["transferBlocked"], false, "watchdog abort restores authority: {info}");
 }
 
+/// A mover killed at its timeout (`timeout 120 acpmux session move`) hangs up on the source:
+/// the chat ends its move within seconds and takes prompts again, not after the whole lease.
+#[tokio::test]
+async fn a_move_whose_client_hangs_up_before_the_bundle_is_read_gives_the_chat_back_in_seconds() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let mut mover = connect(&a).await;
+    let begin = mover
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    let path = begin["files"][0]["path"].clone();
+    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1, "epoch": begin["epoch"]});
+    mover.request("_acpmux/transfer_read", read).await.unwrap();
+    // The lease stays at its default (minutes): only the hang-up can end the move this soon.
+    drop(mover);
+
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
+    let aborted = records(&mut src, &id, "transfer_aborted").await;
+    assert_eq!(aborted.len(), 1, "{aborted:?}");
+    assert_eq!(aborted[0]["reason"], "client_gone", "{aborted:?}");
+}
+
+/// A client that hangs up but reads on over a new connection keeps its move.
+#[tokio::test]
+async fn a_move_whose_client_comes_back_on_a_new_connection_goes_on() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let mut mover = connect(&a).await;
+    let begin = mover
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    drop(mover);
+    let path = begin["files"][0]["path"].clone();
+    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1, "epoch": begin["epoch"]});
+    // It came back: a read on another connection once the hang-up was seen, then past the
+    // grace (`CLIENT_GONE_GRACE`, 5 s).
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    src.request("_acpmux/transfer_read", read.clone()).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    src.request("_acpmux/transfer_read", read).await.unwrap();
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(records(&mut src, &id, "transfer_aborted").await.is_empty(), "{info}");
+}
+
 #[tokio::test]
 async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on_its_own() {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
@@ -1087,15 +1134,13 @@ async fn a_stale_move_is_ended_now_on_asking_and_a_live_one_is_not() {
 }
 
 /// A daemon taken over mid-copy (`acpmux daemon run --take-over`, 2026-11-22: the move died on
-/// `transfer_read` and its abort died the same way) leaves no chat frozen: no target can have
-/// the chat from a bundle nobody read to its end, so the new daemon ends the move at start
-/// (#54328, RFD 0063 item 3, "a restarted source ends an unread move"). The client's next read
-/// gets `transfer.unknown`, it starts the move anew, and that move commits with the chat's
-/// history once on the target. Until #54328 this test held the chat frozen across the take-over
-/// and went on from the offset; the restart's abort, spawned at start, raced its first read and
-/// won every run (CI run 45641669048, `moving: false`).
+/// `transfer_read` and its abort died the same way) leaves the move whole: the new daemon still
+/// holds the chat frozen in it, the copy goes on from the offset it reached against the new one,
+/// and the move commits with every prompt once on the target. #58512 restored this after #54328
+/// ended every move not read to its end: the restart pass ends only a move nobody read a page of
+/// (`transfer_watch.rs` `was_paged`, `a_restarted_source_gives_back_a_move_that_was_never_read`).
 #[tokio::test]
-async fn a_move_whose_source_daemon_is_taken_over_mid_copy_ends_and_starts_anew() {
+async fn a_move_whose_source_daemon_is_taken_over_mid_copy_goes_on_from_its_offset() {
     let dir = std::env::temp_dir().join(format!("acpmux-takeover-{}", uuid::Uuid::now_v7()));
     let hub = local_hub(&dir);
     let mut src = connect(&hub).await;
@@ -1128,26 +1173,37 @@ async fn a_move_whose_source_daemon_is_taken_over_mid_copy_ends_and_starts_anew(
     drop(hub);
     let hub = local_hub(&dir);
     let mut src = connect(&hub).await;
-    // The default lease is 300 s: the abort comes from the restart, not the lease.
-    let started = std::time::Instant::now();
-    loop {
-        let aborted = records(&mut src, &id, "transfer_aborted").await;
-        if !aborted.is_empty() {
-            assert_eq!(aborted[0]["transferId"], transfer_id, "{aborted:?}");
-            break;
-        }
-        assert!(started.elapsed() < Duration::from_secs(20), "the cut move stayed frozen");
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(info["moving"], false, "the new daemon gave the chat back: {info}");
-    let read = json!({"transferId": transfer_id, "path": path, "offset": reached, "limit": 4096, "epoch": epoch});
-    let late = src.request("_acpmux/transfer_read", read).await;
-    assert!(late.as_ref().is_err_and(|e| e.contains("transfer.unknown")), "{late:?}");
+    assert_eq!(info["moving"], true, "the new daemon holds the chat in its move: {info}");
+    let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
+    assert!(refused.is_err(), "a chat in a move takes no prompt after a take-over: {refused:?}");
 
-    // The client starts the move anew, and it commits with the chat's history once.
+    // The copy goes on from where it was, against the new daemon.
+    for file in begin["files"].as_array().unwrap() {
+        let path = file["path"].as_str().unwrap();
+        let mut offset = if path == midway["path"] { reached } else { 0 };
+        loop {
+            let read = json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096, "epoch": epoch});
+            let part = src.request("_acpmux/transfer_read", read).await.unwrap();
+            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"], "epoch": epoch});
+            dst.request("_acpmux/transfer_write", write).await.unwrap();
+            offset = part["next"].as_u64().unwrap();
+            if part["eof"] == true {
+                break;
+            }
+        }
+    }
+    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id, "epoch": epoch}))
+        .await
+        .unwrap();
     let to = json!({"host": "gcp-1", "sessionId": id});
-    let committed = move_whole(&mut src, &mut dst, &id, to.clone()).await;
+    let committed = src
+        .request(
+            "_acpmux/transfer_commit",
+            json!({"sessionId": id, "transferId": transfer_id, "to": to, "epoch": epoch}),
+        )
+        .await
+        .unwrap();
     assert_eq!(committed["committed"], true, "{committed}");
     assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi"], "its history moved once");
     let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();

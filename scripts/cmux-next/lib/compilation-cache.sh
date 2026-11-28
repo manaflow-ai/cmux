@@ -124,3 +124,22 @@ cmux_next_cas_bound() {
   fi
   return 0
 }
+
+# Whether xcodebuild's build service (SWBBuildService) crashed in the middle of the
+# build. Xcode prints "error: unexpected service error: The Xcode build system has
+# crashed. Build again to continue." and ends with status 65, the same status as a
+# compile error, even though no source file failed. nightly-next run 46020152626
+# (8b6d15df0, ultra1, 2026-11-27) died this way with no compile error in the tree.
+# The next build gets a new build service, so a caller that already allows one
+# retry should spend it here too.
+# One awk, no pipe: the callers run under pipefail, and `awk | grep -q` stopped at
+# grep's first match, so awk died writing the rest of a 100k-line log ("awk: write
+# error on /dev/stdout") and the pipeline read as no crash. nightly-next runs
+# 46051203184 and 46060011808 crashed this way and never retried.
+# Usage: cmux_next_build_service_crashed <log>
+cmux_next_build_service_crashed() {
+  [[ -f "$1" ]] || return 1
+  awk '/^xcodebuild exit status:/ { exit }
+       /The Xcode build system has crashed|unexpected service error: .*(crashed|Build again)/ { found = 1; exit }
+       END { exit !found }' "$1"
+}

@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { PNG } from "pngjs";
-import { requireBrowserLane, probeEngineOrSkip } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("glass-lens.test.ts", async () => {
   setDefaultTimeout(120_000);

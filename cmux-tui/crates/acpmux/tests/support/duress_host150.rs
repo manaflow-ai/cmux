@@ -353,10 +353,7 @@ fn cpu_secs(pid: u32) -> Option<f64> {
 }
 
 fn rss_kib(pid: u32) -> Option<u64> {
-    std::fs::read_to_string(format!("/proc/{pid}/status"))
-        .ok()?
-        .lines()
-        .find_map(|l| l.strip_prefix("VmRSS:")?.trim().trim_end_matches("kB").trim().parse().ok())
+    super::host_os::rss_kib(pid)
 }
 
 fn meminfo_kib(key: &str) -> Option<u64> {
@@ -1039,8 +1036,11 @@ pub(super) fn close(
 /// calls without running a process, so this is the bench's stand-in for one.
 pub(super) fn tool_call(cwd: &Path) -> Ran {
     let mut cmd = Command::new("/bin/sh");
-    cmd.args(["-c", "ls -a . | head -n 5 >/dev/null && cat /proc/loadavg >/dev/null"])
-        .current_dir(cwd);
+    cmd.args([
+        "-c",
+        &format!("ls -a . | head -n 5 >/dev/null && {} >/dev/null", super::host_os::LOAD_READ),
+    ])
+    .current_dir(cwd);
     run_command(cmd)
 }
 

@@ -27,7 +27,7 @@ await requireBrowserLane("row-slots-actions-browser.test.ts", async () => {
     await vite.listen();
     await warmViteServer(vite, "/test/browser/row-slots-actions.html");
     browser = await chromium.launch({ headless: true });
-    page = await browser.newPage({ viewport: { width: 800, height: 760 } });
+    page = await browser.newPage({ viewport: { width: 800, height: 1000 } });
     const port = (vite.httpServer!.address() as { port: number }).port;
     await page.goto(`http://127.0.0.1:${port}/test/browser/row-slots-actions.html`);
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "true");
@@ -55,7 +55,37 @@ await requireBrowserLane("row-slots-actions-browser.test.ts", async () => {
       };
     });
 
+  /// Where `id`'s line actions (its hover row's last button) and their slot are drawn, and its line.
+  const lineActions = (id: string) =>
+    page.getByTestId(id).evaluate((row) => {
+      const slot = row.querySelector(".cv-received__hover, .cv-row-slots__actions");
+      const buttons = slot?.querySelectorAll("button") ?? [];
+      const last = buttons[buttons.length - 1];
+      const line = row.querySelector(".cv-agentmsg__line, .cv-disclosure__line");
+      const preview = row.querySelector(".cv-received__preview");
+      return {
+        slotRight: slot?.getBoundingClientRect().right ?? Number.NaN,
+        buttonRight: last?.getBoundingClientRect().right ?? Number.NaN,
+        lineRight: line?.getBoundingClientRect().right ?? Number.NaN,
+        previewWidth: preview?.getBoundingClientRect().width ?? Number.NaN,
+      };
+    });
+
   describe("row slots", () => {
+    // Every other kind that draws actions on its line: the actions keep one right edge whatever the
+    // text's length (rule 10, I10).
+    for (const kind of ["received", "notice"]) {
+      test(`${kind}: the line's actions keep one right edge at two text lengths`, async () => {
+        const short = await lineActions(`${kind}-short`);
+        const long = await lineActions(`${kind}-long`);
+        // The two lines' words differ in width, so actions that followed them would differ too.
+        expect(long.previewWidth).toBeGreaterThan(short.previewWidth + 40);
+        expect(Number.isFinite(short.buttonRight)).toBe(true);
+        expect(long.buttonRight).toBeCloseTo(short.buttonRight, 0);
+        expect(long.slotRight).toBeCloseTo(short.slotRight, 0);
+      });
+    }
+
     test("a prompt on its way keeps Copy at the same right edge at two text lengths", async () => {
       const short = await drawn("pending-short");
       const long = await drawn("pending-long");

@@ -118,6 +118,11 @@ case "$file" in
     # A red file that still ran to its end: bun prints its closing tally after the failure.
     echo "(fail) old base assertion"; echo " 1 pass"; echo " 1 fail"; echo "Ran 2 tests across 1 file. [3.00ms]"
     exit 1 ;;
+  *engine-skip*)
+    # A browser file whose engine did not launch: every test skips and bun exits 0 (probeEngineOrSkip).
+    printf 'b: skipping, webkit did not launch here (Executable does not exist)\\n(skip) b\\n\\n 0 pass\\n 1 skip\\n 0 fail\\n'
+    exit 0 ;;
+  *ran-one*) printf '(pass) real\\n\\n 1 pass\\n 0 fail\\nRan 1 tests across 1 file.\\n'; exit 0 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
@@ -145,7 +150,7 @@ def path_without_timeout(temp):
 
 class PerFileRunner(unittest.TestCase):
     def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=(),
-                   uname=None):
+                   uname=None, no_bun=False):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -158,8 +163,9 @@ class PerFileRunner(unittest.TestCase):
         subprocess.run(["git", "-C", str(temp), "add", "-A"], check=True)
         bin_dir = temp / "bin"
         bin_dir.mkdir()
-        (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
-        (bin_dir / "bun").chmod(0o755)
+        if not no_bun:
+            (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
+            (bin_dir / "bun").chmod(0o755)
         if uname is not None:
             # The host the runner believes it is on (`uname -s`), whatever runs this test.
             (bin_dir / "uname").write_text(f"#!/usr/bin/env bash\necho {uname}\n", encoding="utf-8")
@@ -181,7 +187,7 @@ class PerFileRunner(unittest.TestCase):
         if getattr(self, "web_hook", None):
             self.web_hook(web)
         self.shared_cache = web / "node_modules" / ".vite"
-        system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
+        system_path = path_without_timeout(temp) if without_timeout or no_bun else os.environ["PATH"]
         base_env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
         env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
@@ -211,6 +217,21 @@ class PerFileRunner(unittest.TestCase):
         self.assertRegex(output, r"FAIL[^\n]*src/pages/fail\.test\.ts")
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/a\.test\.ts")
         self.assertIn("(fail) a broken test", output)
+
+    def test_a_runner_without_bun_fails_before_any_file_and_records_no_verdicts(self):
+        # Hetzner pool slots whose setup-bun failed EACCES ran every file without bun and wrote 628-1,032
+        # file-level reds a shard into the base history (batch 46040477174 shard 4, tick 46023562151 shards 6-7).
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        verdicts = temp / "results.json"
+        files = ["test/a.test.ts", "src/b.test.tsx"]
+        result, elapsed, calls = self.run_runner(files, no_bun=True, extra_env={"CMUX_WEB_TEST_RESULTS": str(verdicts)})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 3, output)
+        self.assertIn("::error::", output)
+        self.assertIn("no bun on PATH", output)
+        self.assertEqual(calls, [], output)
+        self.assertFalse(verdicts.exists(), output)
+        self.assertLess(elapsed, 10, output)
 
     def test_a_host_without_timeout_still_runs_and_limits_each_file(self):
         files = ["test/a.test.ts", "test/hang.test.tsx", "src/b.test.tsx"]
@@ -1089,6 +1110,30 @@ class PerFileRunner(unittest.TestCase):
                 result, _, _ = self.run_runner(["test/a.test.ts"], extra_env=env, uname="Linux")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
+
+    def test_a_browser_file_that_ran_no_test_is_named_and_fails_the_browser_lane(self):
+        """A browser file whose engine does not launch skips every test and exits 0, and the runner read it as
+        PASS and kept its log out of the summary: a fleet step with CMUX_BROWSER_TESTS=1 printed 30 PASS files
+        and "0 failed" while no browser test ran (2026-11-28; cmuxterm-hq docs/handbook/green-that-judged-nothing.md).
+        The runner names each file that ran no test with its skip line, and fails a run that asked for the
+        browser lane when an engine did not launch, unless CMUX_BROWSER_SKIP_UNLAUNCHABLE=1 keeps the skip."""
+        files = ["test/ran-one.test.ts", "test/engine-skip.test.ts"]
+        contents = {"test/engine-skip.test.ts": 'requireBrowserLane("b", () => {});\n'}
+        reason = "b: skipping, webkit did not launch here (Executable does not exist)"
+        # GITHUB_ACTIONS=true only keeps the runner from installing engines for CMUX_BROWSER_TESTS=1 here.
+        lane = {"CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true"}
+        for env, code in (({}, 0), (lane, 1), ({**lane, "CMUX_BROWSER_SKIP_UNLAUNCHABLE": "1"}, 0)):
+            with self.subTest(env=env):
+                result, _, calls = self.run_runner(files, contents=contents, extra_env=env, uname="Linux")
+                output = result.stdout + result.stderr
+                self.assertEqual(calls, sorted(f"./{name}" for name in files), output)
+                self.assertEqual(result.returncode, code, output)
+                self.assertIn(f"PASS test/engine-skip.test.ts (ran no test: {reason})", output)
+                self.assertIn("ran no test (every test skipped; a pass that judged nothing): 1 of 2 files", output)
+                self.assertIn(f"  RAN NONE test/engine-skip.test.ts: {reason}", output)
+                self.assertNotIn("RAN NONE test/ran-one", output)
+                failed = "browser lane asked for (CMUX_BROWSER_TESTS=1) but an engine did not launch"
+                self.assertEqual(failed in output, code == 1, output)
 
     def test_a_mac_never_installs_engines_and_runs_the_lane_without_its_browser_files(self):
         """No Playwright on Macs (Lawrence, 2026-11-02): a Mac outside GitHub Actions installs no engine,
