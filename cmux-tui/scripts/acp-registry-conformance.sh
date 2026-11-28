@@ -30,6 +30,11 @@ else
   ids=("$@")
 fi
 
+matrix() {
+  python3 -I "$here/scripts/acp_registry_matrix.py" "$out" "$registry" "$commit" "${ids[@]}" >"$out/matrix.json.tmp" \
+    && mv "$out/matrix.json.tmp" "$out/matrix.json"
+}
+
 # Build once; each agent's run then reuses it.
 (cd "$here" && cargo test --locked -p acpmux --lib --no-run) >"$out/build.log" 2>&1
 build=$?
@@ -51,7 +56,16 @@ for id in "${ids[@]}"; do
     timeout --kill-after=10 "$per_agent" \
     cargo test --locked -p acpmux --lib registry_live -- --ignored --nocapture) >>"$log" 2>&1
   echo "acp-exit $?" >>"$log"
+  # After each agent, so a run cut short still leaves the agents it reached (the rest read "no run").
+  matrix
 done
 
-python3 -I "$here/scripts/acp_registry_matrix.py" "$out" "$registry" "$commit" "${ids[@]}" >"$out/matrix.json"
-python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(1 if d["failed_cases"] else 0)' "$out/matrix.json"
+matrix
+# One line per row on stdout, so a CI log shows the matrix; exit 1 when any case failed.
+python3 -I -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+for r in d["rows"]:
+    print("\t".join((r["agent"], r["version"], r["case"], r["result"], r["detail"])))
+print("%d of %d cases failed at %s" % (d["failed_cases"], len(d["rows"]), d["commit"][:12]))
+sys.exit(1 if d["failed_cases"] else 0)' "$out/matrix.json"
