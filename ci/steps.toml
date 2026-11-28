@@ -3310,6 +3310,47 @@ python3 -I tests/test_ci_daemon_pr_member_steps.py
 scripts/ci/cmux-next-member-tests.sh crates/cmux-tui
 '''
 
+# The idle daemon tests of the post-merge gate (cmux-tui tests/idle_wakeups.rs, `idle_wakeups::cmux_next_*`), on the
+# pull request and on its landing head. cmux#47027 (2026-11-26) added a git HEAD watch in cmux-tui-core whose inotify
+# events woke the idle daemon: it changed only cmux-tui-core, so cmux-next-tui above did not route, and as a landing
+# head of the affected tier it started no pr-pipeline.yml job at all (`cheap tier: starts when ready-to-land`). The
+# gate (cmux-next-daemon-tests, cmux-tui-artifacts.yml) found it after the merge, and the feat-cmux-next channel held
+# until #62585. Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
+# land_gate: it runs on a landing head whose change reaches the daemon's idle paths (every input kept, `**` too): the
+# daemon and its core, the settings and usage-pattern watchers the tests name, and the workspace manifests (a notify
+# bump). The `it` binary only, from the gate's saved target (cmux-next-member-tests.sh), so only what the change
+# touched compiles; nothing on a change that reaches none of these.
+[step.cmux-next-idle-wakeups]
+job = "linux"
+tier = "push"
+land_gate = true
+alone = true
+timeout = 2700
+title = "cmux_next_ idle daemon tests (idle_wakeups)"
+about = "an idle cmux-tui daemon does not wake up (the post-merge gate's idle_wakeups::cmux_next_ tests) on the pull request's merge commit"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "tests/test_ci_daemon_pr_member_steps.py",
+  "cmux-tui/crates/cmux-tui/**",
+  "cmux-tui/crates/cmux-tui-core/**",
+  "cmux-tui/crates/cmux-tui-platform/**",
+  "cmux-tui/crates/cmux-config/**",
+  "cmux-tui/crates/cmux-usage-patterns/**",
+]
+ignore = [
+  "cmux-tui/crates/**/*.md",
+]
+run = '''
+python3 -I tests/test_ci_daemon_pr_member_steps.py
+scripts/ci/cmux-next-member-tests.sh crates/cmux-tui it idle_wakeups::cmux_next_
+'''
+
 # cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the
 # tree's daemon-tests marker, which that workflow keeps). The same cargo test, on the pull request's merge commit:
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
@@ -4419,4 +4460,34 @@ if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "
 fi
 python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
   --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
+'''
+
+[step.phone-speed-icount]
+job = "linux"
+pr_scope = false
+timeout = 300
+title = "Phone terminal instruction budgets"
+about = "Callgrind counts production phone terminal echo, streaming and rotation at 100 and 10000 seeded terminal lines"
+needs = ["rust", "valgrind"]
+inputs = [
+  "scripts/bench/phone-speed/**",
+  "scripts/bench/benches/phone_speed.py",
+  "scripts/bench/tests/test_phone_speed.py",
+  "scripts/bench/tests/fixtures/phone-speed/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+]
+run = '''
+set -euo pipefail
+python3 scripts/bench/phone-speed/check_lock.py
+export CARGO_TARGET_DIR="$PWD/scripts/bench/phone-speed/target"
+if [ -d "$CI_TOOLS/valgrind-root/usr/include" ]; then
+  export VALGRIND_INCLUDE="$CI_TOOLS/valgrind-root/usr/include"
+fi
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
+cargo +"$channel" test --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml
+cargo +"$channel" run --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml -- check
+python3 scripts/bench/tests/test_phone_speed.py
 '''
