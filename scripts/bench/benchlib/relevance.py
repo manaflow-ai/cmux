@@ -101,6 +101,14 @@ class Rule:
     run: tuple[str, ...] = ()
     budget_s: float | None = None
     situations: tuple[str, ...] = ()
+    # Count budgets (`checks`): commands whose exit status is the verdict. A count does not move with host load, so
+    # unlike `run` a failing check is red, not fail open; only a missing tool (exit 127) warns.
+    checks: tuple[str, ...] = ()
+    # Who owns a red that is not a path: the NOW probe rows (`probes`), cmuxterm-hq goals (`goals`) and nightly.yml
+    # jobs or failure classes (`nightly`) this area answers for. `cmux-bench area-for NAME` reads them back.
+    probes: tuple[str, ...] = ()
+    goals: tuple[str, ...] = ()
+    nightly: tuple[str, ...] = ()
     generated: bool = False
     ignore: tuple[tuple[bool, str], ...] = ()
     raw: dict = field(default_factory=dict)
@@ -166,7 +174,13 @@ def parse(text: str) -> list[Rule]:
             if budget_s is not None and (isinstance(budget_s, bool) or not isinstance(budget_s, (int, float))
                                          or budget_s <= 0):
                 raise MapError(f"relevance map: [[{kind}]] {name}: `budget_s` is a positive number ({budget_s!r})")
-            rules.append(Rule(kind=kind, name=name, globs=tuple(globs), order=len(rules),
+            lists = {}
+            for key in ("checks", "probes", "goals", "nightly"):
+                v = entry.get(key, [])
+                if not isinstance(v, list) or not all(isinstance(c, str) and c.strip() for c in v):
+                    raise MapError(f"relevance map: [[{kind}]] {name}: `{key}` is a list of non-empty strings ({v!r})")
+                lists[key] = tuple(v)
+            rules.append(Rule(kind=kind, name=name, globs=tuple(globs), order=len(rules), **lists,
                               run=tuple(run), budget_s=float(budget_s) if budget_s is not None else None,
                               benches=tuple(entry.get("benches", ())), tests=tuple(entry.get("tests", ())),
                               template=entry.get("template", ""), budget=entry.get("budget", ""),
@@ -298,6 +312,10 @@ def _area_entry(same: list[Rule]) -> dict:
             "tests": list(dict.fromkeys(t for r in same for t in r.tests)),
             "budget": next((r.budget for r in same if r.budget), ""),
             "run": list(dict.fromkeys(c for r in same for c in r.run)),
+            "checks": list(dict.fromkeys(c for r in same for c in r.checks)),
+            "probes": list(dict.fromkeys(c for r in same for c in r.probes)),
+            "goals": list(dict.fromkeys(c for r in same for c in r.goals)),
+            "nightly": list(dict.fromkeys(c for r in same for c in r.nightly)),
             "budget_s": min(budgets) if budgets else None, "paths": []}
 
 
@@ -432,6 +450,57 @@ def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT, repeats: i
         if verdict == baselines.REGRESSED and r["status"] == OK:
             r["status"] = REGRESSED
     return results
+
+
+# ---- count budgets: a change's areas' `checks` ------------------------------------------------------------------
+
+FAILED = "failed"
+
+
+def run_checks(plan_: dict, timeout: float = 120, root: Path = ROOT) -> list[dict]:
+    """Every count check the plan's areas name, once each. FAILED (red) when the command exits non-zero: the count
+    went over its budget. A missing tool is MISSING and a timeout TIMEOUT (warnings: the runner, not the change)."""
+    cmds: dict[str, list[str]] = {}
+    for a in plan_.get("areas", []):
+        for c in a.get("checks") or []:
+            cmds.setdefault(c, []).append(a["name"])
+    out = []
+    for cmd, areas in cmds.items():
+        t = time.perf_counter()
+        try:
+            res = subprocess.run(["bash", "-c", cmd], cwd=root, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            out.append({"cmd": cmd, "areas": areas, "status": TIMEOUT, "seconds": round(time.perf_counter() - t, 3),
+                        "detail": f"killed at the {timeout:g} s timeout"})
+            continue
+        took = round(time.perf_counter() - t, 3)
+        tail = [ln for ln in (res.stdout + res.stderr).strip().splitlines() if ln.strip()][-12:]
+        status = OK if res.returncode == 0 else MISSING if res.returncode == 127 else FAILED
+        out.append({"cmd": cmd, "areas": areas, "status": status, "seconds": took,
+                    "detail": "" if status == OK else f"exit {res.returncode}", "tail": tail if status != OK else []})
+    return out
+
+
+# ---- owners of reds that are not paths: probes, goals, nightly jobs -----------------------------------------------
+
+def area_for(rules: list[Rule], name: str) -> list[dict]:
+    """The [[area]]s that answer for NAME: a NOW probe row, a cmuxterm-hq goal slug, a nightly.yml job or failure
+    class, or a bench (a probe row an area lists among its benches). Exact names first, in that order; a nightly
+    name may also be a case-insensitive substring of NAME (a failed job "nightly-next-one / cmux-tui tree")."""
+    found: list[dict] = []
+    seen: set[str] = set()
+    low = name.lower()
+    for via in ("probes", "goals", "nightly", "benches"):
+        for r in rules:
+            if r.kind != "area" or r.name in seen:
+                continue
+            vals = getattr(r, via)
+            hit = name in vals or (via == "nightly" and any(v.lower() in low for v in vals))
+            if hit:
+                seen.add(r.name)
+                found.append({"name": name, "area": r.name, "via": via[:-1] if via != "nightly" else via,
+                              "paths": list(r.globs), "goals": list(r.goals), "probes": list(r.probes)})
+    return found
 
 
 def scaled(rules: list[Rule], scale: int) -> list[Rule]:

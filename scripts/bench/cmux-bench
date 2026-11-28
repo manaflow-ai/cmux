@@ -19,6 +19,10 @@
   cmux-bench for-paths ... --run [--timeout S]     also run the benches the matched areas name (`run`), each
                                                  once; exit 1 only when a measured result is over its area's
                                                  `budget_s`; a missing or failing bench warns (fail open)
+  cmux-bench for-paths ... --checks [--timeout S]  run the matched areas' count budgets (`checks`): exit 1 when
+                                                 one fails (a count over budget is red; a missing tool warns)
+  cmux-bench area-for NAME... [--json]           the [[area]] that owns a probe row, hq goal, nightly job or
+                                                 failure class, or bench; exit 1 when a NAME has none
   cmux-bench for-paths ... --run --repeats 3 --baselines [URL|DIR]
                                                  run each bench 3 times and compare with its areas' nightly
                                                  baselines (only those areas are fetched): exit 1 when every
@@ -373,6 +377,7 @@ def cmd_for_paths(argv: list[str]) -> int:
     p.add_argument("--write", action="store_true")
     p.add_argument("--check", action="store_true")
     p.add_argument("--run", action="store_true", help="run the selected areas' bench commands against budget_s")
+    p.add_argument("--checks", action="store_true", help="run the selected areas' count budgets (`checks`)")
     p.add_argument("--timeout", type=float, default=120, help="seconds one bench command may take (--run)")
     p.add_argument("--repeats", type=int, default=1, help="--run: measure each bench N times (the baseline rule takes 3)")
     p.add_argument("--baselines", nargs="?", const="", default=None, metavar="URL|DIR",
@@ -442,6 +447,10 @@ def cmd_for_paths(argv: list[str]) -> int:
         print(_render_plan(plan, a.markdown))
     for d in plan["defaults"]:
         print(f"cmux-bench: for-paths: warning: {d} has no mapping; add one to {a.map.name}", file=sys.stderr)
+    if a.checks:
+        code = _report_checks(relevance.run_checks(plan, a.timeout), a.markdown, a.json)
+        if code or not a.run:
+            return code
     if not a.run:
         return 0
     docs = None
@@ -549,6 +558,53 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
     return 1 if over else 0
 
 
+def _report_checks(results: list[dict], markdown: bool, as_json: bool) -> int:
+    """Print each count check; 1 when one failed (its count is over budget). A missing tool or timeout warns."""
+    from benchlib import relevance
+
+    failed = [r for r in results if r["status"] == relevance.FAILED]
+    if as_json:
+        print(json.dumps({"schema": "cmux-bench/for-paths-checks/v1", "checks": results, "failed": len(failed)},
+                         indent=2, ensure_ascii=False))
+    else:
+        print(("### " if markdown else "") + f"Count budgets: {len(results)} selected, {len(failed)} failed")
+        for r in results:
+            print(("- " if markdown else "  ") + f"{r['status']:8s} {r['seconds']:.1f} s  {r['cmd']}  "
+                  f"({', '.join(r['areas'])})")
+    for r in results:
+        if r["status"] == relevance.FAILED:
+            tail = "\n".join(r.get("tail") or [])
+            print(f"cmux-bench: for-paths: count budget failed ({', '.join(r['areas'])}): {r['cmd']}: "
+                  f"{r['detail']}\n{tail}", file=sys.stderr)
+        elif r["status"] != relevance.OK:
+            print(f"cmux-bench: for-paths: warning: count check {r['status']}, fail open: {r['cmd']}: {r['detail']}",
+                  file=sys.stderr)
+    return 1 if failed else 0
+
+
+def cmd_area_for(argv: list[str]) -> int:
+    """Which area owns a red that is not a path (a probe, goal or nightly job), so the red names its owner."""
+    from benchlib import relevance
+
+    p = argparse.ArgumentParser(prog="cmux-bench area-for")
+    p.add_argument("names", nargs="+")
+    p.add_argument("--map", type=Path, default=relevance.MAP)
+    p.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    try:
+        rules = relevance.load_rules(a.map, None)
+    except (OSError, relevance.MapError) as err:
+        print(f"cmux-bench: area-for: {err}", file=sys.stderr)
+        return 2
+    rows = {n: relevance.area_for(rules, n) for n in a.names}
+    if a.json:
+        print(json.dumps({"schema": "cmux-bench/area-for/v1", "names": rows}, indent=2, ensure_ascii=False))
+    else:
+        for n, hits in rows.items():
+            print(f"{n}: " + ("; ".join(f"{h['area']} (by {h['via']})" for h in hits) or "no area"))
+    return 0 if all(rows.values()) else 1
+
+
 def cmd_baselines(argv: list[str]) -> int:
     from benchlib import baselines, relevance
 
@@ -625,6 +681,8 @@ def main(argv: list[str]) -> int:
     head = argv[0]
     if head == "for-paths":
         return cmd_for_paths(argv[1:])
+    if head == "area-for":
+        return cmd_area_for(argv[1:])
     if head == "baselines":
         return cmd_baselines(argv[1:])
     if head == "list":
