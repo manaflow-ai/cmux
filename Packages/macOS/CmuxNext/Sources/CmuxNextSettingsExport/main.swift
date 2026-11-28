@@ -20,8 +20,8 @@ guard arguments.count == 2 else {
 let root = URL(fileURLWithPath: arguments[1], isDirectory: true)
 do {
     let export = SettingsSchemaExport()
-    let catalog = try export.catalogKeys(xcstrings: Data(blockingContentsOf: root.appending(
-        path: "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings")))
+    let catalog = try export.catalogKeys(directory: root.appending(
+        path: "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d"))
     let schema = root.appending(path: "schemas/settings/settings-schema.json")
     try FileManager.checked.createDirectory(at: schema.deletingLastPathComponent(), withIntermediateDirectories: true)
     try export.json(catalog: catalog).blockingWrite(to: schema, atomically: true, encoding: .utf8)

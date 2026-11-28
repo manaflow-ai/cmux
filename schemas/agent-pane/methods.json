@@ -111,6 +111,7 @@
     "_acpmux/memory_resolve": {"params": ["sessionId", "offerId", "file", "accept", "dismiss"]},
     "_acpmux/context": {"params": ["sessionId"]},
     "_acpmux/ledger": {"params": ["since", "until", "limit", "groupBy"]},
+    "_acpmux/asks": {"params": ["sessionId", "limit", "before", "beforeId", "view"]},
     "_acpmux/team_audit": {"params": ["since", "until", "groupBy", "format"]},
     "_acpmux/review_queue": {"params": ["localOnly", "limit"]},
     "_acpmux/review_verdict": {"params": ["prUrl", "sessionId", "verdict", "comment"]},

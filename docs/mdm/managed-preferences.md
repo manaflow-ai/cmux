@@ -75,6 +75,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.whatsNewInstall` | boolean | `false` |  | Install Versions from What's New. An Install button for each version listed in What's New. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |
 | `updates.web` | string | `"every-merge"` | `every-merge`, `nightly`, `off` | Web UI Updates. Every Merge gets web UI changes minutes after they land. |
+| `updates.webCas` | boolean | `false` |  | Fetch Web UI Updates by Chunks. Web UI updates download only what changed, or the whole update when that fails. |
 | `updates.daemon` | string | `"off"` | `off`, `every-merge` | Live Background Updates. Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only. |
 | `updates.liveWebReload` | boolean | `true` |  | cmux Live. Lets cmux live start show your checkout's web UI, each saved edit at once. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
@@ -552,7 +553,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.nav` | array | `[]` |  | Sidebar Nav Rows. Rows at the top of the sidebar that run cmux actions, by action id, optionally "id \| Title \| symbol". Empty shows none. |
 | `sidebar.showSpaces` | boolean | `false` |  | Show Spaces. Spaces show once you have more than one. New Space is in the command palette. |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
-| `sidebar.showSearchButton` | boolean | `false` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
+| `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
 | `sidebar.showLiveToggle` | boolean | `false` |  | Show Live Button. A Live button after the profile button turns presence on or off. Off: use the palette. |
 | `presence.live` | boolean | `false` |  | Live Presence. Show teammates and agents who are live, and let them see you. Off: you appear offline. |
 | `sidebar.showNewWorkspaceChooser` | boolean | `false` |  | Show New Workspace Menu Button. A chevron beside the + opens the New Workspace menu. Off: right-click the +. |
@@ -571,6 +572,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.profileMenu.style` | string | `"app"` | `app`, `account` | Profile Menu. What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Icons for working, waiting, error and done. Off: a spinner and a dot. |
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Rows show when they last changed, such as 3d. |
+| `sidebar.relativeTimestamps` | boolean | `false` |  | Relative Timestamps. With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time. |
 | `sidebar.settleFinished` | boolean | `false` |  | Settle Finished Chats. A chat whose answer you have read folds into Settled at the end of its list until its next turn. |
 | `sidebar.showAgentSessions` | boolean | `false` |  | Show Sessions Started by Agents. Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors |
@@ -844,6 +846,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.delivery.blocked` | string | `"off"` | `off`, `badge`, `banner` | Agent Blocked. When an agent's status turns Blocked without its own approval or question alert, as screen detection and plugins report it. |
 | `notifications.delivery.taskComplete` | string | `"banner"` | `off`, `banner` | Task Complete |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the agent session's coverage label and Pull requests view. |
+| `labs.askLedger` | boolean | `false` |  | Your Asks. Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts. |
 | `labs.appStore` | boolean | `false` |  | Show App Store. Browse, install and update apps for cmux. Still being shaped. |
 | `labs.liveTree` | boolean | `false` |  | Live Tree. Show the shared live-tree path and compile lanes in the agent pane. |
 | `labs.voiceRoom` | boolean | `false` |  | Voice Room. While a room is open, cmux sends a transcript of your mic and your screen's text to it. |
@@ -899,8 +902,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.foldSummaryCounts` | boolean | `false` |  | Fold Summary Counts. A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files. |
 | `experiments.cloudDiskBar` | boolean | `false` |  | Cloud Disk Bar. Cloud machine cards show disk use as a bar split into system, project and caches. |
 | `experiments.browserProfileCard` | boolean | `false` |  | Browser Profile Card. The browser's profile menu opens with a profile card. |
-| `experiments.compactionThresholdInsight` | boolean | `false` |  | Compaction Threshold Insight. Show when Claude automatically compacted a chat and how to lower the context it carries between turns. |
 | `experiments.appStoreFeatures` | boolean | `false` |  | App Store Features. The App Store gets a Features tab where built-in features turn on and off. |
+| `experiments.compactionThresholdInsight` | boolean | `false` |  | Compaction Threshold Insight. Show when Claude automatically compacted a chat and how to lower the context it carries between turns. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |

@@ -499,6 +499,12 @@ impl Ledger {
         self.lock().suppressed.insert(session.to_owned());
     }
 
+    /// Whether nothing about `session` may be recorded now: a fork's copies are being written
+    /// into it, or it was purged this run (the Ask ledger reads the same fence, `hub/asks`).
+    pub(crate) fn blocks(&self, session: &str) -> bool {
+        self.lock().blocked(session)
+    }
+
     pub fn unsuppress(&self, session: &str) {
         let mut s = self.lock();
         s.suppressed.remove(session);

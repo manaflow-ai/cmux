@@ -536,6 +536,7 @@
               "sidebar.groupBy",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.relativeTimestamps",
               "sidebar.settleFinished",
               "sidebar.showAgentSessions",
               "sidebar.showColors",
@@ -2601,6 +2602,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.askLedger",
               "labs.appStore",
               "labs.liveTree",
               "labs.voiceRoom",
@@ -2611,6 +2613,7 @@
               "labs.pauseAgentMachines",
               "customize.fromTheApp",
               "labs.agentCustomization",
+              "labs.chatMultiplayer",
               "labs.commentThreads",
               "labs.previousBuild",
               "labs.teamCompute",
@@ -12074,6 +12077,141 @@
       "title" : {
         "key" : "settings.updates.web",
         "text" : "Web UI Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.webCas.help",
+        "text" : "Web UI updates download only what changed, or the whole update when that fails."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.webCas",
+      "keywords" : [
+        "update",
+        "web",
+        "ota",
+        "download",
+        "chunks",
+        "cas",
+        "delta",
+        "nightly"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "updates",
+        "webCas"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "a feature gate, not a choice (RFD 0166, 2026-11-27); cmux.json only",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.updates.webCas",
+        "text" : "Fetch Web UI Updates by Chunks"
       },
       "validation" : "portable"
     },
@@ -35716,7 +35854,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+            "text" : "Takiyasha and the Skeleton Spectre — Utagawa Kuniyoshi"
           },
           "value" : "kuniyoshi-takiyasha"
         },
@@ -35758,7 +35896,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+            "text" : "Spring Walk on a Mountain Path — Ma Yuan"
           },
           "value" : "ma-yuan-spring-path"
         },
@@ -36344,7 +36482,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+            "text" : "Takiyasha and the Skeleton Spectre — Utagawa Kuniyoshi"
           },
           "value" : "kuniyoshi-takiyasha"
         },
@@ -37324,7 +37462,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+            "text" : "Spring Walk on a Mountain Path — Ma Yuan"
           },
           "value" : "ma-yuan-spring-path"
         },
@@ -37926,7 +38064,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+            "text" : "Takiyasha and the Skeleton Spectre — Utagawa Kuniyoshi"
           },
           "value" : "kuniyoshi-takiyasha"
         },
@@ -38906,7 +39044,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+            "text" : "Spring Walk on a Mountain Path — Ma Yuan"
           },
           "value" : "ma-yuan-spring-path"
         },
@@ -39327,7 +39465,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+            "text" : "Takiyasha and the Skeleton Spectre — Utagawa Kuniyoshi"
           },
           "value" : "kuniyoshi-takiyasha"
         },
@@ -40307,7 +40445,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+            "text" : "Spring Walk on a Mountain Path — Ma Yuan"
           },
           "value" : "ma-yuan-spring-path"
         },
@@ -89052,7 +89190,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.workspacesAsTabs.help",
-        "text" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces."
+        "text" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.workspacesAsTabs",
@@ -91235,6 +91373,145 @@
       "title" : {
         "key" : "settings.sidebar.showTimestamps",
         "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.relativeTimestamps.help",
+        "text" : "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.relativeTimestamps",
+      "keywords" : [
+        "sidebar",
+        "timestamps",
+        "relative",
+        "age",
+        "ago",
+        "elapsed",
+        "minutes",
+        "hours",
+        "time",
+        "rows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "relativeTimestamps"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.relativeTimestamps"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.relativeTimestamps",
+        "text" : "Relative Timestamps"
       },
       "validation" : "portable"
     },
@@ -131187,6 +131464,139 @@
         true,
         false
       ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.askLedger.help",
+        "text" : "Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.askLedger",
+      "keywords" : [
+        "labs",
+        "asks",
+        "history",
+        "requests",
+        "experiment",
+        "ledger"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "askLedger"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.askLedger"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.askLedger",
+        "text" : "Your Asks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -132540,6 +132950,142 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.chatMultiplayer.help",
+        "text" : "Teammates you share a chat with show when they view it and when they type."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.chatMultiplayer",
+      "keywords" : [
+        "labs",
+        "multiplayer",
+        "share",
+        "shared",
+        "teammate",
+        "presence",
+        "typing",
+        "together",
+        "chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "chatMultiplayer"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.chatMultiplayer"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.chatMultiplayer",
+        "text" : "Chat Multiplayer"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -132809,143 +133355,6 @@
       "title" : {
         "key" : "settings.labs.previousBuild",
         "text" : "Go Back to Previous Build"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.labs",
-        "text" : "Labs"
-      },
-      "help" : {
-        "key" : "settings.labs.teamCompute.help",
-        "text" : "Show your team's compute allotment and each member's use in Settings > Cloud."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "labs.teamCompute",
-      "keywords" : [
-        "labs",
-        "team",
-        "compute",
-        "allotment",
-        "usage",
-        "cloud",
-        "members",
-        "spend"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "labs",
-        "teamCompute"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:labs.teamCompute"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.labs.teamCompute",
-        "text" : "Team Compute"
       },
       "validation" : "portable"
     },
@@ -138899,6 +139308,140 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.compactionThresholdInsight.help",
+        "text" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.compactionThresholdInsight",
+      "keywords" : [
+        "usage",
+        "efficiency",
+        "compaction",
+        "context",
+        "tokens"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "compactionThresholdInsight"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.compactionThresholdInsight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.compactionThresholdInsight",
+        "text" : "Compaction Threshold Insight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -139465,140 +140008,6 @@
       "title" : {
         "key" : "settings.agentPane.openCitationsInEditor",
         "text" : "Open File Citations in Text Editor"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.experiments",
-        "text" : "Experiments"
-      },
-      "help" : {
-        "key" : "settings.experiments.compactionThresholdInsight.help",
-        "text" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "experiments.compactionThresholdInsight",
-      "keywords" : [
-        "usage",
-        "efficiency",
-        "compaction",
-        "context",
-        "tokens"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "experiments",
-        "compactionThresholdInsight"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:experiments.compactionThresholdInsight"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.experiments.compactionThresholdInsight",
-        "text" : "Compaction Threshold Insight"
       },
       "validation" : "portable"
     },

@@ -586,7 +586,9 @@ imessage.automationSkipped
 imessage.enabled
 labs.agentCustomization
 labs.appStore
+labs.askLedger
 labs.bundledCodexAppServer
+labs.chatMultiplayer
 labs.classicHome
 labs.commentThreads
 labs.connectionsUpcoming
@@ -789,6 +791,7 @@ sidebar.priorityView.showIdle
 sidebar.priorityView.shown
 sidebar.priorityView.statusWords
 sidebar.profileMenu.style
+sidebar.relativeTimestamps
 sidebar.sectionLook
 sidebar.sections.hidden
 sidebar.sections.order
@@ -1001,6 +1004,7 @@ updates.quietHours
 updates.showFeatureTips
 updates.showWhatsNew
 updates.web
+updates.webCas
 updates.whatsNewInstall
 window.titlebar
 window.titlebarButtons

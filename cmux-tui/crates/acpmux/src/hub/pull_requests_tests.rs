@@ -289,3 +289,141 @@ fn printed_url_is_the_last_line_that_is_only_a_pull_url() {
         Some("https://github.com/o/r/pull/4")
     );
 }
+
+#[test]
+fn a_created_pull_request_carries_the_ask_ids_of_its_inline_body() {
+    let mut calls = HashMap::new();
+    let body =
+        "gh pr create --title t --body 'Why\n\nLeo-Ask-Trace: ask-0123456789, ask-abcdefabcd'";
+    let start = json!({"toolCallId": "t1", "kind": "execute", "rawInput": {"command": body}});
+    let done = json!({"toolCallId": "t1", "status": "completed",
+        "rawOutput": {"stdout": "https://github.com/o/r/pull/8\n"}});
+    assert_eq!(track_created(&mut calls, &start), None);
+    assert_eq!(
+        track_created(&mut calls, &done),
+        Some(Created {
+            url: "https://github.com/o/r/pull/8".into(),
+            traces: vec!["ask-0123456789".into(), "ask-abcdefabcd".into()],
+        })
+    );
+    // A body file names none the daemon can read here.
+    let file = json!({"toolCallId": "t2", "kind": "execute", "rawInput": {"command": "gh pr create --body-file b.md"}});
+    track_created(&mut calls, &file);
+    let done = json!({"toolCallId": "t2", "status": "completed",
+        "rawOutput": {"stdout": "https://github.com/o/r/pull/9\n"}});
+    assert_eq!(track_created(&mut calls, &done).unwrap().traces, Vec::<String>::new());
+}
+
+#[test]
+fn a_settling_call_says_whether_it_merges() {
+    let mut calls = HashMap::new();
+    let call = |id: &str, command: &str| json!({"toolCallId": id, "kind": "execute", "rawInput": {"command": command}});
+    let end =
+        |id: &str| json!({"toolCallId": id, "status": "completed", "rawOutput": {"stdout": ""}});
+    let url = Target::Url("https://github.com/o/r/pull/5".into());
+    for (command, merged) in [
+        ("gh pr merge https://github.com/o/r/pull/5 --squash", true),
+        ("gh pr close -R o/r 5", false),
+        ("lane-gh call land o/r '{\"number\": 5}'", true),
+        ("lane-gh call close o/r '{\"number\": 5}'", false),
+    ] {
+        track_settled(&mut calls, &call("t", command));
+        assert_eq!(track_settled(&mut calls, &end("t")), vec![(url.clone(), merged)], "{command}");
+    }
+}
+
+#[test]
+fn ask_traces_are_only_from_the_literal_inline_body() {
+    let traces = |command: Value| created_traces(&json!({"rawInput": {"command": command}}));
+    for command in [
+        "gh pr create --title ask-0123456789 --body 'unrelated'",
+        "git switch ask-0123456789 && gh pr create --body unrelated",
+        "gh pr create --head ask-0123456789 --fill",
+        "gh pr create --body-file ask-0123456789.md",
+        "gh pr create --body 'ask-0123456789' --body-file body.md",
+        "gh pr create --body \"${UNSET:-ask-0123456789}\"",
+        "gh pr create --body \"$(echo ask-0123456789)\"",
+        "gh pr create --body \"$(cat <<'EOF'\nask-0123456789\nEOF\n)\"",
+        "gh pr create --title '--body ask-0123456789' --fill",
+    ] {
+        assert!(traces(json!(command)).is_empty(), "{command}");
+    }
+    assert!(created_traces(&json!({"title": "gh pr create --body ask-0123456789"})).is_empty());
+    for command in [
+        "gh pr create --body 'Leo-Ask-Trace: ask-0123456789'",
+        "gh pr create --body=ask-0123456789",
+        "gh pr create -b \"ask-0123456789\"",
+        "gh pr create --body 'price $5; ask-0123456789'",
+    ] {
+        assert_eq!(traces(json!(command)), vec!["ask-0123456789"], "{command}");
+    }
+    assert_eq!(
+        traces(json!(["gh", "pr", "create", "--body", "ask-0123456789"])),
+        vec!["ask-0123456789"]
+    );
+    assert!(
+        traces(json!(["gh", "pr", "create", "--title", "--body ask-0123456789", "--fill"]))
+            .is_empty()
+    );
+    assert_eq!(
+        traces(json!(["bash", "-lc", "gh pr create --body 'ask-0123456789'"])),
+        vec!["ask-0123456789"]
+    );
+}
+
+#[test]
+fn a_mixed_merge_and_close_keeps_each_targets_state() {
+    let mut calls = HashMap::new();
+    let call = json!({"toolCallId": "t", "kind": "execute", "rawInput": {
+        "command": "gh pr merge -R o/r 5 --squash && gh pr close -R o/r 6"}});
+    track_settled(&mut calls, &call);
+    assert_eq!(
+        track_settled(&mut calls, &json!({"toolCallId": "t", "status": "completed"})),
+        vec![
+            (Target::Url("https://github.com/o/r/pull/5".into()), true),
+            (Target::Url("https://github.com/o/r/pull/6".into()), false),
+        ]
+    );
+}
+
+#[test]
+fn printed_settlement_state_overrides_the_requested_action() {
+    for command in ["gh pr merge -R o/r 5", "gh pr merge 5"] {
+        for status in ["completed", "failed"] {
+            let mut calls = HashMap::new();
+            track_settled(
+                &mut calls,
+                &json!({"toolCallId": "t", "kind": "execute", "rawInput": {
+                "command": command}}),
+            );
+            assert_eq!(
+                track_settled(
+                    &mut calls,
+                    &json!({"toolCallId": "t", "status": status,
+                "rawOutput": {"stdout": "! Pull request o/r#5 was already closed\n"}})
+                ),
+                vec![(Target::Url("https://github.com/o/r/pull/5".into()), false),],
+                "{command}: {status}"
+            );
+        }
+    }
+}
+
+#[test]
+fn following_a_direct_create_preserves_its_ask_traces() {
+    let mut creates = Creates::default();
+    let start = json!({"toolCallId": "t1", "kind": "execute", "rawInput": {
+        "command": "gh pr create --body 'Leo-Ask-Trace: ask-0123456789'"}});
+    assert!(follow_created(&mut creates, &start).is_empty());
+    let done = json!({"toolCallId": "t1", "status": "completed",
+        "rawOutput": {"stdout": "https://github.com/o/r/pull/8\n"}});
+    assert_eq!(
+        follow_created(&mut creates, &done),
+        vec![Created {
+            url: "https://github.com/o/r/pull/8".into(),
+            traces: vec!["ask-0123456789".into()],
+        }]
+    );
+    assert!(follow_created(&mut creates, &done).is_empty());
+    assert!(creates.calls.is_empty());
+}

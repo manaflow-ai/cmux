@@ -5241,6 +5241,12 @@
       "title" : "Show App Store",
       "type" : "boolean"
     },
+    "labs.askLedger" : {
+      "default" : false,
+      "description" : "Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts.",
+      "title" : "Your Asks",
+      "type" : "boolean"
+    },
     "labs.bundledCodexAppServer" : {
       "default" : false,
       "description" : "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex.",
@@ -6939,6 +6945,12 @@
       "title" : "Profile Menu",
       "type" : "string"
     },
+    "sidebar.relativeTimestamps" : {
+      "default" : false,
+      "description" : "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time.",
+      "title" : "Relative Timestamps",
+      "type" : "boolean"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -8338,6 +8350,12 @@
       ],
       "title" : "Web UI Updates",
       "type" : "string"
+    },
+    "updates.webCas" : {
+      "default" : false,
+      "description" : "Web UI updates download only what changed, or the whole update when that fails.",
+      "title" : "Fetch Web UI Updates by Chunks",
+      "type" : "boolean"
     },
     "updates.whatsNewInstall" : {
       "default" : false,
