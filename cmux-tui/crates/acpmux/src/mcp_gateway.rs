@@ -388,16 +388,45 @@ pub fn hibernated(session: &str) {
 
 /// The chat ended: its server stops and its launch file goes.
 pub fn forget(home: &Path, session: &str) {
+    forget_on(current().as_deref(), home, session);
+}
+
+/// [`forget`] on `gateway`.
+fn forget_on(gateway: Option<&Gateway>, home: &Path, session: &str) {
     let _ = crate::home_fs::remove_file(launch_path(home, session));
     // Its Computer Use session ends on the worker, as the stdio bridge's ended with its pipe.
     crate::computer_use::served::end(session);
-    if let Some(gateway) = current() {
-        let chat = gateway.chats.lock().unwrap_or_else(PoisonError::into_inner).remove(session);
-        if let (Some(chat), Ok(_)) = (chat, tokio::runtime::Handle::try_current()) {
-            let scope = chat.scope.clone();
-            scope.spawn_named("mcp gateway stop", async move { chat.stop().await });
-        }
+    if let Some(gateway) = gateway {
+        gateway.forget_chat(session);
     }
+}
+
+/// A pooled session ended (`hub/pool`: discarded, expired, or the daemon stopping). Its
+/// harness registered the chat's `cmux` server here at its start like any chat's, and its first
+/// `initialize` may have started that server; but a pooled session never reaches the chat close
+/// that [`forget`]s a chat, so the server ran on, the daemon's child, until the idle window
+/// ([`IDLE_STOP`]) let it go. A spare pool that started and ended hundreds of spares in a few
+/// minutes left the daemon parent of hundreds of `cmux mcp serve`, gigabytes of them.
+///
+/// One no chat claimed goes whole: server, launch file and MCP config. One a chat claimed is
+/// that chat's id from then on (the chat starts cold under it, `hub/pool`'s `take`), so only its
+/// server stops, as at a hibernation ([`hibernated`]); the chat's next request starts it again.
+pub fn pooled_ended(home: &Path, session: &str, claimed: bool) {
+    pooled_ended_on(current().as_deref(), home, session, claimed);
+}
+
+/// [`pooled_ended`] on `gateway`.
+fn pooled_ended_on(gateway: Option<&Gateway>, home: &Path, session: &str, claimed: bool) {
+    if claimed {
+        if let Some(gateway) = gateway {
+            gateway.stop_chat(session);
+        }
+        return;
+    }
+    let config = crate::agent_tools::mcp_config_path(home, session);
+    let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(&config));
+    let _ = crate::home_fs::remove_file(config);
+    forget_on(gateway, home, session);
 }
 
 /// Binds the daemon's gateway ([`bind`]) and makes it the one sessions get. The daemon calls it
@@ -767,6 +796,17 @@ impl Gateway {
         let server = chat.server.lock().await.clone()?;
         let child = server.child.lock().unwrap_or_else(PoisonError::into_inner);
         child.as_ref().map(Child::id).filter(|_| server.live())
+    }
+
+    /// Drops the chat and stops its server (closed stdin, then SIGTERM and SIGKILL past
+    /// [`STOP_GRACE`]), a request in flight or not: nothing will ask it anything again.
+    fn forget_chat(&self, session: &str) {
+        let chat = self.chats.lock().unwrap_or_else(PoisonError::into_inner).remove(session);
+        if let (Some(chat), Ok(_)) = (chat, tokio::runtime::Handle::try_current()) {
+            chat.release_tools();
+            let scope = chat.scope.clone();
+            scope.spawn_named("mcp gateway stop", async move { chat.stop().await });
+        }
     }
 
     /// Stops the chat's server and drops its tool servers, unless a request is in flight.
