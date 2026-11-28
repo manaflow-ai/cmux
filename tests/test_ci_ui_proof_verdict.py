@@ -101,6 +101,10 @@ class VerdictTest(unittest.TestCase):
         for title in ("fix(next): preserve New Tab composer through lazy screen loading", "fix: row gap",
                       "Fix sidebar caret jump"):
             self.assertEqual(u.verdict("app", "", {}, [], 7, title=title), ("success", u.FIX_NO_LOOK), title)
+        for title in ("Update cards: fix stale badge", "Gallery health fix: shard timeouts", "Sidebar: fixes caret"):
+            self.assertEqual(u.verdict("app", "", {}, [], 7, title=title), ("success", u.FIX_NO_LOOK), title)
+        for title in ("Popup windows: no omnibar focus ring", "Prefix: add a fixture panel", "Suffix: fixture"):
+            self.assertEqual(u.verdict("app", "", {}, [], 7, title=title)[0], "pending", title)
         self.assertEqual(u.verdict("app", "", {}, [], 7, title="Split New Tab: composer pre-rendered")[0], "pending")
         self.assertEqual(u.verdict("app", "", {}, ["webviews/src/New.tsx"], 7, title="fix: add panel")[0], "pending")
         failed = {"verdict": "fail", "suite": "gui-flows", "runs": [{"name": "tabs", "result": "fail"}]}
@@ -589,15 +593,15 @@ class LookFailedTest(unittest.TestCase):
         prs = [self.node(62573, "PENDING", "2026-11-28T16:01:50Z"),  # older rules: re-judged, no failure
                self.node(7, "PENDING", "2026-11-28T19:00:00Z"),      # current rules, under 6 h: left
                self.node(8, "PENDING", "2026-11-28T10:00:00Z")]      # older, but its gate already re-ran: failure
-        reruns, posts = [], []
+        reruns, posts, at = [], [], "2026-11-28T18:26:45Z"
 
         def rerun(sha, after=""):
             reruns.append((sha, after))
             return "gate job 5 already read the record" if sha == f"{8:040d}" else "reran ui proof status (job 9)"
         with mock.patch.object(u, "open_prs", return_value=prs):
             out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
-                          answered=lambda pr, sha: "", rerun=rerun)
-        self.assertEqual(reruns, [(f"{62573:040d}", u.RULES_AT), (f"{8:040d}", u.RULES_AT)])
+                          answered=lambda pr, sha: "", rerun=rerun, rules_at=at)
+        self.assertEqual(reruns, [(f"{62573:040d}", at), (f"{8:040d}", at)])
         self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
         self.assertEqual([(s["pr"], bool(s.get("rejudged"))) for s in out], [(62573, True), (8, False)])
 

@@ -112,7 +112,10 @@ DECLARED_NONE = re.compile(r"^\s*Visual:\s*none\b[\s:(—-]*(?P<why>.*)$", re.M 
 DECLARED_COMPLETE = re.compile(r"^\s*Visible-UI:\s*complete\b", re.M | re.I)
 # Leo, 2026-11-28 (ask c-601949839a): don't wait for screenshots when a fix logically does what you expect, and
 # don't hold a fix as "UI". A PR titled as a fix that adds no new view lands without a look; a failed look still fails.
-FIX_TITLE = re.compile(r"^\s*(?:fix|hotfix|bugfix)(?:\([^)]*\))?!?:|^\s*fix(?:es|ed)?\b", re.I)
+# An area before the fix counts too ("Update cards: fix ...", "Gallery health fix: ..."): cmux#60966 and #65178 are
+# fixes to an existing surface that the bare form held for a look.
+FIX_TITLE = re.compile(r"^\s*(?:fix|hotfix|bugfix)(?:\([^)]*\))?!?:|^\s*fix(?:es|ed)?\b"
+                       r"|^[^:\n]{1,60}:\s*(?:fix|hotfix|bugfix)(?:es|ed)?\b|^[^:\n]{1,60}\b(?:fix|hotfix|bugfix):", re.I)
 FIX_NO_LOOK = "Fix to an existing surface, no new UI: lands without a look (Leo 2026-11-28)"
 DECLARED_NOT_NEW = re.compile(r"^\s*Visible-UI:\s*none\b", re.M | re.I)
 PREVIEW = "preview: cmux app try {pr} | cmux customize use pr:{pr} | try-pr.sh {pr}"
@@ -129,7 +132,7 @@ STALE_HOURS = 6
 # "Visual change, no look" from 16:01Z on 2026-11-28 though FIX_NO_LOOK (18:26Z) passes it, and the sweep would only
 # have turned it a look failure at 6 h. The sweep reruns such a gate once (rerun_gate_rest's AFTER skips a gate job
 # that completed after RULES_AT), REJUDGE_MAX per pass, newest-updated PRs first.
-RULES_AT = "2026-11-28T18:26:45Z"
+RULES_AT = "2026-11-28T23:00:00Z"  # area-prefixed fix titles (FIX_TITLE)
 REJUDGE_MAX = 25
 
 
