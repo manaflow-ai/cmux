@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { runChild } from "./helpers/run-child";
 import { guestShellProblems } from "../scripts/cmux-vm-image/shell-check";
 import { HANG_SNAPSHOT_COMMAND, HANG_SNAPSHOT_LIMIT, StepLog } from "../scripts/cmux-vm-image/guest";
 
@@ -25,9 +25,9 @@ function fakeVm(step: () => Promise<{ statusCode: number }>, snapshots: string[]
 const newLog = () => path.join(mkdtempSync(path.join(tmpdir(), "hang-snapshot-")), "bake.log");
 
 describe("a bake step that hangs logs what the guest is stuck on (rolls 46107492079, 46114210062)", () => {
-  test("the snapshot parses under the guest's /bin/sh and prints its lines here", () => {
+  test("the snapshot parses under the guest's /bin/sh and prints its lines here", async () => {
     expect(guestShellProblems(HANG_SNAPSHOT_COMMAND).refused).toEqual([]);
-    const out = execFileSync("sh", ["-c", HANG_SNAPSHOT_COMMAND], { encoding: "utf8", timeout: 30_000 });
+    const { stdout: out } = await runChild("sh", ["-c", HANG_SNAPSHOT_COMMAND], { timeout: 30_000 });
     expect(out).toContain("fuse_mounts");
     expect(out).toContain("fuse_waiting");
     expect(out).toMatch(/^mem /m);
