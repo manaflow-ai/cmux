@@ -18,7 +18,7 @@ import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Ht
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { platformSsoJoin, type SsoJoin } from "./team-sso-join.ts"
-import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { ssoCallback, ssoMaxAgeMs, ssoSamlAcs, ssoSamlMetadata, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { mintHandoff, redeemHandoff, type HandoffDeps, type Minter, type RedeemAsk } from "./auth-handoff.ts"
 import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
@@ -839,6 +839,14 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   async ssoCallback(entity: string, state: string, code: string, pathConnection: string, iss: string | null) {
     return ssoCallback(this.loginDeps(entity), state, code, pathConnection, iss)
+  }
+
+  async ssoSamlAcs(entity: string, relayState: string, samlResponse: string, pathConnection: string, origin: string) {
+    return ssoSamlAcs(this.loginDeps(entity), relayState, samlResponse, pathConnection, origin)
+  }
+
+  async ssoSamlMetadata(entity: string, connection: string, origin: string) {
+    return ssoSamlMetadata(this.bind(entity).currentState, entity, connection, origin) ?? null
   }
 
   async ssoRedeem(entity: string, code: string, clientVerifier: string) {
