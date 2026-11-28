@@ -365,3 +365,47 @@ async fn session_hook_callbacks_use_the_control_stream() {
         }
     }
 }
+
+/// Harness magic `continue` on: a goal chat's later stop goes to the check again while its folder
+/// changes, and ends the turn once a stop finds nothing changed; the turn's counts ride on the
+/// prompt result's `_meta.harnessMagic.continue`.
+#[tokio::test]
+async fn continue_sends_a_goal_on_while_its_folder_changes() {
+    crate::hub::stop_condition::CONTINUE_FOR_TEST.with(|on| on.set(true));
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-q"]);
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    git(&["add", "a.txt"]);
+    git(&["commit", "-q", "-m", "one"]);
+
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.stop_condition.store(true, Ordering::Relaxed);
+    let stop = |active: bool| {
+        let mut call = callback("stop", hook_callback::STOP_CALLBACK, "Stop");
+        call["request"]["input"]["stop_hook_active"] = json!(active);
+        call["request"]["input"]["cwd"] = json!(root);
+        call
+    };
+    let answer = |reply: Vec<Value>| reply[0]["response"]["response"].clone();
+    t.inbound(&stop(false)).await;
+    assert_eq!(answer(t.take_stdin_replies().await), json!({}), "the first stop is the check's");
+    std::fs::write(root.join("a.txt"), "two\n").unwrap();
+    t.inbound(&stop(true)).await;
+    assert_eq!(answer(t.take_stdin_replies().await), json!({}), "work moved: the check again");
+    t.inbound(&stop(true)).await;
+    let ended = answer(t.take_stdin_replies().await);
+    assert_eq!(ended["continue"], false, "nothing changed: the turn ends: {ended}");
+    let counts = t.stop_continue.lock().await.turn_ended();
+    assert_eq!((counts.continued, counts.spin_stopped), (1, 1));
+    crate::hub::stop_condition::CONTINUE_FOR_TEST.with(|on| on.set(false));
+}
