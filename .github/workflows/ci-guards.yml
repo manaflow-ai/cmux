@@ -1694,6 +1694,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_mobile_core_linux_only.py
 
+      - name: Validate registered mobile live tests guard ios only types
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_mobile_live_tests_guard_ios_only_types.py
+
       - name: Validate registered mac tiers
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_mac_tiers.py
