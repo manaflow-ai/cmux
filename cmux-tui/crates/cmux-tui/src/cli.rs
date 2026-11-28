@@ -144,6 +144,7 @@ mod key_broker;
 mod mac_screen_view;
 #[cfg(unix)]
 mod notification_banners;
+#[cfg(unix)]
 mod vault;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
