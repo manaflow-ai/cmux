@@ -231,8 +231,9 @@ pub async fn dial_local(
     request: &ConnectRequest,
     timeline: &Timeline,
 ) -> Option<(cmux_mobile_link::Connected, Arc<WarmSocket>)> {
-    // A simulated distant network (relay only, UDP blocked, proxy only) is a test of the paths this one skips.
-    if request.relay_only || request.block_udp || crate::proxy_only(request) {
+    // A simulated distant network (relay only, UDP blocked, proxy only, WireGuard dropped, HTTPS relay
+    // only; the app's option or the rig's variable) is a test of the paths this one skips.
+    if crate::simulation::Simulation::of(request).direct_paths_off() {
         return None;
     }
     if request.device_id.trim().is_empty() || request.mac_device_id.trim().is_empty() {
@@ -406,5 +407,76 @@ mod tests {
         assert!(local_link_nearby("mac-roam".into()));
         local_link_remove("Mac Roam".into());
         local_link_pair("mac-roam".into(), None);
+    }
+
+    /// One network simulation, set on a request.
+    type Simulate = fn(&mut ConnectRequest);
+
+    fn dial_request(mac: &str, simulate: impl FnOnce(&mut ConnectRequest)) -> ConnectRequest {
+        let mut request = ConnectRequest {
+            base_url: String::new(),
+            token: String::new(),
+            team_id: local::LOCAL_TEAM.to_owned(),
+            device_id: "phone-sim".into(),
+            mac_device_id: mac.into(),
+            transport: Transport::WireGuard,
+            include_loopback: true,
+            relay_only: false,
+            force_relay: false,
+            block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
+            video_lane: false,
+            webrtc_media: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
+        };
+        simulate(&mut request);
+        request
+    }
+
+    #[test]
+    fn a_simulated_distant_network_never_opens_the_nearby_hub() {
+        // Each network simulation tests the relayed paths: a phone with the Mac's ad in hand must not
+        // link through its hub instead (before, a dial with WireGuard dropped or HTTPS relay only did).
+        // The rig's variables reach the same check (`simulation`'s tests).
+        let _table = table();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let hub = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = hub.local_addr().unwrap().port();
+            let tag = local::key_tag(b"sim-key");
+            let ad = txt(&[("id", "mac-sim"), ("v", "1"), ("k", &tag)]);
+            local_link_pair("mac-sim".into(), Some(b"sim-key".to_vec()));
+            let here = vec![LocalEndpoint { host: "127.0.0.1".into(), port }];
+            assert!(local_link_observe("Mac Sim".into(), ad, here));
+            assert!(local_link_nearby("mac-sim".into()));
+            let simulations: [(&str, Simulate); 5] = [
+                ("relay only", |r| r.relay_only = true),
+                ("UDP blocked", |r| r.block_udp = true),
+                ("proxy only", |r| r.proxy_only = true),
+                ("WireGuard dropped", |r| r.drop_wireguard = true),
+                ("HTTPS relay only", |r| r.force_relay = true),
+            ];
+            for (name, simulate) in simulations {
+                let request = dial_request("mac-sim", simulate);
+                let dialed = tokio::time::timeout(
+                    std::time::Duration::from_millis(500),
+                    dial_local(&request, &Timeline::new()),
+                )
+                .await;
+                assert!(matches!(dialed, Ok(None)), "{name}: no hub link, at once");
+                let opened = tokio::time::timeout(std::time::Duration::from_millis(50), hub.accept()).await;
+                assert!(opened.is_err(), "{name}: the hub was never opened");
+            }
+            // The check above can see a hub dial: a plain one opens it.
+            let plain = dial_request("mac-sim", |_| {});
+            let timeline = Timeline::new();
+            tokio::select! {
+                accepted = hub.accept() => { accepted.unwrap(); }
+                _ = dial_local(&plain, &timeline) => panic!("the plain dial ended before it opened the hub"),
+            }
+        });
+        local_link_remove("Mac Sim".into());
+        local_link_pair("mac-sim".into(), None);
     }
 }

@@ -47,6 +47,7 @@ mod row_layout;
 mod row_spill;
 mod screen;
 mod share_approval;
+mod simulation;
 mod tabs;
 mod task_composer;
 mod terminal_chat;
@@ -1333,10 +1334,17 @@ async fn connect_on(
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
     // The relay dial may itself come back without a socket (a dormant resume), so the race's
-    // "no socket" and the dial's fold into one.
-    let result = lan::race(&request.mac_device_id, &timeline, dial(pool, &request, &timeline))
-        .await
-        .map(|(connected, signaling)| (connected, signaling.flatten()));
+    // "no socket" and the dial's fold into one. A simulated distant network (relay only, UDP blocked,
+    // proxy only, WireGuard dropped, HTTPS relay only) dials the relayed paths alone: a LAN or tailnet
+    // link would hide the path it tests (`simulation`).
+    let relayed = dial(pool, &request, &timeline);
+    let result = if simulation::Simulation::of(&request).direct_paths_off() {
+        timeline.mark("direct_paths_off");
+        relayed.await.map(|(connected, signaling)| (connected, Some(signaling)))
+    } else {
+        lan::race(&request.mac_device_id, &timeline, relayed).await
+    }
+    .map(|(connected, signaling)| (connected, signaling.flatten()));
     let (connected, signaling) = match result {
         Ok(ok) => ok,
         Err(error) => {
@@ -1526,11 +1534,14 @@ fn media_manager(
         link_session: connected.session_id.clone(),
         signaling,
         ice,
-        options: DialOptions {
-            include_loopback: request.include_loopback,
-            relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
-            block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
-            ..DialOptions::default()
+        options: {
+            let simulated = simulation::Simulation::of(request);
+            DialOptions {
+                include_loopback: request.include_loopback,
+                relay_only: simulated.relay_only,
+                block_udp: simulated.block_udp,
+                ..DialOptions::default()
+            }
         },
         linger: cmux_mobile_link::hybrid::LINGER,
     })
@@ -2311,6 +2322,7 @@ pub async fn wait_for_network_return(base_url: String, max_wait_millis: u64) -> 
 
 /// The dial's options for `request` (the service's ICE servers; none for a hub dial).
 fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline: &Timeline) -> DialOptions {
+    let simulated = simulation::Simulation::of(request);
     DialOptions {
         ice_servers,
         // cmux's WebSocket relay, on the service the phone signs in and signals
@@ -2326,24 +2338,24 @@ fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline:
         }),
         // Debug "Relay via cmux (HTTPS) only" (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_FORCE_RELAY=1).
-        force_relay: request.force_relay || std::env::var_os("CMUX_MOBILE_DEV_FORCE_RELAY").is_some(),
+        force_relay: simulated.force_relay,
         include_loopback: request.include_loopback,
         // The rig's relay-only and UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
-        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
+        relay_only: simulated.relay_only,
         // The rig's UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
         // A proxy-only network blocks UDP too.
-        block_udp: request.block_udp
-            || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some()
-            || proxy_only(request),
+        block_udp: simulated.block_udp,
         // The corporate network simulations (PROTOCOL.md "Corporate networks";
         // simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_DROP_WIREGUARD=1,
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY_ONLY=1, and
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY=http://host:port for the proxy).
-        drop_wireguard_udp: request.drop_wireguard
-            || std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
-        egress: cmux_mobile_link::egress::Egress { require_proxy: proxy_only(request), ..Default::default() },
+        drop_wireguard_udp: simulated.drop_wireguard,
+        egress: cmux_mobile_link::egress::Egress {
+            require_proxy: simulated.proxy_only,
+            ..Default::default()
+        },
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
         ultra: request.ultra,
@@ -2491,11 +2503,6 @@ async fn dial_service(
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
     }
-}
-
-/// The debug "Proxy only" network, from the app or the rig's environment.
-fn proxy_only(request: &ConnectRequest) -> bool {
-    request.proxy_only || std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some()
 }
 
 /// Measurement support (simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_NO_TURN=1): no
