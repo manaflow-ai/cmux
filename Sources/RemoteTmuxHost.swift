@@ -202,12 +202,25 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// ``connectionHash`` is never trimmed, so uniqueness is preserved even when
     /// the slug is dropped entirely. ``ensureControlSocketDirectory()`` rejects
     /// the rare case where even an empty slug overflows (an unusually long home).
+    ///
+    /// The socket also belongs to one cmux app. The release app, a nightly and a tagged
+    /// development build all share `~/.cmux/ssh/`, and a host that allows one session per
+    /// connection lets only one of them use a master at a time: the first app's `tmux -CC`
+    /// takes the session, and every other app's command on that master is refused
+    /// ("Session open refused by peer"), falls back to a new connection, and asks for a sign-in
+    /// that cannot help. See ``SSHControlSocketBuildIdentity``.
     var controlSocketPath: String {
+        controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: Bundle.main.bundleIdentifier))
+    }
+
+    /// The control socket path `build` uses for this host. Split out so tests can name a build
+    /// other than the test host.
+    func controlSocketPath(build: SSHControlSocketBuildIdentity) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         // Fixed parts that can never be trimmed: directory, the `tmux-` prefix,
         // the `-<hash>.sock` tail, and the transient suffix OpenSSH binds first.
         let prefix = "\(home)/.cmux/ssh/tmux-"
-        let suffix = "-\(connectionHash).sock"
+        let suffix = "-\(build.socketKey(connectionHash: connectionHash)).sock"
         let fixedBytes = prefix.utf8.count + suffix.utf8.count + Self.opensshTransientSuffixLength
         let slugBudget = max(0, Self.maxUnixSocketPathLength - fixedBytes)
         return "\(prefix)\(Self.trimmedToUTF8ByteBudget(slug, slugBudget))\(suffix)"

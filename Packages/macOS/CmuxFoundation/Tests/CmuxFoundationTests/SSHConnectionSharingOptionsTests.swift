@@ -658,4 +658,40 @@ struct SSHConnectionSharingOptionsTests {
         ])
         #expect(SSHConnectionSharingOptions.removingRouteSensitiveMarker(from: []).isEmpty)
     }
+
+    /// Each cmux build keeps its `cmux ssh` sockets in a directory of its own, but every build
+    /// takes its locks in the same per-user temporary directory. A lock named from the `%C`
+    /// basename alone is then shared: one build's live workspace holds the ownership lock for its
+    /// own master, and another build's master for the same host waits on it.
+    @Test("Two builds never contend for one lock, and the release app keeps its lock names")
+    func buildsNeverShareALock() {
+        func options(_ directory: String) -> SSHConnectionSharingOptions {
+            SSHConnectionSharingOptions(
+                userID: 501,
+                controlSocketDirectoryPath: directory,
+                authenticationLockDirectoryPath: lockDirectory.path
+            )
+        }
+        let basename = "0123456789abcdef0123456789abcdef01234567"
+        let release = options("/Users/alice/.cmux/ssh")
+        let buildA = options("/Users/alice/.cmux/ssh/aaaaaaaa")
+        let buildB = options("/Users/alice/.cmux/ssh/bbbbbbbb")
+        func locks(_ sharing: SSHConnectionSharingOptions) -> [String?] {
+            let directory = sharing.controlSocketDirectoryPath ?? ""
+            let template = ["ControlMaster=auto", "ControlPath=\(directory)/%C"]
+            return [
+                sharing.resolvedControlMasterOwnershipLockPath(controlPath: "\(directory)/\(basename)"),
+                sharing.resolvedControlMasterAuthenticationLockPath(controlPath: "\(directory)/\(basename)"),
+                sharing.foregroundAuthenticationLockPath(destination: "alice@example.test", port: 2222, options: template),
+            ]
+        }
+        let a = locks(buildA), b = locks(buildB), r = locks(release)
+        for index in 0..<3 {
+            #expect(a[index] != nil && b[index] != nil && r[index] != nil)
+            #expect(a[index] != b[index], "builds A and B share lock \(index): \(String(describing: a[index]))")
+            #expect(a[index] != r[index] && b[index] != r[index])
+        }
+        #expect(r[0] == lockDirectory.appendingPathComponent("cmux-ssh-501-owner-\(basename).lock").path)
+        #expect(r[1] == lockDirectory.appendingPathComponent("cmux-ssh-501-resolved-auth-\(basename).lock").path)
+    }
 }

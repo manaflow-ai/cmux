@@ -60,6 +60,50 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         ))
     }
 
+    @Test("A lease on one build's master does not block another build's master of the same host")
+    func buildsDoNotBlockEachOther() throws {
+        let scratchDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-control-builds-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: scratchDirectory) }
+        // Each build keeps its sockets in a directory of its own, so the same `%C` basename names
+        // two different masters. Every build takes its locks in the one temporary directory.
+        func registry(directory: String) -> NativeSSHControlMasterOwnershipRegistry {
+            NativeSSHControlMasterOwnershipRegistry(sharingOptions: SSHConnectionSharingOptions(
+                userID: Int(getuid()),
+                controlSocketDirectoryPath: directory,
+                authenticationLockDirectoryPath: scratchDirectory.path
+            ))
+        }
+        let basename = "0123456789abcdef0123456789abcdef01234567"
+        let buildA = registry(directory: "/Users/alice/.cmux/ssh/aaaaaaaa")
+        let buildB = registry(directory: "/Users/alice/.cmux/ssh/bbbbbbbb")
+        let lease = NativeSSHControlMasterLeaseIdentity(
+            ownerWorkspaceID: UUID(),
+            generation: UUID()
+        )
+        #expect(buildA.retain(
+            controlPath: "/Users/alice/.cmux/ssh/aaaaaaaa/\(basename)",
+            lease: lease
+        ))
+
+        let recovery = try #require(
+            buildB.beginRecovery(controlPath: "/Users/alice/.cmux/ssh/bbbbbbbb/\(basename)"),
+            "build A's live lease blocked build B's recovery of its own master"
+        )
+        recovery.release()
+        let cleanup = try #require(
+            buildB.beginCleanup(controlPath: "/Users/alice/.cmux/ssh/bbbbbbbb/\(basename)"),
+            "build A's live lease blocked build B's cleanup of its own master"
+        )
+        cleanup.release()
+        // Build A's own master is still guarded by its lease.
+        #expect(buildA.beginCleanup(controlPath: "/Users/alice/.cmux/ssh/aaaaaaaa/\(basename)") == nil)
+        buildA.release(lease: lease)
+    }
+
     @Test("Resolved authentication blocks recovery across different aliases")
     func resolvedAuthenticationBlocksRecovery() throws {
         let scratchDirectory = FileManager.default.temporaryDirectory

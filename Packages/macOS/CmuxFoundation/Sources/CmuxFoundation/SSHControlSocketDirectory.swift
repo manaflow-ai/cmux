@@ -23,11 +23,23 @@ enum SSHControlSocketDirectory {
     ///
     /// - Returns: The directory, or `nil` when it is shared, can't be created,
     ///   or can't go into a `ControlPath` verbatim.
-    static func prepare(home: String, userID: Int) -> String? {
+    ///
+    /// - Parameter build: The cmux build these sockets belong to. The release app keeps
+    ///   `<home>/.cmux/ssh` itself; any other build gets a subdirectory of its own.
+    static func prepare(
+        home: String,
+        userID: Int,
+        build: SSHControlSocketBuildIdentity = SSHControlSocketBuildIdentity(bundleIdentifier: nil)
+    ) -> String? {
         guard home.hasPrefix("/") else { return nil }
         let cmuxDirectory = (home as NSString).appendingPathComponent(".cmux")
-        let socketDirectory = (cmuxDirectory as NSString).appendingPathComponent("ssh")
-        for directory in [cmuxDirectory, socketDirectory] {
+        let sharedDirectory = (cmuxDirectory as NSString).appendingPathComponent("ssh")
+        var directories = [cmuxDirectory, sharedDirectory]
+        if let directoryName = build.directoryName {
+            directories.append((sharedDirectory as NSString).appendingPathComponent(directoryName))
+        }
+        let socketDirectory = directories[directories.count - 1]
+        for directory in directories {
             if mkdir(directory, 0o700) != 0, errno != EEXIST { return nil }
         }
         guard let resolvedPointer = realpath(socketDirectory, nil) else { return nil }

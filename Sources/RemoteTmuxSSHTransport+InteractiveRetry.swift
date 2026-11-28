@@ -50,8 +50,23 @@ extension RemoteTmuxSSHTransport {
     /// future recovery signal does not silently regress any catch site that
     /// spelled out only one constituent predicate.
     static func indicatesInteractiveRetryWillHelp(_ stderr: String) -> Bool {
-        indicatesAuthRequired(stderr)
+        guard !indicatesMasterRefusedSession(stderr) else { return false }
+        return indicatesAuthRequired(stderr)
             || indicatesProxyCommandTransportClosed(stderr)
+    }
+
+    /// Whether ssh reached a live, authenticated ControlMaster that turned the new session down.
+    ///
+    /// A host that allows one session per connection (`MaxSessions 1`) refuses a second session
+    /// on a master whose only session is already taken, usually by a `tmux -CC` stream. ssh then
+    /// cannot take over the socket either, so it opens a brand-new connection, and under BatchMode
+    /// that connection fails authentication. Its "Permission denied" is real, but a login cannot
+    /// fix it: the login ssh is refused by the same master, falls back to its own new connection,
+    /// signs in, and exits, leaving the busy master exactly as it was. Offering one anyway turned a
+    /// reconnect into a sign-in prompt every minute.
+    static func indicatesMasterRefusedSession(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("session open refused by peer")
     }
 
     /// Whether the bytes a transport produced BEFORE control mode are an unanswered

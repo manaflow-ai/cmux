@@ -66,6 +66,17 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
     }
 
+    /// Publishes every byte already in the pipe, then an empty chunk.
+    ///
+    /// Reads never publish an empty chunk, so the consumer can treat one as the point where it has
+    /// seen everything the process wrote before this call. Nothing is published once the stream has
+    /// finished; its end tells the consumer the same thing.
+    func catchUp() {
+        queue.async { [weak self] in
+            self?.catchUpOnQueue()
+        }
+    }
+
     /// Cancels the reader without promising delivery of unread bytes.
     func close() {
         queue.async { [weak self] in
@@ -108,6 +119,22 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
                 finishOnQueue()
             }
         }
+    }
+
+    private func catchUpOnQueue() {
+        guard !closed else { return }
+        reading: while !closed, let fileDescriptor = handle?.fileDescriptor {
+            switch readAndPublish(from: fileDescriptor, byteCount: maxReadChunkBytes) {
+            case .published, .interrupted:
+                continue
+            case .wouldBlock:
+                break reading
+            case .ended:
+                finishOnQueue()
+            }
+        }
+        guard !closed else { return }
+        if case .dropped = continuation.yield(Data()) { overflowOnQueue() }
     }
 
     private func readAndPublish(

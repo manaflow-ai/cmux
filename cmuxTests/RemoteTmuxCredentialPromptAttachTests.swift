@@ -75,6 +75,155 @@ struct RemoteTmuxCredentialPromptAttachTests {
         #expect(connection.isAwaitingCredentials)
     }
 
+    /// A prompt from an attempt the master already refused is not a login either. The sign-in would
+    /// be refused by the same busy master, sign in on a connection of its own and exit, and the
+    /// next attempt would prompt again.
+    @Test func aPromptAfterTheMasterRefusedTheSessionDoesNotParkForASignIn() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        defer { connection.stop() }
+        connection.appendStderr(
+            "mux_client_request_session: session request failed: Session open refused by peer\n")
+        connection.ingest(Data("Password: ".utf8))
+        #expect(!connection.isAwaitingCredentials)
+        #expect(connection.connectionState == .ended, "a refused first attach ends instead of waiting at the prompt")
+    }
+
+    /// The two pipes are read by separate tasks, so the prompt on stdout can be read before the
+    /// refusal ssh wrote to stderr first. Here the refusal is already in the stderr pipe and the
+    /// prompt is delivered before the stderr reader has run.
+    @Test func aPromptReadBeforeTheRefusalOnStderrDoesNotParkForASignIn() async {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let stderr = Pipe()
+        defer {
+            connection.stop()
+            try? stderr.fileHandleForWriting.close()
+        }
+        stderr.fileHandleForWriting.write(Data(
+            "mux_client_request_session: session request failed: Session open refused by peer\n".utf8))
+        connection.consumeStderr(from: Self.stderrReader(stderr))
+
+        connection.ingest(Data("Password: ".utf8))
+        await connection.credentialPromptCheck?.value
+
+        #expect(!connection.isAwaitingCredentials)
+        #expect(connection.connectionState == .ended, "a refused first attach ends instead of waiting at the prompt")
+    }
+
+    /// With nothing on stderr, a prompt still parks for the sign-in and ends the attach's wait.
+    @Test func aPlainPromptWithStderrOpenStillParksForASignIn() async {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let stderr = Pipe()
+        defer {
+            connection.stop()
+            try? stderr.fileHandleForWriting.close()
+        }
+        connection.consumeStderr(from: Self.stderrReader(stderr))
+
+        connection.ingest(Data("Password: ".utf8))
+        await connection.credentialPromptCheck?.value
+
+        #expect(connection.isAwaitingCredentials)
+        #expect(connection.initialTopologyState == .failed)
+    }
+
+    /// A refused first attach that then sits on a prompt must end, the way a refused first attach
+    /// that exits already ends. Neither parked nor ended, it waited with a live process and nothing
+    /// to move it on.
+    @Test func aRefusedFirstAttachWaitingAtAPromptEnds() async throws {
+        let transport = try ScriptedTransport(attempts: [.refusedAtPrompt])
+        defer { transport.remove() }
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work", transportProfile: transport)
+        defer { connection.stop() }
+        let states = Self.stateChanges(of: connection)
+        var exits = 0
+        let exitToken = connection.addObserver(onExit: { exits += 1 })
+
+        try connection.start()
+
+        #expect(await Self.awaitState(.ended, in: states.stream), "the attempt was left waiting at the prompt")
+        #expect(connection.process == nil, "the process waiting at the prompt must be torn down")
+        #expect(exits == 1, "the attach's caller learns the connection ended")
+        #expect(!connection.isAwaitingCredentials)
+        #expect(!connection.awaitingInteractiveAuth)
+        connection.removeObserver(states.token)
+        connection.removeObserver(exitToken)
+    }
+
+    /// A refused reconnect attempt that sits on a prompt must be torn down and retried, so the next
+    /// attempt can attach once the master is free.
+    @Test func aRefusedReconnectAttemptWaitingAtAPromptRetries() async throws {
+        let transport = try ScriptedTransport(attempts: [.attachThenExit, .refusedAtPrompt, .attach])
+        defer { transport.remove() }
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work", transportProfile: transport)
+        defer { connection.stop() }
+        let states = Self.stateChanges(of: connection)
+
+        try connection.start()
+
+        #expect(await Self.awaitState(.connected, in: states.stream, occurrence: 2),
+                "attempts started: \(transport.attemptsStarted)")
+        #expect(transport.attemptsStarted == 3)
+        #expect(!connection.awaitingInteractiveAuth)
+        connection.removeObserver(states.token)
+    }
+
+    private static func stateChanges(
+        of connection: RemoteTmuxControlConnection
+    ) -> (stream: AsyncStream<RemoteTmuxControlConnection.ConnectionState>,
+          token: RemoteTmuxControlConnection.ObserverToken) {
+        let (stream, continuation) = AsyncStream<RemoteTmuxControlConnection.ConnectionState>.makeStream()
+        let token = connection.addObserver(onConnectionStateChanged: { continuation.yield($0) })
+        return (stream, token)
+    }
+
+    /// Waits for the `occurrence`-th change to `target`. The 20-second limit only bounds a failing
+    /// run; a passing run returns on the state change itself.
+    private static func awaitState(
+        _ target: RemoteTmuxControlConnection.ConnectionState,
+        in stream: AsyncStream<RemoteTmuxControlConnection.ConnectionState>,
+        occurrence: Int = 1
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var seen = 0
+                for await state in stream where state == target {
+                    seen += 1
+                    if seen == occurrence { return true }
+                }
+                return false
+            }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: .seconds(20))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private static func stderrReader(_ pipe: Pipe) -> RemoteTmuxProcessOutputReader {
+        let reader = RemoteTmuxProcessOutputReader(
+            label: "remote-tmux-credential-prompt-test-stderr",
+            maxPendingChunks: 16,
+            maxPendingBytes: 1 << 16,
+            onOverflow: {}
+        )
+        reader.attach(to: pipe.fileHandleForReading)
+        return reader
+    }
+
     /// Ordinary remote noise must not be read as a login. A host that prints a banner and then works
     /// has to attach, and a false positive here would tell the user to log in when nothing asked.
     @Test func ordinaryPreControlNoiseIsNotAPrompt() {
@@ -251,4 +400,58 @@ struct RemoteTmuxCredentialPromptAttachTests {
             "the host answered; sending the user to the network is the bug being fixed"
         )
     }
+}
+
+/// A transport that plays one scripted attempt per spawn, in order, so a test can drive the
+/// connection through a first attach and its reconnect attempts with real processes and pipes.
+private struct ScriptedTransport: RemoteTmuxTransportProfile {
+    enum Attempt: String {
+        /// Enters control mode, then exits, so the connection reconnects.
+        case attachThenExit
+        /// Reports a busy master's refusal on stderr, prints a prompt and waits for an answer.
+        case refusedAtPrompt
+        /// Enters control mode and stays.
+        case attach
+    }
+
+    let directory: URL
+    let attempts: [Attempt]
+
+    init(attempts: [Attempt]) throws {
+        directory = URL(fileURLWithPath: "/tmp/cmux-xctest-iso", isDirectory: true)
+            .appendingPathComponent("scripted-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        self.attempts = attempts
+    }
+
+    var attemptsStarted: Int {
+        (try? String(contentsOf: directory.appendingPathComponent("count"), encoding: .utf8))
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+    }
+
+    func remove() { try? FileManager.default.removeItem(at: directory) }
+
+    func executablePath() -> String { "/bin/sh" }
+
+    func controlStreamArgv(host: RemoteTmuxHost, sessionName: String, mode: RemoteTmuxControlAttachMode) -> [String] {
+        let script = """
+            n=$(cat "$1/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$1/count"
+            shift
+            eval "attempt=\\${$n:-attach}"
+            case "$attempt" in
+            attachThenExit) printf '\\033P1000p%%begin 1 1 0\\n%%end 1 1 0\\n'; exit 0 ;;
+            refusedAtPrompt)
+                echo 'mux_client_request_session: session request failed: Session open refused by peer' >&2
+                printf 'Password: '
+                exec cat > /dev/null ;;
+            *) printf '\\033P1000p%%begin 1 1 0\\n%%end 1 1 0\\n'; exec cat > /dev/null ;;
+            esac
+            """
+        return ["-c", script, "scripted-transport", directory.path] + attempts.map(\.rawValue)
+    }
+
+    func oneShotArgv(host: RemoteTmuxHost, remoteCommand: String) -> [String] { ["-c", "exit 1"] }
+
+    var requiresPseudoTerminal: Bool { false }
+    var remoteHalfSurvivesLocalExit: Bool { false }
 }

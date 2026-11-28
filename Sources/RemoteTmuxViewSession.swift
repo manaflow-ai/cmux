@@ -20,6 +20,12 @@ struct RemoteTmuxViewSession: Equatable, Sendable {
     /// us reattach our own view and avoid other cmux installs' views.
     let ownerId: String
 
+    /// The owner id views were tagged with before the owner named the connection's endpoint too
+    /// (``RemoteTmuxViewConnection/viewOwnerId(installOwnerId:host:)``). A view left under it is
+    /// this install's old view, so it is collected like any other stale view of ours instead of
+    /// staying on the host as a foreign one.
+    var legacyOwnerId: String? = nil
+
     /// Session name format version, so a future incompatible view layout is recreated
     /// rather than reused.
     ///
@@ -137,7 +143,8 @@ struct RemoteTmuxViewSession: Equatable, Sendable {
     /// means a non-view session can never be collected even if its options were
     /// copied; the owner requirement means another install's view is never ours.
     func isOwnStaleView(_ row: SessionRow) -> Bool {
-        Self.isAnyView(row) && row.owner == ownerId && !isOwnView(row)
+        Self.isAnyView(row) && !isOwnView(row)
+            && (row.owner == ownerId || (legacyOwnerId.map { row.owner == $0 } ?? false))
     }
 
     /// A view owned by a *different* cmux install. Must never be touched.

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -66,6 +67,73 @@ import Testing
     @Test func onlyTheSSHTransportDeclaresAnSSHShapedLogin() {
         #expect(RemoteTmuxSSHTransportProfile().authenticationIsSSHShaped)
         #expect(!RemoteTmuxETTransportProfile(port: 2022).authenticationIsSSHShaped)
+    }
+
+    /// What a reconnect printed against a host that allows one session per connection while
+    /// the app's master still held its only session: the master refused the new session, ssh
+    /// could not take over the socket, and its fallback connection failed BatchMode auth.
+    private static let refusedByBusyMaster = """
+        mux_client_request_session: session request failed: Session open refused by peer
+        ControlSocket /Users/u/.cmux/ssh/tmux-host-0123456789abcdef.sock already exists, disabling multiplexing
+        u@host: Permission denied (publickey,keyboard-interactive).
+        """
+
+    /// A login cannot fix a busy master: the login ssh is refused by the same master, signs in on
+    /// a connection of its own and exits, and the next reconnect is refused again. Offering one
+    /// opened a sign-in prompt about once a minute.
+    @Test func aSessionRefusedByABusyMasterDoesNotOfferALogin() {
+        #expect(!RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(Self.refusedByBusyMaster))
+        #expect(RemoteTmuxReconnectDisposition.classify(
+            stderr: Self.refusedByBusyMaster, preControlOutput: "") != .authRequired)
+    }
+
+    /// A refused attempt can also leave a prompt ahead of control mode, from a transport that
+    /// signs in by itself when ssh falls back to a fresh connection. A login fails there for the
+    /// same reason it fails on the stderr route, so the refusal decides the attempt either way.
+    @Test func aSessionRefusedByABusyMasterRetriesEvenWithAPromptBeforeControlMode() {
+        #expect(RemoteTmuxReconnectDisposition.classify(
+            stderr: Self.refusedByBusyMaster, preControlOutput: "Password: ") == .transient)
+        #expect(RemoteTmuxReconnectDisposition.classify(
+            stderr: "mux_client_request_session: session request failed: Session open refused by peer\n",
+            preControlOutput: "Enter a passcode:\n") == .transient)
+        // Without the refusal the same prompt is still a login.
+        #expect(RemoteTmuxReconnectDisposition.classify(stderr: "", preControlOutput: "Password: ") == .authRequired)
+    }
+
+    @Test func aPlainPermissionDeniedStillOffersALogin() {
+        let stderr = "u@host: Permission denied (publickey,keyboard-interactive)."
+        #expect(RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr))
+        #expect(RemoteTmuxReconnectDisposition.classify(stderr: stderr, preControlOutput: "") == .authRequired)
+    }
+
+    /// The release app, a nightly and a tagged build can mirror one host at the same time. On a
+    /// host that allows one session per connection, a master they shared would serve only the
+    /// first app's stream and refuse the others. The test host's socket follows the host's own
+    /// build: under the Debug configuration the host is a development build and gets a socket of
+    /// its own, and under Release the host is the release app and keeps the name it always had.
+    @Test func theTestHostsSocketFollowsItsOwnBuild() {
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? ""
+        let isReleaseApp = bundleIdentifier.isEmpty || bundleIdentifier == "com.cmuxterm.app"
+        let host = RemoteTmuxHost(destination: "user@host")
+        #expect(host.controlSocketPath.hasSuffix("-\(host.connectionHash).sock") == isReleaseApp,
+                "host \(bundleIdentifier) got \(host.controlSocketPath)")
+        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
+    }
+
+    /// Each build gets its own socket, and the release app keeps the name it already had so an
+    /// upgrade does not strand a live master.
+    @Test func eachCmuxBuildGetsItsOwnSocketAndTheReleaseAppKeepsItsName() {
+        let host = RemoteTmuxHost(destination: "user@host")
+        let release = host.controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app"))
+        let nightly = host.controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly"))
+        let tagged = host.controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.feature"))
+        #expect(release.hasSuffix("-\(host.connectionHash).sock"))
+        #expect(Set([release, nightly, tagged]).count == 3)
+        #expect(nightly == host.controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly")))
+        // The mirror socket takes its digest from the build identity, the same value the
+        // `cmux ssh` directory reads the build from.
+        let nightlyBuild = SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly")
+        #expect(nightly.hasSuffix("-\(nightlyBuild.socketKey(connectionHash: host.connectionHash)).sock"))
     }
 
     @Test func tmuxSocketPermissionErrorIsNotAnAuthPrompt() {
@@ -319,7 +387,9 @@ import Testing
         let host = RemoteTmuxHost(destination: String(repeating: "very-long-host.example.com.", count: 20))
         #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
         // The collision-resistant hash is never trimmed away.
-        #expect(host.controlSocketPath.hasSuffix("-\(host.connectionHash).sock"))
+        let key = SSHControlSocketBuildIdentity(bundleIdentifier: Bundle.main.bundleIdentifier)
+            .socketKey(connectionHash: host.connectionHash)
+        #expect(host.controlSocketPath.hasSuffix("-\(key).sock"))
     }
 
     @Test func controlSocketPathTrimmingPreservesEndpointUniqueness() {

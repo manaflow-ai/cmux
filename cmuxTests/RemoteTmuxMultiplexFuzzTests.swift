@@ -362,6 +362,46 @@ struct RemoteTmuxMultiplexFuzzTests {
         #expect(plan.staleViewsToKill == [staleOther.name])
     }
 
+    /// A view's owner names its connection, so two aliases of one server get separate views. The
+    /// plan of one alias must collect this install's pre-change view (tagged with the install's
+    /// owner id alone) and must never collect the other alias's live view.
+    @Test func planCollectsTheOldSharedViewButNeverAnotherAliasesView() {
+        let install = "install-owner"
+        let aliasA = RemoteTmuxViewSession(
+            ownerId: RemoteTmuxViewConnection.viewOwnerId(
+                installOwnerId: install, host: RemoteTmuxHost(destination: "alias-one")),
+            legacyOwnerId: install)
+        let aliasB = RemoteTmuxViewSession(
+            ownerId: RemoteTmuxViewConnection.viewOwnerId(
+                installOwnerId: install, host: RemoteTmuxHost(destination: "alias-two")),
+            legacyOwnerId: install)
+        #expect(aliasA.sessionName != aliasB.sessionName)
+
+        let legacy = RemoteTmuxViewSession(ownerId: install)
+        let legacyRow = RemoteTmuxViewSession.SessionRow(
+            name: legacy.sessionName, isView: true, owner: install,
+            version: RemoteTmuxViewSession.formatVersion)
+        let aliasBRow = RemoteTmuxViewSession.SessionRow(
+            name: aliasB.sessionName, isView: true, owner: aliasB.ownerId,
+            version: RemoteTmuxViewSession.formatVersion)
+        let plan = RemoteTmuxLinkedViewPlan.plan(
+            view: aliasA,
+            snapshot: .init(
+                sessions: [
+                    legacyRow,
+                    aliasBRow,
+                    .init(name: "work", isView: false, owner: "", version: nil),
+                ],
+                windows: [
+                    .init(sessionName: "work", sessionId: "$1", windowId: "@1", windowIndex: 0,
+                          isActive: true),
+                ],
+                cmuxOwnedWindowIds: [],
+                placeholderWindowId: nil))
+        #expect(plan.staleViewsToKill == [legacy.sessionName])
+        #expect(!plan.staleViewsToKill.contains(aliasB.sessionName))
+    }
+
     /// The view session name carries the format version, which is what makes a bump take
     /// effect: the stream attaches with `new-session -A -s <name>` and would otherwise reuse an
     /// incompatible view and stamp the new version onto it. A different name instead falls
@@ -421,6 +461,25 @@ struct RemoteTmuxMultiplexFuzzTests {
         let empty = RemoteTmuxViewConnection.readBringupRows([])
         #expect(empty.placeholder == nil)
         #expect(empty.adopted.isEmpty)
+    }
+
+    /// A stream that ended without tmux hearing a `detach-client` leaves its control client on
+    /// the view session. The next stream detaches every such control client, never its own and
+    /// never a person's ordinary client.
+    @Test func aNewViewStreamDetachesTheControlClientsEarlierStreamsLeft() {
+        let lines = [
+            "1 /dev/pts/209",
+            "1 /dev/pts/200",
+            "0 /dev/pts/3",
+            "1 /dev/pts/288",
+            "",
+            "garbage",
+        ]
+        #expect(RemoteTmuxViewConnection.staleViewClientNames(lines, ownClientName: "/dev/pts/288")
+            == ["/dev/pts/209", "/dev/pts/200"])
+        // Alone on the session: nothing to detach.
+        #expect(RemoteTmuxViewConnection.staleViewClientNames(
+            ["1 /dev/pts/288"], ownClientName: "/dev/pts/288").isEmpty)
     }
 }
 
@@ -1045,5 +1104,165 @@ private final class MultiplexFuzzHarness {
         #expect(
             manager.tabs.count == initialLocalCount + liveTotal + detachLeftovers,
             "workspace count bounded \(ctx): tabs=\(manager.tabs.count) expected=\(initialLocalCount + liveTotal + detachLeftovers)")
+    }
+}
+
+/// Runs the view stream against a real tmux server on this machine, through a transport that
+/// starts `tmux -CC` directly instead of over ssh.
+private struct LocalTmuxTransportProfile: RemoteTmuxTransportProfile {
+    let tmuxPath: String
+    let socketPath: String
+
+    func executablePath() -> String { tmuxPath }
+
+    func controlStreamArgv(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        mode: RemoteTmuxControlAttachMode
+    ) -> [String] {
+        ["-S", socketPath, "-f", "/dev/null"] + mode.tmuxArguments(sessionName: sessionName)
+    }
+
+    func oneShotArgv(host: RemoteTmuxHost, remoteCommand: String) -> [String] {
+        ["-S", socketPath, remoteCommand]
+    }
+
+    var requiresPseudoTerminal: Bool { true }
+    var remoteHalfSurvivesLocalExit: Bool { false }
+}
+
+/// A stream that ends without tmux hearing a `detach-client` leaves its control client on the view
+/// session. On a live host an app's reconnect loop left 89 of them on one view session. The next
+/// stream must detach them, against a real tmux server rather than a scripted one, because the
+/// rule depends on what tmux itself reports for `#{client_name}` and `#{client_control_mode}`.
+@MainActor
+@Suite(.serialized)
+struct RemoteTmuxViewStaleClientTests {
+    @Test func connectingDetachesControlClientsEarlierStreamsLeftOnTheViewSession() async throws {
+        let tmuxPath = try #require(
+            ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+                .first { FileManager.default.isExecutableFile(atPath: $0) },
+            "needs a local tmux")
+        let directory = URL(fileURLWithPath: "/tmp/cmux-xctest-iso", isDirectory: true)
+            .appendingPathComponent("stale-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socket = directory.appendingPathComponent("s").path
+        defer {
+            _ = Self.tmux(tmuxPath, socket, ["kill-server"])
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let ownerId = "stale-test-\(UUID().uuidString)"
+        let view = RemoteTmuxViewConnection(
+            host: RemoteTmuxHost(destination: "stale-client-test"),
+            ownerId: ownerId,
+            transportProfile: LocalTmuxTransportProfile(tmuxPath: tmuxPath, socketPath: socket))
+        defer { view.stop() }
+        let viewName = view.view.sessionName
+        #expect(Self.tmux(tmuxPath, socket, ["new-session", "-d", "-s", viewName, "-x", "120", "-y", "40"]).status == 0)
+        _ = Self.tmux(tmuxPath, socket, ["new-session", "-d", "-s", "work"])
+
+        // Three control clients left on the view by streams that are gone as far as cmux knows.
+        var leftovers: [(Process, Pipe)] = []
+        defer { for (process, _) in leftovers where process.isRunning { process.terminate() } }
+        for _ in 0..<3 {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+            process.arguments = ["-q", "/dev/null", tmuxPath, "-S", socket, "-CC", "attach-session", "-t", "=\(viewName)"]
+            let input = Pipe()
+            process.standardInput = input
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            leftovers.append((process, input))
+        }
+        #expect(await Self.waitForControlClients(tmuxPath, socket, viewName, count: 3))
+
+        try view.start()
+
+        // The new stream attaches (four control clients), then detaches the three it did not open.
+        #expect(await Self.waitForControlClients(tmuxPath, socket, viewName, count: 1),
+                "left: \(Self.controlClients(tmuxPath, socket, viewName))")
+        #expect(view.connection?.connectionState == .connected, "the new stream must keep its own client")
+    }
+
+    /// Two SSH aliases can reach the same account on the same tmux server. Each gets its own view
+    /// stream because the aliases differ, and the second one's sweep must not detach the first
+    /// one's live client: that ends the first view's stream and every mirror on it.
+    @Test func twoAliasesOfOneServerKeepBothViewStreams() async throws {
+        let tmuxPath = try #require(
+            ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+                .first { FileManager.default.isExecutableFile(atPath: $0) },
+            "needs a local tmux")
+        let directory = URL(fileURLWithPath: "/tmp/cmux-xctest-iso", isDirectory: true)
+            .appendingPathComponent("alias-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socket = directory.appendingPathComponent("s").path
+        defer {
+            _ = Self.tmux(tmuxPath, socket, ["kill-server"])
+            try? FileManager.default.removeItem(at: directory)
+        }
+        _ = Self.tmux(tmuxPath, socket, ["new-session", "-d", "-s", "work"])
+
+        let ownerId = "alias-test-\(UUID().uuidString)"
+        let profile = LocalTmuxTransportProfile(tmuxPath: tmuxPath, socketPath: socket)
+        let first = RemoteTmuxViewConnection(
+            host: RemoteTmuxHost(destination: "alias-one"), ownerId: ownerId, transportProfile: profile)
+        let second = RemoteTmuxViewConnection(
+            host: RemoteTmuxHost(destination: "alias-two"), ownerId: ownerId, transportProfile: profile)
+        defer { first.stop(); second.stop() }
+
+        // Each view publishes its first workspaces after its bringup, and the sweep is part of the
+        // bringup, so by then that view's sweep has run.
+        try first.start()
+        #expect(await first.awaitFirstWorkspaces())
+        try second.start()
+        #expect(await second.awaitFirstWorkspaces())
+        // tmux runs one client's commands in order, so once this answer arrives anything the second
+        // view sent before it, a detach included, has taken effect on the server.
+        _ = await second.connection?.queryWithTimeout("display-message -p '#{client_name}'", timeout: 15)
+
+        let clients = Self.serverControlClients(tmuxPath, socket)
+        #expect(first.connection?.connectionState == .connected, "clients: \(clients)")
+        #expect(second.connection?.connectionState == .connected, "clients: \(clients)")
+        #expect(Self.controlClients(tmuxPath, socket, first.view.sessionName).count == 1, "clients: \(clients)")
+        #expect(Self.controlClients(tmuxPath, socket, second.view.sessionName).count == 1, "clients: \(clients)")
+        #expect(clients.count == 2, "clients: \(clients)")
+    }
+
+    private static func serverControlClients(_ tmuxPath: String, _ socket: String) -> [String] {
+        tmux(tmuxPath, socket, ["list-clients", "-F", "#{client_control_mode} #{client_name} #{session_name}"])
+            .output.split(separator: "\n").filter { $0.hasPrefix("1 ") }.map(String.init)
+    }
+
+    private static func waitForControlClients(
+        _ tmuxPath: String, _ socket: String, _ viewName: String, count: Int
+    ) async -> Bool {
+        // A deadline on an external server's state, checked every 100 ms: tmux sends no event this
+        // test could wait on instead.
+        for _ in 0..<200 {
+            if controlClients(tmuxPath, socket, viewName).count == count { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
+    }
+
+    private static func controlClients(_ tmuxPath: String, _ socket: String, _ viewName: String) -> [String] {
+        tmux(tmuxPath, socket, ["list-clients", "-t", "=\(viewName)", "-F", "#{client_control_mode} #{client_name}"])
+            .output.split(separator: "\n").filter { $0.hasPrefix("1 ") }.map(String.init)
+    }
+
+    @discardableResult
+    private static func tmux(_ tmuxPath: String, _ socket: String, _ arguments: [String]) -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["-S", socket, "-f", "/dev/null"] + arguments
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return (-1, "") }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 }
