@@ -180,6 +180,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { type AutomationCompose } from "./automation";
 import { acpmuxPerf } from "./perf";
 import { type PerfSend } from "./perfReporter";
+import type { ReadInspectorHistory } from "./InspectorTiming";
 import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
@@ -1337,6 +1338,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sendPerf = useCallback<PerfSend>(
     (params) =>
       directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
+    [],
+  );
+  /// `_acpmux/history` through the client connected now (the Inspector's Timing tab, InspectorTiming.tsx).
+  const readInspectorHistory = useCallback<ReadInspectorHistory>(
+    (sessionId) =>
+      directClient.current
+        ? directClient.current.inspectorHistory(sessionId)
+        : Promise.reject(new Error(translate("error.notOpen"))),
     [],
   );
   // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
@@ -11674,6 +11683,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setDisplayAnchor,
     closeInspector,
     sendPerf,
+    readInspectorHistory,
     setDock,
     dockFoot,
     paneToasts,
