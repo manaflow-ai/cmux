@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxCore
 import CmuxFoundation
+import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
@@ -286,7 +287,7 @@ final class CloudTreeNode: NSObject {
         case .machineDetailTabs, .machineEndSpacer: return ""
         case .devicesEmpty(let section):
             return section.count == 0
-                ? String(localized: "cloudTree.devices.empty", defaultValue: "No devices yet")
+                ? DeviceListEmptyRowText.title(section.emptyClaim)
                 : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }

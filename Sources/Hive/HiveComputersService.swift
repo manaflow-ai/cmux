@@ -272,16 +272,34 @@ final class HiveComputersService {
                 isHidden: registry.preferences?.hiddenMacIDs.contains(instance.deviceID) == true
             ))
         }
+        let listed = computers.sorted {
+            let order = $0.title.localizedStandardCompare($1.title)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
         return ComputersSettingsSnapshot(
-            computers: computers.sorted {
-                let order = $0.title.localizedStandardCompare($1.title)
-                return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
-            },
+            computers: listed,
             isSignedIn: identity != nil, error: error ?? directory?.registryError,
             discoveryEnabled: registry.preferences?.discoveryEnabled ?? DevicesFeature.localOptIn(defaults: .standard),
             incomingAccessEnabled: registry.preferences?.incomingAccessEnabled ?? false,
-            unavailableMessage: Self.unavailableMessage
+            unavailableMessage: Self.unavailableMessage,
+            discoveryPhase: Self.discoveryPhase(directory: directory, computerCount: listed.count)
         )
+    }
+
+    /// An empty computer array is only an empty account after a directory
+    /// read. Before that, and when the read fails with nothing to keep, the
+    /// settings card must not say there are no other Macs.
+    private static func discoveryPhase(
+        directory: DeviceDirectory?,
+        computerCount: Int
+    ) -> DeviceListDiscoveryPhase {
+        if directory?.registryError != nil, computerCount == 0 {
+            return .unreachable
+        }
+        if directory?.hasLoadedRegistry == true {
+            return .resolved
+        }
+        return .discovering
     }
 
     private func pairingsChanged() {

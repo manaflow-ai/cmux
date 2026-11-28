@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 public struct ComputersSettingsSnapshot: Equatable, Sendable {
@@ -33,11 +34,16 @@ public struct ComputersSettingsSnapshot: Equatable, Sendable {
     /// Why the account's Macs cannot be listed at all (Cloud Machines is off,
     /// unavailable, or disabled by policy), or `nil` when they can.
     public var unavailableMessage: String?
+    /// Whether the directory read behind ``computers`` has finished.
+    /// Defaults to discovering so the first frame cannot say the account
+    /// has no Macs before that read exists.
+    public var discoveryPhase: DeviceListDiscoveryPhase
 
     public init(
         computers: [Computer] = [], isSignedIn: Bool = false, error: String? = nil,
         discoveryEnabled: Bool = false, incomingAccessEnabled: Bool = false,
-        unavailableMessage: String? = nil
+        unavailableMessage: String? = nil,
+        discoveryPhase: DeviceListDiscoveryPhase = .discovering
     ) {
         self.computers = computers
         self.isSignedIn = isSignedIn
@@ -45,5 +51,6 @@ public struct ComputersSettingsSnapshot: Equatable, Sendable {
         self.discoveryEnabled = discoveryEnabled
         self.incomingAccessEnabled = incomingAccessEnabled
         self.unavailableMessage = unavailableMessage
+        self.discoveryPhase = discoveryPhase
     }
 }

@@ -49,7 +49,7 @@ public struct ComputersSection: View {
                     .font(.headline)
                     .accessibilityIdentifier("SettingsComputersHeading")
                 Spacer()
-                if isRefreshing { ProgressView().controlSize(.small) }
+                if isRefreshing, deviceListClaim != .discovering { ProgressView().controlSize(.small) }
                 Button(String(localized: "settings.computers.refresh", defaultValue: "Refresh")) {
                     Task { await refresh() }
                 }
@@ -65,23 +65,11 @@ public struct ComputersSection: View {
                     SettingsCardNote(String(localized: "devices.managed", defaultValue: "Disabled by your administrator."))
                 } else if !discoveryEnabled {
                     SettingsCardNote(String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other devices to see your devices."))
-                } else if snapshot.computers.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label(String(localized: "devices.empty.title", defaultValue: "No other devices yet"), systemImage: "desktopcomputer")
-                            .font(.callout.weight(.medium))
-                        Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(14)
                 } else {
-                    ForEach(snapshot.computers) { computer in
-                        ComputersSettingsRow(computer: computer, actions: actions, discoveryEnabled: discoveryEnabled)
-                        if computer.id != snapshot.computers.last?.id { SettingsCardDivider() }
-                    }
+                    deviceListBody
                 }
             }
-            if let error = snapshot.error {
+            if let error = snapshot.error, deviceListClaim != .unreachable {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(.red)
@@ -106,6 +94,44 @@ public struct ComputersSection: View {
 
     private var discoveryEnabled: Bool {
         snapshot.discoveryEnabled && !discoveryManaged
+    }
+
+    /// What the Mac list under "Your Macs" may say. Discovery still in
+    /// progress is one connecting sentence, not "No other devices yet" plus
+    /// a spinner.
+    private var deviceListClaim: DeviceListEmptyClaim {
+        DeviceListDiscoveryPresentation.claim(
+            deviceCount: snapshot.computers.count,
+            discoveryEnabled: discoveryEnabled && snapshot.isSignedIn && snapshot.unavailableMessage == nil,
+            phase: snapshot.discoveryPhase
+        )
+    }
+
+    @ViewBuilder
+    private var deviceListBody: some View {
+        switch deviceListClaim {
+        case .discovering:
+            SettingsCardNote(DeviceListEmptyStatusCopy.discovering)
+            .accessibilityIdentifier("SettingsComputersDiscovering")
+        case .unreachable:
+            SettingsCardNote(snapshot.error ?? DeviceListEmptyStatusCopy.unreachable)
+            .accessibilityIdentifier("SettingsComputersUnreachable")
+        case .empty:
+            VStack(alignment: .leading, spacing: 6) {
+                Label(String(localized: "devices.empty.title", defaultValue: "No other devices yet"), systemImage: "desktopcomputer")
+                    .font(.callout.weight(.medium))
+                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .accessibilityIdentifier("SettingsComputersEmpty")
+        case .hidden:
+            ForEach(snapshot.computers) { computer in
+                ComputersSettingsRow(computer: computer, actions: actions, discoveryEnabled: discoveryEnabled)
+                if computer.id != snapshot.computers.last?.id { SettingsCardDivider() }
+            }
+        }
     }
 
     private func refresh() async {
