@@ -36,6 +36,8 @@ BELOW_FLOOR = "CMUX_CI_XCODE_ALLOW_BELOW_FLOOR"
 
 # (workflow, job) -> why the job does not go through select-ci-xcode.sh.
 EXEMPT = {
+    ("nightly-next-update-e2e.yml", "update"):
+        "compiles nothing: it downloads and runs the published Nightly app (scripts/cmux-next/update-e2e.py)",
     ("build-ghosttykit.yml", "build-ghosttykit"):
         "Zig-only GhosttyKit xcframework build on the background lane; it takes "
         "the image's SDK, and moving it changes a published artifact",

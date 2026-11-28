@@ -37,7 +37,7 @@ describe("API-key account access", () => {
     expect(accountAccessForIdentity({ teamId: "org-1", stackUserId: "admin-1", vmId: "vm-1", poolId: "pool-1" }))
       .toEqual({ kind: "vm", vmId: "vm-1", poolId: "pool-1" });
     expect(accountAccessForIdentity({ teamId: "org-1", stackUserId: "admin-1", vmId: "chatmux:m", machine: "chatmux" }))
-      .toEqual({ kind: "team-machine", teamId: "org-1", machineId: "chatmux:m" });
+      .toEqual({ kind: "team-machine", teamId: "org-1", machineId: "chatmux:m", ownerId: "admin-1" });
   });
 
   test("an organization key matches only accounts its team shares, for both families", () => {

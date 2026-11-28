@@ -50,7 +50,8 @@ extension EnvironmentValues {
 /// Geometry shared by every regular-width toolbar control. Keeping this in one
 /// contract prevents the system toolbar from giving the two-line picker a
 /// different glass height from the icon controls beside it.
-enum WorkspaceRootToolbarSizing {
+struct WorkspaceRootToolbarSizing {
+    package init() {}
     static let controlHeight: CGFloat = 44
     static let regularControlHorizontalPadding: CGFloat = 14
     static let regularControlVerticalPadding: CGFloat = 5

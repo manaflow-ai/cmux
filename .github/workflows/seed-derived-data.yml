@@ -80,7 +80,7 @@ jobs:
           # pool's failing seed never makes every push rebuild the others.
           SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           SEED_POOL_2: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
-          SEED_POOL_3: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
+          SEED_POOL_3: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-15","blacksmith-6vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
           # The owned std minis compile at -j14, and a j12 seed re-emits
           # every module there (cmuxterm-hq#590). Their j14 seed comes from a
           # trusted-only runner (glaeda-trusted-std-xcode-<version>, glaeda
@@ -537,7 +537,13 @@ jobs:
           stable="/private/tmp/cmux-app-host-package-frameworks"
           mkdir -p "$stable"
           framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
-          test -n "$framework_source"
+          # The cli profile builds one scheme (cmux-cli), which links no package
+          # framework; only the app-host product has frameworks to stage.
+          if [ -z "$framework_source" ] && [ "${CMUX_PRODUCT_PROFILE:-}" = cli ]; then
+            echo "cli product: no package frameworks to stage"
+            exit 0
+          fi
+          test -n "$framework_source" || { echo "::error::no CmuxAgentJournal package framework under $products"; exit 1; }
           framework_root="$(dirname "$framework_source")"
           rsync -aL --no-times "$framework_root/" "$stable/"
           if [ -L "$products/PackageFrameworks" ]; then

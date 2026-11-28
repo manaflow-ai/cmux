@@ -37,6 +37,7 @@ on:
           - submissions
           - get
           - subscriptions
+          - publication-snapshot
           - age-rating-patch
           - review-detail-sync
           - version-localization-patch
@@ -62,9 +63,17 @@ on:
         description: Locale for op=version-localization-patch (default en-US)
         required: false
         default: ""
+      head_sha:
+        description: Full requesting gate source SHA (publication-snapshot only; data, never checked out)
+        required: false
+        default: ""
+      request_id:
+        description: Requesting gate run ID and attempt, e.g. 456:1 (publication-snapshot only)
+        required: false
+        default: ""
 
 concurrency:
-  group: ios-asc-ops
+  group: ${{ inputs.op == 'publication-snapshot' && format('ios-publication-snapshot-{0}-{1}', github.run_id, github.run_attempt) || 'ios-asc-ops' }}
   cancel-in-progress: false
 
 permissions:
@@ -76,18 +85,20 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A price-book sync writes up to ~175 territory prices per product.
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.op == 'publication-snapshot' && 6 || 45 }}
     environment: release
     steps:
       - name: Checkout the script
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: |
             scripts/ci
             ios/AppStoreReview/subscriptions
 
       - name: Run the operation
+        id: operation
         env:
           ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -98,6 +109,9 @@ jobs:
           ATTRIBUTES: ${{ inputs.attributes }}
           API_PATH: ${{ inputs.path }}
           LOCALE: ${{ inputs.locale }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           key_dir="$RUNNER_TEMP/asc"; mkdir -p "$key_dir"; chmod 700 "$key_dir"
@@ -105,4 +119,14 @@ jobs:
           printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key_dir/AuthKey.p8"
           chmod 600 "$key_dir/AuthKey.p8"
           ASC_PRIVATE_KEY_PATH="$key_dir/AuthKey.p8" python3 -I scripts/ci/ios_asc_ops.py "$OP" --app "$APP" \
-            --version "$VERSION" --attributes "$ATTRIBUTES" --path "$API_PATH" --locale "$LOCALE"
+            --version "$VERSION" --attributes "$ATTRIBUTES" --path "$API_PATH" --locale "$LOCALE" \
+            --head-sha "$HEAD_SHA" --request-id "$REQUEST_ID" --snapshot-output "$RUNNER_TEMP/ios-publication.json"
+
+      - name: Publish the immutable request-bound snapshot
+        if: inputs.op == 'publication-snapshot'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.operation.outputs.artifact_name }}
+          path: ${{ runner.temp }}/ios-publication.json
+          if-no-files-found: error
+          retention-days: 1

@@ -93,13 +93,26 @@ def fetch(ref: str) -> None:
     name = next((name for name, known in BRANCHES.items() if known == ref), None)
     if name is None:
         return
-    git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
-        f"+refs/heads/{name}:refs/remotes/{ref}")
+    # GitHub can stall before it sends the pack ("expected 'packfile'", 2026-11-27 21:3x-22:0xZ: two guard runs lost
+    # the branch after about 140 s on one stalled try). A try that moves under 1 KB/s for 20 s ends, and up to three
+    # are made.
+    for _ in range(3):
+        git("-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=20", "fetch", "--no-tags", "--depth=1",
+            "--filter=blob:none", "origin", f"+refs/heads/{name}:refs/remotes/{ref}")
+        if has_ref(ref):
+            break
     listing = git("ls-tree", ref, f"{sources.WORKFLOWS_DIR}/", "scripts/ci/")
     blobs = [line.split()[2] for line in listing.stdout.splitlines() if line.split()[1:2] == ["blob"]]
     if blobs:
-        git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--filter=blob:none", "--stdin",
-            "origin", stdin="\n".join(blobs) + "\n")
+        for _ in range(3):
+            done = git("-c", "fetch.negotiationAlgorithm=noop", "-c", "http.lowSpeedLimit=1000", "-c",
+                       "http.lowSpeedTime=20", "fetch", "--no-tags", "--filter=blob:none", "--stdin",
+                       "origin", stdin="\n".join(blobs) + "\n")
+            if done.returncode == 0:
+                break
+        else:
+            raise RuntimeError(f"could not fetch the {len(blobs)} blobs of {ref} the detector reads after 3 tries: "
+                               f"{done.stderr.strip()[-400:]}")
 
 
 class OwnedPoolSources(unittest.TestCase):

@@ -11,7 +11,13 @@ export type CoderouterAccountAccess =
   | { readonly kind: "user"; readonly userId: string }
   | { readonly kind: "api-key"; readonly apiKeyId: string; readonly teamId: string; readonly personal: boolean }
   | { readonly kind: "vm"; readonly vmId: string; readonly poolId: string | null }
-  | { readonly kind: "team-machine"; readonly teamId: string; readonly machineId: string };
+  | {
+    readonly kind: "team-machine";
+    readonly teamId: string;
+    readonly machineId: string;
+    /** The machine's owner from its signed token (chatmux `owner_id`): whose pass the house route reads. */
+    readonly ownerId?: string;
+  };
 
 export function accountAccessForIdentity(identity: {
   readonly stackUserId: string;
@@ -22,7 +28,12 @@ export function accountAccessForIdentity(identity: {
   readonly machine?: "chatmux";
 }): CoderouterAccountAccess {
   if (identity.machine === "chatmux") {
-    return { kind: "team-machine", teamId: identity.teamId ?? "", machineId: identity.vmId ?? "" };
+    return {
+      kind: "team-machine",
+      teamId: identity.teamId ?? "",
+      machineId: identity.vmId ?? "",
+      ...(identity.stackUserId ? { ownerId: identity.stackUserId } : {}),
+    };
   }
   if (identity.vmId !== null) return { kind: "vm", vmId: identity.vmId, poolId: identity.poolId ?? null };
   if (identity.apiKeyId) {

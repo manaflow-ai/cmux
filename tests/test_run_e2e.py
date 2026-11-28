@@ -468,32 +468,34 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertLessEqual(len(self.queue_reads()), 4)
         return self.dispatch()["runner"], result.stderr
 
-    def test_an_idle_12vcpu_pool_takes_e2e_whatever_the_commit(self):
-        # Every Blacksmith pool is sponsored, so 12vcpu comes first, as for
-        # pull requests, and the commit plays no part.
+    def test_an_idle_12vcpu_pool_never_takes_e2e_whatever_the_commit(self):
+        # 12vcpu started nothing for 50 min (run 46162674498, 2026-11-28), so
+        # it left E2E's auto pick: an idle 12vcpu pool still leaves the run on
+        # 6vcpu, and the commit plays no part.
         for ref in ("topic/fix", "main"):
             with self.subTest(ref=ref):
                 self.setUp()
-                self.assertEqual(self.routed(queue(), "--ref", ref)[0], LARGE)
+                self.assertEqual(self.routed(queue(), "--ref", ref)[0], SMALL)
 
     def test_e2e_follows_the_pull_request_headroom_rule(self):
+        # 6vcpu is E2E's only Blacksmith pool: 12vcpu's headroom or queue never moves the run.
         cases = [
-            (queue(large_running=4), LARGE),               # a machine free on 12vcpu (5)
-            (queue(large_running=5), SMALL),               # 12vcpu is full: roll over
+            (queue(large_running=4), SMALL),               # a machine free on 12vcpu (5)
+            (queue(large_running=5), SMALL),               # 12vcpu is full
             (queue(large=1, large_running=0), SMALL),      # a queued job fills that label
-            (queue(large=5, small=4, large_running=5), SMALL),  # both labels are full; 6vcpu has the shorter queue
-            (queue(large=1, small=9, large_running=5), LARGE),
+            (queue(large=5, small=4, large_running=5), SMALL),  # both labels are full
+            (queue(large=1, small=9, large_running=5), SMALL),  # 12vcpu has the shorter queue
         ]
         for state, expected in cases:
             with self.subTest(pools=state["pools"]):
                 self.setUp()
                 self.assertEqual(self.routed(state)[0], expected)
 
-    def test_only_a_queued_release_or_nightly_job_holds_12vcpu_back(self):
+    def test_a_release_or_nightly_job_never_sends_e2e_to_12vcpu(self):
         self.assertEqual(self.routed(queue(large=1, large_reserved=1))[0], SMALL)
-        # A release or nightly job merely running there is not waiting on E2E.
+        # A release or nightly job merely running on 12vcpu does not open it to E2E either.
         self.setUp()
-        self.assertEqual(self.routed(queue(large_running=3))[0], LARGE)
+        self.assertEqual(self.routed(queue(large_running=3))[0], SMALL)
         # Both macOS 26 pools reserved: stay on the default rather than guess.
         self.setUp()
         runner, stderr = self.routed(queue(large=1, large_reserved=1, small=1, small_reserved=1))
@@ -506,20 +508,15 @@ class FocusedLauncherTests(unittest.TestCase):
         state = queue(large=30, small=20, old=0, old_running=0)
         self.assertEqual(self.routed(state)[0], SMALL)
 
-    def test_runs_since_the_snapshot_fill_the_12vcpu_pool_first(self):
-        # 2 running leaves 3 of 12vcpu's 5 machines free; a fourth run rolls over.
+    def test_runs_since_the_snapshot_never_open_the_12vcpu_pool(self):
+        # 2 running leaves 3 of 12vcpu's 5 machines free, yet no replay of
+        # E2E or pull request runs sends an E2E run there.
         base = dict(large_running=2)
-        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 2))[0], LARGE)
-        self.setUp()
-        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 3))[0], SMALL)
-        # E2E runs on another pool do not count against 12vcpu.
-        self.setUp()
-        self.assertEqual(self.routed(queue(**base, e2e_since=[SMALL] * 9))[0], LARGE)
-        # Pull request runs replay through their own rule, 12vcpu first.
-        self.setUp()
-        self.assertEqual(self.routed(queue(**base, pr_since=3))[0], SMALL)
-        self.setUp()
-        self.assertEqual(self.routed(queue(**base, pr_since=2))[0], LARGE)
+        for extra in (dict(e2e_since=[LARGE] * 2), dict(e2e_since=[LARGE] * 3),
+                      dict(e2e_since=[SMALL] * 9), dict(pr_since=3), dict(pr_since=2)):
+            with self.subTest(**extra):
+                self.setUp()
+                self.assertEqual(self.routed(queue(**base, **extra))[0], SMALL)
 
     def test_an_unreadable_or_stale_queue_keeps_e2e_on_6vcpu(self):
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_QUEUE=IDLE, LAUNCHER_QUEUE_FAIL="1")
@@ -540,8 +537,9 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.routed(queue(small_running=0), LAUNCHER_VARIABLES=variables(
             CI_PR_POOL_ORDER=f"{SMALL},{LARGE}"))[0], SMALL)
         self.setUp()
+        # 12vcpu first in the order and within the queue threshold still is not E2E's.
         self.assertEqual(self.routed(queue(large=4), LAUNCHER_VARIABLES=variables(
-            CI_PR_POOL_MAX_QUEUED="5"))[0], LARGE)
+            CI_PR_POOL_MAX_QUEUED="5"))[0], SMALL)
         # An order without a macOS 26 pool, or an invalid one, never reads the queue.
         for order in (OLD, "not-a-pool"):
             with self.subTest(order=order):
@@ -572,11 +570,23 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertNotIn("runner", self.dispatch())
         self.assertEqual(self.queue_reads(), [])
 
-    def test_an_unpinned_dispatch_reuses_an_in_flight_run_on_either_macos_26_pool(self):
-        # Where auto lands depends on the queue at dispatch time, so the same
-        # commit and filter may already be running on the other pool. Reusing
-        # it costs no compile and no queue read.
-        for runner in (SMALL, LARGE):
+    def test_an_unpinned_dispatch_reuses_an_in_flight_run_on_6vcpu_not_12vcpu(self):
+        # Auto lands on 6vcpu (or an owned Mac), so an in-flight 6vcpu run of
+        # the same commit and filter answers it with no compile and no queue
+        # read. A run on 12vcpu, which auto no longer picks and which started
+        # nothing for 50 min (2026-11-28), is not waited on.
+        for queue_state in (BUSY_LARGE, IDLE):
+            with self.subTest(runner=LARGE, queue=queue_state):
+                self.setUp()
+                result = self.launch(
+                    "cmuxTests/ExampleTests",
+                    LAUNCHER_PRIOR_RUNS=self._live(runner=LARGE),
+                    LAUNCHER_QUEUE=queue_state,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("reusing that run", result.stdout)
+                self.assertEqual(self.dispatch()["runner"], SMALL)
+        for runner in (SMALL,):
             for queue_state in (BUSY_LARGE, IDLE):
                 with self.subTest(runner=runner, queue=queue_state):
                     self.setUp()
@@ -591,12 +601,12 @@ class FocusedLauncherTests(unittest.TestCase):
                     self.assertFalse((self.root / "dispatch.json").exists())
                     self.assertEqual(self.queue_reads(), [])
 
-    def test_an_overlapping_run_on_the_other_macos_26_pool_is_refused(self):
+    def test_an_overlapping_run_on_12vcpu_does_not_block_an_unpinned_dispatch(self):
+        # Auto never lands on 12vcpu now, so a run there cannot collide with this one.
         live = self._live(selector="cmuxTests/ExampleTests,cmuxTests/OtherTests", runner=LARGE)
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=live)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(f"already in_progress at {HEAD} on {LARGE}", result.stderr)
-        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["runner"], SMALL)
 
     def test_a_failure_on_the_12vcpu_pool_refuses_an_unpinned_repeat(self):
         result = self.launch(
@@ -1371,12 +1381,14 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         pr = self.pool.pr_runner_pool
         self.assertEqual(self.pool.settings("", ""), pr.Settings())
         self.assertEqual(pr.Settings().order[:2], (LARGE, SMALL))
-        self.assertEqual(set(self.pool.E2E_POOLS), {LARGE, SMALL})
+        # Pull request CI keeps 12vcpu; E2E takes only 6vcpu of the Blacksmith pools.
+        self.assertEqual(set(self.pool.E2E_POOLS), {SMALL})
+        self.assertIn(LARGE, self.pool.BLACKSMITH_NO_UI)
         cases = [
-            (queue(), LARGE),
-            (queue(large_running=4), LARGE),            # one of 12vcpu's 5 machines free
-            (queue(large_running=5), SMALL),            # full: roll over
-            (queue(large=4, small=9, large_running=5), LARGE),  # both full; a tie in rounds takes the earlier pool
+            (queue(), SMALL),
+            (queue(large_running=4), SMALL),            # one of 12vcpu's 5 machines free
+            (queue(large_running=5), SMALL),            # full
+            (queue(large=4, small=9, large_running=5), SMALL),  # both full; 12vcpu's queue is shorter
             (queue(large=6, small=4, large_running=5), SMALL),
             (queue(large=1, large_reserved=1), SMALL),
             (None, SMALL),                               # no snapshot
@@ -1387,7 +1399,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
 
     def test_it_is_the_pull_request_decision_limited_to_macos_26(self):
         # Same answer as pr_runner_pool for the same queue, except that a
-        # pull request may spill to macOS 15 and E2E may not.
+        # pull request may take 12vcpu or spill to macOS 15 and E2E may not.
         pr = self.pool.pr_runner_pool
         for state in (queue(), queue(large=3), queue(large=9, small=9, old=0, old_running=0)):
             with self.subTest(pools=state["pools"]):
@@ -1397,12 +1409,14 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
                 if theirs in self.pool.E2E_POOLS:
                     self.assertEqual(ours, theirs)
                 else:
-                    self.assertEqual(theirs, OLD)
+                    self.assertIn(theirs, (LARGE, OLD))
                     self.assertIn(ours, self.pool.E2E_POOLS)
+        self.assertEqual(pr.decide(snapshot_of(queue()), pr.Settings(), now=NOW, xcode_pins={},
+                                   auto_xcode=True).runner, LARGE)
 
     def test_settings_are_the_pull_request_variables_and_invalid_values_fail_safe(self):
         self.assertEqual(self.decide(queue(small_running=0), order=f"{SMALL},{LARGE}")[0], SMALL)
-        self.assertEqual(self.decide(queue(large=4), max_queued="5")[0], LARGE)
+        self.assertEqual(self.decide(queue(large=4), max_queued="5")[0], SMALL)
         self.assertEqual(self.decide(queue(large=1), max_queued="1")[0], SMALL)
         for order, max_queued in (("nope", ""), (f"{LARGE},{LARGE}", ""), ("", "-1"), ("", "x"), (OLD, "")):
             with self.subTest(order=order, max_queued=max_queued):
@@ -1415,7 +1429,9 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertEqual((label, calls), (SMALL, []))
         for value in ("", "1", "yes"):
             with self.subTest(value=value):
-                self.assertEqual(self.decide(queue(), overflow=value)[0], LARGE)
+                # Routing on reads the queue, yet never picks 12vcpu.
+                label, calls, _ = self.decide(queue(), overflow=value)
+                self.assertEqual((label, len(calls)), (SMALL, 1))
 
     def test_any_measurement_error_fails_safe(self):
         label, calls, client = self.decide(queue(), fail=True)
@@ -1451,7 +1467,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
     def test_the_commit_does_not_decide(self):
         for commit in self.COMMITS:
             with self.subTest(commit=commit):
-                self.assertEqual(self.decide(queue())[0], LARGE)
+                self.assertEqual(self.decide(queue())[0], SMALL)
                 self.assertEqual(self.decide(queue(large=3))[0], SMALL)
 
     def test_measurement_costs_at_most_four_api_calls(self):
@@ -1472,10 +1488,10 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         load = self.pool.measure_load(FakeActions(state), now=NOW, exclude_run_id=501)
         self.assertEqual(dict(load.e2e_since), {})
         # Replayed pull request runs are charged to the label they take;
-        # enough replays fill 12vcpu and roll over to 6vcpu.
+        # however few fill 12vcpu, E2E stays on 6vcpu.
         crowded = queue(large_running=3, pr_since=2)
         self.assertEqual(self.decide(crowded)[0], SMALL)
-        self.assertEqual(self.decide(queue(large_running=3, pr_since=1))[0], LARGE)
+        self.assertEqual(self.decide(queue(large_running=3, pr_since=1))[0], SMALL)
 
     def test_pull_request_runs_stay_on_their_lane_when_routing_is_off(self):
         pr = self.pool.pr_runner_pool
@@ -1485,7 +1501,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         for settings in ({"lane": SMALL, "overflow": "0"}, {"lane": OLD, "overflow": ""}):
             with self.subTest(settings=settings):
                 load = self.pool.PoolLoad({**snap, "settings": settings}, {}, 5)
-                self.assertEqual(self.pool.decide(load, pr.Settings(), now=NOW).runner, LARGE)
+                self.assertEqual(self.pool.decide(load, pr.Settings(), now=NOW).runner, SMALL)
 
     def test_a_malformed_snapshot_keeps_the_default_instead_of_failing(self):
         state = queue()
@@ -1524,7 +1540,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
                 mock.patch.object(self.dispatch.subprocess, "check_output",
                                   return_value=archive.getvalue()) as download:
             label = self.dispatch.routed_runner(SMALL)
-        self.assertEqual(label, LARGE)
+        self.assertEqual(label, SMALL)
         self.assertEqual(output.call_count + download.call_count, 4)
         for call in output.call_args_list + download.call_args_list:
             command = call.args if call.args and isinstance(call.args[0], str) else call.args[0]
@@ -1629,11 +1645,12 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
 
     def test_the_pool_helper_explains_the_release_priority(self):
         source = (ROOT / "scripts/ci/e2e_runner_pool.py").read_text()
-        for phrase in ("sponsored", "release or nightly job actually queued", "at most four requests",
-                       "never goes to macOS 15"):
+        for phrase in ("12vcpu left the\nauto pick", "release or nightly job queued on 6vcpu",
+                       "at most four requests", "never goes to macOS 15"):
             self.assertIn(phrase, source)
         comment = (ROOT / ".github/workflows/test-e2e.yml").read_text()
-        self.assertIn("only a queued release or nightly job holds 12vcpu", comment)
+        self.assertIn("12vcpu left E2E's auto pick", comment)
+        self.assertIn("auto never picks 12vcpu", comment)
         self.assertNotIn("reserved first for release", comment)
 
     def test_macos_jobs_run_on_the_resolved_pool(self):
