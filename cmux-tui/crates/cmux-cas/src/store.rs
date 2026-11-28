@@ -12,12 +12,16 @@ const HEADER: usize = 5;
 /// The zstd level chunks are written at: 19 is what `cmux-session-pack` ships at; the
 /// producer pays once, every client reads it.
 pub const LEVEL: i32 = 19;
+/// The zstd level [`Store::put`] writes a chunk the client made itself at (seeded from a held
+/// tree, rebuilt from a patch): the store is a local cache, and level 19 there cost a web update
+/// minutes of CPU for bytes only this disk holds. Packs and peers' chunk files keep [`LEVEL`].
+pub const PUT_LEVEL: i32 = 3;
 
 /// A chunk file of `bytes`: the smaller of zstd and the bytes as they are.
 pub fn encode(bytes: &[u8], level: i32) -> Result<Vec<u8>> {
     let z = zstd::bulk::compress(bytes, level)?;
     let (codec, body) =
-        if z.len() < bytes.len() { (CODEC_ZSTD, &z[..]) } else { (CODEC_RAW, bytes) };
+        if z.len() < bytes.len() { (CODEC_ZSTD, z.as_slice()) } else { (CODEC_RAW, bytes) };
     let mut out = Vec::with_capacity(HEADER + body.len());
     out.push(codec);
     out.extend_from_slice(&u32::try_from(bytes.len())?.to_le_bytes());
@@ -27,16 +31,16 @@ pub fn encode(bytes: &[u8], level: i32) -> Result<Vec<u8>> {
 
 /// The bytes a chunk file holds, refused unless they are `id`.
 pub fn decode(file: &[u8], id: &Id) -> Result<Vec<u8>> {
-    if file.len() < HEADER {
+    let [codec, a, b, c, d, body @ ..] = file else {
         return Err(format!("chunk {id} is cut short").into());
-    }
-    let len = u32::from_le_bytes([file[1], file[2], file[3], file[4]]) as usize;
+    };
+    let len = u32::from_le_bytes([*a, *b, *c, *d]) as usize;
     if len > crate::cdc::MAX {
         return Err(format!("chunk {id} claims {len} bytes").into());
     }
-    let bytes = match file[0] {
-        CODEC_RAW => file[HEADER..].to_vec(),
-        CODEC_ZSTD => zstd::bulk::decompress(&file[HEADER..], len)?,
+    let bytes = match *codec {
+        CODEC_RAW => body.to_vec(),
+        CODEC_ZSTD => zstd::bulk::decompress(body, len)?,
         c => return Err(format!("chunk {id} has unknown codec {c}").into()),
     };
     if bytes.len() != len || Id::of(&bytes) != *id {
@@ -59,7 +63,7 @@ impl Store {
 
     fn path(&self, id: &Id) -> PathBuf {
         let hex = id.hex();
-        self.root.join(&hex[..2]).join(hex)
+        self.root.join(hex.chars().take(2).collect::<String>()).join(hex)
     }
 
     /// Whether it holds `id`.
@@ -72,18 +76,24 @@ impl Store {
         decode(&std::fs::read(self.path(id))?, id)
     }
 
-    /// Store `bytes` as `id` (checked), compressed at [`LEVEL`].
+    /// Store `bytes` as `id` (checked), compressed at [`PUT_LEVEL`].
     pub fn put(&self, id: &Id, bytes: &[u8]) -> Result<()> {
         if Id::of(bytes) != *id {
             return Err(format!("bytes are not chunk {id}").into());
         }
-        self.put_file(id, &encode(bytes, LEVEL)?)
+        self.put_file(id, &encode(bytes, PUT_LEVEL)?)
     }
 
     /// Store a chunk file received from a peer or a pack, after checking it decodes to `id`.
     pub fn receive(&self, id: &Id, file: &[u8]) -> Result<()> {
         decode(file, id)?;
         self.put_file(id, file)
+    }
+
+    /// The chunk file of `id` as stored (compressed), to send to a peer that checks it with
+    /// [`Store::receive`]. Not checked here: the receiver checks every file it takes.
+    pub fn file(&self, id: &Id) -> Result<Vec<u8>> {
+        Ok(std::fs::read(self.path(id))?)
     }
 
     fn put_file(&self, id: &Id, file: &[u8]) -> Result<()> {

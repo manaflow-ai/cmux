@@ -161,3 +161,28 @@ async fn a_saved_loop_goal_with_no_agent_to_hold_it_keeps_nothing_up() {
     assert!(cloud_reads(&hub, start).0);
     hub.shutdown_all().await;
 }
+
+/// A daemon restart that adopts the live agent host: the agent still holds its wakeup, but the
+/// new daemon never heard the goal update that armed it. On the base the chat was idle-eligible at
+/// once, so the reaper ended the adopted agent seconds after the adoption and the wakeup never
+/// fired.
+#[tokio::test]
+async fn an_adopted_agent_keeps_the_loop_timer_its_old_daemon_heard() {
+    let start = crate::store::now_ms();
+    let due = start + DELAY;
+    let (hub, session) = chat().await;
+    set_goal(&session, wakeup(due)).await;
+    assert!(!hub.idle_eligible(&session));
+    // The new daemon's session: the saved goal and the live agent, no timers heard.
+    *session.loop_timers.lock().unwrap() = None;
+    assert!(hub.idle_eligible(&session), "the stand-in for the new daemon before adoption");
+
+    note_adopted_goal(&session);
+    assert!(!hub.idle_eligible(&session), "the reaper would end the adopted agent's wakeup");
+    assert_eq!(hub.pending_timer(&session, start), Some(PendingTimer { wake_at: Some(due) }));
+
+    // Not a loop: nothing is held.
+    set_goal(&session, json!({"status": "active", "objective": "ship it"})).await;
+    note_adopted_goal(&session);
+    assert_eq!(hub.pending_timer(&session, start), None);
+}

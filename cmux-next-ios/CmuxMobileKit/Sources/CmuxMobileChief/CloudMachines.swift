@@ -327,6 +327,8 @@ public final class CloudMachinesModel {
     }
 
     public var canAct: Bool { busyID == nil && account() != nil }
+    /// An account is signed in: a failed load is a read to try again (on its own), not a sign-in.
+    public var isSignedIn: Bool { account() != nil }
 
     public func machine(_ id: String) -> CloudMachine? { machines.first { $0.id == id } }
     public func snapshots(of machine: String) -> [CloudMachineSnapshot] { snapshots.filter { $0.machine == machine && $0.archiveOf == nil } }
@@ -348,7 +350,8 @@ public final class CloudMachinesModel {
             return
         }
         let before = phase
-        if machines.isEmpty, phase != .loaded { phase = .loading }
+        // A failed page stays as it is while it loads again (its screen retries on its own and
+        // shows a spinner until the quiet bound), so it never flickers to "Loading" on each try.
         do {
             async let planned = account.read("cloud.plan.get")
             async let saved = account.read("cloud.snapshot.list")
@@ -401,11 +404,11 @@ public final class CloudMachinesModel {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { params["name"] = String(trimmed.prefix(80)) }
         if let fromSnapshot { params["from_snapshot"] = fromSnapshot }
-        await act("new") { try await $0.mutate("cloud.machine.create", params: params, key: "create-\(self.newKey())") }
+        await act("new", startsMachine: true) { try await $0.mutate("cloud.machine.create", params: params, key: "create-\(self.newKey())") }
     }
 
     public func start(_ machine: CloudMachine) async {
-        await act(machine.id, optimistic: { $0.status = .starting }) {
+        await act(machine.id, startsMachine: true, optimistic: { $0.status = .starting }) {
             try await $0.mutate("cloud.machine.start", params: ["machine": machine.id], key: "start-\(machine.id)-\(self.newKey())")
         }
     }
@@ -471,7 +474,7 @@ public final class CloudMachinesModel {
 
     /// A new machine booted from a ready snapshot or archive.
     public func restore(_ snapshot: CloudMachineSnapshot) async {
-        await act(snapshot.id) { try await $0.mutate("cloud.snapshot.restore", params: ["snapshot": snapshot.id], key: "restore-\(snapshot.id)-\(self.newKey())") }
+        await act(snapshot.id, startsMachine: true) { try await $0.mutate("cloud.snapshot.restore", params: ["snapshot": snapshot.id], key: "restore-\(snapshot.id)-\(self.newKey())") }
     }
 
     public func deleteSnapshot(_ snapshot: CloudMachineSnapshot) async {
@@ -484,7 +487,8 @@ public final class CloudMachinesModel {
 
     /// Runs one op: the change shows at once (`optimistic`), the list is read again after, and a
     /// refusal puts the row back and says why. An approval the service holds is a note, not a failure.
-    private func act(_ id: String, watchesSnapshots: Bool = false, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
+    /// `startsMachine`: the op starts or makes a machine, so the vault seals it its values once it lands.
+    private func act(_ id: String, watchesSnapshots: Bool = false, startsMachine: Bool = false, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
                      _ work: @MainActor (AccountCloud) async throws -> Data) async {
         guard busyID == nil, let account = account() else {
             rollback?()
@@ -509,6 +513,7 @@ public final class CloudMachinesModel {
                 if let index = machines.firstIndex(where: { $0.id == answered.id }) { machines[index] = answered } else { machines.append(answered) }
             }
             busyID = nil
+            if startsMachine { VaultTriggers.machineStarted() }
             await load()
         } catch is CancellationError {
             restore()
@@ -533,8 +538,10 @@ public final class CloudMachinesModel {
         case "cloud.size.grow_only": return String(localized: "A machine can only grow.")
         case "cloud.spend_cap.reached": return String(localized: "Your team reached its spending cap.")
         case "cloud.member_budget.reached": return String(localized: "You reached your monthly Cloud budget.")
+        // retry-prompt-ok: a machine change is the person's write (costs, approvals); rate-limited, they choose to make it again
         case "cloud.rate_limited": return String(localized: "Too many changes at once. Try again in a minute.")
         case "approval.denied": return String(localized: "The request was denied.")
+        // retry-prompt-ok: the approval itself expired; asking again sends a new approval request, the person's choice
         case "approval.expired": return String(localized: "The approval expired. Try again.")
         default: return failure.description
         }

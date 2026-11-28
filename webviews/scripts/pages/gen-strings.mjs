@@ -50,6 +50,21 @@ export const LOCALES = [
   "zh-Hant",
 ];
 
+/** The pane connect card's own words outside `connect.` (acpmux/ConnectCard.tsx), for pages that draw it. */
+const CONNECT_CARD_KEYS = [
+  "picker.tryAgain",
+  "picker.connectClaude.refused",
+  "picker.connectClaude.failed",
+  "picker.connectClaude.connected",
+  "picker.connectClaude.invalid",
+  "picker.setup.cancel",
+  "harness.notNow",
+  "cloudSetup.steps.progress",
+  "cloudSetup.chatgpt",
+  "turn.signIn.save",
+  "turn.signIn.keyLabel",
+];
+
 const readJSON = (file) => JSON.parse(fs.readFileSync(path.join(repo, file), "utf8"));
 
 /** Every key a settings schema export names (titles, help, summaries, groups, default labels, choices, page layout). */
@@ -115,6 +130,10 @@ export const PAGES = {
     catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
   },
   // The device sign-in card and account list (Settings > Accounts, onboarding): their own table.
+  connect: {
+    out: "webviews/src/pages/shared/connect/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/connect/Localizable.xcstrings" }],
+  },
   signIn: {
     out: "webviews/src/pages/shared/signIn/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" }],
@@ -190,6 +209,13 @@ export const PAGES = {
         // Connect Claude's one click and its progress line, the chat's connect card's own words.
         file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
         keys: (all) => all.filter((key) => key.startsWith("connect.")),
+      },
+      // Settings > Integrations > Connections: the shared connect card and All connections.
+      { file: "webviews/src/pages/shared/connect/Localizable.xcstrings" },
+      {
+        // Settings > Accounts' GitHub CLI fallback, for hosts that predate the localized state fields.
+        file: `${sources}/CmuxNextAccounts/Resources/GitHubConnection.xcstrings`,
+        keys: (all) => all.filter((key) => ["github.cliSignIn", "github.cliSignInDetail"].includes(key)),
       },
     ],
   },
@@ -335,17 +361,6 @@ export const PAGES = {
       },
     ],
   },
-  // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
-  // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
-  machines: {
-    out: "webviews/src/pages/machines/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("machines.") || key.startsWith("addMachine.step.")),
-      },
-    ],
-  },
   // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",
@@ -395,15 +410,13 @@ export const PAGES = {
     out: "webviews/src/pages/chief-views/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
   },
-  // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
-  coderouter: {
-    out: "webviews/src/pages/coderouter/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
-  },
   // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/pages/home-channels/Localizable.xcstrings" },
+      { file: "webviews/src/pages/home-channels/transcript/Localizable.xcstrings.d" },
+    ],
   },
   // Home's Set Up cmux card (setup-card), with the Swift keys it replaces; its table lives next to it.
   "setup-card": {
@@ -477,13 +490,18 @@ export const PAGES = {
   // Settings > Agents > Harnesses draws the agent pane's plan usage card under each account
   // (ProviderAccounts.tsx, acpmux/PlanUsageCard.tsx), which reads the pane's table; the page installs
   // only its `planUsage.` keys (settings/paneStrings.ts). Without them the shipped page showed the
-  // raw keys (planUsage.window.session) in every account's usage.
+  // raw keys (planUsage.window.session) in every account's usage. Settings > Integrations >
+  // Connections draws each app as the pane's connect card (acpmux/ConnectCard.tsx), so the page also
+  // installs that card's own words (CONNECT_CARD_KEYS).
   "settings-pane": {
     out: "webviews/src/pages/settings/generated/pane-strings.json",
     catalogs: [
       {
         file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
-        keys: (all) => all.filter((key) => key.startsWith("planUsage.")),
+        keys: (all) =>
+          all.filter(
+            (key) => key.startsWith("planUsage.") || key.startsWith("connect.") || CONNECT_CARD_KEYS.includes(key),
+          ),
       },
     ],
   },

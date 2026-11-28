@@ -30,9 +30,41 @@ What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 202
 - `billing.yml`: its StoreKit lane runs on a Mac when the PR touches `Packages/iOS/CmuxMobileBilling/**` or
   billing files in the app.
 - Most Linux jobs on our own branches run on the `cmux-linux` label (cmux#48644); fork PRs use
-  `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
+  `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
+
+## Prove an iOS fix: FlowSuite and `cmux ios verify`
+
+Aziz's iOS testing notes, which used to be private team docs, now live in the repo as runnable checks:
+[FlowSuite/](FlowSuite/README.md) (`flows.json`: each flow that broke before, its tests and the paths that
+can break it), [FlowSuite/CHECKLIST.md](FlowSuite/CHECKLIST.md) (what still needs a person, and why) and
+[FlowSuite/REGRESSIONS-2026-11.md](FlowSuite/REGRESSIONS-2026-11.md) (why each November regression
+shipped). You need no other checkout to use them.
+
+1. **Run it on the pushed head.** `cmux ios verify` (or `--pr N`; `--plan` lists the flows and runs
+   nothing). It merges the moved base in, runs the flows your diff can affect on fleet simulators, diffs
+   every screenshot against the last passing proof merged into the base, and posts the proof that the
+   `cmux/ios-fast` gate reads. Without fleet access, run
+   `python3 -I cmux-next-ios/FlowSuite/select_flows.py --base origin/feat-cmux-next --sim-args` and then
+   one `scripts/ci/cmux-next-ios-sim.sh test only=... ui=... video` per line it prints.
+2. **Look at the screenshots yourself.** A green proof is not "fixed". Open the before and after frames of
+   the screen you changed from `artifacts/ios-sim/evidence.zip` (or the proof comment) and check that they show
+   what the PR claims. Put them in the PR body, cropped to the screen, the before frame from the base.
+   Leo, 2026-11-27, about the Workspaces row highlight and the terminal skeleton: "i think even y'all didnt
+   even look at sceenshots for those". A screen that changes more than the diff threshold fails the proof
+   unless the body has `Visual-change: <screen>: <why>`.
+3. **Every iOS regression fix adds a flow, in the same PR.** Add a test that fails on the broken build
+   (a UI test that saves a frame of the bad state), a `flows.json` entry whose `source` is
+   `regression:N`, and a row in the FlowSuite table. `select_flows.py --check` (in `test_select_flows.py`)
+   fails a row that has no flow, or a flow that names a suite that no longer exists. Each later PR that touches
+   those paths then runs the flow with no extra step.
+4. **Check what the phone runs, not what the source says.** A merge is not in anyone's hand until a
+   TestFlight `cmux INTERNAL` build carries the merge commit
+   ([TESTING-ON-YOUR-IPHONE.md](TESTING-ON-YOUR-IPHONE.md)). Report that build's number when you say a
+   fix is out.
 
 ## Try a PR on the person's phone: cmux Dev
+
+The person's own page for every way onto their phone, cmux INTERNAL and iPhone YOLO included: [TESTING-ON-YOUR-IPHONE.md](TESTING-ON-YOUR-IPHONE.md).
 
 `cmux-next-ios/scripts/try.sh <PR|branch|sha|.>`, from the Mac the phone is attached to, puts that commit on every
 connected iPhone as **cmux Dev** (`dev.cmux.mobile.dev`): the iPhone twin of `cmux app try PR`. One app that
@@ -41,6 +73,13 @@ so it shows their real data (the Demo build's rule). A build step makes only the
 (`cmux-next-ios-sim.sh try`, keyed by the commit, cached on the Mac); the Mac signs, installs and launches it.
 `--sign-in` signs it in with the `personal` profile (first install), `--backend ORIGIN` points it at another
 Cloud backend, `try.sh status` lists the last tries and their times.
+
+Built ahead: every head of a same-repository iPhone PR into `feat-cmux-next` runs the `cmux Dev try build (ahead)`
+check (`.github/workflows/cmux-next-ios-try-ahead.yml`), the same fleet step under the same key try.sh asks for, so
+`try.sh N` then only downloads, signs and installs. In cmux Dev, Settings > Developer > Try a Pull Request lists the
+open iPhone PRs (`try.sh list`) with their build state and installs one through the Mac's hostd (`try-pr`,
+PROTOCOL.md). That Mac needs the script linked once: `ln -s <checkout>/cmux-next-ios/scripts/try.sh ~/.config/cmux/try.sh`
+(or `CMUX_MOBILE_TRY_SH`), with gh signed in and the cmux-ci client installed.
 
 ## Hand-off command
 
@@ -119,7 +158,9 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    signed in again from its own session, with screenshots and a recording. Rerunning resumes the saved jobs.
 2. Installs the tagged Mac app at the tag's path and starts it in the background (`open -g`,
    never frontmost), signed in to the `personal` account.
-3. On every connected, paired iPhone (new phones are registered): signs a copy with this Mac's
+3. On every connected, paired iPhone of this Mac's person (a new phone plugged in by USB is
+   registered; a phone this Mac does not know that it reaches only over Wi-Fi, such as a
+   teammate's test phone, is skipped and reported; `--device-id` names one): signs a copy with this Mac's
    Apple Development identity and a development profile that names the phone, installs it through
    the sanctioned install, and launches it signed in with the `personal` profile and the
    tagged Mac named to focus (`CMUX_MOBILE_FOCUS_MAC`, a device id). The tagged Mac's dev auto-approve
@@ -143,10 +184,10 @@ Never install the app with raw `devicectl`, skip a phone, or replace the phone w
 What it needs:
 
 - iPhone connections on in the person's cmux-next (Settings > Mobile > Allow iPhone connections,
-  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux/cmux-next.json`
+  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux-next/cmux-next.json`
   that every build reads, so a fresh tag starts with the person's choice. Only the person turns it
   on; when it is off, `review.sh` reports that as the blocker.
-- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux/dev-account` naming
+- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux-next/dev-account` naming
   it, so the tagged Mac signs in to the same account as the phone (`scripts/setup-team-dev.sh`).
 - A development profile on this Mac for each bundle (the app and its two notification
   extensions) that names each phone; the team wildcard profile covers all three. A phone no
@@ -180,15 +221,16 @@ receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
 
 ## Landing an iOS PR
 
-A PR that changes iOS code waits for Aziz's review. It lands without him only when it's proven
-correct and fully functional, with its implications written in the PR. merge_hold reads one line in
-the PR body:
+An iOS PR lands like any other `feat-cmux-next` PR: green CI and a review SHIP at the exact head. Nobody
+waits on Aziz or tells him after (Leo, 2026-11-23: "i already told interim-coord: do not hold. if you can
+argue for it strongly, then just merge it. we do not hold on people and arbitrary things and blockers than
+can be solved. ever."; "you dont have to keep telling aziz"). His reviews are welcome as follow-ups.
 
-- `iOS-hold: strict fix`: a basic correctness fix, plus an independent review SHIP at the exact head
-  that confirms it.
-- `iOS-hold: proven`: a test that fails without the change and passes with it (run links), the flow
-  working end to end in a simulator or on a device, a `## Implications` section, and a review SHIP at
-  the exact head that confirms all three.
+land-judge still asks a PR that changes iOS UI code for its case, one of these lines in the body:
 
-A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` hold nothing.
-Either way, post a comment on the PR that mentions Aziz so he knows it's coming.
+- `Merge-case: <why it should merge now>` (at least 8 words), the usual route.
+- `iOS-hold: strict fix` with a one-paragraph `## ELI5` section (at most 120 words).
+- `iOS-hold: proven` with a test that fails without the change, the flow working in a simulator or on a
+  device, a `## Implications` section, and a review SHIP at the head that confirms them.
+
+A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` need no case.

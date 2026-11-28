@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.start.environmentMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chosen machine cannot serve the selected Cloud environment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したマシンでは指定の Cloud 環境を使用できません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gewählte Maschine kann die ausgewählte Cloud-Umgebung nicht verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine choisie ne peut pas utiliser cet environnement Cloud."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina elegida no puede usar el entorno de Cloud seleccionado."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للجهاز المختار استخدام بيئة Cloud المحددة."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 머신에서 지정된 Cloud 환경을 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选机器无法使用指定的 Cloud 环境。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選機器無法使用指定的 Cloud 環境。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odabrana mašina ne može koristiti izabrano Cloud okruženje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valgte maskine kan ikke bruge det valgte Cloud-miljø."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La macchina scelta non può usare l’ambiente Cloud selezionato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនដែលបានជ្រើសមិនអាចប្រើបរិស្ថាន Cloud ដែលបានកំណត់ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valgte maskinen kan ikke bruke det valgte Cloud-miljøet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybrana maszyna nie może użyć wskazanego środowiska Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A máquina escolhida não pode usar o ambiente Cloud selecionado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбранная машина не поддерживает указанную среду Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องที่เลือกไม่สามารถใช้สภาพแวดล้อม Cloud ที่ระบุได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçilen makine belirtilen Cloud ortamını kullanamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибрана машина не може використовувати вказане середовище Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy đã chọn không thể sử dụng môi trường Cloud được chỉ định."
+          }
+        }
+      }
+    },
     "cloud.startSession.start": {
       "comment": "Button on the card: start the agent session.",
       "extractionState": "manual",
@@ -242,6 +373,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "`cmux link open --url %@` mở mục đó."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "`cmux link open --url %@` 可在那里打开它。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "`cmux link open --url %@` 可在那裡開啟它。"}}
+      }
+    },
+    "cloud.startSession.setupRequired.gateway": {
+      "comment": "After cloud.startSession.setupRequired.open: the team inference gateway the refusal read. %1$@ is the backend team id (team_...), %2$@ is a machine-readable code (auth.no_token, timed_out, not_serving). Keep both as is.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Inference gateway of team %1$@: %2$@."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "チーム %1$@ の推論ゲートウェイ: %2$@。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Inferenz-Gateway des Teams %1$@: %2$@."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Passerelle d’inférence de l’équipe %1$@ : %2$@."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pasarela de inferencia del equipo %1$@: %2$@."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بوابة الاستدلال للفريق %1$@: %2$@."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Inference gateway tima %1$@: %2$@."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Inferens-gateway for teamet %1$@: %2$@."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Gateway di inferenza del team %1$@: %2$@."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ច្រកផ្លូវ inference របស់ក្រុម %1$@៖ %2$@។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "팀 %1$@의 추론 게이트웨이: %2$@."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Inferens-gateway for teamet %1$@: %2$@."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bramka inferencji zespołu %1$@: %2$@."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Gateway de inferência da equipe %1$@: %2$@."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Шлюз инференса команды %1$@: %2$@."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เกตเวย์การอนุมานของทีม %1$@: %2$@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ ekibinin çıkarım ağ geçidi: %2$@."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Шлюз інференсу команди %1$@: %2$@."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cổng suy luận của nhóm %1$@: %2$@."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "团队 %1$@ 的推理网关：%2$@。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "團隊 %1$@ 的推論閘道：%2$@。"}}
       }
     },
     "cloud.startSession.setupRequired.claudeLogin": {
@@ -782,6 +940,33 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama %4$@ (`%3$@`) orada yüklü değil. Orada yükleyin veya `cmux cloud start-session --target machine:%2$@ --agent AGENT` komutunu başka bir ajanla çalıştırın."}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, але %4$@ (`%3$@`) на ній не встановлено. Встановіть його там або виконайте `cmux cloud start-session --target machine:%2$@ --agent AGENT` з іншим агентом."}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng %4$@ (`%3$@`) chưa được cài trên máy đó. Cài nó ở đó, hoặc chạy `cmux cloud start-session --target machine:%2$@ --agent AGENT` với tác tử khác."}}
+      }
+    },
+    "cloud.startSession.claudeSettingsSecret": {
+      "comment": "Claude team route refusal when the machine's settings file contains a credential that would be exposed by the launch.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Claude の設定ファイルに起動時にコピーされる認証情報が含まれているため、チームのルートで起動できませんでした。設定ファイルから認証情報を削除して、もう一度お試しください。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Claude konnte die Teamroute nicht nutzen, weil seine Einstellungsdatei Zugangsdaten enthält, die beim Start kopiert würden. Entferne die Zugangsdaten aus der Einstellungsdatei und versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Claude n’a pas pu démarrer via la route de l’équipe, car son fichier de paramètres contient un identifiant d’accès qui serait copié au démarrage. Retirez-le du fichier, puis réessayez."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Claude no pudo iniciarse con la ruta del equipo porque su archivo de configuración contiene una credencial que se copiaría al iniciar. Quita la credencial del archivo de configuración y vuelve a intentarlo."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تشغيل Claude عبر مسار الفريق لأن ملف إعداداته يحتوي على بيانات اعتماد سيجري نسخها عند التشغيل. أزل بيانات الاعتماد من ملف الإعدادات وحاول مجددًا."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Claude 설정 파일에 시작 시 복사될 자격 증명이 있어 팀 경로로 시작할 수 없었습니다. 설정 파일에서 자격 증명을 제거한 후 다시 시도하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Claude 的设置文件包含启动时会被复制的凭据，因此无法通过团队路由启动。请从设置文件中移除该凭据，然后重试。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude 的設定檔含有會在啟動時被複製的憑證，因此無法透過團隊路由啟動。請從設定檔移除該憑證，然後再試一次。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Claude se nije mogao pokrenuti putem rute tima jer datoteka postavki sadrži podatke za pristup koji bi se kopirali pri pokretanju. Uklonite te podatke iz datoteke postavki i pokušajte ponovo."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Claude kunne ikke starte via teamets rute, fordi indstillingsfilen indeholder adgangsoplysninger, der ville blive kopieret ved start. Fjern adgangsoplysningerne fra indstillingsfilen, og prøv igen."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Claude non ha potuto avviarsi sul percorso del team perché il suo file di impostazioni contiene una credenziale che verrebbe copiata all’avvio. Rimuovi la credenziale dal file di impostazioni e riprova."}},
+        "km": {"stringUnit": {"state": "translated", "value": "Claude មិនអាចចាប់ផ្ដើមតាមផ្លូវរបស់ក្រុមបានទេ ព្រោះឯកសារការកំណត់របស់វាមានព័ត៌មានសម្គាល់អត្តសញ្ញាណដែលនឹងត្រូវបានចម្លងពេលចាប់ផ្ដើម។ ដកព័ត៌មានសម្គាល់អត្តសញ្ញាណនោះចេញពីឯកសារការកំណត់ ហើយព្យាយាមម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Claude kunne ikke starte via teamets rute fordi innstillingsfilen inneholder påloggingsopplysninger som ville blitt kopiert ved oppstart. Fjern påloggingsopplysningene fra innstillingsfilen og prøv igjen."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie udało się uruchomić Claude przez trasę zespołu, ponieważ plik ustawień zawiera dane uwierzytelniające, które zostałyby skopiowane przy uruchamianiu. Usuń te dane z pliku ustawień i spróbuj ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Claude não pôde iniciar pela rota da equipe porque o arquivo de configurações contém uma credencial que seria copiada na inicialização. Remova a credencial do arquivo de configurações e tente novamente."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось запустить Claude через маршрут команды: в файле настроек есть учётные данные, которые были бы скопированы при запуске. Удалите их из файла настроек и повторите попытку."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Claude เริ่มทำงานผ่านเส้นทางของทีมไม่ได้ เนื่องจากไฟล์การตั้งค่ามีข้อมูลรับรองที่จะถูกคัดลอกเมื่อเริ่มทำงาน ให้นำข้อมูลรับรองออกจากไฟล์การตั้งค่าแล้วลองอีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Claude, ayar dosyasında başlatma sırasında kopyalanacak bir kimlik bilgisi bulunduğu için ekip rotasıyla başlatılamadı. Kimlik bilgisini ayar dosyasından kaldırıp tekrar deneyin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося запустити Claude через маршрут команди, оскільки файл налаштувань містить облікові дані, які було б скопійовано під час запуску. Видаліть їх із файлу налаштувань і спробуйте ще раз."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Không thể khởi động Claude qua tuyến của nhóm vì tệp cài đặt chứa thông tin xác thực sẽ bị sao chép khi khởi động. Hãy xóa thông tin xác thực khỏi tệp cài đặt rồi thử lại."}}
       }
     },
     "cloud.startSession.routeUnavailable": {

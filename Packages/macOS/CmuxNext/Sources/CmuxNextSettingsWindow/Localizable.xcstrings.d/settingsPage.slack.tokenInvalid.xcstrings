@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.slack.tokenInvalid" : {
+      "comment" : "Settings > Accounts > Slack connection card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack did not accept that token. Generate a new configuration token and paste it again."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لم يقبل Slack هذا الرمز. أنشئ رمز تهيئة جديدًا والصقه مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack nije prihvatio taj token. Generiši novi konfiguracijski token i zalijepi ga ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack accepterede ikke det token. Opret et nyt konfigurationstoken, og indsæt det igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack hat dieses Token nicht akzeptiert. Erzeuge ein neues Konfigurationstoken und füge es erneut ein."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack no aceptó ese token. Genera un token de configuración nuevo y pégalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack n’a pas accepté ce jeton. Générez un nouveau jeton de configuration et collez-le à nouveau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack non ha accettato quel token. Genera un nuovo token di configurazione e incollalo di nuovo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack がそのトークンを受け付けませんでした。新しい設定トークンを生成して、もう一度貼り付けてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack មិនទទួលយកថូខឹននោះទេ។ បង្កើតថូខឹនកំណត់រចនាសម្ព័ន្ធថ្មី ហើយបិទភ្ជាប់ម្តងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack에서 해당 토큰을 받아들이지 않았습니다. 새 구성 토큰을 생성해 다시 붙여넣으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack godtok ikke det tokenet. Opprett et nytt konfigurasjonstoken og lim det inn igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack nie zaakceptował tego tokenu. Wygeneruj nowy token konfiguracji i wklej go ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Slack não aceitou esse token. Gere um novo token de configuração e cole-o novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack не принял этот токен. Создайте новый токен конфигурации и вставьте его снова."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack ไม่ยอมรับโทเคนนั้น สร้างโทเคนการกำหนดค่าใหม่แล้ววางอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack bu belirteci kabul etmedi. Yeni bir yapılandırma belirteci oluşturup yeniden yapıştırın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack не прийняв цей токен. Створіть новий токен конфігурації та вставте його знову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack không chấp nhận token đó. Hãy tạo token cấu hình mới và dán lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack 不接受该令牌。请生成新的配置令牌，然后重新粘贴。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack 不接受該權杖。請產生新的設定權杖，然後重新貼上。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

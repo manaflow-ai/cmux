@@ -603,6 +603,11 @@ body {
   overflow-y: auto;
   padding: var(--ds-space-1);
 }
+/* The windowed list (ui/VirtualList) places rows from the top of its scroll content: a top padding
+   would push every row below where the list scrolls it to. The first group header keeps the gap. */
+.base-picker-list.ui-virtual {
+  padding-top: 0;
+}
 .base-picker-status {
   padding: 12px 9px;
   color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));

@@ -197,12 +197,12 @@ fn a_relay_row_from_the_kept_listing_shows_its_state_not_peer_down() {
     let out = compact(&[kept("running"), kept("ready")]);
     assert!(!out.contains("peer down") && !out.contains("unknown"), "{out}");
     let line = |n: &str| out.lines().find(|l| l.starts_with(n)).unwrap().to_owned();
-    assert!(line("gcp-agent-lane-2/running").contains(" running"), "{out}");
-    assert!(line("gcp-agent-lane-2/ready").contains(" ready"), "{out}");
+    assert!(line("gcp-agent-lane-2/running").contains(" working"), "{out}");
+    assert!(line("gcp-agent-lane-2/ready").contains(" waiting"), "{out}");
 }
 
 #[test]
-fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
+fn an_unreachable_peer_reads_one_of_four_and_is_never_dropped() {
     let stale = with(
         lane("far"),
         json!({"peer": "cmux16", "peerState": "offline", "stale": true, "state": "running"}),
@@ -214,17 +214,22 @@ fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
     ];
     let out = render(&[stale], Some(&peers), View::default(), false, NOW);
     let row = out.lines().nth(1).unwrap();
-    assert!(row.contains("unknown") && row.ends_with("peer offline"), "{out}");
+    // Leo: "they're waiting or they're working or they're done or they're errored".
+    assert!(row.contains(" waiting ") && row.ends_with("cmux16 answering"), "{out}");
+    assert!(!out.contains("unknown") && !out.contains("reconnecting"), "{out}");
     assert!(
-        out.contains("UNKNOWN cmux16: peer offline for 3m; its sessions are last known, not live"),
+        out.contains(
+            "DOWN cmux16: not answering for 3m; its sessions are last known: waiting 15m, then \
+             unfinished ones errored"
+        ),
         "{out}"
     );
     // A down peer with no rows at all still gets its line.
-    assert!(out.contains("UNKNOWN air-blue: peer reconnecting;"), "{out}");
+    assert!(out.contains("DOWN air-blue: not answering;"), "{out}");
     assert!(!out.contains("huge-blue"), "{out}");
     // Peer states that could not be read are said, not taken as none down.
     let unread = render(&[lane("a")], None, View::default(), false, NOW);
-    assert!(unread.contains("UNKNOWN peers: their link states could not be read"), "{unread}");
+    assert!(unread.contains("PEERS UNREAD: their link states could not be read"), "{unread}");
 }
 
 #[test]
@@ -233,10 +238,9 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     // Warnings as the daemon decides them (`hub/usage_warnings.rs`), for a row named `big`.
     let stats = json!({"autocompact": "none", "contextTokens": 955_000, "subagents1h": 90});
     let summary = json!({"name": "big", "status": "idle", "family": "claude", "usageStats": stats});
-    let warnings = crate::hub::usage_warnings::usage_warnings(
-        &summary,
-        &crate::config::UsageLimits::default(),
-    );
+    // The no-cap rule is opt-in (`usageWarnings.autocompactCap`); turned on here to draw all three.
+    let limits = crate::config::UsageLimits { autocompact_cap: true, ..Default::default() };
+    let warnings = crate::hub::usage_warnings::usage_warnings(&summary, &limits);
     let warned = with(lane("big"), json!({"usageWarnings": warnings}));
     let out = compact(&[lane("a"), warned.clone()]);
     assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
@@ -292,7 +296,7 @@ fn a_filter_that_matches_nothing_still_names_the_down_peers() {
     let peers = [json!({"name": "air-blue", "state": "offline"})];
     let out = render(&[], Some(&peers), View::default(), true, NOW);
     assert!(out.starts_with("no sessions match these filters\n"), "{out}");
-    assert!(out.contains("UNKNOWN air-blue: peer offline;"), "{out}");
+    assert!(out.contains("DOWN air-blue: not answering;"), "{out}");
 }
 
 #[test]
@@ -396,20 +400,20 @@ fn a_down_peer_the_fleet_registry_pauses_reads_paused_not_unknown() {
     let rows = [down("gcp-codex-lane-12"), down("gcp-agent-lane-2")];
     let out = render_paused(&rows, Some(&peers), View::default(), false, NOW, &pauses);
     let line = |p: &str| out.lines().find(|l| l.starts_with(&format!("{p}/l"))).unwrap().to_owned();
-    assert!(line("gcp-codex-lane-12").contains(" paused "), "{out}");
-    assert!(line("gcp-codex-lane-12").ends_with("host idle-stopped"), "{out}");
-    // A peer the registry means to be up keeps UNKNOWN.
-    assert!(line("gcp-agent-lane-2").contains(" unknown "), "{out}");
-    assert!(line("gcp-agent-lane-2").ends_with("peer reconnecting"), "{out}");
+    assert!(line("gcp-codex-lane-12").contains(" waiting "), "{out}");
+    assert!(line("gcp-codex-lane-12").ends_with("gcp-codex-lane-12 idle-stopped"), "{out}");
+    // A peer the registry means to be up waits on it, never unknown.
+    assert!(line("gcp-agent-lane-2").contains(" waiting "), "{out}");
+    assert!(line("gcp-agent-lane-2").ends_with("gcp-agent-lane-2 answering"), "{out}");
     assert!(
         out.contains(
-            "PAUSED gcp-codex-lane-12: idle-stopped in the fleet registry, peer reconnecting for 1m; \
-             its sessions are last known, not live"
+            "PAUSED gcp-codex-lane-12: idle-stopped in the fleet registry for 1m; \
+             its sessions are last known and wait on it"
         ),
         "{out}"
     );
-    assert!(out.contains("UNKNOWN gcp-agent-lane-2: peer offline;"), "{out}");
-    // Without the registry (render), every down peer is UNKNOWN as before.
+    assert!(out.contains("DOWN gcp-agent-lane-2: not answering;"), "{out}");
+    // Without the registry (render), every down peer is DOWN.
     assert!(!render(&rows, Some(&peers), View::default(), false, NOW).contains("PAUSED"));
 }
 
@@ -452,4 +456,17 @@ fn an_alias_is_the_name_ls_shows() {
         "{}",
         first(tagged("Mochi"))
     );
+}
+
+#[test]
+fn archived_chats_leave_the_default_list_and_are_counted() {
+    let rows = vec![
+        lane("live"),
+        with(lane("shelved"), json!({"tags": {"archived": "true", "archivedBy": "lifecycle"}})),
+    ];
+    let out = compact(&rows);
+    assert!(!out.lines().any(|l| l.starts_with("shelved")), "{out}");
+    assert!(out.contains("1 more hidden (1 archived)"), "{out}");
+    let all = render(&rows, Some(&[]), View { all: true, wide: false }, false, NOW);
+    assert!(all.lines().any(|l| l.starts_with("shelved")), "{all}");
 }

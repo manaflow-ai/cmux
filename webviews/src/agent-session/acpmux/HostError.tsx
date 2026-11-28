@@ -1,7 +1,8 @@
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
 import { Clock } from "../../ui/Typography";
 import { type HostRestoring, hostRecoveryLine } from "./hostRetry";
+import { noteHostLine } from "./flickerLog";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
@@ -11,8 +12,9 @@ import "./conversation/cardFit.css";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
 /// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
-/// (`action`, the label for `onRetry`); without `onRetry` it has no button. With its own action it is
-/// a warning that waits for that step; with plain Retry it is an error whose Retry leads.
+/// (`action`, the label for `onRetry`); without both it has no button. With its own action it is a
+/// warning that waits for that step. It never has a plain Retry: asking again without the step gets
+/// the same refusal, and the start runs again by itself once the step is done (Leo, 2026-11-22).
 export function HostError({
   message,
   retrying,
@@ -26,17 +28,16 @@ export function HostError({
   hint?: string | null;
   action?: string;
 }) {
-  const t = useT();
-  const label = action ?? t(retrying ? "host.retryQueued" : "host.retry");
   return (
     <div className="acpmux-host-error">
       <Notice
         kind={action ? "warning" : "error"}
         title={hint ? message : undefined}
         message={hint ?? message}
-        retry={!action && onRetry ? { label, onRetry, disabled: retrying } : undefined}
         actions={
-          action && onRetry ? [{ id: "action", label, onSelect: onRetry, disabled: retrying, primary: true }] : []
+          action && onRetry
+            ? [{ id: "action", label: action, onSelect: onRetry, disabled: retrying, primary: true }]
+            : []
         }
       />
     </div>
@@ -60,6 +61,22 @@ export function HostError({
 /// person and the chat comes back by itself (Leo, 2026-11-12: "the recovery needs to be a lot better
 /// and it shouldn't talk so much bullshit"; "try what? no, it should just automatically do stuff").
 /// Only a failure asking again cannot clear keeps its message and its one action.
+/// Records the host line `line` in the flicker ring while it is on screen: `shown` when it mounts,
+/// `cleared` with how long it showed when it goes (flickerLog.ts `host-line`). The gallery and tests
+/// start no flicker log, so they record nothing.
+function useHostLineLog(line: string): void {
+  useEffect(() => {
+    const shown = Date.now();
+    noteHostLine(line, "shown");
+    return () => noteHostLine(line, "cleared", Date.now() - shown);
+  }, [line]);
+}
+
+function HostLineLog({ line }: { line: string }) {
+  useHostLineLog(line);
+  return null;
+}
+
 export function HostUnavailableLine({
   message,
   detail,
@@ -90,6 +107,7 @@ export function HostUnavailableLine({
   // and a narrower one shows Restart and Retry as their icons.
   return (
     <div className="acpmux-host-line-group cv-fit" role="alert">
+      <HostLineLog line="unavailable" />
       <div className="acpmux-host-line cv-fit-row">
         <p
           className="acpmux-host-line-message cv-fit-text selectable"
@@ -113,6 +131,11 @@ export function HostUnavailableLine({
             </button>
           ) : (
             onRetry && (
+              // retry-prompt-ok: only a failure asking again by itself cannot clear reaches here (`selfRetrying`
+              // false), and App.tsx passes `onRetry` only for a chat too large to open ("Update cmux to open
+              // this chat, then Retry") or a chat's machine the person brings back. This app's own agent
+              // service has no Retry: the pane asks again itself, forever, and starts a stopped one itself
+              // (paneSnapshot.ts `startOnAsk`; cmux#60478, a brief forwarded as Leo's, unverified).
               <button type="button" title={retryLabel} aria-label={retryLabel} onClick={onRetry} disabled={retrying}>
                 <Icon name="action.retry" size={12} />
                 <span className="cv-fit-label">{retryLabel}</span>
@@ -167,6 +190,7 @@ export function ConnectionChip({
   variant?: ConnectionChipVariant;
 }) {
   const label = typeof words === "string" ? words : undefined;
+  useHostLineLog(kind);
   return (
     <output
       className="acpmux-host-chip"
@@ -195,7 +219,7 @@ export function HostLineSlot({ children }: { children?: ReactNode }) {
 
 /// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
 /// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
-/// a lost connection comes back, as a ConnectionChip (out of flow). No button and no card: nothing
+/// a lost connection comes back and a sent prompt waits for it, as a ConnectionChip (out of flow). No button and no card: nothing
 /// waits on the person. Otherwise
 /// (`otherwise`) the host's other line, if any.
 export function HostRecoveringLine({

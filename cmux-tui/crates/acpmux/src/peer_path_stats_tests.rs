@@ -84,7 +84,7 @@ fn a_direct_probe_while_relayed_is_an_upgrade_attempt() {
 #[test]
 fn every_attempt_is_recorded_with_its_transport_in_a_bounded_ring() {
     let mut stats = LinkStats::new(0);
-    stats.attempt_failed(Via::Wireguard, 900);
+    stats.attempt_failed(Via::Wireguard, 900, false);
     stats.opened(&[Via::Wireguard, Via::Ssh], Via::Ssh, 1_000, 1_420);
     let view = stats.view(1_420);
     let rows = view["attempts"].as_array().unwrap();

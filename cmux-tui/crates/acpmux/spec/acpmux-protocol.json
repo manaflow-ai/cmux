@@ -132,6 +132,16 @@
     },
     {
       "kind": "request",
+      "name": "session/signature",
+      "params": {
+        "$ref": "#/types/SignatureParams"
+      },
+      "result": {
+        "$ref": "#/types/SignatureResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/request_state",
       "params": true,
       "result": true
@@ -236,6 +246,18 @@
     {
       "kind": "request",
       "name": "_acpmux/perf",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
       "params": true,
       "result": true
     },
@@ -367,6 +389,46 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/live",
+      "params": {
+        "$ref": "#/types/LiveParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/live_list",
+      "params": {
+        "$ref": "#/types/LiveListParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveListResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/rooms",
+      "params": {
+        "$ref": "#/types/RoomsParams"
+      },
+      "result": {
+        "$ref": "#/types/RoomsResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/follow",
+      "params": {
+        "$ref": "#/types/FollowParams"
+      },
+      "result": {
+        "$ref": "#/types/FollowResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/here/beat",
       "params": {
         "$ref": "#/types/HereBeatParams"
@@ -423,6 +485,16 @@
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pin",
+      "params": {
+        "$ref": "#/types/PinParams"
+      },
+      "result": {
+        "$ref": "#/types/SessionSummary"
       }
     },
     {
@@ -885,6 +957,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_hop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mesh_control",
       "params": true,
       "result": true
@@ -993,6 +1071,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/bg/rearm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/run_elsewhere/plan",
       "params": true,
       "result": true
@@ -1023,19 +1107,13 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/history/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/surgery",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/task_list/set",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/task_list/get",
       "params": true,
       "result": true
     },
@@ -1081,6 +1159,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/worktree/report",
       "params": true,
       "result": true
@@ -1105,6 +1189,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/history_delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/lifecycle",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transcript_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/cold_archive",
       "params": true,
       "result": true
@@ -1112,6 +1220,12 @@
     {
       "kind": "request",
       "name": "_acpmux/auto_session/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/move",
       "params": true,
       "result": true
     },
@@ -1208,6 +1322,20 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/undelete",
+      "params": {
+        "$ref": "#/types/UndeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/deleted",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/side",
       "params": {
         "$ref": "#/types/SideParams"
@@ -1266,7 +1394,19 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/scorecard_replay",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/session_files",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/paused_files",
       "params": true,
       "result": true
     },
@@ -1379,6 +1519,24 @@
     {
       "kind": "request",
       "name": "_acpmux/team/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/navigator",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/pick",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/session_info",
       "params": true,
       "result": true
     },
@@ -1898,6 +2056,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_secrets_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_clear",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/elevation_request",
       "params": true,
       "result": true
@@ -2203,6 +2379,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness_disable",
+      "params": {
+        "$ref": "#/types/HarnessDisableParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/add",
       "params": true,
       "result": true
@@ -2247,6 +2431,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_login/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/logout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/agent_login/start",
       "params": {
         "$ref": "#/types/AgentLoginStartParams"
@@ -2256,6 +2452,22 @@
     {
       "kind": "request",
       "name": "_acpmux/agent_login/finish",
+      "params": {
+        "$ref": "#/types/AgentLoginFinishParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_start",
+      "params": {
+        "$ref": "#/types/AgentLoginStartParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_finish",
       "params": {
         "$ref": "#/types/AgentLoginFinishParams"
       },
@@ -2521,6 +2733,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/secret.store",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/secret.delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/chatgpt.begin",
       "params": true,
       "result": true
@@ -2534,6 +2758,48 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/chatgpt.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/grok.hook",
       "params": true,
       "result": true
     },
@@ -2625,6 +2891,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/heap_profile",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peers",
       "params": {
         "$ref": "#/types/PeersParams"
@@ -2645,6 +2917,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/wireguard_admit",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/host_overload",
       "params": true,
       "result": true
@@ -2657,6 +2935,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/autocloud_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/host_notice",
       "params": true,
       "result": true
@@ -2664,6 +2948,24 @@
     {
       "kind": "request",
       "name": "_acpmux/place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_undo",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_get",
       "params": true,
       "result": true
     },
@@ -2747,18 +3049,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/trace/spans",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/status",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "agent/credentials.update",
       "params": true,
       "result": true
@@ -2819,6 +3109,42 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/consent_remote_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_remote_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_grantor_trust",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_account_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_trust_refresh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_screen_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_routes",
       "params": true,
       "result": true
@@ -2868,6 +3194,12 @@
     {
       "kind": "request",
       "name": "_acpmux/device_hello",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_challenge",
       "params": true,
       "result": true
     },
@@ -3043,6 +3375,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/room",
+      "params": {
+        "$ref": "#/types/RoomNote"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/peer_state_changed",
       "params": {
         "$ref": "#/types/PeerStateChanged"
@@ -3164,6 +3503,7 @@
     "AcpmuxRequestMeta": {
       "additionalProperties": false,
       "properties": {
+        "abi": true,
         "adopt": true,
         "agentSessionId": true,
         "answeredBy": true,
@@ -3173,6 +3513,7 @@
         "author": true,
         "autoPlace": true,
         "beforePromptId": true,
+        "build": true,
         "callerKind": true,
         "callerProtocol": true,
         "callerSession": true,
@@ -3222,6 +3563,7 @@
         "personStop": true,
         "personVerified": true,
         "placeRedirect": true,
+        "placedBy": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -3326,6 +3668,7 @@
         },
         "code": true,
         "loginId": true,
+        "recoverySession": true,
         "sessionId": true
       },
       "type": "object"
@@ -3337,6 +3680,8 @@
           "$ref": "#/types/RequestMeta"
         },
         "agent": true,
+        "recoverySession": true,
+        "reuseExisting": true,
         "sessionId": true
       },
       "type": "object"
@@ -3549,6 +3894,13 @@
         },
         "eventStream": {
           "description": "Send every matching record as `_acpmux/event`; else the agent's\nupdates arrive as ACP `session/update` and acpmux's own as\n`_acpmux/event`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hold": {
+          "description": "The hold of a chat whose rows come from the row store (`attach-hold-v1`,\n`server/requests.rs` `hold_attach_filter`): no page and no log read, only the exact\npage-state `kinds` streamed live; needs `eventStream: true`.",
           "type": [
             "boolean",
             "null"
@@ -4139,6 +4491,36 @@
       "description": "An acknowledgement with nothing in it.",
       "type": "object"
     },
+    "Dot": {
+      "description": "One dot. `x`, `y` and `r` are fractions of the glyph box, top left origin.",
+      "properties": {
+        "phase": {
+          "description": "Where the dot starts on its drift circle, 0..1 of a turn.",
+          "format": "double",
+          "type": "number"
+        },
+        "r": {
+          "description": "The radius.",
+          "format": "double",
+          "type": "number"
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "r",
+        "phase"
+      ],
+      "type": "object"
+    },
     "DownCause": {
       "description": "Why a link is down (`cause`), so a surface can tell this Mac's network apart from the\nmachine. Null while the link is up or on its way the first time.",
       "oneOf": [
@@ -4170,6 +4552,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true
       },
       "type": "object"
@@ -4180,6 +4563,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true,
         "text": true
       },
@@ -4340,6 +4724,13 @@
             "null"
           ]
         },
+        "inOrder": {
+          "description": "True: answered in order, after every line already queued to this connection, as an attach\nis. A pane's stall check sets it: it compares the newest record with what the stream has\ndelivered, so an answer ahead of the records queued before it reads a healthy stream as\nstalled (`server/outbound.rs` `reply_lane`). Default false: a tool call's read goes ahead.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "kinds": {
           "anyOf": [
             {
@@ -4494,6 +4885,42 @@
         }
       ]
     },
+    "FollowParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/follow` (RFD 0141 phase 3): follow the person `target` (an id live in a chat on this\ndaemon, never the caller's own), or nobody (`null`). The caller's rooms hear it as the\nrecord's `following`. Refusals: `presence.follow_not_live`, `presence.follow_self`.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FollowResult": {
+      "description": "`_acpmux/follow`'s answer: whom the caller follows now.",
+      "properties": {
+        "following": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "FooterFact": {
       "description": "One piece of the footer's quiet metadata.",
       "properties": {
@@ -4632,6 +5059,44 @@
       },
       "type": "object"
     },
+    "Glyph": {
+      "description": "A session's glyph.",
+      "properties": {
+        "accent": {
+          "description": "The variant's accent, `#RRGGBB`.",
+          "type": "string"
+        },
+        "dots": {
+          "description": "5 to 9 dots, none overlapping.",
+          "items": {
+            "$ref": "#/types/Dot"
+          },
+          "type": "array"
+        },
+        "drift": {
+          "description": "The variant's `speed`: how far the running line's dots drift.",
+          "format": "double",
+          "type": "number"
+        },
+        "seed": {
+          "description": "0..1, the meaning `Frame.size.w` has for a wallpaper.",
+          "format": "double",
+          "type": "number"
+        },
+        "variant": {
+          "description": "The particles variant's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed",
+        "variant",
+        "accent",
+        "drift",
+        "dots"
+      ],
+      "type": "object"
+    },
     "GoneRow": {
       "description": "A row that left the list since a follow's cursor.",
       "properties": {
@@ -4710,6 +5175,17 @@
         "handoffId": true,
         "promptId": true,
         "revision": true
+      },
+      "type": "object"
+    },
+    "HarnessDisableParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "folder": true,
+        "id": true
       },
       "type": "object"
     },
@@ -5039,6 +5515,7 @@
         "cancelFork": true,
         "cancelToken": true,
         "expectRevision": true,
+        "grace": true,
         "ifIdle": true,
         "purge": true,
         "sessionId": true
@@ -5264,6 +5741,53 @@
       ],
       "type": "object"
     },
+    "LiveListParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live_list` takes no params.",
+      "type": "object"
+    },
+    "LiveListResult": {
+      "description": "`_acpmux/live_list`'s answer: the `cmux-presence` records of everyone Live here (none while\nthe owner is not Live).",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        },
+        "people": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "live",
+        "people"
+      ],
+      "type": "object"
+    },
+    "LiveParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live` (RFD 0141 phase 1): turns the owner's Live on or off; no `live` only reads it.",
+      "properties": {
+        "live": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LiveResult": {
+      "description": "`_acpmux/live`'s answer: Live now.",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "live"
+      ],
+      "type": "object"
+    },
     "LoopEpisodeSummary": {
       "description": "The bounded diagnosis shown beside a looping chat. The daemon emits one event when this\nbecomes active and another when progress clears it; the summary lets a newly attached client\nrender the current state without replaying the transcript.",
       "properties": {
@@ -5344,6 +5868,11 @@
         {
           "const": "paused",
           "description": "A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud\ncarrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.",
+          "type": "string"
+        },
+        {
+          "const": "idle",
+          "description": "Not dialed, on purpose: nothing has used it since this daemon started, or its link closed\nafter it went unused (`peer_demand.rs`). Using it connects it; it was reachable when last\nlinked, unless it is `offline` instead. Folded to `connected` for an older app, which then\nlets a person pick it, and the pick connects it.",
           "type": "string"
         }
       ]
@@ -6510,6 +7039,9 @@
         "answers": {
           "description": "A question's answers, by question."
         },
+        "forkCheckpoint": {
+          "description": "Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`."
+        },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
           "type": [
@@ -6546,6 +7078,22 @@
       "required": [
         "folder",
         "reason"
+      ],
+      "type": "object"
+    },
+    "PinParams": {
+      "description": "`_acpmux/pin`: the person pins the chat to the top of their list, or unpins it; synced to\ntheir other replicas as `pin/<id>` (`hub/synced.rs`).",
+      "properties": {
+        "pinned": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "pinned"
       ],
       "type": "object"
     },
@@ -7208,6 +7756,70 @@
       ],
       "type": "object"
     },
+    "RoomNote": {
+      "description": "`_acpmux/room`: one watched room's snapshot (`snapshot: true`, `presence` every record) or\none change of it (`presence` the records that joined, `deltas` one `cmux-presence` delta per\nrecord that stayed, `left` the ids that went).",
+      "properties": {
+        "deltas": {
+          "items": true,
+          "type": "array"
+        },
+        "left": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "presence": {
+          "items": true,
+          "type": "array"
+        },
+        "room": {
+          "description": "`{chat: id}` or `{workspace: id}`."
+        },
+        "snapshot": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "room",
+        "presence"
+      ],
+      "type": "object"
+    },
+    "RoomsParams": {
+      "description": "`_acpmux/rooms` (RFD 0141 phase 2): every room the client shows now, replacing the set it\nnamed before; both empty unsubscribes. A chat must be attached on this connection.",
+      "properties": {
+        "chats": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspaces": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "RoomsResult": {
+      "description": "`_acpmux/rooms`'s answer: how many rooms the connection watches now.",
+      "properties": {
+        "rooms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rooms"
+      ],
+      "type": "object"
+    },
     "RouteListParams": {
       "additionalProperties": false,
       "properties": {
@@ -7720,6 +8332,14 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harnessSandboxFailed": {
           "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
@@ -7924,6 +8544,10 @@
           ],
           "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
+        "pinned": {
+          "description": "A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "policy": {
           "type": [
             "string",
@@ -8114,18 +8738,6 @@
           },
           "description": "Tags that have not expired.",
           "type": "object"
-        },
-        "taskList": {
-          "anyOf": [
-            {
-              "$ref": "#/types/TaskListSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "What is done and what is next across the chat's turns (`task_list.rs`): its harness's\nlatest plan (TodoWrite, update_plan) or the list its agent or Chief keeps\n(`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux."
         },
         "timeBreakdown": {
           "anyOf": [
@@ -8709,6 +9321,14 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harnessSandboxFailed": {
           "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
@@ -8904,6 +9524,10 @@
           ],
           "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
+        "pinned": {
+          "description": "A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "policy": {
           "type": [
             "string",
@@ -9091,18 +9715,6 @@
           },
           "description": "Tags that have not expired.",
           "type": "object"
-        },
-        "taskList": {
-          "anyOf": [
-            {
-              "$ref": "#/types/TaskListSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "What is done and what is next across the chat's turns (`task_list.rs`): its harness's\nlatest plan (TodoWrite, update_plan) or the list its agent or Chief keeps\n(`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux."
         },
         "timeBreakdown": {
           "anyOf": [
@@ -9433,6 +10045,39 @@
         "chat": true,
         "sessionId": true
       },
+      "type": "object"
+    },
+    "SignatureParams": {
+      "additionalProperties": false,
+      "description": "`session/signature` params.",
+      "properties": {
+        "_meta": true,
+        "sessionIds": {
+          "description": "At most 512 session ids. Any string gets a glyph: it is a pure function of the id.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessionIds"
+      ],
+      "type": "object"
+    },
+    "SignatureResult": {
+      "description": "`session/signature` result: one glyph per distinct id asked.",
+      "properties": {
+        "signatures": {
+          "additionalProperties": {
+            "$ref": "#/types/Glyph"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "signatures"
+      ],
       "type": "object"
     },
     "StartModeParams": {
@@ -9789,109 +10434,6 @@
       ],
       "type": "object"
     },
-    "TaskItem": {
-      "description": "One step of the list.",
-      "properties": {
-        "content": {
-          "description": "The step's words, masked and cut to [`ITEM_CHARS`].",
-          "type": "string"
-        },
-        "status": {
-          "$ref": "#/types/TaskStatus"
-        }
-      },
-      "required": [
-        "content",
-        "status"
-      ],
-      "type": "object"
-    },
-    "TaskListSource": {
-      "description": "Who keeps a chat's task list.",
-      "oneOf": [
-        {
-          "const": "harness",
-          "description": "The harness's own plan events (TodoWrite, update_plan, ACP `plan`).",
-          "type": "string"
-        },
-        {
-          "const": "agent",
-          "description": "The chat's own agent, through `_acpmux/task_list/set`.",
-          "type": "string"
-        },
-        {
-          "const": "chief",
-          "description": "The person's side: the Chief or the app, through `_acpmux/task_list/set`.",
-          "type": "string"
-        }
-      ]
-    },
-    "TaskListSummary": {
-      "description": "What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the\ncounts and lines a sidebar row or a chat strip draws without counting again.",
-      "properties": {
-        "current": {
-          "description": "The first step in progress; null when none is.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "done": {
-          "description": "The steps completed.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "items": {
-          "items": {
-            "$ref": "#/types/TaskItem"
-          },
-          "type": "array"
-        },
-        "next": {
-          "description": "The first step still pending after the current one (or the first pending one when none is\nin progress); null when none is left.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "source": {
-          "$ref": "#/types/TaskListSource",
-          "description": "Who keeps it: `harness` (its own plan events), `agent` or `chief` (`_acpmux/task_list/set`)."
-        },
-        "total": {
-          "description": "Every step.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "updatedAt": {
-          "description": "When it last changed, Unix ms.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "current",
-        "done",
-        "items",
-        "next",
-        "source",
-        "total",
-        "updatedAt"
-      ],
-      "type": "object"
-    },
-    "TaskStatus": {
-      "description": "Where one step stands.",
-      "enum": [
-        "pending",
-        "in_progress",
-        "completed"
-      ],
-      "type": "string"
-    },
     "TimeBreakdown": {
       "properties": {
         "categories": {
@@ -10114,13 +10656,6 @@
         "client": {
           "type": "string"
         },
-        "planStep": {
-          "description": "Its plan's entry in progress, masked; null without one.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "prompt": {
           "type": "string"
         },
@@ -10153,7 +10688,6 @@
       "required": [
         "activity",
         "client",
-        "planStep",
         "prompt",
         "promptId",
         "stalledSince",
@@ -10188,6 +10722,16 @@
         "sessionId",
         "on"
       ],
+      "type": "object"
+    },
+    "UndeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "UsageParams": {
@@ -10246,6 +10790,30 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "cacheReadByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the rolling last hour.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cacheReadByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the completed UTC hour preceding updatedAt.",
+          "type": [
+            "object",
             "null"
           ]
         },
@@ -10385,6 +10953,8 @@
       "required": [
         "autocompact",
         "autocompactCap",
+        "cacheReadByModel1h",
+        "cacheReadByModelPreviousUtcHour",
         "cacheReadShare24h",
         "calls24h",
         "compactions24h",

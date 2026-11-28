@@ -25,6 +25,7 @@ on:
   # A manual run on feat-cmux-next: the same journey at the branch tip.
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - cmux-tui/crates/cmux-tui/src/cli/cloud*
@@ -41,6 +42,8 @@ on:
       - cmux-tui/crates/cmux-host/**
       # The journey's carrier dial runs this pull request's CLI, so a carrier change is timed here.
       - cmux-tui/crates/cmux-tui/src/carrier/**
+      # cmux-autocloud (RFD 0139) chats over the same carrier dial after it.
+      - cmux-tui/crates/cmux-autocloud/**
       - cmux-tui/crates/acpmux/src/cli/cloud_join*
       - cmux-tui/crates/acpmux/src/cli/cloud_join/**
       - scripts/cmux-next/cloud-journey.ts
@@ -71,7 +74,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-journey-pr-${{ github.event.pull_request.number || github.run_id }}
+  group: cloud-journey-pr-${{ github.event.pull_request.number || github.run_id }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -91,8 +94,8 @@ jobs:
   # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
   # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off).
   base-red:
-    if: github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || format('{0}', vars.CI_PR_JOURNEY_FULL_CI_ONLY) == '0') && (github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 6
     permissions:
       actions: read
@@ -100,7 +103,7 @@ jobs:
     outputs:
       base_red: ${{ steps.decide.outputs.base_red }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Only the script, into its own folder: a full checkout took past 3 minutes on a cold runner (run
@@ -108,16 +111,32 @@ jobs:
           # pool VM; the next job's checkout removes this folder as untracked.
           path: .base-red-src
           sparse-checkout: scripts/ci
+      - name: Mint a read token with its own quota
+        id: base-red-token
+        # The repository's GITHUB_TOKEN quota answers 403 under load; this app token is read when it does.
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
       - name: Red on the base right now?
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow backend.yml --job "journey-staging" >> "$GITHUB_OUTPUT"
 
+  # On a pull request only with `full-ci` (the label, or CI_PR_JOURNEY_FULL_CI_ONLY=0 for every land-tier head):
+  # backend.yml's journey-staging runs the same journey after each feat-cmux-next push. NOW's pr_verdict at
+  # 2026-11-26 08:57Z: this journey ended 2 of the newest 20 PR verdicts at p50 29.1 min. Leo, 2026-11-21: "we can
+  # infrequenrly have fuller checks."
   journey:
     needs: base-red
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository && needs.base-red.outputs.base_red != 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || format('{0}', vars.CI_PR_JOURNEY_FULL_CI_ONLY) == '0') && (!cancelled() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository && needs.base-red.outputs.base_red != 'true')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: credentialed job, frozen to today's label
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -127,7 +146,7 @@ jobs:
       pull-requests: read
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -135,8 +154,13 @@ jobs:
         run: git submodule update --init --depth 1 ghostty ghostty-next
       - name: Install Linux cmux-tui build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
       # The Zig is the one ghostty-next's build.zig.zon names, the libghostty-vt
@@ -202,8 +226,9 @@ jobs:
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
-          cargo build -p cmux-tui --bin cmux-tui --locked
+          cargo build -p cmux-tui --bin cmux-tui -p cmux-autocloud --bin cmux-autocloud --locked
           test -x "$binary"
+          test -x "$target_dir/debug/cmux-autocloud"
           file "$binary" | grep -q 'ELF 64-bit'
           sha256sum "$binary"
           # Bind the caller to the checkout's actual merge, not just the PR head.
@@ -224,8 +249,10 @@ jobs:
           PY
           if [[ "$binary" = /* ]]; then
             echo "path=$binary" >> "$GITHUB_OUTPUT"
+            echo "autocloud=$target_dir/debug/cmux-autocloud" >> "$GITHUB_OUTPUT"
           else
             echo "path=$PWD/$binary" >> "$GITHUB_OUTPUT"
+            echo "autocloud=$PWD/$target_dir/debug/cmux-autocloud" >> "$GITHUB_OUTPUT"
           fi
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
@@ -254,6 +281,7 @@ jobs:
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
+          AUTOCLOUD_TUI_PATH: ${{ steps.build-cmux-tui.outputs.autocloud }}
           JOURNEY_MODEL: stub
           TARGET: staging
           CMUX_JOURNEY_REPO_SEED_RUNS: ${{ steps.repo-seed.outputs.runs || '0' }}
@@ -287,14 +315,14 @@ jobs:
   # in next-cache-writer, which `journey` (cmux-next-vm-image-dev) cannot also hold.
   # Why: docs/ci/cmux-next-workflow-notes.md#note-cloud-journey-pr-wall
   seed:
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    if: ${{ ((github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}  # frozen-label: LINUX_RUNNER (#54437)
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     timeout-minutes: 50
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -337,8 +365,13 @@ jobs:
       - name: Install Linux cmux-tui build dependencies
         if: ${{ steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
         if: ${{ steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
@@ -377,9 +410,10 @@ jobs:
           REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
         run: |
           set -euo pipefail
-          mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml \
-            | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --workspace-crates "${crates[@]}"
+          # --cargo-metadata, not every target name as --workspace-crates: tests/http.rs and tests/digest.rs
+          # are named like the third-party http and digest, so that deleted them and a restore rebuilt 27 crates.
+          cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml > "$RUNNER_TEMP/cargo-metadata.json"
+          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --cargo-metadata "$RUNNER_TEMP/cargo-metadata.json"
           # Extracted sources come back from the .crate files in registry/cache.
           rm -rf "$REGISTRY/src"
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"

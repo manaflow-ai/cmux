@@ -148,8 +148,8 @@ const imageHtml = (count: number) =>
   ).join("");
 
 /// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
-async function until(ready: () => boolean, what: string) {
-  const deadline = performance.now() + 2_000;
+async function until(ready: () => boolean, what: string, within = 2_000) {
+  const deadline = performance.now() + within;
   while (!ready()) {
     if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await act(async () => {
@@ -479,6 +479,21 @@ test("an image copied as HTML alone (no file on the clipboard) still comes in as
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image", "image"]);
   await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 2, "inline thumbnails");
   expect(field().textContent).toContain("look at these");
+});
+
+// https://github.com/manaflow-ai/cmux/issues/59851: "I do Command-C, copy this whole thing, but it
+// only copies the image and not the text." A draft with an image and text copied in one composer
+// and pasted into another chat's (another web view's storage, so no remembered order): WebKit gives
+// the paste its file and HTML but withholds text/plain beside a file URL. Both come in.
+test("a copy of text with an image pastes both, its text read from the HTML WebKit keeps", async () => {
+  const composer = await openComposer();
+  await paste({
+    files: [screenshot(1)],
+    html: `<span data-cmux-composer-copy="other-chat" style="white-space: pre-wrap">look at this\nmodal</span>`,
+  });
+  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
+  await until(() => (field().textContent ?? "").includes("modal"), "the pasted text");
+  expect(field().textContent).toContain("look at this");
 });
 
 test("a pasted image goes to the agent as an image block; the prompt's text has no data: URI", async () => {
@@ -1026,12 +1041,11 @@ test("sending, undoing the clear, and resending never sends a sent attachment's 
 
 // Review of #26545: a failed attachment's Retry read its file again as a new paste under a new id,
 // so the failed tile's node left the text and the retried attachment went in at the caret wherever
-// it was by then. The retried attachment is the same one, where it was pasted, and goes with the
-// prompt there.
-test("a retried attachment keeps its id and its place in the text, wherever the caret is", async () => {
+// it was by then. The attachment asked again (on its own since 2026-11-22, composer/uploadRetry.ts)
+// is the same one, where it was pasted, and goes with the prompt there.
+test("an attachment asked again keeps its id and its place in the text, wherever the caret is", async () => {
   let uploads = 0;
-  // The host refuses the first upload outright (so its tile shows Retry at once, with no try again
-  // on its own) and takes the Retry.
+  // The host refuses the first upload outright and takes the one asked again on its own.
   const upload = async (files: File[]) => {
     uploads += 1;
     return uploads === 1
@@ -1051,18 +1065,20 @@ test("a retried attachment keeps its id and its place in the text, wherever the 
   await act(async () => {
     field().dispatchEvent(event);
   });
-  const retry = () => field().querySelector<HTMLElement>(".acpmux-attachment-failed .acpmux-attachment-retry");
-  await until(() => Boolean(retry()), "the failed tile");
+  await until(() => uploads === 1 && Boolean(field().querySelector("[data-inline-attachment]")), "the first upload");
   const original = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
   const placedAt = markdownField().value();
   expect(placedAt.indexOf("before")).toBeLessThan(placedAt.indexOf(MARK));
   expect(placedAt.indexOf(MARK)).toBeLessThan(placedAt.indexOf("after"));
-  // The caret moves on before the Retry.
+  // The caret moves on before it is asked again (its first backoff is 0.5-1 s, autoRetry.ts), and
+  // the tile never shows a failure or a Retry meanwhile.
   await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
-  await act(async () => {
-    retry()!.click();
-  });
-  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the retried attachment");
+  expect(field().querySelector(".acpmux-attachment-failed, .acpmux-attachment-retry")).toBeNull();
+  await until(
+    () => (composer.current!.wakeState().attachments ?? []).length === 1,
+    "the attachment asked again",
+    4_000,
+  );
   await until(() => Boolean(field().querySelector('[data-inline-attachment] [data-state="ready"]')), "its chip");
   expect(uploads).toBe(2);
   const [attachment] = composer.current!.wakeState().attachments!;
@@ -1150,11 +1166,16 @@ test.each([
   }
 });
 
-// Review of #26545 at 81dbee21: a failed upload stays reachable with Retry and ×. Since #30572 a send
+// Review of #26545 at 81dbee21: a failed upload stays reachable with its ×. Since #30572 a send
 // never goes without a file the person added (Leo, 2026-11-01: "i had to retry to get it to load???"):
-// it waits while the failed tile shows, and goes once the × takes it away.
-test("a send with a failed attachment waits until its x takes it away", async () => {
-  const upload = async () => ({ error: "The disk is full.", final: true });
+// it waits while the upload is asked again on its own (its tile loading, no Retry), and goes once the
+// × takes it away.
+test("a send with an attachment whose upload keeps failing waits until its x takes it away", async () => {
+  let uploads = 0;
+  const upload = async () => {
+    uploads += 1;
+    return { error: "The disk is full.", final: true };
+  };
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent, { upload });
   await act(async () => composer.current!.restore("look", []));
@@ -1171,14 +1192,16 @@ test("a send with a failed attachment waits until its x takes it away", async ()
   await act(async () => {
     field().dispatchEvent(event);
   });
-  const failed = () => field().querySelector(".acpmux-attachment-failed");
-  await until(() => Boolean(failed()), "the failed tile in the text");
+  const tile = () => field().querySelector('[data-inline-attachment] .acpmux-attachment[aria-busy="true"]');
+  await until(() => uploads === 1 && Boolean(tile()), "the loading tile in the text");
   await act(async () => composer.current!.send());
   await settleTurns();
   expect(sent).toHaveLength(0);
-  // Still reachable: its Retry and its ×.
-  expect(failed()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
-  const remove = failed()!.querySelector<HTMLElement>(".acpmux-attachment-remove");
+  // Asked again on its own, still loading, never failed and with no Retry; still reachable: its ×.
+  await until(() => uploads === 2, "the upload asked again", 4_000);
+  expect(sent).toHaveLength(0);
+  expect(field().querySelector(".acpmux-attachment-failed, .acpmux-attachment-retry")).toBeNull();
+  const remove = tile()!.querySelector<HTMLElement>(".acpmux-attachment-remove");
   expect(remove).not.toBeNull();
   await act(async () => {
     remove!.click();
@@ -1369,6 +1392,10 @@ test("each paste of text is its own undo step, apart from the typing around it",
   await act(async () => markdownField().insertTyped("a "));
   await act(async () => markdownField().pasteText("one "));
   await act(async () => markdownField().pasteText("two"));
+  // A person's next key comes in a later task than the paste, after the paste's step has ended
+  // (MarkdownField `beginPasteStep`'s timer). `act` alone yields no task when the paste rendered
+  // nothing more, so the key would join the paste's step.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   await act(async () => markdownField().insertTyped("!"));
   expect(markdownField().plainText()).toBe("a one two!");
   const steps: string[] = [];

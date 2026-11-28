@@ -22,6 +22,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -61,6 +62,7 @@ GATE_SCRIPTS = {
     "protocol skew": "scripts/ci/protocol_skew_check.py",
     "entry logs": "scripts/ci/entry_logs.py",
     "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
+    "egress gate": "scripts/ci/egress_new_sites.py",
 }
 # Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
 # does not leave the parallel barrier one marker short.
@@ -103,10 +105,36 @@ def step_named(steps: list[dict], fragment: str) -> dict:
 
 
 class WorkflowShape(unittest.TestCase):
+    def test_callers_forward_status_secrets(self):
+        # Run 45940333376/job 140314249449: the router passed no secrets, so minting the app token
+        # failed and a green gate could not post its status after the repository token hit quota.
+        # Derive the contract from every secret the callee reads, so a new fallback cannot silently
+        # work on dispatch alone. GITHUB_TOKEN is supplied by Actions, not by the caller.
+        secrets = set(re.findall(r"secrets\.([A-Za-z_][A-Za-z_0-9]*)", WORKFLOW.read_text())) - {"GITHUB_TOKEN"}
+        declared = (workflow()[True]["workflow_call"] or {}).get("secrets", {})
+        self.assertTrue(secrets)
+        self.assertEqual(set(declared), secrets)
+        for secret in secrets:
+            self.assertFalse(declared[secret].get("required", False))
+        callers = []
+        for path in sorted(WORKFLOW.parent.glob("*.yml")):
+            if "uses: ./.github/workflows/cmux-next-fast-gates.yml" not in path.read_text():
+                continue
+            for name, caller in yaml.safe_load(path.read_text())["jobs"].items():
+                if caller.get("uses") != "./.github/workflows/cmux-next-fast-gates.yml":
+                    continue
+                callers.append((path.name, name))
+                with self.subTest(workflow=path.name, job=name):
+                    self.assertEqual(caller.get("secrets"), {
+                        secret: "${{ secrets." + secret + " }}" for secret in secrets
+                    })
+        self.assertTrue(callers)
+
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["resolve", "receipt", "fast-gates", "panic-ratchet", "post"])
+        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "panic-ratchet", "post", "fast-gates-fail-fast",
+                                           "lane-receipt-audit"])
         self.assertEqual(job(doc)["name"], "fast gates")
         # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): every job names cmux-linux past the
         # fork branches, with no placement job and no dispatch runner input. Fork pull requests keep their ephemeral
@@ -119,6 +147,9 @@ class WorkflowShape(unittest.TestCase):
             # the decision takes no pool runner.
             if key == "resolve":
                 continue
+            # A reusable-workflow caller (the head fail-fast job) takes its runner and bound in the called workflow.
+            if "uses" in each:
+                continue
             with self.subTest(runner=key):
                 self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
                 cells = workflow_jobs.runs_on_cells(each)
@@ -127,7 +158,7 @@ class WorkflowShape(unittest.TestCase):
                     self.assertTrue(runner.startswith(
                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
                         "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                        "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || "), runner)
+                        "'ubuntu-24.04' || "), runner)
                     self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
                     self.assertNotIn("needs.", runner)
                     self.assertNotIn("inputs.", runner)
@@ -138,6 +169,8 @@ class WorkflowShape(unittest.TestCase):
                     self.assertNotIn("macos", runner.lower())
                     self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
+            if "uses" in each:
+                continue
             with self.subTest(job=key):
                 # The panic ratchet builds cmux-tui twice, as cmux-tui-spec.yml's clippy job (40) does once. The gates
                 # job's own budget (--budget-seconds) ends a stalled gate with its reason well inside its 25.
@@ -170,7 +203,7 @@ class WorkflowShape(unittest.TestCase):
                 run = pool["run"]
                 self.assertIn('echo "$mirror" > .git/objects/info/alternates', run)
                 self.assertIn("find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +", run)
-                fetch = next(line for line in run.splitlines() if "git fetch" in line)
+                fetch = next(line for line in run.splitlines() if re.search(r"\bgit\b.* fetch ", line))
                 self.assertNotIn("--filter", fetch)
                 self.assertIn("--depth=2", fetch)
                 self.assertNotIn("$TOKEN", fetch)
@@ -221,10 +254,56 @@ class WorkflowShape(unittest.TestCase):
                                 or any(("/" + path).startswith(p) and p.endswith("/") for p in patterns), path)
         self.assertIn("--filter=tree:0", fast_gates_source())
 
+    def test_checkout_holds_every_tests_module_a_gate_imports(self):
+        # cmux#57582 (run 45880398424): the egress gate imports tests/test_egress_gate.py, which the sparse checkout
+        # left out, so every pull request's fast gates failed on ModuleNotFoundError. A gate script's `tests/` import,
+        # followed through the modules it imports, must be on disk.
+        patterns = step_named(job(workflow())["steps"], "Checkout")["with"]["sparse-checkout"].split()
+        scripts = sorted(set(re.findall(r'"((?:scripts|tests)/[\w./-]+\.py)"', fast_gates_source())))
+        self.assertIn("scripts/ci/egress_new_sites.py", scripts)
+        seen: set[str] = set()
+        todo = [ROOT / s for s in scripts]
+        while todo:
+            path = todo.pop()
+            if not path.exists():
+                continue
+            for name in re.findall(r"^\s*(?:from|import)\s+([A-Za-z_]\w*)", path.read_text(encoding="utf-8"), re.M):
+                module = ROOT / "tests" / f"{name}.py"
+                if module.exists() and name not in seen:
+                    seen.add(name)
+                    todo.append(module)
+                    with self.subTest(gate=str(path.relative_to(ROOT)), module=name):
+                        self.assertIn(f"/tests/{name}.py", patterns, f"{path.relative_to(ROOT)} imports tests/{name}.py")
+        self.assertIn("test_egress_gate", seen)
+        # 2026-11-27 (#61088, run 45997666983): test_outbound_hosts.py began importing tests/guard_delta.py and merged
+        # without this test running: it names none of these modules, so focused_tests.py never picked it for a change to
+        # one. Each module this walk reaches selects this test (scripts/ci/focused-tests-extra.json), so a new import
+        # is made in a file that already runs it.
+        extra = json.loads((ROOT / "scripts/ci/focused-tests-extra.json").read_text())["rules"]
+        selects = {rule["prefix"] for rule in extra if "tests/test_cmux_next_fast_gates.py" in rule.get("python", [])}
+        for name in sorted(seen):
+            with self.subTest(selects=name):
+                self.assertIn(f"tests/{name}.py", selects,
+                              f'add {{"prefix": "tests/{name}.py", "python": ["tests/test_cmux_next_fast_gates.py"]}} to '
+                              "scripts/ci/focused-tests-extra.json")
+
+    def test_checkout_holds_webviews_example_assets(self):
+        # Webviews' gallery and setup checks read JSON under examples/ at build time. Keep the whole directory in the
+        # sparse checkout so the fast-gates web bundle does not fail before its assertions run.
+        patterns = step_named(job(workflow())["steps"], "Checkout")["with"]["sparse-checkout"].split()
+        self.assertIn("/examples/", patterns)
+
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
-        self.assertEqual(set(on), {"pull_request", "workflow_dispatch"})
-        self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
+        # A feat-cmux-next pull request runs it from pr-router.yml (scripts/ci/pr_router.json), with no path filter
+        # either: a head the router starts nothing for starts none of its jobs.
+        self.assertEqual(set(on), {"workflow_call", "workflow_dispatch"})
+        routed = json.loads((ROOT / "scripts/ci/pr_router.json").read_text())["callees"]["cmux-next-fast-gates.yml"]
+        for key in ("paths", "paths-ignore", "affects", "skip_docs_only"):
+            self.assertNotIn(key, routed, "a paths filter leaves PRs with no status")
+        self.assertIn("ready_for_review", routed["types"])
+        self.assertIn("uses: ./.github/workflows/cmux-next-fast-gates.yml",
+                      (ROOT / ".github/workflows/pr-router.yml").read_text())
         for event in on.values():
             for key in ("paths", "paths-ignore"):
                 self.assertNotIn(key, event or {}, "a paths filter leaves PRs with no status")
@@ -239,7 +318,8 @@ class WorkflowShape(unittest.TestCase):
         self.assertRegex(resolve["run"], r"\^\[0-9\]")
         # PR-controlled values reach shell through env only, never ${{ }} inside run.
         for key, each in doc["jobs"].items():
-            for step in each["steps"]:
+            # A reusable-workflow caller (the head fail-fast job) has no steps of its own.
+            for step in each.get("steps", []):
                 self.assertNotRegex(step.get("run", ""), r"\$\{\{",
                                     f"{key} step {step.get('name')!r} interpolates an expression into shell")
 
@@ -251,6 +331,11 @@ class WorkflowShape(unittest.TestCase):
         # them (else every gate runs and nothing of the PR's is read).
         for step in resolve["steps"]:
             if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
+                if "the base for the receipt verifier (lane dispatch)" in step.get("name", ""):
+                    # A lane dispatch checks out the base commit's verifier, never the pull request's code (#60742).
+                    self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", step["if"])
+                    self.assertIn("steps.resolve.outputs.base", str(step.get("with", {}).get("ref", "")) + str(step.get("env", {})))
+                    continue
                 self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
                                 step.get("name"))
             if step.get("id") == "route":
@@ -263,6 +348,8 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIn("python3 -I scripts/ci/fast_check_route.py route --workflow "
                               ".github/workflows/cmux-next-fast-gates.yml", body)
                 continue
+            if step.get("id", "").startswith("receipt-"):
+                continue  # the base's verifier, copied out of git (test_receipt_steps_run_only_the_base_verifier)
             self.assertNotIn("scripts/", step.get("run", ""), step.get("name"))
         self.assertIn("steps.route.outputs.fast_gates", resolve["outputs"]["fast_gates"])
         body = step_named(resolve["steps"], "Resolve")["run"]
@@ -272,10 +359,10 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(step_named(resolve["steps"], "Resolve")["env"]["BRANCH"], "feat-cmux-next")
         # The gates job, which runs the PR's code, starts only after resolve passed, and not at all when a valid
         # local test receipt covers it (unless the receipt is audited).
-        self.assertEqual(job(doc)["needs"], ["resolve", "receipt"])
+        self.assertEqual(job(doc)["needs"], ["resolve"])
         self.assertIn("needs.resolve.result == 'success'", job(doc)["if"])
-        self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
-                      "|| needs.receipt.outputs.audit == 'true'", job(doc)["if"])
+        self.assertIn("needs.resolve.outputs.receipt_valid != 'true' "
+                      "|| needs.resolve.outputs.receipt_audit == 'true'", job(doc)["if"])
         prepare = step_named(job(doc)["steps"], "Merge with the base")
         self.assertIn("needs.resolve.outputs.head_sha", prepare["env"]["HEAD_SHA"])
         self.assertIn("needs.resolve.outputs.base", prepare["env"]["BASE"])
@@ -315,9 +402,9 @@ class WorkflowShape(unittest.TestCase):
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output),
                 "CALLS": str(calls), "WAITS": str(waits), "FAILURES": str(failures),
                 "API_ERROR": error or "",
-                "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40)
+                "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40)
                 .replace("|", "\t"),
-                "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40,
+                "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40 + "\ttopic/x",
                 **(event or {}),
             }
             result = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=10)
@@ -372,9 +459,9 @@ class WorkflowShape(unittest.TestCase):
 
     def test_dispatch_graphql_fallback_still_refuses_a_fork_or_a_closed_pr(self):
         limited = "gh: API rate limit exceeded for installation (HTTP 403)"
-        for fields, words in (("open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40, "comes from fork/cmux"),
-                              ("merged|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40, "is merged"),
-                              ("open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|", "incomplete")):
+        for fields, words in (("open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40, "comes from fork/cmux"),
+                              ("merged|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40, "is merged"),
+                              ("open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|", "incomplete")):
             result, calls, waits, output = self.resolve_dispatch(error=limited, failures=1, graphql_fields=fields)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(words, result.stdout + result.stderr)
@@ -406,7 +493,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(output, "")
 
     def test_dispatch_valid_fork_is_still_refused(self):
-        result, calls, waits, output = self.resolve_dispatch(fields="open|fork/cmux|feat-cmux-next|" + "a" * 40)
+        result, calls, waits, output = self.resolve_dispatch(fields="open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("comes from fork/cmux", result.stdout + result.stderr)
         self.assertEqual(len(calls), 1)
@@ -414,14 +501,21 @@ class WorkflowShape(unittest.TestCase):
 
     def test_concurrency_per_pull_request(self):
         concurrency = workflow()["concurrency"]
-        self.assertEqual(concurrency["group"], "fast-gates-${{ github.event.pull_request.number || inputs.pr }}")
+        # Then the land tier's suffix (tests/test_ci_label_events_skip_full_ci.py): another label event gets its own group.
+        self.assertTrue(concurrency["group"].startswith("fast-gates-${{ github.event.pull_request.number || inputs.pr }}"),
+                        concurrency["group"])
+        self.assertIn("format('-label-{0}', github.run_id)", concurrency["group"])
         self.assertIs(concurrency["cancel-in-progress"], True)
 
     def test_permissions_are_minimal(self):
         doc = workflow()
         self.assertEqual(doc["permissions"], {"contents": "read"})
-        self.assertEqual(job(doc, "resolve")["permissions"], {"contents": "read", "pull-requests": "read"})
-        # The jobs that run pull request code can write nothing; only post can write a status.
+        # resolve runs no pull request code; its receipt steps read the receipt's run, ask the controller for a lane's
+        # receipt with an OIDC token (audience cmux-ci-lane-receipt), and post a valid one's status.
+        self.assertEqual(job(doc, "resolve")["permissions"], {"contents": "read", "pull-requests": "read",
+                                                              "actions": "read", "statuses": "write",
+                                                              "id-token": "write"})
+        # The jobs that run pull request code can write nothing; only resolve and post can write a status.
         self.assertEqual(job(doc)["permissions"], {"contents": "read"})
         self.assertEqual(job(doc, "panic-ratchet")["permissions"], {"contents": "read"})
         self.assertEqual(job(doc, "post")["permissions"], {"statuses": "write"})
@@ -457,47 +551,159 @@ class WorkflowShape(unittest.TestCase):
         self.assertIs(checkout["with"]["persist-credentials"], False)
         self.assertEqual(int(checkout["with"]["fetch-depth"]), 2)
 
-    def test_receipt_job_runs_only_the_base_verifier_and_only_when_named(self):
+    def test_a_lane_receipt_is_looked_up_and_its_audit_reported(self):
         doc = workflow()
-        receipt = job(doc, "receipt")
-        self.assertEqual(receipt["needs"], ["resolve"])
-        # No runner and no API call unless a same-repository pull request names a receipt in its body.
+        verify = step_named(job(doc, "resolve")["steps"], "Verify the local test receipt")
+        # The lane flag only when the base's verifier knows it, and vars.CI_LANE_RECEIPTS=0 turns it off.
+        self.assertIn('''grep -q -- '"--lane"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS+=(--lane)''', verify["run"])
+        self.assertEqual(verify["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
+        post = job(doc, "post")
+        self.assertEqual(post["outputs"]["state"], "${{ steps.status.outputs.state }}")
+        self.assertIn('echo "state=$state" >> "${GITHUB_OUTPUT:-/dev/null}"', step_named(post["steps"], "Post the cmux-next/fast-gates status")["run"])
+        audit = job(doc, "lane-receipt-audit")
+        self.assertEqual(audit["needs"], ["resolve", "post"])
+        for fragment in ("needs.resolve.outputs.receipt_audit == 'true'",
+                         "startsWith(needs.resolve.outputs.receipt_producer, 'lane:')",
+                         "needs.post.outputs.state == 'success' || needs.post.outputs.state == 'failure'"):
+            self.assertIn(fragment, audit["if"])
+        # No checkout and no repository code next to the OIDC token; a failed report changes no verdict.
+        self.assertEqual(audit["permissions"], {"id-token": "write"})
+        self.assertIs(audit["continue-on-error"], True)
+        self.assertFalse(any("uses" in step for step in audit["steps"]))
+        self.assertIn("audience=cmux-ci-lane-receipt", audit["steps"][0]["run"])
+
+    def test_head_commit_tree_names_the_lane_commit_under_an_update_branch_merge(self):
+        # 4 of 11 lane misses on 2026-11-27 were GitHub's update-branch merge heads; the receipt is the lane commit's.
+        body = step_named(job(workflow(), "resolve")["steps"], "Resolve the head and the base")["run"]
+        start = body.index("head_commit_tree() {")
+        func = textwrap.dedent(body[start:re.compile(r"\n *}\n").search(body, start).end()])
+        func = func.replace('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader '
+                            'GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \\\n', '')
+        func = func.replace('"https://github.com/$GITHUB_REPOSITORY"', '"file://$SRC"')
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            def git(*args, **env):
+                return subprocess.run(["git", "-C", str(src), *args], check=True, capture_output=True, text=True,
+                                      env={**os.environ, "GIT_AUTHOR_NAME": "a", "GIT_AUTHOR_EMAIL": "a@x",
+                                           "GIT_COMMITTER_NAME": "a", "GIT_COMMITTER_EMAIL": "a@x", **env}
+                                      ).stdout.strip()
+            subprocess.run(["git", "init", "-q", "-b", "feat-cmux-next", str(src)], check=True)
+            git("commit", "-q", "--allow-empty", "-m", "base")
+            git("checkout", "-q", "-b", "lane/x")
+            (src / "f").write_text("lane\n"); git("add", "f"); git("commit", "-q", "-m", "lane change")
+            lane = git("rev-parse", "HEAD")
+            git("checkout", "-q", "feat-cmux-next")
+            (src / "g").write_text("base\n"); git("add", "g"); git("commit", "-q", "-m", "base moves")
+            git("checkout", "-q", "lane/x")
+            git("merge", "-q", "--no-ff", "-m", "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next",
+                GIT_COMMITTER_NAME="GitHub")
+            merge = git("rev-parse", "HEAD")
+            def run(commit):
+                script = f'set -u; BRANCH=feat-cmux-next; SRC={src}; GH_TOKEN=x\n{func}\nhead_commit_tree {commit}'
+                return subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True).stdout
+            self.assertEqual(run(merge), f"{git('rev-parse', merge + '^{tree}')} {git('rev-parse', lane + '^{tree}')}")
+            self.assertEqual(run(lane), f"{git('rev-parse', lane + '^{tree}')} ")
+
+    def test_a_lane_head_takes_its_receipt_at_the_merger_dispatch(self):
+        # 78 of 100 fast-gates runs on 2026-11-26 were the merger's dispatches; on feat-cmux-next the pull request event
+        # skips the gates, so a lane receipt has to count there (Leo: "Shift checks left into the lanes").
+        steps = job(workflow(), "resolve")["steps"]
+        resolve = step_named(steps, "Resolve the head and the base")
+        body = resolve["run"]
+        self.assertIn(".head.ref] | @tsv", body)
+        self.assertIn("headRefName", body)
+        self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
+        # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
+        self.assertNotIn("git/commits/$head", body)
+        self.assertIn('read -r head_tree parent_tree <<<"$(head_commit_tree "$head")"', body)
+        self.assertIn("--depth=2 --filter=tree:0", body)
+        self.assertIn('echo "lane_parent_tree=$parent_tree"', body)
+        self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
+        self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
+        verify = step_named(steps, "Verify the local test receipt")
+        self.assertIn("(github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true')",
+                      verify["if"])
+        self.assertIn('[[ -n "$PR_NUMBER" && "${DISCOVER:-1}" != 0 ]]', verify["run"])
+        names = [s.get("name", "") for s in steps]
+        for name in ("Checkout the base for the receipt verifier (lane dispatch)",
+                     "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"):
+            checkout = step_named(steps, name)
+            self.assertLess(names.index("Resolve the head and the base"), names.index(name))
+            self.assertLess(names.index(name), names.index("Verify the local test receipt"))
+            self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", checkout["if"])
+            self.assertIs(checkout["continue-on-error"], True)
+        checkout = step_named(steps, "Checkout the base for the receipt verifier (lane dispatch)")
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        self.assertEqual(checkout["with"]["ref"], "${{ steps.resolve.outputs.base }}")
+        self.assertIn("/scripts/ci/ci_receipt.py", checkout["with"]["sparse-checkout"])
+
+    def test_receipt_steps_run_only_the_base_verifier_and_only_when_named(self):
+        doc = workflow()
+        self.assertNotIn("receipt", doc["jobs"], "the receipt is resolve's steps, not a runner of its own")
+        resolve = job(doc, "resolve")
+        self.assertEqual(resolve["permissions"], {"contents": "read", "pull-requests": "read", "actions": "read",
+                                                  "statuses": "write", "id-token": "write"})
+        verify = step_named(resolve["steps"], "Verify the local test receipt")
+        self.assertEqual(verify["id"], "receipt-verify")
+        # No API call unless a same-repository pull request names a receipt in its body (or is a lane's), and only
+        # where the gates would run.
         for fragment in ("github.event_name == 'pull_request'",
                          "github.event.pull_request.head.repo.full_name == github.repository",
-                         "contains(github.event.pull_request.body, 'CI-Receipt:')"):
-            self.assertIn(fragment, receipt["if"])
-        self.assertEqual(receipt["permissions"], {"contents": "read", "actions": "read", "statuses": "write"})
-        checkout = receipt["steps"][0]
-        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
-        self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
-        self.assertIs(checkout["with"]["persist-credentials"], False)
-        self.assertEqual(checkout["with"]["sparse-checkout"].split(), ["/scripts/ci/ci_receipt.py", "/scripts/ci/deadline_http.py", "/scripts/ci/cmux_next_fast_gates.py"])
-        verify = step_named(receipt["steps"], "Verify the local test receipt")
-        self.assertIn("ci_receipt.py verify fast-gates", verify["run"])
+                         "contains(github.event.pull_request.body, 'CI-Receipt:')",
+                         "steps.route.outputs.fast_gates != 'false'"):
+            self.assertIn(fragment, verify["if"])
+        # A verifier that fails or hangs leaves resolve green, and the gates run.
+        self.assertIs(verify["continue-on-error"], True)
+        # 5: OIDC 20 s + the lookup's 60 s deadline (#61555) + the head-tree and base git reads, 60 s each.
+        self.assertLessEqual(int(verify["timeout-minutes"]), 5)
+        self.assertLess(int(verify["timeout-minutes"]), int(resolve["timeout-minutes"]))
+        body = verify["run"]
+        # The verifier is the base commit's, copied out of git, never a file of the pull request's work tree.
+        self.assertEqual(verify["env"]["BASE"], "${{ steps.resolve.outputs.base }}")
+        self.assertIn('git show "$BASE:scripts/ci/$file" > "$verifier/$file"', body)
+        self.assertIn("for file in ci_receipt.py deadline_http.py cmux_next_fast_gates.py; do", body)
+        self.assertIn('verifier="$RUNNER_TEMP/', body)
+        self.assertIn('python3 -I "$verifier/ci_receipt.py" verify fast-gates', body)
+        self.assertNotRegex(body, r"python3 (-I )?scripts/")
         # The body reaches the verifier through the environment, never spliced into the script.
-        self.assertNotIn("github.event.pull_request.body", verify["run"])
+        self.assertNotIn("github.event.pull_request.body", body)
         self.assertEqual(verify["env"]["PR_BODY"], "${{ github.event.pull_request.body }}")
-        posted = step_named(receipt["steps"], "Post the cmux-next/fast-gates status from the receipt")
-        self.assertIn("steps.verify.outputs.valid == 'true'", posted["if"])
-        self.assertIn("needs.resolve.outputs.post == 'true'", posted["if"])
+        posted = step_named(resolve["steps"], "Post the cmux-next/fast-gates status from the receipt")
+        self.assertEqual(posted["id"], "receipt-post")
+        self.assertIs(posted["continue-on-error"], True)
+        self.assertIn("steps.receipt-verify.outputs.valid == 'true'", posted["if"])
+        self.assertIn("steps.resolve.outputs.post == 'true'", posted["if"])
         self.assertIn("context=cmux-next/fast-gates", posted["run"])
         self.assertIn('"base $RECEIPT_BASE', posted["run"])
+        # A receipt step that failed, its post included, counts as no receipt: the gates run and post writes.
+        valid = resolve["outputs"]["receipt_valid"]
+        self.assertIn("steps.receipt-verify.outcome == 'success'", valid)
+        self.assertIn("steps.receipt-post.outcome != 'failure'", valid)
+        for name in ("audit", "run_url", "producer"):
+            self.assertEqual(resolve["outputs"][f"receipt_{name}"], f"${{{{ steps.receipt-verify.outputs.{name} }}}}")
 
     def test_status_context_and_description(self):
         doc = workflow()
         poster = job(doc, "post")
-        self.assertEqual(poster["needs"], ["resolve", "receipt", "fast-gates", "panic-ratchet"])
+        self.assertEqual(poster["needs"], ["resolve", "fast-gates", "panic-ratchet"])
         # A valid receipt posted the status itself; post judges only runs the gates ran (an audit included).
-        self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
-                      "|| needs.receipt.outputs.audit == 'true'", poster["if"])
+        self.assertIn("needs.resolve.outputs.receipt_valid != 'true' "
+                      "|| needs.resolve.outputs.receipt_audit == 'true'", poster["if"])
         self.assertIn("!cancelled()", poster["if"])
         self.assertIn("needs.resolve.result == 'success'", poster["if"])
         # Fork pull requests have no write token: resolve says post=false, the gates still pass or fail.
         self.assertIn("needs.resolve.outputs.post == 'true'", poster["if"])
         self.assertIn('"$PR_REPO" == "$GITHUB_REPOSITORY"', step_named(job(doc, "resolve")["steps"], "Resolve")["run"])
-        self.assertEqual(len(poster["steps"]), 1, "post checks nothing out and runs no repository code")
-        post = poster["steps"][0]
+        # post checks nothing out and runs no repository code: one App token mint, then the post.
+        self.assertEqual([s["name"] for s in poster["steps"]],
+                         ["Mint the status token", "Post the cmux-next/fast-gates status"])
+        mint = poster["steps"][0]
+        self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+        self.assertEqual(mint["with"]["permission-statuses"], "write")
+        self.assertIs(mint["continue-on-error"], True)
+        post = poster["steps"][1]
         self.assertNotIn("uses", post)
+        self.assertEqual(post["env"]["APP_TOKEN"], "${{ steps.status-token.outputs.token }}")
         self.assertEqual(post["env"]["CONTEXT"], "cmux-next/fast-gates")
         # Head and base come from resolve, never from anything the gates job wrote.
         self.assertIn("needs.resolve.outputs.head_sha", post["env"]["HEAD_SHA"])
@@ -507,11 +713,12 @@ class WorkflowShape(unittest.TestCase):
         # The gates job hands post nothing but its result; its one output only says whether the ratchet runs,
         # and comes from prepare, before any pull request code ran.
         self.assertEqual(job(doc)["outputs"], {"ratchet": "${{ steps.prepare.outputs.ratchet }}"})
-        # The receipt job's outputs come from the base commit's verifier, never from pull request code. The route's
+        # The receipt steps' outputs come from the base commit's verifier, never from pull request code. The route's
         # one output (fast_check_route.py from the merge) only counts when the gates were skipped, and post runs only
         # for a same-repository pull request (resolve's post), whose author can already push to the base.
         self.assertNotIn("outputs.", json.dumps(post["env"]).replace("needs.resolve.outputs.", "")
-                         .replace("needs.receipt.outputs.", "").replace("needs.resolve.outputs.fast_gates", ""))
+                         .replace("needs.resolve.outputs.fast_gates", "")
+                         .replace("steps.status-token.outputs.token", ""))
         self.assertIn("github.run_id", post["env"]["TARGET_URL"])
         self.assertIn("github.token", post["env"]["GH_TOKEN"])
         body = post["run"]
@@ -549,7 +756,7 @@ class WorkflowShape(unittest.TestCase):
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "HEAD_SHA": "a" * 40, "BASE": "b" * 40,
                    "GATES": gates, "RATCHET": ratchet, "ROUTED_OUT": "false", "CONTEXT": "cmux-next/fast-gates",
                    "TARGET_URL": "https://example.invalid/run", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-                   "GITHUB_STEP_SUMMARY": str(root / "summary")}
+                   "GITHUB_STEP_SUMMARY": str(root / "summary"), "GH_TOKEN": "job"}
             done = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)
             args = (root / "args").read_text().splitlines()
@@ -582,45 +789,82 @@ class WorkflowShape(unittest.TestCase):
         self.assertIs(cache["with"]["save-if"], False)
         self.assertEqual(ratchet["env"]["GHOSTTY_ZIG_SOURCE"], "ghostty-next")
 
-    def test_status_api_rate_limit_is_advisory_instead_of_a_second_red(self):
-        """A GitHub installation-limit refusal is infrastructure, not a gate verdict."""
-        post = step_named(job(workflow(), "post")["steps"], "Post the cmux-next/fast-gates status")
+    def test_a_rate_limited_status_post_heals_instead_of_ending_green_unposted(self):
+        """2026-11-25: run 45554419892 judged cmux#46179 green, its post was refused for the spent installation
+        budget and the job ended green; nothing posted it again and the land waited 5.3 h on "not posted yet"."""
+        poster = job(workflow(), "post")
+        post = step_named(poster["steps"], "Post the cmux-next/fast-gates status")
         body = post["run"]
-        self.assertRegex(body, r"rate limit exceeded|secondary rate limit|too many requests|HTTP 429")
-        self.assertIn("::warning title=GitHub API budget::", body)
-        self.assertIn("status could not be posted", body)
-        self.assertIn("exit 0", body)
-        self.assertNotIn("sleep ", body, "status posting must not burn more quota with in-job retries")
+        wait = int(post["env"]["POST_WAIT_SECONDS"])
+        # The longest wait for a reset fits the job's limit with a minute to spare.
+        self.assertLessEqual(wait + 60, poster["timeout-minutes"] * 60)
 
-        def run_post(message: str) -> subprocess.CompletedProcess[str]:
+        def run_post(script: str, **extra: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
             with tempfile.TemporaryDirectory(prefix="fast-gates-status-") as tmp:
                 root = Path(tmp)
                 fake = root / "gh"
-                fake.write_text(f"#!/bin/sh\nprintf '%s\\n' {message!r} >&2\nexit 1\n")
+                # Each call logs "<token> <args>"; the script decides per call what GitHub answers.
+                fake.write_text(f"#!/bin/bash\necho \"$GH_TOKEN $*\" >> {root}/calls\n{script}\n")
                 fake.chmod(0o755)
-                summary = root / "summary"
-                env = {
-                    **os.environ,
-                    "PATH": f"{root}:{os.environ['PATH']}",
-                    "HEAD_SHA": "a" * 40,
-                    "BASE": "b" * 40,
-                    "GATES": "success",
-                    "RATCHET": "skipped",
-                    "ROUTED_OUT": "false",
-                    "CONTEXT": "cmux-next/fast-gates",
-                    "TARGET_URL": "https://example.invalid/run",
-                    "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-                    "GITHUB_STEP_SUMMARY": str(summary),
-                }
-                return subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True)
+                env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "HEAD_SHA": "a" * 40, "BASE": "b" * 40,
+                       "GATES": "success", "RATCHET": "skipped", "ROUTED_OUT": "false",
+                       "CONTEXT": "cmux-next/fast-gates", "TARGET_URL": "https://example.invalid/run",
+                       "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                       "GH_TOKEN": "job", "APP_TOKEN": "app", "POST_MIN_GAP_SECONDS": "0", **extra}
+                done = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=20)
+                calls = (root / "calls").read_text().splitlines()
+                return done, [c for c in calls if "/statuses/" in c]
 
-        limited = run_post("gh: API rate limit exceeded for installation")
-        self.assertEqual(limited.returncode, 0, limited.stderr)
-        self.assertIn("installation API budget is exhausted", limited.stdout)
-
-        other = run_post("gh: HTTP 404 Not Found")
-        self.assertEqual(other.returncode, 1)
-        self.assertIn("HTTP 404", other.stderr)
+        limited = "echo 'gh: API rate limit exceeded for installation (HTTP 403)' >&2; exit 1"
+        # The App token posts; the repository's budget is never touched.
+        done, posts = run_post('[[ "$*" == *statuses/* ]] && exit 0; exit 1')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["app"])
+        # A spent App budget moves the post to GITHUB_TOKEN at once.
+        done, posts = run_post(f'[[ "$*" == *statuses/* && "$GH_TOKEN" == job ]] && exit 0\n'
+                               f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\necho 0')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["app", "job"])
+        # Both spent: wait for the reset, then post (the second round's App post goes through).
+        done, posts = run_post(f'n=$(grep -c statuses/ "$(dirname "$0")/calls")\n'
+                               f'[[ "$*" == *statuses/* && $n -ge 3 ]] && exit 0\n'
+                               f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\ndate +%s')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(len(posts), 3)
+        self.assertIn("posting again", done.stdout)
+        # Both spent past the bound: the job fails, named, so a re-run posts it; never green with nothing posted.
+        done, posts = run_post(f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\necho $(( $(date +%s) + 3000 ))')
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("::error title=GitHub API budget::", done.stdout)
+        self.assertIn("re-run this failed job", done.stdout)
+        self.assertEqual(len(posts), 2)
+        # No App token (a fork, no app configured): GITHUB_TOKEN alone.
+        done, posts = run_post('[[ "$*" == *statuses/* ]] && exit 0; exit 1', APP_TOKEN="")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["job"])
+        # Any other API failure is red at once, with GitHub's words.
+        done, posts = run_post("echo 'gh: HTTP 404 Not Found' >&2; exit 1")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("HTTP 404", done.stderr)
+        self.assertEqual(len(posts), 1)
+        # 2026-11-26 (jobs 139914769975, 139917024944): App and GITHUB_TOKEN spent, the reset 457 s away, the job
+        # failed and a rerun posted green. The CI pool's tokens post first, each its own hour.
+        both_spent = (f'[[ "$*" == *statuses/* && "$GH_TOKEN" == pool* ]] && exit 0\n'
+                      f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\necho $(( $(date +%s) + 457 ))')
+        done, posts = run_post(both_spent, POOL_TOKENS="pool1 pool2")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["app", "pool1"])
+        # A pool token that cannot post (expired, no statuses grant) is passed over, never a red.
+        done, posts = run_post('[[ "$*" == *statuses/* && "$GH_TOKEN" == job ]] && exit 0\n'
+                               '[[ "$*" == *statuses/* && "$GH_TOKEN" == pool* ]] && '
+                               '{ echo "gh: Resource not accessible by integration (HTTP 403)" >&2; exit 1; }\n'
+                               f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\necho 0', POOL_TOKENS="pool1 pool2")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["app", "pool1", "pool2", "job"])
+        self.assertIn("passing it over", done.stdout)
+        # The bound covers that 457 s reset after a first gap, inside the light jobs' 15 minutes.
+        self.assertGreaterEqual(wait, 457 + 300)
+        self.assertIn("CI_POOL_TOKEN_1", post["env"]["POOL_TOKENS"])
 
     def test_web_tools_install_only_for_web_changes_or_the_webviews_checks(self):
         steps = job(workflow())["steps"]
@@ -713,6 +957,20 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(node["run"], "scripts/ci/ensure-setup-node.sh 24.22.1")
         self.assertLessEqual(int(node["timeout-minutes"]), 3)
 
+    def test_a_warm_runner_skips_unpacking_the_bun_cache_archive(self):
+        # docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (2026-11-23): on a runner whose own Bun cache is already filled (a persistent pool runner), the
+        # archive restore spent 400-1,096 s in 12 of 14 jobs cut at their limit. The check runs first, the restore only
+        # when it is not warm, and CI_BUN_CACHE_RESTORE_WARM=1 restores everywhere again.
+        steps = job(workflow())["steps"]
+        names = [s.get("name") for s in steps]
+        warm = step_named(steps, "Is this runner's own Bun package cache warm")
+        self.assertEqual(warm["id"], "bun-warm")
+        self.assertIn("CI_BUN_CACHE_RESTORE_WARM", warm["env"]["RESTORE_ON_WARM"])
+        for restore_id in ("bun-r2", "bun-cache"):
+            restore = next(s for s in steps if s.get("id") == restore_id)
+            self.assertIn("steps.bun-warm.outputs.warm != 'true'", restore["if"])
+            self.assertLess(names.index(warm["name"]), names.index(restore["name"]))
+
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
         # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
@@ -728,6 +986,8 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+        self.assertIn("check:surface-bypass", module.CHECKS)
+        self.assertEqual(module.CHECK_CLASSES["check:surface-bypass"], module.LINT)  # advisory on the nightly
         # The type check is its own job (ci-self-heal 0c, Leo 2026-11-19): a type error is a red of its own and
         # never the test shard's; the same per-error base comparison runs there.
         self.assertIn("--skip typecheck", steps[0]["run"])
@@ -757,9 +1017,21 @@ class WorkflowShape(unittest.TestCase):
         # A red that keeps going must still fail the job: every continue-on-error step, an action's too, has an id
         # whose outcome the last step reads.
         # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
-        # in full) and the last two run after the gate, so none of them is a verdict.
-        receipt_steps = ("same-input receipt", "the receipt's results")
+        # in full) and the last two run after the gate, so none of them is a verdict. The React Compiler transform
+        # cache steps fail open the same way: a miss or a broken cache only makes the shard compile from scratch.
+        # Shard 1's background starts (scripts/ci/shard1_background.sh) fail open too: each check's own step waits for
+        # it, runs it inline when it never started, and that step's outcome is the one the gate reads.
+        receipt_steps = ("same-input receipt", "the receipt's results", "React Compiler transform cache")
+        fail_open = [s for s in steps if "shard1_background.sh start" in s.get("run", "")]
+        for step in fail_open:
+            with self.subTest(started=step["name"]):
+                started = step["run"].split("shard1_background.sh start ", 1)[1].split()[0]
+                waits = [s for s in steps if f"shard1_background.sh wait {started} " in s.get("run", "")]
+                self.assertEqual(len(waits), 1)
+                self.assertIn(f"${{{{ steps.{waits[0]['id']}.outcome }}}}", gated)
         for step in steps:
+            if step in fail_open:
+                continue
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
                 continue
@@ -1404,6 +1676,8 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
+        self.assertEqual(calls["settings catalog keys"]["argv"][-2:], ["--base-rev", base])  # a base red is a note
+        self.assertEqual(calls["egress gate"]["argv"][:4], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -1429,6 +1703,24 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
+
+    def test_only_a_red_web_lint_tries_its_safe_fixes(self):
+        # Leo, 2026-11-22: "hell, maybe even should've been automatic. how are our fixit type things for lint errors
+        # and random bullshit?" A red web lint runs scripts/ci/oops/fixit_lint.py (its `--fix`); any other red, or a
+        # green run, pays nothing, and the run's result is the gates' either way.
+        work, out = self.prepared()
+        saved = os.environ.get("FIXIT_COMPILE_HEAD_SHA")
+        os.environ["FIXIT_COMPILE_HEAD_SHA"] = "a" * 40
+        self.addCleanup(lambda: os.environ.pop("FIXIT_COMPILE_HEAD_SHA", None) if saved is None
+                        else os.environ.__setitem__("FIXIT_COMPILE_HEAD_SHA", saved))
+        for red, tried in (("web lint", True), ("prepush gate", False), ("", False)):
+            with self.subTest(red=red):
+                self.log.unlink(missing_ok=True)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", fail=red)
+                self.assertEqual(result.returncode, 1 if red else 0, result.stdout + result.stderr)
+                fixes = [e for e in self.gate_log() if e["gate"] == "web lint" and "--fix" in e["argv"]]
+                self.assertEqual(bool(fixes), tried, result.stdout + result.stderr)
+                self.assertEqual(git(work, "status", "--porcelain", "--untracked-files=no"), "")
 
     def test_independent_gates_run_in_parallel(self):
         work, out = self.prepared()
@@ -1561,6 +1853,27 @@ def type_error(code: str, message: str, where: str) -> str:
     """One type error as `vp check --no-fmt --no-lint` prints it (Oxlint's graphical report)."""
     return (f"  x typescript({code}): {message}\n     ,-[{where}]\n 1 | const a = 1;\n"
             "     :       ^\n     `----\n\n")
+
+
+class PrTier(unittest.TestCase):
+    def test_the_pr_tier_leaves_the_slow_gates_to_the_push_tier(self):
+        module = load(SCRIPT)
+        args = (Path("/r"), "b" * 40, "m" * 40, Path("/base"), True, True, True)
+        full = {name: argv for name, argv in module.gates(*args, tier="full")}
+        pr = {name: argv for name, argv in module.gates(*args, tier="pr")}
+        self.assertTrue(all(full.values()))
+        self.assertEqual(sorted(n for n, argv in pr.items() if argv is None), sorted(module.PR_TIER_DEFERRED))
+        self.assertIsNotNone(pr["prepush gate"])
+        self.assertIsNotNone(pr["crash ratchet"])
+        for name in module.PR_TIER_DEFERRED:
+            self.assertIn(name, module.SKIPPED)
+
+    def test_the_workflow_runs_the_pr_tier_unless_full_ci_or_the_variable_says_full(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("CI_FAST_GATES_PR_TIER", text)
+        self.assertIn("full-ci", text)
+        self.assertIn('--tier "$TIER"', text)
+        self.assertEqual(text.count("--tier"), 3)
 
 
 class GateBudget(unittest.TestCase):
@@ -1906,6 +2219,16 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"check:fixed-waits": "  test/a.test.ts: 4 fixed waits, baseline 2\n"}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
 
+    def test_a_new_ratchet_the_base_has_no_script_for_is_not_charged_for_its_baselined_findings(self):
+        # check:surface-bypass lands with its script and baseline: the base cannot run it, so its findings are not new.
+        base = self.findings({}, "base without the script")
+        commit(self.repo, {"webviews/scripts/check-surface-bypass.ts": "// the ratchet\n",
+                           "webviews/findings/check:surface-bypass": "  src/a.tsx: 3 raw-button, baseline 3\n"},
+               "the transition")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("check:surface-bypass is new; base has no command", result.stdout)
+
     def test_every_check_runs_after_a_red_one(self):
         base = self.findings({}, "base")
         self.findings({check: "  x\n" for check in self.module.CHECKS}, "all red")
@@ -2013,6 +2336,22 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"typecheck": red + red.replace(":350:", ":351:")}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
 
+    def test_a_type_error_naming_a_node_modules_path_is_the_base_one(self):
+        # Fast gates 45874767698 (cmux#57053): the base's bench/browsers.ts TS2345 names node_modules under each
+        # checkout's root in its message, so a key that unrooted only the path read it as the merge's own.
+        def diagnostic(root: str) -> str:
+            return ("  x typescript(TS2345): Argument of type 'import(\"" + root + "/webviews/node_modules/"
+                    "playwright-core/types/types\").LaunchOptions | undefined' is not assignable to parameter of "
+                    "type 'LaunchOptions | undefined'.\n"
+                    "    ,-[bench/browsers.ts:42:60]\n"
+                    " 42 |   chromium.launch = (options) => launch(withShippedJsFlags(options));\n"
+                    "    `----\n")
+        for base_root in ("/w/merge", "/tmp/fast-gate-webviews-base-x/base"):
+            new, old = self.module.compare(diagnostic("/w/merge"), diagnostic(base_root), "/w/merge",
+                                           "/tmp/fast-gate-webviews-base-x/base")
+            self.assertEqual(new, [], base_root)
+            self.assertEqual(len(old), 1, base_root)
+
     def test_a_vite_config_stack_frame_matches_the_base_across_temp_names(self):
         merge = ("error: Failed to resolve vite config\n"
                  "    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
@@ -2101,6 +2440,23 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
                          [])
 
+    def test_a_crash_dump_keys_without_its_process_id(self):
+        def dump(pid: int) -> str:
+            return f"Error: spawnSync tsgo ETIMEDOUT\n{{\n  errno: -110,\n  code: 'ETIMEDOUT',\n  pid: {pid},\n}}\n"
+        self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
+        self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
+
+    def test_a_mktemp_log_dir_keys_without_its_random_suffix(self):
+        # cmux#54186's fast gates (run 46043766720): the base's bundle red, charged as one new `log:` line.
+        def red(suffix: str, tmp: str = "/tmp") -> str:
+            return ("web bundle matrix: RED in 47s: bundle:pages\n"
+                    f"  log: {tmp}/web-bundle-matrix.{suffix}/logs/bundle-pages.log\n")
+        self.assertEqual(self.module.added(red("QNX9SC"), red("a1B2c3")), [])
+        mac = "/var/folders/xy/abc123/T"
+        self.assertEqual(self.module.added(red("QNX9SC", mac), red("Zz9Yy8", mac)), [])
+        self.assertEqual(self.module.added(red("QNX9SC") + "  log: /tmp/other.QNX9SC/x.log\n", red("a1B2c3")),
+                         ["  log: /tmp/other.QNX9SC/x.log"])
+
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
             return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"
@@ -2182,15 +2538,31 @@ class WebviewsChecksGate(unittest.TestCase):
 
 
 class DeepenFallbackTests(unittest.TestCase):
-    """GitHub's pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038)."""
+    """pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038), and on #61818 both
+    filters in this runner's local-links repack, with an alternate store borrowed (job 140700979838)."""
 
-    def run_deepen_fetch(self, failures: dict[str, str]):
+    BUG = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
+    LOCAL = BUG + "\nfatal: could not finish pack-objects to repack local links\nfatal: index-pack failed"
+
+    def run_deepen_fetch(self, failures: dict[str, str], alternates: str | None = None, aside_failures=None):
         module = load(SCRIPT)
         calls = []
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        info = tmp / "objects/info"
+        info.mkdir(parents=True)
+        alt = info / "alternates"
+        if alternates is not None:
+            alt.write_text(alternates)
+        self.alternates_seen = []
 
         def fake_git(repo, *args, check=True):
+            if args[0] == "rev-parse":
+                return subprocess.CompletedProcess(args, 0, f"{alt}\n", "")
             calls.append(args)
-            stderr = next((err for flag, err in failures.items() if flag in args), "")
+            self.alternates_seen.append(alt.exists())
+            table = failures if alt.exists() or aside_failures is None else aside_failures
+            stderr = next((err for flag, err in table.items() if flag in args), "")
             code = 128 if stderr else 0
             if check and code:
                 raise SystemExit(f"fast-gates: git {' '.join(args)} failed: {stderr}")
@@ -2198,14 +2570,33 @@ class DeepenFallbackTests(unittest.TestCase):
 
         module.git = fake_git
         module.log = lambda message: None
-        module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        try:
+            module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        finally:
+            self.alternates_after = alt.read_text() if alt.exists() else None
         return calls
 
     def test_a_pack_objects_abort_retries_with_blob_none(self):
-        bug = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
-        calls = self.run_deepen_fetch({"--filter=tree:0": bug})
-        self.assertEqual([c[3] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.BUG})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
         self.assertTrue(all("--deepen=32" in c for c in calls))
+
+    def test_a_local_links_abort_retries_without_the_alternate_store_and_puts_it_back(self):
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL, "--filter=blob:none": self.LOCAL},
+                                      alternates="/mirror/objects\n", aside_failures={})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=tree:0"])
+        self.assertEqual(self.alternates_seen, [True, False])
+        self.assertEqual(self.alternates_after, "/mirror/objects\n")
+
+    def test_the_alternate_store_comes_back_when_the_retry_fails(self):
+        with self.assertRaises(SystemExit):
+            self.run_deepen_fetch({"--filter=tree:0": self.LOCAL}, alternates="/mirror/objects\n",
+                                  aside_failures={"--filter=tree:0": "fatal: could not read from remote repository"})
+        self.assertEqual(self.alternates_after, "/mirror/objects\n")
+
+    def test_a_local_links_abort_without_an_alternate_store_tries_blob_none(self):
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
 
     def test_a_clean_deepen_fetches_once(self):
         self.assertEqual(len(self.run_deepen_fetch({})), 1)
@@ -2213,6 +2604,51 @@ class DeepenFallbackTests(unittest.TestCase):
     def test_any_other_failure_still_fails(self):
         with self.assertRaises(SystemExit):
             self.run_deepen_fetch({"--filter=tree:0": "fatal: could not read from remote repository"})
+
+
+class FetchesSkipSubmodules(unittest.TestCase):
+    """Fast gates only read history: a fetch that recursed into submodules failed run 46017930661 on a reused pool
+    workspace with "Could not access submodule 'ghostty'" (handbook whole-origin-fetch-pulls-submodule-pins)."""
+
+    def test_every_fetch_passes_no_recurse_submodules(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
+        calls = re.findall(r'git\(repo, "fetch",[^\n]*', source)
+        self.assertTrue(calls)
+        for call in calls:
+            self.assertIn('"--no-recurse-submodules"', call)
+
+
+class BunTmpdir(unittest.TestCase):
+    """Every gate gets a writable BUN_TMPDIR (cmux#59800: web lint failed `EACCES accessing temporary directory`)."""
+
+    @staticmethod
+    def module():
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates_under_test", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_is_made_under_the_runner_temp_and_exported(self):
+        with tempfile.TemporaryDirectory() as runner:
+            env = {"RUNNER_TEMP": runner}
+            made = self.module().ensure_bun_tmpdir(env)
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+            self.assertEqual(made.parent, Path(runner))
+            self.assertTrue(os.access(made, os.W_OK))
+
+    def test_a_caller_set_one_is_kept(self):
+        env = {"BUN_TMPDIR": "/somewhere", "RUNNER_TEMP": "/nonexistent"}
+        self.assertIsNone(self.module().ensure_bun_tmpdir(env))
+        self.assertEqual(env["BUN_TMPDIR"], "/somewhere")
+
+    def test_an_unusable_runner_temp_falls_back_to_the_system_temp(self):
+        env = {"RUNNER_TEMP": "/nonexistent/runner-temp"}
+        made = self.module().ensure_bun_tmpdir(env)
+        try:
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+        finally:
+            if made:
+                made.rmdir()
 
 
 if __name__ == "__main__":

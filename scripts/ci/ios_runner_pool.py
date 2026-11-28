@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pick the macOS pool the unsigned iOS jobs land on.
 
-test-ios.yml (mobile-core-package, ios-simulator-build, ios-simulator) and
+test-ios.yml (ios-simulator-build, ios-simulator) and
 ios-screenshots.yml (screenshots) run this in a `runner` job, the way
 test-e2e.yml runs e2e_runner_pool.py, and every macOS job of the run reads its
 outputs.
@@ -195,10 +195,11 @@ path reads the runs' jobs instead; see Live capacity.)
 
 Labels. ios-simulator-build and ios-simulator need the iOS runtime, and
 screenshots too, so they ask for the owned pool label and SIM_LABEL together
-(`runs_on`); the plain pool label alone never reaches them. mobile-core-package
-runs SwiftPM tests on the host and needs no simulator, so it takes the pool
-label alone (`package_runs_on`). glaeda knows these jobs (the build and package
-jobs are isolated jobs, the simulator jobs hold its per-mini simulator token),
+(`runs_on`); the plain pool label alone never reaches them. `package_runs_on`
+(the pool label alone) is for a job that runs SwiftPM tests on the host and needs
+no simulator; test-ios.yml has none now that its packages test on Linux
+(mobile-core-linux). glaeda knows these jobs (the build job is an isolated
+job, the simulator jobs hold its per-mini simulator token),
 so unlike an E2E run they never take the root label. Neither label appears in
 workflow text (tests/test_ci_self_hosted_guard.sh refuses `glaeda-` there):
 runs-on reads the JSON this prints.
@@ -212,14 +213,17 @@ would wait for good), or CI_OWNED_POOL_SLOTS gives SIM_LABEL no machines. It
 also refuses what auto refuses: an `ios_version`, an upload, a release call
 and `seed_cache`. CI_IOS_OWNED is not required, so a proof run can precede it.
 
-A `swift_package` run of test-ios.yml runs mobile-core-package alone: one
-machine and no simulator, so it needs no SIM_LABEL capacity.
+A `swift_package` run of test-ios.yml runs only mobile-core-linux, on Linux: it
+needs no SIM_LABEL capacity, and is still charged one machine (run_jobs()), an
+over-count for a rare manual dispatch.
 
 A job left queued on the owned labels, or refused by glaeda at job start, is
 re-run by ci-owned-pool-rescue.yml, which watches the run through the marker
-the runner job uploads (as for E2E). From attempt 2 on every macOS job takes
-`retry_runs_on`: the default when it is a Blacksmith pool, else the 6vcpu
-macOS 26 pool.
+the runner job uploads (as for E2E). From attempt 2 on, a re-run the rescue
+bot (github-actions[bot] or cmux-bot[bot]) starts takes `retry_runs_on`: the
+default when it is a Blacksmith pool, else the 6vcpu macOS 26 pool. A person's
+re-run takes the run's own pick again (RFD 0165: those re-runs held about 400
+to 800 Blacksmith minutes a day), as test-ios.yml's cmux-next lane does.
 
 API budget: the E2E picker's four requests, plus one page of runs for each
 of the two iOS workflows and up to MARKER_PAGES pages of `owned-pool-watch`
@@ -317,8 +321,8 @@ class Lane:
 
 
 LANES = {
-    # mobile-core-package and ios-simulator-build run side by side; the
-    # simulator matrix (iPhone, iPad) follows the build, two again.
+    # ios-simulator-build, then the simulator matrix (iPhone, iPad) that
+    # follows it: two at once.
     "test-ios": Lane(jobs=2, measured=True),
     # One capture or CmuxMobileKit job.
     "screenshots": Lane(jobs=1, measured=False),
@@ -373,6 +377,8 @@ class IOSLoad:
     ios_since: int = 0
     # Read from the runners API instead of the snapshot, when the route token works.
     live: LiveFree | None = None
+    # Pipeline capacity by Xcode-pinned pool, measured from the same runners and jobs listing.
+    pipeline_pools: Mapping[str, LiveFree] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -384,6 +390,8 @@ class Route:
     build_label: str = ""
     # A granted default (see Granted default): every label of runs_on, GRANT_LABEL first, SIM_LABEL included.
     grant_labels: tuple[str, ...] = ()
+    # The picker read the simulator Macs and found none free for the run (see Granted default): it stays put.
+    starved: bool = False
 
     @property
     def runs_on(self) -> str:
@@ -404,7 +412,7 @@ class Route:
 
     @property
     def package_runs_on(self) -> str:
-        """runs-on as JSON for mobile-core-package, which needs no simulator."""
+        """runs-on as JSON for a host-only SwiftPM job, which needs no simulator."""
         if self.grant_labels:
             return json.dumps([label for label in self.grant_labels if label != SIM_LABEL])
         return json.dumps(self.label)
@@ -418,6 +426,11 @@ def ephemeral(label: str) -> Route:
     return Route(label, label, False)
 
 
+def starved(label: str) -> Route:
+    """The default, kept because the picker measured no free simulator Mac for the run (see Granted default)."""
+    return Route(label, label, False, starved=True)
+
+
 def retry_label(default: str) -> str:
     """A Blacksmith pool for re-runs: the default when it is one, else the 6vcpu macOS 26 pool."""
     return default if default.startswith(pr_runner_pool.EPHEMERAL_PREFIX) else SMALL_RUNNER
@@ -428,7 +441,7 @@ def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = N
     if lane in ("screenshots", "kit", "phone-cells", "billing", "pipeline"):
         return 1
     if (swift_package or "").strip():
-        # mobile-core-package alone: SwiftPM tests on the host.
+        # mobile-core-linux alone, on Linux.
         return 0
     return 1 if (device_family or "").strip() in ("iphone", "ipad") else MAX_SIM_JOBS
 
@@ -468,6 +481,33 @@ def sim_free(load: IOSLoad, capacity: int) -> int:
     return capacity - taken - load.ios_since
 
 
+def live_owned_pool(pools: Sequence[str], runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """The first pin pool an online runner carries with the simulator label; `pools[0]` when unlisted.
+
+    A label routes while one online runner carries it (pr_runner_pool.routing_slots). `runner: owned`
+    reads no queue, so without this a pin whose every carrier is offline queues its jobs until a
+    lander cancels them (hosted#1034: 46 minutes on glaeda-std-xcode-27.2, 0 of 4 online). An
+    unread listing (None: no route token, or the call failed) keeps the first pool: the listing
+    failing is not the pool failing. An empty listing is an answer: no runner carries the pin, so
+    the pick refuses as it does when every carrier is offline.
+    """
+    if runners is None:
+        return pools[0]
+    registered = {pool: 0 for pool in pools}
+    for pool in pools:
+        for runner in runners:
+            if not pr_runner_pool.carries_office_pool_label(runner, pool) \
+                    or SIM_LABEL not in pr_runner_pool.runner_labels(runner):
+                continue
+            registered[pool] += 1
+            if runner.get("status") == "online":
+                return pool
+    counts = ", ".join(f"{pool} 0 of {registered[pool]} registered" for pool in pools)
+    raise ValueError(f"runner: {OWNED_CHOICE} refused: no online runner carries an owned pool for "
+                     f"{pr_runner_pool.PR_XCODE_VARIABLE} with {SIM_LABEL} ({counts}); bring one online "
+                     "or pin an Xcode the fleet carries")
+
+
 def resolve(
     lane: str,
     requested: str | None,
@@ -490,6 +530,7 @@ def resolve(
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
     fork: bool = False,
+    list_runners: Callable[[], Sequence[Mapping[str, Any]] | None] | None = None,
 ) -> Route:
     """The route for one run, from its inputs and variables. Raises ValueError on a refused request."""
     config = LANES[lane]
@@ -517,8 +558,9 @@ def resolve(
         if not pools:
             raise ValueError(f"runner: {OWNED_CHOICE} needs {pr_runner_pool.PR_XCODE_VARIABLE} to name an "
                              "Xcode version (/Applications/Xcode_<version>.app)")
-        log(f"runner: {OWNED_CHOICE} -> {pools[0]} with {SIM_LABEL}")
-        return Route(pools[0], retry_label(default), True)
+        pool = live_owned_pool(pools, list_runners() if list_runners else None)
+        log(f"runner: {OWNED_CHOICE} -> {pool} with {SIM_LABEL}")
+        return Route(pool, retry_label(default), True)
     if blocker:
         log(f"{blocker}; staying on {default}")
         return ephemeral(default)
@@ -547,6 +589,25 @@ def resolve(
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {default}")
         return ephemeral(default)
+    if load.pipeline_pools:
+        for label in limits.order:
+            free = load.pipeline_pools.get(label)
+            if free and free.pool and free.sim:
+                log(f"live: {label} has an idle {SIM_LABEL} runner and simulator capacity")
+                return Route(label, retry_label(default), True)
+        # Every pool is full: the fast verdict is one simulator step (glaeda classes pr-pipeline's ios-fast so), so
+        # it takes a mini's sim-first runner when one is idle, as the sim-first lanes do, instead of Blacksmith's
+        # queue and a cold build (cmux#61812: 6 min queued on blacksmith-6vcpu-macos-26, then 645 s).
+        sim_first = pr_runner_pool.sim_first_label(pr_xcode_app)
+        pools = pr_runner_pool.owned_pools(pr_xcode_app)
+        standard = load.pipeline_pools.get(pools[0]) if pools else None
+        if (lane == "pipeline" and needed and sim_first and standard is not None and pools[0] in limits.order
+                and standard.sim_first >= needed):
+            log(f"no configured pool has a free {SIM_LABEL} runner and simulator; {standard.sim_first} {sim_first} "
+                f"free -> {sim_first}")
+            return Route(sim_first, retry_label(default), True)
+        log(f"no configured pool has a free {SIM_LABEL} runner and simulator; staying on {default}")
+        return starved(default)
     if load.live is not None:
         pools = pr_runner_pool.owned_pools(pr_xcode_app)
         jobs = run_jobs(lane, swift_package, device_family)
@@ -563,9 +624,8 @@ def resolve(
             return Route(sim_first, retry_label(default), True)
         log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
             f"{needed} needed; {load.live.sim_first} {sim_first or 'sim-first'} free; staying on {default}")
-        return ephemeral(default)
-    # Simulator jobs take the first owned pool only, as the live path above
-    # routes them, since SIM_LABEL is on that pool's runners. The replay of
+        return starved(default)
+    # The snapshot lacks per-pool simulator capability. Use the standard office pool here. The replay of
     # newer runs still spreads over the whole order.
     try:
         choice = e2e_runner_pool.decide(load.pool, limits, now=now,
@@ -578,10 +638,10 @@ def resolve(
         return ephemeral(default)
     if not pr_runner_pool.persistent(choice.runner):
         log(f"{choice.reason or 'no owned pool has room'}; staying on {default}")
-        return ephemeral(default)
+        return starved(default)
     if needed and free < needed:
         log(f"{SIM_LABEL}: {free} of {capacity} free, {needed} needed; staying on {default}")
-        return ephemeral(default)
+        return starved(default)
     log(f"{choice.reason} -> {choice.runner} with {SIM_LABEL} ({free} of {capacity} free, {needed} needed)")
     return Route(choice.runner, retry_label(default), True)
 
@@ -832,7 +892,8 @@ def build_route(route: Route, *, lane: str, swift_package: str | None, sim_first
 def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[Mapping[str, Any]], *,
               now: dt.datetime, capacity: int, placements: Placements | None = None,
               jobs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
-              sim_first_label: str = "") -> LiveFree:
+              sim_first_label: str = "", idle_sim_only: bool = False,
+              sim_first_runners: Sequence[Mapping[str, Any]] | None = None) -> LiveFree:
     """The pool's idle runners and its free simulator minis, less what in-flight iOS runs will take.
 
     `recent` are the in-flight runs of the last SIM_WINDOW_MINUTES and `jobs`
@@ -848,15 +909,16 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
         raise RuntimeError(f"no runner carries {pool}")
     idle = pr_runner_pool.live_owned_free(mine, (pool,))
     sim_hosts = {runner_host(runner) for runner in mine if runner.get("status") == "online"
-                 and SIM_LABEL in {str(item.get("name")) for item in runner.get("labels") or []
-                                   if isinstance(item, Mapping)}}
+                 and (not idle_sim_only or not runner.get("busy")) and SIM_LABEL in pr_runner_pool.runner_labels(runner)}
     holds = [hold(run, (jobs or {}).get(run.get("id")), pool, placements, now) for run in recent]
-    held = sim_hosts & frozenset().union(*(item.sim_hosts for item in holds))
-    sim_room = max(0, min(len(sim_hosts - held), capacity - len(held)))
+    held_hosts = frozenset().union(*(item.sim_hosts for item in holds))
+    # The pipeline compares pools separately, but the configured simulator limit spans them all.
+    used = len(held_hosts) if idle_sim_only else len(sim_hosts & held_hosts)
+    sim_room = max(0, min(len(sim_hosts - held_hosts), capacity - used))
     charged = sum(item.sims for item in holds)
     # One sim-first runner per mini, offline while its simulator is taken; a
     # running simulator job's mini is left out in case the listing lags it.
-    first_hosts = sim_first_hosts(runners, sim_first_label)
+    first_hosts = sim_first_hosts(runners if sim_first_runners is None else sim_first_runners, sim_first_label)
     first_hosts -= frozenset().union(*(item.sim_hosts for item in holds))
     return LiveFree(pool=max(0, idle[pool] - sum(item.machines for item in holds)),
                     sim=max(0, sim_room - charged),
@@ -958,7 +1020,7 @@ def granted_default(route: Route, *, fork: bool, owner: str, requested: str | No
     `${CI_OVERFLOW_MAC or 'cmux-mac'}` instead, as other own-branch Mac workflows do (vars.CI_OVERFLOW_MAC ||
     'cmux-mac'), with SIM_LABEL and xcode-<version>: the shared glaeda runners carrying all three take it, and
     the CI controller grants it to any free Mac whose asker reports that Xcode and an iOS simulator runtime
-    (cmuxterm-hq build-fleet/internal/sched/grant.go). mobile-core-package drops SIM_LABEL. Its Xcode is the
+    (cmuxterm-hq build-fleet/internal/sched/grant.go). package_runs_on drops SIM_LABEL. Its Xcode is the
     lane's vars.CMUX_CI_XCODE_APP_PR, else the macOS 26 row of xcode-pins.txt, which select-ci-xcode.sh picks
     on such a Mac (CMUX_CI_XCODE_APP stays empty off a glaeda- label).
 
@@ -974,8 +1036,17 @@ def granted_default(route: Route, *, fork: bool, owner: str, requested: str | No
     xcode-26.6 at 12:07Z behind 29 queued simulator jobs; it never started, and its concurrency group held every
     later base push run of the workflow pending or cancelled with no jobs, so the base had no kit result. A push,
     dispatch or schedule run keeps the Blacksmith default, which always serves.
+
+    A starved route (the picker read the simulator Macs, live or from the snapshot, and found none free for the
+    run) keeps its default too, so the labels match the "staying on" the picker logged. On 2026-11-25 cmux#53546's
+    ios job 139577184055 logged "staying on blacksmith-6vcpu-macos-26" and still took cmux-mac + glaeda-ios-sim +
+    xcode-26.6, where it waited 39 min and its re-run 41 min; the Mac queue was 80 of the head's 151 min (48 of
+    68.7 min on cmux#55016). Blacksmith always serves. A route the picker did not measure is still granted.
     """
     if fork or owner != OWNER or route.persistent or blocker:
+        return route
+    if route.starved:
+        log(f"the picker found no free simulator Mac; staying on {route.label}, not {GRANT_LABEL}")
         return route
     if (event or "").strip() not in ("", "pull_request", "pull_request_target"):
         log(f"a {event.strip()} run has no re-run off a starved grant; staying on {route.label}")
@@ -1100,6 +1171,24 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 recent = in_flight_ios_runs(client, since, exclude_run_id=exclude)
                 capacity = pr_runner_pool.capability_slots(args.owned_slots).get(SIM_LABEL, 0)
                 jobs, placements = live_placements(client, recent, now)
+                if args.lane == "pipeline":
+                    # Its one job needs an idle listener carrying both labels. Compare opted-in AWS pools
+                    # and the standard office pool in configured order using this same runners/jobs listing.
+                    available = {}
+                    for label in pr_runner_pool.owned_pools(args.pr_xcode_app, args.order):
+                        if label != pools[0] and not label.startswith("glaeda-aws-"):
+                            continue
+                        members = [r for r in runners if pr_runner_pool.carries_office_pool_label(r, label)]
+                        if members:
+                            # The standard pool also counts its minis' idle sim-first runners (the whole listing:
+                            # that runner carries no pool label), for when no pool has room (resolve()).
+                            first = pr_runner_pool.sim_first_label(args.pr_xcode_app) if label == pools[0] else ""
+                            available[label] = live_free(members, label, recent, now=now, capacity=capacity,
+                                                         placements=placements, jobs=jobs, idle_sim_only=True,
+                                                         sim_first_label=first, sim_first_runners=runners)
+                    if available:
+                        return IOSLoad(None, pipeline_pools=available)
+                    raise RuntimeError("no runner carries a configured pipeline simulator pool")
                 return IOSLoad(None, live=live_free(runners, pools[0], recent, now=now, capacity=capacity,
                                                     placements=placements, jobs=jobs,
                                                     sim_first_label=pr_runner_pool.sim_first_label(args.pr_xcode_app)))
@@ -1140,6 +1229,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     def log(message: str) -> None:
         print(message, file=sys.stderr)
 
+    def list_runners() -> Sequence[Mapping[str, Any]] | None:
+        # `runner: owned` reads no queue: one runners listing proves its pool has an online carrier.
+        if "runners" in listed:
+            return listed["runners"]
+        if not route_token or not repo:
+            return None
+        try:
+            listed["runners"] = pr_runner_pool.GitHub(route_token, repo).runners()
+        except Exception as error:  # noqa: BLE001 - an unread listing keeps the pinned pool
+            print(f"::warning title=owned pool::could not list runners ({error}); keeping the first pin pool",
+                  file=sys.stderr)
+            return None
+        return listed["runners"]
+
     try:
         route = resolve(
             args.lane, args.requested, args.variable,
@@ -1150,6 +1253,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             swift_package=args.swift_package, upload=args.upload, called=args.called,
             seed_cache=args.seed_cache,
             measure=measure, now=now, log=log, fork=args.fork.strip() == "true",
+            list_runners=list_runners,
         )
     except ValueError as error:
         print(f"::error::{error}", file=sys.stderr)
