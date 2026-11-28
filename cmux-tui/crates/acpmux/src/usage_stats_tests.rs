@@ -589,7 +589,7 @@ fn counts_are_unknown_until_the_reads_cover_the_day() {
     // again, and not found, the chat has no stats at all (`Tracker::refresh`).
     std::fs::remove_file(&path).unwrap();
     let gone = stepped.refresh(&source, now, &models());
-    assert!(gone.is_none_or(|s| s.tokens24h.is_none()), "{gone:?}");
+    assert!(gone.as_ref().is_none_or(|s| s.tokens24h.is_none()), "{gone:?}");
 }
 
 #[test]
