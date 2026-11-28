@@ -300,6 +300,18 @@ pub(super) async fn route(
         return reply;
     }
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
+    if m == crate::hub::ask_ledger::METHOD {
+        if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+            return Err(RpcError::method_not_found(m));
+        }
+        // `related`: the asks this text repeats or follows up (the matcher); else the newest page.
+        if let Some(text) = params.get("related").and_then(Value::as_str) {
+            let session = params.get("sessionId").and_then(Value::as_str);
+            let skip = params.get("skip").and_then(Value::as_str);
+            return Ok(hub.ask_ledger.related(text, session, skip));
+        }
+        return Ok(hub.ask_ledger.page());
+    }
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
     }
