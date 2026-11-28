@@ -19,6 +19,10 @@ import os
 ///   trust rule reads). A failed ask is asked again and its reason logged (cmux#48605).
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
 /// - ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
+/// - A steady push (``receive(_:)``, ``evaluate(_:argument:text:)``) is one fixed function with its data as an
+///   argument (`Runtime.callFunctionOn` on the document's `globalThis`), never a new script text per push:
+///   V8 compiles and keeps each distinct source it is given (RFD 0062). Pushes queued together of one body
+///   go in one call, their texts as one array argument.
 /// - The Runtime domain is on only while a navigation starts: on, a new document's main world
 ///   gets the binding when it is made (before any page script runs); off, no binding reaches a new
 ///   world, but V8 also stops reporting every context and console call to the session, which made
@@ -47,7 +51,11 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// Called once, when the first trusted message arrives: the page reached the host.
     public var onFirstMessage: (() -> Void)?
     private var reachedHost = false
-    private var scripts: [String] = []
+    /// What waits to run in the page, in order.
+    private var scripts: [Push] = []
+    /// The page's `globalThis` handle (`Runtime.evaluate` result `objectId`) that pushes call their
+    /// function on, for the document of ``senderEpoch``; nil until a push asks for it.
+    private var globalObject: (id: String, epoch: Int)?
     private var draining = false
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
@@ -209,6 +217,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// The page's contexts went with their document or renderer: their senders are asked anew.
     private func forgetSenders() {
         senderEpoch += 1
+        globalObject = nil
         senders.removeAll()
         senderAsks.removeAll()
     }
@@ -234,7 +243,55 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     }
 
     public func evaluate(_ script: String) {
-        scripts.append(script)
+        enqueue(.script(script))
+    }
+
+    /// Runs the one fixed ``PageRouter/receiveBody`` with the envelope's text as its argument (RFD 0062).
+    public func receive(_ envelopeText: String) {
+        evaluate(PageRouter.receiveBody, argument: "envelope", text: envelopeText)
+    }
+
+    /// Runs the fixed `body` with `text` as its string parameter `name`, in order with ``evaluate(_:)``:
+    /// a `Runtime.callFunctionOn` of one function text per body, so a push of new data compiles no new
+    /// script in V8 (RFD 0062).
+    public func evaluate(_ body: String, argument name: String, text: String) {
+        enqueue(.call(body: body, name: name, text: text))
+    }
+
+    /// One thing to run in the page: a script text, or a fixed body called with its data.
+    enum Push {
+        case script(String)
+        case call(body: String, name: String, text: String)
+
+        var bytes: Int {
+            switch self {
+            case .script(let script): script.utf8.count
+            case .call(_, _, let text): text.utf8.count
+            }
+        }
+
+        var script: String? {
+            if case .script(let script) = self { return script }
+            return nil
+        }
+
+        var text: String? {
+            if case .call(_, _, let text) = self { return text }
+            return nil
+        }
+
+        /// Whether `other` can go in the same round trip after this.
+        func joins(_ other: Push) -> Bool {
+            switch (self, other) {
+            case (.script, .script): true
+            case let (.call(body, name, _), .call(otherBody, otherName, _)): body == otherBody && name == otherName
+            default: false
+            }
+        }
+    }
+
+    private func enqueue(_ push: Push) {
+        scripts.append(push)
         guard !draining else { return }
         draining = true
         // task-owner: the bridge's script FIFO; it ends when the queue is empty or the page is gone
@@ -251,25 +308,63 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             // Everything queued so far goes in one round trip (a streaming reply queues one push per
             // frame); scripts queued while it runs go in the next.
             let batch = takeBatch()
-            let expression = Self.batch(batch)
             pushes.scripts += batch.count
             pushes.batches += 1
-            pushes.bytes += expression.utf8.count
-            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "silent": true])
+            if case let .call(body, name, _) = batch[0] {
+                let texts = batch.compactMap(\.text)
+                pushes.bytes += texts.reduce(0) { $0 + $1.utf8.count }
+                await call(Self.callDeclaration(body: body, argument: name), texts: texts, on: page)
+            } else {
+                let expression = Self.batch(batch.compactMap(\.script))
+                pushes.bytes += expression.utf8.count
+                _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "silent": true])
+            }
         }
     }
 
-    /// The scripts at the head of the queue, up to ``maximumBatchBytes`` (at least one).
-    private func takeBatch() -> [String] {
+    /// The pushes at the head of the queue that go in one round trip, up to ``maximumBatchBytes`` (at least one).
+    private func takeBatch() -> [Push] {
+        guard let first = scripts.first else { return [] }
         var bytes = 0
         var count = 0
-        for script in scripts {
-            bytes += script.utf8.count
-            if count > 0, bytes > Self.maximumBatchBytes { break }
+        for push in scripts {
+            bytes += push.bytes
+            if count > 0, bytes > Self.maximumBatchBytes || !first.joins(push) { break }
             count += 1
         }
         defer { scripts.removeFirst(count) }
         return Array(scripts.prefix(count))
+    }
+
+    /// `declaration` called on the document's `globalThis` with `texts` as its one argument. A handle
+    /// of a document that went (an error answer or a thrown call) is asked for again, once.
+    private func call(_ declaration: String, texts: [String], on page: any PageChromiumPage) async {
+        for attempt in 0..<2 {
+            guard let object = await globalObjectID(of: page, fresh: attempt > 0) else { return }
+            let answer = try? await page.devTools("Runtime.callFunctionOn", params: [
+                "functionDeclaration": declaration, "objectId": object,
+                "arguments": [["value": texts] as [String: any Sendable]], "silent": true,
+            ])
+            if let answer, ChromiumPageHostWire.object(answer)?["error"] == nil { return }
+        }
+    }
+
+    /// The `objectId` of the page's `globalThis`, kept for the document it came from.
+    private func globalObjectID(of page: any PageChromiumPage, fresh: Bool) async -> String? {
+        if !fresh, let globalObject, globalObject.epoch == senderEpoch { return globalObject.id }
+        let epoch = senderEpoch
+        guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": "globalThis", "silent": true]),
+              let result = ChromiumPageHostWire.object(json)?["result"] as? [String: Any],
+              let id = result["objectId"] as? String else { return nil }
+        if epoch == senderEpoch { globalObject = (id, epoch) }
+        return id
+    }
+
+    /// The one function text a body's pushes call: each text of the array argument in turn, as the
+    /// string parameter `name` of `body`, one that throws not stopping the ones after it.
+    nonisolated static func callDeclaration(body: String, argument name: String) -> String {
+        "function (texts) { const run = (\(name)) => { \(body) }; "
+            + "for (const text of texts) { try { run(text) } catch (e) { console.error(e) } } }"
     }
 
     /// The most script bytes sent in one `Runtime.evaluate`.
