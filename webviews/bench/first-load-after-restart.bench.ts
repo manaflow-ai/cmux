@@ -1945,6 +1945,12 @@ try {
         const snapshot = w.captureSnapshot(document, theme);
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
+      if (process.env.RAIL_PROBE) {
+        const rail = () => { const r = document.querySelector<HTMLElement>(".acpmux-minimap__rail"); const b = r?.getBoundingClientRect(); return r ? `${b!.top.toFixed(0)}+${b!.height.toFixed(0)} setsize ${r.querySelector("[aria-setsize]")?.getAttribute("aria-setsize")} ticks ${r.querySelectorAll("[data-tick]").length}` : "none"; };
+        console.log(`RAIL_PROBE at copy: ${await page.evaluate(rail)}`);
+        await page.waitForTimeout(4000);
+        console.log(`RAIL_PROBE +4s: ${await page.evaluate(rail)}`);
+      }
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (TRACE)
         console.log(
