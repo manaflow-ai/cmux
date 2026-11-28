@@ -259,6 +259,42 @@ def breakdown_from(report: dict, phase: str = "idle") -> tuple[dict, list[dict]]
     return out, rows
 
 
+# The features goal memory-per-chat's rows depend on, and how the app resolves each (it must match the app's own read:
+# CEFChatRendererRecycle.isEnabled, on unless the variable is "0"). A run with one off writes no rows unless
+# --allow-gate-off says it is meant to (an A/B), so a number measured with the feature off is never recorded as the
+# feature's number (memory-per-chat, 2026-11-28: the gate read == "1" while its doc said on by default, and the
+# bench recorded 1.357x with recycling off).
+GATES = {"CMUX_NEXT_CHAT_RENDERER_RECYCLE": lambda value: value != "0"}
+
+
+def gate_states(values: dict) -> dict[str, bool]:
+    """Each gate on or off for these environment values (pure; None is unset)."""
+    return {name: rule(values.get(name)) for name, rule in GATES.items()}
+
+
+def gate_line(where: str, values: dict) -> str:
+    """The run's gate line (pure), e.g. `memory-agents: gates (launch) CMUX_NEXT_CHAT_RENDERER_RECYCLE=unset -> on`."""
+    states = gate_states(values)
+    return f"memory-agents: gates ({where}) " + ", ".join(
+        f"{name}={'unset' if values.get(name) is None else values[name]} -> {'on' if on else 'off'}"
+        for name, on in states.items())
+
+
+def launch_gates(env_args: list[str]) -> dict:
+    """The gates' values the app will launch with: this run's --env, else launchd's (`open` merges them in)."""
+    given = dict(pair.split("=", 1) for pair in env_args if "=" in pair)
+    values = {}
+    for name in GATES:
+        value = given.get(name)
+        if value is None and sys.platform == "darwin":
+            try:  # check_output, not run: main's bench call is the one `run`
+                value = subprocess.check_output(["launchctl", "getenv", name], text=True).strip() or None
+            except (OSError, subprocess.CalledProcessError):
+                value = None
+        values[name] = value
+    return values
+
+
 def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
     """bench_memory.py's command for this part (pure). The empty app process's own split (--app-vm) is on unless
     --no-app-vm: the app process is the largest kind of the empty app (ram-baseline, CMUX-571), and only a stored
@@ -272,6 +308,8 @@ def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
         cmd.append("--app-vm")
     if args.app_vm_stacks:
         cmd += ["--app-vm-stacks", args.app_vm_stacks]
+    for pair in getattr(args, "env", None) or []:
+        cmd += ["--env", pair]
     return cmd
 
 
@@ -306,9 +344,23 @@ def main(argv: list[str] | None = None) -> int:
                         help="skip bench_memory --app-vm (by default every run stores the empty app process's vmmap "
                              "summary, footprint and heap in report.json app_vm)")
     parser.add_argument("--app-vm-stacks", metavar="PATTERN", help="bench_memory --app-vm-stacks (a diagnostic run)")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="an environment variable for the app (bench_memory --env), e.g. "
+                             "CMUX_NEXT_CHAT_RENDERER_RECYCLE=0 with --allow-gate-off for an A/B")
+    parser.add_argument("--allow-gate-off", action="store_true",
+                        help="keep the rows when a gate in GATES is off (an A/B run); by default such a run writes none")
     args, _rest = parser.parse_known_args(argv)  # split-spring's own args (--tag) are not this suite's
     out_dir = args.out or os.path.dirname(os.path.abspath(args.json))
     os.makedirs(out_dir, exist_ok=True)
+    launch_values = launch_gates(args.env)
+    print(gate_line("launch", launch_values), flush=True)  # the run's first line
+    off = [name for name, on in gate_states(launch_values).items() if not on]
+    if off and not args.allow_gate_off:
+        why = f"gate off at launch: {', '.join(off)} (--allow-gate-off for an A/B run): no rows"
+        with open(args.json, "w") as f:
+            json.dump({"rows": [], "agents": args.agents, "gates": {"launch": launch_values}, "incomplete": [why]}, f, indent=1)
+        print("memory-agents: FAILED: " + why, file=sys.stderr)
+        return 2
     raw = os.path.join(out_dir, "memory-agents.json")
     cmd = bench_cmd(args, raw)
     status = subprocess.run(cmd, cwd=ROOT).returncode
@@ -317,13 +369,22 @@ def main(argv: list[str] | None = None) -> int:
             report = json.load(f)
     except (OSError, ValueError):
         report = {}
+    app_read = report.get("app_gates") or {}
+    app_values = app_read.get("values") if isinstance(app_read.get("values"), dict) else None
+    if app_values is not None:
+        print(gate_line(f"app, {app_read.get('source', '?')}", app_values), flush=True)
+        off = [name for name, on in gate_states(app_values).items() if not on]
+        if off and not args.allow_gate_off:
+            report = {"app_gates": app_read}  # no samples: no rows from a run with the feature off
+            print(f"memory-agents: FAILED: gate off in the app: {', '.join(off)}: rows dropped", file=sys.stderr)
+            status = status or 2
     rows = rows_from(report)
     breakdown, breakdown_rows = breakdown_from(report)
     settled_rows = rows_from(report, "settled")
     settled, settled_breakdown_rows = breakdown_from(report, "settled")
     rows += idle_rows(report)
     out = {"rows": rows + breakdown_rows + settled_rows + settled_breakdown_rows, "agents": args.agents,
-           "bench_status": status}
+           "bench_status": status, "gates": {"launch": launch_values, "app": app_read or None}}
     if report.get("gpu_no_app"):
         out["gpu_no_app"] = report["gpu_no_app"]
     if breakdown:
