@@ -576,15 +576,21 @@ run = "scripts/ci/guards_reached.sh"
 [step.egress-scan-guards]
 job = "linux"
 land_gate = true
-timeout = 900
+# 20 s green; 324 s when test_egress_seeded is red on head and base (new_red_only.sh re-runs it there).
+timeout = 600
 title = "Privacy and egress registries match the source, judged against the base"
 about = "runs test_outbound_hosts, test_network_allowlist, test_egress_gate and test_egress_seeded (scripts/ci/egress_scan_guards.sh); fails only on a red the base passes"
 inputs = [
-  "Packages/macOS/CmuxNext/**",
-  "Packages/Shared/**",
-  "cmux-tui/**",
-  "webviews/src/**",
-  "cmux-next-ios/**",
+  "Packages/macOS/CmuxNext/**/*.swift",
+  "Packages/Shared/**/*.swift",
+  "cmux-tui/**/*.rs",
+  "cmux-tui/**/*.ts",
+  "webviews/src/**/*.ts",
+  "webviews/src/**/*.tsx",
+  "webviews/src/**/*.js",
+  "webviews/src/**/*.mjs",
+  "cmux-next-ios/**/*.swift",
+  "cmux-next-ios/**/*.rs",
   "skills/cmux-customization/templates/**",
   "workers/device-hub/src/**",
   "docs/privacy.md",
