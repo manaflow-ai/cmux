@@ -30,14 +30,7 @@ const snapshot = chat(
   },
 );
 
-/// The finished line is the work of the turn it ended in, so it folds into the turn's closed "Worked
-/// for" (#53268), where the start line beside the fold says it finished (#61561). The plays open the
-/// fold to read the completion line itself.
 async function ready(ctx: PlayContext) {
-  if (!ctx.document.querySelector('[data-report-look="compact"]')) {
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
-    await ctx.click({ selector: ".cv-worked" });
-  }
   await ctx.waitFor(
     () =>
       ctx.document.querySelector('[data-report-look="compact"] .cv-agent-activity__sentence')?.textContent ===
