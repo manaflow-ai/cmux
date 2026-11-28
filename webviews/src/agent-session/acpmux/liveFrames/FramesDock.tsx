@@ -206,7 +206,7 @@ export function FramesDock({
           </button>
         )}
         {dock.mode !== "pill" && live && (
-          <a className="acpmux-frames-dock__live" href={live} title={screen?.name || undefined}>
+          <a className="acpmux-frames-dock__live" href={live}>
             <span className="acpmux-frames-dock__live-dot" aria-hidden />
             {t("turnFrames.watchLive")}
           </a>
