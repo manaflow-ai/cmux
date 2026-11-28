@@ -26,12 +26,18 @@ struct PaletteRowsKeptTests {
         return (list, table, window)
     }
 
-    /// A frame: the list laid out and drawn, as the next display shows it. A reload's rows are made when the table
-    /// draws, so a list read before its frame shows none.
+    /// A frame: the list laid out, and each visible row's view and cell made as the table's draw makes them. A reload's
+    /// rows are made when the table draws, and a window no one shows never draws, so a list read after a reload alone
+    /// shows none; a row on screen already is kept as it is.
     static func settle(_ list: PaletteListView) {
         list.needsLayout = true
         list.layoutSubtreeIfNeeded()
-        list.displayIfNeeded()
+        guard let table = list.documentView as? NSTableView else { return }
+        let visible = table.rows(in: table.visibleRect)
+        for row in visible.location..<NSMaxRange(visible) {
+            _ = table.rowView(atRow: row, makeIfNecessary: true)
+            _ = table.view(atColumn: 0, row: row, makeIfNecessary: true)
+        }
     }
 
     static func row(_ id: String, _ title: String, subtitle: String? = nil, isEnabled: Bool = true) -> PaletteRow {
