@@ -145,6 +145,7 @@ fn live_turn(id: &str) -> Turn {
         simulator: false,
         cwd: PathBuf::from("/elsewhere"),
         touched: Vec::new(),
+        mac_app: None,
     }
 }
 

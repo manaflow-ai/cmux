@@ -728,3 +728,44 @@ impl Dedupe {
         self.state.lock().is_ok_and(|s| s.pending.contains_key(use_id))
     }
 }
+
+/// A Codex shell call the dedupe may answer (`codex_dedupe.rs`): Codex's PreToolUse and
+/// PostToolUse payloads carry Claude's `tool_name` / `tool_input` / `cwd` shape, so the same
+/// read-only list (`dedupe_shell.rs`) and fingerprint decide it. Only `Bash` qualifies; Codex
+/// has no `Read`.
+pub(crate) struct CodexShell(Call);
+
+impl CodexShell {
+    /// The call in a Codex hook `input`, when it is a shell command the dedupe may stub.
+    pub(crate) fn of(input: &Value) -> Option<Self> {
+        match Call::of(input)? {
+            call @ Call::Shell { .. } => Some(Self(call)),
+            // Codex has neither `Read` nor `Grep` / `Glob`.
+            Call::Read { .. } | Call::Search { .. } => None,
+        }
+    }
+
+    /// The call's identity: its folder and its command.
+    pub(crate) fn key(&self) -> String {
+        match &self.0 {
+            Call::Shell { cwd, command, .. } => format!("{cwd}\0{command}"),
+            Call::Read { path, .. } => path.display().to_string(),
+            Call::Search { cwd, key, .. } => format!("{cwd}\0{key}"),
+        }
+    }
+
+    /// What its answer depends on, stamped now; `None` when it cannot be taken.
+    pub(crate) fn fingerprint(&self) -> Option<String> {
+        self.0.fingerprint()
+    }
+
+    /// What the model reads instead of running it again, `ago` calls after the earlier run.
+    pub(crate) fn stub(&self, ago: u64) -> String {
+        stub(&self.0, ago)
+    }
+}
+
+/// Whether the feature is on now, for the Codex hook and its launch (`codex_dedupe.rs`).
+pub(crate) fn enabled_now() -> bool {
+    enabled()
+}

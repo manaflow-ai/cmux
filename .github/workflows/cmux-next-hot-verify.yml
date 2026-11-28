@@ -317,6 +317,20 @@ jobs:
             exit 0
           fi
           python3 "$tool" verdict "$RUNNER_TEMP/plan.out" | tee -a "$GITHUB_OUTPUT"
+          # The router (pr-router.yml) posts cmux/ui-proof success at once for a head that changes nothing a user
+          # sees, and the plan's web layer is wider than that list (any webviews/ path, e.g. webviews/scripts/
+          # intro-walk*.mjs on cmux#64036): its look answered a gate that was already settled, then could not run and
+          # posted failure over the success. No look for a head the gate calls UI-free (same paths as the router).
+          if grep -q '^eligible=true' "$GITHUB_OUTPUT" && [[ "$MERGED" != true ]]; then
+            fork_point="$(git merge-base "origin/$BASE_REF" "$HEAD_SHA" 2>/dev/null || true)"
+            if [[ -n "$fork_point" ]]; then
+              mapfile -t touched < <(git diff --no-renames --name-only "$fork_point" "$HEAD_SHA" 2>/dev/null)
+              if [[ ${#touched[@]} -gt 0 && "$(python3 scripts/ci/ui_proof_verdict.py affects "${touched[@]}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["need"])')" == "" ]]; then
+                echo "eligible=false" >> "$GITHUB_OUTPUT"
+                echo "hot verify plan: ${HEAD_SHA:0:12} touches nothing cmux/ui-proof calls visual; no look" | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
+          fi
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
       # CI_POOL_FIRST: the dispatch goes out on a CI pool App first (each its own installation hour), then cmux-bot,
       # then the other pools, then github.token (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES).
@@ -1102,7 +1116,15 @@ jobs:
         env:
           GH_BUDGET_WAIT_MAX_SECONDS: 120
           GH_TOKEN: ${{ github.token }}
-          POST_TOKEN: ${{ env.CI_POOL_GH_TOKEN }}
+          # The record is posted as a bot App the gate trusts (proof_record.py DEFAULT_BOTS), each in turn. cmux-bot
+          # first: on 2026-11-28 (cmux#62400) the pool's token alone was refused, "Resource not accessible by
+          # integration (addComment)", since the pool Apps hold pull_requests: read only; continue-on-error read it as
+          # success and cmux/ui-proof sat pending on a look that had run. All refused: cmux/ui-proof failure, saying so.
+          POST_TOKENS: ${{ steps.cmux-bot-token.outputs.token }} ${{ env.CI_POOL_GH_TOKEN }} ${{ env.CI_POOL_GH_TOKEN_SPARES }}
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.head }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           OUT: ${{ steps.stage.outputs.out }}
@@ -1120,13 +1142,8 @@ jobs:
             --head "$HEAD_SHA" ${pushed[@]+"${pushed[@]}"} > /dev/null || rc=$?
           [[ "$rc" -le 1 ]] || echo "::warning title=hot verify::ui_proof_verdict.py record exited $rc"
           [[ -s "$OUT/proof-record.md" ]] || { echo "::warning title=hot verify::no proof record was built"; exit 0; }
-          if [[ -z "${POST_TOKEN:-}" ]]; then
-            echo "::warning title=hot verify::no pool app token: a record from github-actions[bot] is not trusted by cmux/ui-proof; none posted"
-            exit 0
-          fi
-          GH_TOKEN="$POST_TOKEN" gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/proof-record.md" || exit 1
-          python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import ui_proof_verdict as v; print(v.rerun_gate(*sys.argv[1:]))' \
-            "$GITHUB_REPOSITORY" "$HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 scripts/ci/ui_proof_verdict.py post-record --file "$OUT/proof-record.md" --pr "$PR" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
       # A look that made no record left cmux/ui-proof pending with nothing coming to answer it: on 2026-11-27
       # cmux#61289, #61543 and #61546 sat pending 4 h+ while each look was cancelled ("no fleet Mac took the look
       # within 3h0m0s"), started once more and cancelled or late again, and no status said so. Leo, 2026-11-27: "we
