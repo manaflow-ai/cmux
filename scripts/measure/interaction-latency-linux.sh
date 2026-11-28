@@ -11,16 +11,25 @@
 #     --artifact artifacts/interaction-latency/results.json
 # KEY is an interaction of scripts/ci/nightly_interaction_latency.py (INTERACTIONS). The one artifact is its `run`
 # command's results.json, which the workflow's `report` step reads as if the runner job had run the benches.
+# head=SHA (40 hex) benches that commit's webviews/ and nightly_interaction_latency.py from a worktree of its own,
+# with this script and its artifact path from the step's ref: the measurement list runs an unlisted scripts/measure
+# script only at a feat-cmux-next or main commit ("is not on the measurement list"), so a PR's bench change or A/B
+# arms could not reach the exclusive worker the nightly reads (composer typing L0/L3, run 46142019929).
 # Exit 0 when results.json was written (a failed bench is in it), 1 when it was not.
 set -uo pipefail
 interactions=""
+head_sha=""
 for arg in "$@"; do
   case "$arg" in
     interactions=*) interactions="${arg#interactions=}" ;;
+    head=*) head_sha="${arg#head=}" ;;
     *) echo "interaction-latency-linux.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[ -n "$interactions" ] || { echo "usage: interaction-latency-linux.sh interactions=KEY[,KEY...]" >&2; exit 2; }
+[ -n "$interactions" ] || { echo "usage: interaction-latency-linux.sh interactions=KEY[,KEY...] [head=SHA]" >&2; exit 2; }
+if [ -n "$head_sha" ] && ! [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "interaction-latency-linux.sh: head= takes a full 40-hex commit sha, not $head_sha" >&2; exit 2
+fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root" || exit 2
 cache="${CMUX_CI_CACHE_DIR:-$HOME/.cache/cmux-ci}"
@@ -31,6 +40,21 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$out"
 
 echo "interaction-latency-linux.sh: $(hostname) nproc=$(nproc) load $(cut -d' ' -f1-3 /proc/loadavg)"
+
+# The tree the benches run from: this checkout, or head='s commit in a worktree under $work.
+bench_root="$root"
+bench_head="$(git rev-parse HEAD)"
+if [ -n "$head_sha" ]; then
+  # shellcheck source=scripts/measure/fetch-commit.sh
+  source "$root/scripts/measure/fetch-commit.sh"
+  measure_fetch_commit "$root" "$head_sha" || exit 1
+  git -C "$root" worktree add -q --detach "$work/head" "$head_sha" || exit 1
+  trap 'git -C "$root" worktree remove --force "$work/head" >/dev/null 2>&1; rm -rf "$work"' EXIT
+  bench_root="$work/head"
+  bench_head="$head_sha"
+fi
+echo "interaction-latency-linux.sh: head=$bench_head script=$(git rev-parse HEAD)"
+cd "$bench_root" || exit 2
 
 # The pinned bun, beside the cache as perf-cron-linux.sh keeps it.
 bun_pin="$(python3 -I scripts/webviews_bun_version.py webviews/package.json)" || exit 1
@@ -57,13 +81,13 @@ fi
 playwright_version="$(cd webviews && python3 -I -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2>/dev/null || echo unknown)"
 export PLAYWRIGHT_BROWSERS_PATH="$cache/playwright-$playwright_version"
 (cd webviews && ./node_modules/.bin/playwright install --with-deps webkit) || exit 1
-chrome_out="$(cd webviews && "$root/scripts/ci/ensure-system-chrome.sh")" || exit 1
+chrome_out="$(cd webviews && "$bench_root/scripts/ci/ensure-system-chrome.sh")" || exit 1
 printf '%s\n' "$chrome_out"
 shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
 [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
 
 # The plan the runner job made, rebuilt from its interaction keys in its order.
-python3 -I - "$interactions" "$(git rev-parse HEAD)" "$work/plan.json" <<'PY' || exit 1
+python3 -I - "$interactions" "$bench_head" "$work/plan.json" <<'PY' || exit 1
 import json, sys
 sys.path.insert(0, "scripts/ci")
 import nightly_interaction_latency as nil

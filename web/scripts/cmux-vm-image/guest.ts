@@ -307,6 +307,8 @@ export class StepLog {
   readonly steps: Array<{ label: string; secs: number }> = [];
   private ioProbes = 0;
   private hangSnapshots = 0;
+  /** Waits between reads of a step's recorded result when a read fails outright (recoverStepResult). */
+  recoverWaitsMs: number[] = [1_000, 3_000, 8_000];
   constructor(readonly logFile: string) {
     mkdirSync(path.dirname(logFile), { recursive: true });
   }
@@ -337,13 +339,21 @@ export class StepLog {
       throw new Error(`step ${label} failed: not /bin/sh`);
     }
     const t0 = Date.now();
+    const dir = `${STEP_RESULT_ROOT}/${label.replace(/[^a-z0-9-]/gi, "-")}-${process.pid}-${++stepSeq}`;
     let r: ExecResult;
     try {
-      r = await run(vm, command, timeoutMs);
+      r = await run(vm, recordedStepCommand(dir, command), timeoutMs);
     } catch (error) {
-      if (isClientTimeout(error)) await this.logHangSnapshot(vm, label, `after the client's TimeoutError at ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-      throw error;
+      if (!isClientTimeout(error)) throw error;
+      // The exec's answer may be lost while the guest finished: its recorded result decides, not the lost answer.
+      const recovered = await this.recoverStepResult(vm, label, dir, t0, `the client's TimeoutError`);
+      if (!recovered) {
+        await this.logHangSnapshot(vm, label, `after the client's TimeoutError at ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        throw error;
+      }
+      r = recovered;
     }
+    if (r.code === 124) r = (await this.recoverStepResult(vm, label, dir, t0, "status=124")) ?? r;
     const secs = r.ms / 1000;
     this.steps.push({ label, secs });
     if (r.code === 124) await this.logHangSnapshot(vm, label, `after status=124 ${secs.toFixed(1)}s`);
@@ -355,6 +365,33 @@ export class StepLog {
     }
     this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${r.stdout.trim().split("\n").slice(-3).join(" | ")}`);
     return r.stdout;
+  }
+
+  /**
+   * The result a step recorded in the guest (recordedStepCommand) after its exec came back as status 124 or the
+   * client's TimeoutError: roll 46181977393's drop-cache-warm-bind-path (3-41 s on green rolls) came back as status
+   * 124 at the 300 s exec cap while its HANG_SNAPSHOT showed nothing of it running (no FUSE mount, 88 kB dirty), so the
+   * guest had finished and only the exec's answer was lost. A read that answers decides (null when the guest recorded
+   * no status: the step really ran out of time, or never started); one that fails outright is tried again after each of
+   * recoverWaitsMs.
+   */
+  async recoverStepResult(vm: Vm, label: string, dir: string, t0: number, why: string): Promise<ExecResult | null> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const read = await run(vm, `cat ${dir}/status 2>/dev/null && cat ${dir}/out && echo ${DETACHED_STDERR_MARK} && tail -c 3000 ${dir}/err`, DETACHED_CALL_MS);
+        const [head = "", ...rest] = read.stdout.split("\n");
+        if (read.code !== 0 || !/^\d+$/.test(head.trim()) || !read.stdout.includes(DETACHED_STDERR_MARK)) return null;
+        const [stdout, stderr = ""] = rest.join("\n").split(`${DETACHED_STDERR_MARK}\n`);
+        const code = Number(head.trim());
+        this.log(`RECOVERED [${label}] after ${why}: the guest recorded status=${code}; the exec's answer was lost`);
+        return { code, stdout, stderr, ms: Date.now() - t0 };
+      } catch {
+        // A read that failed outright is the provider's: try again after a short wait, a bounded number of times.
+        const wait = this.recoverWaitsMs[attempt];
+        if (wait === undefined) return null;
+        await sleep(wait);
+      }
+    }
   }
 
   /**
@@ -441,6 +478,20 @@ export class StepLog {
       }
     }
   }
+}
+
+/** Where each plain step records its status, stdout and stderr in the guest (recordedStepCommand). */
+export const STEP_RESULT_ROOT = "/root/.cmux-step";
+let stepSeq = 0;
+
+/**
+ * A plain step as the guest runs it: the command in a subshell (an `exit` in it still records), its status, stdout
+ * and stderr written under `dir`, then printed and returned as before. So a step whose exec answer is lost (status 124
+ * at the cap, or the client's TimeoutError) is read back from the guest instead of failing (recoverStepResult). Output
+ * goes to files, so a background child that inherits it no longer holds the exec open.
+ */
+export function recordedStepCommand(dir: string, command: string): string {
+  return `mkdir -p ${dir} && rm -f ${dir}/status && ( ${command}\n) > ${dir}/out 2> ${dir}/err < /dev/null; s=$?; echo $s > ${dir}/status; cat ${dir}/out; cat ${dir}/err >&2; exit $s`;
 }
 
 /** One poll or start call of a detached step: short, so a provider blip costs one poll, not the step. */
