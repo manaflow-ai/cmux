@@ -12,6 +12,7 @@
 //! the hub is built. A purge drops the chat's asks and rewrites the file without them, so the
 //! words leave the disk with the chat. A memory store keeps the events in memory only.
 
+pub(crate) mod import;
 mod store;
 
 use super::{Hub, Session};
@@ -270,6 +271,33 @@ impl AskLedger {
         state.apply(line.clone());
         self.send(store::Work::Line(Box::new(line)));
         true
+    }
+
+    /// Adds what `lines` holds that this ledger does not: an ask's `captured` when the ask is
+    /// new, any other event when the ask holds no event of that kind yet. Importing the same
+    /// lines twice adds nothing. Returns (asks added, later events added).
+    pub(crate) fn import(&self, lines: Vec<Line>) -> (usize, usize) {
+        let mut state = self.lock();
+        let (mut asks, mut events) = (0, 0);
+        for line in lines {
+            let Line::Event { ask, kind, .. } = &line else { continue };
+            let captured = matches!(kind, Kind::Captured { .. });
+            let fresh = match state.asks.get(ask) {
+                None => captured,
+                Some(known) => !captured && !known.events.iter().any(|(_, _, k)| k == kind),
+            };
+            if !fresh {
+                continue;
+            }
+            if captured {
+                asks += 1;
+            } else {
+                events += 1;
+            }
+            state.apply(line.clone());
+            self.send(store::Work::Line(Box::new(line)));
+        }
+        (asks, events)
     }
 
     /// The chat's asks leave memory and the file.

@@ -178,3 +178,78 @@ fn six_thousand_asks_fold_once_and_read_in_constant_pages() {
     assert!(fold < std::time::Duration::from_secs(5), "fold took {fold:?}");
     assert!(read < std::time::Duration::from_millis(500), "a page took {read:?}");
 }
+
+/// A synthetic `leo-asks/v1` ledger: one ask routed with a merged PR, one answered, one with no
+/// time (skipped). No real ask's words.
+fn leo_asks(prs: Value) -> Value {
+    json!({"schema": "leo-asks/v1", "hosts": {"host-a": {"asks": [
+        {"id": "r1", "ts": "2026-11-01T00:00:00.000Z", "host": "host-a", "kind": "ask",
+         "text": "synthetic ask one", "full_text": "synthetic ask one, in full", "status": "landed",
+         "owner": "host-a/lane-1", "source": {"harness": "claude", "session": "s-1"}, "prs": prs},
+        {"id": "r2", "ts": "2026-11-02T00:00:00.000Z", "host": "host-a", "kind": "ask",
+         "text": "synthetic ask two", "status": "answered", "owner": null, "prs": []},
+        {"id": "r3", "text": "no time"}
+    ]}}})
+}
+
+#[test]
+fn leo_asks_import_is_idempotent_and_adds_only_what_changed() {
+    let opened =
+        json!([{"repo": "o/r", "number": 1, "state": "OPEN", "created": "2026-11-01T01:00:00Z"}]);
+    let (lines, skipped) = import::lines(&leo_asks(opened)).unwrap();
+    assert_eq!(skipped, 1);
+    let ledger = AskLedger::default();
+    assert_eq!(ledger.import(lines.clone()), (2, 3), "two captures; routed, prOpened, answered");
+    assert_eq!(ledger.import(lines), (0, 0), "a rerun adds nothing");
+
+    let page = ledger.page();
+    let rows = page["entries"].as_array().unwrap();
+    let one = rows.iter().find(|r| r["messageId"] == "r1").unwrap();
+    assert_eq!(one["text"], "synthetic ask one, in full");
+    assert_eq!(one["importedFrom"], "leo-asks");
+    assert_eq!(one["sessionId"], "s-1");
+    assert_eq!(one["status"], "inProgress");
+    assert_eq!(one["owner"], "host-a/lane-1");
+    assert_eq!(one["createdAt"], 1_793_491_200_000u64);
+    let two = rows.iter().find(|r| r["messageId"] == "r2").unwrap();
+    assert_eq!(two["status"], "answered");
+
+    // A newer file where the PR merged adds the merge alone, and that once.
+    let merged = json!([{"repo": "o/r", "number": 1, "state": "MERGED",
+        "created": "2026-11-01T01:00:00Z", "merged": "2026-11-01T02:00:00Z"}]);
+    let (lines, _) = import::lines(&leo_asks(merged)).unwrap();
+    assert_eq!(ledger.import(lines.clone()), (0, 1));
+    assert_eq!(ledger.import(lines), (0, 0));
+    let page = ledger.page();
+    let one = page["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["messageId"] == "r1")
+        .unwrap()
+        .clone();
+    assert_eq!(one["status"], "landed");
+}
+
+#[test]
+fn leo_asks_import_survives_a_restart_without_doubling() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(DIR);
+    let (lines, _) = import::lines(&leo_asks(json!([]))).unwrap();
+    {
+        let ledger = AskLedger::open(Some(path.clone()));
+        assert_eq!(ledger.import(lines.clone()), (2, 2));
+        ledger.wait_closed();
+    }
+    let before = file(&path);
+    let ledger = AskLedger::open(Some(path.clone()));
+    assert_eq!(ledger.import(lines), (0, 0), "the folded file already holds every event");
+    ledger.wait_closed();
+    assert_eq!(file(&path), before, "nothing appended");
+}
+
+#[test]
+fn leo_asks_import_refuses_another_schema() {
+    assert!(import::lines(&json!({"schema": "other", "hosts": {}})).is_err());
+    assert!(import::lines(&json!({"schema": "leo-asks/v1"})).is_err());
+}

@@ -302,6 +302,33 @@ pub(super) async fn route(
         }
         return Ok(hub.ask_ledger.page());
     }
+    // An existing leo-asks ledger into the ask ledger (`hub/ask_ledger/import.rs`): local, and only
+    // with the default-off experiment's flag, so nothing imports on a machine that never opted in.
+    if m == crate::hub::ask_ledger::import::METHOD {
+        if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+            return Err(RpcError::method_not_found(m));
+        }
+        if params.get("askLedger").and_then(Value::as_bool) != Some(true) {
+            return Err(RpcError::invalid_params("the askLedger experiment is off"));
+        }
+        let path = match params.get("path").and_then(Value::as_str) {
+            Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
+            _ => dirs::home_dir().unwrap_or_default().join(".local/share/leo-asks/asks.json"),
+        };
+        let hub = hub.clone();
+        return blocking(move || {
+            let text = std::fs::read_to_string(&path).map_err(|e| {
+                RpcError::invalid_params(format!("cannot read {}: {e}", path.display()))
+            })?;
+            let doc: Value = serde_json::from_str(&text)
+                .map_err(|e| RpcError::invalid_params(format!("{}: {e}", path.display())))?;
+            let (lines, skipped) =
+                crate::hub::ask_ledger::import::lines(&doc).map_err(RpcError::invalid_params)?;
+            let (asks, events) = hub.ask_ledger.import(lines);
+            Ok(serde_json::json!({"asks": asks, "events": events, "skipped": skipped}))
+        })
+        .await;
+    }
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
     }

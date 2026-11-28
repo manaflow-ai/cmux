@@ -112,6 +112,7 @@
     "_acpmux/context": {"params": ["sessionId"]},
     "_acpmux/ledger": {"params": ["since", "until", "limit", "groupBy"]},
     "_acpmux/ask_ledger": {"params": []},
+    "_acpmux/ask_ledger_import": {"params": ["path", "askLedger"]},
     "_acpmux/team_audit": {"params": ["since", "until", "groupBy", "format"]},
     "_acpmux/review_queue": {"params": ["localOnly", "limit"]},
     "_acpmux/review_verdict": {"params": ["prUrl", "sessionId", "verdict", "comment"]},
