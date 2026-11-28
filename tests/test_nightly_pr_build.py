@@ -9,6 +9,7 @@ differ by arch and are stable; the Swift job runs check-release-compile.sh with 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -66,8 +67,55 @@ class Route(unittest.TestCase):
         self.assertEqual(npb.route([npb.WORKFLOW]), {"swift": True, "helpers": True})
         self.assertEqual(npb.route(["scripts/ci/nightly_pr_build.py"]), {"swift": True, "helpers": True})
 
+    def test_trunk_only_starts_on_no_pull_request_unless_per_pr(self) -> None:
+        # The tip's coalesced push runs it; no PR head starts it (land's ask, the train's tip) unless the switch is 1.
+        name = "nightly-pr-build.yml"
+        callees = pr_router.load_manifest()
+        self.assertTrue(callees[name].get("trunk_only"))
+        repo = {"full_name": "manaflow-ai/cmux"}
+        pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
+              "labels": [{"name": "ready-to-land"}]}
+        tip = {**pr, "head": {"repo": repo, "ref": pr_router.TRAIN_TIP}}
+        for event in ({"action": "labeled", "label": {"name": "ready-to-land"}, "pull_request": pr},
+                      {"action": "labeled", "label": {"name": "full-ci"}, "pull_request": pr},
+                      {"action": "synchronize", "pull_request": tip},
+                      {"action": "opened", "pull_request": {**pr, "labels": []}}):
+            tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+            for per_pr, at_land in (("0", "1"), ("", "0"), ("1", "1")):
+                env = {"CI_NIGHTLY_PR_BUILD_AT_LAND": at_land}
+                if per_pr:
+                    env["CI_NIGHTLY_PR_BUILD_PER_PR"] = per_pr
+                with self.subTest(action=event["action"], per_pr=per_pr), mock.patch.dict(os.environ, env):
+                    if not per_pr:
+                        os.environ.pop("CI_NIGHTLY_PR_BUILD_PER_PR", None)
+                    start, why = pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)
+                    if per_pr != "1":
+                        self.assertNotIn(name, start)
+                        self.assertIn("trunk only", why[name])
+        router = (ROOT / ".github/workflows/pr-router.yml").read_text()
+        self.assertIn("CI_NIGHTLY_PR_BUILD_PER_PR: ${{ vars.CI_NIGHTLY_PR_BUILD_PER_PR || '0' }}", router)
+
+    def test_tip_push_runs_once_per_window_from_the_last_tested_tip(self) -> None:
+        text = (ROOT / npb.WORKFLOW).read_text()
+        self.assertRegex(text, r"on:\n  push:\n    branches: \[feat-cmux-next\]\n  workflow_call:")
+        coalesce = re.search(r"^  coalesce:\n((?:    .*\n|\n)*?)(?=^  [a-z])", text, re.M).group(1)
+        self.assertIn("uses: ./.github/workflows/base-coalesce.yml", coalesce)
+        self.assertIn("key: nightly-pr-build", coalesce)
+        self.assertIn("hold_minutes: 30", coalesce)
+        self.assertIn("vars.CI_NIGHTLY_PR_BUILD_COALESCE", coalesce)
+        route = re.search(r"^  route:\n((?:    .*\n|\n)*?)(?=^  [a-z#])", text, re.M).group(1)
+        self.assertIn("needs: [coalesce]", route)
+        self.assertIn("needs.coalesce.outputs.run != 'false'", route)
+        self.assertIn("needs.coalesce.outputs.base", route)
+        # A tip push builds and reports on its own sha; no step reads only the pull request's head.
+        self.assertNotRegex(text, r"github\.event\.pull_request\.head\.sha \}\}")
+
     def test_landing_routes_changed_inputs_without_the_full_tier(self) -> None:
         name = "nightly-pr-build.yml"
+        # The per-PR path (CI_NIGHTLY_PR_BUILD_PER_PR=1) keeps the land-ask rule below.
+        patch = mock.patch.dict(os.environ, {"CI_NIGHTLY_PR_BUILD_PER_PR": "1"})
+        patch.start()
+        self.addCleanup(patch.stop)
         callees = pr_router.load_manifest()
         repo = {"full_name": "manaflow-ai/cmux"}
         pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
@@ -111,6 +159,32 @@ class Route(unittest.TestCase):
             self.assertTrue(pr_router.matches_filter(config, [path]) and pr_router.affects(config, [path]), path)
 
 
+class Record(unittest.TestCase):
+    """A detached compile's green verdict saves the key the compile job looks up (#62619 stopped saving it)."""
+
+    def test_recorder_saves_the_lookup_key_on_a_green_verdict(self) -> None:
+        record = (ROOT / ".github/workflows/nightly-pr-build-record.yml").read_text()
+        compile_job = (ROOT / npb.WORKFLOW).read_text()
+        self.assertIn("check_run:", record)
+        self.assertIn("conclusion == 'success'", record)
+        self.assertIn("CI_NIGHTLY_PR_BUILD_RECORD", record)
+        # Same cache path and key function as the compile job's lookup and its wait-mode save.
+        self.assertIn("path: ${{ runner.temp }}/nightly-pr-build-pass", record)
+        self.assertIn("nightly_pr_build.py keys", record)
+        self.assertIn("nightly_pr_build.py keys", compile_job)
+        name = re.search(r"REPORT_CHECK: (.*)", compile_job).group(1).replace("${{ matrix.arch }}", "ARCH")
+        self.assertTrue(name.startswith("nightly app compile ") and name.endswith(" fleet verdict (advisory)"))
+        self.assertIn("startsWith(github.event.check_run.name, 'nightly app compile ')", record)
+        self.assertIn("' fleet verdict (advisory)'", record)
+
+    def test_recorder_key_matches_the_compile_job_key(self) -> None:
+        key = npb.keys("HEAD")["arm64"]
+        self.assertTrue(key.startswith("nightly-pr-build-arm64-"))
+        self.assertEqual(key, json.loads(subprocess.check_output(
+            [sys.executable, str(ROOT / "scripts/ci/nightly_pr_build.py"), "keys", "--rev", "HEAD"],
+            text=True, cwd=ROOT).split("keys=", 1)[1])["arm64"])
+
+
 class Keys(unittest.TestCase):
     def test_keys_differ_by_arch_and_are_stable(self) -> None:
         first = npb.keys("HEAD")
@@ -152,7 +226,9 @@ class Workflow(unittest.TestCase):
         # One arch's red cancels the other arch's wait (the reds are arch-independent).
         self.assertIn("fail-fast: true", text)
         # A cancelled arch cancels its fleet step too, so it does not build for nobody.
-        self.assertIn("if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' }}", text)
+        self.assertIn(
+            "if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}", text
+        )
         self.assertIn('"$client" cancel "$step" --reason "nightly pr build: job cancelled"', text)
         self.assertEqual(sorted(npb.ARCHS), ["arm64", "x86_64"])
         # The gateway runner refuses any job whose id does not end in -fleet.
@@ -204,6 +280,27 @@ class Workflow(unittest.TestCase):
         # report_check.go reportCheckName, with the matrix expression standing in for the arch.
         self.assertRegex(name.group(1).replace("${{ matrix.arch }}", "arm64"), r"^[A-Za-z0-9][A-Za-z0-9 ._()/:+-]{0,99}$")
 
+
+    def test_a_head_whose_fleet_verdict_passed_is_not_compiled_again(self) -> None:
+        # Leo, 2026-11-27: "we should probably just get these cuts in asap and stuff". A detached run never
+        # records the input-key pass, so a ready-to-land or full-ci re-run on the same head compiled it again:
+        # 17 of 74 head-arch pairs, 392 of 1,468 job-min (20:05-21:34Z). A success verdict is the pass.
+        text = (ROOT / npb.WORKFLOW).read_text()
+        job = text.split("\n  swift-fleet:\n", 1)[1].split("\n  helpers:\n", 1)[0]
+        self.assertIn("    permissions:\n      checks: read\n", job)
+        self.assertIn("/commits/$SHA/check-runs?check_name=$name&filter=all", job)
+        self.assertIn('r.get("conclusion") == "success"', job)
+        verdict = job.index("id: verdict")
+        compile_ = job.index("id: compile")
+        self.assertLess(verdict, compile_)
+        self.assertIn(
+            "if: ${{ steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}", job
+        )
+        self.assertIn("if: ${{ steps.compile.outputs.passed == 'true' || steps.verdict.outputs.passed == 'true' }}", job)
+        # The caller grants what the callee asks for (check_reusable_workflow_permissions.py).
+        router = (ROOT / ".github/workflows/pr-router.yml").read_text()
+        caller = router.split("\n  nightly-pr-build:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("      checks: read", caller)
 
 if __name__ == "__main__":
     unittest.main()
