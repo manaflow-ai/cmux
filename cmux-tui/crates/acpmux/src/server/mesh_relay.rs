@@ -382,18 +382,25 @@ async fn heartbeats(
     let host = crate::pairing::mesh_host();
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
+    // The last health reading and the requests the last heartbeat covered: a requested beat (a
+    // chat started or moved in waits on it) sends the last reading instead of taking another,
+    // which waits up to 3 s on a loaded machine inside a move's freeze.
+    let mut last_health: Option<serde_json::Value> = None;
+    let mut last_covered = 0u64;
     loop {
         if hub_ended(&hub) {
             break;
         }
         let began = tokio::time::Instant::now();
         let covered = beat.covers();
+        let requested = std::mem::replace(&mut last_covered, covered) < covered;
         let sessions = match hub.upgrade() {
             Some(_) if refusals.inbox.load(Ordering::SeqCst) => Vec::new(),
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
         let health = match hub.upgrade() {
+            Some(_) if requested && last_health.is_some() => last_health.clone(),
             Some(hub) => {
                 // timeout: a slow reading is left off this heartbeat; the beat itself never waits on it.
                 let reading = tokio::time::timeout(
@@ -402,9 +409,13 @@ async fn heartbeats(
                 )
                 .await
                 .ok();
-                reading
+                let health = reading
                     .map(|r| crate::peer::health::wire(&r))
-                    .filter(|w| w.as_object().is_some_and(|o| !o.is_empty()))
+                    .filter(|w| w.as_object().is_some_and(|o| !o.is_empty()));
+                if health.is_some() {
+                    last_health.clone_from(&health);
+                }
+                health
             }
             None => break,
         };
@@ -483,13 +494,11 @@ async fn heartbeats(
             }
             std::future::pending::<()>().await
         };
+        // A request ends the pause at the floor without waiting on the receipts: they go with a
+        // later heartbeat, as ones past their budget do.
         tokio::select! {
-            () = async {
-                tokio::join!(
-                    async { tokio::select! { () = tokio::time::sleep(wait) => {}, () = nudged => {} } },
-                    read_receipts
-                );
-            } => {}
+            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts); } => {}
+            () = nudged => {}
             // The book read never holds back a heartbeat: dropped once the pause ends.
             () = book => {}
             () = ended(&mut stop, &hub) => break,
@@ -1528,6 +1537,87 @@ fn inline_class(body: &str) -> (Option<crate::prompt_class::PromptClass>, &str) 
 mod tests {
     use super::*;
     use crate::mesh::{AckState, Sender, Target};
+    use futures::future::BoxFuture;
+
+    /// Records each heartbeat and when it came; nothing else is called.
+    #[derive(Default)]
+    struct Beats(std::sync::Mutex<Vec<(tokio::time::Instant, Heartbeat)>>);
+
+    impl MeshHub for Beats {
+        fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+            Box::pin(std::future::pending())
+        }
+        fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn heartbeat<'a>(
+            &'a self,
+            beat: &'a Heartbeat,
+        ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+            self.0.lock().unwrap().push((tokio::time::Instant::now(), beat.clone()));
+            Box::pin(async {
+                Ok(crate::mesh::HeartbeatReply { daemon_id: "inst_a".into(), ttl_seconds: 90 })
+            })
+        }
+        fn send<'a>(
+            &'a self,
+            _: &'a crate::mesh::OutMessage,
+        ) -> BoxFuture<'a, Result<crate::mesh::Receipt, HubError>> {
+            unreachable!()
+        }
+        fn receipt<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> BoxFuture<'a, Result<crate::mesh::Receipt, HubError>> {
+            unreachable!()
+        }
+    }
+
+    /// A requested heartbeat (a chat moved in waits on it inside the move's freeze) goes as soon
+    /// as the floor allows, carrying the last health reading instead of taking a new one, which
+    /// waits up to 3 s on a loaded machine (super-highway freeze p95 3015 ms against 500 ms).
+    #[tokio::test]
+    async fn a_requested_heartbeat_sends_the_last_health_reading_at_once() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let fake = Arc::new(Beats::default());
+        let beat = Arc::new(Beat::new());
+        let (stop_tx, stop) = watch::channel(false);
+        let options = Arc::new(RelayOptions {
+            heartbeat_every: Duration::from_secs(60),
+            ..Default::default()
+        });
+        let beats = tokio::spawn(heartbeats(
+            Arc::downgrade(&hub),
+            fake.clone(),
+            options,
+            watch::channel(None).0,
+            beat.clone(),
+            Default::default(),
+            stop,
+        ));
+        let first = async {
+            while fake.0.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), first).await.expect("a first heartbeat");
+        tokio::time::sleep(HEARTBEAT_FLOOR).await;
+        let asked = tokio::time::Instant::now();
+        beat.now(Duration::from_secs(5)).await;
+        let took = asked.elapsed();
+        let sent = fake.0.lock().unwrap().clone();
+        assert_eq!(sent.len(), 2, "one requested heartbeat after the first");
+        assert!(took < Duration::from_millis(500), "the requested heartbeat took {took:?}");
+        if sent[0].1.health.is_some() {
+            assert_eq!(sent[1].1.health, sent[0].1.health, "the last reading, not a new one");
+        }
+        stop_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(10), beats).await;
+    }
 
     /// A block or question sent over the mesh files as that class on the receiver, so an idle
     /// receiver wakes (`hub/inbox.rs`): the sender's inline line (`mesh_send.rs`) parses back.

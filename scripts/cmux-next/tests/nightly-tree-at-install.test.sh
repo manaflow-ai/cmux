@@ -187,6 +187,24 @@ reset_cdn; set_runs "$no_runs"; own_run "$own" 8 3
 jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"failure","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed primary macOS leg (the fallback rebuilds it) keeps the wait (took $took s)"
+check '[[ $took -ge 1800 ]] && grep -q "rebuilding its failed primary macOS leg" "$TMP/err" && grep -q "after 30 min" "$TMP/err"' "a rebuilding publisher extends the limit by the rebuild grace, then fails (took $took s)"
+
+# 2026-11-27 (NIGHTLY 46057516701): the rebuilt tree's manifest landed 6 min past the limit.
+# A rebuilding publisher's manifest past the limit but inside the grace is installed.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 8 1
+jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"failure","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-darwin-fallback / build aarch64-apple-darwin","status":"in_progress","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
+fake_clock_at 960 "mkdir -p '$TMP/cdn/$own' && printf '{\"commit\":\"$own\",\"binaries\":{}}' > '$TMP/cdn/$own/manifest.json'"
+client "$own" "$app"
+check '[[ $status == 0 && $out == "$own" && $took -ge 960 && $took -lt 1100 ]] && grep -q "waiting up to 20 min more" "$TMP/err"' "a rebuilding publisher's manifest inside the grace is installed (took $took s)"
+
+# A publisher building normally gets no grace: the same late manifest misses the limit.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 8 1
+jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
+fake_clock_at 960 "mkdir -p '$TMP/cdn/$own' && printf '{\"commit\":\"$own\",\"binaries\":{}}' > '$TMP/cdn/$own/manifest.json'"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 && $took -lt 700 ]] && ! grep -q "waiting up to" "$TMP/err"' "a publisher with no rebuild keeps the plain limit (took $took s)"
+: > "$FAKE_CLOCK_EVENTS"  # the 960 s upload this wait never reached must not land in a later case
+rm -f "$runs_dir/runs-$own"
 
 reset_cdn; set_runs "$no_runs"; own_run "$own" 4
 jobs_file 4 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"'"$(ago 1000)"'"},{"name":"build / build aarch64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 1000)"'"}]}'
