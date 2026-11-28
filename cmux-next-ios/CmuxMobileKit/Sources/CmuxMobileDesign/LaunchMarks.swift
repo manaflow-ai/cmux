@@ -34,6 +34,16 @@ import SwiftUI
 /// - `shell_still` (DEBUG, with the board): the shell's first state stopped moving
 /// - `list_hold` (DEBUG): the list stress rig (`CMUX_MOBILE_LIST_PASSES=0`) holds its screen, still
 ///
+/// Time to readable (R1) and to the Mac's frame (R2), per tap (`ReadFirstUITests`,
+/// `scripts/measure/ios-network-conditions.sh leg=sim`): `rearm(tap:)` records the tap
+/// (`tap_launch` is the process start, `tap_foreground`, `tap_workspace_row`) and
+/// clears the content marks; then `firstContent(_:cached:)` takes, once per tap and surface,
+/// `<surface>_first_content_cached` (the first frame drawn from the phone's own store) or
+/// `<surface>_first_content_live` (the first frame drawn from a Mac's reply). Surfaces:
+/// `workspaces`, `home`, `chats_list`, `chat`, `terminal`, and `shown` (a warm return from the
+/// background: the first frame of the page it kept on screen). R1 = the earliest content mark after the
+/// tap; R2 = the `_live` one. Unlike the launch marks above, these are retaken after each tap.
+///
 /// Cost is constant: a fixed set of names, each taken once; the one-shot
 /// display link of `markNextFrame` stops at its first frame.
 ///
@@ -74,6 +84,29 @@ public final class LaunchMarks {
     public func markNextFrame(_ name: String) {
         guard !has(name), pending.insert(name).inserted else { return }
         OneFrame.after { [self] in pending.remove(name); mark(name) }
+    }
+
+    private var tapGeneration = 0
+
+    /// A tap that should end in readable content: `tap_<name>` is retaken now and every
+    /// `<surface>_first_content_*` mark is cleared, so the next ones belong to this tap.
+    public func rearm(tap name: String) {
+        tapGeneration &+= 1
+        marks.removeAll { $0.name == "tap_\(name)" || $0.name.contains("_first_content_") }
+        pending = pending.filter { !$0.contains("_first_content_") }
+        mark("tap_\(name)")
+    }
+
+    /// `surface` drew its first content since the last tap: from the phone's store (`cached`) or
+    /// from a Mac's reply. Taken on the next presented frame, once per tap, surface and source.
+    public func firstContent(_ surface: String, cached: Bool) {
+        let name = "\(surface)_first_content_\(cached ? "cached" : "live")"
+        guard !has(name), pending.insert(name).inserted else { return }
+        let generation = tapGeneration
+        OneFrame.after { [self] in
+            pending.remove(name)
+            if generation == tapGeneration { mark(name) }
+        }
     }
 
     #if DEBUG
@@ -122,6 +155,17 @@ public final class LaunchMarks {
     /// The marks as one JSON object, `{"mark": ms, ...}`.
     public var json: String {
         "{" + marks.map { String(format: "\"%@\":%.1f", $0.name, $0.ms) }.joined(separator: ",") + "}"
+    }
+}
+
+extension View {
+    /// Marks `surface`'s first content per tap (`LaunchMarks.firstContent`): when the view appears
+    /// with content, and again when its content turns from the phone's store to the Mac's reply.
+    public func firstContentMark(_ surface: String, hasContent: Bool, cached: Bool) -> some View {
+        onAppear { if hasContent { LaunchMarks.shared.firstContent(surface, cached: cached) } }
+            .onChange(of: hasContent ? (cached ? 1 : 2) : 0) { _, state in
+                if state != 0 { LaunchMarks.shared.firstContent(surface, cached: state == 1) }
+            }
     }
 }
 

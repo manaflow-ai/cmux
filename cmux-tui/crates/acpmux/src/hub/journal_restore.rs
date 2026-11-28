@@ -1011,7 +1011,12 @@ fn count_restored(meta: &mut SessionMeta, record: &EventRecord) {
             meta.harness_failures.observe(&record.msg, record.seq, record.at);
             if record.msg.get("trigger") != Some(&Value::Bool(true)) {
                 meta.last_turn = Some(super::turns::last_turn_of(&record.msg, record.at));
+            } else if record.msg.get("status").and_then(Value::as_str) == Some("completed") {
+                super::background_turn::recover_last_turn(&mut meta.last_turn, record.at);
             }
+        }
+        super::background_turn::RECORD_KIND if super::background_turn::recovers(&record.msg) => {
+            super::background_turn::recover_last_turn(&mut meta.last_turn, record.at);
         }
         _ => {}
     }

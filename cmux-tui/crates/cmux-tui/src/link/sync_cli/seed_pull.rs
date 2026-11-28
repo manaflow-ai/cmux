@@ -232,6 +232,7 @@ pub(crate) fn seed_pull(
     let mut laps = crate::link::spans::Laps::new("pull");
     let folder = std::fs::canonicalize(local_folder)
         .with_context(|| format!("cannot open {}", local_folder.display()))?;
+    super::sync_back::check(&folder)?;
     let dirs = GitDirs::of(&folder)?.context("the folder is not a git working copy")?;
     if !commits_present(&folder, &[&base.head, &base.index, &base.work])? {
         return Err(NoSeedBase.into());
