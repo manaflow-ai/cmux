@@ -12,10 +12,11 @@
 //!   home, at most [`MAX_HOSTS`] hosts, read at each placement. The cooldown matches fleet-relay's
 //!   dead-route memory: one failure keeps the host off for ten minutes, then it is tried again.
 //! - a session start placed there was refused by the host within [`COOLDOWN_MS`]
-//!   ([`refused_start`]): on 2026-11-28 a lane host refused every start ("the Cloud chat
-//!   folder could not be made"), and `machine pick`, which still saw room for 6, sent every start
-//!   there. `server/requests.rs` `new_on_peer` records the refusal in the same file, and a later
-//!   start there that works (a `--machine HOST` start still goes there) forgets it.
+//!   ([`refused_start`]): on 2026-11-28 a lane host refused every start ("~/chats is not a
+//!   directory"), and `machine pick`, which still saw room for 6, sent every start there. Both
+//!   start paths (`remote_guard/hint.rs` `new_on`, `mesh_control_send.rs` `start_through_hub`)
+//!   record the refusal in the same file, and a later start there that works (a `--machine HOST`
+//!   start still goes there) forgets it.
 
 use anyhow::Context;
 use serde_json::{Map, Value, json};
@@ -206,10 +207,10 @@ impl Failures {
     }
 }
 
-/// What a session start this machine sent to `host` came to (`server/requests.rs`
-/// `new_on_peer`): a refusal [`refused_start`] counts keeps the host out of the pick, and a start
-/// that worked forgets what was recorded for it. Written off the caller's task; a start with
-/// nothing to change writes nothing.
+/// What a session start this machine sent to `host` came to (`hint::new_on`,
+/// `start_through_hub`): a refusal [`refused_start`] counts keeps the host out of the pick, and
+/// a start that worked forgets what was recorded for it. Written off the caller's task; a start
+/// with nothing to change writes nothing.
 pub fn note_start_outcome(host: &str, error: Option<&crate::rpc::RpcError>) {
     let why = error.and_then(refused_start);
     if why.is_none() && (error.is_some() || !Failures::load().has(host)) {

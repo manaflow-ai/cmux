@@ -943,10 +943,7 @@ async fn new_on_peer(
         && hub.mesh_book_has_host(peer_name)
         && !super::trust_gate::gated(conn.origin, params)
     {
-        let started =
-            super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
-        crate::placement::reach::note_start_outcome(peer_name, started.as_ref().err());
-        return started;
+        return super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
     }
     let report_to = super::lane_parent::remote_report_target(hub, conn, params)?;
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
@@ -1006,19 +1003,16 @@ async fn new_on_peer(
     // own chat, asking, as before the start level was carried (`Carried::Person`).
     let asking = (carried == crate::hub::full_access_children::Carried::Person)
         .then(|| crate::hub::full_access_children::without_carried_policy(&p));
-    let started = match super::remote_guard::hint::new_on(&peer, params, p).await {
+    let mut result = match super::remote_guard::hint::new_on(&peer, params, p).await {
         Err(e)
             if asking.is_some()
                 && e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
         {
             let asking = asking.unwrap_or_default();
-            super::remote_guard::hint::new_on(&peer, params, asking).await
+            super::remote_guard::hint::new_on(&peer, params, asking).await?
         }
-        r => r,
+        r => r?,
     };
-    // A host that refuses starts leaves `machine pick` for a while (`placement/reach.rs`).
-    crate::placement::reach::note_start_outcome(&peer.name, started.as_ref().err());
-    let mut result = started?;
     if let Some(approved) = &unattended {
         let id = result.get("sessionId").and_then(Value::as_str);
         hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
