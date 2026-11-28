@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.modelMenu.searchField.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When the compact model menu shows its search field. Typing a model's name filters the list whichever you pick."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "متى تعرض قائمة النماذج المختصرة حقل البحث. كتابة اسم نموذج تصفّي القائمة أيًا كان اختيارك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kada kompaktni meni modela prikazuje polje za pretragu. Kucanje naziva modela filtrira listu bez obzira na izbor."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvornår den kompakte modelmenu viser sit søgefelt. Når du skriver et modelnavn, filtreres listen uanset valg."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wann das kompakte Modellmenü sein Suchfeld zeigt. Das Tippen eines Modellnamens filtert die Liste in jedem Fall."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuándo muestra el menú compacto de modelos su campo de búsqueda. Escribir el nombre de un modelo filtra la lista elijas lo que elijas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quand le menu compact des modèles affiche son champ de recherche. Taper le nom d'un modèle filtre la liste quel que soit votre choix."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando il menu compatto dei modelli mostra il campo di ricerca. Digitare il nome di un modello filtra l'elenco in ogni caso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "コンパクトなモデルメニューで検索フィールドを表示するタイミング。どれを選んでも、モデル名を入力すると一覧が絞り込まれます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលដែលម៉ឺនុយម៉ូដែលបង្រួមបង្ហាញប្រអប់ស្វែងរក។ ការវាយឈ្មោះម៉ូដែលនឹងចម្រាញ់បញ្ជី ទោះអ្នកជ្រើសអ្វីក៏ដោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "간단한 모델 메뉴가 검색 필드를 표시하는 시점입니다. 어떤 것을 선택하든 모델 이름을 입력하면 목록이 필터링됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når den kompakte modellmenyen viser søkefeltet. Å skrive et modellnavn filtrerer listen uansett valg."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kiedy kompaktowe menu modeli pokazuje pole wyszukiwania. Wpisanie nazwy modelu filtruje listę niezależnie od wyboru."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando o menu compacto de modelos mostra o campo de busca. Digitar o nome de um modelo filtra a lista em qualquer opção."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Когда компактное меню моделей показывает поле поиска. Ввод названия модели фильтрует список при любом выборе."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อใดที่เมนูโมเดลแบบย่อแสดงช่องค้นหา การพิมพ์ชื่อโมเดลจะกรองรายการไม่ว่าคุณจะเลือกแบบใด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kompakt model menüsünün arama alanını ne zaman gösterdiği. Hangisini seçerseniz seçin, model adı yazmak listeyi filtreler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Коли компактне меню моделей показує поле пошуку. Введення назви моделі фільтрує список за будь-якого вибору."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi nào menu mô hình thu gọn hiện ô tìm kiếm. Gõ tên mô hình sẽ lọc danh sách dù bạn chọn gì."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "紧凑模型菜单何时显示搜索栏。无论选择哪项，输入模型名称都会筛选列表。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "精簡模型選單何時顯示搜尋欄。無論選擇哪項，輸入模型名稱都會篩選清單。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

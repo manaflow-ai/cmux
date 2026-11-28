@@ -15,6 +15,7 @@ import React, {
 } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
+import { useModelMenuAccountRow, useModelMenuSearchField } from "./chatDisplay";
 import { useClaudeConnectFlow } from "./ClaudeConnectRow";
 import { CLAUDE_CONNECT_BRAND, CODEX_CONNECT_BRAND } from "./claudeConnect";
 import { CloudServedContext } from "./cloudServed";
@@ -31,7 +32,7 @@ import {
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
-import { type ChipPlace, lastChipsKey, loadLastChips, rememberLastChips } from "./chipMemory";
+import { loadLastChips, rememberLastChips, type ChipPlace, lastChipsKey } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import { useComposerContribution } from "./composer/extensionCommands";
 import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
@@ -263,6 +264,10 @@ export function ComposerPickers({
   const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const studio = useComposerLook() === "studio";
   const chatAccounts = useChatAccounts();
+  // A look's compact model menu (customize-app-profiles): when its search field shows, and whether it
+  // draws the Account row (chatDisplay.ts MODEL_MENU_SEARCH_FIELD_KEY, MODEL_MENU_ACCOUNT_ROW_KEY).
+  const menuSearchField = useModelMenuSearchField();
+  const menuAccountRow = useModelMenuAccountRow();
   // With no Claude connection that serves Cloud, the Claude section's Connect row and its dialog.
   const claudeConnect = useClaudeConnectFlow();
   const summary = snapshot.summary;
@@ -1338,7 +1343,7 @@ export function ComposerPickers({
         : undefined;
   // Accounts are this Mac's acpmux routes: a chat on another machine has none here.
   const quickAccount: QuickMenuExtras["account"] =
-    chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
+    menuAccountRow && chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
       ? { sessionId: summary.sessionId, accounts: chatAccounts }
       : undefined;
   // Fast mode is one checkbox row in the menu, after Account. On is any tier past off;
@@ -1357,6 +1362,8 @@ export function ComposerPickers({
     // The sign-in the chat's agent really runs on, on this Mac or a Cloud machine (cmux#63167).
     ...(summary?.authSource ? { signIn: summary.authSource } : {}),
     ...(quickFast ? { fast: quickFast } : {}),
+    // "always" is the menu's own default, so it adds nothing.
+    ...(menuSearchField !== "always" ? { searchField: menuSearchField } : {}),
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
   // narrow row ("Med"). Before the session reports, it names the held pick.

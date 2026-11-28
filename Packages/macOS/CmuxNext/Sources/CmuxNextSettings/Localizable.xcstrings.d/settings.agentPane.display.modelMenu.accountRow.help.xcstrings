@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.modelMenu.accountRow.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The compact model menu offers the chat's account. Off, switch accounts from the sidebar's account menu or Settings."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعرض قائمة النماذج المختصرة حساب المحادثة. عند الإيقاف، بدّل الحسابات من قائمة الحساب في الشريط الجانبي أو من الإعدادات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kompaktni meni modela nudi račun chata. Kad je isključeno, mijenjajte račune iz menija računa u bočnoj traci ili u Postavkama."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den kompakte modelmenu tilbyder chattens konto. Slået fra skifter du konto fra sidepanelets kontomenu eller Indstillinger."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das kompakte Modellmenü bietet das Konto des Chats an. Aus: Konten im Kontomenü der Seitenleiste oder in den Einstellungen wechseln."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El menú compacto de modelos ofrece la cuenta del chat. Desactivado, cambia de cuenta desde el menú de cuenta de la barra lateral o Ajustes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le menu compact des modèles propose le compte de la conversation. Désactivé, changez de compte depuis le menu Compte de la barre latérale ou les Réglages."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il menu compatto dei modelli offre l'account della chat. Disattivato, cambia account dal menu account della barra laterale o da Impostazioni."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "コンパクトなモデルメニューにチャットのアカウントを表示します。オフの場合は、サイドバーのアカウントメニューまたは設定から切り替えます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ឺនុយម៉ូដែលបង្រួមផ្តល់គណនីរបស់ការជជែក។ ពេលបិទ សូមប្តូរគណនីពីម៉ឺនុយគណនីនៅរបារចំហៀង ឬការកំណត់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "간단한 모델 메뉴에서 채팅의 계정을 제공합니다. 끄면 사이드바의 계정 메뉴나 설정에서 계정을 전환합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den kompakte modellmenyen tilbyr chattens konto. Av: bytt konto fra sidefeltets kontomeny eller Innstillinger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kompaktowe menu modeli oferuje konto czatu. Po wyłączeniu przełączaj konta w menu konta na pasku bocznym lub w Ustawieniach."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O menu compacto de modelos oferece a conta do chat. Desativado, troque de conta pelo menu de conta da barra lateral ou Ajustes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Компактное меню моделей предлагает аккаунт чата. Если выключено, переключайте аккаунты в меню аккаунта на боковой панели или в настройках."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมนูโมเดลแบบย่อแสดงบัญชีของแชต เมื่อปิด ให้สลับบัญชีจากเมนูบัญชีในแถบข้างหรือการตั้งค่า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kompakt model menüsü sohbetin hesabını sunar. Kapalıyken hesapları kenar çubuğunun hesap menüsünden veya Ayarlar'dan değiştirin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Компактне меню моделей пропонує обліковий запис чату. Якщо вимкнено, перемикайте облікові записи в меню на бічній панелі або в Налаштуваннях."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Menu mô hình thu gọn hiện tài khoản của cuộc trò chuyện. Khi tắt, đổi tài khoản từ menu tài khoản ở thanh bên hoặc Cài đặt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "紧凑模型菜单提供聊天的账户。关闭时，可从侧边栏的账户菜单或设置中切换账户。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "精簡模型選單提供聊天的帳號。關閉時，可從側邊欄的帳號選單或設定中切換帳號。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -597,6 +597,19 @@ const searchLook = (props: ModelPickerProps, searchField: "always" | "typed" | "
   quick: { ...props.quick, searchField },
 });
 
+/// A started Codex chat with no rail: the compact list menu the codex-app profile opens.
+const codexChat: ModelPickerProps = {
+  ...quick,
+  catalog,
+  harness: "codex",
+  model: "gpt-6.1-sol",
+  label: "GPT-6.1-Sol",
+  harnessFixed: true,
+};
+/// The same chat under the codex-app profile, which draws no Account row (modelMenu.accountRow false).
+const { account: _codexAccount, ...codexAppQuick } = codexChat.quick ?? {};
+const codexAppChat: ModelPickerProps = { ...codexChat, quick: codexAppQuick };
+
 const searchField = { selector: ".acpmux-quick-search input" };
 /// A search in the list menu (a chat with no rail).
 const typeQuickSearch =
@@ -982,6 +995,19 @@ export default componentEntry<GalleryProps>({
     "quick-search-long-short-list": {
       note: "Search version C: a short model list gets none, so the same menu changes shape by harness.",
       props: searchLook({ ...quick, catalog, harnessFixed: true }, "long"),
+      play: openQuick,
+    },
+    // The codex-app profile's model menu (customize-app-profiles): a started Codex chat's list
+    // menu before (every profile's default: the field heads the list, an Account row) and after
+    // (agentPane.display.modelMenu.searchField "typed", modelMenu.accountRow false).
+    "codex-app-menu-default": {
+      note: "Every profile's default list menu on a Codex chat: search field on top and an Account row.",
+      props: searchLook(codexChat, "always"),
+      play: openQuick,
+    },
+    "codex-app-menu": {
+      note: "The codex-app profile: no search field until you type, and no Account row.",
+      props: searchLook(codexAppChat, "typed"),
       play: openQuick,
     },
     // Typing filters every harness's models in place, under each harness's name.

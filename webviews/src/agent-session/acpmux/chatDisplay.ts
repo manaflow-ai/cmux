@@ -254,6 +254,16 @@ export type ModelPickerStyle = "list" | "menu";
 /// (the Claude Code app lists no Codex update; customize-app-profiles). Off by default: every
 /// outdated agent CLI (Leo 2026-11-12, ask-3fdf0982ec). A look turns it on. Not part of ChatDisplay.
 export const OWN_HARNESS_UPDATES_KEY = "agentPane.display.ownHarnessUpdatesOnly";
+/// Settings > Agent Chat > Model Menu Search Field (QuickModelMenu.tsx `searchField`): "always", the
+/// default, the field on top from the start; "typed", only once a key is typed, so the menu opens as a
+/// plain model list (the codex-app reference's model menu; customize-app-profiles); "long", past 8
+/// models or once typed. A look sets it. Not part of ChatDisplay.
+export const MODEL_MENU_SEARCH_FIELD_KEY = "agentPane.display.modelMenu.searchField";
+export type ModelMenuSearchField = "always" | "typed" | "long";
+/// Settings > Agent Chat > Account Row in Model Menu (ComposerPickers.tsx `quickAccount`): on by default;
+/// off, the compact menu draws no Account row, as the codex-app reference's model menu. A look turns it
+/// off. Not part of ChatDisplay.
+export const MODEL_MENU_ACCOUNT_ROW_KEY = "agentPane.display.modelMenu.accountRow";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
 const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
@@ -634,6 +644,8 @@ let environmentCardOn = false;
 let changesPillOn = false;
 let modelPickerStyle: ModelPickerStyle = "list";
 let ownHarnessUpdatesOnly = false;
+let modelMenuSearchField: ModelMenuSearchField = "always";
+let modelMenuAccountRow = true;
 /// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
 let picked = "[]";
 /// Whether a `display` value came (the host's, or the page's own change): until then the picks are
@@ -733,6 +745,10 @@ export function setChatDisplay(value: unknown): void {
   const changesPill = raw[CHANGES_PILL_KEY] === true;
   const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
   const ownUpdates = raw[OWN_HARNESS_UPDATES_KEY] === true;
+  const storedSearchField = raw[MODEL_MENU_SEARCH_FIELD_KEY];
+  const menuSearchField: ModelMenuSearchField =
+    storedSearchField === "typed" || storedSearchField === "long" ? storedSearchField : "always";
+  const menuAccountRow = raw[MODEL_MENU_ACCOUNT_ROW_KEY] !== false;
   const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
   const first = !received;
   received = true;
@@ -778,6 +794,8 @@ export function setChatDisplay(value: unknown): void {
     changesPill === changesPillOn &&
     pickerStyle === modelPickerStyle &&
     ownUpdates === ownHarnessUpdatesOnly &&
+    menuSearchField === modelMenuSearchField &&
+    menuAccountRow === modelMenuAccountRow &&
     sameHiddenSections
   )
     return;
@@ -789,6 +807,8 @@ export function setChatDisplay(value: unknown): void {
   changesPillOn = changesPill;
   modelPickerStyle = pickerStyle;
   ownHarnessUpdatesOnly = ownUpdates;
+  modelMenuSearchField = menuSearchField;
+  modelMenuAccountRow = menuAccountRow;
   minimapOn = minimap;
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
@@ -981,6 +1001,14 @@ export const useOwnHarnessUpdatesOnly = (): boolean =>
 /// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
 export const useModelPickerStyle = (): ModelPickerStyle =>
   useSyncExternalStore(subscribe, modelPickerStyleSnapshot, modelPickerStyleSnapshot);
+const modelMenuSearchFieldSnapshot = () => modelMenuSearchField;
+/// When the compact model menu shows its search field (MODEL_MENU_SEARCH_FIELD_KEY).
+export const useModelMenuSearchField = (): ModelMenuSearchField =>
+  useSyncExternalStore(subscribe, modelMenuSearchFieldSnapshot, modelMenuSearchFieldSnapshot);
+const modelMenuAccountRowSnapshot = () => modelMenuAccountRow;
+/// Whether the compact model menu draws its Account row (MODEL_MENU_ACCOUNT_ROW_KEY).
+export const useModelMenuAccountRow = (): boolean =>
+  useSyncExternalStore(subscribe, modelMenuAccountRowSnapshot, modelMenuAccountRowSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.

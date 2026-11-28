@@ -35,6 +35,8 @@ agentPane.display.layout.header
 agentPane.display.layout.messages
 agentPane.display.minimap
 agentPane.display.modelChipIcon
+agentPane.display.modelMenu.accountRow
+agentPane.display.modelMenu.searchField
 agentPane.display.modelPickerOrder
 agentPane.display.modelPickerStyle
 agentPane.display.ownHarnessUpdatesOnly

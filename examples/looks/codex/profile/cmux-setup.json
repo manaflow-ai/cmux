@@ -52,6 +52,11 @@
     // The model picker (parity table, model_effort_picker): the reference app's chip opens a short list of
     // models with a check on the current one; the compact menu is that, with Effort as a submenu.
     "agentPane.display.modelPickerStyle": "menu",
+    // The reference app's model menu opens as a plain list with a check on the current model: no search field
+    // on top (typing still filters) and no Account row (r30d parity, model_effort_picker). Accounts stay in the
+    // sidebar's account menu and Settings.
+    "agentPane.display.modelMenu.searchField": "typed",
+    "agentPane.display.modelMenu.accountRow": false,
 
     // The sidebar (codex/sidebar, parity table, proportions): 297 pt, 31 pt rows, 11 pt text (14 / 1.3), one line per chat.
     // The r30d capture measured the reference sidebar at 27% of its window (297 pt at 1100) with a 28 px row pitch
