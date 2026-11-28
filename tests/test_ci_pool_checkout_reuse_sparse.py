@@ -14,6 +14,7 @@ head needs the pool VM's mirror, which a test cannot have.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -42,13 +43,29 @@ def steps() -> list[tuple[str, str, str]]:
         for job_name, job in (yaml.load(text, Loader=yaml.BaseLoader).get("jobs") or {}).items():
             for step in job.get("steps") or []:
                 run = step.get("run") or ""
-                if TAIL_END not in run or GUARD not in run:
+                tail = tail_of(run)
+                if tail is None:
                     continue
-                start = run.index(GUARD)
-                end = run.index("\n", run.index(TAIL_END))
                 sparse = (step.get("env") or {}).get("SPARSE", "")
-                found.append((f"{path.name}:{job_name}:{step.get('name')}", sparse, run[start:end]))
+                found.append((f"{path.name}:{job_name}:{step.get('name')}", sparse, tail))
     return found
+
+
+def tail_of(run: str) -> str | None:
+    """The step's script from its own-line GUARD block to the final echo, or None when it has no such block.
+
+    The guard must stand on a line of its own: cmux-next.yml's path routing step (#64053) carries it inline
+    (`if [[ $reuse == reused ]]; then if [[ -n ... ]]; then ...; fi; fi`) after writing its own patterns, and slicing
+    from the middle of that line left a stray `fi; fi` that bash rejects ("syntax error near unexpected token `fi'",
+    tooling-tests job 140861904972)."""
+    if TAIL_END not in run:
+        return None
+    match = re.search(r"^[ \t]*" + re.escape(GUARD) + r"[ \t]*$", run, re.M)
+    if match is None:
+        return None
+    start = run.rindex("\n", 0, match.start()) + 1 if "\n" in run[:match.start()] else 0
+    end = run.index("\n", run.index(TAIL_END, match.end()))
+    return run[start:end]
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -94,15 +111,29 @@ class PoolCheckoutReuse(unittest.TestCase):
         self.cases = steps()
         self.assertTrue(any(s == "" for _, s, _ in self.cases), "rust-workspaces' pool checkout has SPARSE ''")
 
-    def each(self, prepare, sparse_override=None):
+    def each(self, prepare, check, sparse_override=None):
+        """Run every step's tail on a fresh reused workspace and `check(fx, result)` it in its own subtest."""
         for label, sparse, tail in self.cases:
             with self.subTest(step=label):
                 fx = Reused()
                 self.addCleanup(fx.close)
                 prepare(fx)
-                sparse_value = sparse if sparse_override is None else sparse_override
-                result = fx.run(tail, sparse_value)
-                yield label, fx, result, sparse_value
+                check(fx, fx.run(tail, sparse if sparse_override is None else sparse_override))
+
+    def test_every_extracted_tail_is_valid_bash(self) -> None:
+        for label, _sparse, tail in self.cases:
+            with self.subTest(step=label):
+                result = subprocess.run(["bash", "-n", "-c", f"reuse=reused\n{tail}\n"], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_an_inline_guard_is_not_sliced_mid_line(self) -> None:
+        run = ("git checkout -q -f --detach \"$SHA\"\n"
+               f"if [[ $reuse == reused ]]; then {GUARD} git sparse-checkout reapply; "
+               "else git sparse-checkout disable; fi; fi\n"
+               "echo \"checked out workspace=$reuse\"\n")
+        self.assertIsNone(tail_of(run))
+        block = f"x\n  {GUARD}\n    git sparse-checkout reapply\n  fi\necho \"workspace=$reuse\"\n"
+        self.assertEqual(tail_of(block), f"  {GUARD}\n    git sparse-checkout reapply\n  fi\necho \"workspace=$reuse\"")
 
     def test_no_workflow_reapplies_sparsity_unguarded(self) -> None:
         """A bare `git sparse-checkout reapply` is fatal on a reused .git that is not sparse (run 46023659544)."""
@@ -125,22 +156,24 @@ class PoolCheckoutReuse(unittest.TestCase):
 
 
     def test_no_patterns_on_a_plain_reused_git_checks_out_the_whole_tree(self) -> None:
-        for _label, fx, result, _ in self.each(lambda fx: None, sparse_override=""):
+        def check(fx, result):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(fx.files(), {"a/x", "b/y", "c/z"})
+        self.each(lambda fx: None, check, sparse_override="")
 
     def test_no_patterns_on_a_git_another_job_left_sparse_checks_out_the_whole_tree(self) -> None:
-        for _label, fx, result, _ in self.each(lambda fx: git(fx.ws, "sparse-checkout", "set", "--no-cone", "/a/"),
-                                               sparse_override=""):
+        def check(fx, result):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(fx.files(), {"a/x", "b/y", "c/z"})
             self.assertNotEqual(git(fx.ws, "config", "--bool", "--default", "false", "core.sparseCheckout").strip(),
                                 "true")
+        self.each(lambda fx: git(fx.ws, "sparse-checkout", "set", "--no-cone", "/a/"), check, sparse_override="")
 
     def test_own_patterns_on_a_reused_git_apply_them(self) -> None:
-        for _label, fx, result, _ in self.each(lambda fx: None, sparse_override="/*\n!/b/"):
+        def check(fx, result):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(fx.files(), {"a/x", "c/z"})
+        self.each(lambda fx: None, check, sparse_override="/*\n!/b/")
 
 
 UNSET = "git config --unset-all extensions.worktreeConfig || true"
