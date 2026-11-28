@@ -20,7 +20,7 @@ import Testing
         tab.setFocused(true)
         #expect(FocusSpyShim.granted.isEmpty, "a page that does not show takes no focus")
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         #expect(FocusSpyShim.granted.isEmpty, "a page shown in this turn took focus in this turn")
@@ -34,7 +34,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 8)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn()
@@ -61,7 +61,7 @@ import Testing
         FocusSpyShim.granted = []
 
         // The tab is selected: its view enters the window and the focus applier asks, in one turn.
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         tab.setFocused(true)
@@ -82,7 +82,7 @@ import Testing
 
         tab.setFocused(true)
         tab.setFocused(false)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn()
@@ -98,7 +98,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 10)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         // Hidden first in AppKit's walk, as Chromium's view was: it asks for focus mid-hide.
@@ -126,7 +126,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 11)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         try #require(window.contentView).addSubview(workspace)
@@ -450,7 +450,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 12)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
@@ -471,7 +471,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 13)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
@@ -501,7 +501,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 15)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
@@ -525,7 +525,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 14)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
@@ -559,7 +559,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 15)
         tab.contentView.frame = .zero
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
 
@@ -583,7 +583,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 17)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         workspace.addSubview(tab.contentView)
@@ -603,6 +603,14 @@ import Testing
         FocusSpyShim.granted = []
         tab.setFocused(true)
         #expect(FocusSpyShim.granted == [17])
+    }
+
+    /// The cmux window that shows a test's page, as on screen. A grant waits while its window is not on screen
+    /// (`CEFTab.grantFocus`, #55174: Restart to Update shows its windows one per frame), and these windows are never
+    /// ordered in, so each test's grant was kept and never ran.
+    final class ShownWindow: NSWindow {
+        override var isVisible: Bool { true }
+        override var occlusionState: NSWindow.OcclusionState { .visible }
     }
 
     /// Lets the main run loop end this turn: its frame commit, and the work queued after it (`AfterFrameCommit`).
@@ -628,7 +636,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, host) = try createdTab(runtime, browser: 12)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn()
@@ -668,7 +676,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, host) = try createdTab(runtime, browser: 19)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         workspace.addSubview(tab.contentView)
@@ -717,7 +725,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, host) = try createdTab(runtime, browser: 23)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn()

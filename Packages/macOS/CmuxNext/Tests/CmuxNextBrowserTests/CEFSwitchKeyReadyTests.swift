@@ -20,7 +20,7 @@ extension CEFDeferredFocusTests {
     @Test func aPageShownByAWorkspaceSwitchIsReadyForKeysOnlyOnceItsWindowHasThem() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let content = try #require(window.contentView)
         // Two workspaces with one loaded page each: the first one shows, the second one is hidden.
@@ -88,7 +88,7 @@ extension CEFDeferredFocusTests {
     @Test func aHostedPageShownByAWorkspaceSwitchReportsReadyForKeysOnlyAfterItsFirstFrame() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let content = try #require(window.contentView)
         let (leaving, leavingHost) = try createdTab(runtime, browser: 43)
