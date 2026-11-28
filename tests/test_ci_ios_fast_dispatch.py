@@ -93,6 +93,9 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(inputs["pr"]["required"])
         self.assertTrue(inputs["sha"]["required"])
         self.assertEqual(self.wf["permissions"], {})
+        # A per-target title: a sweep over many PRs is not one run fanned out.
+        self.assertIn("${{ inputs.pr }}", self.wf["run-name"])
+        self.assertIn("${{ inputs.sha }}", self.wf["run-name"])
 
     def test_the_pipeline_runs_only_the_ios_fast_verdict_at_the_merge_commit(self) -> None:
         call = self.jobs["pipeline"]
