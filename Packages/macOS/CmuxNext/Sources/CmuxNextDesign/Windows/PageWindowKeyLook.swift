@@ -76,6 +76,7 @@ enum PageWindowKeyLook {
     /// (`NSKVONotifying_...`), which Swift's `type(of:)` returns.
     private static func declared(_ windowClass: NSWindow.Type) -> NSWindow.Type {
         var current: AnyClass = windowClass
+        // main-actor-ok(NSWindow): walks an NSWindow class past its KVO subclass, one or two steps.
         while NSStringFromClass(current).hasPrefix("NSKVONotifying_"), let superclass = class_getSuperclass(current) { current = superclass }
         return (current as? NSWindow.Type) ?? windowClass
     }

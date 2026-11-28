@@ -146,9 +146,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+QuestionKeys.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+RelayedAllow.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTransport+Trust.swift": {
   "JSON / property-list encode": 1
  },

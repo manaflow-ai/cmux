@@ -600,7 +600,12 @@ public final class SettingsModels {
         guard line.isPerson, let reply = await line.call(method.rawValue, request) else {
             throw PageError.unavailable("the local acpmux could not check model access")
         }
-        return try JSONValue.parse(JSONSerialization.data(withJSONObject: reply))
+        return try Self.replyValue(reply)
+    }
+
+    /// acpmux's reply object as a ``JSONValue``.
+    nonisolated static func replyValue(_ reply: [String: Any]) throws -> JSONValue {
+        try JSONValue.parse(JSONSerialization.data(withJSONObject: reply))
     }
 
     func requireDaemonEnvironment() async throws -> AcpmuxEnvironment { try await requireDaemon() }
