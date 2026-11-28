@@ -119,8 +119,9 @@ pub struct Config {
     /// Send the gratuitous ARP announce (off only in tests).
     pub announce: bool,
     /// `announce_interval_seconds`: repeat the announce this often while
-    /// bound and not parked (one-shot timer re-armed after each announce);
-    /// zero disables it. Default 30 s until the 2-hour idle reachability
+    /// bound and not parked (one-shot timer re-armed after each announce),
+    /// at most `machine::ANNOUNCE_REPEATS` times after a bind, resume or
+    /// start, so an idle VM goes quiet and can pause; zero disables it. Default 30 s until the 2-hour idle reachability
     /// smoke passes; then the default becomes 0 (vm-image.md 6.4).
     pub announce_interval: Duration,
     pub rearm_delay: Duration,

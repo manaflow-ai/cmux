@@ -19,10 +19,14 @@ public struct CmuxAccountState: Equatable, Sendable {
     /// which backend this build talks to, and whether a launch or the tag's `backend.json` chose it. Nil in
     /// release and RC builds, which never show it.
     public var backend: String?
+    /// What Sign In signs in to ("Signs in to cmux.com", "Signs in to Development backend · dev-abc.cmux.dev"),
+    /// the line under the signed-out row's Sign In; nil shows none.
+    public var signInBackend: String?
 
     public init(signedIn: Bool, label: String? = nil, signingIn: Bool = false, waitingForBrowser: Bool = false, failed: Bool = false,
-                backend: String? = nil) {
+                backend: String? = nil, signInBackend: String? = nil) {
         self.backend = backend
+        self.signInBackend = signInBackend
         self.signedIn = signedIn
         self.label = label
         self.signingIn = signingIn

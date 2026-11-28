@@ -1,4 +1,5 @@
 public import CmuxNextAgentActivity
+public import CmuxNextSidebar
 public import Foundation
 public import Observation
 
@@ -24,6 +25,8 @@ public final class AgentPriorityMarks {
         /// Session id to the place (0 is the top) the person dragged it to: it shows there until
         /// they drag it again, whatever its state (Leo 2026-10-21).
         public var placed: [String: Int] = [:]
+        /// The filter chip picked while `sidebar.priorityView.filters` is on.
+        public var filter: SidebarPriorityFilter = .all
 
         public nonisolated struct Snooze: Codable, Hashable, Sendable {
             public var stamp: String
@@ -32,7 +35,7 @@ public final class AgentPriorityMarks {
 
         public init() {}
 
-        enum CodingKeys: String, CodingKey { case pinned, read, snoozed, archived, collapsed, placed, archivedOpen }
+        enum CodingKeys: String, CodingKey { case pinned, read, snoozed, archived, collapsed, placed, archivedOpen, filter }
 
         /// Each mark may be missing: marks saved by an older build still load.
         public init(from decoder: any Decoder) throws {
@@ -44,6 +47,8 @@ public final class AgentPriorityMarks {
             collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
             archivedOpen = try c.decodeIfPresent(Bool.self, forKey: .archivedOpen) ?? false
             placed = try c.decodeIfPresent([String: Int].self, forKey: .placed) ?? [:]
+            // A filter a later build added reads as All here.
+            filter = (try? c.decodeIfPresent(SidebarPriorityFilter.self, forKey: .filter)) ?? .all
         }
 
         public func isSnoozed(_ id: String, stamp: String, now: Date) -> Bool {
@@ -90,14 +95,20 @@ public final class AgentPriorityMarks {
 
     public func setCollapsed(_ collapsed: Bool) { state.collapsed = collapsed }
 
+    public func setFilter(_ filter: SidebarPriorityFilter) { state.filter = filter }
+
     /// Opens or folds the Archived fold.
     public func setArchivedOpen(_ open: Bool) { state.archivedOpen = open }
 
     /// The person dragged `id` in the Priority view, which now shows `order`: it keeps that place,
-    /// and each chat dragged before keeps the place it shows at now.
-    public func place(_ id: String, in order: [String]) {
+    /// and each chat dragged before keeps the place it shows at now. `moved` are other chats whose
+    /// places the drag changed (the rows a filter showed, which trade the slots they held): they keep
+    /// theirs too, so the ranking puts them back where the drag left them.
+    public func place(_ id: String, in order: [String], moved: Set<String> = []) {
         var placed = state.placed
-        for (index, other) in order.enumerated() where other == id || placed[other] != nil { placed[other] = index }
+        for (index, other) in order.enumerated() where other == id || moved.contains(other) || placed[other] != nil {
+            placed[other] = index
+        }
         state.placed = placed
     }
 

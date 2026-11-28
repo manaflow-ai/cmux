@@ -9,15 +9,15 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "../src/agent-session/acpmux/i18n";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import {
-  DEFAULT_SECTIONS,
-  resetSessionInfoState,
-  setSessionInfoMore,
-} from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { chat } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { DEFAULT_SECTIONS, resetSessionInfoState, setSessionInfoMore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { chat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -109,7 +109,7 @@ test("connector rows use the Environment row icon slot", async () => {
   expect(connectorIcon?.getAttribute("height")).toBe(environmentIcon?.getAttribute("height"));
 });
 
-test("a failed server's Reconnect asks for that server, waits, and offers Try again after an error", async () => {
+test("a failed server's Reconnect asks for that server, waits, and stays Reconnect after an error", async () => {
   const container = installDom();
   const asked: string[] = [];
   let answer: { resolve: () => void; reject: () => void } | undefined;
@@ -130,7 +130,7 @@ test("a failed server's Reconnect asks for that server, waits, and offers Try ag
   expect(buttons[0]!.disabled).toBe(true);
 
   await act(async () => answer!.reject());
-  expect(buttons[0]!.textContent).toBe(translate("sessionInfo.connectors.retry"));
+  expect(buttons[0]!.textContent).toBe(translate("sessionInfo.connectors.reconnectAction"));
   expect(buttons[0]!.disabled).toBe(false);
   expect(buttons[0]!.dataset.state).toBe("failed");
 

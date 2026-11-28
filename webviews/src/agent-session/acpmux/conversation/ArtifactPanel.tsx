@@ -9,7 +9,7 @@
 // passive markup in srcdoc with the nonce'd frame script that refuses link clicks, and a frame that
 // leaves its document anyway shows the source. Other dev pages show their source only.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SplitEdge } from "../../../ui/SplitEdge";
+import { SplitEdge, useSplitOpenResize } from "../../../ui/SplitEdge";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import {
@@ -109,6 +109,9 @@ export function ArtifactPanel({
     const timer = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [copied]);
+  // Opening the panel narrows the chat and its composer beside it, and closing it widens them again: a
+  // split's resize (schemas/layout-motion/contract.json `resize`), one move of each box.
+  useSplitOpenResize("side panel");
   // Closing hands focus back to what opened the panel (an Open button in the transcript): the panel
   // unmounts with focus inside it, which would otherwise drop to the page.
   useEffect(() => {

@@ -93,7 +93,7 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
             }
             let blank: Bool
             switch kind {
-            case "agent": blank = tab == Self.activeTab ? false : !(face == "lastKnown" || face == "picture")
+            case "agent": blank = tab == Self.activeTab ? false : !["lastKnown", "picture", "macScreen"].contains(face)
             // A card with nothing known draws "nothing" (the stand-ins it drew before were
             // "placeholder" and "connecting"; any of them is a blank card).
             case "terminal": blank = ["nothing", "placeholder", "connecting"].contains(face)
@@ -173,7 +173,10 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
             app.launchEnvironment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] = "1"
         }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
-                                "-cmux-mobile-card-face-probe"]
+                                "-cmux-mobile-card-face-probe",
+                                // Every pane, browsers included: this explicit filter value keeps these
+                                // cards in the grid while this test counts them.
+                                "-cmux.mobile.overview.paneFilter", "agents+terminals+browsers"]
         return app
     }
 

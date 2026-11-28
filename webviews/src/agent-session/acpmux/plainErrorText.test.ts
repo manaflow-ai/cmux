@@ -10,6 +10,7 @@ import { HANDOFF_OPS } from "./handoff/protocol";
 import { translate } from "./i18n";
 import { paneNotices } from "./paneToasts";
 import { shareFailureText } from "./share/ShareControl";
+import { NativeError } from "./nativeError";
 import { knownRefusalText, switchFailedText } from "./transportErrors";
 import { failedAsk } from "./useFolderTrustAsk";
 
@@ -73,10 +74,38 @@ test("a trust answer that did not save shows no host text under Couldn't save th
   });
 });
 
-test("a share refusal with an unknown code says That didn't finish. Try again.", () => {
+// An unmapped refusal keeps the generic line and names its code, so a report can quote it (RFD 0076 D4);
+// the daemon's raw message never shows, and an error with no code gets the plain line.
+test("a share refusal with an unknown code says That didn't finish. Try again. and names the code", () => {
   expect(shareFailureText(new Error("share: 500 Internal Server Error"))).toBe(translate("share.error.generic"));
-  expect(shareFailureText({ code: "share.weird", message: "raw server words" })).toBe(translate("share.error.generic"));
+  // The raw words never show; the code does, so a report names it.
+  expect(shareFailureText({ code: "share.weird", message: "raw server words" })).toBe(
+    `${translate("share.error.generic")} (share.weird)`,
+  );
   expect(shareFailureText({ code: "share.needs_sign_in" })).toBe(translate("share.error.signIn"));
+});
+
+// The app words some share refusals itself (AgentShareStrings) and sends that sentence as the
+// bridge error's message: the dialog shows it instead of the generic line.
+test("a share refusal the app worded shows the app's sentence", () => {
+  const unconfigured = "This Cloud machine can't make share links yet. Update the machine, then try again.";
+  expect(shareFailureText(new NativeError({ code: "share.room_unconfigured", userMessage: unconfigured }))).toBe(
+    unconfigured,
+  );
+  expect(shareFailureText(new NativeError({ code: "share.not_owner", userMessage: "Only the owner can share." }))).toBe(
+    "Only the owner can share.",
+  );
+  // No sentence from the app (the bridge's fallback), or not a share refusal: the plain line.
+  expect(shareFailureText(new NativeError({ code: "share.weird" }))).toBe(
+    translate("share.error.generic") + " (share.weird)",
+  );
+  expect(shareFailureText(new NativeError({ code: "native.timed_out", userMessage: "x" }))).toBe(
+    `${translate("share.error.generic")} (native.timed_out)`,
+  );
+  // A code the page words keeps the page's line.
+  expect(shareFailureText(new NativeError({ code: "share.needs_sign_in", userMessage: "host words" }))).toBe(
+    translate("share.error.signIn"),
+  );
 });
 
 test("a handoff request that failed shows the plain line, never the daemon's message", async () => {

@@ -436,7 +436,6 @@
   border: 0;
   padding: 0;
   font: inherit;
-  cursor: pointer;
 }
 
 .channel-prs {
@@ -1271,6 +1270,12 @@
 .accent-popover .theme-option[aria-selected="true"] {
   background: var(--row-focus);
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* A result's crumb: its page, muted, then its category (findings G6). */
+.result-section-page,
+.result-section-crumb {
+  color: var(--muted-text);
 }
 
 /* Beta chips (appearance.settingsBetaChips, off by default; betaChips.ts): a compact accent-tinted

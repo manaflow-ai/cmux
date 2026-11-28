@@ -62,6 +62,19 @@ extension BrowserTab {
                                 world: .isolated, gesture: .cmux)
     }
 
+    /// Puts a kept comment thread back on the page (design mode turned on again, the page reloaded):
+    /// the element at `selector` becomes an added pick with `comment`, its thread card showing
+    /// `state` and `reply`, and the page reports it as it reports any pick.
+    /// - Returns: False when no element has that selector now, or design mode is off.
+    public func restoreDesignModeThread(_ selector: String, comment: String, state: String, reply: String?) async -> Bool {
+        let value: [String: Any] = ["state": state, "reply": reply ?? ""]
+        // main-actor-ok: one thread's state and one agent reply, bounded by the runtime.
+        let data = (try? JSONSerialization.data(withJSONObject: value)) ?? Data("{}".utf8)
+        let script = "globalThis.__cmuxDesignMode?.restoreThread(\(jsString(selector)), \(jsString(comment)), "
+            + String(decoding: data, as: UTF8.self) + ") === true"
+        return (try? await evaluate(script, world: .isolated, gesture: .cmux)) == .bool(true)
+    }
+
     /// Drives the open comment bubble through the runtime's own path (captures and tours): types
     /// `draft` into it when given, then adds the pick when `commit` is true.
     /// - Returns: False when the tab is closed, the page refused the script, or design mode is off.

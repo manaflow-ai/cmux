@@ -1,5 +1,5 @@
 import { DialogButton } from "../../ui/DialogButton";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { waitedText } from "./hostErrorModel";
 import { useT } from "./i18n";
 import { useNow } from "./subagents/subagentGroupModel";
@@ -19,7 +19,7 @@ export function ForkPendingLine({ since, onCancel, now: fixedNow }: { since: num
   const waited = (fixedNow ?? ticking) - since;
   return (
     <output className="acpmux-host-line acpmux-fork-pending" aria-live="polite" data-fork-pending>
-      <Spinner size={12} loading />
+      <WaitSpinner size={12} loading />
       <span className="acpmux-host-line-message">
         {t("notice.forking")}
         {waited >= FORK_COUNT_AFTER_MS && <span className="acpmux-fork-pending-time">{waitedText(waited)}</span>}

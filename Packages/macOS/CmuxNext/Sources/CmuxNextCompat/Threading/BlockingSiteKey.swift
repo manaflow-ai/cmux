@@ -1,4 +1,4 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 /// What identifies one blocking call site: the address of the caller's `#fileID` string (one per file in
 /// the binary) and its `#line`. Seams and ``Mutex/withLock(fileID:line:_:)`` pass both.
 struct BlockingSiteKey: Equatable {

@@ -10,6 +10,126 @@
             "state" : "translated",
             "value" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for."
           }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعرض الدور القصير ملخصًا من سطر واحد لما فعله، بدلًا من طيّه تحت «عمل لمدة»."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kratak potez prikazuje sažetak u jednom redu o tome šta je uradio, umjesto da se sklopi pod Radio je."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En kort tur viser et resumé på én linje af, hvad den gjorde, i stedet for at foldes ind under Arbejdede i."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein kurzer Durchgang zeigt eine einzeilige Zusammenfassung dessen, was er getan hat, statt unter „Hat … gearbeitet“ eingeklappt zu werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un turno corto muestra un resumen de una línea de lo que hizo, en lugar de plegarse bajo Trabajó durante."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un tour court affiche un résumé d’une ligne de ce qu’il a fait, au lieu de se replier sous A travaillé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un turno breve mostra un riepilogo di una riga di ciò che ha fatto, invece di chiudersi sotto Ha lavorato per."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "短いターンは、「作業しました」の下に折りたたむ代わりに、行ったことを1行の要約で表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វេនខ្លីបង្ហាញសេចក្ដីសង្ខេបមួយបន្ទាត់អំពីអ្វីដែលវាបានធ្វើ ជំនួសឱ្យការបត់ចូលក្រោម បានធ្វើការរយៈពេល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "짧은 턴은 작업함 아래로 접히는 대신 한 일을 한 줄 요약으로 보여 줍니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En kort tur viser et sammendrag på én linje av hva den gjorde, i stedet for å foldes inn under Arbeidet i."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krótka tura pokazuje jednowierszowe podsumowanie tego, co zrobiła, zamiast zwijać się pod Pracował przez."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um turno curto mostra um resumo de uma linha do que fez, em vez de recolher em Trabalhou por."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Короткий ход показывает однострочную сводку того, что он сделал, вместо того чтобы сворачиваться под «Работал»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทิร์นสั้นจะแสดงสรุปหนึ่งบรรทัดของสิ่งที่ทำ แทนการพับไว้ใต้ ทำงานเป็นเวลา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kısa bir tur, Çalıştı altında katlanmak yerine ne yaptığını tek satırlık bir özetle gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Короткий хід показує однорядкове зведення того, що він зробив, замість згортання під «Працював»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một lượt ngắn hiển thị bản tóm tắt một dòng về việc nó đã làm, thay vì thu gọn dưới Đã làm việc trong."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "短回合会用一行摘要显示它做了什么，而不是折叠在“工作了”下面。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "短回合會用一行摘要顯示它做了什麼，而不是摺疊在「工作了」下面。"
+          }
         }
       }
     }

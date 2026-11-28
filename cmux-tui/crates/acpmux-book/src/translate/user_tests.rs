@@ -601,3 +601,20 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
     assert!(restored.continued.is_some());
     assert_eq!(restored.cards, state.cards);
 }
+
+#[test]
+fn the_turn_header_starts_at_the_turns_start_record_not_its_prompt() {
+    let mut state = State::default();
+    let said = r#"{"seq":1,"at":1000,"dir":"mux","kind":"user_message","msg":{"promptId":"p","turnId":"t","text":"hi"}}"#;
+    let ops = run(&mut state, &[said.into()]);
+    assert_eq!(group(&ops)["startMs"], "1000");
+    let started = r#"{"seq":2,"at":2500,"dir":"mux","kind":"turn_started","msg":{"turnId":"t","promptId":"p"}}"#;
+    let ops = run(&mut state, &[started.into()]);
+    assert_eq!(group(&ops)["startMs"], "2500");
+    // Another turn's start record leaves this turn's clock alone.
+    let other = r#"{"seq":3,"at":4000,"dir":"mux","kind":"turn_started","msg":{"turnId":"u"}}"#;
+    let ops = run(&mut state, &[other.into()]);
+    assert!(
+        !ops.iter().any(|op| matches!(&op.change, Change::Row(row) if row.kind == RowKind::Group))
+    );
+}

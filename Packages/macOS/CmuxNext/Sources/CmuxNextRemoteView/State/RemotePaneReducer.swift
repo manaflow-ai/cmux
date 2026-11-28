@@ -8,7 +8,8 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
     case controlAnyway
     /// The viewer pressed Stop; the transport closes the session.
     case stop
-    /// The viewer pressed Reconnect; a new session starts connecting.
+    /// A new session starts connecting: the pane's own retry of a lost path, or the viewer's
+    /// Reconnect after an end someone chose.
     case reconnect
     /// Take over or Hand back: the live session ends and a new one starts in the requested
     /// mode (`cmux.rd/1` fixes a session's mode at its start), shown as reconnecting over
@@ -64,6 +65,9 @@ public struct RemotePaneReducer {
         switch event {
         case let .status(status):
             let wasEnded = if case .ended = state.sessionState { true } else { false }
+            // A session that already ended (the person's Stop, the host's choice) keeps its reason:
+            // its path closing afterwards says nothing new, and the card keeps that end's Reconnect.
+            if wasEnded, case .ended(.connectionLost) = status.state { break }
             next.status = status
             if case .connecting = status.state, wasEnded {
                 next.controlDespiteLatency = false

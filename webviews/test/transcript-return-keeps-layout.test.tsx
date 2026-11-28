@@ -124,6 +124,121 @@ test("a chat shown again measures only its rows that changed while it was away",
   }
 });
 
+test("a chat shown again as it was asks no sync render in its own commit", async () => {
+  // Before: a nested render in each return. The switch's placement pass put the chat's opening offset
+  // in state where its commit had drawn the rows already, asked follow, the scrollbar range, the sent
+  // prompts and the way back again at the values they had, and retained the drawn heights against the
+  // new rows with none gone: each a sync render of the whole transcript before the first paint that
+  // changed nothing, inside the switch's long task
+  // (settled page, Leo 2026-11-21: "workspace switch, opening a recent workspace, chat switch and
+  // restart reach a settled page (zero layout shift after first paint, streaming included) within 2x
+  // of a derived bound").
+  const { Profiler } = await import("react");
+  // jsdom keeps no scroll offset; a browser keeps the one the open writes.
+  const offsets = new WeakMap<object, number>();
+  const proto = dom.window.HTMLElement.prototype;
+  const own = Object.getOwnPropertyDescriptor(dom.window.Element.prototype, "scrollTop");
+  Object.defineProperty(proto, "scrollTop", {
+    configurable: true,
+    get(this: object) {
+      return offsets.get(this) ?? 0;
+    },
+    set(this: object, value: number) {
+      offsets.set(this, value);
+    },
+  });
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  const expanded = new Set<string>();
+  /// Renders asked from the commit's own layout pass (React's "nested-update" phase).
+  let nested = 0;
+  const render = (sessionId: string, rows: AcpmuxRow[]) =>
+    act(async () => {
+      root.render(
+        <Profiler
+          id="transcript"
+          onRender={(_id, phase) => {
+            if (phase === "nested-update") nested += 1;
+          }}
+        >
+          <VirtualTranscript
+            rows={rows}
+            registry={defaultRegistry}
+            sessionId={sessionId}
+            onToggleActivity={() => {}}
+            expanded={expanded}
+          />
+        </Profiler>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  try {
+    await render("chat-c", chat("c", 60));
+    await render("chat-d", chat("d", 30));
+    nested = 0;
+    // Each return, to the long chat (opened at its latest row) and to the short one.
+    await render("chat-c", chat("c", 60));
+    expect(nested).toBe(0);
+    await render("chat-d", chat("d", 30));
+    expect(nested).toBe(0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    delete (proto as { scrollTop?: number }).scrollTop;
+    if (own) Object.defineProperty(dom.window.Element.prototype, "scrollTop", own);
+  }
+});
+
+test("a switch to another chat commits once, then its reset once, deferred", async () => {
+  // Before: the switch's reset effect set the selection, active row, range and held rows for the new
+  // chat as sync state, a second whole-transcript commit inside the switch's long task. Those values
+  // are drawn by the switch render already; as a transition they land after the first paint
+  // (settled page, Leo 2026-11-21: "workspace switch, opening a recent workspace, chat switch and
+  // restart reach a settled page (zero layout shift after first paint, streaming included) within 2x
+  // of a derived bound").
+  const { Profiler } = await import("react");
+  const { flushSync } = await import("react-dom");
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  const expanded = new Set<string>();
+  let commits = 0;
+  const tree = (sessionId: string, rows: AcpmuxRow[]) => (
+    <Profiler id="transcript" onRender={() => (commits += 1)}>
+      <VirtualTranscript
+        rows={rows}
+        registry={defaultRegistry}
+        sessionId={sessionId}
+        onToggleActivity={() => {}}
+        expanded={expanded}
+      />
+    </Profiler>
+  );
+  try {
+    await act(async () => {
+      root.render(tree("chat-e", chat("e", 40)));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    commits = 0;
+    // The switch as the app does it: one sync task, then the frame.
+    flushSync(() => root.render(tree("chat-f", chat("f", 40))));
+    // Sync work its effects ask runs in microtasks of the same task, still before the frame.
+    for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+    expect(commits).toBe(1);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // The reset lands in one deferred commit; as blocking state it took two whole-transcript renders.
+    expect(commits).toBe(2);
+    // The new chat shows its own rows once the transition lands.
+    expect(host.textContent).toContain("f message");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("a kept layout seeds only the look it was measured with, at its scale, and is bounded", () => {
   let now = 0;
   const kept = new KeptLayouts<string, AcpmuxRow>(2, () => now);

@@ -376,6 +376,12 @@ fn handle_websocket_connection_with_permit(
                         text.note_written(result.is_ok());
                         result
                     }
+                    // WebSocket messages are text: set-client-info never grants
+                    // `attach-frames-v1` here (client_registry.rs), so no frame is queued.
+                    OutboundItem::Frame(_) => Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "a WebSocket carries no binary frames",
+                    )),
                     OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
                         let _ = flushed.send(());
                     }),

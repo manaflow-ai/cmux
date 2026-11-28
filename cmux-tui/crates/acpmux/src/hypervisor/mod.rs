@@ -8,12 +8,15 @@
 //! - [`HypervisorDriver`]: the verbs, one implementation per hypervisor. libvirt first
 //!   ([`libvirt::LibvirtDriver`], which also covers Proxmox's QEMU/KVM); `qm` and Firecracker follow.
 //! - [`lease::LeaseBook`]: the leases, persisted, judged into pause-to-disk or destroy actions.
-//! - [`source::CommandSource`]: where commands come from. Until the hub's command lease
-//!   (RFD 0100 step 4) is served, the only source is a local spool (`machine hypervisor apply`).
+//! - [`source::CommandSource`]: where commands come from: a local spool (`machine hypervisor
+//!   apply`), or with `serve --source hub` the hub's command lease ([`hub::HubSource`], RFD 0100
+//!   step 4) with this joined machine's own credential.
 //! - [`serve`]: the loop that ties them together.
 
+pub mod hub;
 pub mod lease;
 pub mod libvirt;
+pub mod pods;
 pub mod serve;
 pub mod source;
 
@@ -111,11 +114,54 @@ pub struct SlotSpec {
     pub memory_mib: u64,
     /// The overlay's virtual size; the base image's when 0.
     pub disk_gib: u64,
+    /// A one-time join token the hub minted for this slot (`serve --source hub` only): the
+    /// new guest redeems it to join the hub as its own machine. Never read from or written to
+    /// a command file, so a spooled command cannot carry or leak one.
+    #[serde(skip)]
+    pub join: Option<ChildJoin>,
 }
 
 impl Default for SlotSpec {
     fn default() -> Self {
-        Self { vcpus: 2, memory_mib: 4096, disk_gib: 0 }
+        Self { vcpus: 2, memory_mib: 4096, disk_gib: 0, join: None }
+    }
+}
+
+/// The variable a pod's init reads its one-time join token from (`cmj_...`, redeemed with
+/// `acpmux machine join` on stdin, then unset).
+pub const JOIN_TOKEN_ENV: &str = "CMUX_JOIN_TOKEN";
+/// The variable naming the hub that minted it (`acpmux machine join --hub`).
+pub const JOIN_HUB_ENV: &str = "CMUX_JOIN_HUB";
+
+/// A child join token for one slot, minted by the host with its own machine credential
+/// (cmux-platform `POST /v1/machines/credentials/self/children`). Wiped from memory when
+/// dropped, and its `Debug` never shows it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ChildJoin {
+    /// The hub origin that minted it, where the guest redeems it.
+    pub hub: String,
+    token: zeroize::Zeroizing<String>,
+}
+
+impl ChildJoin {
+    pub fn new(hub: impl Into<String>, token: zeroize::Zeroizing<String>) -> Self {
+        Self { hub: hub.into(), token }
+    }
+
+    /// The token itself: hand it only to the guest's environment.
+    pub fn token(&self) -> &str {
+        self.token.as_str()
+    }
+
+    /// The guest's environment for it: [`JOIN_TOKEN_ENV`] and [`JOIN_HUB_ENV`].
+    pub fn env(&self) -> [(&'static str, &str); 2] {
+        [(JOIN_TOKEN_ENV, self.token()), (JOIN_HUB_ENV, self.hub.as_str())]
+    }
+}
+
+impl std::fmt::Debug for ChildJoin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChildJoin").field("hub", &self.hub).field("token", &"<redacted>").finish()
     }
 }
 
@@ -123,7 +169,8 @@ impl Default for SlotSpec {
 /// exists, pausing a paused one, resuming a running one or destroying a gone one succeeds
 /// and reports the state, so a command the hub leases twice does no harm.
 pub trait HypervisorDriver {
-    /// Make and start the slot's VM; an existing slot is left as it is.
+    /// Make and start the slot's VM; an existing slot is left as it is. `spec.join`, when
+    /// set, goes to the new guest's environment (pods); libvirt does not use it yet.
     fn create(&self, slot: &SlotName, spec: &SlotSpec) -> Result<SlotState>;
     fn pause(&self, slot: &SlotName, mode: PauseMode) -> Result<SlotState>;
     fn resume(&self, slot: &SlotName) -> Result<SlotState>;
@@ -131,6 +178,25 @@ pub trait HypervisorDriver {
     fn destroy(&self, slot: &SlotName) -> Result<()>;
     /// Every `cmux-*` VM on this hypervisor, whatever made it.
     fn list(&self) -> Result<Vec<Slot>>;
+}
+
+/// The driver a `serve` or `ls` picked at run time (`--driver`).
+impl HypervisorDriver for Box<dyn HypervisorDriver> {
+    fn create(&self, slot: &SlotName, spec: &SlotSpec) -> Result<SlotState> {
+        (**self).create(slot, spec)
+    }
+    fn pause(&self, slot: &SlotName, mode: PauseMode) -> Result<SlotState> {
+        (**self).pause(slot, mode)
+    }
+    fn resume(&self, slot: &SlotName) -> Result<SlotState> {
+        (**self).resume(slot)
+    }
+    fn destroy(&self, slot: &SlotName) -> Result<()> {
+        (**self).destroy(slot)
+    }
+    fn list(&self) -> Result<Vec<Slot>> {
+        (**self).list()
+    }
 }
 
 #[cfg(test)]

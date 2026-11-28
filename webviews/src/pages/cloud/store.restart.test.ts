@@ -10,7 +10,7 @@ const GENERIC = userMessage(undefined);
 
 // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". On a launch the daemon (or its Cloud
 // relay) is not up when the page first reads auth: the store reads again on its own, so the page
-// comes up once the link does instead of staying "disconnected" until someone presses Retry.
+// comes up once the link does instead of staying "disconnected" until someone presses something.
 afterEach(() => jest.useRealTimers());
 
 /** The mock provider whose first `refusals` auth reads the link refuses. */
@@ -87,7 +87,9 @@ test("a signed-out page that recovers keeps no error and stops loading", async (
   unsubscribe();
 });
 
-test("a terminal retry error keeps an explicit failed state", async () => {
+// Leo, 2026-11-22: "vacuous decisions like that should be just done". An owner error on a read is
+// read again on its own too, with the same backoff, instead of waiting for a Retry press.
+test("an owner error on the re-read keeps the failed state, then is read again on its own", async () => {
   jest.useFakeTimers();
   const provider = new TerminalAfterTransportProvider(1);
   const store = new CloudStore(provider);
@@ -96,8 +98,49 @@ test("a terminal retry error keeps an explicit failed state", async () => {
   expect(store.getSnapshot().connection).toBe("disconnected");
   jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
   await settle();
-  expect(store.getSnapshot()).toMatchObject({ connection: "failed", loading: false });
+  expect(store.getSnapshot()).toMatchObject({ connection: "failed", loading: false, recovering: true });
   expect(store.getSnapshot().error).toBe(GENERIC);
+  // The second failure in a row waits twice as long.
+  jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS * 2 - 1);
+  await settle();
+  expect(store.getSnapshot().connection).toBe("failed");
+  jest.advanceTimersByTime(1);
+  await settle();
+  expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
+  expect(store.getSnapshot().recovering).toBeUndefined();
+  expect(store.getSnapshot().error).toBeUndefined();
+  unsubscribe();
+});
+
+test("a failed machine list after auth answered is read again on its own, keeping the backoff", async () => {
+  class ListDownProvider extends MockCloudProvider {
+    lists = 0;
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      if (op === CloudOps.machineList && ++this.lists <= 2)
+        throw pageError("cmux.cloud.upstream_error", "the Cloud service did not answer", true);
+      return super.call<R>(op, params);
+    }
+  }
+  jest.useFakeTimers();
+  const provider = new ListDownProvider();
+  const store = new CloudStore(provider);
+  const unsubscribe = store.subscribe(() => undefined);
+  await settle();
+  expect(store.getSnapshot()).toMatchObject({ connection: "failed", recovering: true });
+  jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
+  await settle();
+  // Auth answered on the re-read, the list failed again: still recovering, and the wait doubled.
+  expect(provider.lists).toBe(2);
+  expect(store.getSnapshot()).toMatchObject({ connection: "failed", recovering: true });
+  jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS * 2 - 1);
+  await settle();
+  expect(provider.lists).toBe(2);
+  jest.advanceTimersByTime(1);
+  await settle();
+  expect(provider.lists).toBe(3);
+  expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
+  expect(store.getSnapshot().recovering).toBeUndefined();
+  expect(store.getSnapshot().rows.length).toBeGreaterThan(0);
   unsubscribe();
 });
 

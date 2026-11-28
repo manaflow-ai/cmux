@@ -37,6 +37,13 @@ case "$1" in
   build) echo "Build complete! (0.1s)"; exit 0 ;;
   package) exit 0 ;;
   test)
+    if [ "${2:-}" = list ]; then
+      for output in "$FAKE_SWIFT_OUTPUTS"/*.out; do
+        name="${output##*/}"
+        printf 'PkgTests.%s/testOne()\\n' "${name%.out}"
+      done
+      exit 0
+    fi
     while [ "$#" -gt 0 ]; do [ "$1" = --filter ] && filter="$2"; shift; done
     cat "$FAKE_SWIFT_OUTPUTS/$filter.out"
     [ -f "$FAKE_SWIFT_OUTPUTS/$filter.status" ] && exit "$(cat "$FAKE_SWIFT_OUTPUTS/$filter.status")"
