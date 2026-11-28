@@ -222,15 +222,15 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || contains(fromJSON('[\"blacksmith-6vcpu-macos-15\"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && (github.run_attempt == 1 && github.event_name != 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}" \
        -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  # Every nightly helper build takes Blacksmith macOS 15 (its SDK 15 Xcode),
-  # never a GitHub-hosted Mac. Match the whole expression.
+  # The nightly helper takes an owned Mac, then Blacksmith macOS 26 (macOS 15
+  # queues stalled the nightly), never a GitHub-hosted Mac. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   # Nightly ships arm64 only; the universal helper is a stable-release build.
   job == "helper" && /build-ghostty-cli-helper\.sh --target aarch64-macos/ { saw_build=1 }
@@ -253,7 +253,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
   END { exit !(saw_helper_runner && saw_build && !saw_universal_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must build and hand off the macOS 15 helper and Xcode 26.5 app before publishing"
+  echo "FAIL: nightly must build and hand off the arm64 helper and Xcode 26.5 app before publishing"
   exit 1
 fi
 
@@ -946,9 +946,9 @@ job_if() {
 }
 PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *')"
 if [ "$(job_if build-nightly-app)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE\"" ] \
-  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'\"" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'\"" ] \
-  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-nightly-ghostty-cli-helper)" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && $PUBLISH_SCHEDULE" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
