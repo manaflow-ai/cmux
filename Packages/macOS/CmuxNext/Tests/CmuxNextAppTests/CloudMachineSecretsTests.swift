@@ -25,6 +25,44 @@ struct CloudMachineSecretsTests {
         #expect(twice.missing.isEmpty)
     }
 
+    @Test func theClaudeSetupTokenGoesToEveryMachineWhenTheMacHoldsOne() {
+        let held: [String: Int64] = ["*/API_KEY": 1, "*/CLAUDE_CODE_OAUTH_TOKEN": 5]
+        let wanted = CloudMachineSecrets.withAlwaysDelivered(["API_KEY"], repo: nil, index: held)
+        #expect(wanted == ["API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"])
+        let (items, missing) = CloudMachineSecrets.plan(declared: wanted, repo: nil, index: held)
+        #expect(items.map(\.account) == ["*/API_KEY", "*/CLAUDE_CODE_OAUTH_TOKEN"])
+        #expect(missing.isEmpty)
+        #expect(CloudMachineSecrets.withAlwaysDelivered(["API_KEY"], repo: nil, index: ["*/API_KEY": 1]) == ["API_KEY"],
+                "no token on this Mac: nothing added, and never reported missing")
+        #expect(CloudMachineSecrets.withAlwaysDelivered(["CLAUDE_CODE_OAUTH_TOKEN"], repo: nil, index: held) == ["CLAUDE_CODE_OAUTH_TOKEN"],
+                "declared already: not added twice")
+        let scoped: [String: Int64] = ["acme/app/CLAUDE_CODE_OAUTH_TOKEN": 1]
+        #expect(CloudMachineSecrets.withAlwaysDelivered([], repo: nil, index: scoped).isEmpty,
+                "a repo-scoped token goes only to a delivery for that repo")
+        #expect(CloudMachineSecrets.withAlwaysDelivered([], repo: "Acme/App", index: scoped) == ["CLAUDE_CODE_OAUTH_TOKEN"])
+        #expect(CloudMachineSecrets.hasRepoValues(for: [] + CloudMachineSecrets.alwaysDelivered, repo: "acme/app", index: scoped),
+                "a machine claiming acme/app asks for --repo before the global token goes instead")
+    }
+
+    @Test func anOlderMachineThatRefusesTheUndeclaredTokenStillGetsItsDeclaredSecrets() async throws {
+        let items = [CloudMachineSecrets.Item(name: "API_KEY", account: "*/API_KEY", setAtMs: 1),
+                     CloudMachineSecrets.Item(name: "CLAUDE_CODE_OAUTH_TOKEN", account: "*/CLAUDE_CODE_OAUTH_TOKEN", setAtMs: 5)]
+        var sends: [[String]] = []
+        let (answer, sent) = try await CloudMachineSecrets.deliver(items, declared: ["API_KEY"]) { batch in
+            sends.append(batch.map(\.name))
+            return batch.count == 2 ? .failed(code: "refused", refusal: "bad-name", retryable: false) : .wrote(batch.count)
+        }
+        #expect(sends == [["API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"], ["API_KEY"]])
+        #expect(answer == .wrote(1))
+        #expect(sent.map(\.name) == ["API_KEY"])
+        sends = []
+        let (busy, _) = try await CloudMachineSecrets.deliver(items, declared: ["API_KEY"]) { batch in
+            sends.append(batch.map(\.name))
+            return .failed(code: "refused", refusal: "busy", retryable: true)
+        }
+        #expect(busy == .failed(code: "refused", refusal: "busy", retryable: true) && sends.count == 1, "only bad-name falls back")
+    }
+
     @Test func onlyAOneLineValueOfEightCharactersTo16KiBIsDelivered() {
         #expect(CloudMachineSecrets.isValue("sk-live-123"))
         #expect(CloudMachineSecrets.isValue(String(repeating: "x", count: 16 * 1024)))

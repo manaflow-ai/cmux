@@ -196,6 +196,34 @@ fn a_disallowed_name_is_refused() {
     assert!(error.message.starts_with("bad-name"), "{error}");
 }
 
+/// The Claude setup token goes to every machine whose config has applied,
+/// declared or not; before any config has applied it is refused like any name.
+#[test]
+fn the_claude_setup_token_is_taken_without_a_declaration() {
+    let fixture = fixture(&["DEMO_KEY"]);
+    let (key, token) = (random_hex(16), random_hex(16));
+    let count = fixture
+        .secrets
+        .replace_machine_secrets(&[
+            fixture.seal(Purpose::Secret, "DEMO_KEY", &key),
+            fixture.seal(Purpose::Secret, "CLAUDE_CODE_OAUTH_TOKEN", &token),
+        ])
+        .unwrap();
+    assert_eq!(count, 2);
+    let written = std::fs::read_to_string(fixture.home.join(files::MACHINE_SECRETS_FILE)).unwrap();
+    assert!(written.contains(&format!("export CLAUDE_CODE_OAUTH_TOKEN='{token}'\n")), "{written}");
+    std::fs::remove_file(fixture.home.join(files::MACHINE_CONFIG_STATUS_FILE)).unwrap();
+    let error = fixture
+        .secrets
+        .replace_machine_secrets(&[fixture.seal(
+            Purpose::Secret,
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            &random_hex(16),
+        )])
+        .unwrap_err();
+    assert!(error.message.starts_with("bad-name"), "{error}");
+}
+
 #[test]
 fn items_for_another_machine_or_key_are_refused() {
     let fixture = fixture(&["DEMO_KEY"]);
