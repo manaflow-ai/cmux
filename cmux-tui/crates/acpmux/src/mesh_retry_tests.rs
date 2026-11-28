@@ -211,3 +211,45 @@ async fn a_try_still_waiting_at_the_deadline_ends_there() {
     assert_eq!(tries.load(Ordering::SeqCst), 2);
     assert_eq!(started.elapsed(), Duration::from_secs(5));
 }
+
+/// A hub down for three minutes inside a ten-minute wait: the call lands once the hub is back.
+#[tokio::test(start_paused = true)]
+async fn ride_out_carries_a_call_across_a_minutes_long_outage() {
+    let started = tokio::time::Instant::now();
+    let deadline = started + Duration::from_secs(600);
+    let tries = AtomicUsize::new(0);
+    let got = ride_out(true, deadline, || async {
+        tries.fetch_add(1, Ordering::SeqCst);
+        if started.elapsed() < Duration::from_secs(180) {
+            Err(status(503, Some("mesh.unavailable")))
+        } else {
+            Ok(9)
+        }
+    })
+    .await;
+    assert_eq!(got.unwrap(), 9);
+    assert!(started.elapsed() >= Duration::from_secs(180));
+    assert!(started.elapsed() < Duration::from_secs(180) + OUTAGE_STEP + Duration::from_millis(1));
+    assert!(tries.load(Ordering::SeqCst) > ATTEMPTS);
+}
+
+/// A refusal is returned at once; a hub down past the deadline returns its failure by then.
+#[tokio::test(start_paused = true)]
+async fn ride_out_stops_on_a_refusal_or_at_the_deadline() {
+    let tries = AtomicUsize::new(0);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let got: Result<(), _> = ride_out(true, deadline, || async {
+        tries.fetch_add(1, Ordering::SeqCst);
+        Err(status(403, Some("mesh.forbidden")))
+    })
+    .await;
+    assert_eq!(got.unwrap_err().status, Some(403));
+    assert_eq!(tries.load(Ordering::SeqCst), 1);
+
+    let started = tokio::time::Instant::now();
+    let deadline = started + Duration::from_secs(10);
+    let got: Result<(), _> =
+        ride_out(true, deadline, || async { Err(status(503, Some("mesh.unavailable"))) }).await;
+    assert_eq!(got.unwrap_err().status, Some(503));
+    assert!(started.elapsed() <= Duration::from_secs(10));
+}

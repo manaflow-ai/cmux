@@ -13,6 +13,13 @@ when the change touches the selection itself (SELECTION_INPUTS) or more than gua
 A push to the base runs every command, so a command skipped here still has a verdict on the base.
 
     check_pool_affected.py --base REV [--head REV] < pool lines > marked lines
+    check_pool_affected.py --whole < pool lines         # the whole-tree commands, one per line (WHOLE_BASELINE)
+    check_pool_affected.py --verify [--match TEXT] < pool lines   # run declared commands traced; fail on an escape
+
+A whole-tree command runs on every pull request. WHOLE_BASELINE lists the ones that do today; a command added to the
+pool must name or declare its reads (`# guard-inputs:` in its source, guard_step_inputs.DECLARED) or be added there
+(tests/test_check_pool_whole_baseline.py). --verify runs each command a declaration made selectable under the audit
+hook tracer and fails on a file it opens or a folder it lists outside its inputs.
 """
 from __future__ import annotations
 
@@ -34,6 +41,33 @@ SELECTION_INPUTS = frozenset({
     "scripts/ci/run-checks-concurrently.sh",
     "scripts/ci/timeout.sh",
 })
+
+
+WHOLE_BASELINE = Path(__file__).resolve().parent / "check-pool-whole.txt"
+
+
+def pool_commands(lines: list[str]) -> list[tuple[str, str]]:
+    """(group, command) for each command line, in order."""
+    group, found = "", []
+    for line in lines:
+        command = line.strip()
+        if not command or command.startswith("#"):
+            continue
+        if NAME_LINE.fullmatch(command):
+            group = command[1:-1]
+            continue
+        found.append((group, command))
+    return found
+
+
+def whole(tree: graph.Tree, lines: list[str]) -> list[tuple[str, str]]:
+    """(command, why) for each command that reads the whole tree, so runs on every pull request."""
+    out = []
+    for _group, command in pool_commands(lines):
+        why = graph.step_inputs(tree, command, None, frozenset()).whole
+        if why:
+            out.append((command, why))
+    return out
 
 
 def everything_reason(changed: list[str]) -> str:
@@ -70,8 +104,22 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base", default="")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--root", default=str(graph.ROOT))
+    parser.add_argument("--whole", action="store_true", help="print the whole-tree commands, one per line")
+    parser.add_argument("--verify", action="store_true", help="run each declared command traced; fail on an escape")
+    parser.add_argument("--match", action="append", default=[], help="with --verify: only commands containing this")
+    parser.add_argument("--jobs", type=int, default=4)
     args = parser.parse_args(argv)
     lines = sys.stdin.read().splitlines()
+    if args.whole:
+        for command, why in whole(graph.Tree(Path(args.root)), lines):
+            print(f"{command}\t{why}")
+        return 0
+    if args.verify:
+        tree = graph.Tree(Path(args.root))
+        steps = [(command, command, None) for _g, command in pool_commands(lines)
+                 if (not args.match or any(m in command for m in args.match))
+                 and graph.step_inputs(tree, command, None, frozenset()).declared]
+        return graph.verify(tree, steps, args.jobs, set())
     reason = "" if args.base else "no base"
     changed: list[str] = []
     if not reason:

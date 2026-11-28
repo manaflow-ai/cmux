@@ -233,9 +233,71 @@ fn only_a_sleep_far_past_its_tick_is_a_pause() {
     assert_eq!(paused_for(base, base + tick + gap), None);
     // A claim that resumed a spare paused for five minutes.
     assert_eq!(paused_for(base, base + tick + gap + 1), Some(Duration::from_nanos(20_000_000_001)));
-    assert_eq!(paused_for(base, base + 300_000_000_000), Some(Duration::from_secs(290)));
+    assert_eq!(paused_for(base, base + 300_000_000_000), Some(Duration::from_secs(299)));
     // A boot clock that went backwards is no pause.
     assert_eq!(paused_for(base, base - 60_000_000_000), None);
+}
+
+/// wake-echo run 46000366770 (2026-11-27): Freestyle pauses of 5.6 s and
+/// 7.9 s, boot clock running through, were never counted, so the updater
+/// took no resume hold and a flip replaced the session host at the wake. A
+/// stop that short is counted for the updater, but is no resume.
+#[test]
+fn a_short_pause_is_a_stop_but_not_a_resume() {
+    let tick = i128::try_from(PAUSE_TICK.as_nanos()).unwrap();
+    let second = 1_000_000_000_i128;
+    let base = 2_000_000_000_000_i128;
+    for pause in [5_600_000_000_i128, 7_900_000_000] {
+        assert!(stopped_for(base, base + tick + pause).is_some(), "{pause}");
+        assert_eq!(paused_for(base, base + tick + pause), None, "{pause}");
+    }
+    // A scheduling delay is neither.
+    assert_eq!(stopped_for(base, base + tick + second), None);
+    assert_eq!(stopped_for(base, base + tick + 2 * second), None);
+
+    // The watch counts it, and is waking from it until it looks again.
+    let watch = PauseWatch::new();
+    watch.looked(base, false);
+    assert!(!watch.waking(base + 2 * second));
+    assert!(watch.waking(base + 6 * second), "a 5 s stop in progress was not waking");
+    let seq = watch.pause_seq();
+    watch.looked(
+        base + tick + 5_600_000_000,
+        stopped_for(base, base + tick + 5_600_000_000).is_some(),
+    );
+    assert_eq!(watch.pause_seq(), seq + 1);
+}
+
+/// The record file is written at once on a count, otherwise at most every
+/// [`RECORD_EVERY`]; another process's copy takes the watch as waking only
+/// past a record write and a pause, so the throttle never makes it hold.
+#[test]
+fn the_record_is_written_on_a_count_or_every_ten_seconds() {
+    let second = 1_000_000_000_i128;
+    let base = 2_000_000_000_000_i128;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("pauses.json");
+    let read =
+        || -> serde_json::Value { serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap() };
+    let watch = PauseWatch::new();
+    watch.persist_to(file.clone());
+    watch.looked(base, false);
+    assert_eq!(read()["last_look_ns"], i64::try_from(base).unwrap());
+    // Plain looks inside RECORD_EVERY: not written.
+    for s in 1..10 {
+        watch.looked(base + s * second, false);
+    }
+    assert_eq!(read()["last_look_ns"], i64::try_from(base).unwrap());
+    let copy = PauseWatch::load(&file);
+    assert!(!copy.waking(base + 9 * second), "the copy held on the throttle");
+    assert!(copy.waking(base + 40 * second));
+    // Ten seconds on: written.
+    watch.looked(base + 10 * second, false);
+    assert_eq!(read()["last_look_ns"], i64::try_from(base + 10 * second).unwrap());
+    // A count: written at once.
+    watch.looked(base + 16 * second, true);
+    assert_eq!(read()["pauses"], 1);
+    assert_eq!(copy.pause_seq(), 1);
 }
 
 #[test]
