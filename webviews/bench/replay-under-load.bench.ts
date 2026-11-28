@@ -293,6 +293,15 @@ async function run(): Promise<Reading> {
         for (const entry of list.getEntries()) w.__long.push({ at: entry.startTime, ms: entry.duration });
       }).observe({ type: "longtask", buffered: true });
     });
+    if (process.env.RAFSITES === "1") await page.addInitScript(() => {
+      const w = window as any; const raw = w.requestAnimationFrame.bind(w); const sites: Record<string, { n: number; ms: number }> = {};
+      w.__rafSites = sites; w.__rafOn = false;
+      w.requestAnimationFrame = (cb: FrameRequestCallback) => {
+        if (!w.__rafOn) return raw(cb);
+        const st = (new Error().stack ?? "").split("\n").slice(2, 5).map((l) => l.trim().replace(/^at /, "").replace(/\?[^)]*/, "").replace(/https?:\/\/[^/]+\//, "")).join(" < ");
+        return raw((t: number) => { const a = performance.now(); try { cb(t); } finally { const e = (sites[st] ??= { n: 0, ms: 0 }); e.n++; e.ms += performance.now() - a; } });
+      };
+    });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
     if (PROFILE || TRACE) {
@@ -373,6 +382,7 @@ async function run(): Promise<Reading> {
     // `renders`, paneSnapshot.ts `redrawCause`); counting turns the pane's perf on, so its busy is not a clean one.
     const RENDERS = process.env.RENDERS === "1";
     if (RENDERS) await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+    if (process.env.RAFSITES === "1") await page.evaluate(() => { (window as any).__rafOn = true; });
     const pageStart = await page.evaluate(() => performance.now());
     const taskBefore = await taskSeconds(cdp);
     const wallBefore = performance.now();
@@ -393,6 +403,7 @@ async function run(): Promise<Reading> {
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());
+    if (process.env.RAFSITES === "1") { const sites = (await page.evaluate(() => { (window as any).__rafOn = false; return (window as any).__rafSites; })) as Record<string, { n: number; ms: number }>; for (const [k, v] of Object.entries(sites).sort((x, y) => y[1].n - x[1].n).slice(0, 25)) console.error(`RAFSITE ${v.n} ${v.ms.toFixed(0)}ms ${k}`); }
     if (RENDERS) {
       const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
         string,
