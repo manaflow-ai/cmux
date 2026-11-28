@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronRight } from "./icons";
+import { ChipDisclosureChevron } from "../chips/ChipDisclosureChevron";
 import { copyTextResult } from "./clipboard";
 import { useT } from "../i18n";
 
@@ -32,21 +33,7 @@ export function ErrorDetails({
       <summary className="cv-turn-note__summary">
         {t("turn.failure.details")}
         {chipChevron ? (
-          <svg
-            className={`cv-rotor acpmux-chip-disclosure${open ? " is-open" : ""}`}
-            width={12}
-            height={12}
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.25}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <path d="M6.3 4.6 9.6 8l-3.3 3.4" />
-          </svg>
+          <ChipDisclosureChevron className={`cv-rotor acpmux-chip-disclosure${open ? " is-open" : ""}`} />
         ) : (
           <ChevronRight size={12} aria-hidden="true" className={`cv-rotor${open ? " is-open" : ""}`} />
         )}

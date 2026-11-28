@@ -43,6 +43,7 @@ const planted = [
     "animate height",
     "export function Row(el: HTMLElement) { el.animate([{ height: '0px' }, { height: '40px' }], 120); }",
   ],
+  // motion-allow: lint fixture that plants the banned height transition on purpose.
   ["animate height", "export function Row(el: HTMLElement) { el.style.transition = 'height 120ms'; }"],
 ] as const;
 
