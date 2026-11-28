@@ -341,8 +341,11 @@ import Testing
         #expect(mac.prompts.map(\.text) == expected)
         if moving { #expect(store.returnedDraft == nil) }
         else {
-            await eventually { store.returnedDraft != nil }
-            #expect(store.returnedDraft?.text == "second")
+            // Its bubble says it did not go, and a tap sends it again (#57933: no draft comes
+            // back for a prompt the chat shows).
+            await eventually { store.turns.contains { $0.prompt == "second" && $0.localSend == .notSent } }
+            #expect(store.turns.contains { $0.prompt == "second" && $0.localSend == .notSent })
+            #expect(store.returnedDraft == nil)
         }
     }
 
