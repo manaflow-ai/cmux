@@ -18677,6 +18677,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # iPhone DEV built ahead (#51721): an advisory fleet build per PR head; never a required check.
+            "cmux-next-ios-try-ahead.yml",
             # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).
             "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
