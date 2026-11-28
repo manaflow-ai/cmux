@@ -34,6 +34,24 @@ public final class CmuxWebView: CmuxUndoableWebView {
     public var browserViewportModel: BrowserViewportModel?
     public var onBrowserViewportHierarchyChanged: (() -> Void)?
 
+    public override func stopLoading() {
+        super.stopLoading()
+        abandonUndecidedNavigation()
+    }
+
+    public override func stopLoading(_ sender: Any?) {
+        super.stopLoading(sender)
+        abandonUndecidedNavigation()
+    }
+
+    // Stopping drops a navigation that still awaits its policy decision, and
+    // WebKit tells no delegate. It also keeps the page loading until a
+    // navigation that waits at the gate is decided, so the gate hears of the
+    // stop from here, whoever asked for it.
+    private func abandonUndecidedNavigation() {
+        configuration.websiteDataStore.singleSignOnNavigationGate.abandon(self)
+    }
+
     /// One-shot app-owned internal navigations (file/data/blob/etc.) that
     /// must pass the browser URL policy's trusted-load seam. Page callbacks
     /// never add to this set.

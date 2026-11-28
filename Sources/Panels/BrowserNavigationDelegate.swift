@@ -67,6 +67,23 @@ import WebKit
         super.init()
     }
 
+    private func singleSignOnGate(for webView: WKWebView) -> BrowserSingleSignOnNavigationGate {
+        webView.configuration.websiteDataStore.singleSignOnNavigationGate
+    }
+
+    /// The web view is no longer loading anything. WebKit reports nothing
+    /// else when an SSO extension aborts the navigation it took, so this is
+    /// that navigation's outcome too.
+    func webViewIsNoLongerLoading(_ webView: WKWebView) {
+        singleSignOnGate(for: webView).resolve(webView)
+    }
+
+    /// The web view is going away without being stopped, which drops a
+    /// navigation of its own that is still waiting for a decision.
+    func webViewWillAbandonNavigation(_ webView: WKWebView) {
+        singleSignOnGate(for: webView).abandon(webView)
+    }
+
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
         clientCertificateAuthenticationController.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -119,6 +136,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        singleSignOnGate(for: webView).resolve(webView)
         activeMainFrameNavigation = navigation
         (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
@@ -128,6 +146,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        singleSignOnGate(for: webView).resolve(webView)
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
@@ -164,6 +183,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        singleSignOnGate(for: webView).resolve(webView)
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
         // Treat committed-navigation failures the same as provisional ones so
@@ -179,6 +199,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        singleSignOnGate(for: webView).resolve(webView)
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         if isCurrentNavigation {
             trustedInternalNavigationURL = nil
@@ -290,6 +311,7 @@ import WebKit
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        singleSignOnGate(for: webView).abandon(webView)
 #if DEBUG
         cmuxDebugLog("browser.webcontent.terminated panel=\(String(describing: self))")
 #endif
@@ -340,6 +362,17 @@ import WebKit
             fallbackPolicy: WKNavigationActionPolicy.cancel,
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
+
+        // The gate hears of every main-frame action, before any branch below
+        // decides it: a web view that starts a navigation has dropped the one
+        // it was asked about before, whatever becomes of the new one. WebKit
+        // also asks about a redirect of a load already under way, and nothing
+        // here tells the two apart, so a redirect cancels a navigation still
+        // awaiting its decision as well, as it does in the local-file
+        // encoding probe.
+        let mainFrameNavigation = navigationAction.targetFrame?.isMainFrame == true
+            ? singleSignOnGate(for: webView).begin(owner: webView)
+            : nil
 
         // Who makes each opaque document (data:, about:, an opaque blob:):
         // a browser REPL session's domain policy judges it by its maker.
@@ -823,7 +856,7 @@ import WebKit
             return
         }
 
-        if navigationAction.targetFrame?.isMainFrame == true,
+        if let mainFrameNavigation,
            let url = navigationAction.request.url,
            let owner {
             // WebKit decodes the response after this decision. Defer only the
@@ -848,8 +881,24 @@ import WebKit
                     decisionHandler(.cancel)
                     return
                 }
-                self.recordAllowedNavigationRequest(navigationAction)
-                decisionHandler(.allow)
+                // WebKit drops the navigation an SSO extension is still
+                // answering when a second one reaches it (#53548).
+                self.singleSignOnGate(for: webView).admit(mainFrameNavigation, url: url) { [weak self, weak owner, weak webView] admitted in
+                    // Not admitted: since WebKit asked about this navigation,
+                    // its web view started another or was stopped. Allowing it
+                    // would start an authorization for a navigation that is gone.
+                    guard admitted, let self, let owner, let webView, owner.webView === webView else {
+                        decisionHandler(.cancel)
+                        return false
+                    }
+                    self.recordAllowedNavigationRequest(navigationAction)
+                    decisionHandler(.allow)
+                    // WebKit parks the authorization of a web view that is in
+                    // no window until it is shown, which may be never, so that
+                    // web view must not keep the others waiting. The next
+                    // sign-in on its store displaces it, as it always has.
+                    return webView.isLoading && webView.window != nil
+                }
             }
             return
         }
