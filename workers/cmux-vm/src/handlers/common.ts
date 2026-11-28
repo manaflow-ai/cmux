@@ -28,13 +28,10 @@ import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-res
  * could not be told from one that was down.
  */
 export const failureClass = (error: unknown): string => {
-  const e = (error !== null && typeof error === "object" && "cause" in error ? (error as { cause: unknown }).cause : error) as
-    | { overloaded?: unknown; retryable?: unknown; message?: unknown }
-    | null
-    | undefined;
+  const e: unknown = error !== null && typeof error === "object" && "cause" in error ? error.cause : error;
   if (e === null || e === undefined || typeof e !== "object") return "unknown";
-  if (e.overloaded === true) return "overloaded";
-  const text = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  if ("overloaded" in e && e.overloaded === true) return "overloaded";
+  const text = "message" in e && typeof e.message === "string" ? e.message.toLowerCase() : "";
   for (const [needle, word] of [
     ["overloaded", "overloaded"],
     ["exceeded its memory", "memory_limit"],
@@ -45,7 +42,7 @@ export const failureClass = (error: unknown): string => {
     ["not confirmed", "write_unconfirmed"],
   ] as const)
     if (text.includes(needle)) return word;
-  return e.retryable === true ? "retryable" : "other";
+  return "retryable" in e && e.retryable === true ? "retryable" : "other";
 };
 
 /** A Durable Object call Cloudflare says may be repeated, and that did not fail for want of capacity. */
