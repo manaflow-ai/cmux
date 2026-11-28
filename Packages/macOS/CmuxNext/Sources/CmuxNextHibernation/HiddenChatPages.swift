@@ -385,6 +385,9 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// The release of tab `key` asked the page what it holds; it no longer counts as running.
     package func endRelease(_ key: String) { releasing.remove(key) }
 
+    /// A release of tab `key`'s page runs now.
+    package func releaseRuns(_ key: String) -> Bool { releasing.contains(key) }
+
     /// The release of tab `key` kept its page (it held prompts, or said nothing in time): it is
     /// asked again after ``keptRecheck``, on the planner's own deadline, as nothing else may plan
     /// again (cmux#32277). Its hide or show resets that.

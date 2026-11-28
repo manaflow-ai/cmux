@@ -26,9 +26,14 @@ fn scope_props() -> Value {
     })
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(super) fn descriptors() -> Vec<Value> {
     let read = json!({"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true});
-    let team_only = json!({"type": "object", "additionalProperties": false, "properties": {"team": scope_props().get("team").cloned().unwrap_or_default()}});
+    // skew: strict vault scope: unknown scope keys could silently target the wrong encrypted store.
+    let team_only = json!({"type": "object", "additionalProperties": false, "properties": {"team": scope_props()["team"]}});
     let mut import_props = scope_props().as_object().cloned().unwrap_or_default();
     import_props.insert(
         "file".into(),
@@ -62,6 +67,7 @@ pub(super) fn descriptors() -> Vec<Value> {
             "name": IMPORT,
             "title": "Import names from a .env into the vault",
             "description": "Read a .env file and keep the named entries in the cmux vault, sealed on this device, then seal them to the person's Cloud machines. Without names it only lists the file's names (masked). Values never appear in the call or its answer. Only for names the person asked to keep.",
+            // skew: strict vault import: reject misspelled paths or names instead of importing a different set.
             "inputSchema": {"type": "object", "additionalProperties": false, "required": ["file"], "properties": import_props},
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
         }),
@@ -69,6 +75,7 @@ pub(super) fn descriptors() -> Vec<Value> {
             "name": REMOVE,
             "title": "Remove a vault name",
             "description": "Remove a name from the cmux vault (from one scope with repo or machine, else from every scope); machines lose it at their next pull.",
+            // skew: strict vault removal: reject unknown keys so a deletion cannot use an unintended scope.
             "inputSchema": {"type": "object", "additionalProperties": false, "required": ["name"], "properties": remove_props},
             "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": true},
         }),
