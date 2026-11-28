@@ -35,7 +35,8 @@ function parse(summary: string | undefined): unknown {
 }
 
 /// Whether a tool call is the wrap-up call, under any of the names a harness gives it
-/// (`mcp__acpmux__wrap_up`, `mcp__cmux__acpmux_wrap_up`, Codex's `{server, tool}` or a dotted name).
+/// (`mcp__cmux-agent__wrap_up`, `mcp__acpmux__wrap_up` from before the rename,
+/// `mcp__cmux__acpmux_wrap_up`, Codex's `{server, tool}` or a dotted name).
 /// A `cmux_exec` script that called it is not: it may have done other work (`execWrapUp`).
 export function isWrapUp(tool: Tool | undefined): tool is Tool {
   if (!tool || tool.command) return false;
@@ -44,7 +45,7 @@ export function isWrapUp(tool: Tool | undefined): tool is Tool {
   const call = mcpCall(tool);
   if (call)
     return (call.server === "acpmux" && call.tool === WRAP_UP) || (call.server === "cmux" && call.tool === FOLDED);
-  return /^(?:(?:acpmux\.)?wrap_up|(?:cmux\.)?acpmux_wrap_up)$/.test(tool.title.trim());
+  return /^(?:(?:(?:acpmux|cmux-agent)\.)?wrap_up|(?:cmux\.)?acpmux_wrap_up)$/.test(tool.title.trim());
 }
 
 /// A finished `cmux_exec` script that called the wrap-up (the default code-mode chat calls

@@ -1,7 +1,7 @@
 //! Which Claude Code subagent made a tool call, by the call's tool use id (W5-M follow-up,
 //! 2026-11-08).
 //!
-//! A subagent that reaches acpmux through MCP tools (`mcp__acpmux__send`, cmux's
+//! A subagent that reaches acpmux through MCP tools (`mcp__cmux-agent__send`, cmux's
 //! `acpmux_bg_start`, a `cmux_exec` script) makes no Bash call, so the Bash hook's mark
 //! (`ACPMUX_CALLER_SUBAGENT`) never names it, and its MCP server runs with its lead's caller
 //! token. Claude Code names each tool call by one id in two places: the hook's input

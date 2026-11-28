@@ -21,6 +21,7 @@ whose output names no file is annotated on its Cargo.toml.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -81,6 +82,38 @@ def packages(repo: Path) -> set[str]:
     return found
 
 
+def format_it_tests(manifest: Path, *, check: bool = True, package_only: bool = False) -> subprocess.CompletedProcess[str]:
+    """Format generated test modules with their owning package's resolved edition.
+
+    Extra filenames passed through cargo fmt are forwarded to every rustfmt
+    invocation, including packages with older editions in a mixed workspace.
+    Cargo metadata resolves inherited editions without building dependencies.
+    """
+    metadata = subprocess.run(
+        ["cargo", "metadata", "--no-deps", "--format-version", "1", "--manifest-path", str(manifest)],
+        cwd=manifest.parent, stdout=subprocess.PIPE, text=True,
+    )
+    if metadata.returncode:
+        return metadata
+    output = []
+    failed = 0
+    data = json.loads(metadata.stdout)
+    members = set(data["workspace_members"])
+    for package in data["packages"]:
+        owner = Path(package["manifest_path"])
+        if package["id"] not in members or (package_only and owner.resolve() != manifest.resolve()):
+            continue
+        tests = owner.parent / "tests"
+        files = sorted(tests.glob("*.rs")) if (tests / "it/main.rs").is_file() else []
+        if not files:
+            continue
+        command = ["rustfmt", *(["--check"] if check else []), "--edition", package["edition"], *map(str, files)]
+        result = subprocess.run(command, cwd=owner.parent, stdout=subprocess.PIPE, text=True)
+        output.append(result.stdout)
+        failed |= bool(result.returncode)
+    return subprocess.CompletedProcess(["rustfmt"], int(failed), "".join(output))
+
+
 def changed(repo: Path, base: str) -> list[str] | None:
     """Paths under cmux-tui/ changed since `base`, or None when there is no usable base."""
     if not base or set(base) == {"0"}:
@@ -117,8 +150,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--base", default="")
+    parser.add_argument("--it-tests-only", action="store_true", help="format generated test modules in the workspace")
+    parser.add_argument("--fix", action="store_true", help="write formatting (requires --it-tests-only)")
     args = parser.parse_args(argv)
+    if args.fix and not args.it_tests_only:
+        parser.error("--fix requires --it-tests-only")
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
+    if args.it_tests_only:
+        result = format_it_tests(repo / ROOT / "Cargo.toml", check=not args.fix)
+        sys.stdout.write(result.stdout)
+        return result.returncode
     known = packages(repo)
     paths = changed(repo, args.base.strip())
     if paths is None or any(PurePosixPath(path).name in EVERYTHING for path in paths):
@@ -134,10 +175,12 @@ def main(argv: list[str] | None = None) -> int:
         manifest = repo / package / "Cargo.toml"
         print(f"cargo fmt --check --manifest-path {package}/Cargo.toml", flush=True)
         # From cmux-tui/ so rustup uses its rust-toolchain.toml pin. Its diff is read for the files it names.
-        extra = it_test_files(repo, package)
-        result = subprocess.run(["cargo", "fmt", "--check", "--manifest-path", str(manifest),
-                                 *(["--", *extra] if extra else [])], cwd=repo / ROOT,
+        result = subprocess.run(["cargo", "fmt", "--check", "--manifest-path", str(manifest)], cwd=repo / ROOT,
                                 stdout=subprocess.PIPE, text=True)
+        if it_test_files(repo, package):
+            extra = format_it_tests(manifest, package_only=True)
+            result.stdout += extra.stdout
+            result.returncode = result.returncode or extra.returncode
         sys.stdout.write(result.stdout)
         sys.stdout.flush()
         if result.returncode:

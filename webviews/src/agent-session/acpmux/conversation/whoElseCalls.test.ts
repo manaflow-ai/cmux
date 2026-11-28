@@ -81,3 +81,11 @@ test("Codex's shell `… && acpmux --json who-else`, as the daemon sent it, is t
     ["greet-claude", "claude", "main", 1],
   ]);
 });
+
+test("a who_else call counts under the agent server's name and the one before the rename", () => {
+  for (const title of ["mcp__cmux-agent__who_else", "mcp__acpmux__who_else"]) {
+    const tool = { title, kind: "other", status: "pending", inputSummary: JSON.stringify({ files: ["a.ts"] }) };
+    const item = { kind: "tool", tool } as unknown as Parameters<typeof whoElseCall>[0];
+    expect(whoElseCall(item)?.pending, title).toBe(true);
+  }
+});

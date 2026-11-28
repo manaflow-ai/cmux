@@ -284,6 +284,30 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
     );
 }
 
+/// A person's own config entry still named `acpmux` that starts cmux's agent server: the chat's
+/// entry takes that name (its HTTP endpoint too), so the harness replaces theirs with it and runs
+/// one server, not two.
+#[test]
+fn the_agent_server_takes_a_leftover_entrys_name() {
+    let ours = crate::acpmux_mcp_names::SERVER_NAME;
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "acpmux".into(),
+        args: vec!["acpmux-mcp".into()],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server(ours), server("cmux-forum")],
+        ..Default::default()
+    };
+    let renamed = tools.server_named("acpmux");
+    let names: Vec<&str> = renamed.servers.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["acpmux", "cmux-forum"]);
+    let config = renamed.mcp_config().unwrap();
+    assert!(config["mcpServers"].get("acpmux").is_some(), "{config}");
+    assert!(config["mcpServers"].get(ours).is_none(), "{config}");
+}
+
 /// CMUX-288: the `acpmux` server's `pr_state` runs `gh` with the server's env, and a client that
 /// passes a stdio server only an allowlisted env (Codex) left out the agent's gh sign-in. The
 /// server now gets the agent's own `GH_TOKEN`, `GITHUB_TOKEN` and `GH_CONFIG_DIR` after
@@ -558,7 +582,7 @@ fn a_chat_runs_acpmux_s_own_tool_servers_in_one_process() {
             "cmux-sessions",
             "cmux-subsessions",
             "cmux-forum",
-            "acpmux"
+            "cmux-agent"
         ]
     );
     // The process each server runs in: its shared launch, else its own command.
@@ -981,9 +1005,9 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
         vec![codex.to_string_lossy().into_owned(), "-p".into(), "w".into(), "app-server".into()];
     let at = super::CodexLaunch { cwd: &work, argv: &argv, answer: None };
     for (answer, want) in [
-        (Some("/opt/x"), &["cmux", "acpmux"][..]),
-        (Some("http"), &["acpmux"]),
-        (None, &["cmux", "acpmux"]),
+        (Some("/opt/x"), &["cmux", "cmux-agent"][..]),
+        (Some("http"), &["cmux-agent"]),
+        (None, &["cmux", "cmux-agent"]),
     ] {
         codex_answers(root.path(), answer);
         assert_eq!(
@@ -998,10 +1022,13 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
     // Skip on doubt: no answer from Codex (output it cannot read, or a program that is not
     // there), and a project file Codex's answer does not show it loads, drop `cmux` too.
     std::fs::write(root.path().join("answer"), "not json").unwrap();
-    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(at, &env)), ["acpmux"]);
+    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(at, &env)), ["cmux-agent"]);
     let gone = vec!["/nowhere/codex".to_owned(), "app-server".to_owned()];
     let missing = super::CodexLaunch { cwd: &work, argv: &gone, answer: None };
-    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(missing, &env)), ["acpmux"]);
+    assert_eq!(
+        names(tools.clone().without_cmux_beside_an_http_entry(missing, &env)),
+        ["cmux-agent"]
+    );
     std::fs::create_dir_all(work.join(".git")).unwrap();
     std::fs::create_dir_all(work.join(".codex")).unwrap();
     std::fs::write(
@@ -1013,7 +1040,7 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
         codex_answers(root.path(), answer);
         assert_eq!(
             names(tools.clone().without_cmux_beside_an_http_entry(at, &env)),
-            ["acpmux"],
+            ["cmux-agent"],
             "an untrusted project entry, {answer:?}"
         );
     }
@@ -1025,7 +1052,7 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
     .unwrap();
     assert_eq!(
         names(tools.clone().without_cmux_beside_an_http_entry(at, &env)),
-        ["cmux", "acpmux"]
+        ["cmux", "cmux-agent"]
     );
     std::fs::remove_dir_all(work.join(".codex")).unwrap();
     // An ACP adapter (not a Codex app-server launch) loads the person's config through the
@@ -1037,9 +1064,15 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
         [("PATH".to_owned(), format!("{}:/usr/bin:/bin", codex.parent().unwrap().display()))]
             .into();
     codex_answers(root.path(), Some("http"));
-    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(other, &on_path)), ["acpmux"]);
+    assert_eq!(
+        names(tools.clone().without_cmux_beside_an_http_entry(other, &on_path)),
+        ["cmux-agent"]
+    );
     codex_answers(root.path(), Some("/opt/x"));
-    assert_eq!(names(tools.without_cmux_beside_an_http_entry(other, &on_path)), ["cmux", "acpmux"]);
+    assert_eq!(
+        names(tools.without_cmux_beside_an_http_entry(other, &on_path)),
+        ["cmux", "cmux-agent"]
+    );
     let calls = std::fs::read_to_string(root.path().join("calls")).unwrap();
     assert!(calls.lines().all(|l| l == "mcp get cmux --json"), "{calls}");
 }
@@ -1078,7 +1111,7 @@ fn a_codex_session_start_or_fork_beside_an_http_cmux_entry_sends_no_cmux() {
     };
     assert_eq!(names(Some(&work)), ["cmux"]);
     codex_answers(root.path(), Some("http"));
-    assert_eq!(names(Some(&work)), ["acpmux"]);
+    assert_eq!(names(Some(&work)), ["cmux-agent"]);
     assert_eq!(names(None), ["cmux"], "not Codex: the person's Codex config does not matter");
 }
 
@@ -1394,7 +1427,7 @@ fn own_server_instructions_move_to_a_system_prompt_every_chat_shares() {
     assert!(!one.contains("01a2-chat") && !one.contains("repo-"), "{one}");
     assert!(one.starts_with(super::INSTRUCTIONS_HEADING), "{one}");
     let at = |name: &str| one.find(&format!("## {name}\n")).unwrap_or_else(|| panic!("{one}"));
-    assert!(at("acpmux") < at("cmux-sessions") && at("cmux-sessions") < at("cmux-subsessions"));
+    assert!(at("cmux-agent") < at("cmux-sessions") && at("cmux-sessions") < at("cmux-subsessions"));
     assert!(one.contains(crate::offer_mcp::INSTRUCTIONS), "{one}");
     assert!(one.contains(&crate::subsession_mcp::instructions()), "{one}");
     assert!(one.contains("with bg_start"), "{one}");
@@ -1406,7 +1439,7 @@ fn own_server_instructions_move_to_a_system_prompt_every_chat_shares() {
             .iter()
             .any(|(k, v)| k == crate::tools_mcp::INSTRUCTIONS_IN_PROMPT_ENV && v == "1")
     };
-    assert!(flag("acpmux") && flag("cmux-sessions") && flag("cmux-subsessions"));
+    assert!(flag("cmux-agent") && flag("cmux-sessions") && flag("cmux-subsessions"));
     assert!(!flag(crate::forum_mcp::SERVER_NAME) && !flag(crate::secret_mcp::SERVER_NAME));
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -1517,4 +1550,27 @@ fn forum_tools_come_only_in_a_team_or_forum() {
     assert!(!gate(None, false, Some(false), false));
     assert!(gate(Some("1"), false, None, false) && !gate(Some("0"), true, Some(true), true));
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn an_unrelated_legacy_named_server_has_an_independent_off_switch() {
+    let server = |name: &str, command: &str| super::McpServer {
+        name: name.into(),
+        command: command.into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server("cmux-agent", "cmux"), server("acpmux", "node")],
+        ..Default::default()
+    };
+    for (disabled, remaining) in [("acpmux", "cmux-agent"), ("cmux-agent", "acpmux")] {
+        let env =
+            std::collections::BTreeMap::from([(super::OFF_ENV.to_owned(), disabled.to_owned())]);
+        let filtered = tools.clone().without_off(&env);
+        assert_eq!(
+            filtered.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            [remaining]
+        );
+    }
 }

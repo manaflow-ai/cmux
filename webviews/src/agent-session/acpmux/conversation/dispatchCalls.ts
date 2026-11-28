@@ -29,7 +29,7 @@ type RecordValue = Record<string, unknown>;
 
 const EVENT_KIND = /^(dispatch|steer|report|briefs?)$/i;
 const EXPLICIT_TOOL =
-  /^(?:dispatch|steer|report|briefs?|(?:mcp__)?(?:acpmux|cmux|codex_apps)(?:__|[./:-])(?:agent_)?|agent_)(dispatch|steer|report|briefs(?:[_-]?(?:ls|list))?)(?:\s+call)?$/i;
+  /^(?:dispatch|steer|report|briefs?|(?:mcp__)?(?:acpmux|cmux-agent|cmux|codex_apps)(?:__|[./:-])(?:agent_)?|agent_)(dispatch|steer|report|briefs(?:[_-]?(?:ls|list))?)(?:\s+call)?$/i;
 const CLI_TITLE = /^acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
 const CLI_ACTION =
   /(?:^|(?:&&|\|\||;)\s*)(?:\w+=\S+\s+)*(?:\S+\/)?acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
@@ -105,7 +105,7 @@ function operationName(tool: Tool, args: unknown, output: unknown): DispatchKind
   const input = args;
   if (isRecord(input) && typeof input.server === "string" && typeof input.tool === "string" && "arguments" in input) {
     const server = input.server.toLowerCase();
-    if (!["acpmux", "cmux", "codex_apps", "agent_dispatch"].includes(server)) return undefined;
+    if (!["acpmux", "cmux-agent", "cmux", "codex_apps", "agent_dispatch"].includes(server)) return undefined;
     const codexTool = input.tool.toLowerCase().replace(/^agent_/, "");
     if (["dispatch", "steer", "report", "briefs", "briefs_ls", "briefs_list"].includes(codexTool)) {
       return codexTool === "dispatch"

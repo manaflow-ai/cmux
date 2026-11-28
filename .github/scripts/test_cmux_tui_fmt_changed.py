@@ -9,6 +9,8 @@ a scratch repository with a fake cargo that records its calls.
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -18,7 +20,14 @@ import unittest
 
 
 SCRIPT = Path(__file__).with_name("cmux-tui-fmt-changed.py")
+_spec = importlib.util.spec_from_file_location("git_fixture_env", SCRIPT.parents[2] / "tests/git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(git_fixture_env)
 FAKE_CARGO = """#!/usr/bin/env bash
+if [[ "$1" == metadata ]]; then
+  cat "$CARGO_METADATA"
+  exit 0
+fi
 printf '%s\\n' "$*" >> "$CARGO_LOG"
 for arg in "$@"; do
   if [[ "$arg" == *"/${FAIL_PACKAGE:-none}/Cargo.toml" ]]; then
@@ -31,11 +40,20 @@ for arg in "$@"; do
   fi
 done
 """
+FAKE_RUSTFMT = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$RUSTFMT_LOG"
+if [[ "${RUSTFMT_FAIL:-}" == 1 ]]; then
+  echo "Diff in ${@: -1}:3:"
+  exit 1
+fi
+"""
 
 
 class FmtChangedTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = Path(tempfile.mkdtemp())
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.tmp = Path(temporary.name)
         self.repo = self.tmp / "repo"
         # The workspace root is a package too, as in the real tree.
         self.write("cmux-tui/Cargo.toml", '[package]\nname = "root"\n\n[workspace]\nmembers = ["crates/a", "crates/b"]\n')
@@ -55,7 +73,7 @@ class FmtChangedTests(unittest.TestCase):
         self.write("cmux-tui/vendor/up/src/lib.rs", "pub fn u() {}\n")
         self.write("README.md", "readme\n")
         (self.repo / ".gitignore").write_text("cmux-tui/target/\n")
-        self.git("init", "-q")
+        git_fixture_env.init_repo(self.repo)
         self.git("add", ".")
         self.git("commit", "-qm", "base")
         self.base = self.git("rev-parse", "HEAD").strip()
@@ -64,8 +82,21 @@ class FmtChangedTests(unittest.TestCase):
         cargo = bin_dir / "cargo"
         cargo.write_text(FAKE_CARGO)
         cargo.chmod(0o755)
+        rustfmt = bin_dir / "rustfmt"
+        rustfmt.write_text(FAKE_RUSTFMT)
+        rustfmt.chmod(0o755)
         self.log = self.tmp / "cargo.log"
-        self.env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CARGO_LOG": str(self.log)}
+        self.rustfmt_log = self.tmp / "rustfmt.log"
+        metadata = self.tmp / "metadata.json"
+        metadata.write_text(json.dumps({
+            "workspace_members": ["a", "b"],
+            "packages": [
+                {"id": name, "edition": edition, "manifest_path": str(self.repo / f"cmux-tui/crates/{name}/Cargo.toml")}
+                for name, edition in (("a", "2024"), ("b", "2021"))
+            ],
+        }))
+        self.env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CARGO_LOG": str(self.log),
+                    "RUSTFMT_LOG": str(self.rustfmt_log), "CARGO_METADATA": str(metadata)}
 
     def write(self, path: str, text: str) -> None:
         target = self.repo / path
@@ -197,8 +228,10 @@ class FmtChangedTests(unittest.TestCase):
         result = self.run_check("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.checked(), ["cmux-tui/crates/a/Cargo.toml"])
-        words = self.log.read_text().split()
-        named = [str(Path(w).relative_to(self.repo)) for w in words[words.index("--") + 1:]]
+        self.assertNotIn("--", self.log.read_text().split())
+        words = self.rustfmt_log.read_text().split()
+        self.assertEqual(words[:3], ["--check", "--edition", "2024"])
+        named = [str(Path(w).relative_to(self.repo)) for w in words[3:]]
         self.assertEqual(named, ["cmux-tui/crates/a/tests/one.rs", "cmux-tui/crates/a/tests/two.rs"])
         head = self.git("rev-parse", "HEAD").strip()
         self.change("cmux-tui/crates/b/src/lib.rs")
@@ -206,6 +239,29 @@ class FmtChangedTests(unittest.TestCase):
         self.run_check("--base", head)
         self.assertEqual(self.checked(), ["cmux-tui/crates/b/Cargo.toml"])
         self.assertNotIn("--", self.log.read_text().split())
+
+    def test_generated_test_diff_fails_and_is_annotated(self) -> None:
+        self.write("cmux-tui/crates/a/tests/it/main.rs", "test_modules::modules!();\n")
+        self.change("cmux-tui/crates/a/tests/one.rs", "#[test]\nfn one() {}\n")
+        result = self.run_check("--base", self.base, RUSTFMT_FAIL="1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error file=cmux-tui/crates/a/tests/one.rs,line=3", result.stdout)
+
+    def test_workspace_generated_tests_keep_each_edition_in_check_and_fix_modes(self) -> None:
+        for name in ("a", "b"):
+            self.write(f"cmux-tui/crates/{name}/tests/it/main.rs", "test_modules::modules!();\n")
+            self.write(f"cmux-tui/crates/{name}/tests/one.rs", "#[test]\nfn one() {}\n")
+        for mode in ([], ["--fix"]):
+            with self.subTest(mode=mode):
+                self.rustfmt_log.unlink(missing_ok=True)
+                result = self.run_check("--it-tests-only", *mode)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                calls = [line.split() for line in self.rustfmt_log.read_text().splitlines()]
+                self.assertEqual(len(calls), 2)
+                for call, (name, edition) in zip(calls, (("a", "2024"), ("b", "2021"))):
+                    expected = ([] if mode else ["--check"]) + ["--edition", edition]
+                    self.assertEqual(call[:-1], expected)
+                    self.assertEqual(Path(call[-1]), self.repo / f"cmux-tui/crates/{name}/tests/one.rs")
 
 
 if __name__ == "__main__":

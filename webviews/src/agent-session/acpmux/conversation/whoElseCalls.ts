@@ -51,7 +51,7 @@ export type WhoElseCall = {
   answer?: WhoElseAnswer;
 };
 
-const TOOL_NAME = /^(?:acpmux[_.]|acpmux__)?who_?else$/i;
+const TOOL_NAME = /^(?:acpmux[_.]|acpmux__|cmux-agent[_.]|cmux-agent__)?who_?else$/i;
 const CLI =
   /(?:^|(?:&&|\|\||;)\s*)(?:\w+=\S+\s+)*(?:\S+\/)?acpmux(?:-debug-cli)?\s+(?:--json\s+)?(?:who-?else|overlap)(?:\s|$)/i;
 

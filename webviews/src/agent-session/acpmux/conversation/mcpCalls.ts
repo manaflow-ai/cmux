@@ -33,6 +33,15 @@ export type McpCall = {
 /// Claude Code's MCP tool name: `mcp__<server>__<tool>`.
 const CLAUDE_NAME = /^mcp__(.+?)__(.+)$/;
 
+/// cmux's agent server is `cmux-agent`, `acpmux` before the rename (acpmux `acpmux_mcp_names.rs`);
+/// a transcript may say either, so every matcher reads one name: `acpmux`.
+const AGENT_SERVER_NAMES = new Set(["cmux-agent", "acpmux"]);
+
+/// The server name matchers compare: `acpmux` for cmux's agent server under either name.
+export function canonicalServer(server: string): string {
+  return AGENT_SERVER_NAMES.has(server) ? "acpmux" : server;
+}
+
 /// The MCP server and tool a call ran, or nil for any other call. Claude Code names the call
 /// `mcp__<server>__<tool>` with the arguments as its input; Codex nests them under
 /// `{server, tool, arguments}`.
@@ -65,7 +74,12 @@ const mcpCalls = new WeakMap<Tool, KeptCall>();
 function readMcpCall(tool: Tool): McpCall | undefined {
   const name = CLAUDE_NAME.exec(tool.title.trim());
   if (name)
-    return { server: name[1]!, tool: name[2]!, args: parseJSON(tool.inputSummary), description: tool.description };
+    return {
+      server: canonicalServer(name[1]!),
+      tool: name[2]!,
+      args: parseJSON(tool.inputSummary),
+      description: tool.description,
+    };
   const input = parseJSON(tool.inputSummary);
   if (
     isRecord(input) &&
@@ -74,11 +88,17 @@ function readMcpCall(tool: Tool): McpCall | undefined {
     "arguments" in input &&
     !tool.command
   )
-    return { server: input.server, tool: input.tool, args: input.arguments, description: tool.description };
+    return {
+      server: canonicalServer(input.server),
+      tool: input.tool,
+      args: input.arguments,
+      description: tool.description,
+    };
   // Older adopted Codex calls kept just the arguments and named the pair in their title.
   if (tool.kind === "other" && !tool.provenance && isRecord(input)) {
     const legacy = /^([\w.-]+): ([\w.-]+)$/.exec(tool.title);
-    if (legacy) return { server: legacy[1]!, tool: legacy[2]!, args: input, description: tool.description };
+    if (legacy)
+      return { server: canonicalServer(legacy[1]!), tool: legacy[2]!, args: input, description: tool.description };
   }
   return undefined;
 }

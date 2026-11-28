@@ -3121,6 +3121,19 @@ title = "cmux_next_ daemon tests of acpmux"
 about = "the cmux_next_ tests of acpmux (the post-merge gate's targets for that member) pass on the pull request"
 needs = ["rust", "zig"]
 inputs = [
+  "cmux-tui/crates/acpmux/src/agent/command/*",
+  "cmux-tui/crates/acpmux/src/claude_token/store/*",
+  "cmux-tui/crates/acpmux/src/daemon/handoff/*",
+  "cmux-tui/crates/acpmux/src/subscription_store/*",
+  "cmux-tui/crates/acpmux/src/subscriptions/*",
+  "cmux-tui/crates/acpmux/src/subscriptions/openrouter/*",
+  "cmux-tui/crates/acpmux/src/vault/store/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-long/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-long/events/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-short/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-short/events/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/plain/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/plain/events/*",
   "cmux-tui/Cargo.toml",
   "cmux-tui/Cargo.lock",
   "cmux-tui/rust-toolchain.toml",
@@ -3469,6 +3482,7 @@ title = "cmux_next_ daemon tests of cmux-tui"
 about = "the cmux_next_ tests of cmux-tui (the post-merge gate's targets for that member) pass on the pull request"
 needs = ["rust", "zig"]
 inputs = [
+  "cmux-tui/crates/cmux-tui/src/localization/app_control/*",
   "cmux-tui/Cargo.toml",
   "cmux-tui/Cargo.lock",
   "cmux-tui/rust-toolchain.toml",

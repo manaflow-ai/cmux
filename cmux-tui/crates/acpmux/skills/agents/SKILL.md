@@ -23,7 +23,7 @@ When set, `@` names your own session (`cmux agent last @`, `cmux agent history @
 Sessions you start are siblings, not children: they outlive you.
 
 To message another session from a chat, use the `send` tool
-(`mcp__acpmux__send`, `mcp__cmux__acpmux_send` when cmux lists every tool, or
+(`mcp__cmux-agent__send`, `mcp__cmux__acpmux_send` when cmux lists every tool, or
 `cmux.acpmux_send` in a cmux_exec script), not
 `cmux agent send` in Bash ("Messages between agents" below). For the rest, run
 the `cmux agent` CLI. Use `acpmux` directly for engine maintenance, daemon startup,
@@ -176,7 +176,7 @@ A `--no-wait` or agent send exits 0 once handed off and prints `sent queued|held
 ### Messages between agents
 
 In a chat with acpmux's MCP tools, message with the `send` tool
-(`mcp__acpmux__send`; `mcp__cmux__acpmux_send` when cmux lists every tool;
+(`mcp__cmux-agent__send`; `mcp__cmux__acpmux_send` when cmux lists every tool;
 `cmux.acpmux_send` in a cmux_exec script), not
 `cmux agent send` in Bash: one call, or `messages` for several, with `file`,
 `attach`, `class`, `pr`, `notice` and `supersede`, through the same outbox as
@@ -203,7 +203,7 @@ the person's prompt. What the receiver gets depends on who you are to it:
   sends as its lead's session, named `LEAD's TYPE subagent ID`, and so do its
   `cmux agent run` and `cmux agent new` with a prompt. The reply to its own `run` or
   `send --wait` reaches only it: the lead gets no lane report of that turn.
-  Its calls through the MCP tools (`mcp__acpmux__send`, `bg_start`, and cmux's
+  Its calls through the MCP tools (`mcp__cmux-agent__send`, `bg_start`, and cmux's
   `acpmux_send`, `acpmux_bg_start`, `cmux_exec`) name it the same way. The
   report of a turn it asked for without waiting comes to it only after its
   next Bash command or one of those MCP calls: a subagent that makes no such

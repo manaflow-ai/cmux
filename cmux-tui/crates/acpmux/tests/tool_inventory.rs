@@ -18,7 +18,9 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// Exercise the full inventory explicitly: forum tools otherwise depend on team or forum state.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().with_env(&[("ACPMUX_FORUM_TOOLS", "1")]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -57,7 +59,8 @@ fn hub(control_log: &Path) -> Arc<Hub> {
             "fake": {"argv": ["python3", FAKE]},
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                            "env": {"FAKE_CLAUDE_INIT": claude_init().to_string(),
-                                   "FAKE_CLAUDE_CONTROL_LOG": control_log}},
+                                   "FAKE_CLAUDE_CONTROL_LOG": control_log,
+                                   "CLAUDE_CONFIG_DIR": control_log.parent().unwrap().join("claude")}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -260,7 +263,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         row("mcp:cmux-sessions", "cmux", "cmux", true, false),
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux-forum", "cmux", "cmux", true, false),
-        row("mcp:acpmux", "cmux", "cmux", true, false),
+        row("mcp:cmux-agent", "cmux", "cmux", true, false),
         // A gateway-served server now (tools_mcp::SERVERS), so it lists like the others.
         row("mcp:cmux-hosted", "cmux", "cmux", true, false),
         row("mcp:cmux", "cmux", "cmux", true, false),
@@ -335,7 +338,14 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     // (cmux's own server and skill and plugin once, the user's after them).
     // linear is off in the user's own Claude config: cmux cannot turn it on.
     let claude = local.new_session("fakeclaude").await;
-    assert!(!argv(&local.ask(&claude, "hi").await).contains(&"--disallowedTools".to_owned()));
+    let initial_args = argv(&local.ask(&claude, "hi").await);
+    assert!(!initial_args.contains(&"--disallowedTools".to_owned()));
+    let session_flag = initial_args.iter().position(|arg| arg == "--session-id").unwrap();
+    let conversation_id = &initial_args[session_flag + 1];
+    let assert_resumed = |args: &[String]| {
+        let resume = args.iter().position(|arg| arg == "--resume").expect("the chat resumes");
+        assert_eq!(&args[resume + 1], conversation_id, "the same conversation resumes: {args:?}");
+    };
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert_eq!(info["toolsMutable"], json!(true), "{info}");
     assert_eq!(
@@ -345,7 +355,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("mcp:cmux-sessions", "cmux", "cmux", true, true),
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux-forum", "cmux", "cmux", true, true),
-            row("mcp:acpmux", "cmux", "cmux", true, true),
+            row("mcp:cmux-agent", "cmux", "cmux", true, true),
             row("mcp:cmux-hosted", "cmux", "cmux", true, true),
             row("mcp:cmux", "cmux", "cmux", true, true),
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
@@ -397,7 +407,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:github").3 {}
     let args = argv(&local.ask(&claude, "hi").await);
     assert_eq!(disallowed(&args), ["mcp__github"], "{args:?}");
-    assert!(args.contains(&"--resume".to_owned()), "the chat resumes: {args:?}");
+    assert_resumed(&args);
     // The new process's init reports github connected: the chat's choice stays.
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert!(!tool(&info["tools"], "mcp:github").3, "{info}");
@@ -414,6 +424,32 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         list.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect()
     };
     assert!(upstreams(&args).contains(&"cmux-computer-use".to_owned()), "{args:?}");
+    // A client with the old row name can turn it off; the new row can turn it back on.
+    for (id, enabled) in [
+        ("mcp:acpmux", false),
+        ("mcp:cmux-agent", true),
+        ("mcp:cmux-agent", false),
+        ("mcp:acpmux", true),
+    ] {
+        let set = local
+            .call(
+                "_acpmux/set_tools",
+                json!({
+                    "sessionId": claude, "id": id, "enabled": enabled,
+                }),
+            )
+            .await
+            .unwrap();
+        let agent =
+            set["tools"].as_array().unwrap().iter().find(|r| r["id"] == "mcp:cmux-agent").unwrap();
+        assert_eq!(agent["enabled"], enabled, "{set}");
+        let args = argv(&local.ask(&claude, "hi").await);
+        assert_eq!(upstreams(&args).contains(&"cmux-agent".to_owned()), enabled, "{args:?}");
+        let denied = disallowed(&args);
+        assert_eq!(denied.iter().any(|arg| arg == "mcp__cmux-agent"), !enabled, "{args:?}");
+        assert!(!denied.iter().any(|arg| arg == "mcp__acpmux"), "{args:?}");
+    }
+
     for enabled in [false, true] {
         let set = local
             .call(
@@ -477,6 +513,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     // Both choices survive a respawn.
     local.call("session/close", json!({"sessionId": claude})).await.expect("close");
     let args = argv(&local.ask(&claude, "hi").await);
+    assert_resumed(&args);
     assert_eq!(disallowed(&args), ["mcp__cmux", "mcp__github"], "{args:?}");
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert!(!tool(&info["tools"], "mcp:cmux").3 && !tool(&info["tools"], "mcp:github").3);

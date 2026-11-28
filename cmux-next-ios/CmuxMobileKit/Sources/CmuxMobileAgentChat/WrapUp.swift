@@ -52,7 +52,9 @@ extension NextStepAsk {
     static func isWrapUp(_ call: ACPToolCall) -> Bool {
         guard call.command == nil else { return false }
         if let mcp = mcpCall(call) {
-            return (mcp.server == "acpmux" && mcp.tool == wrapUpTag) || (mcp.server == "cmux" && mcp.tool == foldedWrapUp)
+            // cmux's agent server is `cmux-agent`, `acpmux` before the rename.
+            return (["cmux-agent", "acpmux"].contains(mcp.server) && mcp.tool == wrapUpTag)
+                || (mcp.server == "cmux" && mcp.tool == foldedWrapUp)
         }
         let title = call.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let bareWrapUp else { return false }

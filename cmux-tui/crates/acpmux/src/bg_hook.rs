@@ -1,18 +1,18 @@
 //! `__bg-hook`: Claude Code's PreToolUse hook for `Bash` in the session plugin
 //! (`agent_tools.rs`). Leo, 2026-10-27: "also when it comes to hibernation...can't you hibernate
 //! the agent but not hibernate the bg tasks?" A `run_in_background` shell ends when the agent
-//! hibernates (Claude Code's exit cleanup), so when the chat has the `acpmux` server's
+//! hibernates (Claude Code's exit cleanup), so when the chat has the `cmux-agent` server's
 //! `bg_start` (`acpmux_mcp_bg.rs`), the hook rewrites such a call into this binary's
 //! `process start` with the same command ([`decide`]), which starts it under the daemon, where it
 //! outlives the agent, and answers at once with its id. (It used to turn the call away with the
 //! `bg_start` call to make instead, which cost the agent a turn each time.)
 //!
 //! It never strands the agent: when the chat's MCP config (`agent_tools::mcp_config_path`) has
-//! no `acpmux` server, plain or behind the `cmux` server's code mode, or anything cannot be read,
-//! it says nothing and Claude Code runs the shell as asked. A configured server may still be
-//! unusable (it failed to start), so it turns a command away only once: the same call again
-//! runs as asked, and the deny says so. The commands turned away and not yet repeated are kept
-//! beside the config (`<config>.bg-denied`, one hash a line, the newest [`PENDING`], under a
+//! no `cmux-agent` server (`acpmux` before the rename), plain or behind the `cmux` server's code
+//! mode, or anything cannot be read, it says nothing and Claude Code runs the shell as asked. A
+//! configured server may still be unusable (it failed to start), so it turns a command away only
+//! once: the same call again runs as asked, and the deny says so. The commands turned away and
+//! not yet repeated are kept beside the config (`<config>.bg-denied`, one hash a line, the newest [`PENDING`], under a
 //! lock so parallel calls never lose one), one file per chat, removed with the config.
 //!
 //! With [`SLOW_SETTING`] on (off by default), it also moves a known-slow command run in the
@@ -47,8 +47,11 @@ pub(crate) const HOME_ENV: &str = "ACPMUX_CLAUDE_TOOL_HOOK_HOME";
 /// How the chat reaches `bg_start`, from its Claude Code MCP config.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
-    /// `mcp__acpmux__bg_start`: the server stands on its own.
+    /// `mcp__cmux-agent__bg_start`: the server stands on its own.
     Direct,
+    /// `mcp__acpmux__bg_start`: on its own under its name before the rename, which a person's
+    /// own config entry left it (`AgentTools::server_named`).
+    DirectLegacy,
     /// `mcp__cmux__acpmux_bg_start`: folded behind `cmux`, which lists every tool
     /// (`--all-tools`) or the ones a preset allows ([`crate::agent_tools::MCP_TOOLS_ENV`]).
     Listed,
@@ -64,11 +67,14 @@ pub fn route(config: &Value) -> Option<Route> {
     if servers.get(crate::acpmux_mcp_names::SERVER_NAME).is_some() {
         return Some(Route::Direct);
     }
+    if crate::acpmux_mcp_names::LEGACY_SERVER_NAMES.iter().any(|n| servers.get(n).is_some()) {
+        return Some(Route::DirectLegacy);
+    }
     let cmux = servers.get("cmux")?;
     let env = |k: &str| cmux.pointer("/env")?.get(k)?.as_str();
     let upstreams: Value = serde_json::from_str(env(crate::agent_tools::UPSTREAMS_ENV)?).ok()?;
     let folded = upstreams.as_array()?.iter().any(|s| {
-        s.get("name").and_then(Value::as_str) == Some(crate::acpmux_mcp_names::SERVER_NAME)
+        s.get("name").and_then(Value::as_str).is_some_and(crate::acpmux_mcp_names::is_server_name)
     });
     if !folded {
         return None;
@@ -282,6 +288,7 @@ pub struct TaskCli {
 pub fn route_word(route: &Route) -> &'static str {
     match route {
         Route::Direct => "direct",
+        Route::DirectLegacy => "direct-acpmux",
         Route::Listed => "listed",
         Route::CodeMode => "code-mode",
     }
@@ -290,6 +297,7 @@ pub fn route_word(route: &Route) -> &'static str {
 pub fn route_of_word(word: &str) -> Option<Route> {
     match word {
         "direct" => Some(Route::Direct),
+        "direct-acpmux" => Some(Route::DirectLegacy),
         "listed" => Some(Route::Listed),
         "code-mode" => Some(Route::CodeMode),
         _ => None,
@@ -300,7 +308,10 @@ pub fn route_of_word(word: &str) -> Option<Route> {
 pub fn read_call(route: Option<&Route>, id: &str) -> String {
     let args = json!({"id": id});
     match route {
-        Some(Route::Direct) => format!("mcp__acpmux__bg_output {args}"),
+        Some(Route::Direct) => {
+            format!("mcp__{}__bg_output {args}", crate::acpmux_mcp_names::SERVER_NAME)
+        }
+        Some(Route::DirectLegacy) => format!("mcp__acpmux__bg_output {args}"),
         Some(Route::Listed) => format!("mcp__cmux__acpmux_bg_output {args}"),
         Some(Route::CodeMode) => {
             format!("cmux_exec with: return await cmux.acpmux_bg_output({args});")
@@ -592,6 +603,8 @@ pub fn subagent_stopped(home: &std::path::Path, session: &str, input: &Value) {
 /// `cmux.acpmux_bg_start` in a `cmux_exec` script, so its lane reports went to its lead (W5-M,
 /// 2026-11-08).
 pub const MCP_CALLS: &[&str] = &[
+    "mcp__cmux-agent__bg_start",
+    "mcp__cmux-agent__send",
     "mcp__acpmux__bg_start",
     "mcp__acpmux__send",
     "mcp__cmux__acpmux_bg_start",
