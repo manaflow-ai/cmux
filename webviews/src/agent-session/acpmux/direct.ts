@@ -516,6 +516,7 @@ export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): 
     bytes += value.byteLength;
     if (bytes > MAX_INFLATED_BYTES) {
       void reader.cancel();
+      // l10n-allow: an internal protocol error, not shown
       throw new Error("compressed frame too large");
     }
     text += decoder.decode(value, { stream: true });
@@ -3475,12 +3476,16 @@ export class AcpmuxDirectClient {
   /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
   /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
   /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
-  private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
+  private rememberCurrentTail(
+    forThisPage = true,
+    toHost = true,
+    hostAfterPaint = false,
+  ): { sessionId: string; tail: KeptTail } | undefined {
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
     // A chat on the store keeps its window instead (rows/chatSource.ts): one kept thing a chat.
     if (!sessionId || !tail || this.chatRows.holds(sessionId)) return undefined;
-    rememberTail(sessionId, tail, forThisPage, toHost);
+    rememberTail(sessionId, tail, forThisPage, toHost, hostAfterPaint);
     if (forThisPage) {
       this.leftRows.delete(sessionId);
       this.leftRows.set(sessionId, new Map(this.rows));
@@ -5920,42 +5925,45 @@ export class AcpmuxDirectClient {
 
   /// Subagent `subagent`'s own records of the selected chat, oldest first (acpmux `_acpmux/events
   /// {subagent}`): what a subagent's pane draws when the chat's loaded page no longer holds that
-  /// subagent (subagents/subagentOwnLog.ts). At most `SUBAGENT_LOG_PAGES` pages from its start; a
-  /// longer log adds its newest page, which holds its end and last reply, so the fold never reads a
-  /// finished subagent as running.
-  async readSubagentLog(subagent: string): Promise<EventRecord[]> {
+  /// subagent (subagents/subagentOwnLog.ts). Its newest page first: a subagent whose records fit one
+  /// page (most) is read in one ask, and a longer one hands that page to `onNewest` to draw while
+  /// at most `SUBAGENT_LOG_PAGES` pages from its start are read, so the pane holds its end and last
+  /// reply from its first frame and the fold never reads a finished subagent as running. It read
+  /// up to eight pages from its start before drawing anything (Leo, 2026-11-27: "these take way
+  /// too long to load i feel like.. regardless these needs to be faster").
+  async readSubagentLog(subagent: string, onNewest?: (records: EventRecord[]) => void): Promise<EventRecord[]> {
     const sessionId = this.selectedSessionId;
     // l10n-allow: internal selection race; the subagent pane renders its own localized state.
     if (!sessionId) throw new Error("No chat");
-    const found: EventRecord[] = [];
-    let after = 0;
-    for (let page = 0; page < SUBAGENT_LOG_PAGES; page += 1) {
-      const result = await this.typed("_acpmux/events", {
+    const page = (from: { afterSeq: number } | { beforeSeq: number }) =>
+      this.typed("_acpmux/events", {
         sessionId,
         subagent,
-        afterSeq: after,
+        ...from,
         limit: KEPT_EVENTS,
         maxBytes: OLDER_PAGE_BYTES,
         kinds: ["transcript"],
       });
-      // l10n-allow: internal selection race; the subagent pane renders its own localized state.
-      if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
-      const events = records(result?.events);
-      found.push(...events);
-      if (result?.hasMore !== true || events.length === 0) return found;
-      after = Math.max(...events.map((event) => event.seq));
-    }
-    const newest = await this.typed("_acpmux/events", {
-      sessionId,
-      subagent,
-      beforeSeq: Number.MAX_SAFE_INTEGER,
-      limit: KEPT_EVENTS,
-      maxBytes: OLDER_PAGE_BYTES,
-      kinds: ["transcript"],
-    });
+    const newestResult = await page({ beforeSeq: Number.MAX_SAFE_INTEGER });
     // l10n-allow: internal selection race; the subagent pane renders its own localized state.
     if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
-    return [...found, ...records(newest?.events).filter((event) => event.seq > after)];
+    const newest = records(newestResult?.events);
+    if (newestResult?.hasMore !== true || newest.length === 0) return newest;
+    onNewest?.(newest);
+    const newestStart = Math.min(...newest.map((event) => event.seq));
+    const found: EventRecord[] = [];
+    let after = 0;
+    for (let n = 0; n < SUBAGENT_LOG_PAGES; n += 1) {
+      const result = await page({ afterSeq: after });
+      // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+      if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+      const events = records(result?.events).filter((event) => event.seq < newestStart);
+      found.push(...events);
+      if (result?.hasMore !== true || events.length === 0) break;
+      after = Math.max(...events.map((event) => event.seq));
+      if (after >= newestStart - 1) break;
+    }
+    return [...found, ...newest];
   }
 
   /// Every running subagent of the selected chat and its latest ended ones, from acpmux's subagent
@@ -15122,8 +15130,9 @@ export class AcpmuxDirectClient {
     // Refresh the loaded transcript, not its bounded 400-record cache. Capture before changing
     // the selection generation or resetting events so older visible replies survive a slow attach.
     const fullRefreshTail = onScreen && previousSessionId === sessionId ? this.currentTail(true) : undefined;
-    // The chat being left is kept for its own next open, while it is still the selected one.
-    this.rememberCurrentTail();
+    // The chat being left is kept for its own next open, while it is still the selected one. The
+    // host's copy goes after the switch's frame paints (tailCache.ts `writeHostTailSoon`).
+    this.rememberCurrentTail(true, true, previousSessionId !== sessionId);
     // The tail of a chat that left the list while drawn (`selectFallbackSession`), taken once.
     const leftTail = this.leftTail?.sessionId === sessionId ? this.leftTail.tail : undefined;
     this.leftTail = undefined;
@@ -16931,6 +16940,7 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     // l10n-allow: a developer error; the caller shows notice.forkFailed.
     if (!this.canFork || !sessionId || this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) !== true)
+      // l10n-allow: an internal protocol error, not shown
       throw new Error("acpmux cannot fork a subagent");
     // l10n-allow: as above.
     if (this.forking) throw new Error("a fork is already running");
@@ -17070,21 +17080,6 @@ export class AcpmuxDirectClient {
   async contextInventory(sessionId = this.actingSessionId): Promise<unknown> {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     return this.request("_acpmux/context", { sessionId });
-  }
-  /// The instructions and memory files that follow the person to this machine, and the notes other
-  /// machines propose to add (`_acpmux/agent_home`): Session Info's Carried memory.
-  async agentHome(sessionId = this.actingSessionId): Promise<unknown> {
-    if (!sessionId) throw new Error(translate("error.notOpen"));
-    return this.request("_acpmux/agent_home", { sessionId });
-  }
-  /// Accepts or drops proposals by id (`_acpmux/agent_home_resolve`). Sent on the click with no await
-  /// before it: acpmux takes it only from the person, like `_acpmux/memory_resolve`.
-  async resolveAgentHome(
-    change: { accept: string[]; drop: string[] },
-    sessionId = this.actingSessionId,
-  ): Promise<unknown> {
-    if (!sessionId) throw new Error(translate("error.notOpen"));
-    return this.request("_acpmux/agent_home_resolve", { sessionId, accept: change.accept, drop: change.drop });
   }
   /// Saves (or with `text: null` removes) the guidance new chats get, for every chat (`user`) or
   /// this folder's (`project`), and answers with the inventory after it (`_acpmux/context_override`).
