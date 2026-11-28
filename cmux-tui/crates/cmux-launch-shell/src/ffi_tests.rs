@@ -191,6 +191,8 @@ fn a_record_of_another_session_plans_no_stage_zero_window() {
     // Another session restores it: no picture to draw, and Stage 0 never draws the plain shell
     // (#62017, Leo: "stop putting the opaque thing from the start"), so it makes no window.
     let (_, p) = plan_in(&support);
+    // #62017: stage 0 never opens a window for the plain shell (no opaque
+    // cover); the reason and default frame still say why.
     assert_eq!(
         (p.reason, p.shows_window, p.uses_default_frame, p.shows_bare),
         (11, false, true, false)
