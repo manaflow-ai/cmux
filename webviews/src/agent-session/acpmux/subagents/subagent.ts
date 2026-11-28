@@ -1,6 +1,7 @@
 // A subagent as the pane models it and the kind of its transcript row: a leaf apart from
 // subagentFold.ts (the fold, which reads direct.ts), so model.ts names a subagent without loading it.
 import type { AcpmuxBackgroundReaction } from "../model";
+import type { CapacityWaitState } from "../capacityWait";
 import type { RetryState } from "./retryState";
 import type { WorkflowAgent, WorkflowPhase } from "./workflowAgents";
 
@@ -93,6 +94,9 @@ export type Subagent = {
   /// acpmux's retry while one waits, whether acpmux can retry it, and the retry it gave up on
   /// (retryState.ts).
   retry?: RetryState;
+  /// acpmux is holding this helper for a recoverable capacity/rate-limit outage. While present,
+  /// the failed state is diagnostic only and the group draws one calm paused row.
+  capacityWait?: CapacityWaitState;
   retryable?: boolean;
   retriedOut?: RetryState;
   /// acpmux can start this stopped (or lost) subagent again from its transcript and brief, the

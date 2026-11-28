@@ -203,7 +203,7 @@ function DoneLine({
         ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
       ];
   // Why it failed, as acpmux recorded it, last: the line cuts it first.
-  const parts = [...head, ...(error && !waiting ? [error] : [])];
+  const parts = [...head, ...(error && !waiting && !agent.capacityWait ? [error] : [])];
   const [before, after = ""] = t(labelKey, { name: "\u0000" }).split("\u0000");
   // The duration is the trailing column's, never part of the sentence; the tooltip and the
   // button's name still read the whole line with it.
@@ -213,7 +213,7 @@ function DoneLine({
   // A failed line in the quiet looks (Leo, 2026-11-03: "this ui is pretty awkward looking"): its
   // title in plain text, its reason after it in red and a red dot on its mark (cmux#54927); the
   // grid arm also lines its columns up from row to row: mark | title, reason | Retry | time.
-  const failed = agent.state === "failed" && !waiting;
+  const failed = agent.state === "failed" && !waiting && !agent.capacityWait;
   const report = waiting ? undefined : doneReport(agent);
   const localReport = !open && compact && report !== undefined;
   const disclose = report !== undefined && reportLook === "disclosure";

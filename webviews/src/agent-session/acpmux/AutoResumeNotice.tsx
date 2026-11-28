@@ -9,9 +9,19 @@ import { retryLabel } from "./subagents/retryState";
 /// retry usually runs under it, and the person can do nothing about the wait). A turn it already
 /// resumed shows nothing; the reply says so itself. The slot's line lies over the transcript's foot
 /// (noticeSlotModel.ts `DOCK_NOTICE`), so showing it moves no row.
-export function AutoResumeNotice({ state }: { state: AutoResumeStatus | undefined }) {
+export function AutoResumeNotice({
+  state,
+  capacityInTranscript = false,
+}: {
+  state: AutoResumeStatus | undefined;
+  capacityInTranscript?: boolean;
+}) {
   const t = useT();
-  const retry = state?.retry;
+  const ownRetry = state?.retry;
+  const retry =
+    capacityInTranscript && (ownRetry?.reason === "capacity" || ownRetry?.reason === "rate_limit")
+      ? undefined
+      : ownRetry;
   const lasting = useConnectionQuiet(Boolean(retry));
   return (
     <Notice id="auto-resume" tier="status" when={lasting && retry}>

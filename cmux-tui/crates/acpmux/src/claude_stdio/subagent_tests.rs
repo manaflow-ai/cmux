@@ -212,7 +212,9 @@ async fn a_cancelled_subagents_late_line_stays_its_own() {
     .await;
     t.inbound(&spawn_line("toolu_1", None)).await;
     t.outbound(&Message::notification(method::SESSION_CANCEL, json!({}))).await;
+    t.inbound(&helper_api_error(Some("toolu_1"), "API Error: 429 rate_limit_error")).await;
     t.inbound(&json!({"type": "result", "subtype": "error_during_execution", "is_error": true, "result": null})).await;
+    assert!(t.subagent_api_errors.lock().await.is_empty());
     // A line it writes after the stopped turn ended it is still its own.
     for line in late_lines("toolu_1") {
         let out = updates(&t.inbound(&line).await);
@@ -269,6 +271,124 @@ async fn a_subagents_whole_assistant_lines_carry_its_text_and_thinking() {
 fn failed_503(task: &str, tool: &str) -> Value {
     json!({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool, "status": "failed",
            "output_file": "", "summary": "Agent terminated early due to an API error: API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary. (error type server_error, HTTP 503, model sent to the API: claude-opus-5-5)"})
+}
+
+fn helper_api_error(tool: Option<&str>, error: &str) -> Value {
+    json!({"type":"assistant", "parent_tool_use_id":tool, "is_api_error_message":true,
+        "message":{"model":"<synthetic>", "content":[{"type":"text", "text":error}]}})
+}
+
+/// A helper's own synthetic 429 followed by Claude's generic task end keeps the cause that
+/// makes it resumable. Neither another helper's error nor the main turn's error can do so.
+#[tokio::test]
+async fn twelve_subagent_429s_survive_generic_terminated_notifications() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let error = "API Error: 429 no non-exhausted claude accounts available; retry after 60s";
+    for i in 0..12 {
+        let tool = format!("toolu_{i}");
+        t.inbound(&background_spawn_line(&tool)).await;
+        t.inbound(&helper_api_error(Some(&tool), error)).await;
+    }
+    assert_eq!(t.subagent_api_errors.lock().await.len(), 12);
+    for i in 0..12 {
+        let mut failed = failed_503(&format!("a{i}"), &format!("toolu_{i}"));
+        failed["summary"] = json!("Agent terminated");
+        let out = updates(&t.inbound(&failed).await);
+        let end =
+            &out.iter().find(|(_, u)| u["sessionUpdate"] == "subagent_state_update").unwrap().1;
+        assert_eq!(end["error"], error);
+        assert_eq!(end["agentId"], format!("a{i}"));
+        assert_eq!(crate::turn_errors::resume_cause(error, error), Some("capacity"));
+    }
+    assert!(t.subagent_api_errors.lock().await.is_empty());
+    t.inbound(&background_spawn_line("toolu_sibling")).await;
+    t.inbound(&helper_api_error(Some("toolu_sibling"), error)).await;
+    t.inbound(&background_spawn_line("toolu_other")).await;
+    t.inbound(&helper_api_error(None, error)).await;
+    let mut failed = failed_503("other", "toolu_other");
+    failed["summary"] = json!("Agent terminated");
+    let out = updates(&t.inbound(&failed).await);
+    let end = &out.iter().find(|(_, u)| u["sessionUpdate"] == "subagent_state_update").unwrap().1;
+    assert_eq!(end["error"], "Agent terminated");
+    t.inbound(&helper_api_error(Some("unknown-tool"), error)).await;
+    assert_eq!(t.subagent_api_errors.lock().await.len(), 1, "only the active sibling is retained");
+}
+
+#[tokio::test]
+async fn subagent_api_errors_clear_on_real_errors_replies_success_and_resume() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let error = "API Error: 429 no non-exhausted claude accounts available; retry after 60s";
+    for (status, summary) in [
+        ("failed", "API Error: 401 authentication failed"),
+        ("failed", "Permission denied by the user"),
+        ("completed", "done"),
+        ("stopped", "stopped"),
+    ] {
+        t.inbound(&background_spawn_line("toolu_clear")).await;
+        t.inbound(&helper_api_error(Some("toolu_clear"), error)).await;
+        let mut end = failed_503("clear", "toolu_clear");
+        end["status"] = json!(status);
+        end["summary"] = json!(summary);
+        let out = updates(&t.inbound(&end).await);
+        let end =
+            &out.iter().find(|(_, u)| u["sessionUpdate"] == "subagent_state_update").unwrap().1;
+        if status == "failed" {
+            assert_eq!(end["error"], summary, "a new real error wins");
+        }
+        assert!(t.subagent_api_errors.lock().await.is_empty());
+    }
+    t.inbound(&background_spawn_line("toolu_reply")).await;
+    t.inbound(&helper_api_error(Some("toolu_reply"), error)).await;
+    t.inbound(&json!({"type":"assistant", "parent_tool_use_id":"toolu_reply",
+        "message":{"content":[{"type":"text", "text":"recovered"}]}}))
+        .await;
+    assert!(t.subagent_api_errors.lock().await.is_empty());
+    t.inbound(&helper_api_error(Some("toolu_reply"), error)).await;
+    let mut end = failed_503("reply", "toolu_reply");
+    end["summary"] = json!("Agent terminated");
+    t.inbound(&end).await;
+    t.inbound(&json!({"type":"system", "subtype":"task_started", "task_id":"reply",
+        "tool_use_id":"toolu_send", "is_backgrounded":true}))
+        .await;
+    let out = updates(&t.inbound(&end).await);
+    let end = &out.iter().find(|(_, u)| u["sessionUpdate"] == "subagent_state_update").unwrap().1;
+    assert_eq!(
+        end["error"], "Agent terminated",
+        "the resumed attempt cannot inherit the old cause"
+    );
+    assert!(t.subagent_api_errors.lock().await.is_empty());
+}
+
+/// On resume, assistant lines retain the Agent parent, while task notifications name the
+/// SendMessage call. Both attempts must retain their own cause on the same helper.
+#[tokio::test]
+async fn resumed_subagent_429_survives_a_generic_send_message_task_end() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&background_spawn_line("toolu_original")).await;
+    for (attempt, error) in [
+        "API Error: 429 no non-exhausted claude accounts available; retry after 60s",
+        "API Error: 429 rate_limit_error; Retry-After: 120",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let task_tool = if attempt == 0 { "toolu_original" } else { "toolu_send" };
+        if attempt > 0 {
+            t.inbound(&json!({"type":"system", "subtype":"task_started", "task_id":"same-agent",
+                "tool_use_id":task_tool, "is_backgrounded":true}))
+                .await;
+        }
+        t.inbound(&helper_api_error(Some("toolu_original"), error)).await;
+        let mut failed = failed_503("same-agent", task_tool);
+        failed["summary"] = json!("Agent terminated");
+        let out = updates(&t.inbound(&failed).await);
+        let end =
+            &out.iter().find(|(_, u)| u["sessionUpdate"] == "subagent_state_update").unwrap().1;
+        assert_eq!(end["subagentSessionId"], "acp-1/toolu_original");
+        assert_eq!(end["agentId"], "same-agent");
+        assert_eq!(end["error"], error);
+        assert!(t.subagent_api_errors.lock().await.is_empty());
+    }
 }
 
 /// Leo, 2026-10-26: "this needs to retry :(". A failed subagent's end says why and names the
