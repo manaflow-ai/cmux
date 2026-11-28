@@ -44,7 +44,22 @@ const KNOWN_REFUSED: Record<string, string> = {
   // relay owners' call (inbox_threads reads a session's inbox; acpmux refuses it to agents).
   "_acpmux/browser_workspaces": "browser device workspace list; not in the relay tables yet",
   "_acpmux/inbox_threads": "a session's inbox threads; not in the relay tables yet",
+  // schemas/agent-pane/methods.json `refused_today`: each a live bug, listed with its call site there.
+  ...(
+    JSON.parse(readFileSync(join(root, "schemas/agent-pane/methods.json"), "utf8")) as {
+      refused_today: Record<string, string>;
+    }
+  ).refused_today,
 };
+
+/// The `_meta` keys the policy takes (params.rs `known_params_problem`): a permission answer's holds
+/// only the pick's ticket; any other request may carry `acpmux` and a W3C `traceparent` (#55505).
+const TICKET_ONLY = new Set(["_acpmux/permission_respond", "_acpmux/plan/build", "chat.fix_from_link"]);
+function metaKeyTaken(method: string, key: string): boolean {
+  if (key === gestureTicketKey) return true;
+  if (TICKET_ONLY.has(method)) return false;
+  return key === "acpmux" || key === "traceparent";
+}
 
 /// Sites whose params type the checker cannot read (`method what`), each with why it is allowed for
 /// now. Each is a follow-up: give the helper a closed params type and drop its row here.
@@ -225,8 +240,7 @@ test("every key the page sends a relay method is one the relay takes", () => {
       }
       for (const key of site.params) if (!rule.params.has(key)) refused.push(`${at}: param "${key}" not in ${table}`);
       for (const key of site.meta) {
-        const ticket = key === gestureTicketKey;
-        if (key !== "acpmux" && !ticket) refused.push(`${at}: _meta key "${key}" not taken by ${table}`);
+        if (!metaKeyTaken(site.method, key)) refused.push(`${at}: _meta key "${key}" not taken by ${table}`);
       }
       for (const key of site.acpmux)
         if (!rule.acpmux.has(key)) refused.push(`${at}: _meta.acpmux key "${key}" not in ${table}`);
