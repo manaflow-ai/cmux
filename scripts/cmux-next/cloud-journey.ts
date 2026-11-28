@@ -4203,6 +4203,9 @@ export function launchCredentialStartProgram(session: string, agent: string, nam
   const trace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? JSON.stringify(traceId) : "None";
   return `python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys, time, uuid
+t0 = time.monotonic()
+def mark(name):
+    print('@@mark ' + name + ' ' + str(int((time.monotonic() - t0) * 1000)), flush=True)
 params = json.loads(${JSON.stringify(params)})
 first = ${first}
 trace = ${trace}
@@ -4247,10 +4250,13 @@ while True:
             except (ConnectionRefusedError, FileNotFoundError) as e:
                 raise Retryable('connect: ' + str(e))
             f = s.makefile('r')
+            mark('connected')
             call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+            mark('initialized')
             try:
                 r = call(f, s, 2, 'session/new', params)
                 sid = (r or {}).get('sessionId')
+                mark('session_new')
             except RuntimeError as e:
                 # A start cut by acpmux's restart can have made the session before its answer was lost: the
                 # resend then finds its name taken. Only after such a cut is that name this start's own session.
@@ -4313,6 +4319,7 @@ if sid is not None:
                         text = 'session/prompt: ' + json.dumps(err)[:400]
                         raise (Retryable if ((err.get('data') or {}).get('retryable') is True) else RuntimeError)(text)
                     break
+            mark('prompt_accepted')
             print('@@prompted', flush=True)
             sys.exit(0)
         except Retryable as e:
@@ -4394,6 +4401,27 @@ export function guestTimed(command: string): string {
 export function guestMs(stdout: string): number | null {
   const m = /@@guest_ms (\d+)/.exec(stdout);
   return m ? Number(m[1]) : null;
+}
+
+/**
+ * The start program's own marks (`@@mark NAME MS`, ms since its python started): where the guest's start time goes,
+ * as start_<NAME> parts. The first of each name wins (a retried connect keeps its first time). Before these, the
+ * claude start read only as one harness_spawn of 12,797 ms (8,987 on the guest) in run 46099930567, with no split
+ * between acpmux's handshake, session/new (the harness spawn) and the prompt's accept.
+ */
+export function startMarks(stdout: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const m of stdout.matchAll(/^@@mark ([a-z_]+) (\d+)$/gm)) if (!(`start_${m[1]}` in out)) out[`start_${m[1]}`] = Number(m[2]);
+  return out;
+}
+
+/** Each start mark as a guest part, and a detail line naming them. */
+function recordStartMarks(timing: FirstTextTiming, stdout: string): string {
+  const marks = startMarks(stdout);
+  for (const [k, v] of Object.entries(marks)) timing.guest(k, v);
+  timing.guest("start_total", guestMs(stdout));
+  const parts = Object.entries(marks).map(([k, v]) => `${k.slice(6)} ${v}`);
+  return parts.length ? `; start marks ms ${parts.join(", ")}` : "";
 }
 
 /** "; on the guest N ms (the rest is the exec route)" for a step's detail, or "" with no time. */
@@ -7028,7 +7056,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
         }
         if (provider === "claude") {
           // The machine holds the person's login (a receipt spare or a copy) or reaches its model through the team's
@@ -7045,7 +7073,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
