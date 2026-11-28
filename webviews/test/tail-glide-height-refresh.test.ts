@@ -238,3 +238,77 @@ test("a pass with unchanged placement and DOM geometry preserves active animatio
     glide.stop();
   }
 });
+
+test("a reader-held glide keeps clearance when tracking stops", () => {
+  const { upper, lower, rows, glide, layout, thread } = started();
+  try {
+    glide.hold();
+    const held = rows.flatMap((node) => node.animations.filter(active));
+    for (const animation of held) animation.currentTime = 23;
+    glide.place(thread, false, undefined, false, undefined, undefined, layout);
+    const unchanged = rows.flatMap((node) => node.animations.filter(active));
+    expect(unchanged).toHaveLength(held.length);
+    for (let index = 0; index < held.length; index++) expect(unchanged[index]).toBe(held[index]);
+    for (const animation of held) expect(animation.currentTime).toBe(23);
+
+    (upper as { offsetHeight: number }).offsetHeight = 100;
+    glide.refresh(thread);
+    expect(drawnTop(upper) + upper.offsetHeight - clipBottom(upper)).toBeLessThanOrEqual(drawnTop(lower));
+    expect(
+      rows.flatMap((node) => node.animations.filter(active)).every((animation) => animation.playState === "paused"),
+    ).toBe(true);
+
+    (upper as { offsetHeight: number }).offsetHeight = 112;
+    (lower as { offsetTop: number }).offsetTop = 140;
+    glide.place(thread, false, undefined, false, undefined, undefined, {
+      ...layout,
+      topAt: (index) => (index === 2 ? 140 : layout.topAt(index)),
+    });
+    // Tracking is off: the new placement cannot add a movement delta to the held glide.
+    expect(drawnTop(lower)).toBe(80);
+    expect(drawnTop(upper) + upper.offsetHeight - clipBottom(upper)).toBeLessThanOrEqual(drawnTop(lower));
+    expect(
+      rows.flatMap((node) => node.animations.filter(active)).every((animation) => animation.playState === "paused"),
+    ).toBe(true);
+    // An internal refresh passes track=true but must not consume the resume baseline.
+    glide.refresh(thread);
+    glide.resume();
+    (lower as { offsetTop: number }).offsetTop = 160;
+    glide.place(thread, true, "anchor", true, undefined, undefined, {
+      ...layout,
+      topAt: (index) => (index === 2 ? 160 : layout.topAt(index)),
+    });
+    expect(drawnTop(lower)).toBe(100);
+    expect(
+      rows.flatMap((node) => node.animations.filter(active)).every((animation) => animation.playState === "running"),
+    ).toBe(true);
+  } finally {
+    glide.stop();
+  }
+});
+
+test("an idle untracked pass reads no row geometry and starts no motion", () => {
+  const { rows, glide, layout, thread } = started();
+  glide.stop();
+  let reads = 0;
+  for (const node of rows) {
+    const top = node.offsetTop;
+    const height = node.offsetHeight;
+    Object.defineProperty(node, "offsetTop", {
+      get: () => {
+        reads++;
+        return top;
+      },
+    });
+    Object.defineProperty(node, "offsetHeight", {
+      get: () => {
+        reads++;
+        return height;
+      },
+    });
+  }
+  glide.place(thread, false, undefined, false, undefined, undefined, layout);
+  glide.refresh(thread);
+  expect(reads).toBe(0);
+  expect(rows.flatMap((node) => node.animations.filter(active))).toHaveLength(0);
+});

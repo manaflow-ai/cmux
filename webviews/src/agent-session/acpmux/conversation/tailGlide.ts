@@ -162,9 +162,9 @@ const topIn = ({ placed, words }: Placement, index: number) =>
 export type TailGlide = {
   /// One placement pass is done: note where the rows lie, and when `glide` (a pass the follow chase
   /// takes), play each move against `anchor` (the row the chase measured from) since the last pass.
-  /// `track`: the view is followed with the chase on, so a later pass may glide. Otherwise the pass
-  /// reads nothing and forgets the tops (a token streamed while the reader holds an older turn open
-  /// runs no row reads: transcript-fold-anchor.test.tsx).
+  /// `track`: the view is followed with the chase on, so a later pass may glide. Otherwise only an
+  /// existing glide's clearance is refreshed; an idle pass reads nothing and forgets the tops (a
+  /// token streamed while the reader holds an older turn open runs no row reads).
   /// `pinned`: a row drawn against the chase itself (pinnedLiveLine.ts): it never glides. `carry`: the
   /// line let go this pass, drawn `y` back from the thread's offset: its glide starts from there.
   /// `view`: the scroller's box. A row whose glide would start and end wholly outside it is drawn at
@@ -225,6 +225,7 @@ const missesView = (top: number, bottom: number, view: { top: number; bottom: nu
 
 export function createTailGlide(): TailGlide {
   let last: Placement | undefined;
+  let lastTracked = false;
   let activePass: { anchor: string; pinned?: string; view?: () => DOMRect | undefined } | undefined;
   let refreshing = false;
   const playing = new Set<Animation>();
@@ -366,6 +367,7 @@ export function createTailGlide(): TailGlide {
     clips.clear();
     clearance = [];
     last = undefined;
+    lastTracked = false;
     activePass = undefined;
     if (had) rested?.();
   };
@@ -422,11 +424,18 @@ export function createTailGlide(): TailGlide {
         const row = glides.get(animation);
         if (row && !row.isConnected) cancelOn(row);
       }
-      if (!thread || !track || foldMs(thread) <= 0) {
+      // Taking the view holds the current glides; their clips still guard live content. Forgetting
+      // placement here made later DOM growth impossible to refresh while those glides stayed held.
+      if (!thread || (!track && !clearance.length) || foldMs(thread) <= 0) {
         last = undefined;
+        lastTracked = false;
         return;
       }
       const before = last;
+      const trackedBefore = lastTracked;
+      // Clearance refreshes retain the last real pass's tracking state. Resuming follow takes a
+      // fresh movement baseline, rather than animating a delta accumulated while tracking was off.
+      if (!refreshing) lastTracked = track;
       const now = placement(thread, placed ?? placedFromPage(thread));
       last = now;
       if (!before) return;
@@ -436,7 +445,8 @@ export function createTailGlide(): TailGlide {
         const index = anchor === undefined ? -1 : where.placed.indexOf(anchor);
         return index >= 0 && isMounted(where.placed, index);
       };
-      const updateOnly = refreshing || !glide || !anchorPresent(now) || !anchorPresent(before);
+      const updateOnly =
+        refreshing || !track || !trackedBefore || !glide || !anchorPresent(now) || !anchorPresent(before);
       if (updateOnly) {
         if (!activePass || !clearance.length) return;
         anchor = activePass.anchor;
