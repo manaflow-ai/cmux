@@ -329,11 +329,10 @@ pub fn env_lacking_at_move() -> u64 {
     ENV_LACKING_AT_MOVE.load(Ordering::Relaxed)
 }
 
-/// Names each start sets from its own machine and the chat's own state, never from the person's
-/// setup there: the sr2 person mark, the cmux tools answer, the display mark, cmux-harness's
-/// store folders and the chat's store home. A target never lacks one, so a move never asks.
-// fleet-only-ok: this only leaves out names acpmux sets on every start, for every user, so a
-// move never warns about them; the whole ask is behind ACPMUX_SESSION_MANIFEST=1, off by default.
+// fleet-only-ok: names acpmux sets on every start, for every user; left out so a move never warns
+/// The sr2 person mark, the cmux tools answer, the display mark, cmux-harness's store folders and
+/// the chat's store home: names each start sets from its own machine and the chat's own state,
+/// never from the person's setup there. A target never lacks one, so a move never asks.
 pub const SET_BY_EACH_START: [&str; 8] = [
     crate::sr2_priority::PERSON_ENV,
     crate::agent_tools::TOOLS_ANSWER_ENV,
