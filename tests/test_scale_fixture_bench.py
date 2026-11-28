@@ -79,5 +79,32 @@ class Config(unittest.TestCase):
         self.assertEqual(bench.big_config(1_000)["home"]["chiefPetMascot"], "fox")
 
 
+class GateStep(unittest.TestCase):
+    """The workflow's measure step, run as Actions runs it (bash -e), with a stub fleet client."""
+
+    def run_step(self, client_body):
+        import os, re, subprocess, tempfile
+        wf = (ROOT / ".github/workflows/cmux-next-scale-fixture.yml").read_text()
+        m = re.search(r"        run: \|\n((?:          .*\n|\n)+?)(?=      - |\Z)", wf[wf.index("Scale fixture on a fleet GUI Mac"):])
+        script = "\n".join(l[10:] for l in m.group(1).splitlines())
+        with tempfile.TemporaryDirectory() as d:
+            client = Path(d, "cmux-ci")
+            client.write_text("#!/usr/bin/env bash\n" + client_body)
+            client.chmod(0o755)
+            summary = Path(d, "summary")
+            env = dict(os.environ, CMUX_CI_CLIENT=str(client), RUNNER_TEMP=d, RUNNER_NAME="t",
+                       GITHUB_STEP_SUMMARY=str(summary), GITHUB_RUN_ID="1", GITHUB_RUN_ATTEMPT="1",
+                       SHA="a" * 40, WORKSPACES="1100")
+            r = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True)
+            return r, summary.read_text() if summary.exists() else ""
+
+    def test_queue_timeout_passes_open(self):
+        # run 46101042567: no GUI Mac took the step in 30 min; the client exits 75.
+        r, summary = self.run_step(
+            'if [ "$1" = run ]; then echo "cmux-ci: step 743efa36842a32ca8dfdeaca (exclusive)"; exit 75; fi\nexit 0\n')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("still queued after 30 min", summary)
+
+
 if __name__ == "__main__":
     unittest.main()

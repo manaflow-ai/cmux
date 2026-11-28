@@ -77,7 +77,9 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha || inputs.ref }}
           WORKSPACES: ${{ inputs.workspaces || '1100' }}
         run: |
-          set -uo pipefail
+          # The default shell is bash -e: without +e the 75 from a queue timeout ends the step
+          # before the fail-open branch below reads it (run 46101042567 failed that way).
+          set +e -uo pipefail
           warn() { echo "::warning title=Scale fixture (fail open)::$1"; echo "scale fixture: not measured: $1" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           [[ -x "$client" ]] || warn "$client is not installed on runner $RUNNER_NAME"
