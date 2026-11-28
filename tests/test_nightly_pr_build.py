@@ -250,7 +250,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('"$client" cancel "$step" --reason "nightly pr build: job cancelled"', text)
         self.assertIn("arm64", npb.ARCHS)
         # The gateway runner refuses any job whose id does not end in -fleet.
-        gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ vars.CI_EVAL_STEP_GATEWAY", text, re.M)
+        gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: .*'mac-gateway'", text, re.M)
         self.assertTrue(gateway)
         for job in gateway:
             self.assertTrue(job.endswith("-fleet"), job)
@@ -267,8 +267,10 @@ class Workflow(unittest.TestCase):
         text = (ROOT / npb.WORKFLOW).read_text()
         match = re.search(r"(?ms)^  swift-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
         self.assertIsNotNone(match)
-        self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
-        self.assertIn("vars.CI_EVAL_STEP_GATEWAY || 'cmux-linux'", match.group(1))
+        self.assertIn("needs.route.outputs.swift == 'true' }}", match.group(1))
+        # The fleet controller is tailnet-only: the job stays on the gateway label, never a variable.
+        self.assertIn("|| 'mac-gateway' }}", match.group(1))
+        self.assertNotIn("vars.", re.search(r"runs-on: (.*)", match.group(1)).group(1))
 
     def test_queue_wait_is_bounded_and_an_unstarted_step_is_cancelled(self) -> None:
         # Leo, 2026-11-25: "Ok well we can't be letting important rfds like that take breaks unless I put in
