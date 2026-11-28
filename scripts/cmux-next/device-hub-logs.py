@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""The device hub's `relay entitlement` lines, from its persisted Workers Logs.
+"""The device hub's `relay entitlement` and `relay mint` lines, from its persisted Workers Logs.
 
 workers/device-hub/src/billing.ts logs one line per relay lookup (every ticket, `/ice` refresh and `/v1/me`):
 `relay entitlement: <paid|free|error>[ (<reason>)]`. A share that times out because neither side got STUN/TURN
-starts here: was the caller seen as paid, free, or did billing fail? This reads one UTC window (at most 60
-minutes) of cmux-device-hub (or -dev) and prints each such line with its time, request path, outcome and colo,
-then the counts per line. The lines carry no user, device, token or address; anything that does not match the
+starts here: was the caller seen as paid, free, or did billing fail? When it was paid, workers/device-hub/src/turn.ts
+says why no relay came: `relay mint: platform failed (<reason>)`, `relay mint: none (no local key)` (TURN_KEY_* unset)
+or `relay mint: local failed (<reason>)`. This reads one UTC window (at most 60 minutes) of cmux-device-hub (or -dev)
+and prints each such line with its time, request path, outcome and colo, then the counts per line. The lines carry no user, device, token or address; anything that does not match the
 exact line shape is counted and never printed.
 
   python3 -I scripts/cmux-next/device-hub-logs.py --from 2026-11-22T08:40:00Z --minutes 10 < token
@@ -30,7 +31,9 @@ PAGES = 50
 PAGE = 1000
 MAX_MINUTES = 60
 
-LINE = re.compile(r"^relay entitlement: (paid|free|error)(?: \(([a-z0-9' ]{1,40})\))?$")
+ENTITLEMENT = re.compile(r"^relay entitlement: (paid|free|error)(?: \(([a-z0-9' ]{1,40})\))?$")
+MINT = re.compile(r"^relay mint: (platform failed|local failed|none) \(([A-Za-z0-9_ .:'-]{1,80})\)$")
+LINE = re.compile(f"{ENTITLEMENT.pattern}|{MINT.pattern}")
 PATH = re.compile(r"^/[A-Za-z0-9/_.-]{0,80}$")
 OUTCOME = re.compile(r"^[a-zA-Z]{1,30}$")
 COLO = re.compile(r"^[A-Z]{3,4}$")
@@ -60,7 +63,7 @@ def safe(rx, v):
 
 
 def row_of(event):
-    """(time, line, path, outcome, colo) of one entitlement line, validated; else None."""
+    """(time, line, path, outcome, colo) of one entitlement or mint line, validated; else None."""
     line = next((m for m in messages(event) if LINE.match(m)), None)
     if not line:
         return None
@@ -130,7 +133,8 @@ def main(argv=None):
         window = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')} +{minutes}m"
     rows = sorted(r for r in map(row_of, events) if r)
     counts = collections.Counter(r[1] for r in rows)
-    print(json.dumps({"window": window, "env": args.env, "events": len(events), "entitlement_lines": len(rows), "complete": complete}))
+    print(json.dumps({"window": window, "env": args.env, "events": len(events), "entitlement_lines": sum(1 for r in rows if ENTITLEMENT.match(r[1])),
+                      "mint_lines": sum(1 for r in rows if MINT.match(r[1])), "complete": complete}))
     print("| time (UTC) | line | path | outcome | colo |")
     print("|---|---|---|---|---|")
     for r in rows:
