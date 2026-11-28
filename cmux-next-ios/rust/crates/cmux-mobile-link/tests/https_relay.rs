@@ -1558,7 +1558,8 @@ async fn relay_first_starts_the_tunnel_before_the_gather_ends() {
         let mut ups = Vec::new();
         for _ in 0..runs {
             let (up, _, timeline) =
-                relay_first_dial_with_a_slow_gather_by(false, true, tunnel_after_gather, true, stun, join).await;
+                relay_first_dial_with_a_slow_gather_by(false, true, tunnel_after_gather, true, stun, join)
+                    .await;
             if !tunnel_after_gather {
                 assert!(timeline.get("tunnel_before_gather").is_some(), "{}", timeline.summary());
                 assert!(timeline.get("reflexive_learned").is_some(), "{}", timeline.summary());
