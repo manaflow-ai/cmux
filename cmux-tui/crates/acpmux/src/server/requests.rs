@@ -22,6 +22,7 @@ mod presets;
 mod queued;
 mod session_open;
 mod signature;
+mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
@@ -1132,6 +1133,23 @@ fn created_by_stamp(hub: &Hub, conn: &Conn, params: &Value) -> Value {
 }
 
 pub(super) async fn handle_request(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
+) -> Result<Value, RpcError> {
+    let mut reply = Box::pin(handle_request_unstamped(hub, conn, m, params, sender_token)).await;
+    // Every `session/new` refusal says why in a short code (`requests/start_reason.rs`).
+    if m == method::SESSION_NEW
+        && let Err(error) = &mut reply
+    {
+        start_reason::stamp(error);
+    }
+    reply
+}
+
+async fn handle_request_unstamped(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
@@ -3866,19 +3884,18 @@ async fn dispatch_method(
                         .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
                 }
                 method::MUX_INBOX_THREADS => {
-                    // Its held count reads the surge journal's tail from the log.
-                    let hub = Arc::clone(hub);
-                    tokio::task::spawn_blocking(move || Ok(hub.inbox_threads(&s)))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
+                    // Its held count reads the surge journal's tail from the log: read here, off
+                    // the worker, not queued on the blocking pool. Under load the pool's queue
+                    // held this read behind every other blocking job (cosmic-gray, 2026-11-27:
+                    // `acpmux session inbox` 60 s+); the read itself takes no hub-wide lock.
+                    Ok(crate::qos::off_worker(|| hub.inbox_threads(&s)))
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
-                    let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
-                    // Held messages that left memory are read from the log (`inbox_surge.rs`).
-                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
+                    let thread = thread()?;
+                    // Held messages that left memory are read from the log (`inbox_surge.rs`),
+                    // off the worker and not behind the blocking pool's queue, as above.
+                    crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))
                 }
                 _ => {
                     let text = text_of("text")
@@ -4261,7 +4278,10 @@ async fn dispatch_method(
         | method::MUX_TEAM_LISTEN
         | method::MUX_TEAM_NAVIGATOR
         | method::MUX_TEAM_PICK
-        | method::MUX_TEAM_SESSION_INFO => super::team::handle(hub, conn, m, &params).await,
+        | method::MUX_TEAM_SESSION_INFO
+        | method::MUX_TEAM_CUSTOMIZATION
+        | method::MUX_TEAM_CUSTOMIZE
+        | method::MUX_TEAM_HANDOFF => super::team::handle(hub, conn, m, &params).await,
         method::MUX_REGISTER => {
             // Only a process of this machine, by the pid the kernel gave at accept: the session
             // registered is the one that process runs under, never one it names.
@@ -4536,6 +4556,7 @@ async fn dispatch_method(
         // A chat's older turns, read from its Claude Code transcript (`hub/native_history.rs`).
         method::MUX_NATIVE_HISTORY => crate::hub::native_history::handle(hub, &params).await,
         method::MUX_SHUTDOWN => {
+            tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: handler");
             // Stopping the daemon ends what runs at the VM boundary too: the owner's call only
             // (`hub/vm_boundary.rs`).
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
@@ -4587,6 +4608,28 @@ async fn dispatch_method(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            // With `acpmux.v2` `start`, a restart execs the installed build in place
+            // (`daemon/handoff.rs`). Its check runs before anything changes: a failed one is the
+            // answer, and the daemon serves on.
+            let restart = params.get("restart").and_then(Value::as_bool) == Some(true);
+            let handoff = if restart {
+                tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: prepare");
+                // Boxed: the dispatch future stays its size for every other request.
+                Box::pin(crate::daemon::prepare_handoff(&shutdown_reason(&params))).await
+            } else {
+                None
+            };
+            if let Some(Err(why)) = &handoff {
+                tracing::warn!("restart refused, the daemon serves on: {why}");
+                return Err(RpcError::new(
+                    -32000,
+                    format!(
+                        "the restart did not start: the installed build failed its check: {why}"
+                    ),
+                )
+                .with_data(json!({"reason": "restart.handoff_check_failed"})));
+            }
+            let checked = handoff.is_some();
             // A take-over start's ask for this daemon's listeners (`daemon/listener_handover.rs`):
             // from the unix socket only, to a side socket in this home that the asking process
             // listens on. Sent before the stop begins; a failure only means it binds as before.
@@ -4632,7 +4675,7 @@ async fn dispatch_method(
             let handed: Vec<&'static str> = Vec::new();
             crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
                 &shutdown_reason(&params),
-                params.get("restart").and_then(Value::as_bool) == Some(true),
+                restart,
             ));
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
@@ -4651,10 +4694,14 @@ async fn dispatch_method(
             if end_agents {
                 hub.end_agents_at_shutdown(keep.clone())?;
             }
-            if params.get("restart").and_then(Value::as_bool) == Some(true) {
+            if restart {
                 hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
             }
             hub.stop_idle_reaper();
+            // Committed only here, with no await before the stop is woken: a request that failed
+            // above leaves nothing armed for a later stop. Listeners already handed to a
+            // take-over start are that process's to serve: this stop then does not exec in place.
+            let handoff = checked && handed.is_empty() && crate::daemon::commit_handoff();
             hub.shutdown.notify_waiters();
             hub.shutdown.notify_one();
             let kept = if end_agents {
@@ -4662,11 +4709,23 @@ async fn dispatch_method(
             } else {
                 0
             };
-            Ok(json!({
-                "endAgents": end_agents,
-                "keptSessions": kept,
-                "listenersHanded": handed,
-            }))
+            // `handoff`: this stop execs in place; the same pid answers again, with a `handoffs`
+            // above this one in its status (`cli/shutdown.rs`).
+            if handoff {
+                Ok(json!({
+                    "endAgents": end_agents,
+                    "keptSessions": kept,
+                    "handoff": true,
+                    "handoffs": crate::daemon::handoffs(),
+                    "listenersHanded": handed,
+                }))
+            } else {
+                Ok(json!({
+                    "endAgents": end_agents,
+                    "keptSessions": kept,
+                    "listenersHanded": handed,
+                }))
+            }
         }
         method::MUX_HANDOFF_PREPARE => {
             heap(|| hub.handoff_prepare(&params, conn.origin.web_class())).await
