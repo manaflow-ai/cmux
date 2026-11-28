@@ -2,7 +2,14 @@
 // does the end-of-turn fold play.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { endsTurn, hasLiveLine, turnEndLook, drawsCopy } from "./turnEndFold";
+import {
+  clearFractionSampled,
+  clearFractionScan,
+  drawsCopy,
+  endsTurn,
+  hasLiveLine,
+  turnEndLook,
+} from "./turnEndFold";
 import { LIVE_THINKING } from "./turns";
 
 const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({ id, version: 1, at: 1, kind });
@@ -428,4 +435,31 @@ test("drawsCopy: rows are a copy until acpmux's attach answers", () => {
   expect(drawsCopy({ connection: "connected", drewKeptTail: true })).toBe(true);
   expect(drawsCopy({ connection: "connected", drewKeptTail: true, chatAttached: true })).toBe(false);
   expect(drawsCopy({ connection: "connected" })).toBe(false);
+});
+
+// The dropped-window-200 arm's clearFraction reads the curve and the moving rows once per pass
+// (clearFractionSampled); every other arm scans as before (clearFractionScan). Same answer on any pass.
+test("the sampled clear fraction agrees with the scan on every row of random passes", () => {
+  let seed = 7;
+  const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const curves = [(x: number) => x, (x: number) => x * x, (x: number) => 1 - (1 - x) ** 3, (x: number) => Math.min(1, x * 1.4)];
+  let crossed = 0;
+  for (let pass = 0; pass < 400; pass++) {
+    const count = 1 + Math.floor(random() * 12);
+    const heights = Array.from({ length: count }, () => 8 + Math.floor(random() * 120));
+    const tops: number[] = [];
+    heights.reduce((top, height) => (tops.push(top), top + height), 0);
+    const drift = tops.map(() => (random() < 0.3 ? 0 : Math.round((random() - 0.3) * 600)));
+    const still = new Set(tops.flatMap((_, k) => (random() < 0.2 ? [k] : [])));
+    const moves = (k: number) => drift[k] !== 0 && !still.has(k);
+    const progressAt = curves[pass % curves.length]!;
+    const samples = Array.from({ length: 201 }, (_, step) => progressAt(step / 200));
+    const movers = tops.flatMap((_, k) => (moves(k) ? [k] : []));
+    for (let index = 0; index < count; index++) {
+      const scan = clearFractionScan(index, tops, heights, drift, moves, progressAt);
+      expect(clearFractionSampled(index, tops, heights, drift, movers, samples)).toBe(scan);
+      if (scan > 0) crossed++;
+    }
+  }
+  expect(crossed).toBeGreaterThan(100);
 });
