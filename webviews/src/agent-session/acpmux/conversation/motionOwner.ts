@@ -39,6 +39,8 @@ export type MotionList = {
   rowsAfter(rowId: string): string[];
   /// Measure every mounted row again and place them once; clear any transform left on a row.
   settle(): void;
+  /// Read where `rows` are drawn before the change, for the list's FLIP of them (rowFlip.ts).
+  capture?(anchorRow: string, rows: readonly string[]): void;
 };
 
 export type TransitionRequest = {
@@ -82,6 +84,7 @@ export function transition(
   const anchor = before === undefined ? undefined : { rowId: request.anchorRow, offsetPx: before };
   const rows = request.rows ?? list.rowsAfter(request.anchorRow);
   const close = expect(request.cause, { rows, ms: request.ms, anchorRow: request.anchorRow });
+  list.capture?.(request.anchorRow, rows);
   request.apply?.();
   if (anchor) {
     const after = list.offsetOf(anchor.rowId);
