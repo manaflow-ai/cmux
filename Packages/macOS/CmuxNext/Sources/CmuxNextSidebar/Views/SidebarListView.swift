@@ -434,7 +434,16 @@ final class SidebarListView: NSView {
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }
-    var inset: CGFloat { SidebarStyle.horizontalInset }
+    /// The list's row inset (``SidebarStyle/horizontalInset``). Each read derives it from the density, the text size and
+    /// the glyph size, so a pass over many rows reads it once (``withRowGeometry(_:)``).
+    var inset: CGFloat {
+        insetReads += 1
+        return SidebarStyle.horizontalInset
+    }
+    /// Reads of ``inset``: a pass over the realized rows reads it once, not per row.
+    private(set) var insetReads = 0
+    /// The row geometry of the pass over many rows running now (``withRowGeometry(_:)``); nil between passes.
+    var passRowGeometry: RowGeometry?
     // MARK: - Hover
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
