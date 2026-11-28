@@ -116,6 +116,26 @@ jobs:
             xcrun simctl launch "$u" "$bid" >/dev/null; sleep 12
             xcrun simctl terminate "$u" "$bid" >/dev/null 2>&1; sleep 2
           done
+          # What dyld loads before main: each image's size, initializers, ObjC +load classes, Swift
+          # conformance records. Then 3 launches spawned suspended, /usr/bin/sample (5 ms) attached,
+          # resumed: the stacks cover pre-main from the first instruction.
+          inv=artifacts/ios-sim/premain-inventory.txt
+          { echo "== bundle"; du -sh "$app"; ls -la "$app/Frameworks" 2>&1; du -sh "$app"/Frameworks/* 2>&1
+            echo "== otool -L"; otool -L "$app/CmuxMobileApp"
+            for img in "$app/CmuxMobileApp" "$app"/Frameworks/*.dylib $(for fw in "$app"/Frameworks/*.framework; do echo "$fw/$(basename "$fw" .framework)"; done); do
+              [ -f "$img" ] && file "$img" | grep -q Mach-O || continue
+              echo "== $img $(stat -f %z "$img") bytes"
+              size -m "$img" | grep -E 'Segment|__mod_init_func|__init_offsets|__objc_nlclslist|__objc_nlcatlist|__swift5_proto |__swift5_types|__swift5_protos|__text' || true
+            done; } > "$inv" 2>&1
+          cat "$inv"
+          xcrun simctl install "$u" "$app" 2>/dev/null || true
+          for i in 1 2 3; do
+            out=$(xcrun simctl launch --wait-for-debugger "$u" "$bid"); pid=${out##*: }
+            echo "suspended launch $i: $out"
+            sample "$pid" 5 5 -mayDie -file "artifacts/ios-sim/premain-sample-$i.txt" >/dev/null 2>&1 &
+            sp=$!; sleep 0.5; kill -CONT "$pid"; wait "$sp"
+            xcrun simctl terminate "$u" "$bid" >/dev/null 2>&1; sleep 2
+          done
           kill "$lp" 2>/dev/null; xcrun simctl delete "$u" || true
           python3 - "$log" <<'PY'
           import re, sys, statistics as s
@@ -188,5 +208,7 @@ jobs:
             artifacts/ios-sim/launch-tti-error.txt
             artifacts/ios-sim/launch-profile.txt
             artifacts/ios-sim/launch-env.txt
+            artifacts/ios-sim/premain-*.txt
+            artifacts/ios-sim/plain-launch.log
           retention-days: 3
           if-no-files-found: warn
