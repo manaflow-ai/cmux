@@ -3,8 +3,10 @@ from __future__ import annotations
 import sys
 import importlib.util
 import os
+import select
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -29,12 +31,30 @@ class PhoneDefaultSpeedTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp)
             child_file = output / "child"
+            ready_read, ready_write = os.pipe()
             program = ("import os,subprocess,sys,time; from pathlib import Path; "
                        "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], start_new_session=True); "
                        f"Path({str(child_file)!r}).write_text(str(p.pid)+' '+str(os.getpgrp())); "
+                       f"os.write({ready_write}, b'1'); "
                        "time.sleep(30)")
-            with self.assertRaisesRegex(RuntimeError, "unexpected exit 124"):
-                measure.run("timeout", [sys.executable, "-c", program], output, dict(os.environ), timeout=2)
+            real_popen = measure.subprocess.Popen
+
+            def started_popen(*args, **kwargs):
+                process = real_popen(*args, **kwargs, pass_fds=(ready_write,))
+                if not select.select([ready_read], [], [], 10)[0]:
+                    measure.stop_tree(process.pid)
+                    process.wait()
+                    self.fail("child tree did not become ready within 10 seconds")
+                self.assertEqual(os.read(ready_read, 1), b"1")
+                return process
+
+            try:
+                with mock.patch.object(measure.subprocess, "Popen", side_effect=started_popen):
+                    with self.assertRaisesRegex(RuntimeError, "unexpected exit 124"):
+                        measure.run("timeout", [sys.executable, "-c", program], output, dict(os.environ), timeout=2)
+            finally:
+                os.close(ready_read)
+                os.close(ready_write)
             child, group = map(int, child_file.read_text().split())
             self.assertEqual(group, os.getpgrp())
             stat = Path(f"/proc/{child}/stat")
