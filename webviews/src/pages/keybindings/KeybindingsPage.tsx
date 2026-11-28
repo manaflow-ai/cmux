@@ -4,7 +4,8 @@
 // The table is windowed: every action is a row of the grid, but only the rows near the viewport are
 // mounted (about one viewport each side), plus the selected, focused, editing and recording rows;
 // spacer rows stand for the rest. Rows are memoized on their binding and state, so a selection draws
-// two rows, not the table.
+// two rows, not the table. Tab still walks every row's controls: past the mounted rows it mounts the
+// next row with controls and focuses it.
 import {
   useState,
   useSyncExternalStore,
@@ -17,7 +18,9 @@ import {
   useRef,
   type FocusEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { focusRoute } from "../../ui/focusRoute";
 import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 import { ConnectionChip } from "../../ui/ConnectionChip";
@@ -126,11 +129,14 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   const rowRecording = snap.recording?.target === "row" ? snap.recording : undefined;
   // The row that holds focus (a click on its keys or `when` focuses a control in it) stays mounted.
   const [focusedRow, setFocusedRow] = useState<string | undefined>(undefined);
+  // The row Tab or Shift-Tab is moving focus to, mounted for that move (then it is `focusedRow`).
+  const [tabRow, setTabRow] = useState<string | undefined>(undefined);
   // Kept mounted however far the list scrolls: Up/Down move from the selection, keys go to the
   // focused row, the `when` editor and the recorder's anchor live in theirs.
   const kept = [
     selectedIndex,
     rowIndex(list, focusedRow),
+    rowIndex(list, tabRow),
     rowIndex(list, snap.editing),
     rowIndex(list, rowRecording?.row),
   ];
@@ -138,7 +144,9 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   // Where the rows start in the scroller: its padding and the header row (none when a narrow pane
   // hides it), read again when the header resizes.
   const [scrollMargin, setScrollMargin] = useState(SCROLL_PAD + HEAD_ESTIMATE);
+  const tbody = useRef<HTMLTableSectionElement | null>(null);
   const body = useCallback((node: HTMLTableSectionElement | null) => {
+    tbody.current = node;
     if (!node) return;
     const read = () => setScrollMargin(SCROLL_PAD + node.offsetTop);
     read();
@@ -146,7 +154,10 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
     if (typeof ResizeObserver === "undefined" || !head) return;
     const observer = new ResizeObserver(read);
     observer.observe(head);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      tbody.current = null;
+    };
   }, []);
   // One function per list: TanStack measures every row again when it changes.
   const rowKey = useCallback((index: number) => list.ids[index]!, [list]);
@@ -171,14 +182,25 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
       return indexes;
     },
   });
+  // A row's place (`data-index`, which TanStack measures it by, and `aria-rowindex`) is written on
+  // its element here, not drawn by the row: removing a row moves every later row up one place, and
+  // that redraws none of them. `places` is the current list's, read by the rows' ref as they mount.
+  const places = useRef(list.index);
+  places.current = list.index;
   const measure = useCallback(
     (node: HTMLElement | null) => {
+      if (node) place(node, places.current);
       const kind = node?.dataset.size as SizeKind | undefined;
       if (node && kind && node.offsetHeight > 0) sizes.current.set(kind, node.offsetHeight);
       virtualizer.measureElement(node);
     },
     [virtualizer],
   );
+  // The rows already mounted take their new places when the list changes (only the mounted rows).
+  useLayoutEffect(() => {
+    for (const node of tbody.current?.querySelectorAll<HTMLElement>(":scope > .keys-row") ?? [])
+      place(node, list.index);
+  }, [list]);
   // A new selection scrolls its row into view (each row did this as it mounted selected when every
   // row was mounted); the selected row is always mounted, at its place among the spacers.
   const revealed = useRef<string | undefined>(undefined);
@@ -190,8 +212,10 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
       ?.querySelector<HTMLElement>(`.keys-row[data-index="${selectedIndex}"]`)
       ?.scrollIntoView?.({ block: "nearest" });
   });
-  const rowFocus = (event: FocusEvent) =>
+  const rowFocus = (event: FocusEvent) => {
     setFocusedRow((event.target as Element).closest<HTMLElement>(".keys-row")?.dataset.row);
+    setTabRow(undefined);
+  };
   const rowBlur = (event: FocusEvent<HTMLElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusedRow(undefined);
   };
@@ -201,7 +225,37 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
       (document.querySelector(".keys-row.recording .keys-key-button") ?? document.body).getBoundingClientRect(),
   }));
 
-  const tableKeys = (event: KeyboardEvent) => {
+  // Tab walks every row's controls, not only the mounted rows': from a row's last control (or from
+  // the grid itself) it mounts the next row that has controls, scrolls it in and focuses its first;
+  // Shift-Tab from a row's first control does the same for the row before. Within a row, and past
+  // the first and last rows with controls, Tab is the browser's.
+  const tabKeys = (event: KeyboardEvent<HTMLElement>): boolean => {
+    const table = event.currentTarget;
+    const target = event.target as HTMLElement;
+    const back = event.shiftKey;
+    let from = -1;
+    if (target === table) {
+      if (back) return false;
+    } else {
+      const own = target.closest<HTMLElement>(".keys-row");
+      if (!own || tabbables(own).at(back ? 0 : -1) !== target) return false;
+      from = Number(own.dataset.index);
+    }
+    const to = nextWithControls(list.rows, snap.resettable, from, back ? -1 : 1);
+    if (to < 0) return false;
+    flushSync(() => setTabRow(list.ids[to]));
+    const next = table.querySelector<HTMLElement>(`.keys-row[data-index="${to}"]`);
+    const control = next ? tabbables(next).at(back ? -1 : 0) : undefined;
+    if (!next || !control) return false;
+    next.scrollIntoView?.({ block: "nearest" });
+    return focusRoute(control, "person", "Tab to the next binding's control");
+  };
+
+  const tableKeys = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Tab" && plain(event)) {
+      if (tabKeys(event)) event.preventDefault();
+      return;
+    }
     if (!plain(event) || composing(event) || snap.editing) return;
     // Return on a focused button belongs to that button.
     const onControl = (event.target as Element).closest?.("button, input") != null;
@@ -383,7 +437,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
                   return (
                     <BindingRow
                       key={row}
-                      index={index}
                       row={row}
                       measure={measure}
                       binding={binding}
@@ -424,6 +477,42 @@ function windowRows(
   }
   if (bottom > edge) out.push(<Spacer key="gap:end" height={bottom - edge} />);
   return out;
+}
+
+/** A row's controls in Tab order (BindingRow: its keys, conflicts, `when`, Remove and Reset). */
+function tabbables(row: HTMLElement): HTMLElement[] {
+  return [...row.querySelectorAll<HTMLElement>("button, input")].filter(
+    (control) => !control.matches(":disabled") && control.tabIndex >= 0,
+  );
+}
+
+/** Whether BindingRow gives `binding` a control Tab stops on: its keys (with Remove and an
+ *  editable `when`), a conflict count or Reset. */
+function hasControls(binding: Binding, resettable: ReadonlySet<string>): boolean {
+  return !isReadOnly(binding) || (binding.conflicts.length > 0 && !binding.removed) || resettable.has(binding.command);
+}
+
+/** The nearest row after (`step` 1) or before (-1) `from` with a control, or -1. Read-only rows
+ *  have none, so this passes over a run of them, not the table. */
+function nextWithControls(
+  rows: readonly Binding[],
+  resettable: ReadonlySet<string>,
+  from: number,
+  step: 1 | -1,
+): number {
+  for (let index = from + step; index >= 0 && index < rows.length; index += step)
+    if (hasControls(rows[index]!, resettable)) return index;
+  return -1;
+}
+
+/** Writes a row element's place: `data-index` (its index among the shown rows, which TanStack
+ *  measures it by) and `aria-rowindex` (among every row, the header first: the screen reader's
+ *  "row 3 of 1001"). */
+function place(node: HTMLElement, places: ReadonlyMap<string, number>): void {
+  const index = places.get(node.dataset.row ?? "");
+  if (index === undefined || node.dataset.index === String(index)) return;
+  node.dataset.index = String(index);
+  node.setAttribute("aria-rowindex", String(index + 2));
 }
 
 const Spacer = memo(function Spacer({ height }: { height: number }) {
@@ -664,8 +753,6 @@ function Recorder({
 }
 
 interface RowProps {
-  /** The row's place in the shown rows (TanStack measures it by `data-index`). */
-  index: number;
   /** Its identity (`model.identity`), which the page tracks focus by. */
   row: string;
   measure: (element: HTMLElement | null) => void;
@@ -680,7 +767,6 @@ interface RowProps {
 }
 
 const BindingRow = memo(function BindingRow({
-  index,
   row,
   measure,
   binding,
@@ -701,10 +787,8 @@ const BindingRow = memo(function BindingRow({
     <tr
       className={classes.filter(Boolean).join(" ")}
       aria-selected={selected}
-      // Its place among every row, the header first: the screen reader's "row 3 of 1001".
-      aria-rowindex={index + 2}
+      // `data-index` and `aria-rowindex` are written by the page (`place`), not drawn here.
       ref={measure}
-      data-index={index}
       data-size={rowSize(binding)}
       data-row={row}
       onClick={() => store.select(row)}
