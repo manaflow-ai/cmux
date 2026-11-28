@@ -176,6 +176,14 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     fs.mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: path.join(shots, `${arm}-${width}.png`) });
   }
+  // Labels the screen cuts short as it opens (a text box narrower than its own text: "Clear Gl…"). Reported per walk
+  // and as the summary's `truncated_max`, not judged yet: the look that ships cuts some at the window's size.
+  const truncated = await page.evaluate(() =>
+    Array.from(document.querySelectorAll(".onb-make *"))
+      .filter((el) => el.children.length === 0 && el.textContent.trim() && el.scrollWidth > el.clientWidth + 1)
+      .filter((el) => getComputedStyle(el).overflowX !== "visible")
+      .map((el) => el.textContent.trim()),
+  );
   const opening = await page.evaluate(checkedValues);
   const radios = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.onb-make input[type="radio"]')).map((input) => ({
@@ -258,6 +266,7 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     opening,
     afterSkip,
     footerCovered,
+    truncated,
     skipRestores: JSON.stringify(afterSkip) === JSON.stringify(opening),
     steps,
   };
@@ -354,6 +363,7 @@ async function main() {
     cls_max: clsMax,
     preview_cls_max: previewClsMax,
     publishes_per_pick_max: publishesMax,
+    truncated_max: Math.max(0, ...walks.map((walk) => (walk.truncated ?? []).length)),
     skip_restores: walks.length > 0 && walks.every((walk) => walk.skipRestores),
     failures,
     walks,
