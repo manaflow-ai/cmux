@@ -187,7 +187,28 @@ def failure_lines(code: int, text: str) -> list[str]:
     lines = text.splitlines()
     picked = [line for line in lines if PANIC.search(line)][:40]
     tail = [line for line in lines[-FAIL_TAIL:] if line not in picked]
-    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *picked, *tail]
+    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *killed_lines(lines), *picked, *tail]
+
+
+# cargo's `process didn't exit successfully: `<rustc command, thousands of characters>` (signal: 9, SIGKILL: kill)`:
+# a LAB-FAIL line is cut at LOG_LINE, so the reason at its end never reached the job log (the 2026-11-28 14:53Z
+# nightly's 11 daemon and chat reds read only as `could not compile acpmux`; the artifact said SIGKILL, the
+# runner slot's out-of-memory kill of the release compile).
+KILLED = re.compile(r"process didn't exit successfully: `(\S*)[^`]*`\s*\((signal: [^)]*)\)")
+
+
+def killed_lines(lines: list[str]) -> list[str]:
+    """One short line per process a signal ended, reason first, so the cut log keeps it."""
+    out = []
+    for line in lines:
+        m = KILLED.search(line)
+        if m:
+            why = f"killed ({m.group(2)}): {os.path.basename(m.group(1)) or m.group(1)}"
+            if "SIGKILL" in m.group(2):
+                why += " (a SIGKILL mid-build is the runner slot's out-of-memory kill)"
+            if why not in out:
+                out.append(why)
+    return out[:5]
 
 
 def cargo_env(args) -> dict:

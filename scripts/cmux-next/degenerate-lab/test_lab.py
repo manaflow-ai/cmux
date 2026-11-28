@@ -124,6 +124,16 @@ class Jobs(unittest.TestCase):
         self.assertIn("LAB-FAIL daemon x0.1 idle: god attach p95 over budget", fails)
         self.assertTrue(all(len(line) <= lab.LOG_LINE for line in fails))
 
+    def test_a_compile_killed_by_a_signal_names_the_kill_in_the_cut_log(self):
+        rustc = "/home/runner/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustc --crate-name acpmux " + "-C x " * 200
+        log = "\n".join(["warning: unused"] * 40 + ["error: could not compile `acpmux` (lib); 28 warnings emitted", "",
+                                                       "Caused by:", f"  process didn't exit successfully: `{rustc}` (signal: 9, SIGKILL: kill)"])
+        lines = lab.failure_lines(101, log)
+        self.assertEqual(lines[1], "killed (signal: 9, SIGKILL: kill): rustc (a SIGKILL mid-build is the runner slot's out-of-memory kill)")
+        out = lab.result_lines({"part": "daemon", "scale": 1, "load": "idle", "exit": 101, "failure": lines})
+        self.assertTrue(any("SIGKILL" in line for line in out))
+        self.assertTrue(all(len(line) <= lab.LOG_LINE for line in out if line.startswith("LAB-FAIL")))
+
     def test_the_plan_is_one_job_per_part_scale_and_load(self):
         jobs = lab.plan(lab.PRESETS["nightly"])
         names = [j["name"] for j in jobs]
