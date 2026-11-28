@@ -25,26 +25,14 @@ fn proven(start: Instant) -> (PathWatch, u64) {
     (watch, id)
 }
 
+/// Traffic on the current path does not stand in for its routine 5 s
+/// ping: a direct route that only half works (handshakes come back on
+/// the relay) is still checked on schedule.
 #[test]
-fn traffic_on_the_current_path_stands_in_for_its_ping_up_to_the_refresh() {
+fn traffic_on_the_current_path_does_not_skip_its_routine_ping() {
     let start = Instant::now();
-    let secs = |n| start + Duration::from_secs(n);
     let (mut watch, mut id) = proven(start);
     watch.heard();
-    for at in [5, 10, 15, 20, 25] {
-        assert_eq!(step(&mut watch, &mut id, secs(at)), None, "skipped at {at} s");
-    }
-    assert!(step(&mut watch, &mut id, secs(30)).is_some(), "the round trip refresh");
-}
-
-#[test]
-fn the_answer_to_its_own_ping_does_not_stand_in_for_the_next() {
-    let start = Instant::now();
-    let mut watch = PathWatch::default();
-    let mut id = 0;
-    let ping = step(&mut watch, &mut id, start).expect("the first ping");
-    watch.heard(); // the pong's datagram is heard before it is matched
-    watch.answer(&ProbeConfig::default(), ping, start).expect("answered");
     assert!(step(&mut watch, &mut id, start + Duration::from_secs(5)).is_some());
 }
 

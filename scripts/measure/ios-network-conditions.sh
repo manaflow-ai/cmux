@@ -32,6 +32,11 @@
 #     swift-test-bench.sh: --ref FEAT_TIP --arg cmux-next-ios/CmuxMobileKit
 #     --arg TranscriptReadFirstR1Bench --arg source=PR_HEAD --arg config=release
 #     --arg enable=CMUX_TRANSCRIPT_R1_BENCH (mode duress, n=20, 1x/10x/100x).
+#   terminal-r1 (R1 of one terminal, mode=links and mode=duress, macOS only):
+#     cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalReadFirstR1Bench.swift (tap to
+#     the first drawn frame of a kept terminal from the phone's read-first store, link cut; rows
+#     `terminal | no-link@1 | cold|warm | Nx | r1_ms`, apart from the terminal surface's link rows by
+#     their profile). The same swift test leg as transcript (cmux#59358 added the bench).
 # Each prints NETCOND lines; ios-network-conditions-report.py makes report.json (profile x surface
 # x phase x scale x metric: p50, p95, n) and report.md (the table a PR body pastes, with a before
 # column and the change when before= is given).
@@ -123,7 +128,7 @@ done
 [[ "$mode" == send && -z "$n_given" ]] && n=25
 [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "ios-network-conditions.sh: n is 1-999" >&2; exit 2; }
 [[ "$seed" =~ ^[0-9]{1,9}$ ]] || { echo "ios-network-conditions.sh: seed is a number" >&2; exit 2; }
-[[ "$surfaces" =~ ^(terminal|chat|transcript)(,(terminal|chat|transcript)){0,2}$ ]] || { echo "ios-network-conditions.sh: surfaces=terminal,chat,transcript" >&2; exit 2; }
+[[ "$surfaces" =~ ^(terminal|chat|transcript|terminal-r1)(,(terminal|chat|transcript|terminal-r1)){0,3}$ ]] || { echo "ios-network-conditions.sh: surfaces=terminal,chat,transcript,terminal-r1" >&2; exit 2; }
 [[ "$scales" =~ ^[0-9]+x(,[0-9]+x)*$ ]] || { echo "ios-network-conditions.sh: scales=1x,10x,100x" >&2; exit 2; }
 [[ -z "$profiles" || "$profiles" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: profiles=NAME,..." >&2; exit 2; }
 [[ -z "$attach_bytes" || "$attach_bytes" =~ ^[1-9][0-9]{0,8}$ ]] || { echo "ios-network-conditions.sh: attach_bytes is the photo size in bytes (default 5242880)" >&2; exit 2; }
@@ -227,6 +232,7 @@ harness_files=(
   cmux-tui/crates/cmux-tui/tests/mobile_link_conditions.rs
   cmux-tui/crates/acpmux/tests/mobile_link_conditions.rs
   cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift
+  cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalReadFirstR1Bench.swift
 )
 overlay() {  # overlay TREE: the yardstick of this ref laid over TREE.
   local tree="$1" file
@@ -273,14 +279,20 @@ r1() {
   (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label r1 /"; return 1; }
 }
 
-# transcript LABEL TREE: R1 of one kept agent chat from AgentTranscriptCache with the link cut
-# (CmuxMobileLiveTests TranscriptReadFirstR1Bench, swift test on macOS); NETCOND lines into lines.txt.
-transcript() {
-  local label="$1" tree="$2" log="$work/$1-transcript.log" code=0
-  local bench=cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift
-  [[ "$mode" == links || "$mode" == duress ]] || { echo "NETCOND-SKIP $label transcript: mode=links or mode=duress only"; return 0; }
-  [[ "$(uname -s)" == Darwin ]] || { echo "NETCOND-SKIP $label transcript: needs swift test on macOS (CmuxMobileLive)"; return 0; }
-  [[ -f "$tree/$bench" ]] || { echo "NETCOND-SKIP $label transcript: no TranscriptReadFirstR1Bench at this ref"; return 0; }
+# swift_r1 LABEL TREE SURFACE: R1 read from the phone's own store with the link cut, swift test on
+# macOS (CmuxMobileLiveTests): transcript = one kept agent chat from AgentTranscriptCache
+# (TranscriptReadFirstR1Bench), terminal-r1 = one kept terminal (TerminalReadFirstR1Bench);
+# NETCOND lines into lines.txt.
+swift_r1() {
+  local label="$1" tree="$2" surface="$3" log="$work/$1-$3.log" code=0 suite enable
+  case "$surface" in
+    transcript) suite=TranscriptReadFirstR1Bench enable=CMUX_TRANSCRIPT_R1_BENCH ;;
+    terminal-r1) suite=TerminalReadFirstR1Bench enable=CMUX_READ_FIRST_R1 ;;
+  esac
+  local bench="cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/$suite.swift"
+  [[ "$mode" == links || "$mode" == duress ]] || { echo "NETCOND-SKIP $label $surface: mode=links or mode=duress only"; return 0; }
+  [[ "$(uname -s)" == Darwin ]] || { echo "NETCOND-SKIP $label $surface: needs swift test on macOS (CmuxMobileLive)"; return 0; }
+  [[ -f "$tree/$bench" ]] || { echo "NETCOND-SKIP $label $surface: no $suite at this ref"; return 0; }
   # swift-test-bench.sh's release suite build: @testable needs -enable-testing, DEBUG stays defined,
   # and the Xcode 26.6 optimizer's CopyPropagation crash is avoided.
   local release=(-c release -Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
@@ -291,21 +303,21 @@ transcript() {
     (cd "$tree" && swift build "${release[@]}" --package-path cmux-next-ios/CmuxMobileKit --build-tests) >>"$log" 2>&1 || code=$?
   fi
   if (( code == 0 )); then
-    (cd "$tree" && CMUX_TRANSCRIPT_R1_BENCH=1 NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" \
+    (cd "$tree" && env "$enable=1" NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" \
       NETCOND_SEED_BASE="$seed" swift test "${release[@]}" --package-path cmux-next-ios/CmuxMobileKit --skip-build \
-      --filter TranscriptReadFirstR1Bench 2>&1 | tee -a "$log" |
+      --filter "$suite" 2>&1 | tee -a "$log" |
       { sed -un "s/$netcond_line/NETCOND-LIVE $label /p" || true; }) || code=$?
   fi
   sed -n "s/$netcond_line/$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-ERROR' "$log" | sed "s/^/$label /" || true
-  echo "NETCOND-STATUS $label transcript exit=$code log=$log"
-  (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label transcript /"; return 1; }
+  echo "NETCOND-STATUS $label $surface exit=$code log=$log"
+  (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label $surface /"; return 1; }
 }
 
 # bench LABEL TREE SURFACE: one surface's bench in TREE; its NETCOND lines labelled into lines.txt.
 bench() {
   local label="$1" tree="$2" surface="$3" crate log code=0
-  [[ "$surface" == transcript ]] && { transcript "$label" "$tree"; return; }
+  [[ "$surface" == transcript || "$surface" == terminal-r1 ]] && { swift_r1 "$label" "$tree" "$surface"; return; }
   case "$surface" in terminal) crate=cmux-tui ;; chat) crate=acpmux ;; esac
   [[ -f "$tree/cmux-tui/crates/$crate/tests/mobile_link_conditions.rs" ]] || {
     echo "NETCOND-SKIP $label $surface: no bench file at this ref"; return 0; }

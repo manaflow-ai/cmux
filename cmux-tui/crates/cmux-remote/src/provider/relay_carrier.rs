@@ -51,6 +51,10 @@ impl fmt::Display for RelayOpenFailure {
             RelaySocketConnectError::Authentication => {
                 formatter.write_str("relay WebSocket authentication was rejected")
             }
+            RelaySocketConnectError::Busy { status, retry_after } => {
+                ProviderError::RelayBusy { status: *status, retry_after: *retry_after }
+                    .fmt(formatter)
+            }
             RelaySocketConnectError::Provider(error) => error.fmt(formatter),
         }
     }
