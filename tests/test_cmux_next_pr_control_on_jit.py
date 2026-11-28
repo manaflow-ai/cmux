@@ -39,6 +39,8 @@ ONE_LABEL_TAIL = f"|| '{LABEL}' }}}}"
 
 def one_label(runs_on: str) -> bool:
     # The fork arm's own runner variable (scripts/ci/one_linux_label.py) is no pool.
+    # The overflow switch (vars.CI_OVERFLOW_LINUX, scripts/ci/one_linux_label.py) names no pool either: unset, the tail is cmux-linux.
+    runs_on = runs_on.replace(" || vars.CI_OVERFLOW_LINUX", "")
     return "vars." not in runs_on and runs_on.rstrip().endswith(ONE_LABEL_TAIL)
 
 

@@ -9,7 +9,7 @@ A Linux x64 picker (a size pool `fromJSON(vars.RUNNER_POOLS).linux_N`, `vars.LIN
 vendor `<N>vcpu-ubuntu-2404` label, the overflow switch, `CI_TRUSTED_RUNNER`, the gate runner variable or
 the old fleet label) becomes:
 
-    ${{ <owner guard> || <fork pull request> && 'ubuntu-24.04' || <pins> || 'cmux-linux' }}
+    ${{ <owner guard> || <fork pull request> && 'ubuntu-24.04' || <pins> || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
 
 A fork repository and a fork pull request never reach an owned host: a fork pull request takes
 GitHub-hosted Ubuntu, a literal (no repository variable picks it). Nightly and release pins
@@ -45,7 +45,17 @@ LABEL = "cmux-linux"
 OWNER_GUARD = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 FORK_PR = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
            " && 'ubuntu-24.04'")
-CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || '{LABEL}' }}}}"
+# The cloud overflow switch: when the owned pool is saturated, this variable names a vendor label to spill onto.
+OVERFLOW = "vars.CI_OVERFLOW_LINUX"
+CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || {OVERFLOW} || '{LABEL}' }}}}"
+# The canonical route as it read before the overflow switch. A workflow added on the base in this form names no size,
+# so no picker triggers on it; it is upgraded by exact match. nightly.yml keeps its own route (it never spills).
+PRE_OVERFLOW = f"${{{{ {OWNER_GUARD} || {FORK_PR} || '{LABEL}' }}}}"
+# The base writes the same route with the fork branch first too (rfd0135-gates.yml, pr-router.yml at fa7ee53a): both
+# orders are upgraded, each keeping its own order.
+PRE_OVERFLOW_FORK_FIRST = f"${{{{ {FORK_PR} || {OWNER_GUARD} || '{LABEL}' }}}}"
+CANONICAL_FORK_FIRST = f"${{{{ {FORK_PR} || {OWNER_GUARD} || {OVERFLOW} || '{LABEL}' }}}}"
+NO_OVERFLOW = frozenset({"nightly.yml"})
 
 # A term naming or choosing a Linux x64 size.
 PICKER = re.compile(
@@ -74,6 +84,8 @@ PIN = re.compile(
 # A conditioned arm that already names the label (`<condition> && 'cmux-linux'`): a placement, not a size.
 LABEL_ARM = re.compile(rf"^.+ && '{LABEL}'$")
 FORK_TEST = "head.repo.full_name != github.repository"
+# The fork branch as written, with a literal label: a rerun keeps the label it names instead of resetting it.
+FORK_LITERAL = re.compile(r"^" + re.escape(FORK_PR.removesuffix(" && 'ubuntu-24.04'")) + r" && '[\w.-]+'$")
 # One Linux arm of a mixed (macOS first) expression's top-level chain: `<condition> && <Linux size picker>`.
 MIXED_TERM = re.compile(
     r"^(?P<cond>.+?) && (?:!startsWith\(vars\.LINUX_RUNNER, 'blacksmith-'\) && vars\.LINUX_RUNNER"
@@ -216,8 +228,10 @@ def rewrite_expr(expr: str) -> str | None:
         return "${{ " + f"{OWNER_GUARD} || format('{fm['lead']}{{0}}', {inner})" + " }}"
     # Kept terms stay in their order; the fork branch takes the place of the first fork or size term, so a pin
     # that came before it (a push-only nightly arm) still comes first and one after it still comes after.
-    kept, picked, fork_at, fork_literal = [], False, None, False
+    kept, picked, fork_at, fork, fork_literal = [], False, None, FORK_PR, False
     for term in terms:
+        if term == OVERFLOW:
+            continue  # the overflow switch: re-added before the label, so a rerun does not move or double it
         if FORK_TEST in term and "vars." not in term and "fromJSON" not in term and fork_at is None:
             # A fork arm that is already a literal (a Blacksmith size the fork keeps) is not a picker: it stays.
             fork_at, fork_literal = len(kept), True
@@ -227,6 +241,8 @@ def rewrite_expr(expr: str) -> str | None:
         elif PICKER.search(term):
             picked = True
             fork_at = len(kept) if fork_at is None else fork_at
+            if FORK_LITERAL.match(term):
+                fork = term  # a fork branch already naming a literal label (a pinned Blacksmith size) keeps it
         elif PIN.search(term):
             kept.append(term)
         elif NOT_LINUX_X64.search(term):
@@ -236,8 +252,8 @@ def rewrite_expr(expr: str) -> str | None:
     if not picked:
         return None
     if not fork_literal:
-        kept.insert(fork_at, FORK_PR)
-    return "${{ " + " || ".join([OWNER_GUARD, *kept, f"'{LABEL}'"]) + " }}"
+        kept.insert(fork_at, fork)
+    return "${{ " + " || ".join([OWNER_GUARD, *kept, OVERFLOW, f"'{LABEL}'"]) + " }}"
 
 
 def rewrite_mixed(expr: str) -> str:
@@ -510,6 +526,12 @@ FOLLOW_ON = (
 
 
 def follow_on(name: str, text: str, report: Report) -> str:
+    for before, after in ((PRE_OVERFLOW, CANONICAL), (PRE_OVERFLOW_FORK_FIRST, CANONICAL_FORK_FIRST)):
+        if name not in NO_OVERFLOW and before in text:
+            for n, line in enumerate(text.split("\n"), 1):
+                if before in line:
+                    report.changed.append((name, n, f"{name}:{n} (overflow switch)"))
+            text = text.replace(before, after)
     for workflow, old, new in FOLLOW_ON:
         if workflow == name and old in text:
             text = text.replace(old, new)

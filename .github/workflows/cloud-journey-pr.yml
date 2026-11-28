@@ -98,7 +98,7 @@ jobs:
     # It mints a GLAEDA_ROUTE_APP_KEY read token: off pull_request (this workflow is dispatchable) the key comes
     # only through ci-routing-agent's branch policy, as in ci.yml's router (tests/test_supplychain_security.py).
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 6
     permissions:
       actions: read

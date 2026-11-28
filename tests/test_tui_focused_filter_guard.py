@@ -448,7 +448,8 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert set(row) == {"os", "runner"} and row["os"] == "linux", row
     # Every label the runner can resolve to is Blacksmith Linux, whatever LINUX_RUNNER holds: a fleet
     # Linux label or the overflow switch's hosted ubuntu-24.04, which the 32vcpu guard keeps out.
-    variables = {"LINUX_RUNNER": linux_runner_values()}
+    # The overflow switch (vars.CI_OVERFLOW_LINUX, scripts/ci/one_linux_label.py) is unset or a Blacksmith Linux label.
+    variables = {"LINUX_RUNNER": linux_runner_values(), "CI_OVERFLOW_LINUX": {"", "blacksmith-4vcpu-ubuntu-2404"}}
     assert disallowed_labels(row["runner"], variables=variables) == {}, row
     # Same OS matrix; only lint honors a LINUX_RUNNER override.
     oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]

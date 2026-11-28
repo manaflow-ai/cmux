@@ -245,7 +245,7 @@ class NoSingleSizePins(unittest.TestCase):
     def test_the_one_label_fork_operand_reads_as_its_hosted_default(self) -> None:
         one = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
                "github.event.pull_request.head.repo.full_name != github.repository && " + FORK_HOSTED_DEFAULT
-               + " || 'cmux-linux' }}")
+               + " || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
         value = without_fork_hosted_default(one)
         self.assertFalse(FORK_READS_POOLS.search(value))
         self.assertFalse(any(VARS_READ.search(value[s.start:s.stop]) for s in fork_operands(value)))

@@ -142,7 +142,7 @@ def test_the_one_linux_label_keeps_the_guard_tests_linux_only() -> None:
     # the macOS and Release lanes. A needs or inputs expression still fails open.
     runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                "github.event.pull_request.head.repo.full_name != github.repository && "
-               "'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}")
+               "'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
     assert module.is_plainly_linux_runner(runs_on)
     assert module.is_plainly_linux_runner("cmux-linux") is False
     assert not module.is_plainly_linux_runner(runs_on.replace("'cmux-linux'", "inputs.guard_tests_runner"))
@@ -476,7 +476,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
-        " && 'ubuntu-24.04' || 'cmux-linux' }}"
+        " && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission

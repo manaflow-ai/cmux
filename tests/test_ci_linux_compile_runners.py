@@ -148,7 +148,9 @@ OTHER = {
 # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): these own-branch routes name cmux-linux
 # directly; a fork pull request keeps its Blacksmith size.
 CMUX_LINUX = {("cmux-next-fast-gates.yml", "fast-gates", "runs-on")}
-CMUX_LINUX_TAIL = "|| 'cmux-linux' }}"
+# Ends the canonical form (`|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}`) and a pinned line, which keeps its pin
+# and takes no overflow arm (scripts/ci/one_linux_label.py).
+CMUX_LINUX_TAIL = "'cmux-linux' }}"
 
 # `vars.LINUX_RUNNER` exactly; `vars.LINUX_RUNNER_DARWIN_CROSS` is its own knob.
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
