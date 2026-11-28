@@ -51,8 +51,9 @@ impl RouteRace {
     /// The race for a dial whose leading route last connected in `lead` (`None`: not known),
     /// on Braid's one stagger rule (RFD 0164 A2, `cmux_braid_path::stagger_for`, the same as
     /// cmux-remote's redial): 1.5 times `lead`, at least the floor, at most
-    /// `cmux_braid_path::race::STAGGER_CEILING` (2 s); [`Self::UNKNOWN`] with no `lead`. A route that took 400 ms over a long path last time
-    /// gets 600 ms before the next one starts beside it, one on a LAN gets the floor.
+    /// `cmux_braid_path::race::STAGGER_CEILING` (2 s); [`Self::UNKNOWN`] with no `lead`. A route
+    /// that took 400 ms over a long path last time gets 600 ms before the next one starts beside
+    /// it, one on a LAN gets the floor.
     pub(crate) fn after(lead: Option<Duration>) -> Self {
         Self { stagger: cmux_braid_path::stagger_for(lead) }
     }
