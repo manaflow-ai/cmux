@@ -1,5 +1,6 @@
 use super::*;
 use std::cell::Cell;
+use std::collections::BTreeMap;
 
 use serde_json::json;
 
@@ -112,4 +113,50 @@ fn a_folder_that_changed_under_the_record_is_derived_again() {
     });
     assert!(!all);
     assert_eq!(calls.get(), 1);
+}
+
+/// One Claude Code start of `meta`'s agent through its command build: the hub marks the profile
+/// env, the build reads the mark or derives (counted in `derives`), and the first start records.
+fn claude_start(on: bool, meta: &mut SessionMeta, derives: &Cell<u32>) {
+    let cwd = meta.cwd.clone();
+    let mut env = BTreeMap::new();
+    mark_with(on, &mut env, meta.manifest.as_ref(), &cwd);
+    let all = claude_all_tools(&env, || {
+        derives.set(derives.get() + 1);
+        true
+    });
+    if let Some(m) = to_record(on, meta.manifest.as_ref(), &cwd, all, None) {
+        meta.manifest = Some(m);
+    }
+}
+
+#[test]
+fn claude_stdio_moves_and_forks_re_deriving_before_and_after() {
+    for (on, want) in [(false, (1, 1, 1)), (true, (1, 0, 0))] {
+        let derives = Cell::new(0);
+        let mut chat = meta("/home/a/repo");
+        claude_start(on, &mut chat, &derives);
+        let first = derives.get();
+        let mut there = moved(&chat, "/home/b/checkouts/repo");
+        claude_start(on, &mut there, &derives);
+        let after_move = derives.get() - first;
+        let mut fork = forked(&there, "/home/b/checkouts/repo");
+        claude_start(on, &mut fork, &derives);
+        let after_fork = derives.get() - first - after_move;
+        assert_eq!((first, after_move, after_fork), want, "switch on: {on}");
+    }
+}
+
+#[test]
+fn the_mark_holds_only_for_its_folder_and_replaces_a_profiles_own() {
+    let m = SessionManifest { folder: "/repo".into(), all_tools: false, servers: Vec::new() };
+    let mut env = BTreeMap::from([(RECORDED_ENV.to_owned(), "1".to_owned())]);
+    mark_with(true, &mut env, Some(&m), std::path::Path::new("/repo"));
+    assert_eq!(env.get(RECORDED_ENV).map(String::as_str), Some("0"));
+    // The recorded answer wins without reading settings.
+    assert!(!claude_all_tools(&env, || panic!("derived although marked")));
+    mark_with(true, &mut env, Some(&m), std::path::Path::new("/elsewhere"));
+    assert!(env.get(RECORDED_ENV).is_none());
+    mark_with(false, &mut env, Some(&m), std::path::Path::new("/repo"));
+    assert!(env.get(RECORDED_ENV).is_none());
 }

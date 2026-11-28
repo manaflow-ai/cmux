@@ -177,13 +177,13 @@ key = "cmux.acpmux.lastChips"
 key = "cmux.acpmux.lastPick"
 
 [[storage_key]]
-key = "cmux.acpmux.localPickerHeight"
-
-[[storage_key]]
 key = "cmux.acpmux.modelCatalog"
 
 [[storage_key]]
 key = "cmux.acpmux.modelChipIcon"
+
+[[storage_key]]
+key = "cmux.acpmux.localPickerHeight"
 
 [[storage_key]]
 key = "cmux.acpmux.modelPickerOrder"
@@ -192,10 +192,10 @@ key = "cmux.acpmux.modelPickerOrder"
 key = "cmux.acpmux.newTab.chats"
 
 [[storage_key]]
-key = "cmux.acpmux.newTab.cloudPick.v1"
+key = "cmux.acpmux.newTab.projects.v1"
 
 [[storage_key]]
-key = "cmux.acpmux.newTab.projects.v1"
+key = "cmux.acpmux.newTab.cloudPick.v1"
 
 [[storage_key]]
 key = "cmux.acpmux.newTab.recentFolders.v1"
