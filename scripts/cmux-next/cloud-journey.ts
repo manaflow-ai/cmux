@@ -132,6 +132,7 @@ import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
+import { codeword, deviceHome as memoryDeviceHome, follow as memoryFollow, PROMPT as MEMORY_PROMPT, push as memoryPush, PUSH_STEP as MEMORY_PUSH_STEP, REPLY_STEP as MEMORY_REPLY_STEP, replyNamesCodeword } from "./cloud-memory-codeword.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoInstall, execConformanceCase, execConformanceOn, execConformanceProbe, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
@@ -4578,6 +4579,15 @@ export const IDLE_JOURNEY_MS = 60 * 60_000;
  * 10:29Z 2026-11-27: 130 machines, 37 failed) while each sweep deleted 0-1.
  */
 export const FAILED_JOURNEY_MS = 15 * 60_000;
+/**
+ * How long a --keep run's machines (`cloud journey jr-<tag>`, its ` gateway`, any suffix) stay before the sweep takes
+ * one, idle: a week, the longest ttl a create takes. A failed one, which nobody can open again, goes once its tag is
+ * LONG_JOURNEY_MS old (past any run that kept it). The sweep never took them before, and on the production agent test
+ * account's 5-machine team they held the cap: `cloud journey jr-mw8lvrpa` (vm_5c394603ba9c2b33e108), failed for
+ * 454 h, failed the after-deploy journey's capacity preflight (quota_headroom used 4/5, need 2), so image 589544f1
+ * rolled back at 2026-11-28 00:13Z (cmux run 46085754677) while every sweep read `0 of 0 leaked deleted`.
+ */
+export const KEPT_JOURNEY_MS = 7 * 24 * 3_600_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
 /** The account's machines counted by state, for the sweep's before and after (`running 12, paused 63, failed 37`). */
 export function machinesByState(rows: any[]): string {
@@ -4595,8 +4605,9 @@ export function machinesByState(rows: any[]): string {
  * long run's `jr-<tag> long…`), with no activity
  * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted. A failed one is picked once
  * its tag is FAILED_JOURNEY_MS old, whatever its window or activity.
- * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
- * does not read as a time are never picked.
+ * A --keep run's `cloud journey jr-<tag>` (any suffix) is picked past KEPT_JOURNEY_MS idle, or past LONG_JOURNEY_MS
+ * once failed. Ownership is the name, never age or state: any other name, and a tag that does not read as a time,
+ * are never picked.
  */
 /**
  * Whether a GET /v1/cloud/inference-gateway answer shows a team stranded in gateway mode: mode "gateway" with no
@@ -4633,12 +4644,16 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
     // So are the Auto mode journey's (auto-journey.ts `auto journey aj-<tag>`): it always deletes its machine.
-    const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
+    const auto = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
+    // A --keep run's own name (ownNamedMachines' `kept`): only the journey gives it, so it is the sweep's past KEPT_JOURNEY_MS.
+    const kept = auto ? null : /^cloud journey jr-([0-9a-z]+)(?: \S.*)?$/.exec(name);
+    const m = auto ?? kept;
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (r.status === "failed" ? nowMs - started <= FAILED_JOURNEY_MS : nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
+    const bound = kept ? (r.status === "failed" ? longMs : KEPT_JOURNEY_MS) : r.status === "failed" ? FAILED_JOURNEY_MS : m[2] ? longMs : maxAgeMs;
+    if (nowMs - started <= bound) continue;
     if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
@@ -5545,6 +5560,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
   if (startVia === "app" && !cmux) throw new Error("--start-via app needs --cmux PATH: the app's start goes over the carrier dial");
+  // --memory-codeword: the agent-memory row (cloud-memory-codeword.ts): a user CLAUDE.md with this run's codeword is
+  // pushed from a device home before the machine exists, and the app-started chat's first reply must name it.
+  const memoryCodeword = argv.includes("--memory-codeword") ? codeword() : null;
+  if (memoryCodeword && startVia !== "app") throw new Error("--memory-codeword needs --start-via app: the row proves the app's fresh Cloud chat");
   // --home-chat reserved measures the app's first home chat, after a reserved ticket was warmed on a keyed spare.
   const homeChat = argValue("--home-chat", argv) ?? "none";
   if (homeChat !== "none" && homeChat !== "reserved") throw new Error(`--home-chat ${homeChat}: none or reserved`);
@@ -6151,6 +6170,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `warm-home could not run: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
         }
       }
+    }
+    if (memoryCodeword) {
+      // Before the machine exists, so the only way its chat can know the codeword is the start's pull of the head.
+      await J.step(MEMORY_PUSH_STEP, async () => {
+        const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+        const { home, record } = memoryDeviceHome(memoryCodeword);
+        const f = await memoryFollow(platform, install.token);
+        if (!f.ok) throw new Error(scrub(f.detail, J.secrets));
+        const r = memoryPush(cmux!, platform, install.token, home, record);
+        if (!r.ok) throw new Error(scrub(r.detail, J.secrets));
+        return { value: null, detail: `${f.detail}; ${r.detail} at ${platform} (user CLAUDE.md, codeword ${memoryCodeword})` };
+      }).catch(() => undefined);
     }
     const created = reuse
       ? await J.step("use machine", async () => {
@@ -6990,23 +7021,45 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (startVia === "app") {
       // The Cloud picker's start, as the app sends it: a chat tab on the machine, then agent-session-start with the
       // harness and the owner word. A started session passes; a refusal fails the step with its code and data.harness.
-      await J.step(`start agent (${agent})`, async () => {
-        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
-        const chat = new ChatClient({
-          cmux: cmux!, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
-          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
-          log: (line) => console.log(scrub(line, J.secrets)),
-        });
-        try {
+      const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+      const chat = new ChatClient({
+        cmux: cmux!, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
+        env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+        log: (line) => console.log(scrub(line, J.secrets)),
+      });
+      try {
+        const started = await J.step(`start agent (${agent})`, async () => {
           await chat.openTab(agent);
-          const outcome = appStartDetail(await chat.start(agent));
+          // The codeword row prompts the chat it started, so it attaches as the app does before its first send.
+          const reply = memoryCodeword ? await chat.startAttached(agent) : await chat.start(agent);
+          const outcome = appStartDetail(reply);
           if (!outcome.ok) throw new Error(outcome.detail);
-          return { value: null, detail: outcome.detail };
-        } finally {
-          chat.stop();
+          return { value: String(reply?.data?.session ?? ""), detail: outcome.detail };
+        }).catch(() => null);
+        if (!memoryCodeword) {
+          for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
+        } else if (!started) {
+          for (const step of ["send chat", "reply", MEMORY_REPLY_STEP]) J.skip(step, `start agent (${agent}) did not start a session`);
+        } else {
+          // The fresh chat's first turn: the prompt names no codeword, so only the carried CLAUDE.md can supply it.
+          session = started;
+          const last = await J.step("send chat", async () => {
+            await chat.prompt(MEMORY_PROMPT, `codeword-${tag}`, Date.now() + chatBudget);
+            return { value: null, detail: `${MEMORY_PROMPT} (over the app's carrier chat)` };
+          }).then(() => J.step("reply", async () => {
+            const text = await awaitReply();
+            return { value: text, detail: text.slice(0, 280) };
+          })).catch(() => null);
+          if (last === null) J.skip(MEMORY_REPLY_STEP, "no reply to judge");
+          else await J.step(MEMORY_REPLY_STEP, async () => {
+            const judged = replyNamesCodeword(last, memoryCodeword);
+            if (!judged.ok) throw new Error(judged.detail);
+            return { value: null, detail: judged.detail };
+          }).catch(() => undefined);
         }
-      }).catch(() => undefined);
-      for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
+      } finally {
+        chat.stop();
+      }
     } else {
       // The owner read rides the start's own exec (startAfterOwnerKind): one trip to the machine, not two. Its step
       // is still recorded, with its guest ms; a record that is not owner yet falls back to ownerKindStep's wait.

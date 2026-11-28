@@ -160,7 +160,7 @@ def documents(results: list[dict], mclass: str, sha: str, now: str | None = None
         reps = [x for x in r.get("repeats_s") or [] if isinstance(x, (int, float))]
         if len(reps) < REPEATS or r.get("status") not in ("ok", "over-budget"):
             continue
-        entry = {"cmd": r["cmd"], "value_s": round(statistics.median(reps), 4), "repeats_s": reps}
+        entry = {"cmd": r["cmd"], "value_s": round(statistics.median(reps), 6), "repeats_s": reps}
         for area in r["areas"]:
             doc = out.setdefault(area, {"schema": SCHEMA, "area": area, "machine_class": mclass, "sha": sha,
                                         "recorded_at": now, "benches": {}})
@@ -177,3 +177,30 @@ def write_dir(docs: dict[str, dict], root: Path) -> list[Path]:
         p.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n")
         written.append(p)
     return written
+
+
+# Mac-only benches: they run on a fleet Mac (cmux-ci, a step submitted from a Linux runner), and their numbers come
+# back as lines in the step's log, not as a command this runner times. Each entry: the bench's stable command name
+# (its bench id), the line it reads, and the relevance-map bench it measures (which names its areas). SidebarChiefLagTests
+# prints "SIDEBAR-CHIEF-LAG <bench> <label> ... p95_ms=..." per run; the nightly runs it REPEATS times in one step.
+LOG_BENCHES = (
+    ("SidebarChiefLagTests ticks after p95_ms",
+     re.compile(r"SIDEBAR-CHIEF-LAG ticks after [^\n]*?\bp95_ms=([0-9.]+)"), "SidebarLagBench"),
+    ("SidebarChiefLagTests scroll after p95_ms",
+     re.compile(r"SIDEBAR-CHIEF-LAG scroll after [^\n]*?\bp95_ms=([0-9.]+)"), "SidebarScrollBench"),
+    ("SidebarChiefLagTests remap after full_pass_ms",
+     re.compile(r"SIDEBAR-CHIEF-LAG remap after [^\n]*?\bfull_pass_ms=([0-9.]+)"), "ChiefFaceFlushBenchTests"),
+)
+
+
+def from_log(text: str, rules) -> list[dict]:
+    """Results (as relevance.run_benches gives them) from a fleet step's log: one per LOG_BENCHES entry, every
+    repeat it printed, in seconds, under each area whose `benches` names it."""
+    out = []
+    for cmd, pattern, bench in LOG_BENCHES:
+        reps = [round(float(m.group(1)) / 1000, 6) for m in pattern.finditer(text)]
+        areas = sorted({r.name for r in rules if r.kind == "area" and bench in r.benches})
+        ok = len(reps) >= REPEATS and areas
+        out.append({"cmd": cmd, "areas": areas, "repeats_s": reps, "status": "ok" if ok else "not-measured",
+                    "detail": "" if ok else f"{len(reps)} of {REPEATS} repeats in the log, areas {areas or 'none'}"})
+    return out
