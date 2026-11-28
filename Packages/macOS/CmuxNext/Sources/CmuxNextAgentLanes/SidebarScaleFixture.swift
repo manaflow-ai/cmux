@@ -17,7 +17,8 @@ import Foundation
 /// (a chat tab whose session one of these Chiefs owns, read as `SidebarLaneStatus` reads it),
 /// `workspaces` and `local_host`, so the bench knows its rows ask for avatars before it times them.
 @MainActor
-public enum SidebarScaleFixture {
+public struct SidebarScaleFixture {
+    public init() {}
     static let prefix = "scale-fixture-", childrenPrefix = "scale-fixture-kids-"
 
     private struct Params: Decodable { var chiefs: Int?, sessions: [String]?, tick: Int?, clear: Bool? }
