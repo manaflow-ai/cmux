@@ -403,7 +403,7 @@ async function run(): Promise<Reading> {
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());
-    if (process.env.RAFSITES === "1") { const sites = (await page.evaluate(() => { (window as any).__rafOn = false; return (window as any).__rafSites; })) as Record<string, { n: number; ms: number }>; for (const [k, v] of Object.entries(sites).sort((x, y) => y[1].n - x[1].n).slice(0, 25)) console.error(`RAFSITE ${v.n} ${v.ms.toFixed(0)}ms ${k}`); }
+    if (process.env.RAFSITES === "1") { const sites = (await page.evaluate(() => { (window as any).__rafOn = false; return (window as any).__rafSites; })) as Record<string, { n: number; ms: number }>; for (const [k, v] of Object.entries(sites).sort((x, y) => y[1].n - x[1].n).slice(0, 30)) fs.appendFileSync('/tmp/rmb-raf/sites.txt', `RAFSITE ${v.n} ${v.ms.toFixed(0)}ms ${k}\n`); }
     if (RENDERS) {
       const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
         string,
