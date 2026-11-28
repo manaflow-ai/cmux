@@ -230,7 +230,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 52] = [
+pub const CALLS: [&str; 53] = [
     "vm.scp_endpoint",
     "vm.agent_key_create",
     "vm.tunnel_enroll",
