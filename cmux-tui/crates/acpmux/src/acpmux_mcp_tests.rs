@@ -1255,7 +1255,14 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
                 serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
             assert_eq!(request["method"], method, "{request}");
             if let Some(arguments) = arguments {
-                assert_eq!(request["params"], arguments, "{request}");
+                // team_send stamps a fresh idempotencyKey per call (#60515) so a retried send
+                // lands once; check it is there, then compare the rest exactly.
+                let mut params = request["params"].clone();
+                if method == "_acpmux/team/send" {
+                    let key = params.as_object_mut().and_then(|p| p.remove("idempotencyKey"));
+                    assert!(key.as_ref().is_some_and(Value::is_string), "{request}");
+                }
+                assert_eq!(params, arguments, "{request}");
             }
             let response = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
             write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
@@ -1666,7 +1673,9 @@ fn every_tool_schema_fits_its_byte_budget() {
     for (server, list, budget) in [
         // 28 KiB at #55308 (11-24); the tools added since earn the rest: settings_ask (#56129,
         // #56432), look (#55387), team_listen (#53713), watch_add's time wakes (#55530) and
-        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25.
+        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25. machine_request (#56624,
+        // 970 B) merged without that count: 32,836 B on 11-26, so its own text was cut to fit
+        // (32,745 B).
         ("acpmux", tools(), 32 * 1024),
         ("cmux-subsessions", crate::subsession_mcp::tools(), 11 * 1024),
     ] {
