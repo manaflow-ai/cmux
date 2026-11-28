@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46118957434",
+  "recorded_at": "2026-11-28T07:38:16Z",
+  "reason": "image inputs changed in e5a772afd58b0c7ebe896b633a76de1f0481d301..58c73c4985beece973630e462d99215acd38c485; cmux-tui c6c1585a5f49, the newest build published on HEAD (pinned 397f9a5ca342; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "c6c1585a5f495ffa05e6a98fdf7cb691c04b69d1",
+  "fixes": [
+    {
+      "sha": "58c73c4985beece973630e462d99215acd38c485",
+      "mergedAt": "2026-11-28T06:57:11+00:00",
+      "subject": "cmux-vm bake: log HANG_SNAPSHOT (FUSE, writeback, ps wchan, kernel stacks) when a step hits its cap or the client's TimeoutError (#64210)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T07:38:16Z",
+    "snapshot_id": "sh-ca61ec2383204cfe869f5bdc3fd39e70",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46118957434): 35 checks passed"
+  },
+  "promotion": {
+    "result": "failed",
+    "job": "failure",
+    "commit": "",
+    "image": "",
+    "revision": "ci-46118957434-1",
+    "at": null
+  },
+  "rolled_back": false
+}
