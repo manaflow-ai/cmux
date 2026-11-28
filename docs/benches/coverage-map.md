@@ -185,6 +185,7 @@ whether it fails on a number.
 | `KeyboardMotionBenchUITests` | `cmux-next-ios/UITests/KeyboardMotionBenchUITests.swift` | `cmux-next-ios-keyboard-motion.yml` (push) | no |
 | `LayoutDragBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LayoutDragBench.swift` | `CMUX_DRAG_BENCH` | no |
 | `LinkSmoothnessBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LinkSmoothnessBenchTests.swift` | none | yes |
+| `MachineWorkspaceResourceLookupBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MachineWorkspaceResourceLookupBenchTests.swift` | none | a lookup at 11,000 workspaces at most 4x one at 110 (#61663) |
 | `MainTaskRecordBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/MainTaskRecordBench.swift` | `CMUX_MAIN_TASK_RECORD_BENCH` | no |
 | `MobileBenchFlowsUITests` | `cmux-next-ios/UITests/MobileBenchFlowsUITests.swift` | `mobile-flows` harness | no |
 | `OmnibarOpenTabsPerKeyBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OmnibarOpenTabsPerKeyTests.swift` | `CMUX_OMNIBAR_TABS_BENCH` | no |
