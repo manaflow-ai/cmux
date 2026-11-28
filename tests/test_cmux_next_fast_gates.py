@@ -1704,6 +1704,24 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
 
+    def test_only_a_red_web_lint_tries_its_safe_fixes(self):
+        # Leo, 2026-11-22: "hell, maybe even should've been automatic. how are our fixit type things for lint errors
+        # and random bullshit?" A red web lint runs scripts/ci/oops/fixit_lint.py (its `--fix`); any other red, or a
+        # green run, pays nothing, and the run's result is the gates' either way.
+        work, out = self.prepared()
+        saved = os.environ.get("FIXIT_COMPILE_HEAD_SHA")
+        os.environ["FIXIT_COMPILE_HEAD_SHA"] = "a" * 40
+        self.addCleanup(lambda: os.environ.pop("FIXIT_COMPILE_HEAD_SHA", None) if saved is None
+                        else os.environ.__setitem__("FIXIT_COMPILE_HEAD_SHA", saved))
+        for red, tried in (("web lint", True), ("prepush gate", False), ("", False)):
+            with self.subTest(red=red):
+                self.log.unlink(missing_ok=True)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", fail=red)
+                self.assertEqual(result.returncode, 1 if red else 0, result.stdout + result.stderr)
+                fixes = [e for e in self.gate_log() if e["gate"] == "web lint" and "--fix" in e["argv"]]
+                self.assertEqual(bool(fixes), tried, result.stdout + result.stderr)
+                self.assertEqual(git(work, "status", "--porcelain", "--untracked-files=no"), "")
+
     def test_independent_gates_run_in_parallel(self):
         work, out = self.prepared()
         barrier = self.tmp / "parallel-barrier"
