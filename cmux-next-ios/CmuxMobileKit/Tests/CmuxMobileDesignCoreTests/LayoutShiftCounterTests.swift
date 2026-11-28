@@ -159,6 +159,14 @@ struct LayoutShiftCounterTests {
         #expect(counter.shiftFrames == 2)
     }
 
+    /// A pushed row's record names what landed above it, so a run's log says the cause.
+    @Test func aPushedRowsRecordNamesWhatLandedAboveIt() {
+        var counter = LayoutShiftCounter()
+        counter.frame(["a": row(0), "b": row(60)])
+        counter.frame(["a": row(0), "card": row(60, h: 54), "b": row(114)])
+        #expect(counter.moves == ["2:b 60/60->114/60 under new card"])
+    }
+
     @Test func aRowThatLeavesAndComesBackIsComparedOnlyWhileDrawn() {
         var counter = LayoutShiftCounter()
         counter.frame(["a": row(0)])
