@@ -6017,7 +6017,8 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-download.sh
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly-write-the-build-manifest-for-this-app-input-.md
-      - name: Write the build manifest for this app-input digest
+      - &x91m
+        name: Write the build manifest for this app-input digest
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.next_downloads.outcome == 'success' && !env.LEFT_SLOT
         continue-on-error: true
         timeout-minutes: 2
@@ -6469,7 +6470,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       BUILD: ${{ needs.published-build.outputs.publish_build }}
       BUILD_SHA: ${{ needs.published-build.outputs.publish_build_sha }}
@@ -6479,10 +6480,7 @@ jobs:
 
       # 2026-11-28 06:29Z (Finish run 46116773791): this job's first gh call died on "API rate limit exceeded for
       # installation" because it had no waiter and no spare pool, while keep-published-dsyms beside it had both.
-      - *gh-app-token-read
-
-      - *gh-app-install-tooling
-
+      # No release App token here: its secrets live only in release/release-next, not this job's environment.
       - *wait-through-github-api-rate-l-2
 
       - name: Find the attempt that compiled the published build
@@ -6497,7 +6495,22 @@ jobs:
       - name: Wait for API budget before the dSYM download
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
 
+      # 2026-11-28 10:53Z (run 46137161280): the action below died on "API rate limit exceeded for installation"
+      # with no retry. The script waits through the reset (and tries the spares first); the action stays as fallback.
+      - name: Download the build's dSYMs (parallel, waits through a rate limit)
+        id: dsyms-parallel
+        continue-on-error: true
+        timeout-minutes: 65
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "3600"
+          DSYMS_ARTIFACTS: ${{ steps.producer.outputs.artifacts }}
+          DSYMS_RUN: ${{ steps.producer.outputs.run }}
+        run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACTS" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/dsyms" --connections 32
+
       - name: Download the build's dSYMs
+        if: steps.dsyms-parallel.outcome != 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ steps.producer.outputs.artifacts }}
@@ -6995,12 +7008,18 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out nightly-pkg/input --connections 32
+      # The managed keychain, made in its own step so only this step holds the certificate;
+      # next-pkg.sh signs from it (NEXT_PKG_KEYCHAIN_READY) and the always() cleanup deletes it.
+      - name: Import signing cert for the .pkg
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
       # From the build ref: build-pkg.sh and the postinstall match the app they package.
       - name: Build, sign, notarize and upload the pre-warming .pkg
         timeout-minutes: 50
         env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          NEXT_PKG_KEYCHAIN_READY: "1"
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -7074,9 +7093,8 @@ jobs:
       # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
       left_pending: ${{ steps.one-leave.outputs.pending }}
     env:
-      # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
-      # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
-      GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+      # GH_TOKEN_SPARES (c-bedbdb1917) sits on this job's github.token gh steps, not here: a signing job holds no
+      # secret at job level, or every bundle step sees the pool tokens (test_ci_signing_keychain_is_deleted_before_bundle_code.py).
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
@@ -7149,6 +7167,7 @@ jobs:
         if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '')
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}
           REPOSITORY: ${{ github.repository }}
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
@@ -7471,6 +7490,7 @@ jobs:
         if: steps.recheck.outputs.already_published != 'true' && !env.LEFT_SLOT
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           WRITER_TOKEN: ${{ steps.writer-token.outputs.token }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
           SOURCE: own
@@ -7483,6 +7503,7 @@ jobs:
       - *x89
       - *x90
       - *x91
+      - *x91m
       - *x92
       - *x92b
       - *x93
