@@ -170,3 +170,13 @@ fn an_untyped_error_prints_as_before() {
     assert!(e.data.is_none());
     assert_eq!(classify(&daemon(e)).text(), "acpmux: runtime: something odd");
 }
+
+/// Run as `cmux harness login …` in an app terminal, an error reads as cmux's, in plain words: no
+/// engine name and no code word (first-run findings N6: "acpmux: runtime: Sign in to UniiChat exited 1").
+#[test]
+fn the_cmux_front_door_names_cmux_and_no_code_word() {
+    let app = classify(&anyhow::anyhow!("Sign in to UniiChat stopped before it finished (exit 1)"));
+    assert_eq!(app.text_as("cmux"), "cmux: Sign in to UniiChat stopped before it finished (exit 1)");
+    assert_eq!(app.text_as("cmux agent"), "cmux agent: Sign in to UniiChat stopped before it finished (exit 1)");
+    assert_eq!(app.text_as("acpmux"), "acpmux: runtime: Sign in to UniiChat stopped before it finished (exit 1)");
+}
