@@ -63,7 +63,7 @@ import {
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   sha256File,
-  devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeTeamCloneCheckCommand,
   devboxClaudeSettingsDefaultsCheckCommand,
 } from "./devbox-image-common";
 import {
@@ -177,7 +177,7 @@ const CHECKS: readonly string[] = [
   // Trust everywhere: the managed HOME entries for codex, the claude first-run
   // seed for root, and the sandbox env every login shell exports.
   `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${DEVBOX_DESKTOP_HOME}"]["trust_level"] == "trusted"' && bash -lc 'test "$CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER" = 1:1:1' && python3 -c "import json; j = json.load(open('/root/.claude.json')); assert j['hasCompletedOnboarding'] is True and j['bypassPermissionsModeAccepted'] is True and j['projects']['/']['hasTrustDialogAccepted'] is True and isinstance(j['customApiKeyResponses']['approved'], list) and '-vm-edge-placeholder' in j['customApiKeyResponses']['approved']" && echo agent-trust-ok`,
-  devboxClaudeTeamOnboardingCheckCommand(),
+  devboxClaudeTeamCloneCheckCommand(),
   devboxClaudeSettingsDefaultsCheckCommand(),
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
@@ -308,7 +308,8 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   `[ "$(getent passwd ${DEVBOX_WORK_UID} | cut -d: -f1)" = ${DEVBOX_WORK_USER} ] && ! id -u ubuntu >/dev/null 2>&1 && test ! -e /home/ubuntu && echo one-work-user`,
   `[ "$(hostname)" = ${DEVBOX_HOSTNAME} ] && [ "$(cat /etc/hostname)" = ${DEVBOX_HOSTNAME} ] && grep -q '^127\\.0\\.1\\.1[[:space:]]\\+${DEVBOX_HOSTNAME}$' /etc/hosts && echo hostname-ok`,
   // The prompt a person reads on every line: \u@\h under a real login shell.
-  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L prompt new-session -d -s p -x 120 -y 30 && sleep 3 && pane="$(tmux -L prompt capture-pane -pt p)"; tmux -L prompt kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -q "${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}"' && echo prompt-says-cmux-at-cmux`,
+  // Polls up to 30 s for it (the first login builds ble.sh's key map cache).
+  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L prompt new-session -d -s p -x 120 -y 30 && i=0 && pane="" && while [ $i -lt 120 ]; do pane="$(tmux -L prompt capture-pane -pt p)"; printf "%s\\n" "$pane" | grep -q "${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}" && break; sleep 0.25; i=$((i+1)); done; sleep 1; pane="$(tmux -L prompt capture-pane -pt p)"; tmux -L prompt kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -q "${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}"' && echo prompt-says-cmux-at-cmux`,
   // The reason none of this is cosmetic, and the exact thing a person does on
   // a new machine: type the seeded command into a pane and get a prompt.
   // `claude --dangerously-skip-permissions --version` is NOT this check —
@@ -358,7 +359,7 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   "[ \"$(stat -c %a /usr/local/share/blesh/state.d)\" = 1777 ] && [ \"$(stat -c %a /usr/local/share/blesh/cache.d)\" = 1777 ] && echo blesh-dirs-ok",
   `test -f ${DEVBOX_WORK_HOME}/.cache/motd.legal-displayed && test -f /root/.cache/motd.legal-displayed && test -f /etc/skel/.cache/motd.legal-displayed && echo legal-notice-silenced`,
   ...[1, 2].map((run) =>
-    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" && printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
+    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && i=0 && pane="" && while [ $i -lt 120 ]; do pane="$(tmux -L vprobe${run} capture-pane -pt login)"; printf "%s\\n" "$pane" | grep -q "λ" && break; sleep 0.25; i=$((i+1)); done; sleep 1; pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" && printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
   ),
   // The devshell chain lives in the per-user rc files (after Ubuntu's own
   // PS1), never in /etc/bash.bashrc, so it loads once and the cmux prompt wins.

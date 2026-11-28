@@ -353,7 +353,7 @@ fn measure(
     let parts: Vec<PathBuf> = facts
         .map(|f| f.build_output.iter().map(|p| PathBuf::from(p.trim_end_matches('/'))).collect())
         .unwrap_or_default();
-    let sizes = disk::sizes(&worktree.path, &parts, deadline);
+    let sizes = disk::sizes_memo(&worktree.path, &parts, deadline);
     match action {
         Action::Trim => sizes.parts.values().sum(),
         _ => sizes.total,

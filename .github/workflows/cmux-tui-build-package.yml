@@ -499,12 +499,63 @@ jobs:
       - name: Give the pane builder its pinned Bun
         run: scripts/cmux-next/private-bun.sh
 
+      # The React Compiler's output for the pane bundle (CMUX_VITE_TRANSFORM_CACHE,
+      # scripts/agent-pane/reactCompilerPlugin.mjs). The Babel pass was 51 of the 60 s this step took
+      # on the x86_64 thin leg (job 140256154463); with the cache filled, the pane bundle took 11 s.
+      # Entries are keyed by each file's exact source, so an old cache is never wrong, only partly
+      # used. A 6-hour bucket: a feat-cmux-next push saves at most one copy a bucket, and every run
+      # restores the newest one for its lockfile. Best effort: a miss is the cold build every run had.
+      - name: Key the pane's React Compiler cache
+        id: pane-compiler-cache
+        continue-on-error: true
+        shell: bash
+        env:
+          LOCK: ${{ hashFiles('webviews/bun.lock') }}
+        run: |
+          prefix="agent-pane-compiler-v1-$LOCK-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=$prefix$(( $(date +%s) / 21600 ))" >> "$GITHUB_OUTPUT"
+          echo "dir=$RUNNER_TEMP/agent-pane-compiler" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the pane's React Compiler cache
+        id: pane-compiler-cache-restore
+        if: ${{ steps.pane-compiler-cache.outputs.key != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.pane-compiler-cache.outputs.dir }}
+          key: ${{ steps.pane-compiler-cache.outputs.key }}
+          restore-keys: ${{ steps.pane-compiler-cache.outputs.prefix }}
+
       - name: Build the production pane into the daemon package
         shell: bash
+        env:
+          CMUX_VITE_TRANSFORM_CACHE: ${{ steps.pane-compiler-cache.outputs.dir }}
+        # A content-named folder with fixed mtimes (scripts/ci/pane-content-dir.sh): an unchanged pane
+        # leaves acpmux fresh in the restored target instead of recompiling it every run.
         run: |
-          pane="$RUNNER_TEMP/acpmux-agent-pane"
-          scripts/cmux-next/build-agent-pane-web.sh --out "$pane"
+          built="$RUNNER_TEMP/acpmux-agent-pane-build"
+          scripts/cmux-next/build-agent-pane-web.sh --out "$built"
+          pane="$(scripts/ci/pane-content-dir.sh "$built" "$RUNNER_TEMP")"
           echo "ACPMUX_BUNDLED_APP_ASSETS_DIR=$pane" >> "$GITHUB_ENV"
+
+      - name: Save the pane's React Compiler cache
+        if: ${{ steps.pane-compiler-cache.outputs.key != '' && steps.pane-compiler-cache-restore.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ steps.pane-compiler-cache.outputs.dir }}
+          key: ${{ steps.pane-compiler-cache.outputs.key }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -720,6 +771,7 @@ jobs:
             echo "registry-key=cmux-tui-cargo-registry-v1-$inputs"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
             # The workspace delta on top of that entry, one per commit (scripts/ci/cargo-target-delta.sh).
+            echo "ws-base=cmux-tui-cargo-ws-v1-$LEG-$workspace-"
             echo "ws-prefix=cmux-tui-cargo-ws-v1-$LEG-$workspace-$inputs-"
             echo "ws-key=cmux-tui-cargo-ws-v1-$LEG-$workspace-$inputs-$GITHUB_SHA"
           } >> "$GITHUB_OUTPUT"
@@ -737,6 +789,19 @@ jobs:
           path: cmux-tui/target
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      # The workspace delta built on the dependency entry just restored, which on a prefix match is not
+      # this leg's own inputs. Why: docs/ci/cmux-next-workflow-notes/2026-11-27-cargo-delta-matched-entry.md
+      - name: Key the workspace delta to the restored dependency entry
+        id: r2-cargo-ws-base
+        if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        env:
+          MATCHED: ${{ steps.r2-cargo-target.outputs.cache-matched-key }}
+          TARGET_PREFIX: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+          WS_BASE: ${{ steps.r2-cargo-key.outputs.ws-base }}
+        shell: bash
+        run: scripts/ci/cargo-delta-prefix.sh "$MATCHED" "$TARGET_PREFIX" "$WS_BASE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the cargo registry from R2
         id: r2-cargo-registry
@@ -812,7 +877,9 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/cargo-delta
           key: ${{ steps.r2-cargo-key.outputs.ws-key }}
-          restore-keys: ${{ steps.r2-cargo-key.outputs.ws-prefix }}
+          restore-keys: |
+            ${{ steps.r2-cargo-ws-base.outputs.prefix }}
+            ${{ steps.r2-cargo-key.outputs.ws-prefix }}
 
       - name: Apply the workspace delta
         id: r2-cargo-ws-apply
@@ -897,9 +964,17 @@ jobs:
           # cmux-tui/Cargo.toml's release profile applies.
           # --timings (both modes): cargo-groups.sh prints each group's slowest and last units, so a
           # slow leg says where its time went (under fat LTO, the "bin" unit is the link).
+          # Incremental (thin only): acpmux's lib recompiled in full (445 s) on nearly every merge
+          # because a crate below it changed. With incremental on, rustc reuses the unchanged
+          # codegen units from target/<triple>/release/incremental, which the per-commit
+          # workspace delta (cargo-target-delta.sh pack: every file written, or under incremental/
+          # hard-linked, after the stamp) carries to the next build; cargo_target_strip.py still drops
+          # it from the dependency entry. Measured off vs on (acpmux after a cmux-config edit):
+          # 465/438/445 s vs 78/89/86 s; a cold build costs 660 s vs 612 s.
           profile=""
           if [[ "$LTO" == thin ]]; then
             export CARGO_PROFILE_RELEASE_LTO=off
+            export CARGO_PROFILE_RELEASE_INCREMENTAL=true
             for pkg in cmux-tui cmux-tui-core acpmux; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
@@ -949,6 +1024,7 @@ jobs:
           acpmux_group=("acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features")
           if [[ "$LTO" == thin ]]; then
             lead_bins+=" acpmux-standalone"
+            # In the combined command the features are package-qualified (cargo picks them per package).
             lead+=" -p acpmux-standalone --bin acpmux-standalone $(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t" acpmux-standalone)"
             acpmux_group=()
           fi
@@ -1422,9 +1498,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml \
-            | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --workspace-crates "${crates[@]}"
+          # --cargo-metadata, not every target name as --workspace-crates: tests/http.rs and tests/digest.rs
+          # are named like the third-party http and digest, so that deleted them and a restore rebuilt 27 crates.
+          cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml > "$RUNNER_TEMP/cargo-metadata.json"
+          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --cargo-metadata "$RUNNER_TEMP/cargo-metadata.json"
           # Extracted sources come back from the .crate files in registry/cache.
           rm -rf "$REGISTRY/src"
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -1495,11 +1572,14 @@ jobs:
   cross-build-windows:
     name: cross-build x86_64-pc-windows-gnu (Linux)
     if: inputs.include_windows
+    # Only trusted NEXT pushes receive this bucket's write credentials.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && 'next-cache-writer' || '' }}
     continue-on-error: ${{ inputs.windows_optional }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       # The cmux server's release public keys (decision SV-R1), compiled into
       # the `cmux` binary with option_env!; the binary never reads them at run
       # time. Public keys, so a repository variable, not a secret. Unset means
@@ -1561,6 +1641,17 @@ jobs:
       - name: Install Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
+      # Published binaries must not read GitHub's PR-writable cache scope.
+      # Only trusted branch pushes save this toolchain in the R2 store below.
+      - name: Restore the reviewed MinGW-Builds sysroot
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
+          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
+
       # The sysroot must be the reviewed archive (sha256) with mingw-w64 13.0.0, UCRT and GCC
       # 15.2.0's runtime (package_notices.py check-windows-sysroot), and every binary may name
       # no GCC build but the reviewed one (check-windows-binary); the script runs both.
@@ -1578,6 +1669,21 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           bash scripts/ci/windows-gnu-cross-build.sh build dist
+
+      - name: Save the reviewed MinGW-Builds sysroot from trusted pushes
+        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
+          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
       # The cmux-tui-core unit tests that must run on Windows, built here, run by build-windows.
       - name: Build the Windows long-path test binary
@@ -1775,8 +1881,12 @@ jobs:
     name: build acpmux x86_64-pc-windows-gnu (Linux)
     if: inputs.include_windows && inputs.windows_acpmux
     continue-on-error: true
+    # Only trusted NEXT pushes receive this bucket's write credentials.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && 'next-cache-writer' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     permissions:
       contents: read
     steps:
@@ -1814,15 +1924,35 @@ jobs:
       - name: Install Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
-      - name: Cache the reviewed MinGW-Builds sysroot
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Published binaries must not read GitHub's PR-writable cache scope.
+      # Only trusted branch pushes save this toolchain in the R2 store below.
+      - name: Restore the reviewed MinGW-Builds sysroot
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
           key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
       # The script checks the sysroot (check-windows-sysroot) and the binary (check-windows-binary).
       - name: Build acpmux (Windows GNU, on Linux)
         run: bash scripts/ci/windows-gnu-cross-build.sh build-acpmux dist
+
+      - name: Save the reviewed MinGW-Builds sysroot from trusted pushes
+        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
+          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
       - name: Verify acpmux starts (Wine)
         run: bash scripts/ci/wine-smoke.sh acpmux dist dist
@@ -2228,7 +2358,7 @@ jobs:
       }}
     # GitHub-hosted OIDC is required for artifact attestations; this job is
     # intentionally exempt from the self-hosted runner routing guard.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: artifact attestations need GitHub OIDC
+    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC
     timeout-minutes: 15
     permissions:
       contents: read
