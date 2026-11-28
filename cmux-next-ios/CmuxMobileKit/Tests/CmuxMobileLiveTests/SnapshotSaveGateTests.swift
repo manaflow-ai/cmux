@@ -1,3 +1,4 @@
+#if os(iOS)
 import CmuxMobileModel
 import Foundation
 import Testing
@@ -69,3 +70,4 @@ import Testing
         }
     }
 }
+#endif
