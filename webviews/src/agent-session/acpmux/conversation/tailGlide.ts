@@ -430,11 +430,18 @@ export function createTailGlide(): TailGlide {
       const now = placement(thread, placed ?? placedFromPage(thread));
       last = now;
       if (!before) return;
-      const updateOnly = refreshing || !glide || anchor === undefined;
-      if (!glide || anchor === undefined) {
+      // A new chase anchor may have no previous placement. That prevents deriving a new
+      // movement delta, but an older glide still needs clearance against the rows arriving now.
+      const anchorPresent = (where: Placement) => {
+        const index = anchor === undefined ? -1 : where.placed.indexOf(anchor);
+        return index >= 0 && isMounted(where.placed, index);
+      };
+      const updateOnly = refreshing || !glide || !anchorPresent(now) || !anchorPresent(before);
+      if (updateOnly) {
         if (!activePass || !clearance.length) return;
         anchor = activePass.anchor;
       }
+      if (anchor === undefined) return;
       const heldBeforeRefresh =
         updateOnly && [...playing].some((animation) => glides.has(animation) && animation.playState === "paused");
       // Clearance belongs to the live glides, even after their old chase anchor unmounts.
@@ -479,21 +486,24 @@ export function createTailGlide(): TailGlide {
       };
       const moving: { id: string; moved: number; held: number }[] = [];
       const hasGlide = [...playing].some((animation) => glides.has(animation) && live(animation));
+      const mayCarry = !updateOnly && carry !== undefined && now.placed.indexOf(carry.id) >= toIndex;
       if (!refreshing)
         for (const { first, last: end } of now.placed.mounted)
-          for (let index = Math.max(first, toIndex); index < end; index++) {
+          // Existing glides can still cover an arrival above a later chase anchor. Check
+          // placement ids there too, without deriving new moves or reading untouched row boxes.
+          for (let index = hasGlide ? first : Math.max(first, toIndex); index < end; index++) {
             const id = now.placed.idAt(index)!;
             // The New line never glides: placed again (a return, a turn's end), it shows where it now is,
             // never sliding down from where it was (Leo, 2026-11-25: "falls from the top of the screen down").
             if (id === pinned || id === SINCE_DIVIDER) continue;
             const was = !updateOnly && index === toIndex ? -1 : indexBefore(id, index);
             const shift =
-              updateOnly || was < 0 || !isMounted(before.placed, was)
+              updateOnly || index < toIndex || was < 0 || !isMounted(before.placed, was)
                 ? 0
                 : topIn(now, index) - topIn(before, was) - anchorMoved;
             const moved = Math.abs(shift) < MIN_MOVE_PX ? 0 : shift;
             // The line let go this pass starts where it was held: back by the thread's offset too.
-            const held = !updateOnly && carry && !carry.used && carry.id === id ? carry.y : 0;
+            const held = mayCarry && carry && !carry.used && carry.id === id ? carry.y : 0;
             // A stationary arrival can sit across an older row's remaining glide. Include it in
             // clearance even when every retained row kept the same placement this pass.
             const arrived = (updateOnly || index !== toIndex) && (was < 0 || !isMounted(before.placed, was));
@@ -531,17 +541,18 @@ export function createTailGlide(): TailGlide {
         const row = rowOf(thread, now.placed, id);
         if (row) parts.push(read(row, id, moved, -moved - held));
       }
-      if (!parts.length) return;
       const inParts = new Set(parts.map((part) => part.row));
       for (const row of onRow.keys()) {
         const id = row.dataset.rowId;
         if (inParts.has(row) || id === undefined || id === pinned) continue;
-        // Only a row mounted from the anchor on, and still the one mounted for its id.
+        // A later chase anchor must not abandon an earlier row's still-visible glide.
+        // Existing motion needs clearance wherever it is mounted; only new deltas start at the anchor.
         const index = now.placed.indexOf(id);
-        if (index < toIndex || rowOf(thread, now.placed, id) !== row) continue;
+        if (index < 0 || !isMounted(now.placed, index) || rowOf(thread, now.placed, id) !== row) continue;
         parts.push(read(row, id, 0, 0));
         inParts.add(row);
       }
+      if (!parts.length) return;
       // A row still gliding starts from where it is drawn: the glide's own part of its translate, read
       // with and without it (a CSS entrance on the row plays on under it), in two style reads for all.
       const gliding = parts.filter((part) => onRow.has(part.row));
@@ -567,7 +578,7 @@ export function createTailGlide(): TailGlide {
         parts.reduce((most, part) => Math.max(most, Math.abs(part.start)), 0),
       );
       if (!(ms > 0)) return;
-      if (carry && parts.some((part) => part.row.dataset.rowId === carry.id)) carry.used = true;
+      if (mayCarry && carry && parts.some((part) => part.row.dataset.rowId === carry.id)) carry.used = true;
       const timed = { duration: ms, easing };
       /// This pass's glide on each row: the clips over a row guard the glide it plays now.
       const slides = new Map<HTMLElement, Animation>();

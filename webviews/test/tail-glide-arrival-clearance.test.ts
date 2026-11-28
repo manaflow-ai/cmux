@@ -90,6 +90,23 @@ function row(id: string, top: number, height: number): Row {
 
 for (const stage of [
   { name: "new motion", glide: true, anchor: "anchor" },
+  { name: "new reply becomes the chase anchor", glide: true, anchor: "answer-new" },
+  { name: "chase anchor advances past the moving footer", glide: true, anchor: "next-anchor", existingAnchor: true },
+  {
+    name: "reply arrives above the advanced chase anchor",
+    glide: true,
+    anchor: "next-anchor",
+    existingAnchor: true,
+    replyBeforeAnchor: true,
+  },
+  {
+    name: "arrival above the chase anchor does not consume a carry",
+    glide: true,
+    anchor: "next-anchor",
+    existingAnchor: true,
+    replyBeforeAnchor: true,
+    carriesReply: true,
+  },
   { name: "no new motion", glide: false, anchor: "anchor" },
   { name: "no new anchor", glide: false, anchor: undefined },
   { name: "captured anchor removed", glide: false, anchor: undefined, removeAnchor: true },
@@ -98,6 +115,8 @@ for (const stage of [
     const anchor = row("anchor", 0, 20);
     const footer = row("worked", 300, 40);
     const reply = row("answer-new", 140, 126);
+    const nextTop = stage.replyBeforeAnchor ? 266 : 140;
+    const nextAnchor = row("next-anchor", nextTop + 200, 0);
     const thread = { ownerDocument: doc, animate: () => undefined, closest: () => null } as unknown as HTMLElement;
     const placed = (rows: Row[], tops: number[]): PlacedRows => ({
       idAt: (index) => rows[index]?.dataset.rowId,
@@ -110,21 +129,41 @@ for (const stage of [
     const glide = createTailGlide();
     const place = (layout: PlacedRows) => glide.place(thread, true, "anchor", true, undefined, undefined, layout);
     try {
-      place(placed([anchor, footer], [0, 300]));
+      place(
+        placed(
+          stage.existingAnchor ? [anchor, footer, nextAnchor] : [anchor, footer],
+          stage.existingAnchor ? [0, 300, nextTop + 200] : [0, 300],
+        ),
+      );
       (footer as { offsetTop: number }).offsetTop = 100;
-      place(placed([anchor, footer], [0, 100]));
+      (nextAnchor as { offsetTop: number }).offsetTop = nextTop;
+      place(
+        placed(
+          stage.existingAnchor ? [anchor, footer, nextAnchor] : [anchor, footer],
+          stage.existingAnchor ? [0, 100, nextTop] : [0, 100],
+        ),
+      );
+      // A zero-height marker has no visible motion left; the older footer is still moving.
+      for (const animation of nextAnchor.animations.filter(active)) animation.finish();
       expect(drawnTop(footer)).toBe(300);
       // Sample the glide at the retained footer's observed offset before the assistant mounts.
       const slide = footer.animations.find((animation) => active(animation) && "translate" in animation.keyframes[0]!);
       slide!.keyframes[0]!.translate = "0 76px";
+      const carry = stage.carriesReply ? { id: "answer-new", y: 28, used: false } : undefined;
       glide.place(
         thread,
         stage.glide,
         stage.anchor,
         true,
         undefined,
-        undefined,
-        stage.removeAnchor ? placed([footer, reply], [100, 140]) : placed([anchor, footer, reply], [0, 100, 140]),
+        carry,
+        stage.removeAnchor
+          ? placed([footer, reply], [100, 140])
+          : stage.replyBeforeAnchor
+            ? placed([anchor, footer, reply, nextAnchor], [0, 100, 140, nextTop])
+            : stage.existingAnchor
+              ? placed([anchor, footer, nextAnchor, reply], [0, 100, nextTop, 140])
+              : placed([anchor, footer, reply], [0, 100, 140]),
       );
       const visibleBottom = drawnTop(footer) + footer.offsetHeight - clipBottom(footer);
       const overlap =
@@ -134,6 +173,7 @@ for (const stage of [
       );
       expect(overlap).toBeLessThanOrEqual(0);
       expect(drawnTop(reply)).toBe(reply.offsetTop);
+      if (carry) expect(carry.used).toBe(false);
       for (const node of [anchor, footer, reply])
         for (const animation of node.animations.filter(active)) animation.finish();
       expect(clipBottom(footer)).toBe(0);
