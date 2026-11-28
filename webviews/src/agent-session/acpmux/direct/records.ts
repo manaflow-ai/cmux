@@ -39,6 +39,22 @@ export const records = (events: SessionEvent[] | undefined): EventRecord[] => (e
 export const startsTurn = (event: EventRecord) =>
   event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
 
+/// Where the chat's journal ends now, from a read refused because its cursor is past it
+/// (`cursor_future: afterSeq N is beyond the last event M`, acpmux `server/requests/events.rs`):
+/// its machine is back on a shorter log, so the records this pane holds past `M` are not its
+/// chat's any more. Undefined for any other failure.
+export function journalEndOf(error: unknown): number | undefined {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const end = /cursor_future: afterSeq \d+ is beyond the last event (\d+)/.exec(message)?.[1];
+  return end === undefined ? undefined : Number(end);
+}
+
+/// The records a pane held, by seq, as they were before a journal that went back was read again:
+/// what `readRewoundTail` compares the machine's records to, never the ones it merged in since.
+export function heldRecordsBySeq(events: readonly EventRecord[]): ReadonlyMap<number, EventRecord> {
+  return new Map(events.map((event) => [event.seq, event]));
+}
+
 /// The reply segment acpmux stamped on an `agent_message_chunk` record (`_meta.acpmux.segment`,
 /// hub/stream.rs): one id for every chunk of one run of reply text, whatever page holds them.
 export function replySegment(event: EventRecord): string | undefined {

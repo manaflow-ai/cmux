@@ -68,6 +68,10 @@ pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
 /// A peer left events out of this daemon's link (`_acpmux/lagged`, `Conn::send`): each client
 /// reading one of that peer's chats here reads it again from its last record.
 pub(crate) const PEER_LAGGED: &str = "peer_lagged";
+/// A peer's journal of one chat went back below what this daemon relayed of it
+/// (`_acpmux/rewound`, `peer.rs` `replay_chat`): each client reading it here drops its records
+/// past the journal's new end and reads on from there.
+pub(crate) const PEER_REWOUND: &str = "peer_rewound";
 
 /// The event that tells watchers one of `peer`'s rows appeared, changed (`status`) or left
 /// (`purged`); None for a summary with no `sessionId`.
@@ -1404,6 +1408,30 @@ impl Hub {
                             peer_batch: false,
                         });
                     }
+                }
+                PeerNotice::Notification { method: m, params, .. } if m == method::MUX_REWOUND => {
+                    let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+                    let Some(last) = params.get("lastSeq").and_then(Value::as_u64) else { return };
+                    let _ = self.events.send_remote(HubEvent {
+                        session_id: id.to_owned(),
+                        record: Arc::new(EventRecord {
+                            seq: 0,
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_REWOUND.into(),
+                            msg: json!({"sessionId": id, "lastSeq": last}),
+                            host_seq: None,
+                        }),
+                        remote: Some(RemoteRef {
+                            peer: peer.clone(),
+                            summary: PeerRow::new(&Value::Null),
+                        }),
+                        update_line: Default::default(),
+                        event_params: Default::default(),
+                        row: Default::default(),
+                        list_seq: 0,
+                        peer_batch: false,
+                    });
                 }
                 // A record of the peer's session its link is not sent live: the copy continues
                 // past its seq (`peer_snapshot.rs` `take_unsent`).

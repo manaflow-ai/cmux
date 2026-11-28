@@ -3489,6 +3489,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/rewound",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/machine_join_progress",
       "params": true
     },
