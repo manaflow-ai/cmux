@@ -630,7 +630,7 @@ struct AgentPaneVideoInfoTests {
             }
         }
         let started = ContinuousClock.now
-        @Sendable func ms(_ since: ContinuousClock.Instant) -> Double {
+        let ms: @Sendable (ContinuousClock.Instant) -> Double = { since in
             let took = (ContinuousClock.now - since).components
             return Double(took.seconds) * 1000 + Double(took.attoseconds) / 1e15
         }
