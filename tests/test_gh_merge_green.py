@@ -399,7 +399,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True, status_reads=None, mergeable_reads=None, helper_script=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, terminate_when_gate_waits=False, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True, status_reads=None, mergeable_reads=None, helper_script=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -553,13 +553,14 @@ class InstalledHelperRegression(unittest.TestCase):
                + "; exit 0; fi\n" if files_rest_fails else "") +
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files'; then "
             "printf '%s\\n' " + " ".join(shlex.quote(f) for f in changed_files) + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'cmux-next.yml?ref='; then touch \"$GATE_READY\"; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
         )
         gh.chmod(0o755)
         argv = [str(helper_script or ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"]
-        env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_CHECK_PATHS_INTERVAL": "0"}
+        env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "GATE_READY": str(Path(directory) / "gate-ready"), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_CHECK_PATHS_INTERVAL": "0"}
         if reviews is not None:
             env["GH_MERGE_GREEN_REVIEWS"] = reviews
         if reviews_final is not None:
@@ -569,6 +570,12 @@ class InstalledHelperRegression(unittest.TestCase):
         # A caller's timeout: SIGTERM to the whole group while the gate still waits.
         process = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                    start_new_session=True)
+        if terminate_when_gate_waits:
+            # The base's workflow read is the helper's last read before the gate starts waiting.
+            # A fixed sleep raced a loaded runner that had not got that far (2026-11-28).
+            deadline = time.monotonic() + 60
+            while not Path(env["GATE_READY"]).exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
         time.sleep(terminate_after)
         os.killpg(process.pid, signal.SIGTERM)
         stdout, stderr = process.communicate(timeout=60)
@@ -789,7 +796,7 @@ class InstalledHelperRegression(unittest.TestCase):
             marker = Path(directory) / "merged"
             result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=queued,
                                      cmux_next_runs=[("in_progress", None, 1)], extra_args=("--wait", "600"),
-                                     terminate_after=2)
+                                     terminate_after=1, terminate_when_gate_waits=True)
             self.assertNotEqual(result.returncode, 0, result.stderr)
             self.assertFalse(marker.exists())
             summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
