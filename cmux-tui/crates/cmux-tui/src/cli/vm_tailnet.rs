@@ -7,6 +7,8 @@
 #[cfg(test)]
 #[path = "vm_tailnet/tests.rs"]
 mod tests;
+#[path = "vm_tailnet/vault.rs"]
+mod vault;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -21,15 +23,29 @@ use serde_json::{Value, json};
 use super::vm_bootstrap::Guest;
 
 pub(super) const HELP: &str = "\
+cmux vm tailnet connect VM (--key-file FILE | --key-stdin) [--hostname NAME] [options]
 cmux vm tailnet join VM (--key-file FILE | --key-stdin) [options]
 cmux vm tailnet leave VM
 cmux vm tailnet move FROM TO [--timeout SECONDS]
+cmux vm tailnet keep VM
+cmux vm tailnet adopt VM [--take-over] [--timeout SECONDS]
 cmux vm tailnet mint-key (--key-file FILE | --key-stdin) (--oauth | --headscale-api ...) --out FILE
 
 Adds a Cloud VM to your own tailnet (Tailscale or Headscale), or takes it off.
 `move` hands the node FROM holds to TO: same name, addresses and node key, no new
 device and no key; FROM stops first and deletes its copy once TO is online.
-Nothing changes your routes, exit nodes or ACLs. `cmux vm rm` leaves first for a VM joined here.
+Nothing changes your routes, exit nodes or ACLs.
+`connect` makes your one stable cmux node: a join (Tailscale SSH on, never ephemeral, named
+--hostname or YOU-cmux) that your vault keeps and VM holds, so `move`, `adopt` and `vm rm` carry
+it from VM to VM. It needs you signed in to cmux and refuses while your vault keeps a node.
+
+Signed in to cmux, your vault keeps your node (its state, encrypted to you) after a join
+or move, so it outlives the VM: `keep` copies the node VM holds into the vault now,
+`adopt` brings the vault's node up on VM (same name and addresses, no key), and
+`cmux vm rm` of a VM joined here hands its node to the vault instead of signing it out.
+The vault keeps one node; a join of another leaves it unless you run `keep`.
+It also names the one VM that holds the node, so the node is never up twice: `adopt`
+refuses while another VM holds it (`move` that VM instead, or `--take-over` if it is gone).
 
   --key-file FILE      your auth key (tskey-auth-…, or a Headscale key) or OAuth client secret
   --key-stdin          read it from stdin instead
@@ -602,51 +618,24 @@ pub(super) fn run(
         return 0;
     }
     match verb {
-        "join" => {
-            let args = match parse_join(tail) {
+        "join" => match parse_join(tail) {
+            Ok(args) => join_verb(args, None, json_output, env, &fail),
+            Err(message) => fail(&message, 2),
+        },
+        "connect" => {
+            let args = match parse_connect(tail, env) {
                 Ok(args) => args,
                 Err(message) => return fail(&message, 2),
             };
-            let vm_id = args.vm_id.clone();
-            let timeout = args.timeout;
-            let checked = match checked(args, read_key, mint_key) {
-                Ok(checked) => checked,
-                Err(message) => return fail(&message, 2),
+            let vault = match vault::signed_in(env) {
+                Ok(Some(vault)) => vault,
+                Ok(None) => return fail(NOT_SIGNED_IN, 2),
+                Err(message) => return fail(&message, 1),
             };
-            let result = with_guest(&vm_id, env, |guest| join(guest, &checked, timeout));
-            match result {
-                Ok(node) => {
-                    let mut record = read_record(env);
-                    record.insert(
-                        vm_id.clone(),
-                        node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                    );
-                    write_record(env, &record);
-                    if json_output {
-                        println!("{}", json!({"ok": true, "vm": vm_id, "node": node}));
-                    } else {
-                        println!(
-                            "Joined {vm_id} to your tailnet as {}.",
-                            node.get("dnsName").and_then(Value::as_str).unwrap_or("?")
-                        );
-                        if let Some(ips) = node.get("ips").and_then(Value::as_array) {
-                            let ips: Vec<&str> = ips.iter().filter_map(Value::as_str).collect();
-                            println!("Addresses: {}", ips.join(", "));
-                        }
-                        for note in node
-                            .get("notes")
-                            .and_then(Value::as_array)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_str)
-                        {
-                            println!("Note: {note}");
-                        }
-                    }
-                    0
-                }
-                Err(message) => fail(&message, 1),
+            if let Err(message) = may_connect(&vault, &args.vm_id) {
+                return fail(&message, 2);
             }
+            join_verb(args, Some(&vault as &dyn vault::NodeVault), json_output, env, &fail)
         }
         "leave" => {
             let Some(vm_id) = tail.first().filter(|w| !w.starts_with('-')) else {
@@ -655,12 +644,19 @@ pub(super) fn run(
             match with_guest(vm_id, env, leave) {
                 Ok(()) => {
                     let mut record = read_record(env);
-                    record.remove(vm_id);
+                    let name = record.remove(vm_id);
                     write_record(env, &record);
+                    let note = name.and_then(|name| forget_signed_out(env, vm_id, &name));
                     if json_output {
-                        println!("{}", json!({"ok": true, "vm": vm_id}));
+                        println!(
+                            "{}",
+                            json!({"ok": true, "vm": vm_id, "notes": note.iter().collect::<Vec<_>>()})
+                        );
                     } else {
                         println!("{vm_id} left your tailnet.");
+                        if let Some(note) = note {
+                            println!("Note: {note}");
+                        }
                     }
                     0
                 }
@@ -681,8 +677,9 @@ pub(super) fn run(
                     let name = record.remove(&from).unwrap_or_else(|| {
                         node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned()
                     });
-                    record.insert(to.clone(), name);
+                    record.insert(to.clone(), name.clone());
                     write_record(env, &record);
+                    let node = with_kept(node, auto_keep(&to, Some(&from), env, &name));
                     if json_output {
                         println!("{}", json!({"ok": true, "from": from, "vm": to, "node": node}));
                     } else {
@@ -708,6 +705,79 @@ pub(super) fn run(
                         {
                             println!("Note: {note}");
                         }
+                    }
+                    0
+                }
+                Err(message) => fail(&message, 1),
+            }
+        }
+        "keep" => {
+            let Some(vm_id) = tail.first().filter(|w| !w.starts_with('-')) else {
+                return fail("cmux vm tailnet keep needs a VM id", 2);
+            };
+            let vault = match vault::signed_in(env) {
+                Ok(Some(vault)) => vault,
+                Ok(None) => return fail(NOT_SIGNED_IN, 2),
+                Err(message) => return fail(&message, 1),
+            };
+            let Some(name) = read_record(env).get(vm_id.as_str()).cloned() else {
+                return fail(
+                    &format!("{vm_id} was not joined from here (cmux vm tailnet join {vm_id})"),
+                    2,
+                );
+            };
+            // Keeping a node on purpose makes this VM its holder, over any older lease.
+            let kept = with_guest(vm_id, env, |guest| vault::keep(guest, &vault, &name))
+                .and_then(|revision| vault::hold(&vault, vm_id, None, true).map(|_| revision));
+            match kept {
+                Ok(revision) => {
+                    if json_output {
+                        println!(
+                            "{}",
+                            json!({"ok": true, "vm": vm_id, "name": name, "revision": revision})
+                        );
+                    } else {
+                        println!("Your vault keeps {name} (from {vm_id}).");
+                    }
+                    0
+                }
+                Err(message) => fail(&message, 1),
+            }
+        }
+        "adopt" => {
+            let (vm_id, take_over, timeout) = match parse_adopt(tail) {
+                Ok(parsed) => parsed,
+                Err(message) => return fail(&message, 2),
+            };
+            let vault = match vault::signed_in(env) {
+                Ok(Some(vault)) => vault,
+                Ok(None) => return fail(NOT_SIGNED_IN, 2),
+                Err(message) => return fail(&message, 1),
+            };
+            let record = read_record(env);
+            let refusal = refuse_second_holder(&record, &vault, &vm_id);
+            if let Some(refusal) = refusal.filter(|_| !take_over) {
+                return fail(&refusal, 2);
+            }
+            match with_guest(&vm_id, env, |guest| {
+                vault::adopt(guest, &vault, &vm_id, take_over, timeout)
+            }) {
+                Ok((node, name)) => {
+                    let mut record = read_record(env);
+                    let dns = node.get("dnsName").and_then(Value::as_str).filter(|d| !d.is_empty());
+                    record.insert(vm_id.clone(), dns.unwrap_or(&name).to_owned());
+                    write_record(env, &record);
+                    if json_output {
+                        println!(
+                            "{}",
+                            json!({"ok": true, "vm": vm_id, "name": name, "node": node})
+                        );
+                    } else {
+                        println!(
+                            "{vm_id} is {} again, from your vault ({} ms).",
+                            node.get("dnsName").and_then(Value::as_str).unwrap_or(&name),
+                            node.get("elapsedMs").and_then(Value::as_u64).unwrap_or(0)
+                        );
                     }
                     0
                 }
@@ -747,7 +817,9 @@ pub(super) fn run(
             }
         }
         other => fail(
-            &format!("unknown tailnet verb \"{other}\"; verbs: join, leave, move, mint-key"),
+            &format!(
+                "unknown tailnet verb \"{other}\"; verbs: join, leave, move, keep, adopt, mint-key"
+            ),
             2,
         ),
     }
@@ -778,18 +850,376 @@ pub(super) fn refuse_clone_of_joined(
 }
 
 pub(super) fn leave_before_delete(vm_id: &str, env: &dyn Fn(&str) -> Option<String>) {
-    if !joined_here(env, vm_id) {
+    let Some(name) = read_record(env).get(vm_id).cloned() else {
         return;
+    };
+    match release_before_delete(vm_id, env, &name) {
+        Ok(Some(_)) => {
+            eprintln!(
+                "cmux: your vault keeps {vm_id}'s tailnet node {name}; `cmux vm tailnet adopt VM` brings it back"
+            );
+            let mut record = read_record(env);
+            record.remove(vm_id);
+            write_record(env, &record);
+            return;
+        }
+        Ok(None) => {}
+        Err(error) => eprintln!("cmux: {error}; signing {vm_id} out of your tailnet instead"),
     }
     match with_guest(vm_id, env, leave) {
-        Ok(()) => eprintln!("cmux: {vm_id} left your tailnet"),
+        Ok(()) => {
+            eprintln!("cmux: {vm_id} left your tailnet");
+            if let Some(note) = forget_signed_out(env, vm_id, &name) {
+                eprintln!("cmux: {note}");
+            }
+        }
         Err(error) => {
             eprintln!("cmux: {vm_id} could not leave your tailnet ({error}); deleting it anyway");
+            // The VM goes either way, so it holds the node no more.
+            let signed_in = vault::signed_in(env).ok().flatten();
+            if let Some(Err(why)) = signed_in.map(|vault| vault::let_go(&vault, vm_id)) {
+                eprintln!("cmux: your vault still names {vm_id} the node's holder ({why})");
+            }
         }
     }
     let mut record = read_record(env);
     record.remove(vm_id);
     write_record(env, &record);
+}
+
+/// `vm resume|start` succeeded: a VM paused while it ran the node comes back from its memory
+/// snapshot with `tailscaled` still up. When the vault's lease moved to another VM meanwhile, stop
+/// the node here so two VMs never run one node. Best effort: any failure is a warning and the
+/// resume's own result stands.
+pub(super) fn stand_down_if_moved(vm_id: &str, env: &dyn Fn(&str) -> Option<String>) {
+    let Some(name) = read_record(env).get(vm_id).cloned() else {
+        return;
+    };
+    let signed = vault::signed_in(env);
+    let signed = signed.as_ref().map(|signed| signed.as_ref().map(|v| v as &dyn vault::NodeVault));
+    let (note, stood_down) =
+        settle_resumed(signed, vm_id, &name, |vm| with_guest(vm, env, vault::stand_down));
+    if let Some(note) = note {
+        eprintln!("cmux: {note}");
+    }
+    if stood_down {
+        let mut record = read_record(env);
+        record.remove(vm_id);
+        write_record(env, &record);
+    }
+}
+
+/// The note to print and whether `vm_id` stopped running the node `name`.
+fn settle_resumed(
+    vault: Result<Option<&dyn vault::NodeVault>, &String>,
+    vm_id: &str,
+    name: &str,
+    stand_down: impl FnOnce(&str) -> Result<(), String>,
+) -> (Option<String>, bool) {
+    let checked = match vault {
+        Ok(Some(vault)) => vault::moved_away(vault, vm_id, name),
+        Ok(None) => return (None, false),
+        Err(why) => Err(why.clone()),
+    };
+    match checked {
+        Ok(None) => (None, false),
+        Ok(Some(holder)) => match stand_down(vm_id) {
+            Ok(()) => (
+                Some(format!(
+                    "{holder} holds your tailnet node now (your vault's lease); {vm_id} resumed still running it, so its node was stopped"
+                )),
+                true,
+            ),
+            Err(why) => (
+                Some(format!(
+                    "{holder} holds your tailnet node now, but {vm_id} resumed still running it and did not stop ({why}); run `cmux vm tailnet leave {vm_id}` only if {holder} is gone"
+                )),
+                false,
+            ),
+        },
+        Err(why) => (
+            Some(format!(
+                "could not check your vault's tailnet lease after resuming {vm_id} ({why})"
+            )),
+            false,
+        ),
+    }
+}
+
+// MARK: The vault keeps the node (RFD 0169)
+
+/// `connect`'s words: `join`'s, for the one stable node. Tailscale SSH is on, the node is never
+/// ephemeral (it outlives every VM that holds it), and it is named `--hostname` or `YOU-cmux`.
+pub(super) fn parse_connect(
+    words: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<JoinArgs, String> {
+    let mut args =
+        parse_join(words).map_err(|why| why.replace("tailnet join", "tailnet connect"))?;
+    if args.request.ephemeral {
+        return Err(
+            "connect makes the node that outlives your VMs, so it is never --ephemeral; use `cmux vm tailnet join --ephemeral` for a throwaway node"
+                .to_owned(),
+        );
+    }
+    args.request.ssh = true;
+    if args.request.hostname.is_none() {
+        args.request.hostname = Some(stable_name(env));
+    }
+    Ok(args)
+}
+
+/// `YOU-cmux`, YOU this machine's user as a DNS label; `cmux` when there is none.
+pub(super) fn stable_name(env: &dyn Fn(&str) -> Option<String>) -> String {
+    let user = env("USER").or_else(|| env("USERNAME")).unwrap_or_default();
+    let mut label = String::new();
+    for c in user.trim().to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() {
+            label.push(c);
+        } else if !label.is_empty() && !label.ends_with('-') {
+            label.push('-');
+        }
+    }
+    let label = label.trim_end_matches('-');
+    // A DNS label is at most 63 bytes; `-cmux` takes 5.
+    let label = &label[..label.len().min(58)];
+    if label.is_empty() {
+        "cmux".to_owned()
+    } else {
+        format!("{}-cmux", label.trim_end_matches('-'))
+    }
+}
+
+/// May `connect` make a node? Not while the vault keeps one: that node moves with `adopt`, and a
+/// second would be a second device with the same purpose.
+pub(super) fn may_connect(vault: &dyn vault::NodeVault, vm_id: &str) -> Result<(), String> {
+    match vault.get()? {
+        Some(kept) => Err(format!(
+            "your vault already keeps your node {}; `cmux vm tailnet adopt {vm_id}` brings it up on {vm_id} with no key (`leave` the VM that holds it first to start over)",
+            kept.name
+        )),
+        None => Ok(()),
+    }
+}
+
+const NOT_SIGNED_IN: &str =
+    "your vault needs you signed in to cmux (CMUX_CLOUD_ACCESS_TOKEN); nothing changed";
+
+/// `adopt`'s words: `VM [--take-over] [--timeout SECONDS]`.
+pub(super) fn parse_adopt(words: &[String]) -> Result<(String, bool, Duration), String> {
+    let mut ids = Vec::new();
+    let mut take_over = false;
+    let mut timeout = Duration::from_secs(180);
+    let mut it = words.iter();
+    while let Some(word) = it.next() {
+        let (flag, inline) = match word.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
+            _ => (word.as_str(), None),
+        };
+        match flag {
+            "--timeout" => {
+                let value =
+                    inline.or_else(|| it.next().cloned()).ok_or("--timeout needs seconds")?;
+                let secs: u64 =
+                    value.parse().map_err(|_| format!("--timeout {value} is not seconds"))?;
+                timeout = Duration::from_secs(secs.max(1));
+            }
+            "--take-over" if inline.is_none() => take_over = true,
+            other if other.starts_with('-') => {
+                return Err(format!("unknown option {other} (cmux vm tailnet --help)"));
+            }
+            id => ids.push(id.to_owned()),
+        }
+    }
+    match ids.as_slice() {
+        [vm] => Ok((vm.clone(), take_over, timeout)),
+        _ => Err("cmux vm tailnet adopt needs one VM id".to_owned()),
+    }
+}
+
+/// The vault's node may be up on one VM at a time: refuse when a VM joined here holds it.
+fn refuse_second_holder(
+    record: &BTreeMap<String, String>,
+    vault: &dyn vault::NodeVault,
+    vm_id: &str,
+) -> Option<String> {
+    let kept = match vault.get() {
+        Ok(Some(kept)) => kept.name,
+        _ => return None,
+    };
+    record.iter().find(|(_, name)| vault::label(name) == vault::label(&kept)).map(|(holder, _)| {
+        if holder == vm_id {
+            format!("{vm_id} already holds your vault's node {kept}")
+        } else {
+            format!(
+                "{holder} holds your vault's node {kept}; run `cmux vm tailnet move {holder} {vm_id}` instead, so it is never up twice"
+            )
+        }
+    })
+}
+
+/// `join` and `connect` once their words are read: join the VM, record its node, and have the
+/// vault keep it. `connect` passes its `vault`, and a node that vault does not keep fails it;
+/// `join` keeps it best effort (when signed in), with a note when it did not.
+fn join_verb(
+    args: JoinArgs,
+    vault: Option<&dyn vault::NodeVault>,
+    json_output: bool,
+    env: &dyn Fn(&str) -> Option<String>,
+    fail: &dyn Fn(&str, i32) -> i32,
+) -> i32 {
+    let vm_id = args.vm_id.clone();
+    let timeout = args.timeout;
+    let checked = match checked(args, read_key, mint_key) {
+        Ok(checked) => checked,
+        Err(message) => return fail(&message, 2),
+    };
+    let result = with_guest(&vm_id, env, |guest| join(guest, &checked, timeout));
+    match result {
+        Ok(node) => {
+            let mut record = read_record(env);
+            record.insert(
+                vm_id.clone(),
+                node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            );
+            write_record(env, &record);
+            let kept = match vault {
+                Some(vault) => keep_in(vault, &vm_id, None, env, &record[&vm_id]),
+                None => auto_keep(&vm_id, None, env, &record[&vm_id]),
+            };
+            if vault.is_some()
+                && let Err(why) = &kept
+            {
+                return fail(
+                    &format!(
+                        "{vm_id} joined your tailnet as {}, but your vault did not keep it ({why}); run `cmux vm tailnet keep {vm_id}`",
+                        record[&vm_id]
+                    ),
+                    1,
+                );
+            }
+            let node = with_kept(node, kept);
+            if json_output {
+                println!("{}", json!({"ok": true, "vm": vm_id, "node": node}));
+            } else {
+                println!(
+                    "Joined {vm_id} to your tailnet as {}.",
+                    node.get("dnsName").and_then(Value::as_str).unwrap_or("?")
+                );
+                if let Some(ips) = node.get("ips").and_then(Value::as_array) {
+                    let ips: Vec<&str> = ips.iter().filter_map(Value::as_str).collect();
+                    println!("Addresses: {}", ips.join(", "));
+                }
+                for note in node
+                    .get("notes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                {
+                    println!("Note: {note}");
+                }
+            }
+            0
+        }
+        Err(message) => fail(&message, 1),
+    }
+}
+
+/// After a join or move: the vault keeps the node, when signed in and it keeps no other node. The
+/// note says what happened when it did not.
+fn auto_keep(
+    vm_id: &str,
+    from: Option<&str>,
+    env: &dyn Fn(&str) -> Option<String>,
+    name: &str,
+) -> Result<bool, String> {
+    let Some(vault) = vault::signed_in(env)? else { return Ok(false) };
+    keep_in(&vault, vm_id, from, env, name)
+}
+
+/// The vault keeps the node VM holds as `name`, and VM holds its lease (taken over from `from`).
+fn keep_in(
+    vault: &dyn vault::NodeVault,
+    vm_id: &str,
+    from: Option<&str>,
+    env: &dyn Fn(&str) -> Option<String>,
+    name: &str,
+) -> Result<bool, String> {
+    keep_unless_other(vault, name, |kept_in| {
+        let revision = with_guest(vm_id, env, |guest| vault::keep(guest, kept_in, name))?;
+        // The VM the node is on now holds the vault's lease; a move takes it over from FROM.
+        vault::hold(kept_in, vm_id, from, false)?;
+        Ok(revision)
+    })
+}
+
+fn keep_unless_other(
+    vault: &dyn vault::NodeVault,
+    name: &str,
+    keep: impl FnOnce(&dyn vault::NodeVault) -> Result<u64, String>,
+) -> Result<bool, String> {
+    if let Some(other) = vault::holds_other(vault, name)? {
+        return Err(format!(
+            "your vault keeps {other}, so it was left as is; `cmux vm tailnet keep VM` keeps this node instead"
+        ));
+    }
+    keep(vault).map(|_| true)
+}
+
+/// The node's facts with whether the vault kept it, and why not as a note.
+fn with_kept(mut node: Value, kept: Result<bool, String>) -> Value {
+    let Some(facts) = node.as_object_mut() else { return node };
+    facts.insert("keptInVault".to_owned(), json!(matches!(kept, Ok(true))));
+    if let Err(why) = kept {
+        let note = json!(format!("not kept in your vault: {why}"));
+        match facts.get_mut("notes").and_then(Value::as_array_mut) {
+            Some(notes) => notes.push(note),
+            None => {
+                facts.insert("notes".to_owned(), json!([note]));
+            }
+        }
+    }
+    node
+}
+
+/// `leave` signed the node out, so a kept copy of it opens nothing: drop it from the vault.
+fn forget_signed_out(
+    env: &dyn Fn(&str) -> Option<String>,
+    vm_id: &str,
+    name: &str,
+) -> Option<String> {
+    let vault = vault::signed_in(env).ok()??;
+    drop_if_kept(&vault, vm_id, name)
+}
+
+fn drop_if_kept(vault: &dyn vault::NodeVault, vm_id: &str, name: &str) -> Option<String> {
+    if let Err(why) = vault::let_go(vault, vm_id) {
+        return Some(format!("your vault still names {vm_id} the node's holder ({why})"));
+    }
+    match vault.get() {
+        Ok(Some(kept)) if vault::label(&kept.name) == vault::label(name) => vault
+            .delete()
+            .err()
+            .map(|why| format!("your vault still keeps the signed-out node ({why})")),
+        _ => None,
+    }
+}
+
+/// `vm rm`: hand the node to the vault when signed in and the vault keeps no other node. `Ok(None)`
+/// when it was not asked to (the caller signs the VM out as before).
+fn release_before_delete(
+    vm_id: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    name: &str,
+) -> Result<Option<u64>, String> {
+    let Some(vault) = vault::signed_in(env)? else { return Ok(None) };
+    if vault::holds_other(&vault, name)?.is_some() {
+        return Ok(None);
+    }
+    with_guest(vm_id, env, |guest| vault::release_to_vault(guest, &vault, vm_id, name))
+        .map(Some)
+        .map_err(|why| format!("your vault did not take {vm_id}'s tailnet node ({why})"))
 }
 
 fn with_guest<T>(

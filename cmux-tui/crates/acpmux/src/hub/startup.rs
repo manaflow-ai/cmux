@@ -40,7 +40,7 @@ pub(crate) fn startup_wait_error(phase: &str, wait: std::time::Duration) -> crat
     );
     error.message.push_str(
         "; no session was created. `acpmux --json daemon status` shows the phase \
-         (`loading.phase`); try again once it reads ready",
+         (`loading.phase`); sessions start once it reads ready",
     );
     if let Some(data) = error.data.as_mut().and_then(serde_json::Value::as_object_mut) {
         data.insert("phase".into(), serde_json::json!(phase));

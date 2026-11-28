@@ -8,8 +8,9 @@
 # - not a pool runner: no CARGO_TARGET_DIR at all;
 # - a Blacksmith runner with the job's sticky disk mounted: the same, on the disk.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); git_fixture_trap_exit 'rm -rf "$TMP"'
 fail() { echo "FAIL: $*" >&2; exit 1; }
 command -v cargo >/dev/null || fail "cargo is required"
 
@@ -29,7 +30,7 @@ printf '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n[dependenc
 echo 'pub fn value() -> u32 { 1 }' > "$repo/ws/core/src/lib.rs"
 echo 'pub fn side() -> u32 { 7 }' > "$repo/ws/side/src/lib.rs"
 echo 'fn main() { println!("{}", core::value()); }' > "$repo/ws/app/src/main.rs"
-git -C "$repo" init -q && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
+git_fixture_init "$repo" && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
 
 pool() {
   : > "$TMP/env"
@@ -76,6 +77,12 @@ checkout_again; restore
 grep -q "miss (no recorded build" "$TMP/restore.log" || fail "an unrecorded job leaves no manifest"
 build; [[ $compiled == 3 ]] || fail "after an unrecorded job every workspace crate rebuilds, got $compiled"
 [[ "$("$TARGET/debug/app")" == 2 ]] || fail "and the app is the checked-out one"
+
+# An empty pool tree with the R2 fallback on: not linked, so the R2 cargo restore runs.
+rm -rf "$TMP/home/.cache"; : > "$TMP/out"; TARGET=""
+CMUX_POOL_WARM_TARGET_MISS_R2=1 pool restore > "$TMP/restore.log"
+grep -q "R2 cargo build restores instead" "$TMP/restore.log" || fail "an empty pool tree defers to R2"
+[[ ! -s "$TMP/env" && ! -s "$TMP/out" ]] || fail "a deferred miss links nothing"
 
 # Anywhere else: nothing linked, nothing recorded.
 : > "$TMP/out"

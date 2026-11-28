@@ -340,10 +340,6 @@ public final class SidebarModel {
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
-    /// A press on a chat's subagent under its row (`SidebarSubagentsView`): shows chat tab `TabID` of the workspace and
-    /// opens the subagent's pane beside it, as the chat's own subagent cards do; nil (the stacked line, "N more") shows
-    /// the chat only. Nil while the App offers none (the standalone mock).
-    @ObservationIgnored public var openSubagent: ((WorkspaceID, TabID, SidebarSubagent?) -> Void)?
     /// The sections another space shows (R99: the page beside the current
     /// one during a horizontal swipe). Read when a swipe reaches that page.
     @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
@@ -448,7 +444,15 @@ public final class SidebarModel {
     /// placeholders, which are no workspace yet.
     public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { !$0.rowState.isPending } }
 
-    public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
+    /// Workspace `id`'s row, its first listing in visual order: O(1) through `rowIndex` (built once per structural set),
+    /// never a walk of every row. A drag reads it each move for the dragged rows and their parents, hover cards and row
+    /// menus once per show (`SidebarWorkspaceLookupCostTests`).
+    public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? {
+        access(keyPath: \.sections)
+        guard let path = listedPaths(of: id).first else { return nil }
+        let row = SidebarRowIndex.workspace(at: path, in: storedSections)
+        return row.id == id ? row : SidebarEdits.workspace(id, in: storedSections) // a stale index: the walk, never a wrong row
+    }
 
     public func group(_ id: GroupID) -> SidebarGroup? {
         access(keyPath: \.sections)
@@ -909,7 +913,6 @@ public final class SidebarModel {
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
         if settlesFinished { o.settled = settledChats() }
-        o.subagentLook = SidebarTunables.subagentLook.value
         return o
     }
 

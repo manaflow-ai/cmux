@@ -343,6 +343,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
@@ -361,6 +362,7 @@ jobs:
         id: checkout-retry
         if: steps.checkout.outcome == 'failure'
         continue-on-error: true
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
@@ -898,6 +900,11 @@ jobs:
           # broken fleet cache fails the same way. Admission keeps the text
           # match, so a real compile error stays one build.
           source scripts/cmux-next/lib/compilation-cache.sh
+          # Xcode's build service crashing mid-build ("Build again to
+          # continue") is no compile error; one clean retry gets a new one.
+          if [ "$status" -ne 0 ] && cmux_next_build_service_crashed "$compile_log"; then
+            retry_compile=1
+          fi
           if [ "$status" -ne 0 ] && [ "$first_compile_fleet" -eq 1 ]; then
             if cmux_next_runtime_cas_failed "$compile_log"; then
               retry_compile=1

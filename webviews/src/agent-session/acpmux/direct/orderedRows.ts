@@ -9,8 +9,10 @@ import {
   pullRequestRowKey,
 } from "../summary/transcriptPullRequests";
 import { markOneRowChange } from "../rowChanges";
+import { BackgroundSpans } from "./backgroundSpans";
 import { noteKeptPrefix } from "../conversation/prefixFlatMap";
 import { RowUpdates } from "../rowUpdates";
+import { publishRowSeq, RowSeq } from "../rowSeq";
 
 /// More than one slot of the kept order changed, or it was rebuilt (`OrderedRows.changedSlot`).
 const MANY_SLOTS = Symbol("many");
@@ -37,6 +39,11 @@ function sameTrimmed(x: string, y: string): boolean {
 export class OrderedRows extends Map<string, AcpmuxRow> {
   /// How many times any chat's rows were sorted whole (longChatCost.test.ts counts them per update).
   static sorts = 0;
+  /// How many snapshot arrays (`sorted()`'s copy of every held row) were made: the streaming bench
+  /// reads it per chunk (rowSeq.test.ts), the count the RowSeq readers ratchet down.
+  static arraysBuilt = 0;
+  /// Tests: check each published RowSeq against its snapshot array, row by row (O(n) a snapshot).
+  static verifyRowSeq = typeof process !== "undefined" && process.env?.CMUX_VERIFY_ROW_SEQ === "1";
   private readonly order = new Map<string, number>();
   /// No row's `order` is above this (a delete leaves it, a clear resets it): a background turn's
   /// started record at or past it claims no held row, so `openBackground` reads none of them.
@@ -78,6 +85,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private firstChanged: number | typeof MANY_SLOTS | undefined;
   /// The last snapshot handed out, which the next one's change is from.
   private published: AcpmuxRow[] | undefined;
+  /// The RowSeq published beside `published` (rowSeq.ts): the next one copies only what changed.
+  private publishedSeq: RowSeq<AcpmuxRow> | undefined;
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = {};
@@ -86,7 +95,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// sequence number and its ended record's, once heard. A row an event between them made is that
   /// turn's (`inBackground`). An ended record heard first (an older page's started record comes
   /// later) waits in `backgroundEnds`.
-  private backgroundSpans: { id: string; from: number; to?: number }[] = [];
+  private readonly backgroundSpans = new BackgroundSpans();
   private readonly backgroundClaims = new Map<string, string[]>();
   private readonly backgroundEnds = new Map<string, { seq: number; turn: AcpmuxBackgroundTurn }>();
   /// Each background turn's reply rows, in order (`markBackgroundRows`).
@@ -106,9 +115,9 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// A background turn's started record at `seq`: how it ended when its ended record came first,
   /// and whether rows its events made before this record was heard draw something (`hasRows`).
   openBackground(id: string, seq: number): { ended?: AcpmuxBackgroundTurn; hasRows: boolean } {
-    if (this.backgroundSpans.some((span) => span.id === id)) return { hasRows: false };
+    if (this.backgroundSpans.get(id)) return { hasRows: false };
     const ended = this.backgroundEnds.get(id);
-    this.backgroundSpans.push({ id, from: seq, to: ended?.seq });
+    this.backgroundSpans.add({ id, from: seq, to: ended?.seq });
     this.backgroundEnds.delete(id);
     let hasRows = false;
     const claimed: string[] = [];
@@ -153,10 +162,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   /// A background turn's ended record at `seq`, which says how it ended (`turn`).
   closeBackground(seq: number, turn: AcpmuxBackgroundTurn): void {
-    const span = this.backgroundSpans.find((span) => span.id === turn.id);
+    const span = this.backgroundSpans.get(turn.id);
     // A span a prompt already closed (`openBackgroundsBefore`) keeps that end: acpmux's own ended
     // record, heard later, says how the turn ended and never takes the prompt's rows back.
-    if (span) span.to = span.to === undefined ? seq : Math.min(span.to, seq);
+    if (span) this.backgroundSpans.close(turn.id, seq);
     else this.backgroundEnds.set(turn.id, { seq, turn });
     // An older page's start can arrive before its end while newer rows are already held.
     // The start attributed those rows provisionally; the end bounds that attribution.
@@ -186,7 +195,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   /// The background turns still open at `seq`: started before it, with no ended record heard.
   openBackgroundsBefore(seq: number): string[] {
-    return this.backgroundSpans.filter((span) => span.to === undefined && span.from < seq).map((span) => span.id);
+    return this.backgroundSpans.openBefore(seq);
   }
 
   /// Whether a reply row is a prompt's turn's own, whatever span its event falls in: acpmux names a
@@ -201,11 +210,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   /// The background turn an event at `order` belongs to.
   private backgroundAt(order: number): string | undefined {
-    for (let at = this.backgroundSpans.length - 1; at >= 0; at -= 1) {
-      const span = this.backgroundSpans[at]!;
-      if (span.from < order && (span.to === undefined || order < span.to)) return span.id;
-    }
-    return undefined;
+    return this.backgroundSpans.at(order);
   }
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
@@ -359,7 +364,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
     let turn: string | undefined;
-    if (this.backgroundSpans.length && row.kind !== BACKGROUND_TURN && row.kind !== "user" && !this.local.has(id)) {
+    if (this.backgroundSpans.size && row.kind !== BACKGROUND_TURN && row.kind !== "user" && !this.local.has(id)) {
       turn = this.backgroundAt(this.order.get(id)!);
       if (turn !== undefined && this.promptsReply(id, row, turn)) turn = undefined;
       if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
@@ -634,7 +639,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.lastWrite.clear();
     this.frames.clear();
     this.latest = 0;
-    this.backgroundSpans = [];
+    this.backgroundSpans.clear();
     this.backgroundClaims.clear();
     this.backgroundEnds.clear();
     this.compactionIds.clear();
@@ -783,7 +788,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.changeOrders.splice(low, high - low);
     }
     // The background turns that began and ended in the run, and their replies.
-    this.backgroundSpans = this.backgroundSpans.filter((span) => {
+    this.backgroundSpans.retain((span) => {
       const inside = span.from >= from && span.to !== undefined && span.to < before;
       if (inside) this.backgroundReplies.delete(span.id);
       return !inside;
@@ -816,7 +821,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
     this.latest = 0;
     // The replay hears the background turns' records again.
-    this.backgroundSpans = [];
+    this.backgroundSpans.clear();
     this.backgroundClaims.clear();
     this.backgroundEnds.clear();
   }
@@ -973,7 +978,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const ordered = this.inOrder();
     if (!this.snapshot) {
       const from = this.published;
+      OrderedRows.arraysBuilt += 1;
       this.snapshot = ordered.slice();
+      this.publishedSeq = this.nextSeq(ordered);
+      publishRowSeq(this.snapshot, this.publishedSeq);
       if (typeof this.changedSlot === "number" && from && from.length === this.snapshot.length)
         markOneRowChange(this.snapshot, from, this.changedSlot);
       if (from && this.firstChanged !== MANY_SLOTS)
@@ -987,5 +995,23 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);
     }
     return this.snapshot;
+  }
+
+  /// The RowSeq of `ordered`, from the last one published: one chunk for a row written in place,
+  /// the chunks from the first changed slot on for anything else; whole only when the order was
+  /// rebuilt (MANY_SLOTS). Read before `sorted()` clears `changedSlot` and `firstChanged`.
+  private nextSeq(ordered: readonly AcpmuxRow[]): RowSeq<AcpmuxRow> {
+    const last = this.publishedSeq;
+    let seq: RowSeq<AcpmuxRow>;
+    if (!last || this.firstChanged === MANY_SLOTS) seq = RowSeq.from(ordered);
+    else if (typeof this.changedSlot === "number" && last.length === ordered.length)
+      seq = last.with(this.changedSlot, ordered[this.changedSlot]!);
+    else seq = last.withTail(this.firstChanged ?? Infinity, ordered);
+    if (OrderedRows.verifyRowSeq) {
+      if (seq.length !== ordered.length) throw new Error(`RowSeq length ${seq.length}, rows ${ordered.length}`);
+      for (let index = 0; index < ordered.length; index += 1)
+        if (seq.at(index) !== ordered[index]) throw new Error(`RowSeq differs from the snapshot at row ${index}`);
+    }
+    return seq;
   }
 }
