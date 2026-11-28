@@ -91,6 +91,7 @@ const EVENT_PARAMS: &[&str] = &[
     "recordMaxBytes",
     "match",
     "promptIndex",
+    "promptPreview",
     "subagent",
     "waitLogs",
 ];

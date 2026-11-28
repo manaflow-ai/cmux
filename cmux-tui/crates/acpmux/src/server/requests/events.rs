@@ -20,6 +20,23 @@ pub(super) fn handle(
         }
         return hub.prompt_image(&s.id, id);
     }
+    if let Some(preview) = params.get("promptPreview") {
+        if ["sinceSeen", "afterSeq", "beforeSeq", "promptIndex", "turnOpener", "kinds", "subagent", "match"]
+            .iter().any(|key| params.get(*key).is_some_and(|v| !v.is_null()))
+        {
+            return Err(RpcError::invalid_params("promptPreview cannot be combined with event filters or cursors"));
+        }
+        let request: crate::protocol::PromptPreviewParams = serde_json::from_value(preview.clone())
+            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        if request.index.is_some() == request.seq.is_some() {
+            return Err(RpcError::invalid_params("promptPreview requires exactly one of index or seq"));
+        }
+        hub.catch_up_tail(&s);
+        let (last, created) = s.read_meta(|meta| (meta.last_seq, meta.created_at));
+        let previews = hub.prompt_preview(&s.id, created, last, request.index, request.seq, request.radius.unwrap_or(2))
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+        return Ok(json!({"previews": previews, "lastSeq": last, "createdAt": created}));
+    }
     let pattern = str_param(params, "match");
     crate::hub::validate_match(pattern)?;
     let since_seen = params.get("sinceSeen").and_then(Value::as_bool).unwrap_or(false);
