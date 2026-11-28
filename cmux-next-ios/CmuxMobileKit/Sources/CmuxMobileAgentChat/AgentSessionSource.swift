@@ -1,6 +1,7 @@
 import CmuxAgentQuestion
 import CmuxMobileArtifacts
 import Foundation
+import SwiftUI
 
 /// What a session looks like in lists and the toolbar (acpmux `SessionSummary` subset).
 public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
@@ -594,4 +595,11 @@ public struct AgentUploadProgress: Hashable, Sendable {
         case .waitingForLink: return "Waiting for \(macName) to resume \(name) · \(of)"
         }
     }
+}
+
+/// A source whose chat can also show the Mac's React agent pane (the web pane), run against the
+/// same daemon: the chat's More menu offers it when Settings → Advanced → Web Agent Pane is on.
+@MainActor
+public protocol AgentPaneWebHosting {
+    func agentPaneWebView() -> AnyView
 }

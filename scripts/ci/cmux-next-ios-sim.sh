@@ -190,6 +190,11 @@
 #           reconnect-drops=10,60 (FlowSuite's reconnect-after-drop: the Mac app and
 #           its hostd freeze for each drop; the phone must reattach within 30 s
 #           with no tap; reconnect-after-drop.mp4 records the phone).
+#           webpane (in place of the theme, upload, attach and restart legs): the
+#           Mac's React agent pane on the paired phone (AgentPaneWebView, DEBUG
+#           -cmux-mobile-web-pane) against the rig Mac's acpmux; passes when the
+#           page loads, acpmux answers its connection and the pane draws its
+#           composer (screens/web-pane.png, the times in SUMMARY.md).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -425,13 +430,14 @@ if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
         [[ "$n" =~ ^[1-9][0-9]{1,3}$ && "$n" -ge 60 && "$n" -le 3600 ]] || { echo "cmux-next-ios-sim.sh: upload-wait= wants 60-3600, got '$n'" >&2; exit 2; }
         pair_upload+=(--upload-wait "$n") ;;
       upload-random) pair_upload+=(--upload-random) ;;
+      webpane|webpane=1) pair_upload+=(--web-pane) ;;
       upload-relay) pair_upload+=(--upload-relay-only) ;;
       upload-block-udp) pair_upload+=(--upload-block-udp) ;;
       reconnect-drops=*)
         n="${word#reconnect-drops=}"
         [[ "$n" =~ ^[1-9][0-9]{0,2}(,[1-9][0-9]{0,2}){0,3}$ ]] || { echo "cmux-next-ios-sim.sh: reconnect-drops= wants up to 4 comma-separated seconds (1-999), got '$n'" >&2; exit 2; }
         pair_upload+=(--reconnect-drops "$n") ;;
-      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp and reconnect-drops=S,S, got '$word'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp, reconnect-drops=S,S and webpane, got '$word'" >&2; exit 2 ;;
     esac
   done
 fi

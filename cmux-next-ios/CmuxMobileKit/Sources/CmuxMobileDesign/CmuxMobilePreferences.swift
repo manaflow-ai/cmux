@@ -74,6 +74,9 @@ public enum CmuxMobilePreferences {
         /// Settings → Advanced → Site Monograms on Tab Cards (taste prototype, off by default): a
         /// browser card with no picture yet shows its site's letter on the site's hue, not the globe.
         public static let tabCardMonograms = "cmuxMobile.settings.tabCardMonograms"
+        /// Settings → Advanced → Web Agent Pane (off by default until tested on a phone): a chat's
+        /// More menu opens the Mac's React agent pane, run against acpmux over this phone's link.
+        public static let webAgentPane = "cmuxMobile.settings.webAgentPane"
         /// Settings → Needs You Look (the Mac's `notifications.attention.mark`, the same values):
         /// `badge` (default) or `glow`, a waiting workspace row that glows until it is opened.
         public static let attentionMark = "cmuxMobile.settings.attentionMark"
@@ -103,6 +106,7 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalHistoryFind = true
     public static let defaultDismissKeyboardAfterSend = true
     public static let defaultTabCardMonograms = false
+    public static let defaultWebAgentPane = false
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
     public static let defaultSwipeDownCollapsesComposer = false
@@ -238,6 +242,11 @@ public enum CmuxMobilePreferences {
     public static func tabCardMonograms(_ defaults: UserDefaults = .standard) -> Bool {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.tabCardMonograms) == nil ? defaultTabCardMonograms : defaults.bool(forKey: Key.tabCardMonograms)
+    }
+
+    /// Whether a chat offers the web agent pane (off by default).
+    public static func webAgentPane(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.webAgentPane) == nil ? defaultWebAgentPane : defaults.bool(forKey: Key.webAgentPane)
     }
 
     public static func compactWorkspaceList(_ defaults: UserDefaults = .standard) -> Bool {

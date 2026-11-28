@@ -446,6 +446,8 @@ public final class AgentChatSurface {
 public struct AgentChatScreen: View {
     let store: AgentChatStore
     @State private var surface = AgentChatSurface()
+    @AppStorage(CmuxMobilePreferences.Key.webAgentPane) private var webAgentPane = CmuxMobilePreferences.defaultWebAgentPane
+    @State private var showsWebPane = false
 
     public init(store: AgentChatStore) {
         self.store = store
@@ -458,6 +460,9 @@ public struct AgentChatScreen: View {
             .background(CmuxMobileChatBackdrop())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
+            .sheet(isPresented: $showsWebPane) {
+                if let host = store.source as? any AgentPaneWebHosting { host.agentPaneWebView() }
+            }
     }
 
     // MARK: Toolbar
@@ -505,6 +510,9 @@ public struct AgentChatScreen: View {
                 Button("Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true }
                 // Built when chosen: a ShareLink took the whole transcript on every streamed token.
                 Button("Share Transcript", systemImage: "square.and.arrow.up") { ChatShare.present(AgentChatSurface.transcriptText(store)) }
+                if webAgentPane, store.source is any AgentPaneWebHosting {
+                    Button("Open Web Pane", systemImage: "globe") { showsWebPane = true }
+                }
                 Button("Stop Agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
                     .disabled(!store.isRunning)
             } label: {
