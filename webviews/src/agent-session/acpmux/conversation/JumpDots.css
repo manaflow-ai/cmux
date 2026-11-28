@@ -87,18 +87,18 @@
 @media (prefers-reduced-motion: no-preference) {
   /* motion-allow: a look's opt-in working mark; runs only while the line or the shown button says the agent works. */
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
-    :is(.cv-jump-dots[data-inline], .acpmux-jump-latest[data-shown] .cv-jump-dots) {
+    :is(.cv-jump-dots[data-inline], .acpmux-jump-latest[data-shown] .cv-jump-dots)
     .cv-jump-dots__dot[data-dot="start"] {
-      animation: cv-jump-dots-start var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
-    }
-    .cv-jump-dots__dot[data-dot="middle"] {
-      animation: cv-jump-dots-middle var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
-    }
-    .cv-jump-dots__dot[data-dot="end"] {
-      animation: cv-jump-dots-end var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
-    }
+    animation: cv-jump-dots-start var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
   }
-  .acpmux-jump-latest[data-working-dots]:is(:hover, :focus-visible) {
-    --cv-jump-dot-play-state: paused;
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+    :is(.cv-jump-dots[data-inline], .acpmux-jump-latest[data-shown] .cv-jump-dots)
+    .cv-jump-dots__dot[data-dot="middle"] {
+    animation: cv-jump-dots-middle var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
+  }
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+    :is(.cv-jump-dots[data-inline], .acpmux-jump-latest[data-shown] .cv-jump-dots)
+    .cv-jump-dots__dot[data-dot="end"] {
+    animation: cv-jump-dots-end var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
   }
 }

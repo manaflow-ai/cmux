@@ -149,7 +149,8 @@
 /* The account card: a strip under the search row, in the flow over the rail and the models. Drawn
    over them, it hid the checked model (cmux#63167). The menu grows by its height as far as it has
    room (QuickModelColumns heightOf); past that the card scrolls as one block and the lists keep two
-   rows (.acpmux-cols-body:has(.acpmux-cols-card)). It never widens the menu: the columns set it. */
+   rows (.acpmux-cols-body[data-card], set while the card shows: a body-wide :has() was checked
+   again on every change under the body). It never widens the menu: the columns set it. */
 .acpmux-cols-card {
   contain: inline-size;
   flex: 0 1 auto;
@@ -159,13 +160,13 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.acpmux-cols-body:has(> .acpmux-cols-strips > .acpmux-cols-card) {
+.acpmux-cols-body[data-card] {
   grid-template-rows:
     auto minmax(0, max-content)
     minmax(calc(2 * var(--ds-control-row) + 2 * var(--acpmux-cols-pad)), 1fr);
 }
-.acpmux-cols-strips:has(> .acpmux-cols-card) { min-height: 0; overflow: hidden; }
-.acpmux-cols-strips:has(> .acpmux-cols-card) > :not(.acpmux-cols-card) { flex-shrink: 0; }
+.acpmux-cols-body[data-card] > .acpmux-cols-strips { min-height: 0; overflow: hidden; }
+.acpmux-cols-body[data-card] > .acpmux-cols-strips > :not(.acpmux-cols-card) { flex-shrink: 0; }
 .acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-space-3); }
 .acpmux-cols-card-who { display: flex; flex-direction: column; min-width: 0; }
 .acpmux-cols-card-name { color: var(--agent-text); font-weight: 600; }

@@ -68,7 +68,7 @@ function OneCardComposer() {
           <Icon name="composer.add" size={14} />
         </span>
         <span className="acpmux-managed-card-chip">
-          <Icon name="permission.ask" size={13} />
+          <Icon name="permission.ask" size={12} />
           Ask permissions
         </span>
         <span className="acpmux-managed-card-chip">Opus 5.5</span>

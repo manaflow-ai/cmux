@@ -30,7 +30,6 @@ const ALLOWED: Record<string, string> = {
  * its reason); the list only shrinks. */
 const KNOWN = new Set([
   // Landed on base after this list (2026-11-23 scan, cmux#50446); each still to move to :has(:focus-visible).
-  'src/agent-session/acpmux/composerV2.css: :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within::after',
   "src/agent-session/acpmux/conversation/conversation.css: .cv-user:focus-within .cv-user__queued-hover",
   "src/agent-session/acpmux/harnessUpdates.css: .acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal]",
   "src/agent-session/acpmux/header/header.css: .acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant]",
@@ -100,7 +99,7 @@ export function focusWithinReveals(css: string): string[] {
   const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const found: string[] = [];
   for (const [, prelude, body] of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (!/opacity\s*:\s*1(?![\d.])|visibility\s*:\s*visible/.test(body!)) continue;
+    if (!/(?<![\w-])opacity\s*:\s*1(?![\d.])|(?<![\w-])visibility\s*:\s*visible/.test(body!)) continue;
     for (const selector of selectors(prelude!)) if (selector.includes(":focus-within")) found.push(selector);
   }
   return found;
@@ -114,6 +113,8 @@ test("the scanner finds a reveal held by :focus-within and leaves the keyboard's
   expect(focusWithinReveals(".row:is(:hover, :has(:focus-visible)) .act { opacity: 1; }")).toEqual([]);
   // A focus rim or a partial fade is no reveal.
   expect(focusWithinReveals(".box:focus-within { border-color: red; opacity: 0.6; }")).toEqual([]);
+  // content-visibility and fill-opacity are not a reveal (terminal-history/styles.css draws a focused turn whole).
+  expect(focusWithinReveals(".t:focus-within { content-visibility: visible; fill-opacity: 1; }")).toEqual([]);
   expect(focusWithinReveals("/* .a:focus-within { opacity: 1 } */")).toEqual([]);
 });
 

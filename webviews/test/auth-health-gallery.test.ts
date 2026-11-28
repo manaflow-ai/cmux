@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { AFTER_PAINT_CAP_MS } from "../src/agent-session/acpmux/afterNextPaint";
 import { readFileSync } from "node:fs";
 import strings from "../src/agent-session/acpmux/generated/strings.json";
 import type { PlayContext } from "../src/gallery/play";
@@ -217,7 +218,14 @@ test("a same-target recheck keeps known refusal, while A-B-A discards the old se
     recheck = result.recheck;
     return null;
   }
-  const render = (sessionId: string) => act(async () => root.render(createElement(Probe, { sessionId })));
+  // A new selection reads its sign-in after the frame that draws it (#49246), so each render lets
+  // that frame pass: jsdom paints none, so the read goes out at afterNextPaint's cap. act renders
+  // when its callback returns, so the wait is a second act.
+  const frame = () => act(() => new Promise((resolve) => setTimeout(resolve, AFTER_PAINT_CAP_MS + 20)));
+  const render = async (sessionId: string) => {
+    await act(async () => root.render(createElement(Probe, { sessionId })));
+    await frame();
+  };
   try {
     await render("A");
     expect(pending[0]!.refresh).toBe(true);
@@ -231,9 +239,13 @@ test("a same-target recheck keeps known refusal, while A-B-A discards the old se
     await act(async () => recheck());
     await render("B");
     await render("A");
-    expect(state).toBe("unknown");
-    await act(async () => pending[2]!.resolve({ state: "expired", source: "turn", evidenceAt: 1, fromSessionId: "A" }));
-    expect(state).toBe("unknown");
+    // A chat shown again draws its last answer at once (#57454); the old selection's late reply is
+    // still discarded, so it cannot change what A shows.
+    expect(state).toBe("expired");
+    await act(async () =>
+      pending[2]!.resolve({ state: "signedOut", source: "turn", evidenceAt: 1, fromSessionId: "A" }),
+    );
+    expect(state).toBe("expired");
     await act(async () => pending[4]!.resolve({ state: "ready", source: "turn", evidenceAt: 2, fromSessionId: "A" }));
     expect(state).toBe("ready");
     expect(pending[4]!.refresh).toBe(true);
@@ -257,10 +269,13 @@ test("old-daemon and wrong-host target replies settle unknown without blocking",
     return null;
   }
   try {
+    const frame = () => act(() => new Promise((resolve) => setTimeout(resolve, AFTER_PAINT_CAP_MS + 20)));
     await act(async () => (root.render(createElement(Probe, { epoch: 0 })), Promise.resolve()));
+    await frame();
     expect([result?.auth.state, result?.pending]).toEqual(["unknown", false]);
     reply = { state: "signedOut", source: "turn", evidenceAt: 1, host: "other" };
     await act(async () => (root.render(createElement(Probe, { epoch: 1 })), Promise.resolve()));
+    await frame();
     expect([result?.auth.state, result?.pending]).toEqual(["unknown", false]);
   } finally {
     await act(async () => root.unmount());

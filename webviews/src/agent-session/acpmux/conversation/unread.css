@@ -8,7 +8,7 @@
 .cv-since,
 .acpmux-since-jump {
   --unread-accent: var(--cmux-app-accent, var(--agent-text));
-  --unread-on-accent: var(--cmux-app-on-accent, var(--agent-page-bg));
+  --unread-on-accent: var(--cmux-app-on-accent, var(--acpmux-base, Canvas));
   --unread-accent-text: var(--cmux-app-accent-text, var(--unread-accent));
   --unread-wash: color-mix(in srgb, var(--agent-text) 6%, transparent);
   --unread-separator: color-mix(in srgb, var(--agent-text) 14%, transparent);
@@ -283,7 +283,11 @@
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
   .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap]))
   + :is(.acpmux-worked, .acpmux-working)
-  :is(.cv-worked.has-divider, .cv-worked.has-divider::after) {
+  .cv-worked.has-divider,
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap]))
+  + :is(.acpmux-worked, .acpmux-working)
+  .cv-worked.has-divider::after {
   transition: none;
 }
 

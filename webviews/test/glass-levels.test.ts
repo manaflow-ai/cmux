@@ -127,8 +127,9 @@ test("Session Info is the popover level; the composer and the running tray share
   expect(info).toContain("var(--ds-glass-popover-blur)");
   expect(info).toContain("var(--ds-glass-popover-art-tint)");
   const composer = source("agent-session/acpmux/composerStates.css");
+  // The theme's hat fill (--cmux-composer-hat-fill, #50119) may stand in front of the material.
   expect(composer).toMatch(
-    /--acpmux-stack-tint: color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-transient-web-tint\)/,
+    /--acpmux-stack-tint: (?:var\(\s*--cmux-composer-hat-fill,\s*)?color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-transient-web-tint\)/,
   );
   expect(composer).toContain(
     "--acpmux-stack-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",

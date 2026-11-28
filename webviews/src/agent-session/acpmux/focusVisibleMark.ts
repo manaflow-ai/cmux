@@ -9,13 +9,16 @@
 // key press, since a key can turn a pointer-placed focus visible. It calls `onChange` only when the
 // answer changes: a keystroke writes nothing.
 
+import { FOCUS_MODALITY_ATTRIBUTE, focusRingShown } from "../../ui/focusModality";
+
 /// Whether a descendant of `scope` (not `scope` itself, as `:has()` reads) is focused and matches
 /// `:focus-visible`.
 export function focusVisibleWithin(scope: Element): boolean {
   const active = scope.ownerDocument.activeElement;
   if (!active || active === scope || !scope.contains(active)) return false;
   try {
-    return active.matches(":focus-visible");
+    // As the build gates `:has(:focus-visible)` in CSS: the ring the keyboard earned (focusModality).
+    return focusRingShown(active);
   } catch {
     // An engine without `:focus-visible` (jsdom before 22) reads focus alone.
     return active.matches(":focus");
@@ -41,7 +44,13 @@ export function watchFocusVisible(scope: HTMLElement, onChange: (focused: boolea
   scope.addEventListener("keydown", check, true);
   view?.addEventListener("focus", check);
   view?.addEventListener("blur", check);
+  // A click or pointer move takes the ring away without moving focus (focusModality): read again
+  // when the page's modality changes, as the CSS gate does.
+  const Observer = view?.MutationObserver;
+  const modality = Observer ? new Observer(check) : undefined;
+  modality?.observe(scope.ownerDocument.documentElement, { attributeFilter: [FOCUS_MODALITY_ATTRIBUTE] });
   return () => {
+    modality?.disconnect();
     scope.removeEventListener("focusin", check);
     scope.removeEventListener("focusout", checkAfterMove);
     scope.removeEventListener("keydown", check, true);

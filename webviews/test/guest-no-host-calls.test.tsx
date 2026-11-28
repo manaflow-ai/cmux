@@ -44,6 +44,9 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  // jsdom has no CSS namespace; the motion owner (#50251) finds a row by `CSS.escape`d id when a
+  // disclosure toggles, as needs-you-window.test.tsx stubs it.
+  CSS: { escape: (value: string) => value.replace(/["\\]/g, "\\$&") },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation|MouseEvent|PointerEvent|KeyboardEvent)/.test(key) && !(key in scope))

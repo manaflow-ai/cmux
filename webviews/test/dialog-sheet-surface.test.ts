@@ -58,8 +58,15 @@ test("the sheet role is one rule: veil, radius, depth and the Reduce Transparenc
   );
   // The corner is the button corner plus --ui-dialog-padding (the padding that a dialog must pad with).
   // It is concentric with the buttons only of a dialog that pads with that token.
-  expect(sheet!.body).toContain("--ui-dialog-padding: var(--ds-space-5)");
-  expect(sheet!.body).toContain("border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding))");
+  // The component tokens (#56335) name the same numbers: the dialog inset is --ds-space-5 and the control
+  // corner --ds-radius-control (pages/shared/desktop.css), with the host's --cmux-dialog-* overrides first.
+  expect(sheet!.body).toContain("--ui-dialog-padding: var(--cmux-dialog-padding, var(--role-dialog-inset))");
+  expect(sheet!.body).toContain(
+    "border-radius: var(--cmux-dialog-radius, calc(var(--role-control-radius) + var(--ui-dialog-padding)))",
+  );
+  const desktop = read("pages/shared/desktop.css");
+  expect(desktop).toMatch(/--role-dialog-inset: var\(--ds-space-5\);/);
+  expect(desktop).toMatch(/--role-control-radius: var\(--ds-radius-control\);/);
   expect(sheet!.body).toContain("--glass-elevation: var(--elevation-2)");
   expect(sheet!.body).toContain("--glass-opaque: var(--surface-popup)");
 });
@@ -116,9 +123,10 @@ test("the Share dialog's buttons and selects are the shared controls, one height
   const dialog = read("agent-session/acpmux/share/ShareDialog.tsx");
   // The add row's role select is a shared button (controls.css draws `.ui-select-button.ui-btn`), so it
   // reads as a control with its chevron in the pane, which loads no ui.css; the big rows (General
-  // access, each person) are whole-row pickers (ShareDialog.test.tsx).
+  // access, each person) are whole-row pickers (ShareDialog.test.tsx). An access request's role (#54645) is
+  // the same shared select.
   const selects = dialog.match(/<Select\b[\s\S]*?\/>/g) ?? [];
-  expect(selects.length).toBe(1);
+  expect(selects.length).toBe(2);
   for (const select of selects) expect(select).toContain('buttonClassName="ui-btn"');
   expect(read("ui/controls.css")).toMatch(/\.ui-button\.ui-btn\.ui-select-button\s*\{/);
   // One solid button (Done); no size other than the default row height.
