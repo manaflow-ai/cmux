@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "composer.queueSideChat" : {
-      "comment" : "Agent pane: item in a queued message's ⋯ menu; takes the message out of the queue and asks it in a new side chat beside this one, as /btw does",
+      "comment" : "Agent pane: item in a queued message's right-click menu; takes the message out of the queue and asks it in a new side chat beside this one, as /btw does",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {

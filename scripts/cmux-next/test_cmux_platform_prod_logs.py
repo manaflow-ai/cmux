@@ -262,10 +262,45 @@ class GuardTests(unittest.TestCase):
         for leak in (VM, logs.base.tag(VM), "hunter2", "1795721451000"):
             self.assertNotIn(leak, text)
 
+    def test_cmux_vm_window_keeps_a_vm_create_lines_send_cause_and_drops_the_rest(self):
+        # cmux#65221: what the provider answered the create POST, and why a failed send failed (cmuxterm-hq#37692).
+        cut = event({"event": "vm_create", "vmId": VM, "ok": False, "createMs": 44512, "totalMs": 44600,
+                     "send": {"sendStatus": "none", "sendError": "timeout", "sendMs": 44500, "body": "hunter2"},
+                     "failStatus": "none", "createCut": True, "failKind": "hunter2"})
+        refused = event({"event": "vm_create", "vmId": VM, "ok": False, "createMs": 300, "totalMs": 420,
+                         "send": {"sendStatus": 503, "sendMs": 290}, "failStatus": 503, "createCut": False,
+                         "failKind": "capacity_overloaded"})
+        polled = event({"event": "vm_create", "vmId": VM, "ok": True, "createMs": 21000, "totalMs": 22000,
+                        "send": {"sendStatus": 202, "sendMs": 20010, "polls": 3, "pollFails": 0,
+                                 "lastPollStatus": 201, "sendError": "hunter2 " + VM},
+                        "failStatus": 9999})
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "vm_create"})
+        try:
+            code, out, _, upload = run_main(["--from", "2026-11-26T19:30:30Z", "--from-event", path],
+                                            response={"result": {"events": {"events": [cut, refused, polled]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, _, rows = upload.call_args.args
+        logs_kept = [r["log"] for r in rows]
+        self.assertIn({"event": "vm_create", "ok": False, "createCut": True, "createMs": 44512, "totalMs": 44600,
+                       "send": {"sendStatus": "none", "sendError": "timeout", "sendMs": 44500},
+                       "failStatus": "none"}, logs_kept)
+        self.assertIn({"event": "vm_create", "ok": False, "createCut": False, "createMs": 300, "totalMs": 420,
+                       "send": {"sendStatus": 503, "sendMs": 290}, "failStatus": 503,
+                       "failKind": "capacity_overloaded"}, logs_kept)
+        self.assertIn({"event": "vm_create", "ok": True, "createMs": 21000, "totalMs": 22000,
+                       "send": {"sendStatus": 202, "sendMs": 20010, "polls": 3, "pollFails": 0,
+                                "lastPollStatus": 201}}, logs_kept)
+        text = json.dumps(rows) + out
+        for leak in (VM, logs.base.tag(VM), "hunter2", "9999"):
+            self.assertNotIn(leak, text)
+
     def test_cmux_vm_window_keeps_a_vm_start_lines_split_and_drops_its_ids(self):
         # handlers/vms.ts timedStart: startMs is the provider's start call, totalMs the handler's whole time.
         start = event({"event": "vm_start", "vmId": VM, "route": "start", "ok": True, "stateBefore": None,
-                       "stateAfter": "running", "ownMs": 140, "gateMs": 0, "startMs": 412, "totalMs": 1630})
+                       "stateAfter": "running", "ownMs": 140, "gateMs": 0, "rateMs": 120, "ownReadMs": 31,
+                       "startMs": 412, "totalMs": 1630})
         resume = event({"event": "vm_start", "vmId": VM, "route": "hunter2", "ok": False, "stateBefore": "hunter2 " + VM,
                         "stateAfter": "paused", "readMs": 88, "startMs": 300, "totalMs": 420})
         path = event_file({"service": VM_PROD, "id": "window", "needles": "vm_start"})
@@ -278,7 +313,7 @@ class GuardTests(unittest.TestCase):
         _, _, rows = upload.call_args.args
         logs_kept = sorted((r["log"] for r in rows), key=json.dumps)
         self.assertIn({"event": "vm_start", "ok": True, "route": "start", "stateAfter": "running", "ownMs": 140,
-                       "gateMs": 0, "startMs": 412, "totalMs": 1630}, logs_kept)
+                       "gateMs": 0, "rateMs": 120, "ownReadMs": 31, "startMs": 412, "totalMs": 1630}, logs_kept)
         self.assertIn({"event": "vm_start", "ok": False, "stateAfter": "paused", "readMs": 88, "startMs": 300,
                        "totalMs": 420}, logs_kept)
         text = json.dumps(rows) + out
@@ -721,6 +756,19 @@ class NeverBoundTests(unittest.TestCase):
                                       "run_ms": 2128, "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050}})
         self.assertIn("cloud.create.approved", logs.PLATFORM_MSGS)
 
+
+    def test_carrier_delete_keeps_site_machine_and_callers(self):
+        """Production 2026-11-28 21:31:50Z: a probe's own new machine was deleted mid-request under its install, and no
+        kept line named the path that asked. cmux-platform#2614 logs cloud.carrier.delete at each platform delete."""
+        at = ("at Scaler.sweepEach (index.js:7463:15) < at async Scaler.alarm (index.js:900:3) < "
+              "at /srv/hunter2/x.js:1:1")
+        row = logs.line(event({"msg": "cloud.carrier.delete", "machine": VM, "site": "destroy", "at": at}))
+        self.assertEqual(row["log"]["site"], "destroy")
+        self.assertEqual(row["log"]["callers"], ["Scaler.sweepEach", "Scaler.alarm"])
+        self.assertIn("machine", row["log"])
+        self.assertNotIn("hunter2", json.dumps(row))
+        bare = logs.line(event({"msg": "cloud.carrier.delete", "machine": VM, "site": "size_mismatch"}))
+        self.assertNotIn("callers", bare["log"])
     def test_a_large_row_scan_keeps_its_table_counts_and_caller_names_only(self):
         """Staging 2026-11-28 04:40-05:06Z (ask-6b8661d57a): cmux-platform#2511's cloud.rows.scan_large was unlisted,
         so the read meant to name the CloudDO's CPU-heavy scan kept 0 rows."""
@@ -1052,6 +1100,75 @@ class IdNeedleTests(unittest.TestCase):
         with_id, without = (json.loads(r.data) for r in sent)
         self.assertEqual(with_id["parameters"]["needle"], {"value": VM, "isRegex": False, "matchCase": True})
         self.assertNotIn("needle", without["parameters"])
+
+
+
+class TeamOfTests(unittest.TestCase):
+    """A team read needs the platform's own team id: run 46158958288 read another namespace's team id and scanned 0
+    events (hq#37691) while the machine's own lines named a different team (hq#37638)."""
+
+    def args(self, ident, service=STAGING):
+        return ["--from", "2026-11-28T15:14:00Z", "--minutes", "16", "--service", service, "--id", ident,
+                "--needles", "cloud.machine.test_reaped"]
+
+    def test_reads_the_one_team_the_machines_own_lines_name(self):
+        machine_line = event({"msg": "cloud.create.submit", "team": TEAM, "machine": VM})
+        reaped = event({"event": "cloud.machine.test_reaped", "team": TEAM, "machine": "vm_other"})
+        foreign = event({"event": "cloud.machine.test_reaped", "team": "team_foreign", "machine": "vm_other"})
+        replies = [{"result": {"events": {"events": [machine_line, foreign]}}},
+                   {"result": {"events": {"events": [machine_line, reaped, foreign]}}}]
+        output = io.StringIO()
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", ["logs", *self.args("team_of:" + VM)]), \
+                patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), patch.object(logs.sys, "stdout", output), \
+                patch.object(logs, "query", side_effect=replies) as query, \
+                patch.object(logs.base, "private_destination", return_value="fixture-hq-token"), \
+                patch.object(logs.base, "private_upload", return_value="https://example/issues/9") as up:
+            self.assertEqual(logs.main(), 0)
+        self.assertEqual([c.kwargs.get("needle") for c in query.call_args_list], [VM, TEAM])
+        header, rows = up.call_args.args[1], up.call_args.args[2]
+        self.assertEqual(header["id_kind"], "team")
+        self.assertEqual(header["id"], logs.base.tag(TEAM))
+        self.assertEqual(header["team_of"], logs.base.tag(VM))
+        self.assertEqual(header["events_in_window"], 2)
+        public = output.getvalue()
+        self.assertNotIn(TEAM, public)
+        self.assertNotIn(VM, public)
+        self.assertNotIn(TEAM, json.dumps([header, rows]))
+
+    def test_none_or_several_teams_refuse_before_a_team_query(self):
+        cases = {
+            "none": [event({"msg": LISTED, "machine": VM})],
+            "several": [event({"msg": LISTED, "machine": VM, "team": TEAM}),
+                        event({"msg": LISTED, "machine": VM, "team": "team_foreign"})],
+            "conflicting line": [event({"msg": LISTED, "machine": VM, "team": TEAM, "teamId": "team_foreign"})],
+            "not a team id": [event({"msg": LISTED, "machine": VM, "team": "acme"})],
+        }
+        for name, events in cases.items():
+            with self.subTest(case=name):
+                code, out, query, up = run_main(self.args("team_of:" + VM),
+                                                response={"result": {"events": {"events": events}}})
+                self.assertIsInstance(code, SystemExit)
+                self.assertIn("not one", str(code))
+                self.assertNotIn(VM, str(code))
+                self.assertEqual(query.call_count, 1)
+                up.assert_not_called()
+
+    def test_refuses_on_cmux_vm_and_bad_forms(self):
+        for ident, service in (("team_of:" + VM, VM_STAGING), ("team_of:" + TEAM, STAGING), ("team_of:", STAGING)):
+            with self.subTest(ident=ident, service=service):
+                code, _, query, _ = run_main(self.args(ident, service))
+                self.assertIsInstance(code, SystemExit)
+                query.assert_not_called()
+
+    def test_a_machine_read_names_its_lines_team_tags(self):
+        own = event({"msg": LISTED, "machine": VM, "team": TEAM})
+        head, _ = logs.publish([own, event({"msg": LISTED, "machine": "vm_other", "team": "team_foreign"})], [LISTED], VM)
+        self.assertEqual(head["teams"], [logs.base.tag(TEAM)])
+        head, _ = logs.publish([event({"msg": LISTED, "machine": VM})], [LISTED], VM)
+        self.assertNotIn("teams", head)
+        head, _ = logs.publish([own], [LISTED], TEAM)
+        self.assertNotIn("teams", head)
 
 
 if __name__ == "__main__":

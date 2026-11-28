@@ -10,6 +10,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_advisory_job_names.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_api_workerd_green_marker.py"
 lane = "linux-guard"
 
@@ -681,6 +685,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_mobile_ffi_pin.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_mobile_live_tests_guard_ios_only_types.py"
 lane = "linux-guard"
 
 [[test]]

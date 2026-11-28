@@ -15,7 +15,10 @@
 # took every slot from 21:49Z and every deploy stopped at the ordering gate with 53300 (cmux#39920 measured it:
 # 12 of 13 backends were Hyperdrive's). So staging gets 10 and preview 5, which leaves room for the gate,
 # migrate-staging, the preview pool and an admin. Hyperdrive's limit is soft, so it stays well under the slots.
-# Production keeps its current limit. HYPERDRIVE_ORIGIN_CONNECTION_LIMIT (5..100) overrides it.
+# Production gets 10 too: on 2026-11-28 it had no limit (default 60) and its database was full (53300) from 20:02Z,
+# so migrate-production and the deploy gate failed and the Worker's store reads 503'd (about 320 failed queries a
+# minute at 21:10Z). 10 carries staging's drill load (40 creates in 6 min, 0 503s). HYPERDRIVE_ORIGIN_CONNECTION_LIMIT
+# (5..100) overrides it; read db-connections-production's report before raising it.
 #
 # Needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (and CMUX_VM_DATABASE_URL
 # for ensure). Never prints the token, the database URL or response bodies.
@@ -26,7 +29,7 @@ config_name="${2:-}"
 case "$config_name" in
   cmux-vm-staging) default_limit=10 ;;
   cmux-vm-preview) default_limit=5 ;;
-  cmux-vm-production) default_limit="" ;;
+  cmux-vm-production) default_limit=10 ;;
   *) echo "::error::config name must be cmux-vm-preview, cmux-vm-staging or cmux-vm-production" >&2; exit 2 ;;
 esac
 export HYPERDRIVE_ORIGIN_CONNECTION_LIMIT="${HYPERDRIVE_ORIGIN_CONNECTION_LIMIT:-$default_limit}"

@@ -881,6 +881,7 @@ impl Hub {
             spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
             created_by: m.created_by.clone(),
             pull_requests: m.pull_requests.clone(),
+            taint: super::taint::letters(&m.taint),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
             depth: lineage.as_ref().map_or(0, |l| l.depth),
