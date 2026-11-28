@@ -357,23 +357,33 @@ def thread_delta(before, after):
     return [{"name": n, "tid": t, "delta": d, **m} for n, t, d, m in rows[:10]]
 
 
-def wakers(tids, seconds=5):
-    """Who wakes `tids` (sudo bpftrace where the machine has it, else {}): per woken thread, the waking task's
-    name and kernel stack at sched_wakeup, and the signals made for them. A wake that never returns to userspace
-    (a futex sleep the kernel restarts) shows here and nowhere else."""
+def wakers_start(tids, seconds):
+    """Who wakes `tids` over the next `seconds` (sudo bpftrace where the machine has it, else None): the waking
+    task's name and kernel stack at each sched_wakeup, and the signals made for them. A wake that never returns
+    to userspace (a futex sleep the kernel restarts) shows here and nowhere else. Read it with `wakers_read`."""
     if not tids or not shutil.which("bpftrace"):
-        return {}
+        return None
     cond = " || ".join(f"args->pid == {int(t)}" for t in tids)
-    scond = " || ".join(f"args->pid == {int(t)}" for t in tids)
     prog = ("tracepoint:sched:sched_wakeup /" + cond + "/ { @w[args->pid, comm, kstack(6)] = count(); } "
-            "tracepoint:signal:signal_generate /" + scond + "/ { @s[args->pid, args->sig, comm] = count(); } "
+            "tracepoint:signal:signal_generate /" + cond + "/ { @s[args->pid, args->sig, comm] = count(); } "
             f"interval:s:{int(seconds)} {{ exit(); }}")
     try:
-        ran = subprocess.run(["sudo", "-n", "bpftrace", "-e", prog], capture_output=True, text=True,
-                             timeout=seconds + 60)
-        out = ran.stdout
-    except (OSError, subprocess.SubprocessError) as exc:
-        return {"error": str(exc)[:200]}
+        return subprocess.Popen(["sudo", "-n", "bpftrace", "-e", prog], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+    except OSError:
+        return None
+
+
+def wakers_read(proc, timeout=60):
+    """`wakers_start`'s counts by (woken tid, waker, stack); {} with no bpftrace."""
+    if proc is None:
+        return {}
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.SubprocessError as exc:
+        proc.kill()
+        out, err = proc.communicate()
+        err = f"{exc} {err}"
     found = {}
     for block in out.split("@")[1:]:
         head, _, count = block.rpartition("]:")
@@ -383,7 +393,7 @@ def wakers(tids, seconds=5):
         except (ValueError, IndexError):
             pass
     if not found:
-        found["none " + (ran.stderr.strip().replace("\n", " | ")[-300:] or "no wakes")] = 0
+        found["none " + ((err.strip() + " " + out.strip()).replace("\n", " | ")[-300:] or "no wakes")] = 0
     return found
 
 
@@ -397,11 +407,16 @@ def idle_window(top, seconds, disks):
         tui_timers = "-"
     before = snapshot(top)
     log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
+    tracer = wakers_start(sorted(tui_threads), seconds)
     syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds, every=0.02,
                                 futexes=True)
     after = snapshot(top)
     threads = thread_delta(tui_threads, thread_detail(top.get("tui")))
-    woken_by = wakers([row["tid"] for row in threads[:3]])
+    woken_by = wakers_read(tracer)
+    # The same threads' wakes over a second window with no sampler reading their /proc files.
+    quiet_at = thread_detail(top.get("tui"))
+    time.sleep(seconds)
+    quiet = thread_delta(quiet_at, thread_detail(top.get("tui")))
     pids_made = last_pid() - pid_at
     commits, wakes, asked = {}, {}, set()
     if log_at is not None:
@@ -474,7 +489,8 @@ def idle_window(top, seconds, disks):
     return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits,
             "syncer": syncer, "window": seconds,
             "wakes": wakes, "wake_terminals": len(asked),
-            "threads": threads, "pids_made": pids_made, "timers": tui_timers, "wakers": woken_by}
+            "threads": threads, "pids_made": pids_made, "timers": tui_timers, "wakers": woken_by,
+            "quiet": quiet}
 
 
 def busy_thread_states(pid, name, seconds, every=0.2, futexes=False):
@@ -1204,6 +1220,9 @@ def report(results):
                 woke.add(row["tid"])
                 print(f"INFINITE-THREAD {n} day={s['day']} {row['name']}/{row['tid']} {json.dumps(row['delta'])} "
                       f"blk={row.get('SigBlk')} cgt={row.get('SigCgt')} pnd={row.get('SigPnd')}/{row.get('ShdPnd')}",
+                      flush=True)
+            for row in s.get("quiet", []):
+                print(f"INFINITE-QUIET {n} day={s['day']} {row['name']}/{row['tid']} {json.dumps(row['delta'])}",
                       flush=True)
             for key, count in sorted(s.get("wakers", {}).items(), key=lambda kv: -kv[1] if isinstance(kv[1], int) else 0)[:12]:
                 print(f"INFINITE-WAKER {n} day={s['day']} {count} {key}", flush=True)
