@@ -50,23 +50,18 @@ await requireBrowserLane("agent-pane-scroll-render-count.test.ts", async () => {
   });
 
   /// Two frames and a task after them: whatever the event scheduled has committed.
-  const settle = (page: Page, ms = 0) =>
+  const settle = (page: Page) =>
     page.evaluate(
-      (wait) =>
+      () =>
         new Promise<void>((resolve) =>
-          setTimeout(
-            () =>
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
-                  const channel = new MessageChannel();
-                  channel.port1.onmessage = () => resolve();
-                  channel.port2.postMessage(0);
-                }),
-              ),
-            wait,
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const channel = new MessageChannel();
+              channel.port1.onmessage = () => resolve();
+              channel.port2.postMessage(0);
+            }),
           ),
         ),
-      ms,
     );
 
   test(`a 40 px scroll step up a ${TURNS}-turn chat re-renders at most ${MAX_RENDERS_PER_STEP} components, the composer at most ${MAX_COMPOSER_RENDERS} times in ${STEPS}`, async () => {
@@ -84,12 +79,18 @@ await requireBrowserLane("agent-pane-scroll-render-count.test.ts", async () => {
     )) as Record<string, unknown>;
     expect(seeded.error).toBeUndefined();
     await page.locator(PROMPT).first().waitFor({ timeout: 20_000 });
-    await settle(page, 1500); // fixed-wait: the open's read-ahead and fonts land first, as the bench does.
+    // The open's read-ahead and fonts land first, as the bench does.
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    // fixed-wait: the read-ahead has no event to wait on; the bench waits the same 1.5 s before it measures.
+    await page.waitForTimeout(1500);
+    await settle(page);
 
     await page.locator(".acpmux-scroll").hover();
     // One step first, outside the window: the first scroll up leaves the followed end, a state change of its own.
+    const start = await page.evaluate(() => document.querySelector(".acpmux-scroll")!.scrollTop);
     await page.mouse.wheel(0, -40);
-    await settle(page, 300);
+    await page.waitForFunction((top) => document.querySelector(".acpmux-scroll")!.scrollTop !== top, start);
+    await settle(page);
     const before = await page.evaluate(() => document.querySelector(".acpmux-scroll")!.scrollTop);
     await renderCountsReset(page);
     for (let i = 0; i < STEPS; i += 1) {
