@@ -34,12 +34,30 @@ struct MacScreenHomeSnapshot: Equatable {
         var macScreenShared: Bool
         /// This Mac's access to it.
         var access: MacScreenAccess
+        /// The SF Symbol of the kind of device it is (a MacBook, a Mac mini), from its hub record;
+        /// nil when it never said, and the row draws the iPhone or desktop icon it drew before.
+        var symbol: String?
+
         /// The hub's online word is current (this Mac's own hub link is up); false: `online` may be stale.
         var onlineKnown = true
         /// Set up cmux, Start cmux and the run's steps (a Mac only, when the daemon knows `device-setup`).
         var setup = MacScreenDeviceSetupRow.none
         /// The hub's platform (nil: a record from before platforms; `glyph`, `viewable` read it).
         var platform: DevicePlatform?
+
+        /// The row of `device`, one of the user's devices, with this Mac's access to it.
+        init(_ device: HubDevice, access: MacScreenAccess, hubConnected: Bool = true, setup: MacScreenDeviceSetupRow = .none) {
+            self.init(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
+                      macScreenShared: device.macScreenShared, access: access,
+                      symbol: DeviceGlyphKind(name: device.kind)?.symbol, onlineKnown: hubConnected, setup: setup, platform: device.platform)
+        }
+
+        init(id: String, name: String, isPhone: Bool, online: Bool, macScreenShared: Bool = true,
+             access: MacScreenAccess, symbol: String? = nil, onlineKnown: Bool = true, setup: MacScreenDeviceSetupRow = .none, platform: DevicePlatform? = nil) {
+            self.id = id; self.name = name; self.isPhone = isPhone; self.online = online
+            self.macScreenShared = macScreenShared; self.access = access; self.symbol = symbol
+            self.onlineKnown = onlineKnown; self.setup = setup; self.platform = platform
+        }
     }
 
     /// Your Devices: a note (signed out, loading, none shared) or the list.
@@ -179,9 +197,7 @@ struct MacScreenHomeSnapshot: Equatable {
     /// One hub device as the page shows it.
     static func device(_ device: HubDevice, access: MacScreenAccess, hubConnected: Bool,
                        setup: MacScreenDeviceSetupRow = .none) -> Device {
-        Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
-               macScreenShared: device.macScreenShared, access: access, onlineKnown: hubConnected, setup: setup,
-               platform: device.platform)
+        Device(device, access: access, hubConnected: hubConnected, setup: setup)
     }
 
     /// Whether the page opens with the first-use steps: until this Mac has shared or viewed once.

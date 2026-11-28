@@ -209,6 +209,10 @@ fn the_license_gate_stops_a_third_party_gpl_or_unlicensed_crate() {
             "own-name-from-registry",
             vec![("cmux-rd-core", Some("GPL-3.0-or-later"), REGISTRY, None)],
         ),
+        (
+            "device-kind-from-registry",
+            vec![("cmux-device-kind", Some("GPL-3.0-or-later"), REGISTRY, None)],
+        ),
     ] {
         let out = gate_on(case, &deps);
         assert!(!out.status.success(), "{case}: the gate passed:\n{}", text(&out.stdout));
@@ -220,6 +224,7 @@ fn the_license_gate_stops_a_third_party_gpl_or_unlicensed_crate() {
 fn the_license_gate_passes_own_permissive_and_unlinked_crates() {
     let deps = [
         ("cmux-rd-core", Some("GPL-3.0-or-later"), None, None),
+        ("cmux-device-kind", Some("GPL-3.0-or-later"), None, None),
         ("serde", Some("MIT OR Apache-2.0"), REGISTRY, None),
         ("either-thing", Some("GPL-3.0-or-later OR MIT"), REGISTRY, None),
         ("mpl-thing", Some("MPL-2.0"), REGISTRY, None),

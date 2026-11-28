@@ -2020,7 +2020,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            plugins: ["DeviceGlyphGeneratorPlugin"]
         ),
         .testTarget(
             name: "CmuxNextDevicesTests",
@@ -3181,7 +3182,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
-    ] + [appFFI]
+    ] + [appFFI, .plugin(name: "DeviceGlyphGeneratorPlugin", capability: .buildTool(), path: "Plugins/DeviceGlyphGeneratorPlugin")]
 
 /// Targets in the Linux shape, each with every dependency it names also in it.
 let linuxTargetNames: Set<String> = [

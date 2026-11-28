@@ -79,6 +79,8 @@ interface DeviceRow {
   mac_screen_chosen: number;
   /** The device's own screen-sharing status JSON. */
   screen_share: string | null;
+  /** What kind of device it is (`macbook`, `mac-mini`, `iphone`: cmux-device-kind's wire names); null when it never said. */
+  kind: string | null;
 }
 
 /** A client's `machineKey`: lowercase hex SHA-256 of a hardware id (PROTOCOL.md, One record per machine). */
@@ -202,7 +204,7 @@ CREATE TABLE IF NOT EXISTS devices(
   removed_at INTEGER, mac_screen_shared INTEGER NOT NULL DEFAULT 0,
   name_pinned INTEGER NOT NULL DEFAULT 0,
   owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '',
-  machine_id TEXT, app_id TEXT);
+  machine_id TEXT, app_id TEXT, machine TEXT, kind TEXT);
 CREATE TABLE IF NOT EXISTS permissions(
   host_id TEXT NOT NULL, viewer_id TEXT NOT NULL, scope TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -255,6 +257,9 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["sessions", "relay_paid", "INTEGER"],
   ["sessions", "relay_read_at", "INTEGER"],
   ["sessions", "relay_unread_at", "INTEGER"],
+  // What kind of device it is (PROTOCOL.md, Devices). Nullable: a row from before it, and a device
+  // whose app never sent one, read as unknown, and the apps draw their old icon.
+  ["devices", "kind", "TEXT"],
 ];
 
 /** What a ticket, `/ice` and `/me` say when billing gave no answer: never "free". */
@@ -284,6 +289,19 @@ function hasTurn(ice: IceServer[]): boolean {
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
 const MACHINE = /^[0-9a-f]{64}$/;
+
+/** A device kind's wire name (`mac-mini`, `linux-server`): lowercase words joined by `-`. Any such
+ * name is kept, so a newer app's kind needs no hub change; an app that does not know it draws its
+ * old icon. */
+const DEVICE_KIND = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+/** The register body's `kind`: absent or null is none, and so is a string that is not a wire name of
+ * at most 32 characters (an icon is never worth a failed registration); any other type is refused. */
+function deviceKind(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "string") throw badRequest("kind must be a string");
+  return v.length <= 32 && DEVICE_KIND.test(v) ? v : null;
+}
 const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
 
 /** What a User DO socket carries across hibernation. */
@@ -313,6 +331,7 @@ function publicDevice(d: DeviceRow, online: boolean) {
     machineId: d.machine_id ?? null,
     appId: d.app_id ?? null,
     screenShare: screenShareOf(d),
+    kind: d.kind ?? null,
     online,
   };
 }
@@ -644,6 +663,7 @@ export class UserDO extends DurableObject<Env> {
     if (!isDevicePlatform(body.platform)) {
       throw badRequest("platform must be macos, ios, linux or windows");
     }
+    const kind = deviceKind(body.kind);
     if (!(await isValidDeviceKey(body.signingKey))) throw badRequest("signingKey must be a base64 X9.63 P-256 key");
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
@@ -666,8 +686,8 @@ export class UserDO extends DurableObject<Env> {
     if (existing) {
       // The first machine a device named stays: a later registration cannot move it to another Mac.
       this.sql.exec(
-        // A client that sends no machine fields (a build from before them) keeps what a newer one recorded.
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine_id = COALESCE(?, machine_id), app_id = COALESCE(?, app_id), machine = COALESCE(machine, ?) WHERE id = ?",
+        // Older clients omit machine and kind fields; preserve the stored values in that case.
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine_id = COALESCE(?, machine_id), app_id = COALESCE(?, app_id), machine = COALESCE(machine, ?), kind = COALESCE(?, kind) WHERE id = ?",
         name,
         body.platform,
         agreementKey,
@@ -675,11 +695,12 @@ export class UserDO extends DurableObject<Env> {
         machineId,
         appId,
         machine,
+        kind,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine_id, app_id, machine) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?, ?, ?)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine_id, app_id, machine, kind) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?, ?, ?, ?)",
         h.id,
         name,
         body.platform,
@@ -691,6 +712,7 @@ export class UserDO extends DurableObject<Env> {
         machineId,
         appId,
         machine,
+        kind,
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }

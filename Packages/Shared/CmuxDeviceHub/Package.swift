@@ -29,7 +29,8 @@ let package = Package(
         .package(path: "../CmuxEgress"),
     ],
     targets: [
-        .target(name: "CmuxDeviceHub", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")], swiftSettings: swiftSettings),
+        .plugin(name: "DeviceGlyphGeneratorPlugin", capability: .buildTool(), path: "Plugins/DeviceGlyphGeneratorPlugin"),
+        .target(name: "CmuxDeviceHub", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")], swiftSettings: swiftSettings, plugins: ["DeviceGlyphGeneratorPlugin"]),
         .testTarget(name: "CmuxDeviceHubTests", dependencies: ["CmuxDeviceHub"], swiftSettings: swiftSettings),
     ]
 )

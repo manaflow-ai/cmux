@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Live smoke test of a deployed cmux-mobile-api (PROTOCOL.md v1). Never prints tokens.
+ * Use a test-owned account and space: this changes team preferences and creates temporary devices.
+ * Model readback requires 0005_mobile_model_kind and the corresponding Worker deployment.
  *
  *   CMUX_MOBILE_TOKEN_FILE=/path/to/token bun scripts/smoke.ts            # a Stack access token in a 0600 file
  *   CMUX_MOBILE_TEAM=personal ...                                         # use the caller's personal space
@@ -59,15 +61,23 @@ check("ice turn", urls.some((u) => u.startsWith("turn")) && ice.json?.turn === t
 // 4. devices, macs, prefs
 const macId = crypto.randomUUID()
 const phoneId = crypto.randomUUID()
-const mac = await api("POST", "/v1/devices", { deviceId: macId, kind: "mac", name: "smoke-mac", teamId })
-const phone = await api("POST", "/v1/devices", { deviceId: phoneId, kind: "phone", name: "smoke-phone", teamId })
+const mac = await api("POST", "/v1/devices", { deviceId: macId, kind: "mac", modelKind: "mac-mini", name: "smoke-mac", teamId })
+const phone = await api("POST", "/v1/devices", { deviceId: phoneId, kind: "phone", modelKind: "ipad", name: "smoke-phone", teamId })
 check("device upsert", mac.status === 200 && phone.status === 200 && mac.json.device.deviceId === macId, `${mac.status}/${phone.status}`)
+check("model metadata keeps admission kinds", mac.json?.device?.kind === "mac" && mac.json?.device?.modelKind === "mac-mini" && phone.json?.device?.kind === "phone" && phone.json?.device?.modelKind === "ipad")
 const rename = await api("POST", "/v1/devices", { deviceId: macId, kind: "mac", name: "smoke-mac-renamed", teamId })
 check("device rename", rename.json?.device?.name === "smoke-mac-renamed" && rename.json.device.createdAt === mac.json.device.createdAt)
+check("legacy rename preserves model", rename.status === 200 && rename.json?.device?.modelKind === "mac-mini")
+for (const modelKind of [null, "INVALID", ""]) {
+  const legacy = await api("POST", "/v1/devices", { deviceId: macId, kind: "mac", modelKind, name: "smoke-mac-renamed", teamId })
+  check(`legacy model ${JSON.stringify(modelKind)} preserves known model`, legacy.status === 200 && legacy.json?.device?.modelKind === "mac-mini")
+}
 const macs = await api("GET", `/v1/teams/${teamId}/macs`)
 check("team macs", macs.status === 200 && macs.json.macs.some((m: any) => m.deviceId === macId && m.online === false))
+check("team offline mac exposes model glyph", macs.status === 200 && macs.json?.macs?.some((m: any) => m.deviceId === macId && m.kind === "mac-mini" && m.online === false))
 const mine = await api("GET", "/v1/me/macs")
 check("my macs in every space", mine.status === 200 && mine.json.macs.some((m: any) => m.deviceId === macId && m.teamId === teamId) && !mine.json.macs.some((m: any) => m.deviceId === phoneId), `${mine.json?.macs?.length ?? 0} macs`)
+check("my mac exposes model glyph", mine.status === 200 && mine.json?.macs?.some((m: any) => m.deviceId === macId && m.kind === "mac-mini"))
 const forged = await fetch(`${BASE}/v1/me/macs`, { headers: { authorization: `Bearer ${token.slice(0, -4)}AAAA` } })
 check("401 names the reason", forged.status === 401 && /\((bad_signature|malformed)\)$/.test(((await forged.json()) as any)?.error?.message ?? ""))
 const color = `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0").toUpperCase()}`
@@ -119,6 +129,13 @@ check("mac hello", !!(await m.wait((f) => f.type === "hello")))
 const p = await open(phoneId)
 const hello = await p.wait((f) => f.type === "hello")
 check("phone hello lists mac online", !!hello?.macs?.some((x: any) => x.deviceId === macId && x.online), `subprotocol ${p.ws.protocol}`)
+check("phone hello carries model glyph", !!hello?.macs?.some((x: any) => x.deviceId === macId && x.kind === "mac-mini"))
+
+// Only the model changes: an already connected viewer must receive a fresh glyph.
+const remodel = await api("POST", "/v1/devices", { deviceId: macId, kind: "mac", modelKind: "mac-studio", name: "smoke-mac-renamed", teamId })
+check("model-only update", remodel.status === 200 && remodel.json?.device?.kind === "mac" && remodel.json?.device?.modelKind === "mac-studio")
+const modelPresence = await p.wait((f) => f.type === "presence" && f.mac?.deviceId === macId && f.mac.kind === "mac-studio" && f.mac.online === true)
+check("connected viewer receives model change", !!modelPresence)
 
 const sessionId = crypto.randomUUID()
 p.ws.send(JSON.stringify({ type: "signal", to: macId, from: phoneId, sessionId, payload: { kind: "webrtc-offer", sdp: "v=0 smoke" } }))
@@ -146,6 +163,11 @@ check("self-signal refused", (await p.wait((f) => f.type === "error" && f.code =
 m.ws.close(1000, "smoke done")
 const off = await p.wait((f) => f.type === "presence" && f.mac?.deviceId === macId && f.mac.online === false)
 check("presence offline", !!off, off?.mac?.lastSeenAt ? "lastSeenAt set" : "")
+check("offline presence preserves model", off?.mac?.kind === "mac-studio")
+for (const path of ["/v1/me/macs", `/v1/teams/${teamId}/macs`]) {
+  const offline = await api("GET", path)
+  check(`offline model readback ${path}`, offline.status === 200 && offline.json?.macs?.some((d: any) => d.deviceId === macId && d.kind === "mac-studio" && d.online === false))
+}
 
 // 6. 0.7.0: device list, push registration, notify, device removal (also cleans up the smoke devices)
 // The APNs key is production-only and scoped to the TestFlight app, so the fake token goes there:
@@ -158,13 +180,17 @@ check("push register", reg.status === 200 && reg.json?.push?.kinds?.[0] === "que
 const listed = await api("GET", "/v1/me/devices")
 const lp = listed.json?.devices?.find((d: any) => d.deviceId === phoneId)
 check("me/devices", listed.status === 200 && lp?.push === true && listed.json.devices.some((d: any) => d.deviceId === macId && d.kind === "mac"), `${listed.json?.devices?.length ?? 0} devices`)
+check("me/devices persists model separately", listed.status === 200 && lp?.kind === "phone" && lp?.modelKind === "ipad" && listed.json?.devices?.some((d: any) => d.deviceId === macId && d.kind === "mac" && d.modelKind === "mac-studio"))
 const notify = await api("POST", `/v1/devices/${macId}/notify`, { eventId: `smoke-${Date.now()}`, kind: "question", agent: "Smoke", place: "smoke" })
 // A fake token: APNs (when configured) refuses it and the Worker drops it.
 check("notify", notify.status === 200 && typeof notify.json?.configured === "boolean" && (!notify.json.configured || notify.json.dropped === 1), `configured ${notify.json?.configured}, sent ${notify.json?.sent}, failed ${notify.json?.failed}, dropped ${notify.json?.dropped}`)
 check("notify from a phone refused", (await api("POST", `/v1/devices/${phoneId}/notify`, { eventId: "x", kind: "question" })).status === 403)
 const m2 = await open(macId)
-await m2.wait((f) => f.type === "hello")
-await p.wait((f) => f.type === "presence" && f.mac?.deviceId === macId && f.mac.online === true)
+const reconnected = await m2.wait((f) => f.type === "hello")
+check("reconnect hello preserves model", !!reconnected?.macs?.some((d: any) => d.deviceId === macId && d.kind === "mac-studio"))
+// Ignore earlier online frames so the reconnect assertion cannot pass on a stale event.
+const onlineAgain = await p.wait((f) => p.frames.indexOf(f) > p.frames.indexOf(off) && f.type === "presence" && f.mac?.deviceId === macId && f.mac.online === true)
+check("reconnect presence preserves model", onlineAgain?.mac?.kind === "mac-studio")
 let closeCode = 0
 m2.ws.addEventListener("close", (e: CloseEvent) => {
   closeCode = e.code

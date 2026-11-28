@@ -1,0 +1,15 @@
+{
+  "title": "Screen Sharing, Your Devices, as before device kinds: the same devices with no kind in their records draw the desktop or iPhone icon every device drew before (the before of screen-sharing-device-glyphs).",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Fixture devices with no kind (what every record held before kinds)", "rpc": {"method": "debug.device_hub", "params": {"action": "fixture", "devices": [
+      {"name": "MacBook Air"},
+      {"name": "Mac mini"},
+      {"name": "Build server", "online": false},
+      {"name": "iPhone", "platform": "ios"},
+      {"name": "Older Mac"}
+    ]}}, "wait": 1, "shot": false, "record": true},
+    {"title": "Open Screen Sharing", "cmux": ["action", "run", "macScreen.open"], "wait": 3}
+  ]
+}

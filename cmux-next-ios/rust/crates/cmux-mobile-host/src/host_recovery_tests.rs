@@ -33,6 +33,7 @@ fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
         team_id: "team".into(),
         device_id: "mac".into(),
         device_name: "Test Mac".into(),
+        device_kind: None,
         host_uuid: None,
         machine_id_override: None,
         app_support: dir.into(),
@@ -211,6 +212,7 @@ async fn a_device_id_another_account_registered_stops_hostd() {
             team_id: "team".into(),
             wg_public_key: None,
             machine_id: None,
+            model_kind: None,
             sibling_device_ids: Vec::new(),
         })
         .await
@@ -239,6 +241,7 @@ async fn the_owner_registering_its_id_again_is_accepted() {
         team_id: "team".into(),
         wg_public_key: None,
         machine_id: None,
+        model_kind: None,
         sibling_device_ids: Vec::new(),
     };
     api.register_device(&registration).await.unwrap();

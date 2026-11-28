@@ -261,7 +261,7 @@ extension AppServices {
         // cmux Remote (its hub is made with its device identity), then the acpmux daemon's share host, which owns this Mac's device.
         startCmuxRemote(settings)
         ShareHostDevice.prefer(in: deviceHub, build: environment.build, bundleID: environment.launch.bundleID, loginKeychain: loginKeychain) { [auth = cloud.auth] in try await auth.tokens().access }
-        deviceHub.start(settings: settings)
+        deviceHub.start(settings: settings, deviceKind: { [weak daemon = self.daemon] in daemon?.identity?.machineDevice })
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
     }
 

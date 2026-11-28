@@ -880,9 +880,10 @@ public final class LiveCoordinator {
         do {
             // One round trip: both registrations, this team's Macs and the account's Macs.
             let asked = removedMacs.mark
+            let modelKind = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
             if let boot = try await api.bootstrap(teamID: teamID, devices: [
                 (identity.link, "phone", deviceName), (identity.presence, "phone", "\(deviceName) (presence)"),
-            ]) {
+            ], modelKind: modelKind) {
                 ConnectTimeline.shared.mark("registered", detail: "bootstrap")
                 guard !Task.isCancelled, store.activeTeamID == teamID else { return true }
                 if !warm { idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link) }
@@ -897,8 +898,8 @@ public final class LiveCoordinator {
                 return true
             }
             // A service before 0.8.0: the separate calls, both registrations at once.
-            async let linkDevice: Void = api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID)
-            async let presenceDevice: Void = api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID)
+            async let linkDevice: Void = api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID, modelKind: modelKind)
+            async let presenceDevice: Void = api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID, modelKind: modelKind)
             try await linkDevice
             if !warm {
                 // The link device is registered: warm its socket while the rest loads.
@@ -971,7 +972,8 @@ public final class LiveCoordinator {
             // Macs (0.10.0), so a Mac new to the list is the caller's.
             let owner = othersMacs.contains(mac.deviceId) ? known?.ownerUserID : (known?.ownerUserID ?? userID)
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate,
-                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID, quietMs: mac.quietMs)
+                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID, quietMs: mac.quietMs,
+                                   deviceKind: mac.kind ?? known?.deviceKind)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             let session = sessions[mac.deviceId]
@@ -1028,7 +1030,8 @@ public final class LiveCoordinator {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
         let devices = macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
-                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }
+                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs,
+                                           deviceKind: $0.kind) }
         store.setMacs(devices, teamID: teamID)
         terminalSizingPeers?.replace(teamID: teamID, devices: devices, accountID: userID)
         #if DEBUG
@@ -1253,7 +1256,8 @@ public final class LiveCoordinator {
         let found = macs.compactMap { mac -> DiscoveredMac? in
             guard let teamID = mac.teamId else { return nil }
             return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID,
-                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId, quietMs: mac.quietMs)
+                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId, quietMs: mac.quietMs,
+                                 deviceKind: mac.kind)
         }
         store.mergeDiscoveredMacs(found, personal: personal)
         if store.accountMacCount != found.count { store.accountMacCount = found.count }

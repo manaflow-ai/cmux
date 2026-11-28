@@ -48,10 +48,13 @@ public struct LiveAPI: Sendable {
         /// Milliseconds since the service last heard the Mac's heartbeat; only for an online Mac
         /// (PROTOCOL.md "Mac freshness"). An older Worker sends none.
         public var quietMs: Int?
+        /// The device kind used by the shared glyph table (nil from older Workers).
+        public var kind: String?
 
         public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil,
-                    machineId: String? = nil, quietMs: Int? = nil) {
+                    machineId: String? = nil, quietMs: Int? = nil, kind: String? = nil) {
             self.quietMs = quietMs
+            self.kind = kind
             self.deviceId = deviceId
             self.name = name
             self.online = online
@@ -89,6 +92,8 @@ public struct LiveAPI: Sendable {
     public struct Device: Codable, Hashable, Sendable {
         public var deviceId: String
         public var kind: String
+        /// Hardware model for glyphs; `kind` remains the platform discriminator.
+        public var modelKind: String?
         public var name: String
         public var teamId: String
         /// When the account first registered the device (ISO 8601).
@@ -102,7 +107,8 @@ public struct LiveAPI: Sendable {
         public var machineId: String?
 
         public init(deviceId: String, kind: String, name: String, teamId: String, createdAt: String? = nil, lastSeenAt: String? = nil, online: Bool? = nil, push: Bool? = nil,
-                    machineId: String? = nil) {
+                    machineId: String? = nil, modelKind: String? = nil) {
+            self.modelKind = modelKind
             self.machineId = machineId
             self.deviceId = deviceId
             self.kind = kind
@@ -168,15 +174,16 @@ public struct LiveAPI: Sendable {
     }
 
     /// `POST /v1/devices` (upsert).
-    public func registerDevice(id: String, kind: String, name: String, teamID: String) async throws {
-        let body: [String: Any] = ["deviceId": id, "kind": kind, "name": name, "teamId": teamID]
+    public func registerDevice(id: String, kind: String, name: String, teamID: String, modelKind: String? = nil) async throws {
+        var body: [String: Any] = ["deviceId": id, "kind": kind, "name": name, "teamId": teamID]
+        if let modelKind { body["modelKind"] = modelKind }
         _ = try await call("POST", "v1/devices", body: body)
     }
 
     /// `POST /v1/me/bootstrap`: the launch in one round trip. Registers `devices` in `teamID`
     /// and returns that team's Macs and the account's Macs everywhere. Nil when the service
     /// predates it (404), so the caller takes the separate calls.
-    public func bootstrap(teamID: String, devices: [(id: String, kind: String, name: String)]) async throws -> (macs: [Mac], myMacs: [Mac]?)? {
+    public func bootstrap(teamID: String, devices: [(id: String, kind: String, name: String)], modelKind: String? = nil) async throws -> (macs: [Mac], myMacs: [Mac]?)? {
         struct Part<T: Decodable>: Decodable {
             var macs: T?
             var error: Envelope.Body?
@@ -188,7 +195,11 @@ public struct LiveAPI: Sendable {
             var macs: Part<[Mac]>
             var myMacs: Part<[Mac]>
         }
-        let body: [String: Any] = ["teamId": teamID, "devices": devices.map { ["deviceId": $0.id, "kind": $0.kind, "name": $0.name] }]
+        let body: [String: Any] = ["teamId": teamID, "devices": devices.map { device in
+            var record: [String: Any] = ["deviceId": device.id, "kind": device.kind, "name": device.name]
+            if let modelKind { record["modelKind"] = modelKind }
+            return record
+        }]
         let data: Data
         do {
             data = try await call("POST", "v1/me/bootstrap", body: body)

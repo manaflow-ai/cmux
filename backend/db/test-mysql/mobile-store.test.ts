@@ -61,6 +61,21 @@ run("cmux-mobile-api store on MySQL", () => {
     expect(await store.getDevice(S, mac2)).toBeUndefined()
   })
 
+  it("persists a model separately from platform and preserves it when an older client registers", async () => {
+    const input = { space: S, deviceId: mac1, ownerUserId: A, teamId: "t1", kind: "mac" as const, name: "Mac", wgPublicKey: null }
+    await store.upsertDevice(input)
+    expect((await store.getDevice(S, mac1))?.modelKind).toBeNull()
+    await store.upsertDevice({ ...input, modelKind: "mac-mini" })
+    await store.upsertDevice(input)
+    expect(await store.getDevice(S, mac1)).toMatchObject({ kind: "mac", modelKind: "mac-mini" })
+    expect(await store.listOwnerMacs(S, A)).toEqual([expect.objectContaining({ modelKind: "mac-mini" })])
+    expect(await store.listOwnerDevices(S, A)).toEqual([expect.objectContaining({ modelKind: "mac-mini" })])
+    expect(await store.upsertDevice({ ...input, ownerUserId: B, modelKind: "mac-pro" })).toBe("not_owner")
+    expect((await store.getDevice(S, mac1))?.modelKind).toBe("mac-mini")
+    await store.upsertDevice({ ...input, modelKind: "mac-studio" })
+    expect((await store.getDevice(S, mac1))?.modelKind).toBe("mac-studio")
+  })
+
   it("claims sibling Macs that have no machine id yet", async () => {
     await store.upsertDevice({ space: S, deviceId: mac1, ownerUserId: A, teamId: "t1", kind: "mac", name: "a", wgPublicKey: null, machineId: "m1" })
     await store.upsertDevice({ space: S, deviceId: mac2, ownerUserId: A, teamId: "t1", kind: "mac", name: "b", wgPublicKey: null })

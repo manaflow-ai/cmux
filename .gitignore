@@ -168,5 +168,7 @@ Packages/macOS/CmuxNext/usage-warning-gallery.tar
 # cmux_customize::schema (build.rs); `cmux customize schema --typescript` prints the same text.
 /cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/
 
+/Packages/Shared/CmuxDeviceHub/Sources/CmuxDeviceHub/DeviceGlyphKind.swift
+/Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceGlyphKind.swift
 # Written at test time by TwoToneTests (cmux-config two_tone::fixture); never committed.
 /schemas/settings/two-tone-fixture.json

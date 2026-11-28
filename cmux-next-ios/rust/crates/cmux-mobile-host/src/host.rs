@@ -444,6 +444,7 @@ async fn connect_once(
         .register_device(&DeviceRegistration {
             device_id: config.device_id.clone(),
             kind: "mac".into(),
+            model_kind: config.device_kind.clone(),
             name: config.device_name.clone(),
             team_id: config.team_id.clone(),
             wg_public_key: None,

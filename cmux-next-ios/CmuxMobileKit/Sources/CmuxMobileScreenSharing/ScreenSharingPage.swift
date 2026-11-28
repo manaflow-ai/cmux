@@ -5,6 +5,7 @@ import CmuxMobileDesign
 import CmuxScreenKit
 import CmuxScreenKitUI
 public import SwiftUI
+import UIKit
 import CmuxSpinner
 
 private let theme = CmuxMobileTheme.standard
@@ -219,10 +220,18 @@ struct ScreenSharingMacRow: View {
 
     private var available: Bool { mac.online && mac.macScreenShared && access != .none }
 
+    /// The SF Symbol of the kind of Mac it is (a MacBook, a Mac mini), from its device-hub record
+    /// (`HubDevice.glyph`, cmux-device-kind's table); the desktop icon every Mac drew before when it
+    /// never said or this iOS lacks the symbol.
+    static func glyph(of mac: HubDevice) -> String {
+        if let symbol = mac.glyph?.symbol, UIImage(systemName: symbol) != nil { return symbol }
+        return "desktopcomputer"
+    }
+
     var body: some View {
         Button { connect(nil) } label: {
             HStack(spacing: 12) {
-                Image(systemName: "desktopcomputer")
+                Image(systemName: Self.glyph(of: mac))
                     .font(theme.type.rowTitle)
                     .foregroundStyle(available ? theme.colors.label : theme.colors.label2)
                     .frame(width: 28)

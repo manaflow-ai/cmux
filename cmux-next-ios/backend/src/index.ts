@@ -21,7 +21,17 @@ import {
   MAILBOX_MAX_HOLD_MS,
   MAILBOX_TTL_MS,
 } from "./push.ts";
-import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
+import {
+  hasIcon,
+  mergePrefs,
+  openStore,
+  PUSH_KINDS,
+  type Device,
+  type Prefs,
+  type PushKind,
+  type Store,
+  modelKind as parseModelKind,
+} from "./store.ts";
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
 import { RELAY_SUBPROTOCOL, RELAY_TICKET_HEADER } from "./link-relay.ts";
@@ -641,6 +651,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       devices: rows.map((d) => ({
         deviceId: d.deviceId,
         kind: d.kind,
+        modelKind: d.modelKind,
         name: d.name,
         teamId: d.teamId,
         createdAt: d.createdAt,
@@ -794,9 +805,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (path === "/v1/devices" && method === "POST") {
     const b = await readJson(req)
-    const { deviceId, kind, name, teamId, wgPublicKey, machineId, siblingDeviceIds } = b
+    const { deviceId, kind, name, teamId, wgPublicKey, machineId, modelKind, siblingDeviceIds } = b
     if (typeof deviceId !== "string" || !UUID.test(deviceId.toLowerCase())) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     if (kind !== "mac" && kind !== "phone") throw new HttpError(400, "bad_request", "kind must be mac or phone")
+    if (modelKind != null && typeof modelKind !== "string") throw new HttpError(400, "bad_request", "modelKind must be a string")
     if (typeof name !== "string" || !name.trim() || name.length > 100) throw new HttpError(400, "bad_request", "name must be 1-100 characters")
     if (typeof teamId !== "string") throw new HttpError(400, "bad_request", "teamId is required")
     if (wgPublicKey !== undefined && wgPublicKey !== null && (typeof wgPublicKey !== "string" || !WG_KEY.test(wgPublicKey)))
@@ -824,6 +836,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         ownerUserId: owner,
         teamId,
         kind,
+        modelKind: parseModelKind(modelKind),
         name: name.trim(),
         wgPublicKey: (wgPublicKey as string | null | undefined) ?? null,
         ...(machineId === undefined ? {} : { machineId: machineId as string })
@@ -857,6 +870,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         userId: caller.userId,
         projectId: caller.projectId,
         machineId: r.device.machineId,
+        modelKind: r.device.modelKind,
         claimed: r.claimed
       })
     )
@@ -885,7 +899,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (!reachable.has(d.teamId)) return []
         const p = presence.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...quietOf(p) }]
+        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...(d.modelKind ? { kind: d.modelKind } : {}), ...quietOf(p) } ]
       })
     })
   }
@@ -937,8 +951,8 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const [device, macs] = await withStore(env, ctx, (s) => Promise.all([s.getDevice(space, deviceId), s.listOwnerMacs(space, me)]))
     if (!device || device.ownerUserId !== me) throw new HttpError(403, "not_owner", "register this device first")
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
-    await t.span("hub", hub.seed(who, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt, machineId: m.machineId }))))
-    const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name, teamId }
+    await t.span("hub", hub.seed(who, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt, machineId: m.machineId, modelKind: m.modelKind }))))
+    const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, modelKind: device.modelKind, name: device.name, teamId }
     const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me, "x-cmux-mobile-space": space, "x-cmux-mobile-ingress": ingress })
     if (subprotocol) headers.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
     return t.span("hub", hub.fetch("https://team-hub/signal", { headers }))
@@ -961,7 +975,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (d.teamId !== teamId || d.ownerUserId !== me) return []
         const p = byId.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...quietOf(p) }]
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...(d.modelKind ? { kind: d.modelKind } : {}), ...quietOf(p) }]
       })
     })
   }

@@ -63,13 +63,17 @@ public struct SettingsDevice: Identifiable, Hashable, Sendable, Codable {
     public var receivesNotifications: Bool
     /// A Mac's machine id (``MacDevice/machineID``): rows with one are builds of one computer.
     public var machineID: String?
+    /// The device kind used by the shared glyph table (nil from older service records).
+    public var deviceKind: String?
     /// The team (or personal space) the device is registered in, when known.
     public var teamID: String?
 
     public init(ids: [String], kind: Kind, name: String, online: Bool?, lastSeenAt: Date?, addedAt: Date? = nil,
-                isThisDevice: Bool, receivesNotifications: Bool, machineID: String? = nil, teamID: String? = nil) {
+                isThisDevice: Bool, receivesNotifications: Bool, machineID: String? = nil, teamID: String? = nil,
+                deviceKind: String? = nil) {
         self.machineID = machineID
         self.teamID = teamID
+        self.deviceKind = deviceKind
         self.ids = ids
         self.kind = kind
         self.name = name
@@ -95,7 +99,7 @@ public enum SettingsDeviceRows {
             return liveMacs.filter { seen.insert($0.id).inserted }.map {
                 SettingsDevice(ids: [$0.id], kind: .mac, name: $0.name, online: $0.isOnline, lastSeenAt: $0.lastSeenAt,
                                isThisDevice: false, receivesNotifications: false, machineID: $0.machineID,
-                               teamID: teamOf?[$0.id])
+                               teamID: teamOf?[$0.id], deviceKind: $0.deviceKind)
             }
         }
         guard let service else { return nil }
@@ -106,6 +110,7 @@ public enum SettingsDeviceRows {
             next.online = mac.isOnline
             next.lastSeenAt = mac.lastSeenAt ?? device.lastSeenAt
             next.machineID = device.machineID ?? mac.machineID
+            next.deviceKind = device.deviceKind ?? mac.deviceKind
             return next
         }
     }

@@ -117,9 +117,11 @@ public final class MacScreenDevicesSettings {
             var access: String?
             var screenAction: ScreenAction?
             var removeConfirm: Confirm
+            /// What kind of device it is (`macbook`, `iphone`), as its hub record says; null when it never said.
+            var kind: String?
 
             enum CodingKeys: String, CodingKey {
-                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, screenAction, removeConfirm
+                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, screenAction, removeConfirm, kind
             }
 
             /// The page reads null for an absent value, never a missing key.
@@ -137,6 +139,7 @@ public final class MacScreenDevicesSettings {
                 try c.encode(access, forKey: .access)
                 try c.encode(screenAction, forKey: .screenAction)
                 try c.encode(removeConfirm, forKey: .removeConfirm)
+                try c.encode(kind, forKey: .kind)
             }
         }
 
@@ -356,7 +359,7 @@ public final class MacScreenDevicesSettings {
             screenAction: device.hostsScreenThisMacViews
                 ? .init(kind: isMe ? "share" : "view", title: isMe ? L.t("devices.shareScreen", "Share") : L.t("devices.viewScreen", "View screen"), disabled: !isMe && !device.online)
                 : nil,
-            removeConfirm: confirm)
+            removeConfirm: confirm, kind: device.kind ?? (device.platform == .ios ? "iphone" : nil))
     }
 
     /// The device row's platform label (a device from before the hub sent a platform reads as a Mac).

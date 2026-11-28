@@ -7,6 +7,8 @@
 import { useCallback, useId, useState, type ReactNode } from "react";
 import { RemoteHostsExperiment } from "./RemoteHostsExperiment";
 import { Button } from "../../../ui/Button";
+import { DeviceGlyph } from "../../../ui/DeviceGlyph";
+import { deviceKindOf } from "../../../ui/deviceKinds";
 import { Icon } from "../icons";
 import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
@@ -345,6 +347,13 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
       <div className="row-main">
         <div className="row-label">
           <div className="row-title devices-title" id={titleId}>
+            <DeviceGlyph
+              kind={deviceKindOf(device.kind) ?? "generic"}
+              className="devices-glyph"
+              width={16}
+              height={16}
+              offline={!device.online}
+            />
             <span data-device-name="">{device.name}</span>
             {device.thisDevice && (
               <span className="badge devices-badge" data-device-badge="">

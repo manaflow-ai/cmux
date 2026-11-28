@@ -43,6 +43,13 @@
       "when": 1794694854004,
       "tag": "0005_build_space",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795770000000,
+      "tag": "0006_device_model_kind",
+      "breakpoints": true
     }
   ]
 }

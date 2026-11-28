@@ -19,6 +19,7 @@ type DeviceRow = {
   name: string
   wg_public_key: string | null
   machine_id: string | null
+  model_kind: string | null
   created_at: string
   updated_at: string
   last_seen_at: string | null
@@ -51,6 +52,7 @@ const device = (r: DeviceRow): Device => ({
   name: r.name,
   wgPublicKey: r.wg_public_key,
   machineId: r.machine_id,
+  modelKind: r.model_kind ?? null,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
   lastSeenAt: r.last_seen_at ? iso(r.last_seen_at) : null
@@ -156,13 +158,14 @@ export const mysqlStore = async (conn: MysqlConn): Promise<Store> => {
       }
       // INSERT IGNORE then an owner- and space-guarded UPDATE: a racing registration by another owner or space keeps its row.
       await conn.query(
-        "INSERT IGNORE INTO mobile_devices (device_id, space, owner_user_id, team_id, kind, name, wg_public_key, machine_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, d.space, d.ownerUserId, d.teamId, d.kind, d.name, d.wgPublicKey, d.machineId ?? null]
+        "INSERT IGNORE INTO mobile_devices (device_id, space, owner_user_id, team_id, kind, name, wg_public_key, machine_id, model_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, d.space, d.ownerUserId, d.teamId, d.kind, d.name, d.wgPublicKey, d.machineId ?? null, d.modelKind ?? null]
       )
       const machine = d.machineId === undefined ? "" : ", machine_id = ?"
+      const model = d.modelKind === undefined ? "" : ", model_kind = ?"
       await conn.query(
-        `UPDATE mobile_devices SET team_id = ?, kind = ?, name = ?, wg_public_key = ?${machine}, updated_at = CURRENT_TIMESTAMP(3) WHERE device_id = ? AND owner_user_id = ? AND space = ?`,
-        [d.teamId, d.kind, d.name, d.wgPublicKey, ...(d.machineId === undefined ? [] : [d.machineId]), id, d.ownerUserId, d.space]
+        `UPDATE mobile_devices SET team_id = ?, kind = ?, name = ?, wg_public_key = ?${machine}${model}, updated_at = CURRENT_TIMESTAMP(3) WHERE device_id = ? AND owner_user_id = ? AND space = ?`,
+        [d.teamId, d.kind, d.name, d.wgPublicKey, ...(d.machineId === undefined ? [] : [d.machineId]), ...(d.modelKind === undefined ? [] : [d.modelKind]), id, d.ownerUserId, d.space]
       )
       const now = await anyDevice(id)
       if (!now) return "not_owner"

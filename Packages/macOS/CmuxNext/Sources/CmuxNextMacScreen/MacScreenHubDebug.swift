@@ -74,6 +74,7 @@ extension MacScreenPages {
                     "verified_absent": .bool(result.verifiedAbsent),
                     "hub_quiescent": .bool(result.hubQuiescent)]
         }
+        if action == "fixture" { return showFixture(params) }
         #if DEBUG
         // Captures of the device-control prompt with no device hub: a fixture request, and none again.
         if action == "preview_approval" {
@@ -173,6 +174,25 @@ extension MacScreenPages {
         } catch {
             return fail(error)
         }
+    }
+
+    /// `fixture` {devices: [{name, kind?, platform?, online?, shared?}]}: Screen Sharing and Settings >
+    /// Devices show these devices from a hub that talks to no server (``DeviceHub/fixture(devices:)``),
+    /// for captures with devices no capture machine has. `platform` is `macos` (default) or `ios`;
+    /// `online` and `shared` default to true.
+    private func showFixture(_ params: [String: JSONValue]) -> JSONValue {
+        // A signed-in hub serves real sessions: a fixture would end them. Only a signed-out app takes one.
+        if let hub, !hub.isFixture { return ["error": "signed in to a device hub; sign out first"] }
+        let rows = params["devices"]?.arrayValue ?? []
+        let devices = rows.enumerated().compactMap { index, row -> HubDevice? in
+            guard let object = row.objectValue, let name = object["name"]?.stringValue else { return nil }
+            return HubDevice(id: "fixture-\(index)", name: name,
+                             platform: object["platform"]?.stringValue.flatMap(DevicePlatform.init(rawValue:)) ?? .macos,
+                             macScreenShared: object["shared"]?.boolValue ?? true, kind: object["kind"]?.stringValue,
+                             online: object["online"]?.boolValue ?? true)
+        }
+        hub = DeviceHub.fixture(devices: devices)
+        return ["ok": .bool(true), "devices": .number(Double(devices.count))]
     }
 
     private func settingsRun(_ settings: MacScreenDevicesSettings?, _ params: [String: JSONValue]) async -> JSONValue {

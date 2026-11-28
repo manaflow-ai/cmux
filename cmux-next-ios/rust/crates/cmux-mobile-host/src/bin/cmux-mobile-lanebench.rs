@@ -264,6 +264,7 @@ async fn main() -> Result<()> {
     api.register_device(&cmux_mobile_link::api::DeviceRegistration {
         device_id: device.clone(),
         kind: "phone".into(),
+        model_kind: None,
         name: "cmux-mobile-lanebench".into(),
         team_id: args.team.clone(),
         wg_public_key: None,
