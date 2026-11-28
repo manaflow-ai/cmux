@@ -50,9 +50,7 @@ fn the_seed_token_rides_only_in_authorization() {
 
     assert_eq!(
         capture::leaks(token),
-        [format!(
-            "api.github.com GET /seeded-peers/objects/0123456789abcdef0123456789abcdef01234567: header authorization"
-        )]
+        ["api.github.com GET /seeded-peers/objects/0123456789abcdef0123456789abcdef01234567: header authorization".to_string()]
     );
     assert_eq!(
         capture::leaks(beat_token),

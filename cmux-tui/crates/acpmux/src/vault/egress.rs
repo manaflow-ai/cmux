@@ -81,6 +81,11 @@ enum Slot {
 
 static SLOT: Mutex<Slot> = Mutex::new(Slot::Idle);
 const RETRY_START: Duration = Duration::from_secs(60);
+/// The listener the previous daemon's queue lives on, handed to this start
+/// (`daemon/listener_handover.rs`, `daemon/listener_keeper.rs`): served instead of a new bind.
+static HANDED: Mutex<Option<std::net::TcpListener>> = Mutex::new(None);
+/// The proxy's accept loop, stopped when another process holds its queue for the next daemon.
+static ACCEPTING: Mutex<Option<tokio::task::AbortHandle>> = Mutex::new(None);
 /// How stale the entries the proxy serves may be.
 const POLICY_TTL: Duration = Duration::from_secs(2);
 static POLICY: Mutex<Option<(Instant, Arc<Policy>)>> = Mutex::new(None);
@@ -266,6 +271,29 @@ fn no_proxy(inherited: Option<String>) -> String {
 }
 
 /// The running proxy, starting it once (again a minute after a failure).
+/// Serve `listener`, handed over from the previous daemon, at once: connects already wait in its
+/// queue, and an agent the previous daemon started dials this port before anything asks for it.
+pub(crate) fn serve_handed(listener: std::net::TcpListener) {
+    *HANDED.lock().unwrap_or_else(|e| e.into_inner()) = Some(listener);
+    let _ = ensure();
+}
+
+/// Stop accepting: the next daemon serves the queue from here on. Connections already accepted go
+/// on until this process ends.
+pub(crate) fn stop_accepting() {
+    if let Some(accepting) = ACCEPTING.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        accepting.abort();
+    }
+}
+
+/// The handed listener when it is on the kept port; otherwise none (it closes).
+fn handed(dir: &Path) -> Option<std::net::TcpListener> {
+    let listener = HANDED.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+    let kept = std::fs::read_to_string(dir.join(PORT_FILE)).ok()?.trim().parse::<u16>().ok()?;
+    let addr = listener.local_addr().ok()?;
+    (addr.port() == kept && addr.ip().is_loopback()).then_some(listener)
+}
+
 fn ensure() -> Option<Running> {
     let mut slot = SLOT.lock().unwrap_or_else(|e| e.into_inner());
     match &*slot {
@@ -298,8 +326,17 @@ fn start(home: &Path) -> Result<Running, &'static str> {
         write_trust(&dir, authority.pem(), &inherited).map_err(|_| "vault.egress_trust_files")?;
     let argv: Vec<String> = std::env::args().collect();
     let daemon = crate::cli::is_daemon_run(&argv);
-    let listener = bind_stable(&dir, daemon).map_err(|_| "vault.egress_bind")?;
+    let listener = match handed(&dir) {
+        Some(listener) => listener,
+        None => bind_stable(&dir, daemon).map_err(|_| "vault.egress_bind")?,
+    };
     listener.set_nonblocking(true).map_err(|_| "vault.egress_bind")?;
+    // A copy for the next daemon, so a restart never closes this port's queue.
+    #[cfg(unix)]
+    if daemon {
+        use std::os::fd::AsFd as _;
+        crate::daemon::listener_handover::offer_egress(listener.as_fd());
+    }
     let port = listener.local_addr().map_err(|_| "vault.egress_bind")?.port();
     let epoch = ca_epoch(authority.pem());
     let config = Arc::new(Config {
@@ -308,7 +345,7 @@ fn start(home: &Path) -> Result<Running, &'static str> {
         upstream_tls,
         resolver: Resolver::Dns,
     });
-    runtime.spawn(async move {
+    let accepting = runtime.spawn(async move {
         let result = match tokio::net::TcpListener::from_std(listener) {
             Ok(listener) => cmux_vault_egress::serve(listener, config).await,
             Err(e) => Err(e),
@@ -317,6 +354,7 @@ fn start(home: &Path) -> Result<Running, &'static str> {
             tracing::error!(code = "vault.egress_stopped", kind = ?e.kind(), "vault egress proxy stopped");
         }
     });
+    *ACCEPTING.lock().unwrap_or_else(|e| e.into_inner()) = Some(accepting.abort_handle());
     Ok(Running { port, epoch, node_ca, bundle })
 }
 

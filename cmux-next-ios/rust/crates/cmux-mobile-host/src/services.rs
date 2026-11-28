@@ -191,6 +191,13 @@ pub async fn serve_with_upload_timeout(
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "try-pr" => crate::try_pr::serve(&sender, &args).await,
+        "site-data" => {
+            let (socket, query) = (config.daemon_socket(), crate::site_data::tabs_query());
+            let tabs = daemon_query(&socket, query.as_bytes(), "cmux-mobile-site-data");
+            crate::site_data::serve(tabs, &args, &control::emit, &sender).await
+        }
+        cmux_phone_page::SERVICE => crate::phone_page::serve(&peer.device_id, &args, &sender, receiver).await,
         "phone-frames" => {
             let route = peer.route.clone();
             crate::phone_frames::serve_on(
@@ -205,6 +212,8 @@ pub async fn serve_with_upload_timeout(
         "tabs" => {
             let tabs = &*crate::tab_snapshots::TABS;
             let socket = Some(config.daemon_socket());
+            // Agent tabs' last turns come from this acpmux (`tab_agent_screen`).
+            tabs.set_acpmux(Some(config.acpmux.clone()));
             crate::tab_snapshots::serve(tabs, socket, peer.session_exposure.clone(), &sender, receiver).await
         }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
@@ -290,12 +299,14 @@ const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `phone-page-v1`: the `phone-page` service (agents' `browser.page.*` calls on a tab the
+/// phone shows itself, `phone_page.rs`).
 /// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
 /// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 12] = [
+pub const CAPABILITIES: [&str; 14] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -306,8 +317,10 @@ pub const CAPABILITIES: [&str; 12] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::PHONE_PAGE,
     names::MAILBOX_SEND,
     names::BUNDLE,
+    names::ZSTD_STREAM,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -340,9 +353,15 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     if config.surface.streams_mac_display() {
         out.push(MAC_DISPLAY);
     }
+    if crate::site_data::enabled() && control::enabled() {
+        out.push(names::SITE_DATA_HANDOFF);
+    }
     if crate::lan::running() {
         // The phone may enroll for the LAN direct path (`lan`, lan.rs).
         out.push(crate::lan::CAPABILITY);
+    }
+    if crate::try_pr::available() {
+        out.push(crate::try_pr::CAPABILITY);
     }
     out
 }
@@ -1597,6 +1616,8 @@ async fn acpmux(
     let (mut ws_sink, mut ws_source) = socket.split();
     // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
     let deflate = crate::link_deflate::asked(args);
+    // A phone that lists `zstd-stream-v1` gets every message through one stream (`link_zstd.rs`).
+    let zstd = crate::link_zstd::asked(args).then(crate::link_zstd::LinkZstd::new);
     let mut message = MessageAssembler::default();
     let relay = AcpmuxRelay::new(&config.acpmux, peer.session_exposure.clone(), as_phone);
     let relay = &relay;
@@ -1644,7 +1665,15 @@ async fn acpmux(
                         Downstream::Skip => continue,
                         Downstream::Close => break,
                     };
-                    if sender.send(crate::link_deflate::frame(deflate, &filtered).await).await.is_err() {
+                    let frame = match &zstd {
+                        // A lost stream can't skip a message: the channel ends and the phone reopens it.
+                        Some(zstd) => match zstd.frame(filtered).await {
+                            Some(frame) => frame,
+                            None => break,
+                        },
+                        None => crate::link_deflate::frame(deflate, &filtered).await,
+                    };
+                    if sender.send(frame).await.is_err() {
                         break;
                     }
                 }
@@ -1741,7 +1770,11 @@ async fn current_mode(
 
 /// Resolve aliases over a fresh trusted side socket. A fresh request id and
 /// socket prevent a timed-out info reply from authorizing another target.
-async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Value) -> Option<Value> {
+pub(crate) async fn trusted_session_query(
+    target: &AcpmuxTarget,
+    method: &str,
+    params: Value,
+) -> Option<Value> {
     let query = async {
         let mut socket = connect_acpmux(target).await.ok()?;
         let id = uuid::Uuid::new_v4().to_string();
@@ -2268,7 +2301,7 @@ fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verd
 }
 
 /// One request on a fresh connection to the daemon socket, its reply (`id` matched).
-async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
+pub(crate) async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
     let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
     let read = async {
         let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
@@ -3484,8 +3517,10 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
-                "bundle-v1"
+                "bundle-v1",
+                "zstd-stream-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -3505,8 +3540,10 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1",
+                "zstd-stream-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
@@ -3619,7 +3656,15 @@ mod tests {
         let listed: Vec<&str> = CAPABILITIES
             .iter()
             .copied()
-            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP, MAC_DISPLAY])
+            .chain([
+                BROWSER_STREAM,
+                BROWSER_VIDEO_TRACK,
+                SURFACE_STREAM,
+                CLOUD_DESKTOP,
+                MAC_DISPLAY,
+                crate::try_pr::CAPABILITY,
+                names::SITE_DATA_HANDOFF,
+            ])
             .collect();
         let host: Vec<&str> =
             names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();

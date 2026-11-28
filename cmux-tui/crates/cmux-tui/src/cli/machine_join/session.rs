@@ -28,6 +28,9 @@ impl Command {
     }
 }
 
+/// A signed-in run's token, the team it is for and the API origin it came from.
+type SignedIn = (String, Option<String>, Option<String>);
+
 /// The credential a run signs in with: the one a flag or variable names; else, with none, the
 /// app's Add Machine card for a plain `machine add` (`Err(Ok(exit code))`) or the app's session.
 /// Returns the token, the team it is for and the API origin it came from.
@@ -35,7 +38,7 @@ pub(super) fn sign_in(
     command: &Command,
     env: &dyn Fn(&str) -> Option<String>,
     args: &[String],
-) -> Result<(String, Option<String>, Option<String>), Result<i32, Failure>> {
+) -> Result<SignedIn, Result<i32, Failure>> {
     let given = if command.auth.app_session {
         Ok(None)
     } else {
@@ -59,9 +62,12 @@ pub(super) fn sign_in(
 /// The app's own session, minted for its current team the way `cmux auth token` asks for one:
 /// the token goes from the app's socket straight into the call, never to the caller's terminal,
 /// environment or logs. Returns the token, its team and the API origin it came from.
-fn app_session() -> Result<(String, Option<String>, Option<String>), Failure> {
+fn app_session() -> Result<SignedIn, Failure> {
     match crate::cli::auth_token::app_token_in(None) {
-        Ok(token) => Ok((token.token.to_string(), Some(token.team), Some(token.api_origin))),
+        Ok(token) => {
+            let platform = platform_of_api(&token.api_origin);
+            Ok((token.token.to_string(), Some(token.team), platform))
+        }
         Err(why) => Err(Failure::new(
             "machine_join.signed_out",
             format!("the cmux app gave no session ({why}): {APP_SIGN_IN}"),
@@ -95,4 +101,45 @@ pub(crate) fn read_credential(
         return Err("the cmux credential is empty".into());
     }
     Ok(Some(credential))
+}
+
+/// The platform that serves `/v1/machines/*` for a token the API at `api_origin` issued. The
+/// app's session names its API (`cloud-api.cmux.dev`), which answers 404 on every machine route,
+/// so a signed-in `machine placement status` read "isn't available on this server (it answered
+/// 404)". An API none of the deployments has (a preview, local)
+/// gives `None`: the usual variables, then production, decide.
+pub(super) fn platform_of_api(api_origin: &str) -> Option<String> {
+    use cmux_cloud_client::backend::Backend;
+    use cmux_cloud_environment::LOCAL_DEPLOYMENT;
+    let origin = api_origin.trim().trim_end_matches('/');
+    [Backend::Production, Backend::Staging, Backend::Development]
+        .into_iter()
+        .find(|backend| backend.owner_api() == origin)
+        .map(|backend| backend.platform().to_owned())
+        .or_else(|| {
+            (origin == LOCAL_DEPLOYMENT.api_origin)
+                .then(|| LOCAL_DEPLOYMENT.platform_origin.to_owned())
+        })
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::platform_of_api;
+    use cmux_cloud_environment as e;
+
+    #[test]
+    fn the_app_sessions_api_maps_to_its_own_platform_never_the_api_itself() {
+        assert_eq!(platform_of_api(e::PRODUCTION_API).as_deref(), Some(e::PRODUCTION_PLATFORM));
+        assert_eq!(
+            platform_of_api(&format!("{}/", e::PRODUCTION_API)).as_deref(),
+            Some(e::PRODUCTION_PLATFORM)
+        );
+        assert_eq!(platform_of_api(e::STAGING_API).as_deref(), Some(e::STAGING_PLATFORM));
+        assert_eq!(platform_of_api(e::DEVELOPMENT_API).as_deref(), Some(e::DEVELOPMENT_PLATFORM));
+        assert_eq!(
+            platform_of_api(e::LOCAL_DEPLOYMENT.api_origin).as_deref(),
+            Some(e::LOCAL_DEPLOYMENT.platform_origin)
+        );
+        assert_eq!(platform_of_api("https://preview-1.example"), None);
+    }
 }

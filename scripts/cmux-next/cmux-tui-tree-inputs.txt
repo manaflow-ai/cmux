@@ -100,6 +100,7 @@ blob schemas/theme/slots.json
 # cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
 blob Resources/sidebar-looks/claude.json
 blob Resources/sidebar-looks/codex.json
+blob Resources/sidebar-looks/rex.json
 blob Resources/sidebar-looks/studio.json
 blob schemas/chief-home/vectors.json
 blob schemas/defaults/cmux-next.json
@@ -166,6 +167,9 @@ blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
 blob skills/cmux-ui-preview/SKILL.md
+# cmux customize docs and prompts embed the extension recipes and the copy-paste prompts.
+tree skills/cmux-extension-author
+blob schemas/motion-scale/motion-scale.json
 # cmux-customize-recipes embeds the recipes guide and the widget templates it installs.
 blob docs/cmux-next/customize-recipes.md
 blob skills/cmux-customization/templates/clock-weather/cmux-app.json
@@ -217,3 +221,9 @@ blob examples/looks/leader/keybindings.json
 blob examples/looks/review-desk/cmux-setup.json
 blob examples/looks/review-desk/keybindings.json
 blob examples/looks/workspace-tabs/cmux-setup.json
+# cmux-config embeds the MDM examples and reference (docs/mdm) it checks managed settings against.
+blob docs/mdm/cmux-example.mobileconfig
+blob docs/mdm/com.manaflow.cmux.intune.plist
+blob docs/mdm/com.manaflow.cmux.json
+blob docs/mdm/com.manaflow.cmux.plist
+blob docs/mdm/managed-preferences.md

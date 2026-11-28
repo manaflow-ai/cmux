@@ -117,7 +117,7 @@ fn an_archive_checks_out_the_branch_with_its_origin() {
     let (dir, fetched) = fixture.fetch("vm", None);
     assert_eq!(checked_out(&fetched), tip);
     assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "one");
-    assert_eq!(sh(&dir, &["remote", "get-url", "origin"]), URL);
+    assert_eq!(sh(&dir, &["config", "remote.origin.url"]), URL);
     assert_eq!(sh(&dir, &["rev-parse", "--abbrev-ref", "@{u}"]), "origin/main");
     assert_eq!(sh(&dir, &["rev-parse", "--is-shallow-repository"]), "true");
     assert_eq!(sh(&dir, &["status", "--porcelain"]), "");
@@ -167,6 +167,21 @@ fn a_force_push_or_an_old_archive_makes_a_new_archive() {
     assert!(why.contains("old"), "{why}");
     let (_, fetched) = fixture.fetch("vm", Some("main"));
     assert_eq!(checked_out(&fetched), next);
+}
+
+#[test]
+fn a_quiet_branch_rewrites_its_old_archive() {
+    let fixture = Fixture::new();
+    let Published::Archive { commit: first, .. } = fixture.publish() else { panic!("no archive") };
+    assert_eq!(fixture.publish(), Published::Unchanged { commit: first.clone() });
+    let later = SystemTime::now() + Duration::from_secs(7200);
+    let Published::Archive { commit: again, why, .. } = fixture.publish_at(later) else {
+        panic!("an old archive of an unmoved branch was not rewritten")
+    };
+    assert_eq!(again, first);
+    assert!(why.contains("old"), "{why}");
+    let (_, fetched) = fixture.fetch("vm", Some("main"));
+    assert_eq!(checked_out(&fetched), first);
 }
 
 #[test]
@@ -241,6 +256,24 @@ fn the_store_is_off_unless_configured() {
     assert_eq!(configured_store(&none, &config).as_deref(), Some("file:///s"));
     let env = |name: &str| (name == "CMUX_REPO_ARCHIVE_STORE").then(|| "/e".to_owned());
     assert_eq!(configured_store(&env, &config).as_deref(), Some("/e"));
+}
+
+#[test]
+fn the_machine_config_carries_the_read_key_after_the_env_and_the_s3_file() {
+    let machine = serde_json::json!({"store": "https://a.example/b", "access_key_id": "vm", "secret_access_key": "vs"});
+    let file = serde_json::json!({"access_key_id": "file", "secret_access_key": " "});
+    let none = |_: &str| None;
+    let id = "CMUX_PROJECTION_S3_ACCESS_KEY_ID";
+    let secret = "CMUX_PROJECTION_S3_SECRET_ACCESS_KEY";
+    let blank = serde_json::Value::Null;
+    assert_eq!(store_setting(id, &none, &blank, &machine).as_deref(), Some("vm"));
+    assert_eq!(store_setting(id, &none, &file, &machine).as_deref(), Some("file"));
+    // A blank value in the S3 file does not hide the machine's.
+    assert_eq!(store_setting(secret, &none, &file, &machine).as_deref(), Some("vs"));
+    let env = |name: &str| (name == "CMUX_PROJECTION_S3_ACCESS_KEY_ID").then(|| "env".to_owned());
+    assert_eq!(store_setting(id, &env, &file, &machine).as_deref(), Some("env"));
+    assert_eq!(store_setting("AWS_REGION", &none, &file, &machine), None);
+    assert_eq!(store_setting(id, &none, &blank, &blank), None);
 }
 
 /// A public bucket over HTTP that answers ranged GETs from `root`, counting them.

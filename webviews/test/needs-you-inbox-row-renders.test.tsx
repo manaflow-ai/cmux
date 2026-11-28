@@ -106,7 +106,8 @@ async function mountNeedsYou(n: number) {
 test("Needs you: only the rows whose ask changed draw again", async () => {
   jest.useFakeTimers();
   jest.setSystemTime(T0);
-  const n = 40;
+  // Under NeedsYou.tsx WINDOW_FROM, so every row is drawn; the window has its own test (needs-you-window.test.tsx).
+  const n = 20;
   const { host, root, draw } = await mountNeedsYou(n);
   expect(host.querySelectorAll(".acpmux-needs-you-item").length).toBe(n);
 
@@ -264,22 +265,12 @@ test("Home inbox and Ready for review: only the rows whose data changed draw aga
   jest.useRealTimers();
 });
 
-// Neither list is windowed (another change's concern): every ask is mounted. Measured here so the
-// numbers sit beside the render counts, with one ask's change at each size.
-test("mounted rows, DOM nodes and one ask's change at 1,000 and 10,000 asks", async () => {
+// The home inbox is not windowed: every ask is mounted. Measured here so the numbers sit beside the
+// render counts, with one ask's change at each size. Needs you's window: needs-you-window.test.tsx.
+test("Home inbox: mounted rows, DOM nodes and one ask's change at 1,000 and 10,000 asks", async () => {
   jest.useFakeTimers();
   jest.setSystemTime(T0);
   for (const n of [1_000, 10_000]) {
-    const needsYou = await mountNeedsYou(n);
-    rowRenders.reset();
-    await needsYou.draw(askItems(n, { index: 5, ask: "Run step five again" }));
-    console.log(
-      `Needs you N=${n}: mounted rows ${needsYou.host.querySelectorAll(".acpmux-needs-you-item").length}, DOM nodes ${needsYou.host.querySelectorAll("*").length}, NeedsYouRow renders per one-ask change ${rowRenders.count("NeedsYouRow")}`,
-    );
-    expect(rowRenders.count("NeedsYouRow")).toBe(1);
-    await act(async () => needsYou.root.unmount());
-    needsYou.host.remove();
-
     const home = await mountHome(n);
     rowRenders.reset();
     await home.draw(homeAsks(n, { index: 5, title: "Run step five again" }));

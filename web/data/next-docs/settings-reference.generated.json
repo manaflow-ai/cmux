@@ -5079,7 +5079,7 @@
           "title": "Show Search Button",
           "help": "A search button after the profile button. Off: search from the palette.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Sidebar"
         },
         {

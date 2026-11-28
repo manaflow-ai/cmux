@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -329,7 +330,8 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
         repo, bin_dir = work / "repo", work / "bin"
         for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh",
                     "scripts/cmux-next/lib/warm-swiftpm.sh", "scripts/ci/swift-test-debug-info.sh",
-                    "scripts/ci/swiftpm-binary-module-guard.sh", "scripts/cmux-next/settings-exports.txt"):
+                    "scripts/ci/swiftpm-binary-module-guard.sh", "scripts/ci/github-egress-direct.sh",
+                    "scripts/cmux-next/settings-exports.txt"):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_bytes((ROOT / rel).read_bytes())
             (repo / rel).chmod(0o755)
@@ -352,13 +354,19 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
         # This fixture supplies a fake Swift compiler, not a Mac toolchain.
         (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
         (bin_dir / "uname").chmod(0o755)
-        # swift test writes the exports from the package directory, as the export tests do.
+        # swift build builds the CmuxNextSettingsExport tool, which writes the exports under the root it is given
+        # (#56009: a small export tool, not the whole test bundle).
+        swift_bin = work / "swift-bin"
+        swift_bin.mkdir()
+        (swift_bin / "CmuxNextSettingsExport").write_text(
+            "#!/usr/bin/env bash\n"
+            "for f in " + " ".join(self.EXPORTS if rewrites else self.EXPORTS[1:])
+            + '; do echo new > "$1/$f"; done\n')
+        (swift_bin / "CmuxNextSettingsExport").chmod(0o755)
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"
-            'if [[ " $* " == *" --show-bin-path "* ]]; then echo /nonexistent; exit 0; fi\n'
-            '[[ "$1" == test ]] || exit 0\n'
-            "for f in " + " ".join(self.EXPORTS if rewrites else self.EXPORTS[1:])
-            + '; do echo new > "../../../$f"; done\n')
+            f'if [[ " $* " == *" --show-bin-path "* ]]; then echo {shlex.quote(str(swift_bin))}; fi\n'
+            "exit 0\n")
         (bin_dir / "bun").write_text(
             '#!/usr/bin/env bash\necho "$*" > "$(git rev-parse --show-toplevel)/../bun-args"\n'
             "echo new > web/data/next-docs/settings-reference.generated.json\n")

@@ -242,12 +242,16 @@ fn named_folder(
     let text = |k: &str| folder.get(k).and_then(Value::as_str).unwrap_or("");
     let bad = |m: &str| RpcError::invalid_params(format!("move: folder {m}"));
     if folder.contains_key("home") {
+        // Empty names the home folder itself (a chat started in `~` on the source): it maps to
+        // this machine's home, never outside it. Whether the chat may work there is the guard's
+        // call (`Guard::hub_move`: only a machine that is its own VM boundary takes home).
         let rel = text("home");
-        if !plain_relative(rel) {
+        if !rel.is_empty() && !plain_relative(rel) {
             return Err(bad("`home` must be a plain path under the home folder"));
         }
         let home = dirs::home_dir().ok_or_else(|| bad("needs a home folder here"))?;
-        return Ok(Folder::Plain { cwd: home.join(rel).to_string_lossy().into_owned() });
+        let cwd = if rel.is_empty() { home } else { home.join(rel) };
+        return Ok(Folder::Plain { cwd: cwd.to_string_lossy().into_owned() });
     }
     let (repo, url, branch, subdir) = (text("repo"), text("url"), text("branch"), text("subdir"));
     let mut parts = repo.split('/');
@@ -306,6 +310,24 @@ impl Hub {
             !landed
         });
         landed.then(|| json!({"sessionId": session.id, "cwd": session.meta().cwd}))
+    }
+
+    /// The guard of a hub move landing here: this daemon's `webRoots`, and the home folder too
+    /// when this machine takes a caller's VM boundary (`vm_boundary.rs`: Linux, `vmHost` not
+    /// turned off; never a Mac). Op `move` comes only from the person's own daemons and only
+    /// where `meshRelay.controlFrom` lists it, so on a dedicated agent VM the person's own chat
+    /// may land in that VM's home, as a fleet placer moving idle chats off a full host needs:
+    /// a chat that ran in `~` or under `~/.local/state` there. Refused when it names neither.
+    pub(super) async fn hub_move_guard(&self) -> Result<Guard, RpcError> {
+        let roots = self.config.read().await.web_roots.clone();
+        let home = self.takes_vm_boundary().await;
+        if roots.is_empty() && !home {
+            return Err(pull_error(
+                "no_roots",
+                "this machine names no webRoots and is not a VM host, so no moved chat may work here",
+            ));
+        }
+        Guard::hub_move(&roots, home).await
     }
 
     /// The folder the moved chat runs in here: named outright, or made as `session move` makes
@@ -393,16 +415,8 @@ impl Hub {
         if let Some(moved) = self.pulled(session_id, transfer_id) {
             return Ok(answer(moved));
         }
-        let roots = self.config.read().await.web_roots.clone();
-        if roots.is_empty() {
-            return Err(pull_error(
-                "no_roots",
-                "this machine names no webRoots, so no moved chat may work here",
-            ));
-        }
         // Built here, from this daemon's own config: the message names no rule.
-        let guard_value = json!({"control": "peer", "roots": roots});
-        let guard = Guard::parse(&guard_value).await?;
+        let guard = self.hub_move_guard().await?;
         let cwd = self.pull_folder(&guard, body.get("folder")).await?;
         // The freeze's split, in the answer: the circuit's open (relay and handshake; none for
         // a parked one), the pages (one round trip each) and the import.
@@ -434,9 +448,8 @@ impl Hub {
         // stays theirs, and its local prompts here are owner prompts.
         let received = self
             .receive_guarded(
-                &json!({"manifest": manifest, "guard": guard_value,
-                        "stageId": body.get("stageId")}),
-                true,
+                &json!({"manifest": manifest, "stageId": body.get("stageId")}),
+                Some(guard),
             )
             .await?;
         let receive_id = received.get("receiveId").cloned().unwrap_or(Value::Null);

@@ -57,6 +57,11 @@ use super::*;
 /// that waits for the chat's batch instead of waking it at once.
 pub const GATHER_META: &str = "gather";
 
+/// The explicit batch request kept with the sender's provenance in the inbox journal.
+pub(super) fn requested(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(GATHER_META)) == Some(&Value::Bool(true))
+}
+
 /// What a `--gather` send would do that a batch cannot wait for, as the refusal the daemon
 /// answers it with; None when it joins the window. `agent` is whether it names another sender
 /// (else it is the person's own prompt), `fire` whether it is a fire notice, and `wakes_now`

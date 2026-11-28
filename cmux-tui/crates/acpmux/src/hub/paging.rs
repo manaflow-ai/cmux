@@ -801,7 +801,9 @@ impl Hub {
 pub const PROMPT_INDEX_TEXT_CHARS: usize = 240;
 
 /// A prompt's record as the prompt index carries it: its id, whether it was a steer or went on
-/// with a turn, and the start of its text. Nothing else (images, pastes, `_meta`).
+/// with a turn, the start of its text, and `others` when the person did not type it
+/// (`prompt_provenance::persons_prompt_record`): the scroll rail ticks only the person's prompts.
+/// Nothing else (images, pastes, `_meta`).
 pub fn prompt_index_msg(msg: &Value) -> Value {
     let mut out = serde_json::Map::new();
     for key in ["promptId", "steer", "turnId", "continues"] {
@@ -813,10 +815,48 @@ pub fn prompt_index_msg(msg: &Value) -> Value {
         let cut: String = text.chars().take(PROMPT_INDEX_TEXT_CHARS).collect();
         out.insert("text".to_owned(), Value::String(cut));
     }
+    if !crate::prompt_provenance::persons_prompt_record(msg) {
+        out.insert("others".to_owned(), Value::Bool(true));
+    }
     Value::Object(out)
 }
 
 impl Hub {
+    /// The newest `user_message` before seq `before` that `opens` takes, among the newest `read`
+    /// of them: the prompt that opened the turn an attach page starts inside
+    /// (`server/requests/turn_opener.rs`). It reads the log's copies of its prompts
+    /// (`store/kind_index.rs`) back from the end and stops at the first one `opens` takes, so it
+    /// costs one turn's records, not `read` turns': a page of the 16 newest prompts read 16
+    /// turns of a long chat on every attach, the whole log of a short one, and the warm attach
+    /// grew with the chat (`chat_size_sweep` `/attachUs/p50`, 1M→100M→1G 5541→8785→8654 us;
+    /// goal infinite-chats, Leo, 2026-11-19: "we need to be able to have infinite chats,
+    /// infinitely long chats").
+    pub fn newest_prompt_where(
+        &self,
+        id: &str,
+        before: u64,
+        read: usize,
+        opens: &dyn Fn(&EventRecord) -> bool,
+    ) -> Result<Option<EventRecord>> {
+        let session = self.session_get(id);
+        let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"user_message";
+        let mut seen = 0usize;
+        let mut found = None;
+        self.store.scan_back_indexed(id, 0, before, &skip, &mut |mut rec| {
+            if rec.seq >= before || rec.dir != "mux" || rec.kind != "user_message" {
+                return true;
+            }
+            seen += 1;
+            if opens(&rec) {
+                self.display_logged(session.as_deref(), &mut rec);
+                found = Some(rec);
+                return false;
+            }
+            seen < read
+        })?;
+        Ok(found)
+    }
+
     /// The newest prompts (`user_message`) of a session's log before `before`, oldest first, each
     /// cut to [`prompt_index_msg`], at most `limit` of them and about `max_bytes` of JSON (always
     /// one): the thread rail lays out a long chat's every turn from its first frame instead of

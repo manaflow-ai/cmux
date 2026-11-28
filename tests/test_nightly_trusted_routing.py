@@ -58,11 +58,12 @@ CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-c
                    'early-nightly-webviews')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
-# publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
-# override): an upload with the release App key that held the whole signing Mac. The names keep "hosted": these
-# jobs take an ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
+# publish-nightly-next-github and keep-published-dsyms are loop-run hosted jobs (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS).
+# The former uploads with the release App key and the latter retains dSYMs. The names keep "hosted": these jobs take an
+# ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-next-github', 'published-in', 'wake-nightly-next-tick', 'dispatch-published-in')
+                      'publish-nightly-next-github', 'keep-published-dsyms', 'published-in', 'wake-nightly-next-tick',
+                      'dispatch-published-in')
 # Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
 # jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
@@ -112,7 +113,6 @@ OWNED_SECRET_JOBS = {
     'recover-nightly-next-notarization': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'generate-nightly-deltas': "Sparkle keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
-    'keep-published-dsyms': "release credentials, short; the signer's label",
     'nightly-next-pkg': "the .pkg's Installer identity (RFD 0134 cut 2, #54859); the signer's label, after publish",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
 }
@@ -803,23 +803,24 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertTrue(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'false'}))
                 self.assertFalse(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'true'}))
 
-    def test_deltas_keep_trusted_signing_and_the_configured_mini(self):
+    def test_deltas_keep_trusted_signing_under_any_mini(self):
         route = parse_expression(DOC['jobs']['nightly-next-deltas']['runs-on'][3:-2].strip())
-        # runner_label_policy permits only glaeda-nightly-mini when this switch is set.
+        # The signer label alone, as nightly-next-one: no runner carries both it and glaeda-nightly-mini
+        # (hq build-fleet/mini-fleet.json), so an array of the two would queue with no runner to take it.
         for mini in ('', 'glaeda-nightly-mini', 'label"with-quote'):
             for owner in ('manaflow-ai', 'fork'):
                 with self.subTest(owner=owner, mini=mini):
-                    expected = ('macos-26' if owner != 'manaflow-ai' else
-                                ['glaeda-trusted-next-signing', 'glaeda-nightly-mini'] if mini else
-                                'glaeda-trusted-next-signing')
+                    expected = 'macos-26' if owner != 'manaflow-ai' else 'glaeda-trusted-next-signing'
                     self.assertEqual(evaluate(route, {'github.repository_owner': owner,
                                                      'vars.CI_NIGHTLY_MINI': mini}), expected)
 
     def test_only_a_build_replaced_before_it_started_goes_unreported(self):
         script = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
                       if step.get('name') == 'Open or update the nightly failure issue')['with']['script']
-        self.assertIn("require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
-        checkout = DOC['jobs']['report-nightly-failure']['steps'][0]
+        self.assertIn("require('./.publish-tooling/scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+        checkout = next(s for s in DOC['jobs']['report-nightly-failure']['steps']
+                        if str(s.get('uses', '')).startswith('actions/checkout@'))
+        self.assertEqual(checkout['with']['path'], '.publish-tooling')
         self.assertIn('actions/checkout@', checkout['uses'])
         self.assertEqual(checkout['with']['ref'], '${{ github.sha }}')
         self.assertIs(checkout['with']['persist-credentials'], False)

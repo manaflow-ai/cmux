@@ -271,8 +271,8 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         "did_finish_launching_start", "dfl.settings_read", "dfl.theme", "dfl.services", "dfl.app_actions", "dfl.bind", "dfl.settings", "dfl.menu",
         "daemon.prepare_start", "daemon.binary_resolved", "daemon.spawned", "daemon.reused", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
         "dfl.daemon_cloud_updater", "dfl.first_window_hooks", "dfl.home_history",
-        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.sidebar_made", "window.root_made", "window.shell_made", "window.content_installed", "window.backdrop_applied",
-        "window.init_done", "window.configured", "window.workspace_shown", "window.ordered_front",
+        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.sidebar_bridge_made", "window.profile_control_made", "window.sidebar_made", "window.root_made", "window.shell_made", "window.content_installed", "window.backdrop_applied",
+        "window.init_done", "window.animation_set", "window.sidebar_restored", "window.handoff_installed", "window.configured", "window.workspace_shown", "window.ordered_front",
         "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
         "frame.commit_start", "window.display_done", "window.flush_done", "frame.loop_1", "frame.loop_2", "frame.loop_3", "frame.loop_4", "after_open.menu_start", "after_open.menu_done", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
         "sidebar_rows_shown", "first_window_flushed", "pages.deferred_until_frame", "agent_pane.launch_image_shown",
@@ -414,6 +414,12 @@ public nonisolated final class LaunchBinderLaps: Sendable {
             state.times[name, default: 0] += Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
             state.last = now
         }
+    }
+
+    /// Starts the next lap now: the binders the App runs after its first frame lap from their own start.
+    public func restart() {
+        let now = ContinuousClock.now
+        state.withLock { $0.last = now }
     }
 
     /// Each binder's milliseconds so far.

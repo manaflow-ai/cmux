@@ -189,7 +189,7 @@ jobs:
       verdict: ${{ steps.run.outputs.verdict }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       BUILD: ${{ needs.pick.outputs.build }}
       DMG_URL: ${{ needs.pick.outputs.url }}
       DMG_LENGTH: ${{ needs.pick.outputs.length }}

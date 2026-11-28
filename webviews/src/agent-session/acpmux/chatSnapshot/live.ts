@@ -1,6 +1,7 @@
 // The live page's side of a chat's snapshot (shared.ts): it tells the host the chat is on screen as
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
+import { SWAP_PREPARE_EVENT } from "../../../pages/shared/swapHandoff";
 import { slackTimersFor } from "../../../pages/shared/slackTimers";
 import { captureMiss, captureSnapshot } from "./capture";
 import { liveComposerTakes, watchLiveComposer } from "./liveComposer";
@@ -577,6 +578,9 @@ export function watchChatSnapshot(
   const asked = () => now("asked");
   doc.addEventListener("visibilitychange", hidden);
   view.addEventListener(SNAPSHOT_WRITE_EVENT, asked);
+  // A web swap reloads the page next (pages/shared/swapHandoff.ts): the copy the reload paints first is this one.
+  const swapping = () => now("swap");
+  view.addEventListener(SWAP_PREPARE_EVENT, swapping);
   changedAt = performance.now();
   wroteAt = -WRITE_GAP_MS;
   schedule();
@@ -588,5 +592,6 @@ export function watchChatSnapshot(
     slackTimers.cancel(timer);
     doc.removeEventListener("visibilitychange", hidden);
     view.removeEventListener(SNAPSHOT_WRITE_EVENT, asked);
+    view.removeEventListener(SWAP_PREPARE_EVENT, swapping);
   };
 }
