@@ -517,11 +517,6 @@ pub(super) fn bind(
     Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
 }
 
-/// The raw tree `kind` of a tab: `conversation` for a conversation tab.
-pub(super) fn raw_tab_kind(surface_kind: &'static str, conversation: bool) -> &'static str {
-    if conversation { CONVERSATION_KIND } else { surface_kind }
-}
-
 /// The conversation tab capabilities one connection negotiated.
 #[derive(Default)]
 pub(super) struct NegotiatedTabs {
