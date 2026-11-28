@@ -1626,10 +1626,16 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
     assert '"$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}"' in plan["run"]
     assert '"$head" =~ ^[0-9a-f]{40}$ && "$head" != "$GITHUB_SHA"' in plan["run"]
     assert jobs["darwin-fallback-plan"]["permissions"]["contents"] == "read"
-    # The rule is the push-gate's: the same branches are superseded there and here.
+    # The rule is the push-gate's: the same branches are superseded there and here. A
+    # feat-cmux-next-* push takes the gate too, for its branch-inputs step only (#62047): the
+    # superseded check never supersedes it (cmux_tui_superseded_push.TRUNK_PREFIXES), and its
+    # build keeps the per-run group nothing cancels.
     gate = jobs["push-gate"]["if"]
     for ref in kept + ["refs/heads/fix/a"]:
-        assert (render(gate, "push", ref) == "True") == (render(concurrency["cancel-in-progress"], "push", ref) == "True"), ref
+        cancels = render(concurrency["cancel-in-progress"], "push", ref) == "True"
+        inputs_only = ref.startswith("refs/heads/feat-cmux-next-")
+        assert (render(gate, "push", ref) == "True") == (cancels or inputs_only), ref
+        assert not (inputs_only and cancels), ref
 
 
 def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:
