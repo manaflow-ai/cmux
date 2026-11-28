@@ -54,7 +54,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use zeroize::Zeroizing;
 
 use super::chief_turn::{self, TurnCredential};
-use super::http::{Body, Http, path_text, worker_error};
+use super::http::{Body, Http, path_text};
 use super::{Auth, Failure, Request, optional_text, text};
 
 /// The sizes a Chief's own computer comes in (cmuxterm-hq RFD 0037, "Chief sizes, upgrades and
@@ -523,6 +523,27 @@ async fn create_once<C: Cloud>(
     }
 }
 
+/// A failed read is safe to repeat; the platform's refusal policy decides which ones.
+fn machine_read_retry(error: &Failure) -> Option<Duration> {
+    use cmux_cloud_machine::refusals::{self, Handling};
+    match error {
+        Failure::TimedOut(_) | Failure::Transport(_) => Some(POLL),
+        Failure::Http { status, code, retryable, retry_after_s, .. } => {
+            match refusals::handling(*status, code.as_deref(), *retryable) {
+                Handling::Retry => Some(POLL),
+                Handling::RetryAfter => Some(
+                    Duration::from_secs(
+                        retry_after_s.unwrap_or(refusals::DEFAULT_RETRY_AFTER_SECONDS),
+                    )
+                    .max(POLL),
+                ),
+                Handling::Final => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// The machine, made at `size` or found by its key, running with a host.
 async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
     let made = create(cloud, start, size).await?;
@@ -531,15 +552,42 @@ async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<
     let mut waited = Duration::ZERO;
     let mut started = false;
     loop {
-        let got = cloud.read("cloud.machine.get", json!({ "machine": id })).await?;
+        let reading = tokio::time::Instant::now();
+        let got = cloud.read("cloud.machine.get", json!({ "machine": id })).await;
+        // Request latency is part of the budget, not just the pauses between reads.
+        waited += reading.elapsed();
+        let got = match got {
+            Ok(got) => got,
+            Err(error) => {
+                let Some(delay) = machine_read_retry(&error) else { return Err(error) };
+                if waited + delay >= MACHINE_WAIT {
+                    return Err(error);
+                }
+                cloud.pause(delay).await;
+                waited += delay;
+                continue;
+            }
+        };
         let row = got.get("machine").cloned().unwrap_or(got);
         let status = row.get("status").and_then(Value::as_str).unwrap_or_default();
         match status {
             "running" if id_of(&row, "/host").is_some() => return Ok(row),
             "failed" | "deleted" | "deleting" => {
+                // Provider messages can contain arbitrary upstream text. Keep only a bounded
+                // diagnostic code so public Chief logs explain the failed state safely.
+                let reason = row.pointer("/error/code").and_then(Value::as_str).filter(|code| {
+                    !code.is_empty()
+                        && code.len() <= 96
+                        && code.bytes().all(|c| {
+                            c.is_ascii_lowercase()
+                                || c.is_ascii_digit()
+                                || matches!(c, b'.' | b'_' | b'-')
+                        })
+                });
+                let reason = reason.map(|code| format!(" ({code})")).unwrap_or_default();
                 return Err(refused(
                     "chief.machine_gone",
-                    format!("machine {id} is {status}; start again with a new key"),
+                    format!("machine {id} is {status}{reason}; start again with a new key"),
                 ));
             }
             "paused" | "stopped" if !started => {
@@ -733,7 +781,7 @@ pub struct Session<'a> {
 }
 
 impl Session<'_> {
-    async fn post(&self, route: &str, body: Value) -> Result<Value, Failure> {
+    async fn post(&self, route: &str, op: &str, body: Value) -> Result<Value, Failure> {
         let segments = ["v1", route];
         let path = path_text(&segments);
         let reply = self
@@ -743,37 +791,52 @@ impl Session<'_> {
                 self.http.url(&segments, &[]),
                 Some(Body::Json(body)),
                 None,
-                Duration::from_secs(60),
+                chief_request_timeout(op),
                 &path,
             )
             .await?;
-        let object = reply.json();
-        // `/v1/ops` answers `{ok: true, value}`; `/v1/read` answers `{value}` and says `ok` only when false.
-        match object.as_ref().filter(|_| reply.ok()) {
-            Some(o) if o.get("ok") != Some(&Value::Bool(false)) && o.get("value").is_some() => {
-                Ok(o["value"].clone())
+        chief_reply(&reply, &path)
+    }
+}
+
+fn chief_reply(reply: &super::http::Reply, path: &str) -> Result<Value, Failure> {
+    let object = reply.json();
+    // `/v1/ops` answers `{ok: true, value}`; `/v1/read` answers `{value}`.
+    match object.as_ref().filter(|_| reply.ok()) {
+        Some(o) if o.get("ok") != Some(&Value::Bool(false)) && o.get("value").is_some() => {
+            Ok(o["value"].clone())
+        }
+        _ => {
+            let mut error = super::turns::refusal_with(
+                reply.status,
+                object.as_ref(),
+                reply.retry_after.as_deref(),
+            );
+            // Add context without losing retry facts for a header-only refusal.
+            if let Failure::Http { code: None, message, .. } = &mut error
+                && message.is_none()
+            {
+                *message = Some(format!("{path}: {}", body_summary(object.as_ref())));
             }
-            _ => Err(match worker_error(reply.status, object.as_ref()) {
-                // Name the request when the answer says nothing itself.
-                Failure::Http { status, code: None, message: None, .. } => Failure::http(
-                    status,
-                    None,
-                    Some(format!("{path}: {}", body_summary(object.as_ref()))),
-                ),
-                other => other,
-            }),
+            Err(error)
         }
     }
+}
+
+fn chief_request_timeout(op: &str) -> Duration {
+    // Provisioning can keep the create response open for over two minutes on a cold machine.
+    // Match the five-minute create budget in cloud-journey.ts.
+    Duration::from_secs(if op == "cloud.machine.create" { 300 } else { 60 })
 }
 
 impl Cloud for Session<'_> {
     async fn op(&self, op: &str, params: Value, key: &str) -> Result<Value, Failure> {
         let body = json!({ "op": op, "params": params, "idempotency_key": key, "origin": "user" });
-        self.post("ops", body).await
+        self.post("ops", op, body).await
     }
 
     async fn read(&self, op: &str, params: Value) -> Result<Value, Failure> {
-        self.post("read", json!({ "op": op, "params": params })).await
+        self.post("read", op, json!({ "op": op, "params": params })).await
     }
 
     async fn exec(&self, machine: &str, command: &str) -> Result<(i64, String, String), Failure> {

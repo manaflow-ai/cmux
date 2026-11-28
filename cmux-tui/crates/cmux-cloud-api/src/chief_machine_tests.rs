@@ -1,7 +1,15 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 
+use super::super::http::worker_error;
 use super::*;
+
+#[test]
+fn only_provisioning_uses_the_cold_create_deadline() {
+    assert_eq!(chief_request_timeout("cloud.machine.create"), Duration::from_secs(300));
+    assert_eq!(chief_request_timeout("chief.create"), Duration::from_secs(60));
+    assert_eq!(chief_request_timeout("cloud.machine.get"), Duration::from_secs(60));
+}
 
 /// A Cloud with one person: machines by idempotency key, the probes the machine answers in order
 /// (the last one repeats) and every call made.
@@ -22,6 +30,10 @@ struct Fake {
     turn_answer: RefCell<Option<(i64, String, String)>>,
     /// How many `cloud.machine.create` answers are lost (`timed_out`) after the machine was made.
     lost_creates: RefCell<usize>,
+    read_failures: RefCell<VecDeque<Failure>>,
+    pauses: RefCell<Vec<Duration>>,
+    read_latency: Duration,
+    machine_error: Value,
 }
 
 impl Fake {
@@ -74,10 +86,17 @@ impl Cloud for Fake {
         self.calls.borrow_mut().push(op.to_owned());
         match op {
             "cloud.machine.get" => {
+                if !self.read_latency.is_zero() {
+                    tokio::time::sleep(self.read_latency).await;
+                }
+                if let Some(error) = self.read_failures.borrow_mut().pop_front() {
+                    return Err(error);
+                }
                 let status = self.status.borrow_mut().pop().unwrap_or("running");
                 let id = self.machines.borrow().values().next().unwrap()["id"].clone();
                 Ok(
-                    json!({ "machine": { "id": id, "status": status, "host": "host_1", "revision": 3 } }),
+                    json!({ "machine": { "id": id, "status": status, "host": "host_1", "revision": 3,
+                        "error": self.machine_error } }),
                 )
             }
             "chief.list" => Ok(json!({ "chiefs": self.chiefs.borrow().clone() })),
@@ -132,7 +151,9 @@ impl Cloud for Fake {
         Ok(())
     }
 
-    async fn pause(&self, _duration: Duration) {}
+    async fn pause(&self, duration: Duration) {
+        self.pauses.borrow_mut().push(duration);
+    }
 }
 
 fn start(until_machine: bool) -> Start {
@@ -195,6 +216,43 @@ async fn a_create_whose_answer_is_lost_is_sent_again_under_its_key() {
     assert_eq!(answer["stage"], "done");
     assert_eq!(fake.count("cloud.machine.create chief-machine-k1-create"), 3);
     assert_eq!(fake.machines.borrow().len(), 1);
+}
+
+/// Staging's 503 when a Durable Object resets for its CPU limit (cloud-chief-start run
+/// 46146310295, attempts 1 and 2): the flat tagged body says to send it again.
+fn do_reset() -> Failure {
+    worker_error(
+        503,
+        Some(&json!({ "_tag": "Unavailable", "code": "cloud.unavailable",
+                       "message": "durable object reset: exceeded CPU time limit",
+                       "retryable": true })),
+    )
+}
+
+#[tokio::test]
+async fn a_machine_read_the_cloud_says_to_retry_is_polled_again() {
+    let fake = Fake::default();
+    fake.probes(vec![done()]);
+    *fake.read_failures.borrow_mut() = vec![do_reset(), do_reset()].into();
+    let answer = run(&fake, &start(false)).await.unwrap();
+    assert_eq!(answer["stage"], "done");
+    assert!(fake.count("cloud.machine.get") >= 3);
+    assert_eq!(fake.machines.borrow().len(), 1);
+}
+
+#[tokio::test]
+async fn a_final_machine_read_refusal_still_fails_the_start() {
+    let fake = Fake::default();
+    fake.probes(vec![done()]);
+    let final_503 = worker_error(
+        503,
+        Some(&json!({ "_tag": "Unavailable", "code": "cloud.unavailable",
+                       "message": "gone for good", "retryable": false })),
+    );
+    *fake.read_failures.borrow_mut() = vec![final_503].into();
+    let failure = run(&fake, &start(false)).await.unwrap_err();
+    assert!(failure.to_string().contains("gone for good"), "{failure}");
+    assert_eq!(fake.count("cloud.machine.get"), 1);
 }
 
 #[tokio::test]
@@ -602,6 +660,21 @@ fn the_install_makes_a_root_only_folder_and_file_and_says_whether_it_changed() {
     assert!(script.contains("echo same") && script.contains("echo changed"));
     // The stage is removed whatever happens.
     assert!(script.starts_with(&format!("trap 'rm -f {}", chief_turn::TURN_ENV_STAGE)));
+    // A unit without the line (an image from before it) gets a drop-in, and that counts as changed.
+    assert!(script.contains("grep -qxF 'EnvironmentFile=-/run/cmux-chief/turn.env'"));
+    assert!(script.contains(&format!(
+        "printf '[Service]\\n%s\\n' 'EnvironmentFile=-/run/cmux-chief/turn.env' > {}",
+        chief_turn::TURN_UNIT_DROP_IN
+    )));
+    assert!(
+        script
+            .contains("load=$(systemctl show cmux-chief.service -p LoadState --value 2>/dev/null)")
+    );
+    assert!(script.contains("if command -v systemctl >/dev/null 2>&1; then"));
+    assert!(script.contains("echo 'systemd unavailable' >&2; exit 1"));
+    assert!(script.contains("[ \"$load\" = not-found ]"));
+    assert!(script.contains("systemctl daemon-reload; unit=added"));
+    assert!(script.contains("if [ \"$unit\" = added ]; then echo changed; else echo same; fi"));
     // On tmpfs.
     assert!(chief_turn::TURN_ENV_FILE.starts_with("/run/"));
     assert!(chief_turn::TURN_ENV_STAGE.starts_with("/dev/shm/"));
@@ -672,5 +745,128 @@ fn the_fallback_unit_reads_both_env_files_as_the_image_unit_does() {
         .join("../../../images/cmux-vm/chief/cmux-chief.service");
     if let Ok(text) = std::fs::read_to_string(image) {
         assert_eq!(lines(&text), expected);
+    }
+}
+
+#[tokio::test]
+async fn failed_machine_reports_only_a_bounded_code_without_retrying_creation() {
+    for status in ["failed", "deleted", "deleting"] {
+        for (code, expected) in [
+            (json!("cloud.machine.create_overdue"), " (cloud.machine.create_overdue)"),
+            (json!("cloud.provider.unavailable"), " (cloud.provider.unavailable)"),
+            (Value::Null, ""),
+            (json!(""), ""),
+            (json!("provider error\nsecret"), ""),
+            (json!("a".repeat(97)), ""),
+            (json!({"unexpected": "shape"}), ""),
+        ] {
+            let fake = Fake {
+                machine_error: json!({"code": code, "message": "private provider details"}),
+                ..Fake::default()
+            };
+            fake.status.borrow_mut().push(status);
+            assert_eq!(
+                run(&fake, &start(true)).await.unwrap_err(),
+                refused(
+                    "chief.machine_gone",
+                    format!(
+                        "machine vm_00000000000000000000 is {status}{expected}; start again with a new key"
+                    )
+                )
+            );
+            assert_eq!(fake.count("cloud.machine.create"), 1);
+            assert_eq!(fake.count("cloud.machine.get"), 1);
+            assert_eq!(fake.count("exec"), 0);
+            assert!(fake.pauses.borrow().is_empty());
+        }
+    }
+}
+
+#[tokio::test]
+async fn machine_reads_recover_without_recreating_the_machine() {
+    let fake = Fake::default();
+    fake.read_failures.borrow_mut().extend([
+        worker_error(
+            503,
+            Some(&json!({"code": "owner.unreachable",
+            "message": "owner reset", "retryable": true})),
+        ),
+        Failure::TimedOut("/v1/read".into()),
+        worker_error(429, Some(&json!({"retryable": true, "retryAfterSeconds": 12}))),
+    ]);
+    let answer = run(&fake, &start(true)).await.unwrap();
+    assert_eq!(answer["stage"], "machine");
+    assert_eq!(fake.count("cloud.machine.create"), 1);
+    assert_eq!(fake.count("cloud.machine.get"), 4);
+    assert_eq!(*fake.pauses.borrow(), [POLL, POLL, Duration::from_secs(12)]);
+}
+
+#[tokio::test]
+async fn machine_reads_return_terminal_refusals_immediately() {
+    for error in [
+        Failure::http(401, Some("auth.invalid".into()), None),
+        worker_error(503, Some(&json!({"code": "owner.unreachable", "retryable": false}))),
+    ] {
+        let fake = Fake::default();
+        fake.read_failures.borrow_mut().push_back(error.clone());
+        assert_eq!(run(&fake, &start(true)).await.unwrap_err(), error);
+        assert_eq!(fake.count("cloud.machine.get"), 1);
+        assert!(fake.pauses.borrow().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn machine_reads_exhaust_one_budget_and_preserve_the_last_refusal() {
+    let fake = Fake::default();
+    let error = worker_error(
+        503,
+        Some(&json!({"code": "owner.unreachable",
+        "message": "owner reset", "retryable": true})),
+    );
+    fake.read_failures.borrow_mut().extend(std::iter::repeat_n(error.clone(), 200));
+    assert_eq!(run(&fake, &start(true)).await.unwrap_err(), error);
+    assert_eq!(fake.count("cloud.machine.create"), 1);
+    assert!(fake.count("cloud.machine.get") <= 140);
+    assert!(fake.pauses.borrow().iter().sum::<Duration>() < MACHINE_WAIT);
+}
+
+#[tokio::test(start_paused = true)]
+async fn machine_reads_charge_request_latency_to_the_budget() {
+    let fake = Fake { read_latency: Duration::from_secs(60), ..Fake::default() };
+    let error = Failure::TimedOut("/v1/read".into());
+    fake.read_failures.borrow_mut().extend(std::iter::repeat_n(error.clone(), 200));
+    assert_eq!(run(&fake, &start(true)).await.unwrap_err(), error);
+    assert_eq!(fake.count("cloud.machine.get"), 7);
+    assert_eq!(fake.count("cloud.machine.create"), 1);
+}
+
+#[tokio::test]
+async fn machine_reads_respect_http_retry_after_and_the_remaining_budget() {
+    for (header, body, expected) in [
+        ("120", json!({"retryable": true}), 120),
+        ("120", json!({"error": {"retryable": true, "retryAfterSeconds": 9}}), 9),
+        ("600", json!({"retryable": true}), 600),
+    ] {
+        let reply = super::super::http::Reply {
+            status: 429,
+            header_code: None,
+            retry_after: Some(header.into()),
+            content_type: Some("application/json".into()),
+            commit: None,
+            body: serde_json::to_vec(&body).unwrap(),
+        };
+        let error = chief_reply(&reply, "/v1/read").unwrap_err();
+        assert_eq!(machine_read_retry(&error), Some(Duration::from_secs(expected)));
+        let fake = Fake::default();
+        fake.read_failures.borrow_mut().push_back(error.clone());
+        let answer = run(&fake, &start(true)).await;
+        if expected > MACHINE_WAIT.as_secs() {
+            assert_eq!(answer.unwrap_err(), error);
+            assert!(fake.pauses.borrow().is_empty());
+            assert_eq!(fake.count("cloud.machine.get"), 1);
+        } else {
+            assert!(answer.is_ok());
+            assert_eq!(*fake.pauses.borrow(), [Duration::from_secs(expected)]);
+        }
     }
 }

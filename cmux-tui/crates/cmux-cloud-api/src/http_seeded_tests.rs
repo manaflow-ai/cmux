@@ -94,3 +94,30 @@ fn seeded_secrets_go_only_where_the_rule_allows() {
         }
     }
 }
+
+#[test]
+fn worker_error_preserves_flat_and_nested_platform_refusals() {
+    let flat = json!({"_tag": "OwnerUnreachable", "code": "owner.unreachable",
+        "message": "owner reset", "retryable": true, "retryAfterSeconds": 9});
+    let nested = json!({"error": flat});
+    for body in [&flat, &nested] {
+        assert_eq!(
+            super::worker_error(503, Some(body)),
+            crate::Failure::Http {
+                status: 503,
+                code: Some("owner.unreachable".into()),
+                message: Some("owner reset".into()),
+                action: None,
+                trace_id: None,
+                retryable: Some(true),
+                retry_after_s: Some(9),
+            }
+        );
+    }
+    assert_eq!(super::worker_error(502, None), crate::Failure::http(502, None, None));
+    let legacy = json!({"error": {"code": "auth.invalid", "message": "sign in"}});
+    assert_eq!(
+        super::worker_error(401, Some(&legacy)),
+        crate::Failure::http(401, Some("auth.invalid".into()), Some("sign in".into()))
+    );
+}

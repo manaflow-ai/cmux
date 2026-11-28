@@ -2671,6 +2671,16 @@ export function rpcFailureReason(reason: unknown): string {
   return reason === "overloaded" || reason === "restarted" || reason === "unreachable" ? ` (${reason})` : "";
 }
 
+/** Bound recovery requests for one keyed machine exec. */
+export const EXEC_RECOVERY_TRIES = 4;
+
+/** These transient failures permit reading the same keyed exec back, not starting another command.
+ * Neither reason proves that the original command was undelivered. */
+export function execRecoveryAllowed(status: number, value: any): boolean {
+  const reason = value?.error?.reason;
+  return status === 503 && value?.error?.code === "vm_unavailable" && (reason === "overloaded" || reason === "unreachable");
+}
+
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
 export type PremintExec = Exec & {
   /** Mint the client session now, before the first exec: the probe starts it when create answers, so the mint runs
@@ -2678,7 +2688,7 @@ export type PremintExec = Exec & {
    * failed (the first exec then mints again and reports that failure itself). */
   premint: () => Promise<number | null>;
 };
-export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): PremintExec {
+export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000, recoveryWaitMs = 5_000): PremintExec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   // Calls that start together (the agent's start and its first-text observer) share one mint.
@@ -2687,8 +2697,15 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
     // The HTTP request waits as long as the command may run, plus room for the answer to travel.
     const runMs = Math.min(timeoutMs, 300_000);
-    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
-    const v: any = g.body?.value ?? g.body;
+    // The server deduplicates by execId: a lost answer must read the first run back.
+    const body = { command, timeoutMs: runMs, execId: randomUUID() };
+    let g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, body, runMs + 15_000);
+    let v: any = g.body?.value ?? g.body;
+    for (let tries = 1; tries < EXEC_RECOVERY_TRIES && execRecoveryAllowed(g.status, v); tries++) {
+      await sleep(recoveryWaitMs * 2 ** (tries - 1));
+      g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, body, runMs + 15_000);
+      v = g.body?.value ?? g.body;
+    }
     if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}${rpcFailureReason(v?.error?.reason)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
