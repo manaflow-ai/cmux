@@ -4,10 +4,8 @@ use std::io::Write;
 // The leading decimal is the test source's seq, with arbitrary gaps.
 fn seq_places(line: &[u8], _: u64) -> io::Result<Range<u64>> {
     let seq = line.split(|byte| *byte == b' ').next().ok_or_else(|| invalid("missing seq"))?;
-    let start: u64 = std::str::from_utf8(seq)
-        .map_err(io::Error::other)?
-        .parse()
-        .map_err(io::Error::other)?;
+    let start: u64 =
+        std::str::from_utf8(seq).map_err(io::Error::other)?.parse().map_err(io::Error::other)?;
     Ok(start..start.checked_add(1).ok_or_else(|| invalid("seq overflow"))?)
 }
 
@@ -355,11 +353,9 @@ fn raw_map_repairs_and_reuses_the_existing_last_source() -> io::Result<()> {
     let mut reopened = RawMap::open(&map_path)?;
     assert_eq!(std::fs::metadata(&map_path)?.len(), length);
     assert_eq!(reopened.append_file(&raw_path, b"file:test")?, 0);
-    let (first, writer) =
-        RawWriter::open_mapped(&mut reopened, &raw_path, b"file:test", None, 4)?;
+    let (first, writer) = RawWriter::open_mapped(&mut reopened, &raw_path, b"file:test", None, 4)?;
     drop(writer);
-    let (again, _writer) =
-        RawWriter::open_mapped(&mut reopened, &raw_path, b"file:test", None, 4)?;
+    let (again, _writer) = RawWriter::open_mapped(&mut reopened, &raw_path, b"file:test", None, 4)?;
     assert_eq!((first, again), (0, 0));
     assert_eq!(std::fs::metadata(&map_path)?.len(), length);
     let second_path = dir.path().join("other.ndjson");

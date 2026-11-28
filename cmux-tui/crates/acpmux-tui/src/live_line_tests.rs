@@ -50,10 +50,7 @@ fn names_what_it_waits_on_after_silence() {
         Some("Waiting on the model to read your queued message")
     );
     let t = live(vec![user("fix it", false), Item::Assistant { text: "ok".into() }]);
-    assert_eq!(
-        waiting_since(&t, 0, 20_000).as_deref(),
-        Some("Waiting on the model's next step")
-    );
+    assert_eq!(waiting_since(&t, 0, 20_000).as_deref(), Some("Waiting on the model's next step"));
 }
 
 #[test]

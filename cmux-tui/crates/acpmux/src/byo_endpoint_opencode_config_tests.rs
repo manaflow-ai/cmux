@@ -34,8 +34,7 @@ fn cloudflare_gateway_uses_the_gateway_header_without_bearer_auth() {
         &["workers-ai/@cf/meta/model".into()],
         true,
     );
-    let config: serde_json::Value =
-        serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    let config: serde_json::Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
     let options = &config["provider"]["byo"]["options"];
     assert_eq!(options["headers"]["cf-aig-authorization"], "Bearer {env:CMUX_BYO_API_KEY}");
     assert!(options.get("apiKey").is_none());

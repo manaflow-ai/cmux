@@ -15,10 +15,7 @@ fn local_subscription_launch_keeps_tokens_out_of_arguments() {
         argv: vec!["codex".into(), "app-server".into(), "--stdio".into()],
         env: [
             (crate::routes::NAME_KEY.to_owned(), "ChatGPT".into()),
-            (
-                crate::agent_credentials::CHATGPT_TOKEN.to_owned(),
-                "fixture-chatgpt-token".into(),
-            ),
+            (crate::agent_credentials::CHATGPT_TOKEN.to_owned(), "fixture-chatgpt-token".into()),
             (crate::routes::UNSET_KEY.to_owned(), "OPENAI_API_KEY,OPENAI_BASE_URL".into()),
         ]
         .into_iter()
@@ -46,17 +43,13 @@ fn local_subscription_launch_keeps_tokens_out_of_arguments() {
 
     let claude = crate::config::HarnessProfile {
         argv: vec!["claude".into()],
-        env: [(
-            crate::agent_credentials::CLAUDE_OAUTH.to_owned(),
-            "fixture-claude-token".into(),
-        )]
-        .into_iter()
-        .collect(),
+        env: [(crate::agent_credentials::CLAUDE_OAUTH.to_owned(), "fixture-claude-token".into())]
+            .into_iter()
+            .collect(),
         family: Some("claude".into()),
         ..codex
     };
-    let command =
-        harness_command("claude", &claude, &std::env::temp_dir(), None, None).unwrap();
+    let command = harness_command("claude", &claude, &std::env::temp_dir(), None, None).unwrap();
     assert!(
         command
             .as_std()
@@ -100,8 +93,7 @@ fn env_exclude_removes_names_last_but_keeps_acpmux_wiring() {
             (crate::agent_env::EXCLUDE_MARKER): "SECRET_*,HOME,ACPMUX_*"}
     }))
     .unwrap();
-    let cmd =
-        harness_command("t", &p, &std::env::temp_dir(), None, Some(("s1", "n1"))).unwrap();
+    let cmd = harness_command("t", &p, &std::env::temp_dir(), None, Some(("s1", "n1"))).unwrap();
     let env = command_env(&cmd);
     let has = |k: &str| env.iter().any(|(n, _)| n == k);
     assert!(!has("SECRET_TOKEN") && !has("SECRET_OTHER") && !has("HOME"));
@@ -139,8 +131,7 @@ fn the_hook_daemon_token_is_off_unless_its_setting_names_a_file() {
     let home = dir.path().to_path_buf();
     let unset = |k: &str| (k == "HOME").then(|| home.clone().into_os_string());
     assert_eq!(super::hook_daemon_token(unset), None, "off by default, whatever is on disk");
-    let set =
-        |k: &str| (k == super::HOOK_TOKEN_FILE_ENV).then(|| file.clone().into_os_string());
+    let set = |k: &str| (k == super::HOOK_TOKEN_FILE_ENV).then(|| file.clone().into_os_string());
     assert_eq!(super::hook_daemon_token(set).as_deref(), Some(tok.as_str()));
     std::fs::write(&file, "not hex at all, not a token\n").unwrap();
     assert_eq!(super::hook_daemon_token(set), None, "a stray file never becomes a header");
@@ -159,9 +150,8 @@ fn a_claude_session_is_launched_under_its_acpmux_name() {
     let args = |line: Vec<&str>, name: &str| -> Vec<String> {
         let line = Some(("claude".to_owned(), line.into_iter().map(str::to_owned).collect()));
         let id = "01a15d7d-b692-76b3-b8de-a9a71809de2a";
-        let cmd =
-            harness_command("local", &profile, &std::env::temp_dir(), line, Some((id, name)))
-                .unwrap();
+        let cmd = harness_command("local", &profile, &std::env::temp_dir(), line, Some((id, name)))
+            .unwrap();
         cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
     };
     let named = args(vec!["-p"], "reviewer");
@@ -190,8 +180,7 @@ fn hosted_remote_environment_cannot_be_reopened_by_a_profile_key_collision() {
     }))
     .unwrap();
     profile.kind = crate::config::HarnessKind::Acp;
-    let command =
-        harness_command("remote", &profile, &std::env::temp_dir(), None, None).unwrap();
+    let command = harness_command("remote", &profile, &std::env::temp_dir(), None, None).unwrap();
     let env = command_env_cleared(&command);
     assert!(
         !env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
@@ -242,8 +231,7 @@ fn hosted_local_environment_keeps_the_daemon_base() {
         "argv": ["/usr/bin/true"]
     }))
     .unwrap();
-    let command =
-        harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
+    let command = harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
     let env = command_env(&command);
     assert!(
         env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
@@ -350,8 +338,7 @@ fn every_local_session_gets_its_own_temporary_folder() {
     ));
     std::fs::create_dir_all(&scratch).unwrap();
     let base = scratch.join("acpmux-u");
-    let (a, b) =
-        ("01a15d7d-b692-76b3-b8de-a9a71809de2a", "01a15db7-20cd-7e10-8535-158031297e5c");
+    let (a, b) = ("01a15d7d-b692-76b3-b8de-a9a71809de2a", "01a15db7-20cd-7e10-8535-158031297e5c");
     let root = daemon_root(&base, &crate::config::home());
     let runtime = serde_json::json!({"XDG_RUNTIME_DIR": "/run/user/4242"});
     let env_a = session_env(&base, a, runtime.clone());
@@ -476,10 +463,7 @@ fn a_profile_path_keeps_the_login_path_after_it() {
         "the profile's PATH comes first"
     );
     for dir in extra {
-        assert!(
-            entries.contains(&dir.as_str()),
-            "{dir} of the login PATH is missing from {path}"
-        );
+        assert!(entries.contains(&dir.as_str()), "{dir} of the login PATH is missing from {path}");
     }
     let unique: std::collections::BTreeSet<&str> = entries.iter().copied().collect();
     assert_eq!(entries.len(), unique.len(), "each directory once: {path}");
@@ -565,9 +549,8 @@ fn an_agent_never_inherits_another_harness_login() {
     let opencode = profile(HarnessKind::Acp, "opencode", serde_json::json!({}));
     assert!(removed(&opencode, "CLAUDE_CODE_OAUTH_TOKEN") && removed(&opencode, "CODEX_HOME"));
     // Not `removed`: inside a Claude Code shell the nested scrub removes ANTHROPIC_* too.
-    let opencode_loses = |key: &str| {
-        super::super::foreign_login::foreign_login_keys("opencode").any(|k| k == key)
-    };
+    let opencode_loses =
+        |key: &str| super::super::foreign_login::foreign_login_keys("opencode").any(|k| k == key);
     assert!(!opencode_loses("ANTHROPIC_API_KEY") && !opencode_loses("OPENAI_API_KEY"));
     // A provider key in the daemon's own env reaches OpenCode, never Claude Code or Codex.
     for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY"] {

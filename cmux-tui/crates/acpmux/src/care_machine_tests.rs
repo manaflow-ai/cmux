@@ -54,9 +54,7 @@ fn writing_a_timer_stays_in_the_held_home_after_replacement() {
 
             assert!(!write_if_changed(&path, "old").unwrap());
             assert!(
-                home.with_extension("old")
-                    .join(".config/systemd/user/cmux-care.timer")
-                    .exists()
+                home.with_extension("old").join(".config/systemd/user/cmux-care.timer").exists()
             );
             assert!(!path.exists(), "the replacement home stays untouched");
 

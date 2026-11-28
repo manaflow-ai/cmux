@@ -47,10 +47,7 @@ fn join_origin_cannot_carry_secrets_paths_or_non_http_schemes() {
         let error = origin(Some(url.to_owned())).unwrap_err().to_string();
         assert!(!error.contains("secret"));
     }
-    assert_eq!(
-        origin(Some("https://EXAMPLE.com:443/".to_owned())).unwrap(),
-        "https://example.com"
-    );
+    assert_eq!(origin(Some("https://EXAMPLE.com:443/".to_owned())).unwrap(), "https://example.com");
     assert!(origin(Some("http://127.0.0.1:1234".to_owned())).is_ok());
 }
 
@@ -157,8 +154,7 @@ fn the_tunnel_runs_only_for_a_live_join_of_this_box() {
     // One owed for this join itself stops it, by its row or by its credential.
     super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&record, false)).unwrap();
     assert_eq!(super::joined_device_at(home.path()), None, "this join's row is queued");
-    let own_credential =
-        super::MachineCredential { machine_id: String::new(), ..record.clone() };
+    let own_credential = super::MachineCredential { machine_id: String::new(), ..record.clone() };
     let other = tempfile::tempdir().unwrap();
     joined_on(other.path(), current.as_deref());
     super::to_revoke::queue(other.path(), &super::to_revoke::Row::of(&own_credential, true))
@@ -189,9 +185,7 @@ fn the_shared_clone_check_reads_the_named_home() {
     let mut record = super::load_at(home.path()).unwrap().unwrap();
     record.cloned = true;
     super::save_at(home.path(), &record).unwrap();
-    assert!(
-        super::copied_at(home.path(), Some("box-a")) && super::copied_at(home.path(), None)
-    );
+    assert!(super::copied_at(home.path(), Some("box-a")) && super::copied_at(home.path(), None));
 }
 
 /// Review F1 at d1e8f0ed: a copy found and not settled records its node key as copied
@@ -318,8 +312,7 @@ fn pending_on(home: &std::path::Path, made: &str) {
 #[cfg(unix)]
 fn a_start_on_a_copied_home_racing_a_host_join_keeps_the_registered_key() {
     use crate::cli::mesh_node_key::{
-        load_or_create_at, public_key_at, record_copied_key, replace_copied_at,
-        serves_copied_key,
+        load_or_create_at, public_key_at, record_copied_key, replace_copied_at, serves_copied_key,
     };
     use base64::Engine as _;
     let home = tempfile::tempdir().unwrap();
@@ -352,11 +345,7 @@ fn a_start_on_a_copied_home_racing_a_host_join_keeps_the_registered_key() {
     super::settle_clone_at_start_in(home.path()).unwrap();
     let registered = registered.get().expect("the join ran");
     assert_ne!(registered, copied);
-    assert_eq!(
-        public_key_at(home.path()),
-        Some(registered),
-        "the start deleted the join's key"
-    );
+    assert_eq!(public_key_at(home.path()), Some(registered), "the start deleted the join's key");
     assert!(!serves_copied_key(home.path()));
     // With no join in between, the start replaces the copied key itself.
     let alone = tempfile::tempdir().unwrap();
@@ -453,10 +442,8 @@ fn a_pending_join_begun_on_another_box_makes_the_home_a_copy_for_every_caller() 
     assert!(super::other_box(home.path(), Some("box-a"), Some("box-b")));
     assert!(!super::other_box(home.path(), Some("box-a"), Some("box-a")));
     // A record joined here does not hide a pending join copied from elsewhere.
-    let mine = super::MachineCredential {
-        host_fingerprint: Some("box-b".into()),
-        ..Default::default()
-    };
+    let mine =
+        super::MachineCredential { host_fingerprint: Some("box-b".into()), ..Default::default() };
     assert!(super::copied_here(home.path(), &mine, Some("box-b")));
 }
 
@@ -514,10 +501,7 @@ fn an_older_record_adopts_the_box_it_starts_on_and_no_identity_compares_nothing(
     let home = tempfile::tempdir().unwrap();
     let key = joined_on(home.path(), None);
     let before = super::load_at(home.path()).unwrap().unwrap();
-    assert!(
-        !super::copied_here(home.path(), &before, Some("box-a")),
-        "no fingerprint is no clone"
-    );
+    assert!(!super::copied_here(home.path(), &before, Some("box-a")), "no fingerprint is no clone");
     assert_eq!(super::settle_clone_at(home.path(), None).unwrap(), super::CloneCheck::Unknown);
     assert_eq!(
         super::settle_clone_at(home.path(), Some("box-a")).unwrap(),
@@ -608,20 +592,13 @@ fn an_older_record_reads_unfingerprinted_and_not_cloned() {
 fn a_join_grants_the_same_person_and_keeps_the_owners_own_entries() {
     use crate::mesh_http::{MeshControlFrom, MeshRelayConfig};
     assert_eq!(super::joined_control_from(None), vec![MeshControlFrom::same_user()]);
-    let own = MeshControlFrom {
-        daemon_id: "d1".into(),
-        ops: vec!["stop".into()],
-        ..Default::default()
-    };
+    let own =
+        MeshControlFrom { daemon_id: "d1".into(), ops: vec!["stop".into()], ..Default::default() };
     let previous = MeshRelayConfig { control_from: vec![own.clone()], ..Default::default() };
-    assert_eq!(
-        super::joined_control_from(Some(previous)),
-        vec![own, MeshControlFrom::same_user()]
-    );
+    assert_eq!(super::joined_control_from(Some(previous)), vec![own, MeshControlFrom::same_user()]);
     // An owner who narrowed or emptied `sameUser` keeps that choice across a rejoin.
     let narrowed = MeshControlFrom { ops: vec![], ..MeshControlFrom::same_user() };
-    let previous =
-        MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
+    let previous = MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
     assert_eq!(super::joined_control_from(Some(previous)), vec![narrowed]);
     // The entry an older join wrote (no `maxPolicy`) becomes today's; one with a cap the
     // owner chose keeps it.
@@ -655,8 +632,7 @@ fn ten_idle_minutes_of_heartbeats_rewrite_the_credential_twenty_times_not_sixty(
     let start = 1_800_000_000_000u64;
     let (mut last, mut writes) = (ino(), 0);
     for beat in 0..60u64 {
-        super::record_auth_result_at(home, "cmm_live", false, true, start + beat * 10_000)
-            .unwrap();
+        super::record_auth_result_at(home, "cmm_live", false, true, start + beat * 10_000).unwrap();
         let now = ino();
         if now != last {
             writes += 1;

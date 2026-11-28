@@ -29,10 +29,7 @@ fn a_terminal_claude_code_registers_from_cmuxs_hook_until_it_is_reached() {
     // A code went to the inbox: not reached yet, so the next prompt asks again.
     let sock = "/tmp/cc-socks/77.sock";
     mark_if_reached(home.path(), sock, "tok", &json!({"pending": true, "name": "x"}));
-    assert_eq!(
-        hook_args(env(&TERMINAL), Some(SESSION), "cosmic-gray", home.path()),
-        Some(args)
-    );
+    assert_eq!(hook_args(env(&TERMINAL), Some(SESSION), "cosmic-gray", home.path()), Some(args));
 
     // Registered with this process: no process for it again.
     mark_if_reached(home.path(), sock, "tok", &json!({"registered": true, "name": "x"}));
@@ -56,11 +53,7 @@ fn a_session_acpmux_runs_or_a_shell_with_no_inbox_asks_nothing() {
     assert_eq!(hook_args(env(&inside), Some(SESSION), "h", home.path()), None, "acpmux's own");
     for missing in ["CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN"] {
         let without: Vec<_> = TERMINAL.iter().copied().filter(|(k, _)| *k != missing).collect();
-        assert_eq!(
-            hook_args(env(&without), Some(SESSION), "h", home.path()),
-            None,
-            "{missing}"
-        );
+        assert_eq!(hook_args(env(&without), Some(SESSION), "h", home.path()), None, "{missing}");
     }
     assert_eq!(hook_args(env(&TERMINAL), None, "h", home.path()), None, "no session id");
     assert_eq!(hook_args(env(&TERMINAL), Some("--"), "h", home.path()), None, "no word");

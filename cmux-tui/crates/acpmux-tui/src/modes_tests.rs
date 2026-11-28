@@ -44,8 +44,7 @@ fn real_modes_stay() {
 
 #[test]
 fn plan_toggle_goes_in_and_back_out() {
-    let m =
-        |ids: &[&str]| ids.iter().map(|i| (i.to_string(), i.to_string())).collect::<Vec<_>>();
+    let m = |ids: &[&str]| ids.iter().map(|i| (i.to_string(), i.to_string())).collect::<Vec<_>>();
     let claude = m(&["default", "acceptEdits", "plan", "bypassPermissions"]);
     assert_eq!(plan_toggle("acceptEdits", &claude).as_deref(), Ok("plan"));
     assert_eq!(plan_toggle("plan", &claude).as_deref(), Ok("default"));

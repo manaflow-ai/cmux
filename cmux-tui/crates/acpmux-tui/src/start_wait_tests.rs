@@ -20,9 +20,7 @@ async fn a_failed_start_names_the_harness_and_keeps_the_cause() {
     let end = bounded(
         "claude",
         START_DEADLINE,
-        async {
-            Err::<(), _>(anyhow::anyhow!("spawn claude-code-acp: No such file or directory"))
-        },
+        async { Err::<(), _>(anyhow::anyhow!("spawn claude-code-acp: No such file or directory")) },
         || false,
     )
     .await;

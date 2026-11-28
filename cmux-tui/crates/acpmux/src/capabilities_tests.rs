@@ -47,10 +47,7 @@ fn paths(manifest: &Value) -> Vec<&str> {
 fn an_older_target_gets_the_move_without_its_optional_files() {
     let mut manifest = begin_manifest();
     let left = leave_out_untaken(&mut manifest, |_| false);
-    assert_eq!(
-        left,
-        vec!["composers.json".to_owned(), format!("attachments/{}", "ab".repeat(32))]
-    );
+    assert_eq!(left, vec!["composers.json".to_owned(), format!("attachments/{}", "ab".repeat(32))]);
     assert_eq!(
         paths(&manifest),
         [
@@ -177,10 +174,7 @@ async fn initialize_status_and_the_cli_name_the_same_capabilities() {
     let hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "caps-test"}});
     let init = client.request(method::INITIALIZE, hello).await.unwrap();
     assert_eq!(init.pointer("/_meta/acpmux/capabilities"), Some(&expected), "{init}");
-    assert!(
-        client.daemon_lists(TRIGGER_CHAT),
-        "trigger chat capability must gate its CLI helper"
-    );
+    assert!(client.daemon_lists(TRIGGER_CHAT), "trigger chat capability must gate its CLI helper");
 
     let printed: Value = serde_json::from_str(&render(true)).unwrap();
     assert_eq!(printed, json!({"capabilities": expected}));

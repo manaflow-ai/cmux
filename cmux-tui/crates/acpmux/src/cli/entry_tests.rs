@@ -13,9 +13,7 @@ fn the_agent_router_recognizes_every_engine_command_and_alias() {
             Cli::command()
                 .get_subcommands()
                 .flat_map(|cmd| {
-                    std::iter::once(cmd.get_name())
-                        .chain(cmd.get_all_aliases())
-                        .map(str::to_owned)
+                    std::iter::once(cmd.get_name()).chain(cmd.get_all_aliases()).map(str::to_owned)
                 })
                 .collect::<Vec<_>>()
         })
@@ -49,9 +47,7 @@ fn an_agent_s_guess_at_a_session_s_events_runs_session_tail() {
             .spawn(move || {
                 let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{e}"));
                 match cli.command.map(flatten) {
-                    Some(Command::Tail { session, last, follow, .. }) => {
-                        (session, last, follow)
-                    }
+                    Some(Command::Tail { session, last, follow, .. }) => (session, last, follow),
                     _ => panic!("not tail"),
                 }
             })

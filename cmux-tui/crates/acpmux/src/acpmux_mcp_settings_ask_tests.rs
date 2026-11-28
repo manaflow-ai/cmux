@@ -47,10 +47,7 @@ fn a_setting_comes_back_as_its_link() {
         check(&json!({"target": "cmux-nightly://settings/cloud/claude"})).unwrap()["link"],
         "cmux://settings/cloud/claude"
     );
-    assert_eq!(
-        check(&json!({"target": "cmux://settings"})).unwrap()["link"],
-        "cmux://settings"
-    );
+    assert_eq!(check(&json!({"target": "cmux://settings"})).unwrap()["link"], "cmux://settings");
     let said = call(&json!({"target": "setting:accounts/machines"}));
     assert_eq!(said["isError"], false);
     assert!(said.to_string().contains("cmux://settings/accounts/machines"), "{said}");

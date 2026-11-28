@@ -37,9 +37,7 @@ fn each_kind_says_what_to_do() {
     );
     assert_eq!(
         sentence_for("API Error: 529 Overloaded", Some("codex")).as_deref(),
-        Some(
-            "Codex is rate limited or out of capacity. Try again in a moment, or switch model."
-        )
+        Some("Codex is rate limited or out of capacity. Try again in a moment, or switch model.")
     );
 }
 

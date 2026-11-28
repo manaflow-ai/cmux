@@ -23,8 +23,5 @@ fn cursor_probe_times_out_a_stalled_child() {
     child.args(["-c", "exec sleep 30"]);
     assert!(!probe_status(&mut child, Duration::from_millis(30)));
     assert!(now.elapsed() < Duration::from_secs(3));
-    assert!(probe_status(
-        Command::new("/bin/sh").args(["-c", "exit 0"]),
-        Duration::from_secs(1)
-    ));
+    assert!(probe_status(Command::new("/bin/sh").args(["-c", "exit 0"]), Duration::from_secs(1)));
 }

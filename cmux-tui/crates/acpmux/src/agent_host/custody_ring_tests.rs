@@ -11,8 +11,7 @@ async fn a_replacement_reader_recovers_a_partial_frame_with_a_key_prefix() {
     assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
     let reader = unsafe { OwnedFd::from_raw_fd(fds[0]) };
     let mut writer = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fds[1]) });
-    let mut original =
-        RingPipe::new(dup(reader.as_raw_fd()).unwrap(), ring.clone(), 0).unwrap();
+    let mut original = RingPipe::new(dup(reader.as_raw_fd()).unwrap(), ring.clone(), 0).unwrap();
     let prefix = b"{\"text\":\"fixture-";
     writer.write_all(prefix).unwrap();
     let mut partial = [0; 1];
