@@ -6,7 +6,6 @@ const css = readFileSync(join(import.meta.dir, "conversation.css"), "utf8");
 const gallery = readFileSync(join(import.meta.dir, "transcript.gallery.ts"), "utf8");
 
 test("background activity has one secondary tone; a row's words light on hover or keyboard focus, never its glyph; a received message never", () => {
-  // 58% is the Instrument ink token's fallback since #53799 (gap, elevation and ink-level tokens at today's values).
   expect(css).toContain(
     "--cv-activity-text: color-mix(in srgb, var(--cv-fg) var(--instrument-ink-tool-row, 58%), transparent);",
   );

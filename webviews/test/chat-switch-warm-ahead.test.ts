@@ -11,12 +11,18 @@
 //   - a chat that ran on after it was folded ahead draws what it says now, not the rows folded ahead.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient, type WarmedChat } from "../src/agent-session/acpmux/direct";
+import type { WarmedChat } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { NO_MESSAGE_BREAKS, turnViewFrom, type TurnView } from "../src/agent-session/acpmux/conversation/turns";
-import { shapeAhead } from "../src/agent-session/acpmux/pane/useTurnActions";
+import type { TurnView } from "../src/agent-session/acpmux/conversation/turns";
 import type { SubagentRows } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { NO_MESSAGE_BREAKS, turnViewFrom } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turns"),
+);
+const { shapeAhead } = await importWithDom(() => import("../src/agent-session/acpmux/pane/useTurnActions"));
 
 const START = Date.UTC(2026, 10, 28, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -178,7 +184,7 @@ const twoChats = async (name: string) => {
   return { daemon, A, B };
 };
 
-const warmedOn = (client: AcpmuxDirectClient, sessionId: string) =>
+const warmedOn = (client: InstanceType<typeof AcpmuxDirectClient>, sessionId: string) =>
   new Promise<WarmedChat>((resolve) => {
     const stop = client.onWarmed((warmed) => {
       if (warmed.sessionId !== sessionId) return;
