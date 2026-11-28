@@ -1357,6 +1357,99 @@ async fn hub_carrier_a_closed_direct_port_falls_back_to_the_relay() {
     assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 0);
 }
 
+/// Both carriers on iroh with its relay off, bound to loopback: the iroh path is a direct one.
+fn loopback_iroh() -> acpmux::hub_carrier::iroh_path::IrohConfig {
+    acpmux::hub_carrier::iroh_path::IrohConfig {
+        secret: None,
+        relay: false,
+        bind: Some("127.0.0.1:0".parse().unwrap()),
+    }
+}
+
+/// Dial until A holds a kept iroh circuit to B (the upgrade runs beside the relay dial), bounded.
+async fn until_iroh_kept(fixture: &PipeFixture) {
+    let b = fixture.carrier_b.public_key();
+    for _ in 0..100 {
+        if fixture.carrier_a.kept_iroh_circuits(&b) == 1 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("A never held a kept iroh circuit to B");
+}
+
+/// Leo: "small, chatty calls stay on whichever machine holds the files, batched over one
+/// always-open connection, never a new connection per call." With `irohDirect` on both ends, the
+/// first pipe dial rides the relay (`via: hub`) while the iroh circuit opens beside it; once that
+/// circuit is Noise-confirmed and kept, the next dial is one stream on it (`via: iroh-direct`),
+/// and a stream echoes through it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_upgrades_a_pipe_off_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let _iroh_a = fixture.carrier_a.start_iroh(loopback_iroh()).await.unwrap();
+    let b = fixture.carrier_b.public_key();
+    fixture.carrier_a.set_iroh_route(&b, fixture.carrier_b.iroh_addr().unwrap());
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "hub", "the first dial takes the relay: {first}");
+    until_iroh_kept(&fixture).await;
+    let second = pipe_reply(&fixture).await;
+    assert_eq!(second["via"], "iroh-direct", "{second}");
+    assert_eq!(second["dial"]["circuit"], "kept", "{second}");
+    let third = pipe_reply(&fixture).await;
+    assert_eq!(third["via"], "iroh-direct", "{third}");
+    assert_eq!(fixture.carrier_a.kept_iroh_circuits(&b), 1, "one always-open connection");
+    // A stream through the iroh circuit reaches B's daemon and its answer comes back.
+    let (mut stream, report) = fixture
+        .carrier_a
+        .dial_service_reported(&b, CircuitService::CmuxTui { port: fixture.daemon.port() })
+        .await
+        .unwrap();
+    assert_eq!(report.via.name(), "iroh-direct");
+    stream.write_all(b"GET / HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n").await.unwrap();
+    let mut answer = vec![0u8; 12];
+    tokio::time::timeout(Duration::from_secs(10), stream.read_exact(&mut answer))
+        .await
+        .expect("B's daemon answered over iroh")
+        .unwrap();
+    assert!(answer.starts_with(b"HTTP/1."), "{:?}", String::from_utf8_lossy(&answer));
+}
+
+/// With no route set, A learns B's iroh address over the relay circuit it already holds
+/// (`acpmux-iroh-addr`), then upgrades the same way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_learns_the_address_over_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let _iroh_a = fixture.carrier_a.start_iroh(loopback_iroh()).await.unwrap();
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "hub", "{first}");
+    until_iroh_kept(&fixture).await;
+    let next = pipe_reply(&fixture).await;
+    assert_eq!(next["via"], "iroh-direct", "{next}");
+}
+
+/// With `irohDirect` off (the default) nothing changes: every dial rides the relay and no iroh
+/// circuit opens, even when B serves iroh.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_off_changes_nothing() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let b = fixture.carrier_b.public_key();
+    for _ in 0..3 {
+        let reply = pipe_reply(&fixture).await;
+        assert_eq!(reply["via"], "hub", "{reply}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(fixture.carrier_a.kept_iroh_circuits(&b), 0);
+}
+
 /// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new
 /// device the owner approves; without, `identity` as an enrolled device.
 async fn connect_through_pipe(

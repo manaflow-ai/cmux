@@ -102,7 +102,9 @@ await requireBrowserLane("composer-hat-head-align.test.ts", async () => {
         const page = await open(width, widthName, arm);
         try {
           const mixed = await offsets(page);
-          expect(mixed.text).toContain("1 stopped");
+          // Since #55415 the folded header counts only what runs and names a lone running item, so the
+          // mixed hat (one runs, one done, one stopped) reads the running subagent's name.
+          expect(mixed.text).toContain("Watch the nightly");
           expectCentred(mixed, "one runs, one done, one stopped");
           // The hand-over, sampled every frame: the running one finishes, then the next starts.
           const drift = await page.evaluate(async () => {
