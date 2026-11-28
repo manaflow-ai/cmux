@@ -29,12 +29,18 @@
 //! fsmonitor or transport from the repository runs.
 
 pub mod archive;
+pub mod budget;
 pub mod caches;
+pub mod care;
+mod clones;
 pub mod cold;
 pub mod disk;
+mod external;
 mod finished_memo;
 mod git;
 pub mod inventory;
+pub mod ledger;
+pub mod never_delete;
 pub mod owner;
 mod park;
 pub mod pass;
@@ -43,6 +49,7 @@ pub mod procs;
 pub mod restore;
 pub mod schedule;
 pub mod store;
+pub mod walk_memo;
 
 pub use inventory::{Facts, Repo, Worktree};
 pub use policy::{Action, Pressure, Verdict};

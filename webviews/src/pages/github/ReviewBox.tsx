@@ -3,8 +3,9 @@
 // need a click and say an approval or a request for changes only as the person, never as the App.
 import { useId, useState } from "react";
 import type { Strings } from "../shared/i18n";
-import type { GitHubSnapshot, GitHubStore } from "./store";
-import type { ReviewEvent, WriteState } from "./types";
+import type { GitHubStore } from "./store";
+import { useGitHubSlice } from "./useGitHubSlice";
+import type { ReviewEvent } from "./types";
 
 const EVENTS: [ReviewEvent, string][] = [
   ["COMMENT", "github.review.comment"],
@@ -14,12 +15,13 @@ const EVENTS: [ReviewEvent, string][] = [
 
 /** Words and three verdicts under the conversation; an approval may come with no words. */
 export function ReviewBox({
-  snapshot,
+  prState,
   store,
   strings,
   initialBody = "",
 }: {
-  snapshot: GitHubSnapshot;
+  /** The pull request's state; the box shows only on an open one. */
+  prState?: string;
   store: GitHubStore;
   strings: Strings;
   initialBody?: string;
@@ -27,8 +29,8 @@ export function ReviewBox({
   const { t } = strings;
   const label = useId();
   const [body, setBody] = useState(initialBody);
-  const { write, pullRequest: pr } = snapshot;
-  if (!pr || pr.state !== "open") return null;
+  const write = useGitHubSlice(store, (s) => s.write);
+  if (prState !== "open") return null;
   const mine = write.phase !== "idle" && write.what === "review";
   const sending = write.phase === "sending";
   const submit = async (event: ReviewEvent) => {
@@ -81,14 +83,12 @@ export function ReviewBox({
 export function ThreadActions({
   thread,
   resolved,
-  write,
   store,
   strings,
   initialReplying = false,
 }: {
   thread: string;
   resolved: boolean;
-  write: WriteState;
   store: GitHubStore;
   strings: Strings;
   initialReplying?: boolean;
@@ -96,6 +96,7 @@ export function ThreadActions({
   const { t } = strings;
   const [replying, setReplying] = useState(initialReplying);
   const [body, setBody] = useState("");
+  const write = useGitHubSlice(store, (s) => s.write);
   const mine = write.phase !== "idle" && write.what === thread;
   const sending = write.phase === "sending";
   const reply = async () => {

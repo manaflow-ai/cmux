@@ -414,7 +414,7 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "803c028818fee28d"
+      "digest": "288c304741b24f78"
     },
     "cloud.port.close": {
       "source": "app",
@@ -545,7 +545,7 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "34636fdecb9b6e88"
+      "digest": "06cef7c508952184"
     },
     "cloud.vm.attention.emit": {
       "source": "cloud",
