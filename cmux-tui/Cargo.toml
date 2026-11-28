@@ -194,6 +194,7 @@ members = [
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-update-prewarm-core",
+    "crates/cmux-feed-push-core",
     "crates/cmux-health-core",
     "crates/cmux-sign-clone-sweep",
     "crates/cmux-launch-image",
@@ -378,6 +379,7 @@ default-members = [
     "crates/cmux-stack-auth",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-update-prewarm-core",
+    "crates/cmux-feed-push-core",
     "crates/cmux-health-core",
     "crates/cmux-sign-clone-sweep",
     "crates/cmux-launch-image",
@@ -600,6 +602,7 @@ cmux-terminal-iface = { path = "crates/cmux-terminal-iface" }
 cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
+cmux-feed-push-core = { path = "crates/cmux-feed-push-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
 cmux-phone-page = { path = "crates/cmux-phone-page" }
 cmux-cloud-disk = { path = "crates/cmux-cloud-disk" }
