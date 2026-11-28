@@ -80,8 +80,8 @@ final class AgentHarnessCenter {
 
     /// Moves a user profile aside (`_acpmux/harness/remove`); the answer's `backup` restores it.
     @discardableResult
-    func remove(id: String) async throws -> JSONValue {
-        let answer = try await manage(.remove, ["id": id])
+    func remove(id: String, endpointRevision: String? = nil) async throws -> JSONValue {
+        let answer = try await manage(.remove, ["id": id, "endpointRevision": endpointRevision].compactMapValues { $0 })
         removed = ["id": .string(id), "backup": answer["backup"] ?? .null]
         doctors[id] = nil
         await refresh()
@@ -217,5 +217,19 @@ final class AgentHarnessCenter {
     static func text(_ error: any Error) -> String {
         (error as? AgentHarnessFailure)?.message ?? (error as? AcpmuxRPCError)?.message
             ?? (error as? ActionFailure)?.message ?? error.localizedDescription
+    }
+}
+
+nonisolated enum AgentHarnessFailure: Error, Equatable {
+    /// No local acpmux (a mock agent host, or no binary).
+    case noDaemon
+    /// The daemon predates the harness operations.
+    case unsupported
+
+    var message: String {
+        switch self {
+        case .noDaemon: AgentHarnessStrings.noDaemon
+        case .unsupported: AgentHarnessStrings.unsupported
+        }
     }
 }

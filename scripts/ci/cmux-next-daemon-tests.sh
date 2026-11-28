@@ -20,6 +20,30 @@ cd "$root/cmux-tui"
 export CARGO_INCREMENTAL=0 CMUX_GHOSTTY_SRC="" GHOSTTY_ZIG_SOURCE=ghostty-next
 unset CMUX_ZIG ZIG
 log_dir="${RUNNER_TEMP:-$(mktemp -d)}"
+# Bound cargo's parallel rustc by memory, the rule scripts/ci/cargo-groups.sh uses: one job per
+# CARGO_GROUPS_GIB_PER_GROUP (4) GiB of the lesser of the cgroup's memory.max and MemAvailable, at least 1, at most
+# the cores. Unbounded, every core ran a test-profile rustc (the acpmux and cmux-tui-core lib tests) in a 14 GiB pool
+# slot and the kernel SIGKILLed them (cmux-tui artifacts run 46151055767, job 140997699588). An explicit
+# CARGO_BUILD_JOBS wins; no cap and plenty of memory keeps every core.
+if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
+  cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+  budget=""
+  rel=$(awk -F: '$1 == "0" { print $3; exit }' /proc/self/cgroup 2>/dev/null || true)
+  p="/sys/fs/cgroup${rel%/}"
+  while [[ -n "$rel" ]]; do
+    v=$(cat "$p/memory.max" 2>/dev/null || true)
+    if [[ "$v" =~ ^[0-9]+$ ]] && { [[ -z "$budget" ]] || ((v / 1073741824 < budget)); }; then budget=$((v / 1073741824)); fi
+    [[ "$p" == /sys/fs/cgroup ]] && break
+    p="${p%/*}"; [[ "$p" == /sys/fs/cgroup* ]] || break
+  done
+  avail=$(awk '$1 == "MemAvailable:" { print int($2 / 1048576); exit }' /proc/meminfo 2>/dev/null || true)
+  if [[ -n "$avail" ]] && { [[ -z "$budget" ]] || ((avail < budget)); }; then budget=$avail; fi
+  if [[ -n "$budget" ]]; then
+    jobs=$((budget / ${CARGO_GROUPS_GIB_PER_GROUP:-4})); ((jobs >= 1)) || jobs=1; ((jobs <= cores)) || jobs=$cores
+    export CARGO_BUILD_JOBS=$jobs
+    echo "cmux_next tests: ${budget} GiB of memory holds CARGO_BUILD_JOBS=$jobs of $cores cores"
+  fi
+fi
 log="$log_dir/cmux-next-tests.txt"
 
 # Only the members whose sources name cmux_next_ (the filter matches the

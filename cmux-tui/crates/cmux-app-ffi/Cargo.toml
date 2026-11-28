@@ -85,6 +85,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # A staged update's Info.plist and its frameworks' pages (src/updater/staged_prewarm.rs).
 plist = "1"
+# A web update's tree and archive digests (src/updater/web_updates.rs).
+sha2 = "0.10"
 libc = "0.2"
 # Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
 unicode-segmentation = "1"
@@ -101,7 +103,10 @@ cbindgen = { version = "=0.29.2", default-features = false }
 serde_json = "1"
 
 [profile.release]
-opt-level = 3
+# Size first, like the cmux-tui workspace: the FFI doubled 23 -> 44 MB in two
+# days of Swift-to-Rust moves (bundle-size-falls). The per-frame and per-key
+# crates below stay at 3.
+opt-level = "z"
 codegen-units = 1
 debug = false
 strip = "debuginfo"
@@ -114,5 +119,32 @@ lto = "fat"
 # reports `E0463 can't find crate` for the macro (cmux#17311; the app FFI release
 # after the fleet's move to Xcode 27.2, #60808). Only build-time code: what ships
 # is unchanged.
+# The crates that run per frame or per keystroke keep opt-level 3 whatever the
+# profile's default is.
+[profile.release.package.cmux-motion]
+opt-level = 3
+[profile.release.package.cmux-layout-reducer]
+opt-level = 3
+[profile.release.package.cmux-layout-reducer-ffi]
+opt-level = 3
+[profile.release.package.cmux-palette-ranker]
+opt-level = 3
+[profile.release.package.cmux-terminal-prediction]
+opt-level = 3
+[profile.release.package.cmux-chat-markdown]
+opt-level = 3
+[profile.release.package.cmux-rd-screen]
+opt-level = 3
+[profile.release.package.cmux-agent-pane-policy]
+opt-level = 3
+[profile.release.package.cmux-acpmux-remote-wire]
+opt-level = 3
+[profile.release.package.cmux-keymap]
+opt-level = 3
+# The omnibox resolves on every key: 633 -> 1761 ns per call at z under duress
+# (examples/hot_path_bench.rs).
+[profile.release.package.cmux-url-input]
+opt-level = 3
+
 [profile.release.build-override]
 strip = false

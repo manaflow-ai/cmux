@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.morph.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux اشتراكك في Morph Ultra للوصول إلى نماذج البرمجة. الصق مفتاح API من Morph للاتصال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoju pretplatu na Morph Ultra za pristup opciji modeli za programiranje. Zalijepi API ključ za Morph da se povežeš."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger dit abonnement på Morph Ultra til at tilgå modeller til programmering. Indsæt en API-nøgle til Morph for at oprette forbindelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet dein Abo für Morph Ultra für den Zugriff auf Programmiermodelle. Füge einen API-Schlüssel für Morph ein, um dich zu verbinden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your Morph Ultra plan for its coding models. Paste a Morph API key to connect."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu suscripción a Morph Ultra para acceder a modelos de programación. Pega una clave de API de Morph para conectarte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre abonnement Morph Ultra pour accéder à des modèles de programmation. Collez une clé API Morph pour vous connecter."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà il tuo abbonamento a Morph Ultra per accedere a modelli per la programmazione. Incolla una chiave API di Morph per connetterti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのMorph Ultraのサブスクリプションを使用してコーディングモデルにアクセスします。接続するにはMorphのAPIキーを貼り付けてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ ការជាវ Morph Ultra របស់អ្នក ដើម្បីចូលប្រើ ម៉ូដែលសម្រាប់សរសេរកូដ។ បិទភ្ជាប់សោ API សម្រាប់ Morph ដើម្បីភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Morph Ultra 구독로 코딩 모델에 액세스합니다. 연결하려면 Morph API 키를 붙여넣으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker abonnementet ditt på Morph Ultra for å få tilgang til kodemodeller. Lim inn en API-nøkkel for Morph for å koble til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojej subskrypcji Morph Ultra, aby uzyskać dostęp do modeli do programowania. Wklej klucz API usługi Morph, aby się połączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua assinatura de Morph Ultra para acessar modelos de programação. Cole uma chave de API de Morph para conectar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать вашу подписку на Morph Ultra для доступа к следующему: модели для программирования. Вставьте ключ API для Morph, чтобы подключиться."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้การสมัครใช้บริการ Morph Ultra ของคุณเพื่อเข้าถึงโมเดลสำหรับเขียนโค้ด วางคีย์ API ของ Morph เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux kodlama modellerine erişmek için Morph Ultra aboneliğinizi kullanacak. Bağlanmak için Morph API anahtarını yapıştırın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає вашу підписку на Morph Ultra для доступу до такого: моделі для програмування. Вставте ключ API для Morph, щоб підключитися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng gói đăng ký Morph Ultra của bạn để truy cập các mô hình lập trình. Dán khóa API Morph để kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的Morph Ultra订阅访问编程模型。粘贴Morph API 密钥以连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的Morph Ultra訂閱存取程式設計模型。貼上Morph API 金鑰以連接。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
