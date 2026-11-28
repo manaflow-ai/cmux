@@ -736,6 +736,13 @@ class Side:
         except LookError:
             return None
 
+    def logs(self) -> list[str]:
+        """The files launch sent the copy's stdout and stderr to (side-instance.sh logs); none for an older script."""
+        try:
+            return [line for line in self.run("logs", timeout=30).splitlines() if line]
+        except LookError:
+            return []
+
     def dir(self) -> Path:
         return self.app().parent
 
@@ -867,6 +874,59 @@ def launch_seconds(env=None) -> float:
     except ValueError:
         wait = 1800.0
     return wait + LAUNCH_SECONDS
+
+
+LAUNCH_LOG_LINES = 80
+LAUNCH_LINE_CHARS = 240
+
+
+def error_chars(error: object) -> int:
+    """How much of ERROR a receipt keeps: 500 characters, and the whole of a launch failure's output (its 80
+    lines are the why; cut to 500 they were the first two)."""
+    return 500 if "app launch: running" not in str(error) else 500 + LAUNCH_LOG_LINES * (LAUNCH_LINE_CHARS + 1) * 2
+# A token, a key or a bearer header in the copy's own output never reaches a receipt or a PR comment.
+SECRET_TEXT = re.compile(r"(?i)((?:token|secret|password|api[_-]?key|authorization|bearer|cookie)[\"']?\s*[:=]?\s*[\"']?)"
+                         r"[A-Za-z0-9._~+/=-]{8,}")
+
+
+def redact_log(text: str) -> str:
+    """TEXT with every secret-shaped value after a token, secret, key, password, cookie or bearer word cut."""
+    return SECRET_TEXT.sub(r"\1<redacted>", text)
+
+
+def launch_failure(pid: int, logs: list[str], most: int = LAUNCH_LOG_LINES) -> str:
+    """Why a copy whose control socket never answered: `running True` (alive but slow: look at the Mac's load
+    before a rerun) or `running False` (it ended: a crash at launch, a dyld or signing refusal; `open` starts it,
+    so its exit status is not ours to read), then the redacted last MOST lines of its stdout and stderr
+    (side-instance.sh logs). Before, the look said only "nothing within 120 s" and a dead copy looked like a slow
+    one (cmuxterm-hq docs/handbook/failure-drops-its-reason.md)."""
+    try:
+        os.kill(pid, 0)
+        alive = True
+    except ProcessLookupError:
+        alive = False
+    except OSError:
+        alive = True
+    said = [f"app launch: running {alive}"]
+    for path in logs:
+        try:
+            lines = Path(path).read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        lines = [line[:LAUNCH_LINE_CHARS] for line in lines if line.strip()][-most:]
+        if lines:
+            said.append(f"{Path(path).name} (last {len(lines)} lines):\n" + redact_log("\n".join(lines)))
+    if len(said) == 1:
+        said.append("no output from the copy")
+    return "\n".join(said)
+
+
+def copy_socket(side, pid: int, named: str | None) -> str:
+    """The copy's control socket within LAUNCH_SECONDS; else a LookError that says why (launch_failure)."""
+    try:
+        return until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+    except LookError as error:
+        raise LookError(f"{error}; {launch_failure(pid, side.logs())}") from None
 
 
 def until(what: str, seconds: float, probe):
@@ -1826,7 +1886,7 @@ def command_look(args) -> int:
                                    planned["source"])
         return look(args, repo, planned, side, the_app, out, receipt, phases, began, built=built)
     except (RuntimeError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
-        receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
+        receipt["errors"].append(f"{type(error).__name__}: {str(error)[:error_chars(error)]}")
         if not args.watch:
             with phases("stop"):
                 receipt["errors"] += side.stop()
@@ -1927,7 +1987,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
             raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
         pid = int(found.group(1))
         named = side.socket()
-        sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+        sock = copy_socket(side, pid, named)
         until("the copy's window", WINDOW_SECONDS, lambda: window_id(pid) if kit is None else True)
         repaint = Repaint(shoot, pid, scratch)
         repaint.wait("launch", REPAINT_LAUNCH)
@@ -2012,7 +2072,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
         if video is not None:
             video = stop_video(video, receipt, side, phases)
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
-        receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
+        receipt["errors"].append(f"{type(error).__name__}: {str(error)[:error_chars(error)]}")
     finally:
         if video is not None and video.running:
             video.abandon()
@@ -2643,7 +2703,7 @@ def command_run(args) -> int:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
             pid = int(found.group(1))
             named = side.socket()
-            sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+            sock = copy_socket(side, pid, named)
         result.update(copy=str(side.app()), socket=sock, pid=pid)
         try:
             handed = time.monotonic()
@@ -2657,7 +2717,7 @@ def command_run(args) -> int:
             shutil.rmtree(scratch, ignore_errors=True)
         return emit(result, phases, began, EXIT_LOOKED)
     except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
-        result["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
+        result["errors"].append(f"{type(error).__name__}: {str(error)[:error_chars(error)]}")
         with phases("stop"):
             result["errors"] += side.stop()
         if scratch is not None:
