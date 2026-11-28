@@ -164,7 +164,13 @@ import Testing
             let firstAgent = row.firstIndex { if case .launcher = $0 { true } else { false } }
             #expect(lastArrow! < firstAgent!, "\(layout)")
         }
-        #expect(KeyBarLayout.standard == .arrowsBeforeAgents)
+        #expect(KeyBarLayout.standard == .agentsLast)
+        // Launchers last: no terminal key after the first launcher but the end keys.
+        let row = KeyBarLayout.standard.scroller
+        let firstAgent = row.firstIndex { if case .launcher = $0 { true } else { false } }!
+        #expect(Array(row[firstAgent...]).allSatisfy {
+            if case .launcher = $0 { true } else { [.zoomOut, .zoomIn, .wide, .hideChrome].contains($0) }
+        })
     }
 
     @Test func launchersTypeClassicsCommands() {

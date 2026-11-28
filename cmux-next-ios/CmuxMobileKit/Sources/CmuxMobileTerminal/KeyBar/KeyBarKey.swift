@@ -156,17 +156,18 @@ enum KeyBarKey: Hashable, Sendable {
 /// claude/codex/ollama (why do we have ollama!?) buttons...". Classic cmux
 /// iOS's order put them after the agent launchers, 14 keys in.
 public enum KeyBarLayout: String, CaseIterable, Sendable {
-    /// A, the default: classic's order with the arrows moved to just before
-    /// the agent launchers (after ^C ^D).
+    /// A: classic's order with the arrows moved to just before the agent
+    /// launchers (after ^C ^D).
     case arrowsBeforeAgents
     /// B: the arrows right after Esc, before Return, ^C and ^D.
     case arrowsAfterEscape
-    /// C: as A, with the agent launchers moved to the end of the row (before
-    /// the zoom keys), so the terminal keys come first.
+    /// C, the default: as A, with the agent launchers moved to the end of the
+    /// row (before the zoom keys), so the terminal keys come first. Leo,
+    /// 2026-11-25, on #51486: "putting the launchers last is good i think".
     case agentsLast
 
     /// The layout the app uses.
-    public static let standard: KeyBarLayout = .arrowsBeforeAgents
+    public static let standard: KeyBarLayout = .agentsLast
 
     /// The layout the key row draws: `standard`, or in DEBUG builds the
     /// `-cmuxMobile.keyBarLayout arrowsBeforeAgents|arrowsAfterEscape|agentsLast`
@@ -182,9 +183,9 @@ public enum KeyBarLayout: String, CaseIterable, Sendable {
     /// The gallery's caption.
     public var title: String {
         switch self {
-        case .arrowsBeforeAgents: "A: arrows before the agents (default)"
+        case .arrowsBeforeAgents: "A: arrows before the agents"
         case .arrowsAfterEscape: "B: arrows after Esc"
-        case .agentsLast: "C: arrows before the agents, agents last"
+        case .agentsLast: "C: arrows before the agents, agents last (default)"
         }
     }
 
