@@ -306,6 +306,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // A hard edge: text scrolled under the header stops at it instead of showing through
         // into the title (iOS release bar read-back, 2026-11-22, shot 08; tbd d-189cea06b1).
         scrollView.topEdgeEffect.style = .hard
+        // DIAG (not for merge): edge variants for the read-back shots.
+        switch UserDefaults.standard.string(forKey: "cmux-diag-chat-edge") {
+        case "soft": scrollView.topEdgeEffect.style = .soft
+        case "auto": scrollView.topEdgeEffect.style = .automatic
+        default: break
+        }
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
@@ -328,7 +334,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         topEdge.scrollView = scrollView
         topEdge.edge = .top
         topShelf.addInteraction(topEdge)
+        let diagFade = UserDefaults.standard.string(forKey: "cmux-diag-chat-fade") == "1"
         if #unavailable(iOS 27) {
+            topFade.isUserInteractionEnabled = false
+            topFade.isAccessibilityElement = false
+            view.addSubview(topFade)
+        } else if diagFade {
             topFade.isUserInteractionEnabled = false
             topFade.isAccessibilityElement = false
             view.addSubview(topFade)
@@ -540,6 +551,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         updateStackCeiling(headerBottom: top)
         scrollView.edgeTopInset = top
         let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+        NSLog("CMUXDIAG chat-edge placement=%@ headerBottom=%.1f safeTop=%.1f topInset=%@ nav=%@ navHidden=%@ barMaxY=%@ bounds=%@",
+              String(describing: placement), top, view.safeAreaInsets.top, String(describing: topInset),
+              String(describing: navigationController != nil), String(describing: navigationController?.isNavigationBarHidden),
+              navigationController.map { n in String(describing: view.convert(n.navigationBar.bounds, from: n.navigationBar).maxY) } ?? "nil",
+              NSCoder.string(for: view.bounds))
         if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
         if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
         // The stack's top as drawn this frame (its height can lead the guide's) to the bottom.
