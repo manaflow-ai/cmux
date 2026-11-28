@@ -1107,3 +1107,39 @@ test("frame maxWidth infinity takes a row's free width with no Spacer, and fills
   expect(css).toMatch(/\.cmux-app-scene-root\) > \[data-fill-width\] \{\s*align-self: stretch;/);
   expect(css).toMatch(/\.cmux-app-scene-zstack > \[data-fill-width\] \{\s*justify-self: stretch;/);
 });
+
+test("Pill, Tooltip and Card draw with the Instrument kit: a kit pill, a kit tooltip on the child, the card's trigger in place", () => {
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack" },
+    { op: "create", id: "card", type: "Card", props: { side: "inline-end" } },
+    { op: "create", id: "tip", type: "Tooltip", props: { text: "Open the run", help: "ignored" } },
+    { op: "create", id: "pill", type: "Pill", props: { text: "3", tone: "success", size: "sm" } },
+    { op: "create", id: "more", type: "Text", props: { text: "Last run passed" } },
+    { op: "children", id: "tip", children: ["pill"] },
+    { op: "children", id: "card", children: ["tip", "more"] },
+    { op: "children", id: "root", children: ["card"] },
+    { op: "root", id: "root" },
+  ]);
+  const pill = container.querySelector('[data-app-node="pill"] .kit-pill')!;
+  expect(pill.textContent).toBe("3");
+  expect(pill.getAttribute("data-tone")).toBe("success");
+  expect(pill.getAttribute("data-size")).toBe("sm");
+  const tip = container.querySelector('[data-app-node="tip"]')!;
+  // The kit's tooltip, not the browser's: no title.
+  expect(tip.getAttribute("title")).toBeNull();
+  // The card's trigger is in place; its content waits for a hover.
+  expect(container.querySelector('[data-app-node="card"] .cmux-app-scene-card-trigger [data-app-node="tip"]')).toBe(
+    tip,
+  );
+  expect(container.querySelector('[data-app-node="more"]')).toBeNull();
+});
+
+test("a Pill with no tone, or one the host refused, is the kit's neutral", () => {
+  const { container } = render([
+    { op: "create", id: "pill", type: "Pill", props: { text: "beta", tone: null } },
+    { op: "root", id: "pill" },
+  ]);
+  const pill = container.querySelector(".kit-pill")!;
+  expect(pill.getAttribute("data-tone")).toBe("neutral");
+  expect(pill.getAttribute("data-size")).toBe("md");
+});

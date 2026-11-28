@@ -16,8 +16,10 @@
     ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
     "./testing": { "types": "./src/testing.ts", "default": "./src/testing.ts" },
     "./web": { "types": "./src/web.ts", "default": "./src/web.ts" },
+    "./web/instrument": { "types": "./src/web-instrument.ts", "default": "./src/web-instrument.ts" },
     "./customize": { "types": "./src/generated/customize.ts" }
   },
   "files": ["src/", "runtime-files.json", "README.md"],
+  "scripts": { "prepack": "bun tools/gen-instrument.ts" },
   "engines": { "cmux": "^2.0" }
 }

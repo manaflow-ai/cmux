@@ -40,6 +40,10 @@ pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 /// batch, so a tool can check a motion value exactly as cmux will.
 pub use cmux_app_host::motion;
 
+/// The scene's node vocabulary and the kit nodes' typed props (`Tooltip`, `Pill`, `Card`): the
+/// validator the app host runs on every scene batch.
+pub use cmux_app_manifest::scene_nodes;
+
 /// A look's `motion` block (theme file `motion`): named `{duration, bounce}` spring presets and
 /// design-token spring and fade overrides, clamped to `cmux.motion/1`.
 pub use cmux_app_host::motion_profile;

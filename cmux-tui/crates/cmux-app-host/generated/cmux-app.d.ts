@@ -2280,6 +2280,12 @@ declare function Slider(value: Bindable<number>, options?: { min?: number; max?:
 /** The app's card surface with its padding and radius: `glass` (default, the sidebar cards' glass) or `card` (opaque), with an optional title. */
 declare function Panel(propsOrChildren?: { title?: Bindable<string>; style?: "glass" | "card"; spacing?: number } | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function Badge(text: Bindable<string | number>, tone?: Bindable<string>): CmuxView
+/** The Instrument kit's pill: a short label in a kit tone (neutral by default; secondary, primary, tertiary and warning draw as the nearest kit tone), md or sm. */
+declare function Pill(text: Bindable<string | number>, tone?: Bindable<string>, size?: Bindable<"md" | "sm">): CmuxView
+/** The Instrument kit's tooltip on `child`: `text`, an optional `detail` line and `shortcut`, on the bottom (default) or top. */
+declare function Tooltip(text: Bindable<string>, child: CmuxView, options?: { detail?: Bindable<string>; shortcut?: Bindable<string>; side?: Bindable<"bottom" | "top"> }): CmuxView
+/** The Instrument kit's hover card: `trigger` in place, `content` in a card anchored to it on hover. */
+declare function Card(trigger: CmuxView, content: CmuxChildren, options?: { side?: Bindable<"bottom" | "top" | "inline-end" | "inline-start"> }): CmuxView
 declare function EmptyState(props: { title: Bindable<string>; message?: Bindable<string>; symbol?: Bindable<string> }): CmuxView
 declare function ForEach<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView
 declare function Reorderable<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView

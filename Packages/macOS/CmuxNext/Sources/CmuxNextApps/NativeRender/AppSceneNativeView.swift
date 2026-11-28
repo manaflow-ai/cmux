@@ -166,14 +166,17 @@ final class AppSceneNativeView: NSView {
             views[id] = view
         }
         if Self.isContainer(node.type) {
-            view.setChildren(model.scene.flattenedChildren(of: id).compactMap { self.view(for: $0, live: &live) })
+            let children = model.scene.flattenedChildren(of: id)
+            // A `Card` draws its first child in place; its hover content has no native card yet.
+            let shown = node.type == .card ? Array(children.prefix(1)) : children
+            view.setChildren(shown.compactMap { self.view(for: $0, live: &live) })
         }
         return view
     }
 
     private static func isContainer(_ type: AppSceneNodeType) -> Bool {
         switch type {
-        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack, .zStack, .panel, .button: true
+        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack, .zStack, .panel, .button, .tooltip, .card: true
         default: false
         }
     }
@@ -184,7 +187,7 @@ final class AppSceneNativeView: NSView {
         case .text: AppSceneTextNSView(id: id, node: node)
         case .icon: AppSceneIconNSView(id: id, node: node)
         case .image: AppSceneImageNSView(id: id, node: node)
-        case .badge: AppSceneBadgeNSView(id: id, node: node)
+        case .badge, .pill: AppSceneBadgeNSView(id: id, node: node)
         case .emptyState: AppSceneEmptyStateNSView(id: id, node: node)
         case .divider: AppSceneDividerNSView(id: id, node: node)
         case .spacer: AppSceneSpacerNSView(id: id, node: node)
@@ -199,7 +202,7 @@ final class AppSceneNativeView: NSView {
         case .zStack: AppSceneZStackNSView(id: id, node: node)
         case .particles: AppSceneParticlesNSView(id: id, node: node)
         case .reorderable: AppSceneReorderableNSView(id: id, node: node)
-        case .vStack, .lazyVStack, .group, .forEach, .hStack: AppSceneStackNSView(id: id, node: node)
+        case .vStack, .lazyVStack, .group, .forEach, .hStack, .tooltip, .card: AppSceneStackNSView(id: id, node: node)
         }
     }
 

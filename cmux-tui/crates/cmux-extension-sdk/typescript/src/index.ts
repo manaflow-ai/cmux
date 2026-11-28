@@ -44,7 +44,7 @@ export const { signal, computed, effect, onCleanup, untrack } = g
 /** The scene DSL: cmux draws these natively in the sidebar and in panes. Colors are theme tones (`cmux.theme`), never raw values. */
 export const {
   VStack, HStack, ZStack, LazyVStack, Group, ForEach, Reorderable,
-  Text, Icon, Image, Button, Menu, Spacer, Divider, Row, Badge, EmptyState, Panel,
+  Text, Icon, Image, Button, Menu, Spacer, Divider, Row, Badge, EmptyState, Panel, Pill, Tooltip, Card,
   Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Line, Particles
 } = g
 

@@ -149,6 +149,8 @@ struct Shared {
     flooded: bool,
     /// [`Gate::stopping`], set with `flooded`.
     stopping: Arc<AtomicBool>,
+    /// The mounted scenes' kit nodes (`Tooltip`, `Pill`, `Card`), whose props each batch checks.
+    kit_nodes: crate::scene_nodes::TypedNodes,
 }
 
 impl Shared {
@@ -510,6 +512,7 @@ impl AppVm {
     }
 
     pub fn unmount(&mut self, mount: &str) -> Result<(), VmError> {
+        self.shared.borrow_mut().kit_nodes.forget(mount);
         let args = (mount.to_string(),);
         self.entry_unit("unmount", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppUnmount", args))
     }
@@ -958,6 +961,8 @@ fn install_native<'js>(
             // Motion props (motion.rs, `cmux.motion/1`): canonical values, an invalid one as null.
             refused.extend(crate::motion::sanitize_scene_ops(&mut ops));
             let mut shared = s.borrow_mut();
+            // Kit node props (scene_nodes.rs): `Tooltip`, `Pill`, `Card`, an invalid one as null.
+            refused.extend(shared.kit_nodes.sanitize(&mount, &mut ops));
             for message in refused {
                 shared.log("warn", &message);
             }

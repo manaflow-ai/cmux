@@ -381,6 +381,35 @@ export function Badge(text: Bindable<string | number>, tone: Bindable<string> = 
   return node
 }
 
+/** The Instrument kit's pill: a short label in a kit tone (`neutral` by default; the scene tones
+ * `secondary`, `primary`, `tertiary` and `warning` draw as the nearest kit tone), `md` or `sm`. */
+export function Pill(text: Bindable<string | number>, tone: Bindable<string> = "neutral", size?: Bindable<"md" | "sm">): ViewNode {
+  const node = new ViewNode("Pill")
+  node.props.text = typeof text === "function" ? () => String((text as () => unknown)()) : String(text)
+  node.props.tone = tone
+  if (size !== undefined) node.props.size = size
+  return node
+}
+
+/** The Instrument kit's tooltip on `child`: `text` (required), an optional second line `detail`
+ * and a `shortcut`, shown on hover on the `bottom` (default) or `top`. */
+export function Tooltip(text: Bindable<string>, child: ViewNode, options: { detail?: Bindable<string>; shortcut?: Bindable<string>; side?: Bindable<"bottom" | "top"> } = {}): ViewNode {
+  const node = new ViewNode("Tooltip", [child])
+  node.props.text = text
+  if (options.detail !== undefined) node.props.detail = options.detail
+  if (options.shortcut !== undefined) node.props.shortcut = options.shortcut
+  if (options.side !== undefined) node.props.side = options.side
+  return node
+}
+
+/** The Instrument kit's hover card: `trigger` drawn in place, `content` in a card anchored to it
+ * on hover, on `side` (`bottom` by default, `top`, `inline-end`, `inline-start`). */
+export function Card(trigger: ViewNode, content: Children, options: { side?: Bindable<"bottom" | "top" | "inline-end" | "inline-start"> } = {}): ViewNode {
+  const node = new ViewNode("Card", [trigger, ...clean(content)])
+  if (options.side !== undefined) node.props.side = options.side
+  return node
+}
+
 export function EmptyState(props: { title: Bindable<string>; message?: Bindable<string>; symbol?: Bindable<string> }): ViewNode {
   return new ViewNode("EmptyState").withProps(props)
 }

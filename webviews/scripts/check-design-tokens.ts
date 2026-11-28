@@ -293,6 +293,7 @@ export const TOKEN_ONLY_FILES: readonly string[] = [
   "agent-session/acpmux/jumpPlace.css",
   // The public kit (kit/index.ts): what customization pages, plugins and web pages compose.
   "kit/kit.css",
+  "kit/pill.css",
   "kit/Row.tsx",
   "kit/List.tsx",
   "kit/Pill.tsx",

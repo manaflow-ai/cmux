@@ -92,7 +92,8 @@ class AppSceneNodeNSView: NSView {
         changeMotion = !first && node != self.node && window != nil ? node.motion : nil
         if first { enterPending = node.transition != nil }
         self.node = node
-        themedToolTip = node.string("help").flatMap { $0.isEmpty ? nil : $0 }
+        let help = node.string("help") ?? (node.type == .tooltip ? node.string("text") : nil)
+        themedToolTip = help.flatMap { $0.isEmpty ? nil : $0 }
         setOpacity(node.number("opacity").map { CGFloat(min(max($0, 0), 1)) } ?? 1)
         configureDecorations()
         configureMotion()
