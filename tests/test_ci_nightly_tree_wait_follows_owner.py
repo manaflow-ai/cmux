@@ -130,7 +130,8 @@ def test_the_wait_cases_pass_against_fake_runs() -> None:
                  "a terminal preflight failure fails fast", "a preflight failure with active retry grace",
                  "a preflight queued under the stall bound keeps the wait",
                  "unreadable runs keep waiting when no limit is set", "unreadable runs end the wait at the set limit",
-                 "a malformed unreadable-checks limit is a usage error"):
+                 "a malformed unreadable-checks limit is a usage error",
+                 "a failed build ends the wait at its first check"):
         assert any(line.startswith("ok   ") and case in line for line in result.stdout.splitlines()), (case, result.stdout)
 
 

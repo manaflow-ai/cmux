@@ -211,6 +211,19 @@ check '[[ $status == 1 && $took -lt 120 ]] && grep -q "not holding this job for 
 status=0; (cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=yes bash scripts/cmux-next/await-tree-client.sh "$key" "$own" 2>/dev/null) || status=$?
 check '[[ $status == 2 ]]' "a malformed rebuild-ends switch is a usage error"
 
+# With CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=1 a completed run with a failed build (attempt 1, so a retry
+# may follow) also ends at the first check: that retry re-runs the build, about 20 min (NIGHTLY
+# 46146914237 held the signing Mac a second 4.5 min check, then bundled the fallback tree anyway).
+reset_cdn; set_runs "$no_runs"
+printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":9,\"status\":\"completed\",\"conclusion\":\"failure\",\"run_attempt\":1,\"head_sha\":\"$own\",\"head_branch\":\"feat-cmux-next\",\"created_at\":\"2023-11-14T22:00:00Z\"}]}" > "$runs_dir/runs-$own"
+jobs_file 9 '{"jobs":[{"name":"build-linux / build x86_64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 \
+  CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=1 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "check 1 of 1" "$TMP/err" && grep -q "making progress" "$TMP/err"' "a failed build ends the wait at its first check when CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=1 (took $took s)"
+
 # A publisher building normally gets no grace: the same late manifest misses the limit.
 reset_cdn; set_runs "$no_runs"; own_run "$own" 8 1
 jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'

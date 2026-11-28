@@ -149,8 +149,13 @@ while :; do
     # found no other same-key run. End at this check, not 5 min later at the second (nightly
     # 46119598955, 2026-11-28, held the signing Mac 5 min on a failed build-linux). An earlier
     # attempt's failure (a retry may start) and a stalled job (it may get a runner) keep two checks.
+    # With a fallback tree in hand (CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=1) any failed build ends at this
+    # check too: a retry attempt re-runs the build, about 20 min, past what is worth holding the signing
+    # Mac for (nightly 46146914237, 2026-11-28, held it a second 4.5 min check on failed build-linux
+    # of 46146914298, then bundled the fallback anyway).
     idle_limit=2
     [[ "$stuck" == *" is failed "*"(the last attempt): "* ]] && idle_limit=1
+    [[ "$rebuild_ends" == 1 && "$stuck" == *" is failed "* ]] && idle_limit=1
     case "$publisher" in
       unknown)
         idle_checks=0 unreadable_checks=$(( unreadable_checks + 1 ))
