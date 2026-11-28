@@ -49,6 +49,8 @@ cmux-cookie-sync = { path = "../cmux-cookie-sync" }
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The staged-update pre-warm record (src/ffi.rs: the marker line and the launch verdict as JSON ops).
 cmux-update-prewarm-core = { path = "../cmux-update-prewarm-core" }
+# The feed push rules: the approve proof's signed bytes, banner actions, answers, /v1/ops bodies (src/ffi.rs, include/cmux_feed_push.h).
+cmux-feed-push-core = { path = "../cmux-feed-push-core" }
 # The app health model (cmux-health-core src/ffi.rs: JSON ops, the repair ladder, the snapshot).
 cmux-health-core = { path = "../cmux-health-core" }
 # Each window's last frame for the launch's first frame (cmux-launch-image src/ffi.rs: naming, caps, pruning, when to capture).

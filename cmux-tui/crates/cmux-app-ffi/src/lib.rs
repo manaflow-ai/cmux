@@ -27,6 +27,8 @@
 //! (include/cmux_daemon_launch.h).
 //! `update_prewarm` is the staged-update pre-warm record: the marker line and
 //! what a build's first launch reads from it (include/cmux_update_prewarm.h).
+//! `feed_push` is the feed push rules shared with the phones: the approve proof's
+//! signed bytes, banner actions, answers and /v1/ops bodies (include/cmux_feed_push.h).
 //! `health` is the app health model: which part is stuck, its repairs and the
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
 //! `launch_image` is each window's last committed frame for the launch's first
@@ -119,4 +121,5 @@ pub use cmux_screenshots::ffi as screenshots;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
 pub use cmux_update_prewarm_core::ffi as update_prewarm;
+pub use cmux_feed_push_core::ffi as feed_push;
 pub use cmux_url_input::ffi as url_input;
