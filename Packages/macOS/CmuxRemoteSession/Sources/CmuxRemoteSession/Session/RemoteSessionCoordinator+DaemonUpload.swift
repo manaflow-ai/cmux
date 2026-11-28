@@ -344,14 +344,8 @@ extension RemoteSessionCoordinator {
         )
     }
 
-    private static func remoteDaemonInstallFailureMessage(detail: String?) -> String {
-        if detail != nil {
-            return String(
-                localized: "remoteDaemon.upload.installFailedWithDetail",
-                defaultValue: "failed to install remote daemon"
-            )
-        }
-        return String(
+    private static func remoteDaemonInstallFailureMessage(detail _: String?) -> String {
+        String(
             localized: "remoteDaemon.upload.installFailed",
             defaultValue: "failed to install remote daemon"
         )
