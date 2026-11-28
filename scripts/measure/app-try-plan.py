@@ -5,7 +5,9 @@ Leo: "Ok well we can't be letting important rfds like that take breaks unless I 
 this is stuff that materially improves the app". team-dev-build-swap's 18:50Z 2026-11-28 row (cmux24) was 7.6 s
 over its 5 s bound, 4.0 s of it the second try's plan of the tree the first try had just planned.
 
-Times hot-verify.py's plan(REPO, dir:REPO, no app) in this process, ROUNDS times per arm, the arms alternated:
+Times hot-verify.py's snapshot(REPO) in this process, ROUNDS times per arm, the arms alternated: the part of plan()
+that resolves a dir: source to a commit, all of what this change touches (plan's merge-base and rule reads are the
+same in both arms, and a shallow CI checkout has no base to merge with):
   before  CMUX_HOT_VERIFY_KEEP_INDEX=0: each snapshot through a throwaway copy of the index (as until this change)
   after   the kept index copy (hot-verify.py kept_index), made once before the rounds (its first-use cost is the
           `first` sample)
@@ -44,7 +46,7 @@ def timed(hv, repo: Path, cache: Path, keep: bool) -> float:
     os.environ["CMUX_HOT_VERIFY_CACHE"] = str(cache)
     os.environ["CMUX_HOT_VERIFY_KEEP_INDEX"] = "1" if keep else "0"
     began = time.monotonic()
-    hv.plan(repo, f"dir:{repo}", hv.NO_APP, None)
+    hv.snapshot(repo)
     return round((time.monotonic() - began) * 1000, 1)
 
 
@@ -59,7 +61,6 @@ def main() -> int:
     hv.hot()  # its import is not the plan phase's
     with tempfile.TemporaryDirectory(prefix="app-try-plan-") as scratch:
         caches = {arm: Path(scratch) / arm for arm in ("before", "after")}
-        hv.base_tip(repo)  # a clone with no origin/feat-cmux-next fetches it once, outside the rounds
         first = timed(hv, repo, caches["after"], True)
         samples: dict[str, list[float]] = {"before": [], "after": []}
         for _ in range(args.rounds):
@@ -69,9 +70,10 @@ def main() -> int:
               "host": platform.node(), "os": platform.platform(), "rounds": args.rounds, "first_ms": first,
               "samples_ms": samples, "p50_ms": {arm: statistics.median(v) for arm, v in samples.items()}}
     text = json.dumps(report)
-    if args.out:
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(text + "\n")
+    out = args.out or (os.environ.get("FAST_CHECKS_OUT") and str(Path(os.environ["FAST_CHECKS_OUT"]) / "report.json"))
+    if out:
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_text(text + "\n")
     print(text)
     return 0
 

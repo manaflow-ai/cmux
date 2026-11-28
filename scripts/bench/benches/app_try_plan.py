@@ -1,8 +1,9 @@
 """app-try-plan: the plan phase of a repeat `cmux app try dir:CHECKOUT` of an unchanged tree, before and after
 hot-verify.py kept its index copy between snapshots (goal team-dev-build-is-swap: the swap's 5 s bound).
 
-Runs scripts/measure/app-try-plan.py, which alternates the two arms in one process over the cmux checkout itself.
-Rows: plan_ms per arm (p50 over rounds), labels arm=before|after; first_ms (the kept copy's first use).
+Runs scripts/measure/app-try-plan.py, which times hot-verify.py snapshot() (the dir: source half of plan), the two
+arms alternated in one process over the cmux checkout itself.
+Rows: snapshot_ms per arm (p50 over rounds), labels arm=before|after; first_ms (the kept copy's first use).
 
   --host fleet       one exclusive fleet-Mac step (the default); --host anywhere   this machine's checkout
   --arg rounds=N     rounds per arm (default 5)
@@ -60,7 +61,7 @@ class AppTryPlan(Bench):
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise BenchError(f"app-try-plan: {path}: not the harness's report: {exc}") from exc
         for arm in ("before", "after"):
-            ctx.row("plan_ms", samples=samples.get(arm) or [], labels={"arm": arm})
+            ctx.row("snapshot_ms", samples=samples.get(arm) or [], labels={"arm": arm})
         ctx.row("first_ms", report.get("first_ms"))
         ctx.notes.append(f"app-try-plan: {report.get('files')} tracked files, {report.get('rounds')} rounds per arm")
 
