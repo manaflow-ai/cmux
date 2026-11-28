@@ -11,17 +11,24 @@ import { act, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { appHref, linkHref } from "../src/agent-session/acpmux/replyHref";
-import { parseLink } from "../src/pages/markdown/links";
-import { setLinkPlaces } from "../src/agent-session/acpmux/chips/cmuxLinkPlaces";
-import { setPageChats } from "../src/agent-session/acpmux/chips/cmuxLinkResolve";
-import { linkedText } from "../src/agent-session/acpmux/chips/linkedText";
-import { renderInline } from "../src/agent-session/acpmux/conversation/inlineMarkdown";
-import { chipsAsLinks } from "../src/agent-session/acpmux/conversation/chipCopy";
-import { SessionHoverStore } from "../src/agent-session/acpmux/started/sessionHover";
-import { SessionHoverContext } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
-import { resetSessionRefs, setSessionRefResolver } from "../src/agent-session/acpmux/conversation/sessionRefs";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+type SessionHoverStore = import("../src/agent-session/acpmux/started/sessionHover").SessionHoverStore;
+const { appHref, linkHref } = await importWithDom(() => import("../src/agent-session/acpmux/replyHref"));
+const { parseLink } = await importWithDom(() => import("../src/pages/markdown/links"));
+const { setLinkPlaces } = await importWithDom(() => import("../src/agent-session/acpmux/chips/cmuxLinkPlaces"));
+const { setPageChats } = await importWithDom(() => import("../src/agent-session/acpmux/chips/cmuxLinkResolve"));
+const { linkedText } = await importWithDom(() => import("../src/agent-session/acpmux/chips/linkedText"));
+const { renderInline } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/inlineMarkdown"));
+const { chipsAsLinks } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/chipCopy"));
+const { SessionHoverStore } = await importWithDom(() => import("../src/agent-session/acpmux/started/sessionHover"));
+const { SessionHoverContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/started/sessionHoverCardModel"),
+);
+const { resetSessionRefs, setSessionRefResolver } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/sessionRefs"),
+);
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
