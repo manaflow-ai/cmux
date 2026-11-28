@@ -221,9 +221,10 @@ async fn carry_by(
     // once per delivery per retry (each a process spawn, a daemon.log line and outbox writes).
     let cooldown =
         || hub.ssh_carry_cooldown.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if cooldown().cooling(&route.host, std::time::Instant::now()) {
-        return None;
-    }
+    // One carry per host at a time: while one login to a host runs, the others are not carried
+    // (None: the outbox keeps them for its next try). A down link otherwise turned its whole
+    // outbox into that many 30 s ssh logins (and their ProxyCommand hops) at once.
+    let _in_flight = InFlight::begin(hub, &route.host, std::time::Instant::now())?;
     // The joined machine name reads the local machine record.
     let machine = crate::qos::off_worker(crate::pairing::machine_name);
     // A peer named as this machine is this daemon: ssh to it is a login to ourselves, which
@@ -253,11 +254,7 @@ async fn carry_by(
         ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "ssh carry: {why}"
     );
-    cooldown().record(
-        &route.host,
-        matches!(outcome, Carry::NotTaken(_)),
-        std::time::Instant::now(),
-    );
+    cooldown().record(&route.host, cools(&outcome), std::time::Instant::now());
     Some(match outcome {
         Carry::Taken(mut answer) => {
             if let Some(fields) = answer.as_object_mut() {
@@ -269,38 +266,92 @@ async fn carry_by(
     })
 }
 
-/// The first wait after a host's carry was not taken; each further refusal doubles it up to
-/// [`COOLDOWN_MAX`]. A carry that reached the host (taken or maybe) clears it.
+/// The first wait after a host's carry was not taken (or timed out); each further one doubles it
+/// up to [`COOLDOWN_MAX`]. A carry that reached the host and answered clears it.
 const COOLDOWN_FIRST: Duration = Duration::from_secs(60);
 const COOLDOWN_MAX: Duration = Duration::from_secs(15 * 60);
 
-/// Per host: until when no carry goes to it, and the wait last used. Each hub holds its own
-/// (`Hub::ssh_carry_cooldown`).
+/// The text of a carry that ran into [`CARRY_DEADLINE`]: `owned_child::owned`'s timeout for
+/// [`run`]'s "the ssh carry".
+const TIMED_OUT: &str = "the ssh carry timed out";
+
+/// A carry whose outcome cools its host down: refused, or a login that hung (its deadline, or
+/// ssh's own keep-alive giving up). A hung host is as unreachable as a refusing one, and each
+/// try of it holds an ssh login (and its hops) for the whole deadline.
+fn cools(outcome: &Carry) -> bool {
+    match outcome {
+        Carry::NotTaken(_) => true,
+        Carry::Maybe(why) => why.starts_with(TIMED_OUT) || why.contains("Timeout, server"),
+        Carry::Taken(_) => false,
+    }
+}
+
+/// Per host: until when no carry goes to it and the wait last used, and the hosts a carry is
+/// logging in to now. Each hub holds its own (`Hub::ssh_carry_cooldown`).
 #[derive(Default)]
-pub(crate) struct Cooldown(std::collections::HashMap<String, (std::time::Instant, Duration)>);
+pub(crate) struct Cooldown {
+    waits: std::collections::HashMap<String, (std::time::Instant, Duration)>,
+    in_flight: std::collections::HashSet<String>,
+}
 
 impl Cooldown {
     fn cooling(&self, host: &str, now: std::time::Instant) -> bool {
-        self.0.get(host).is_some_and(|(until, _)| now < *until)
+        self.waits.get(host).is_some_and(|(until, _)| now < *until)
+    }
+
+    /// Takes `host`'s one carry slot: false while it cools down or another carry holds it.
+    fn begin(&mut self, host: &str, now: std::time::Instant) -> bool {
+        !self.cooling(host, now) && self.in_flight.insert(host.to_owned())
+    }
+
+    fn end(&mut self, host: &str) {
+        self.in_flight.remove(host);
     }
 
     fn record(&mut self, host: &str, refused: bool, now: std::time::Instant) {
         if !refused {
-            self.0.remove(host);
+            self.waits.remove(host);
             return;
         }
         let wait = self
-            .0
+            .waits
             .get(host)
             .map_or(COOLDOWN_FIRST, |(_, last)| last.saturating_mul(2).min(COOLDOWN_MAX));
-        self.0.insert(host.to_owned(), (now.checked_add(wait).unwrap_or(now), wait));
+        self.waits.insert(host.to_owned(), (now.checked_add(wait).unwrap_or(now), wait));
+    }
+}
+
+/// A host's one carry slot ([`Cooldown::begin`]), given back on drop: also when the carry's
+/// future is dropped mid-login, so a cancelled carry never holds its host forever.
+struct InFlight<'a> {
+    hub: &'a Hub,
+    host: String,
+}
+
+impl<'a> InFlight<'a> {
+    fn begin(hub: &'a Hub, host: &str, now: std::time::Instant) -> Option<Self> {
+        let mut cool =
+            hub.ssh_carry_cooldown.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        cool.begin(host, now).then(|| Self { hub, host: host.to_owned() })
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.hub
+            .ssh_carry_cooldown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .end(&self.host);
     }
 }
 
 /// The ssh login itself, bounded by [`CARRY_DEADLINE`], and what it did.
 fn run(argv: Vec<String>, text: Vec<u8>) -> Carry {
-    let mut cmd = cmux_process::Command::new("ssh");
-    cmd.args(argv);
+    // In its own low-weight scope, with its ProxyCommand hops (`agent_host/scope.rs`).
+    let (program, lead) = crate::agent_host::scope::low_weight(std::ffi::OsStr::new("ssh"));
+    let mut cmd = cmux_process::Command::new(program);
+    cmd.args(lead).args(argv);
     match crate::cli::owned_child::owned(&mut cmd, Some(text), CARRY_DEADLINE, "the ssh carry") {
         Ok(done) => outcome(
             done.status.code(),
@@ -347,6 +398,10 @@ pub(super) fn outcome(code: Option<i32>, stdout: &str, stderr: &str) -> Carry {
         }
         // ssh's own failure before the login ran anything: nothing reached the far daemon.
         Some(255) if not_connected(stderr) => Carry::NotTaken(format!("ssh: {last}")),
+        // `systemd-run` could not make the ssh's scope (`scope::low_weight`): no ssh ran.
+        Some(_) if stderr.contains("Failed to start transient scope unit") => {
+            Carry::NotTaken(format!("systemd-run: {last}"))
+        }
         // No acpmux there (127), a usage refusal (2) or no such session there (4): the far CLI
         // queued nothing.
         Some(code @ (2 | 4 | 127)) => {
