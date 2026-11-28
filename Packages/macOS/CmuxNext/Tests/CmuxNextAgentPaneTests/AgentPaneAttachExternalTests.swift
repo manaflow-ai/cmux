@@ -270,8 +270,8 @@ struct AgentPaneAttachExternalTests {
         #expect(!refused.waitsForChat && refused.waitingFiles == [a])
     }
     /// Files whose new chat was not made go again on their own (``AgentPaneExternalAttach/retry``),
-    /// not only with the next door's file: the open door's image on a cold launch was "late" on cmux23
-    /// and cmux27 (held: 1 stranded). After ``AgentPaneExternalAttach/retryLimit`` retries they wait for the next.
+    /// not only with the next door's file: the open door's image on a cold launch was "late" on two of
+    /// three runners (held: 1 stranded). After ``AgentPaneExternalAttach/retryLimit`` retries they wait for the next.
     @Test func strandedFilesGoAgainOnTheirOwnUntilTheRetriesEnd() async {
         let route = AgentPaneExternalAttach(now: { .now }, clock: InstantClock())
         var sent: [[URL]] = []

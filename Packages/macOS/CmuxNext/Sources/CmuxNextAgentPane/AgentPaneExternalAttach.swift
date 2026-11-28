@@ -44,7 +44,7 @@ public final class AgentPaneExternalAttach {
     /// take the whole route again: a chat made since then takes them, else a new one opens. Without it
     /// they wait for the next files. Before, the open door's image on a cold launch whose new chat was
     /// not made reached the composer only with the next door's file (screenshot-into-chat "late",
-    /// "held: 1 stranded" on cmux23 and cmux27 with Nightly 59518be6c8a5, ok on cmux19).
+    /// "held: 1 stranded" on two of three runners with Nightly 59518be6c8a5).
     public var retry: (@MainActor (_ urls: [URL], _ claimed: String?) -> Void)?
     /// How many times stranded files go again (``retry``): after 0.5, 1, 2 and 4 s (``retrySpacing``),
     /// 7.5 s in all, under the 15 s a person waits for an image to show. Files stranded after the last
@@ -128,10 +128,11 @@ public final class AgentPaneExternalAttach {
     /// wait at a time, at most ``retryLimit`` times. Files that go with later ones first cancel it.
     private func retryStranded() {
         guard retry != nil, retryTask == nil, spacing.attempt < Self.retryLimit else { return }
-        var wait = spacing // waits this attempt's delay; the route's own spacing moves to the next
+        let wait = spacing // waits this attempt's delay; the route's own spacing moves to the next
         _ = spacing.next()
         // task-owner: this route; one wait at a time, cancelled when later files carry the stranded ones
-        retryTask = Task { [weak self, clock] in
+        retryTask = Task { [weak self, clock, wait] in
+            var wait = wait
             do { try await wait.wait(owner: "agent-pane.external-attach.stranded", clock: clock) } catch { return } // concurrency-allow: Backoff.wait after a chat that was not made, cancelled by later files
             guard let self else { return }
             retryTask = nil
