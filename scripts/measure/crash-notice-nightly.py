@@ -153,9 +153,26 @@ def log_line(since: dt.datetime) -> str | None:
     return hits[-1].strip()[-240:] if hits else None
 
 
+TOAST = "cmux.toast.app.restartNotice"  # CrashRecoveryService.presentRestartNotice's CmuxToast id
+
+
 def notice(pid: int) -> dict | None:
-    """The restart notice's text and buttons through Accessibility; None when AX is not allowed here."""
+    """The restart notice's text and buttons through Accessibility; None when AX is not allowed here.
+
+    The notice is a CmuxToast: an AXGroup whose AXDescription is the message and whose AXIdentifier is
+    `cmux.toast.app.restartNotice`, with buttons that carry their title as AXDescription
+    (CmuxToastView, CmuxToastButton). So every element is read by role, identifier, description, title
+    and value, not only AXStaticText values and AXButton names."""
     script = f'''
+on attr(e, n)
+  try
+    set v to value of attribute n of e
+    if v is missing value then return ""
+    return v as text
+  on error
+    return ""
+  end try
+end attr
 tell application "System Events"
   set p to first process whose unix id is {pid}
   set out to {{}}
@@ -163,15 +180,7 @@ tell application "System Events"
     try
       repeat with e in (entire contents of w)
         try
-          set r to role of e
-          if r is "AXStaticText" or r is "AXButton" then
-            set v to ""
-            try
-              set v to value of e as text
-            end try
-            if v is "" or v is "missing value" then set v to (name of e as text)
-            set end of out to (r & "|" & v)
-          end if
+          set end of out to (my attr(e, "AXRole") & tab & my attr(e, "AXIdentifier") & tab & my attr(e, "AXDescription") & tab & my attr(e, "AXTitle") & tab & my attr(e, "AXValue"))
         end try
       end repeat
     end try
@@ -185,10 +194,21 @@ end tell'''
         return None
     if reply.returncode != 0:
         return None
-    rows = [line.split("|", 1) for line in reply.stdout.splitlines() if "|" in line]
-    texts = [v for r, v in rows if r == "AXStaticText" and NOTICE in v]
-    return {"text": texts[0][:200] if texts else None,
-            "report_button": any(r == "AXButton" and v.strip() == "Report" for r, v in rows)}
+    return read_notice(reply.stdout)
+
+
+def read_notice(listing: str) -> dict:
+    """The notice from `notice`'s listing: one element per line, role, identifier, description, title
+    and value separated by tabs."""
+    rows = [(line.split("\t") + [""] * 5)[:5] for line in listing.splitlines() if "\t" in line]
+    text = None
+    report = False
+    for role, ident, *labels in rows:
+        if text is None and (ident == TOAST or role != "AXButton"):
+            text = next((v for v in labels if NOTICE in v), None)
+        if role == "AXButton" and (ident == TOAST + ".action" or any(v.strip() == "Report" for v in labels)):
+            report = True
+    return {"text": text[:200] if text else None, "report_button": report}
 
 
 def main() -> int:
