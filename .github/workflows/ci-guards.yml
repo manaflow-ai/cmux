@@ -2442,6 +2442,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_tree_handoff.py
 
+      - name: Validate the cmux-tui tree request waits out the API limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_request_waits_out_limit.py
+
       - name: Validate the hand-off of a tree owner that ended in startup_failure
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_stranded_owner_sweep.py
