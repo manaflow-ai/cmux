@@ -287,6 +287,7 @@ impl ToastStyle {
                 look.glass = Some(ToastGlass::Liquid);
                 look.entrance = ToastEntrance::Pop;
             }
+            // fleet-only-ok: the Compact toast style preset (a layout variant the caller picks), ported 1:1 from Swift ToastStyle; not a fleet setting or context compaction.
             Self::Compact => look.compact = true,
             Self::IconCard => {
                 look.shows_icon = true;
