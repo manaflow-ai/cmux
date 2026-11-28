@@ -200,11 +200,6 @@ path = "tests/test_ci_compile_test_plan.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_router_web_exact.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_web_exact.py"
-
-[[test]]
 path = "tests/test_ci_daemon_pr_crate_steps.py"
 lane = "linux-guard"
 
@@ -989,6 +984,11 @@ path = "tests/test_ci_router_checkout_mirror.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_router_web_exact.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_web_exact.py"
+
+[[test]]
 path = "tests/test_ci_run_guards.py"
 lane = "linux-guard"
 
@@ -1119,6 +1119,10 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts
 
 [[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_sparse_cargo_path_deps.py"
 lane = "linux-guard"
 
 [[test]]

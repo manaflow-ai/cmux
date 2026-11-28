@@ -2770,6 +2770,7 @@ jobs:
           python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_sparse_checkout_imports.py
+          python3 tests/test_ci_sparse_cargo_path_deps.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
