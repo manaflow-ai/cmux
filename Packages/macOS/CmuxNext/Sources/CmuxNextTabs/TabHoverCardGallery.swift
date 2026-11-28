@@ -26,14 +26,14 @@ public struct TabHoverCardGallery {
         chat.indicator = .working
         chat.hover = TabHoverFacts(kind: .agentChat, activity: .working, since: now.addingTimeInterval(-185), model: "gpt-6.1-sol")
         chat.hover.latest = "Make the tab hover cards look like Codex's: one title line, the state as a dot, and what the chat is on"
-        var replied = TabItem(id: TabID("gallery-chat-idle"), title: "Mochi", subtitle: "~/Projects/leo-workspace", icon: .icon(.agentChat))
+        var replied = TabItem(id: TabID("gallery-chat-idle"), title: "Remember the last settings tab", subtitle: "~/code/notes-app", icon: .icon(.agentChat))
         replied.hover = TabHoverFacts(kind: .agentChat, activity: .idle, since: now.addingTimeInterval(-1_260), model: "Opus 5.5")
-        replied.hover.latest = "Merged #62151: the card's memory row now reads the chat page's RAM instead of a dash."
-        var asking = TabItem(id: TabID("gallery-chat-input"), title: "Fix the flaky land queue test", subtitle: "~/Projects/cmux",
+        replied.hover.latest = "Done: the settings page now remembers the last tab you opened."
+        var asking = TabItem(id: TabID("gallery-chat-input"), title: "Fix the flaky upload test", subtitle: "~/code/notes-app",
                              icon: .icon(.agentChat))
         asking.indicator = .needsInput
         asking.hover = TabHoverFacts(kind: .agentChat, activity: .needsInput, since: now.addingTimeInterval(-40), model: "Opus 5.5")
-        asking.hover.latest = "Allow Bash: git push -u origin HEAD:lane/land-queue-flake?"
+        asking.hover.latest = "Allow Bash: git push origin fix-upload-test?"
         let samples: [(TabItem, [Double], UInt64)] = [
             (running, [0.6, 1.2, 2.4, 3.1, 2.8, 3.4], 840), (failed, [], 0), (page, [0.05, 0.1, 0.02], 106), (blank, [], 0),
             (chat, [0.2, 0.3, 0.25], 46), (replied, [0.01, 0.02], 212), (asking, [0.01], 38),
