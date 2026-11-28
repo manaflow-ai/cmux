@@ -154,7 +154,12 @@ fn an_api_error_reads_and_words_itself() {
         c"cloud_model_api_error_text",
         &json!({"error": error["error"], "traceFormat": "(trace %@)"}),
     );
-    assert_eq!(text, json!({"text": "Busy. (trace t1)", "code": "vm_busy"}));
+    assert_eq!(text, json!({"text": "Busy. (trace t1)", "code": "vm_busy", "retryable": false}));
+    let (_, timed_out) = call(
+        c"cloud_model_api_error_text",
+        &json!({"error": {"http": {"status": 504, "code": "owner.timed_out"}}, "traceFormat": "(trace %@)"}),
+    );
+    assert_eq!(timed_out["retryable"], true);
 }
 
 #[test]

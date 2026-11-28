@@ -86,13 +86,17 @@ struct CloudStartChat {
         } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { return refusal.reply // the repos inside it, another folder or none; no Retry
         } catch let refusal as AgentPaneCloudRepositoryRefusal { return refusal.reply } catch let locked as CloudSizeLocked { return locked.reply(planMax: nil) // a repository's clone: Connect GitHub, then Retry; a size the plan lacks: its upgrade
         } catch {
-            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
-                ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
+            let move = error as? CloudMove.Failure, api = error as? CloudAPIError
+            let message = move?.message ?? (error as? ActionFailure)?.message ?? CloudStrings.startFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
-            // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView).
+            // A failure a retry can help gets the card's Retry (and the pane's own bounded rerun first): a move's,
+            // or a Cloud call that timed out, went unreached or met a 502-504 or an owner timeout (error.rs
+            // `retryable`). Signed out on the way gets the sign-in card; a plan refusal keeps its code and the teams.
             let plan = CloudMachineCreation.proRefusal(error) != nil
-            if !plan, let move = error as? CloudMove.Failure { failed = .init(code: move.code, message: message, retryable: move.retry != nil || move.sendAgain) }
-            return AgentPaneReply.failure(code: plan ? "cloud_plan_required" : (error as? CloudMove.Failure)?.code ?? "cloud_start_failed", message: message, details: plan ? AgentPaneCloudMachines.Plan.requiredDetails(services.cloud.auth.planRefusalTeams) : nil, retryable: (error as? CloudMove.Failure).map { $0.retry != nil || $0.sendAgain } ?? false, origin: "native")
+            let retryable = move.map { $0.retry != nil || $0.sendAgain } ?? api?.isRetryable ?? false
+            let code = plan ? "cloud_plan_required" : move?.code ?? (api?.code == "not_signed_in" ? "not_signed_in" : "cloud_start_failed")
+            if !plan, move != nil || retryable { failed = .init(code: code, message: message, retryable: retryable) }
+            return AgentPaneReply.failure(code: code, message: message, details: plan ? AgentPaneCloudMachines.Plan.requiredDetails(services.cloud.auth.planRefusalTeams) : nil, retryable: retryable, origin: "native")
         }
     }
 

@@ -50,6 +50,11 @@ extension CloudStrings {
         String(format: String(localized: "cloud.error.trace", defaultValue: "(trace %@)", table: "Cloud", bundle: .module.inAppLanguage), id)
     }
 
+    /// A Cloud chat start that failed on its way, with `detail` saying why (not a move's words: nothing moved yet).
+    static func startFailed(_ detail: String) -> String {
+        String(format: String(localized: "cloud.start.failedPlain", defaultValue: "Couldn't start the Cloud chat. %@", table: "Cloud", bundle: .module.inAppLanguage), detail)
+    }
+
     nonisolated static var apiTimedOut: String {
         String(localized: "cloud.error.timedOutPlain", defaultValue: "cmux Cloud didn't answer in time. Try again.", table: "Cloud", bundle: .module.inAppLanguage)
     }

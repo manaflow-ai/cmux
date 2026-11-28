@@ -1,6 +1,33 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.start.failedPlain": {
+      "comment": "A Cloud chat start that failed on its way. %@ is why, in plain words.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't start the Cloud chat. %@"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر بدء دردشة Cloud. %@"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće pokrenuti Cloud chat. %@"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke starte Cloud-chatten. %@"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der Cloud-Chat konnte nicht gestartet werden. %@"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo iniciar el chat de Cloud. %@"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de démarrer la discussion Cloud. %@"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile avviare la chat Cloud. %@"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Cloud チャットを開始できませんでした。%@"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចចាប់ផ្ដើមការជជែក Cloud បានទេ។ %@"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 채팅을 시작하지 못했습니다. %@"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke starte Cloud-chatten. %@"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można uruchomić czatu Cloud. %@"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível iniciar o chat do Cloud. %@"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось начать чат в Cloud. %@"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เริ่มแชท Cloud ไม่ได้ %@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Cloud sohbeti başlatılamadı. %@"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося почати чат у Cloud. %@"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể bắt đầu cuộc trò chuyện Cloud. %@"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法开始 Cloud 聊天。%@"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法開始 Cloud 聊天。%@"}}
+      }
+    },
     "cloud.folderAdd.off": {
       "extractionState": "manual",
       "localizations": {
