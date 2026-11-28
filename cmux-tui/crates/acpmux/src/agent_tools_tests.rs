@@ -1546,10 +1546,24 @@ fn forum_tools_come_only_in_a_team_or_forum() {
 }
 
 #[test]
-fn an_old_agent_server_off_choice_stays_off_after_the_rename() {
-    let env = BTreeMap::from([(super::OFF_ENV.to_owned(), "acpmux".to_owned())]);
-    let tools = super::acp_tools_with(super::current(), &BTreeMap::new(), "off-alias", true, None);
-    assert!(tools.servers.iter().any(|s| s.name == crate::acpmux_mcp_names::SERVER_NAME));
-    let tools = tools.without_off(&env);
-    assert!(!tools.servers.iter().any(|s| crate::acpmux_mcp_names::is_server_name(&s.name)));
+fn an_unrelated_legacy_named_server_has_an_independent_off_switch() {
+    let server = |name: &str, command: &str| super::McpServer {
+        name: name.into(),
+        command: command.into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server("cmux-agent", "cmux"), server("acpmux", "node")],
+        ..Default::default()
+    };
+    for (disabled, remaining) in [("acpmux", "cmux-agent"), ("cmux-agent", "acpmux")] {
+        let env =
+            std::collections::BTreeMap::from([(super::OFF_ENV.to_owned(), disabled.to_owned())]);
+        let filtered = tools.clone().without_off(&env);
+        assert_eq!(
+            filtered.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            [remaining]
+        );
+    }
 }

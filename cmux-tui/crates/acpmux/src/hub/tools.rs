@@ -26,8 +26,15 @@ pub const TOOLS_IMMUTABLE: &str = "tools.immutable";
 /// plugin, or a server the user's own Claude config turned off).
 pub const TOOL_FIXED: &str = "tools.fixed";
 
-/// Persisted inventory rows from before the server rename refer to the same tool.
-fn same_tool(left: &str, right: &str) -> bool {
+/// Exact IDs belong to their declared server. Only a known cmux row can accept an old
+/// builtin name, and an unrelated server with that exact ID always takes precedence.
+fn tool_row<'a>(rows: &'a [ToolRow], id: &str) -> Option<&'a ToolRow> {
+    rows.iter()
+        .find(|row| row.id == id)
+        .or_else(|| rows.iter().find(|row| row.source == "cmux" && same_builtin_id(&row.id, id)))
+}
+
+fn same_builtin_id(left: &str, right: &str) -> bool {
     left == right
         || left
             .strip_prefix("mcp:")
@@ -88,6 +95,18 @@ impl Hub {
                 tools
             }
         };
+        #[cfg(unix)]
+        let tools = if claude && !left_out {
+            if let Some(name) =
+                crate::agent_tools::shared_servers::claude_leftover(&profile.env, &meta.cwd)
+            {
+                tools.server_named(&name)
+            } else {
+                tools
+            }
+        } else {
+            tools
+        };
         let mut cmux = tools.tool_rows(claude, claude);
         let all =
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
@@ -116,14 +135,30 @@ impl Hub {
         if !remote && claude {
             crate::context_inventory::record_preset_source(&mut m, preset);
         }
+        // Migrate only choices whose previous row proves that the old ID was ours.
+        // An unclassified legacy name can be an unrelated user server.
+        let migrated_off: Vec<String> = m
+            .tools
+            .off
+            .iter()
+            .map(|id| {
+                let previous = m.tools.rows.iter().find(|row| row.id == *id);
+                if previous.is_some_and(|row| row.source == "cmux") {
+                    tool_row(&cmux, id).map(|row| row.id.clone()).unwrap_or_else(|| id.clone())
+                } else {
+                    id.clone()
+                }
+            })
+            .collect();
+        m.tools.off = migrated_off;
         for row in &mut cmux {
-            row.enabled = !m.tools.off.iter().any(|off| same_tool(off, &row.id));
+            row.enabled = !m.tools.off.contains(&row.id);
             // What the harness last said of it stays until its next report.
             row.status = m
                 .tools
                 .rows
                 .iter()
-                .find(|r| same_tool(&r.id, &row.id))
+                .find(|r| r.id == row.id || (r.source == "cmux" && same_builtin_id(&r.id, &row.id)))
                 .and_then(|r| r.status.clone());
         }
         let reported = m.tools.rows.iter().filter(|r| r.source != "cmux").cloned();
@@ -168,10 +203,10 @@ impl Hub {
         let mut rows: Vec<ToolRow> =
             m.tools.rows.iter().filter(|r| r.source == "cmux").cloned().collect();
         for mut row in reported_rows(claude) {
-            let off = m.tools.off.iter().any(|off| same_tool(off, &row.id));
+            let off = m.tools.off.contains(&row.id);
             let toggles = m.tools.mutable && row.kind == "mcp" && (row.enabled || off);
             row.enabled &= !off;
-            match rows.iter_mut().find(|own| same_tool(&own.id, &row.id)) {
+            match rows.iter_mut().find(|own| own.id == row.id) {
                 Some(own) => {
                     // Reconnect must address the name the harness actually started.
                     own.id = row.id;
@@ -223,11 +258,7 @@ impl Hub {
             )
             .with_data(json!({"reason": TOOLS_IMMUTABLE})));
         }
-        let row = meta
-            .tools
-            .rows
-            .iter()
-            .find(|r| same_tool(&r.id, id))
+        let row = tool_row(&meta.tools.rows, id)
             .ok_or_else(|| RpcError::not_found(format!("this chat has no tool {id:?}")))?;
         if !row.can_toggle || !id.starts_with("mcp:") {
             return Err(RpcError::new(
@@ -238,12 +269,19 @@ impl Hub {
         }
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.tools.off.retain(|off| !same_tool(off, id));
+            let remaining: Vec<String> = m
+                .tools
+                .off
+                .iter()
+                .filter(|off| tool_row(&m.tools.rows, off).is_none_or(|found| found.id != row.id))
+                .cloned()
+                .collect();
+            m.tools.off = remaining;
             if !enabled {
-                m.tools.off.push(id.to_owned());
+                m.tools.off.push(row.id.clone());
             }
             // Rows shared with other chats are copied only when one actually changes.
-            let differs = |r: &ToolRow| same_tool(&r.id, id) && r.enabled != enabled;
+            let differs = |r: &ToolRow| r.id == row.id && r.enabled != enabled;
             if m.tools.rows.iter().any(differs)
                 && let Some(row) = m.tools.rows.iter_mut().find(|r| differs(r))
             {
@@ -303,7 +341,7 @@ impl Hub {
                 .with_data(json!({"reason": MCP_UNSUPPORTED})));
         }
         let id = format!("mcp:{server}");
-        let row = meta.tools.rows.iter().find(|r| same_tool(&r.id, &id)).ok_or_else(|| {
+        let row = tool_row(&meta.tools.rows, &id).ok_or_else(|| {
             RpcError::not_found(format!("this chat has no MCP server {server:?}"))
         })?;
         let server = row.id.strip_prefix("mcp:").unwrap_or(server);
@@ -340,8 +378,7 @@ impl Hub {
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             // Rows shared with other chats are copied only when one actually changes.
-            let stale =
-                |r: &ToolRow| same_tool(&r.id, &id) && r.status.as_deref() != Some("connected");
+            let stale = |r: &ToolRow| r.id == row.id && r.status.as_deref() != Some("connected");
             if m.tools.rows.iter().any(stale)
                 && let Some(row) = m.tools.rows.iter_mut().find(|r| stale(r))
             {
@@ -384,16 +421,11 @@ pub(super) fn disallowed_args(tools: &ToolInventory) -> Vec<String> {
         args.push("--disallowedTools".to_owned());
         args.push(tool.to_owned());
     }
-    for server in tools.off.iter().filter_map(|id| id.strip_prefix("mcp:")) {
-        if crate::acpmux_mcp_names::is_server_name(server) {
-            for name in std::iter::once(crate::acpmux_mcp_names::SERVER_NAME)
-                .chain(crate::acpmux_mcp_names::LEGACY_SERVER_NAMES.iter().copied())
-            {
-                args.push("--disallowedTools".to_owned());
-                args.push(format!("mcp__{name}"));
-            }
-            continue;
-        }
+    for id in tools.off.iter().filter(|id| id.starts_with("mcp:")) {
+        // Only deny the resolved wire identity. An unreported legacy name could belong
+        // to an unrelated server, so the mere absence of a competing row proves nothing.
+        let resolved = tool_row(&tools.rows, id).map(|row| row.id.as_str()).unwrap_or(id);
+        let server = resolved.strip_prefix("mcp:").unwrap();
         let mut name: String = server
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
@@ -444,4 +476,46 @@ fn reported_rows(claude: &Value) -> Vec<ToolRow> {
     rows.extend(plugins.map(|n| row("plugin", n, true)));
     rows.extend(list("skills").filter_map(name).map(|n| row("skill", n, true)));
     rows
+}
+
+#[cfg(test)]
+mod alias_tests {
+    use super::*;
+
+    fn row(name: &str, source: &str) -> ToolRow {
+        ToolRow {
+            id: format!("mcp:{name}"),
+            name: name.into(),
+            kind: "mcp".into(),
+            source: source.into(),
+            enabled: true,
+            can_toggle: true,
+            status: None,
+        }
+    }
+
+    #[test]
+    fn an_unrelated_legacy_name_wins_exact_lookup_and_is_denied_independently() {
+        let rows = vec![row("cmux-agent", "cmux"), row("acpmux", "claude")];
+        assert_eq!(tool_row(&rows, "mcp:acpmux").unwrap().source, "claude");
+        assert_eq!(tool_row(&rows, "mcp:cmux-agent").unwrap().source, "cmux");
+        for name in ["acpmux", "cmux-agent"] {
+            let tools = ToolInventory {
+                rows: rows.clone().into(),
+                off: vec![format!("mcp:{name}")],
+                mutable: true,
+            };
+            assert_eq!(disallowed_args(&tools), ["--disallowedTools", &format!("mcp__{name}")]);
+        }
+    }
+
+    #[test]
+    fn a_known_builtin_accepts_its_old_name_without_claiming_an_unrelated_row() {
+        let rows = vec![row("cmux-agent", "cmux")];
+        assert_eq!(tool_row(&rows, "mcp:acpmux").unwrap().id, "mcp:cmux-agent");
+        assert!(tool_row(&[row("acpmux", "claude")], "mcp:cmux-agent").is_none());
+        let tools =
+            ToolInventory { rows: rows.into(), off: vec!["mcp:cmux-agent".into()], mutable: true };
+        assert_eq!(disallowed_args(&tools), ["--disallowedTools", "mcp__cmux-agent"]);
+    }
 }

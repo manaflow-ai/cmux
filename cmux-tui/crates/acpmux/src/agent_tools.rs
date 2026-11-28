@@ -1107,6 +1107,21 @@ pub(crate) fn claude_args_and_hooks_for(
     };
     #[cfg(not(unix))]
     let shared = Map::new();
+    // Only a recognized legacy launch establishes that its off choice names our builtin.
+    #[cfg(unix)]
+    let legacy =
+        if !remote_origin && !strict { shared_servers::claude_leftover(env, cwd) } else { None };
+    #[cfg(not(unix))]
+    let legacy: Option<String> = None;
+    let mut launch_env = env.clone();
+    if let (Some(legacy), Some(off)) = (legacy.as_deref(), env.get(OFF_ENV)) {
+        let names: Vec<&str> = off
+            .split(',')
+            .map(str::trim)
+            .map(|name| if name == legacy { crate::acpmux_mcp_names::SERVER_NAME } else { name })
+            .collect();
+        launch_env.insert(OFF_ENV.to_owned(), names.join(","));
+    }
     let mut prompt = None;
     let tools = if left_out(remote_origin, env, args) {
         if project_servers.is_empty() && shared.is_empty() {
@@ -1120,7 +1135,7 @@ pub(crate) fn claude_args_and_hooks_for(
             // Claude Code has tool search unless its env or settings turn
             // it off, send it to another provider, or opt in to code mode.
             .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
-            .without_off(env)
+            .without_off(&launch_env)
             .fit_skills()
             .folded();
         if takes_appended_prompt(args) {
@@ -1132,11 +1147,7 @@ pub(crate) fn claude_args_and_hooks_for(
     // so `--mcp-config` replaces it instead of Claude starting both.
     let ours = tools.servers.iter().any(|s| s.name == crate::acpmux_mcp_names::SERVER_NAME);
     #[cfg(unix)]
-    let leftover = if ours && !remote_origin && !strict {
-        shared_servers::claude_leftover(env, cwd)
-    } else {
-        None
-    };
+    let leftover = if ours && !remote_origin && !strict { legacy } else { None };
     #[cfg(not(unix))]
     let leftover: Option<String> = None;
     let tools = match leftover {
@@ -1746,9 +1757,10 @@ impl AgentTools {
     pub fn without_off(mut self, env: &BTreeMap<String, String>) -> Self {
         if let Some(off) = env.get(OFF_ENV) {
             let off: Vec<&str> = off.split(',').map(str::trim).collect();
-            self.servers.retain(|s| {
-                !off.iter().any(|name| crate::acpmux_mcp_names::same_server(name, &s.name))
-            });
+            // These names also include the person's unrelated servers. The inventory
+            // migrates proven builtin aliases before producing OFF_ENV; names alone are
+            // insufficient evidence to disable a second server here.
+            self.servers.retain(|s| !off.contains(&s.name.as_str()));
         }
         self
     }
