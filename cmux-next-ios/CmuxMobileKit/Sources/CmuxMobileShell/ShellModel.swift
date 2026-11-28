@@ -122,6 +122,8 @@ final class ShellModel {
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
+    /// The Macs that install a pull request's cmux Dev on this phone (Settings → Developer).
+    var tryPullRequestService: (any TryPullRequestService)? { live }
     /// Screen Sharing with the account's Macs while signed in (Settings → Screen Sharing).
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
@@ -561,6 +563,13 @@ final class ShellModel {
             }
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
                 macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
+            }
+            // Open on iPhone's sign-in hand-off, when the Mac's person turned it on.
+            NativeBrowserTabs.shared.siteData = { macID, tab, url in
+                await StreamedBrowserDirectory.shared.siteData(macID: macID, tab: tab, url: url)
+            }
+            NativeBrowserTabs.shared.macHandsSiteData = { [store] macID in
+                macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.siteDataCapability) ?? false
             }
         } else {
             StreamedBrowserDirectory.shared.opener = nil

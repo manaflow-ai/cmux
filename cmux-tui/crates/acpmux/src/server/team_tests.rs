@@ -533,6 +533,8 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -665,6 +667,7 @@ fn http_hub(url: &str, token_command: &[&str]) -> Arc<dyn MeshHub> {
             team_messaging: true,
             credential: None,
             control_from: Vec::new(),
+            direct_send: false,
         })
         .unwrap(),
     )
