@@ -1,6 +1,6 @@
-import AppKit
-import CmuxNextBridge
-import CmuxNextDesign
+public import AppKit
+public import CmuxNextBridge
+public import CmuxNextDesign
 
 /// The badge image a status notification attaches: the status glyph the
 /// sidebar draws for the reason, on the theme's surface, as a PNG file
