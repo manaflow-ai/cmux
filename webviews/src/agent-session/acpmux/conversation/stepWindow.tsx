@@ -224,6 +224,10 @@ export function useStepWindow({
   /// correct. Corrected here too, each tool row mounting above a reader scrolling up pushed the view
   /// down by its steps' guess (22 px a step against 32 drawn): the scroll fought the reader.
   const measure = useRef<() => boolean>(() => false);
+  /// The observer of the list's, its box's, its row's and each drawn step's size (none in a test DOM
+  /// without one), and the steps it watches.
+  const sizes = useRef<ResizeObserver | undefined>(undefined);
+  const stepsWatched = useRef(new Set<HTMLElement>());
   measure.current = () => {
     const node = list.current;
     if (!node || !node.getClientRects().length) return false;
@@ -236,7 +240,13 @@ export function useStepWindow({
     const total = now.heights.total();
     let changed = false;
     const seen = new Set<number>();
+    const watch = sizes.current;
+    const watched = watch ? new Set<HTMLElement>() : undefined;
     for (const element of node.querySelectorAll<HTMLElement>(":scope > [data-step]")) {
+      if (watch && watched) {
+        watched.add(element);
+        if (!stepsWatched.current.has(element)) watch.observe(element);
+      }
       const key = element.dataset.step!;
       const at = now.index.get(key);
       if (at === undefined) continue;
@@ -244,6 +254,10 @@ export function useStepWindow({
       const height = outerHeight(element);
       measured.current.set(key, height);
       if (now.heights.set(at, height)) changed = true;
+    }
+    if (watch && watched) {
+      for (const element of stepsWatched.current) if (!watched.has(element)) watch.unobserve(element);
+      stepsWatched.current = watched;
     }
     // A mounted step with no element draws nothing (a quiet thought).
     for (const piece of drawn.current.pieces)
@@ -294,12 +308,27 @@ export function useStepWindow({
     else setView(next);
   };
 
-  // Before paint, after every draw: the drawn steps' heights, then the view (a list opened scrolled
-  // into, or whose heights just changed). It draws again only when a height changed, and a draw that
-  // changes none settles it.
+  // What this draw mounts: the steps' table and the pieces. A draw that mounts what the last measured
+  // one did, with nothing changed since, is skipped: a step's height changes only as its element
+  // resizes, and the size observer measures that once laid out, so reading the steps here would only
+  // force the style and layout of the whole commit to settle again (a streaming row draws its lists on
+  // every chunk). A measure that changed a height marks the next draw to measure, which settles it.
+  const shape = `${first}:${last}:${pieces.map((piece) => `${piece.rest === undefined ? "" : "r"}${piece.from}-${piece.to}`).join(",")}`;
+  const measuredShape = useRef<{ built: typeof built.current; shape: string } | undefined>(undefined);
+  const measureNow = () => {
+    const changed = measure.current();
+    measuredShape.current = changed ? undefined : { built: built.current, shape };
+    return changed;
+  };
+
+  // Before paint, after every draw that mounts something new: the drawn steps' heights, then the view
+  // (a list opened scrolled into, or whose heights just changed). It draws again only when a height
+  // changed, and a draw that changes none settles it. Without a size observer, after every draw.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- after every draw by design: what it reads is the DOM just drawn
   useLayoutEffect(() => {
-    if (measure.current()) redraw((n) => n + 1);
+    const prior = measuredShape.current;
+    if (sizes.current && prior && prior.built === built.current && prior.shape === shape) return;
+    if (measureNow()) redraw((n) => n + 1);
     follow.current(false);
   });
 
@@ -315,14 +344,23 @@ export function useStepWindow({
     scroller?.addEventListener("scroll", scrolled, { passive: true });
     view?.addEventListener("scroll", scrolled, { passive: true });
     const Observer = node.ownerDocument.defaultView?.ResizeObserver;
-    const sizes = Observer
+    const observer = Observer
       ? new Observer(() => {
-          if (measure.current()) flushSync(() => redraw((n) => n + 1));
+          // A change marks the next draw to measure; none leaves the row's height as this layout
+          // left it, for the next change's anchor (heldByView).
+          if (measure.current()) {
+            measuredShape.current = undefined;
+            flushSync(() => redraw((n) => n + 1));
+          }
           follow.current(true);
         })
       : undefined;
-    sizes?.observe(node);
-    if (box) sizes?.observe(box);
+    sizes.current = observer;
+    observer?.observe(node);
+    if (box) observer?.observe(box);
+    // The row: what it draws besides the list moves where the list sits in it.
+    const row = rowOf(node);
+    if (row !== node) observer?.observe(row);
     /// The list's child holding `target`, if any.
     const childOf = (target: Node | null | undefined) => {
       let child: Node | null | undefined = target;
@@ -365,7 +403,9 @@ export function useStepWindow({
       box?.removeEventListener("scroll", scrolled);
       scroller?.removeEventListener("scroll", scrolled);
       view?.removeEventListener("scroll", scrolled);
-      sizes?.disconnect();
+      observer?.disconnect();
+      sizes.current = undefined;
+      stepsWatched.current = new Set();
       node.removeEventListener("focusin", focusin);
       node.removeEventListener("focusout", focusout);
       doc.removeEventListener("selectionchange", selection);

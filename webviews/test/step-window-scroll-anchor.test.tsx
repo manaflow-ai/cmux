@@ -200,3 +200,87 @@ test("a list in its run's own box moves the box's offset for a step above its vi
   expect(await draw([32, 32, 32])).toBe(0);
   expect(await draw([42, 32, 32])).toBe(10);
 });
+
+// With a size observer (every browser), a draw that mounts the steps the last measured one did reads no
+// step: a step's height changes only as its element resizes, and the observer measures that after
+// layout. Read in the draw's own layout effect, every step of every list a streaming row draws forced
+// the commit's style and layout (renderer-main-busy, bench replay-under-load: the top commit-forced
+// layout stack). The stub below calls the observer back as a browser would after the layout of a draw.
+async function withObserver(run: (settle: () => Promise<void>, reads: () => number) => Promise<void>) {
+  const win = scope.window as Window & { ResizeObserver?: unknown };
+  const live = new Set<{ back: () => void; targets: Set<Element> }>();
+  win.ResizeObserver = class {
+    targets = new Set<Element>();
+    constructor(readonly back: () => void) {}
+    observe(target: Element) {
+      this.targets.add(target);
+      live.add(this);
+    }
+    unobserve(target: Element) {
+      this.targets.delete(target);
+    }
+    disconnect() {
+      this.targets.clear();
+      live.delete(this);
+    }
+  };
+  const plain = scope.getComputedStyle as typeof getComputedStyle;
+  let count = 0;
+  scope.getComputedStyle = (element: Element) => {
+    count += 1;
+    return plain(element);
+  };
+  try {
+    await run(
+      async () => {
+        await act(async () => {
+          for (const observer of [...live]) if (observer.targets.size) observer.back();
+        });
+      },
+      () => count,
+    );
+  } finally {
+    act(() => root?.unmount());
+    root = undefined;
+    delete win.ResizeObserver;
+    scope.getComputedStyle = plain;
+  }
+}
+
+test("with a size observer, a draw that mounts the same steps reads none; their resize is measured", async () => {
+  await withObserver(async (settle, reads) => {
+    const draw = await drawList(-50);
+    expect(await draw([32, 32, 32])).toBe(5_000);
+    const before = reads();
+    expect(await draw([32, 32, 32])).toBe(5_000);
+    expect(reads()).toBe(before);
+    // A step grows above the view's top: its element resizes, and the offset follows once laid out.
+    expect(await draw([52, 32, 32])).toBe(5_000);
+    await settle();
+    expect(host.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop).toBe(5_020);
+    // Under the view's top: nothing moves.
+    await draw([52, 32, 60]);
+    await settle();
+    expect(host.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop).toBe(5_020);
+  });
+});
+
+test("with a size observer, a row that shrinks off the view's top still moves the offset", async () => {
+  await withObserver(async (settle) => {
+    const draw = await drawList(-300, 200);
+    expect(await draw([80, 32, 32])).toBe(5_000);
+    await draw([12, 32, 32]);
+    await settle();
+    expect(host.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop).toBe(4_932);
+  });
+});
+
+test("with a size observer, a step that joins is measured in the draw that mounts it", async () => {
+  await withObserver(async (_settle, reads) => {
+    const draw = await drawList(-50);
+    expect(await draw([32, 32, 32])).toBe(5_000);
+    const before = reads();
+    await draw([32, 32, 32, 32]);
+    expect(reads()).toBeGreaterThan(before);
+  });
+});
