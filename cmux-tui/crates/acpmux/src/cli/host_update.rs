@@ -107,6 +107,50 @@ impl Remote for ServiceEnv<'_> {
 /// `--json daemon status` (or the last reply, from none).
 const AWAIT_DAEMON: &str = r#"i=0; while :; do s=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); case "$s" in *'"pid":'*) break;; esac; [ "$i" -ge 30 ] && break; i=$((i+1)); sleep 1; done; printf '%s\n' "$s""#;
 
+/// How long after its first answer a restarted daemon on a pushed build must still answer, as
+/// the same process, for the update to keep the build ([`settle_verdict`]). 2026-11-28: every
+/// channel build for hours answered its first `daemon status` and then parked all its runtime
+/// workers 2 to 9 s later (its inbox restore took a std mutex its caller held), so the check
+/// passed, every host kept the build, and each next build did the same: placement was dead
+/// fleet-wide. A build that fails this is rolled back and marked, as one that never answered.
+const SETTLE_SECS: u64 = 30;
+/// Sets [`SETTLE_SECS`] for one run (0: off).
+pub(crate) const SETTLE_ENV: &str = "ACPMUX_UPDATE_SETTLE_SECS";
+
+/// [`SETTLE_ENV`], else [`SETTLE_SECS`]; tests run with none unless they set it.
+fn settle_secs() -> u64 {
+    std::env::var(SETTLE_ENV).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(if cfg!(test) {
+        0
+    } else {
+        SETTLE_SECS
+    })
+}
+
+/// Waits `secs`, then prints the daemon's `--json daemon status` (a wedged daemon's CLI gives up
+/// on its hello and prints `"running": false`).
+fn settle_script(secs: u64) -> String {
+    format!("sleep {secs}; ~/.local/bin/acpmux --json daemon status 2>/dev/null")
+}
+
+/// Why the daemon that answered `first` did not answer as the same process `secs` later, in
+/// `again`; None when it did.
+fn settle_verdict(first: &str, again: &str, secs: u64) -> Option<String> {
+    let pid = |s: &str| {
+        serde_json::from_str::<Value>(s.trim())
+            .ok()
+            .and_then(|v| v.get("pid").and_then(Value::as_u64))
+    };
+    match (pid(first), pid(again)) {
+        (Some(a), Some(b)) if a == b => None,
+        (Some(a), Some(b)) => Some(format!(
+            "the restarted daemon (pid {a}) was gone {secs} s after its first answer (pid {b} answers)"
+        )),
+        _ => Some(format!(
+            "the restarted daemon answered, then did not {secs} s later (a wedged runtime answers nothing)"
+        )),
+    }
+}
+
 /// Separates the parts of [`probe_script`]'s output, on a line of its own
 /// (after an empty one: a part need not end its last line).
 const PROBE_SPLIT: &str = "ACPMUX_PROBE";
@@ -1217,6 +1261,26 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     }
     if let Some(why) = abi_gap(&status) {
         return failed(migrating, false, "abiIncompatible", why);
+    }
+    // A pushed build answers once more after it settles ([`settle_secs`]); a rollback's old
+    // build is not held to it, so a rollback stays as quick as it was.
+    let settle = if want.is_some() { settle_secs() } else { 0 };
+    if settle > 0 {
+        let again = match remote.exec(&settle_script(settle), None) {
+            Ok(out) if !out.ok && lost_the_host_text(&out.stderr) => {
+                return lost(failed(migrating, false, "noAnswer", out.stderr.trim().to_owned()));
+            }
+            Ok(out) => out.stdout,
+            Err(e) if !e.is::<LockLost>() && lost_the_host(&e) => {
+                return lost(failed(migrating, false, "noAnswer", e.to_string()));
+            }
+            Err(e) => {
+                return failed(migrating, false, lock_lost_or(&e, "noAnswer"), e.to_string());
+            }
+        };
+        if let Some(why) = settle_verdict(&status, &again, settle) {
+            return failed(migrating, false, "noAnswer", why);
+        }
     }
     let auto_update_off = take_auto_update_off(&out.stdout).1;
     let in_place = out.stdout.lines().find_map(|l| l.strip_prefix(IN_PLACE)).map(str::to_owned);

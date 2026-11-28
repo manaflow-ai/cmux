@@ -1284,3 +1284,39 @@ fn a_mac_whose_launch_agent_runs_the_apps_acpmux_is_reported_not_restarted() {
     let up = gone.update_with(false, false);
     assert_ne!(up.reason.as_deref(), Some("appHeld"), "{up:?}");
 }
+
+/// 2026-11-28: a build that answers its first `daemon status` and wedges seconds later is not
+/// kept. The settle check asks again; a reply with no pid, or another pid, fails it.
+#[test]
+fn a_daemon_that_answers_once_then_wedges_fails_the_settle_check() {
+    let up = r#"{"pid": 7, "build": "abc 2026-11-28"}"#;
+    assert_eq!(settle_verdict(up, up, 30), None);
+    let wedged = r#"{"error": "no acpmux daemon at /x/acpmux.sock", "running": false}"#;
+    let why = settle_verdict(up, wedged, 30).expect("a wedged daemon passed");
+    assert!(why.contains("then did not 30 s later"), "{why}");
+    assert!(settle_verdict(up, "", 30).is_some(), "no reply passed");
+    assert!(settle_verdict(up, r#"{"pid": 8}"#, 30).is_some(), "a replaced daemon passed");
+    assert!(settle_script(30).starts_with("sleep 30;"));
+}
+
+/// End to end on a fake peer: a pushed build whose daemon stops answering after its first
+/// answer is rolled back for `noAnswer`, and the previous build serves again.
+#[test]
+#[cfg(unix)]
+fn a_pushed_build_that_wedges_after_its_first_answer_is_rolled_back() {
+    let peer = FakePeer::new("wedges");
+    peer.offer(NEW, Some(NEW));
+    // Only the settle check sleeps 7 s: the fake daemon is gone by then. Other sleeps return.
+    peer.exe("fakebin/sleep", "#!/bin/sh\n[ \"$1\" = 7 ] && rm -f \"$HOME/daemon\"\nexit 0\n");
+    // SAFETY: a test of this binary that reads the variable meanwhile only settles 7 s on its
+    // own fake peer, whose sleep returns at once and whose daemon still answers.
+    unsafe { std::env::set_var(SETTLE_ENV, "7") };
+    let up = peer.update(true);
+    unsafe { std::env::remove_var(SETTLE_ENV) };
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("noAnswer")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or_default().contains("then did not"), "{up:?}");
+}
