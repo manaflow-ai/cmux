@@ -73,6 +73,20 @@ struct CloudStartSessionTests {
         #expect(deleted == 1, "a found machine or a cancelled start's machine was deleted")
         let kept = await run(made: true, failure) { throw ActionFailure(message: "delete refused") } as? ActionFailure
         #expect(kept?.message.hasPrefix(failure.message) == true && kept?.message.contains("kill-machine --target machine:vm-chat-1") == true, "\(String(describing: kept))")
+        // Production, 2026-11-28 (cmuxterm-hq#36372): the start's retry named the machine it had just deleted.
+        let retry = ActionFailure(message: CloudStartSessionStrings.agentFailed("chat-1", id: "vm-chat-1", agent: "claude", reason: "timed out: identify (no reply within 10.0 seconds)"))
+        let gone = await run(made: true, retry) as? ActionFailure
+        #expect(gone?.message.hasPrefix("Machine `chat-1` started but its agent didn't (timed out: identify (no reply within 10.0 seconds)). Its new machine `chat-1` was deleted.") == true, "\(String(describing: gone))")
+        #expect(gone?.message.contains("machine:vm-chat-1") == false)
+    }
+
+    /// A deleted machine's steps are cut at the first sentence naming it, in any language's punctuation.
+    @Test func aDeletedMachinesStepsAreCut() throws {
+        let deleted = { (message: String) in CloudStartSessionStrings.newMachineDeleted("chat-1", id: "vm-1", after: message) }
+        let connect = try #require(deleted(CloudStartSessionStrings.notConnected("chat-1", id: "vm-1", agent: "codex")))
+        #expect(connect.hasPrefix("Machine `chat-1` didn't connect, so no agent started there. Its new machine") && !connect.contains("vm-1"), "\(connect)")
+        #expect(deleted("ก (x) เรียกใช้ `cmux cloud start-session --target machine:vm-1` อีกครั้ง")?.hasPrefix("ก (x) เรียกใช้ Its") == true)
+        #expect(deleted("no steps here") == nil)
     }
 
     @Test func aTargetlessStartChecksTheResolvedMachinesComputerHold() async throws {
@@ -292,6 +306,24 @@ struct CloudStartSessionTests {
             find: { name in machines.first { $0.title == name } }
         )
         #expect(machine?.id == "vm_b")
+    }
+
+    @Test func anUnreadListNamesItsFailureInsteadOfGuessingAMachineExists() async throws {
+        let request = CloudStartSession.Request(name: "lane-canary", agent: "claude")
+        do {
+            try await request.requireFreshNamedList(isFresh: { false }, refresh: {}, check: {}, failure: { "network timeout\n" })
+            Issue.record("a list that never read must refuse")
+        } catch let refusal as CloudStartSession.Request.Refusal {
+            #expect(refusal.message.contains("network timeout"), "\(refusal.message)")
+            #expect(!refusal.message.contains("may already exist"), "\(refusal.message)")
+            #expect(refusal.message.contains("lane-canary"), "\(refusal.message)")
+        }
+        do {
+            try await request.requireFreshNamedList(isFresh: { false }, refresh: {}, check: {}, failure: { "  " })
+            Issue.record("a list that never read must refuse")
+        } catch let refusal as CloudStartSession.Request.Refusal {
+            #expect(refusal.message == CloudStartSessionStrings.listUnread(request.asked(machine: "lane-canary")))
+        }
     }
 
     @Test func aNamedClaudeStartRefreshesBeforeRefusingMissingSetup() async throws {
@@ -704,7 +736,7 @@ struct CloudStartSessionTests {
         let messages = [
             CloudStartSessionStrings.needsMachine(agent: "claude"), CloudStartSessionStrings.noSuchMachine(id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentInvalid, CloudStartSessionStrings.cwdInvalid, CloudStartSessionStrings.stillStarting(Self.asked),
-            CloudStartSessionStrings.listUnread(Self.asked),
+            CloudStartSessionStrings.listUnread(Self.asked), CloudStartSessionStrings.listFailed(Self.asked, reason: "x"),
             CloudStartSessionStrings.createFailed("dev", quoted: "dev", agent: "claude", reason: "x"), CloudStartSessionStrings.notConnected("dev", id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentFailed("dev", id: "vm-x", agent: "claude", reason: "x"), CloudStartSessionStrings.needsFolder("dev", id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentSignedOut("dev", id: "vm-x", agent: "cursor", agentName: "Cursor", expired: false),

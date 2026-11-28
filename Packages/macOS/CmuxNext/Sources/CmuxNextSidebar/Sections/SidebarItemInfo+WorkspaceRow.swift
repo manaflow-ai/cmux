@@ -26,4 +26,14 @@ extension SidebarItemInfo {
         }
         iconFromShownTab = row.iconFromShownTab
     }
+
+    /// This item as a pinned row draws it: a shown tab's icon gives way to the pin, so the row reads as a workspace
+    /// with no icon of its own (text only); an icon or color the user chose keeps the pin's place (#38061).
+    public func droppingShownTabIcon() -> SidebarItemInfo {
+        guard iconFromShownTab else { return self }
+        var info = self
+        (info.symbol, info.icon, info.favicon, info.emoji, info.color) = ("textformat", nil, nil, nil, nil)
+        info.textOnly = true
+        return info
+    }
 }

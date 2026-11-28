@@ -9,7 +9,9 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { postNative } from "./native";
 
-export type CloudLastPick = { harness: string; model?: string };
+/// `effort`: the level picked with it (model-picker-local-cloud-state), so a level comes back with its
+/// model; a pick of another agent names its own or none.
+export type CloudLastPick = { harness: string; model?: string; effort?: string };
 
 const STORAGE_KEY = "cmux.acpmux.cloudLastPick";
 
@@ -20,7 +22,11 @@ function parse(value: unknown): CloudLastPick | undefined {
   if (typeof pick?.harness !== "string" || pick.harness === "" || pick.harness.length > 128) return undefined;
   const model =
     typeof pick.model === "string" && pick.model !== "" && pick.model.length <= 256 ? pick.model : undefined;
-  return model ? { harness: pick.harness, model } : { harness: pick.harness };
+  const effort =
+    typeof pick.effort === "string" && pick.effort !== "" && pick.effort !== "default" && pick.effort.length <= 128
+      ? pick.effort
+      : undefined;
+  return { harness: pick.harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
 }
 
 type Stored = { pick?: CloudLastPick; picked?: boolean };
@@ -65,10 +71,19 @@ export function rememberCloudPick(
   const kept = parse(pick);
   if (!kept) return;
   const before = read().pick;
-  // A pick naming no model keeps the model last picked on the same agent.
-  const next = kept.model || before?.harness !== kept.harness ? kept : before;
+  // A pick naming no model keeps the model (and a pick naming no level, the level) last picked on the
+  // same agent.
+  const same = before?.harness === kept.harness ? before : undefined;
+  const model = kept.model ?? same?.model;
+  const effort = kept.effort ?? same?.effort;
+  const next: CloudLastPick = { harness: kept.harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
   write({ pick: next, picked: true });
-  const params = { agent: next.harness, ...(next.model ? { model: next.model } : {}), place: "cloud" };
+  const params = {
+    agent: next.harness,
+    ...(next.model ? { model: next.model } : {}),
+    ...(next.effort ? { effort: next.effort } : {}),
+    place: "cloud",
+  };
   const direct = post ? undefined : globalThis.window?.cmuxAcpmuxActions?.["newTab.remember"];
   const send = post ?? ((method: string, body: typeof params) => (direct ? direct(body) : postNative(method, body)));
   try {

@@ -50,7 +50,7 @@ import {
 } from "./conversation/queuedMessages";
 import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
-import { AcpmuxDirectClient, type HarnessBlock, isTrustRefusal } from "./direct";
+import { AcpmuxDirectClient, type HarnessBlock, isTrustRefusal, type WarmedChat } from "./direct";
 import { watchRestoredTail } from "./restoredTail";
 import { drawsCopy } from "./conversation/turnEndFold";
 import {
@@ -100,9 +100,15 @@ import {
   withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
-import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
-import { cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
-import { cloudLastPick } from "./cloudLastPick";
+import { clearCloudModePick, cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
+import {
+  cloudAgentPick,
+  cloudStartPick,
+  dropCloudAgentPickForAdoption,
+  holdCloudAgentPick,
+  rememberedCloudAgentPick,
+} from "./cloudAgentPick";
+import { HELD_EFFORT_ID } from "./heldOptions";
 import {
   askAppCloudPick,
   cloudPickChoices,
@@ -434,6 +440,7 @@ import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
+  NO_MESSAGE_BREAKS,
   messageRevealTarget,
   openViewTurnFold,
   toggleTurnFold,
@@ -795,7 +802,7 @@ import {
 import { postOpenInWindow, quickChatName, postStartInBackground } from "./pane/quickHost";
 import { knownHarnessHealth, knownGithubRepositories, trustSource } from "./pane/trustHost";
 import { readFolderStatus, checkpointDiff } from "./pane/hostBindings";
-import { letGoHeldWorked, turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
+import { letGoHeldWorked, shapeAhead, turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
 import { replyElsewhere } from "./homeInboxModel";
 import { quoteInReply } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
@@ -2411,6 +2418,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastMessageBreaks = useRef<readonly number[]>([]);
   const messageBreaks = useMemo(() => {
     const next = chatShellRuns.map((run) => run.startedAt).sort((a, b) => a - b);
+    // One empty array for every chat with no command: the turns shaped ahead used it (`shapeAhead`).
+    if (next.length === 0) return (lastMessageBreaks.current = NO_MESSAGE_BREAKS);
     const previous = lastMessageBreaks.current;
     if (next.length === previous.length && next.every((at, index) => at === previous[index])) return previous;
     return (lastMessageBreaks.current = next);
@@ -2577,8 +2586,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [subagentView, snapshot.rows, snapshot.subagentViews, snapshot.canLoadOlder],
   );
   const readSubagentLog = useCallback(
-    // l10n-allow: internal transport error; the subagent pane renders its own localized state.
     (id: string, onNewest?: (records: OwnLogRecord[]) => void) =>
+      // l10n-allow: internal transport error; the subagent pane renders its own localized state.
       directClient.current?.readSubagentLog(id, onNewest) ?? Promise.reject(new Error("Not connected")),
     [],
   );
@@ -2820,6 +2829,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const leftChatTurns = useRef(
     new Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>(),
   );
+  // Each chat folded ahead while the page is idle (direct.ts `warmRows`) is shaped into turns now, so
+  // its first open reuses them as a switch back does (settled-page bench, chat_switch). Normal view
+  // only: the other views fold by an object built at the open.
+  const aheadFolds = useRef(new Map<string, Set<string>>());
+  const shapeAheadFrom = useRef<(warmed: WarmedChat) => void>(() => undefined);
+  shapeAheadFrom.current = (warmed) => {
+    if (chatView !== "normal" || chatPresentation === "messages" || warmed.sessionId === shownSessionId) return;
+    if (chatFolds.has(warmed.sessionId) || leftChatTurns.current.has(warmed.sessionId)) return;
+    const expanded = new Set<string>();
+    shapeAhead(warmed, {
+      expanded,
+      doneLines: doneLines.current,
+      workflowLabsEnabled,
+      splitSilent: !quick,
+      clockOffset: snapshot.clockOffsetMs,
+      pastTurns: leftChatTurns.current,
+    });
+    aheadFolds.current.set(warmed.sessionId, expanded);
+    // ends: each pass deletes the oldest key, so the map holds no more chats than turns kept ahead
+    while (aheadFolds.current.size > 8) aheadFolds.current.delete(aheadFolds.current.keys().next().value!);
+  };
+  const warmingClient = directClient.current;
+  useEffect(() => warmingClient?.onWarmed((warmed) => shapeAheadFrom.current(warmed)), [warmingClient]);
   const supersededReplyIds = useMemo(
     () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
     [snapshot.supersededRows],
@@ -3164,7 +3196,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
     if (subagentChat !== undefined)
       setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups, viewToggles }));
-    setExpanded(kept?.expanded ?? new Set());
+    // A chat never shown opens with the folds its turns were shaped ahead with (`shapeAhead`), so
+    // turnViewFrom reuses them (it reuses turns only under the same folds object).
+    const ahead = shownSessionId === undefined ? undefined : aheadFolds.current.get(shownSessionId);
+    if (shownSessionId !== undefined) aheadFolds.current.delete(shownSessionId);
+    setExpanded(kept?.expanded ?? ahead ?? new Set());
     setViewToggles(kept?.viewToggles ?? new Map());
     setOpenedGroups(kept?.opened ?? new Set());
   }
@@ -4339,7 +4375,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabNow = useRef(newTab);
   newTabNow.current = newTab;
   const currentNewTab = useCallback(() => newTabNow.current, []);
-  const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
+  // A Cmd-T adoption is another tab taking this page: the Cloud picks (agent, level, mode) a tab before it
+  // held were that tab's and never start this one's chat (cmux#59716: a page that held Claude for Cloud
+  // started Claude for a tab showing Codex). The page's own Empty project keeps them (adoptNewTab).
+  const adoptForTab = useCallback(
+    (host: NewTabHost) => {
+      dropCloudAgentPickForAdoption();
+      clearCloudModePick();
+      adoptNewTab(host);
+    },
+    [adoptNewTab],
+  );
+  const newTabGeneration = useNewTabAdoption(adoptForTab, currentNewTab);
   // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
   useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
   // `tabs.newTabApp` (newtab/NewTabAppSlot.tsx): the visit (adoption) whose extension slot could not show
@@ -5064,7 +5111,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const client = directClient.current;
         const { intent, model } = harnessSwitch.view();
         const summary = snapshotRef.current?.summary;
-        const cloudPick = cloudAgentPick() ?? cloudLastPick();
+        const cloudPick = cloudAgentPick() ?? rememberedCloudAgentPick();
         return {
           harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
           revision: [
@@ -5348,6 +5395,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [sandbox.mode, autoArrival, newTabGeneration]);
   /// Asks the daemon where an Auto chat runs, says it, and sends there. Never an error: no daemon,
   /// no Cloud or a failure runs the chat here, and the line says why.
+  /// Auto ran the chat here: the agent, model and level the chips drew (cloudAgentPick.ts `cloudStartPick`)
+  /// start it, as a pick in the picker would (a deferred `chat.new`, which the send then queues on). Only an
+  /// agent this Mac runs; one it does not run leaves the chat on this Mac's agent.
+  const startAutoHereOnPick = () => {
+    const current = snapshotRef.current;
+    const summary = current?.summary;
+    const family = current?.catalog.find((entry) => entry.id === summary?.harness)?.family;
+    const pick = cloudStartPick({
+      ...(summary?.harness ? { harness: summary.harness } : {}),
+      ...(summary?.model ? { model: summary.model } : {}),
+      ...(family ? { family } : {}),
+    });
+    const runs = current?.catalog.some((entry) => entry.id === pick.harness && !entry.folder && !entry.unavailable);
+    if (!runs || summary?.sessionId) return;
+    const cwd = projectDraft ?? summary?.cwd;
+    void callNative("chat.new", {
+      harness: pick.harness,
+      ...(pick.model ? { model: pick.model } : {}),
+      ...(pick.effort ? { options: { [HELD_EFFORT_ID]: pick.effort } } : {}),
+      ...(cwd ? { cwd } : {}),
+      deferred: true,
+    }).catch(() => undefined);
+  };
   const decideAutoSend = () => {
     const page = newTabGeneration;
     const decision = { page };
@@ -5369,6 +5439,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       } else {
         // Auto runs this one here: the machine it leased at the pick goes back.
         cloudReservation.abandon();
+        // It starts on the pick the chips showed (Cloud's, as Auto's picker is Cloud's): never this Mac's
+        // own agent and model in its place (model-picker-local-cloud-state).
+        startAutoHereOnPick();
         if (sandbox.mode !== "persistent") {
           runModePicked.current = true;
           sandbox.setMode("persistent");
@@ -7498,6 +7571,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setPastTurns(undefined);
       setProjectDraft(undefined);
       pickedProject.current = undefined;
+      dropCloudAgentPickForAdoption();
+      clearCloudModePick();
       void runAdoption(adoption);
     },
     [runAdoption],
@@ -7782,6 +7857,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(quick && { canHandoff: false }),
       // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
       ...(cloudPicked && { startsOnCloud: true as const }),
+      // Auto picked: Cloud's picker too (one pick for Cloud and Auto, apart from This Mac's), whichever
+      // place Auto then decides (model-picker-local-cloud-state).
+      ...(!cloudPicked && autoPicked && { cloudPicker: true as const }),
       // Its permission mode pick, for the harness the chat starts on (cloudModePick.ts).
       ...(cloudPicked &&
         cloudModeFor(cloudModePick, snapshot.summary?.harness) !== undefined && {
@@ -7816,6 +7894,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quick,
     keptStopping,
     cloudPicked,
+    autoPicked,
     cloudModePick,
     extensionCommands,
     listShown,

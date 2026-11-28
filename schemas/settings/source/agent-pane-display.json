@@ -2550,6 +2550,26 @@
           "page_hidden": "a list of preset names and rule objects, edited in cmux-next.json"
         },
         {
+          "key": "experiments.chat_render_pipeline",
+          "name": "chatRenderPipeline",
+          "title": {
+            "key": "settings.experiments.chat_render_pipeline",
+            "text": "Chat Render Pipeline"
+          },
+          "help": {
+            "key": "settings.experiments.chat_render_pipeline.help",
+            "text": "Skip rendering offscreen rows from completed turns while keeping their place in the chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "chat",
+            "render",
+            "scroll"
+          ]
+        },
+        {
           "key": "agentPane.display.layout.messages",
           "name": "layoutMessages",
           "note": "Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.",

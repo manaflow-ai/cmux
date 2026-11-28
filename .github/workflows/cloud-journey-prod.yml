@@ -157,7 +157,7 @@ jobs:
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
         run: |
-          # One job per 3 GiB of a memory-capped pool slot: -j at every host thread SIGKILLed rustc (job 140983092431).
+          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
           CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
           if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
@@ -180,6 +180,12 @@ jobs:
           # journey-production reads it): the repository's CLAUDE_CODE_OAUTH_TOKEN is shared with claude.yml and
           # its weekly limit turned the real leg into skips (run 44649399953). Falls back while it is not set.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
+          # The login pool (scripts/cmux-next/claude-login-pool.ts): CMUX_JOURNEY_CLAUDE_OAUTH_POOL is one setup-token per
+          # line, asked first; then the login above, then the repository's. The run takes the first slot with quota
+          # (one max_tokens 1 request each, before any machine) and writes only the slot index to probe.json; with
+          # every slot spent the row says so (an infra skip in NOW) and no machine is made. Unset: the login above alone.
+          CMUX_JOURNEY_CLAUDE_OAUTH_POOL: ${{ matrix.agent == 'claude' && matrix.model == 'real' && secrets.CMUX_JOURNEY_CLAUDE_OAUTH_POOL || '' }}
+          CLAUDE_CODE_OAUTH_TOKEN_FALLBACK: ${{ matrix.agent == 'claude' && matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           CODEX_AUTH_JSON: ${{ matrix.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           AGENT: ${{ matrix.agent }}
           MODEL: ${{ matrix.model }}
@@ -324,7 +330,7 @@ jobs:
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
         run: |
-          # One job per 3 GiB of a memory-capped pool slot: -j at every host thread SIGKILLed rustc (job 140983092431).
+          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
           CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
           if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
