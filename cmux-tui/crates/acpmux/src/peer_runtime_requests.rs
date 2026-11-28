@@ -3,6 +3,13 @@
 
 use super::*;
 
+tokio::task_local! {
+    /// Told when a `session/prompt` sent from inside its scope is handed to the link (queued on
+    /// it, ahead of every later frame): a prompt held for its chat's turn gives the turn up there,
+    /// not when the far daemon's turn ends (`server/peer_forward/prompt_order.rs`).
+    pub(crate) static PROMPT_ON_WIRE: Arc<tokio::sync::Notify>;
+}
+
 impl Peer {
     /// [`Self::send_request`]; `retry`: sent again on the next link if this one switches paths
     /// before it answers (`peer_carried.rs`).
@@ -139,7 +146,7 @@ impl Peer {
             Ok(Ok(())) => {
                 forget.cancel = cancel;
                 if m == method::SESSION_PROMPT {
-                    let _ = super::PROMPT_ON_WIRE.try_with(|on_wire| on_wire.notify_one());
+                    let _ = PROMPT_ON_WIRE.try_with(|on_wire| on_wire.notify_one());
                 }
             }
             Ok(Err(_)) => {
