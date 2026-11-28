@@ -145,3 +145,37 @@ struct CoalesceLatestPublisherDemandTests {
         subscriber.cancel()
     }
 }
+
+/// The sidebar consumes `coalesceLatest` through `.values` inside a
+/// `@MainActor` task while its upstream publishers send on the main thread
+/// (`sidebarWorkspaceObservations`). `AsyncPublisher` requests demand from
+/// `next()`, which runs off the main actor, so `request(_:)` and `receive(_:)`
+/// reach the operator from two threads at once. Under Thread Sanitizer an
+/// unsynchronized operator reports races on its buffered value; the final
+/// value must still arrive.
+@MainActor
+@Suite
+struct CoalesceLatestPublisherConcurrencyTests {
+    @Test(.timeLimit(.minutes(1)))
+    func mainThreadSendsRacingAsyncDemandDeliverTheFinalValue() async {
+        let upstream = CurrentValueSubject<Int, Never>(0)
+        let publisher = upstream.coalesceLatest(for: .milliseconds(1), scheduler: DispatchQueue.main)
+        let finalValue = 5_000
+        let consumer = Task { @MainActor () -> Int? in
+            var last: Int?
+            for await value in publisher.values {
+                last = value
+                if value == finalValue { break }
+            }
+            return last
+        }
+        for value in 1...finalValue {
+            upstream.send(value)
+            if value % 16 == 0 {
+                await Task.yield()
+            }
+        }
+        let last = await consumer.value
+        #expect(last == finalValue)
+    }
+}
