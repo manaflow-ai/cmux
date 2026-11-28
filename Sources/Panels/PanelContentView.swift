@@ -183,6 +183,7 @@ struct PanelContentView: View {
                 ProjectPanelView(
                     panel: projectPanel,
                     isFocused: isFocused,
+                    isSelectedInPane: isSelectedInPane,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

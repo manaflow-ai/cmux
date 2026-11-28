@@ -74,7 +74,7 @@ struct SidebarAccessibilityTreeTests {
         // An in-process accessibility test has no external assistive client
         // to enable SwiftUI's accessibility output for this hosted hierarchy.
         let projectView = NSHostingView(rootView: ProjectPanelView(
-            panel: panel, isFocused: false, onRequestPanelFocus: {}
+            panel: panel, isFocused: false, isSelectedInPane: true, onRequestPanelFocus: {}
         ).environment(\.accessibilityEnabled, true))
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 820, height: 300))
         container.frame = NSRect(x: 0, y: 0, width: 360, height: 300)
