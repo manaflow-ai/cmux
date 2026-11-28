@@ -20,7 +20,8 @@ import type { QueuedMessageActionsValue } from "../conversation/QueuedMessageCar
 import type { RetryModel } from "../conversation/retryModelSections";
 import { withoutQuietThoughts } from "../conversation/thoughts";
 import { oneRecap } from "../conversation/oneRecap";
-import { splitSilentTurns } from "../conversation/silentTurns";
+import { splitSilentTurnsFull } from "../conversation/silentTurns";
+import { commandSaid } from "../conversation/commandActions";
 import {
   answerThrough,
   CHAT_CHANGED,
@@ -43,7 +44,7 @@ import { retryFailedPrompt, sendUntilTaken } from "../conversation/turnRetry";
 import { NO_MESSAGE_BREAKS, trayWaitAgents, turnViewFrom, type TurnView } from "../conversation/turns";
 import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxDirectClient, WarmedChat } from "../direct";
-import { translate } from "../i18n";
+import { currentTranslator, translate } from "../i18n";
 import { sessionLink } from "../links";
 import { GITHUB_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -194,7 +195,9 @@ export function shapeAhead(
   if (pastTurns.has(warmed.sessionId)) return;
   // App.tsx `allSourceRows` and `sourceRows` of a chat that is not working.
   const all = withoutQuietThoughts(oneRecap([...warmed.rows]), false);
-  const source = splitSilent ? splitSilentTurns(all, false).rows : all;
+  // The full split: `splitSilentTurns` keeps its last split for the shown chat's next snapshot, and
+  // a split of this chat would put it out.
+  const source = splitSilent ? splitSilentTurnsFull(all, false).rows : all;
   // `turnRowsShownFrom`: no chat it started is known before it shows, so none is drawn here.
   const rows = withSubagentLines(source, doneLines, workflowLabsEnabled);
   const turns = turnViewFrom(rows, expanded, {
@@ -205,8 +208,25 @@ export function shapeAhead(
   });
   const subagents = subagentRowsFrom(projectInboxRows(turns.rows, undefined, turns.reusedRows), expanded);
   pastTurns.set(warmed.sessionId, { sessionId: warmed.sessionId, turns, subagents });
+  readRunningCommands(warmed.rows);
   // ends: each pass deletes the oldest key, so the map shrinks to PAST_TURNS_KEPT
   while (pastTurns.size > PAST_TURNS_KEPT) pastTurns.delete(pastTurns.keys().next().value!);
+}
+
+/// A chat folded ahead is shaped as it rests, so the live line of a turn it still runs is first read
+/// on the switch: its running command's words (commandActions.ts `runningCommandSaid`, a shell parse
+/// and a rule match, ~1.3 ms the first time on a page; settled-page bench, chat_switch stream). Each
+/// command still running in its last turn is read here, which keeps its words for the switch. Not by
+/// shaping the turn as running: the running turn's shape is kept for the shown chat alone
+/// (turns.ts `liveTurnShapes`).
+function readRunningCommands(rows: readonly AcpmuxRow[]): void {
+  const t = currentTranslator();
+  // ends: `at` falls by one each pass and stops at the last prompt or below 0
+  for (let at = rows.length - 1; at >= 0 && rows[at]!.kind !== "user"; at -= 1)
+    for (const item of rows[at]!.items ?? []) {
+      const tool = item.tool;
+      if (tool?.kind === "execute" && (tool.status === "pending" || tool.status === "in_progress")) commandSaid(t, tool);
+    }
 }
 
 /// The transcript's rows as AcpmuxPane draws them (its `turnRowsShown` memo's body).
