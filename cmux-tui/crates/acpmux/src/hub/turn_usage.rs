@@ -76,8 +76,10 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> (Map<String, Valu
     }
     let calls;
     let context;
+    let mut call_rebuilds = None;
     let turn = if let Some(claude) = result.pointer("/_meta/claude") {
         context = claude.get("contextTokens").and_then(Value::as_u64);
+        call_rebuilds = claude.get("cacheRebuild").cloned();
         calls = claude.get("modelCalls").and_then(Value::as_u64);
         let mut turn = claude_tokens(claude);
         let running = claude.get("cost_usd").and_then(Value::as_f64);
@@ -140,6 +142,10 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> (Map<String, Valu
     }
     if let Some(calls) = calls.filter(|c| *c > 0) {
         fields.insert("modelCalls".into(), json!(calls));
+    }
+    // Each call's cache rebuilds, for `cache_rebuild.rs`, which takes the field off again.
+    if let Some(rebuilds) = call_rebuilds {
+        fields.insert(super::cache_rebuild::CALLS_FIELD.into(), rebuilds);
     }
     (fields, budget)
 }

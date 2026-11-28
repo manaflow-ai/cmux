@@ -988,6 +988,8 @@ impl Translator {
                 // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
                 // alarm is off (`hub/cache_alarm.rs`).
                 let cache_misses = self.cache.take_turn_misses().to_json();
+                // Its calls' cache rebuilds (`hub/cache_rebuild.rs`).
+                let cache_rebuilds = self.cache.take_turn_rebuilds();
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -1012,6 +1014,7 @@ impl Translator {
                     }
                     if calls > 0 {
                         claude.set("modelCalls", json!(calls));
+                        claude.set("cacheRebuild", cache_rebuilds.to_json());
                     }
                     if let Some(next) = &carried {
                         claude.set("carried", next.clone());
