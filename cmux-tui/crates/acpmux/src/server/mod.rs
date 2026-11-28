@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -30,6 +30,7 @@ pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
 // One module per line, in alphabetical order (with its attributes above it), so two pull
 // requests that each add a module touch different lines and merge without a conflict.
+mod abi_down;
 mod account_sign_in;
 mod accounts;
 #[cfg(test)]
@@ -178,6 +179,7 @@ mod outbound;
 mod outbound_queue_tests;
 pub(crate) mod outbox;
 mod pairing;
+mod parked_waits;
 mod paused_files;
 pub mod peer_auth;
 mod peer_demand_wait;
@@ -198,6 +200,7 @@ mod processes;
 mod project_new;
 mod prompt_cancel;
 mod prompt_coach;
+mod pull_request_actions;
 pub(crate) mod queue_gauge;
 mod races;
 #[cfg(all(test, target_os = "linux"))]
@@ -519,6 +522,9 @@ pub struct Conn {
     /// The features its `initialize` listed (`client_features.rs`): a gated notification goes
     /// to it only once it listed the gate.
     client_features: client_features::ClientFeatures,
+    /// The ABI revision its hello named when older than this build's and covered by the compat
+    /// file (`abi_compat.rs`), else 0: its events and replies are written down to it.
+    abi_down: AtomicU32,
     /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
     chunk_deltas: chunk_deltas::ChunkDeltas,
     /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
@@ -1048,6 +1054,10 @@ impl Conn {
         if crate::perf_watch::on() {
             self.perf_bytes(|| crate::rpc::method::SESSION_UPDATE.to_owned(), line.len());
         }
+        if let Some(line) = self.written_down_line(line) {
+            self.out.push(line);
+            return;
+        }
         self.out.push(line.to_owned());
     }
 
@@ -1102,6 +1112,8 @@ impl Conn {
         let base = redacted.as_ref().unwrap_or(msg);
         let masked = (!self.raw_text).then(|| peer_text::masked(base)).flatten();
         let msg = masked.as_ref().unwrap_or(base);
+        let down = self.written_down(msg, reply_to);
+        let msg = down.as_ref().unwrap_or(msg);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
@@ -1166,6 +1178,7 @@ impl Conn {
         claim: Option<&in_flight::Claim>,
         result: Arc<String>,
     ) -> bool {
+        let result = self.written_down_result(method, result);
         // A result past the cap alone is refused before its line is made: no copy of it.
         let (line, bytes, whole) = if result.len() > crate::rpc::MAX_MESSAGE_BYTES {
             let error = Message::err(id.clone(), RpcError::too_large(result.len())).to_line();
@@ -1218,6 +1231,8 @@ impl Conn {
         self.raise_gate();
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
+        let down = self.written_down(msg, None);
+        let msg = down.as_ref().unwrap_or(msg);
         let line = msg.bounded_line().map_err(RpcError::too_large)?;
         if self.out.is_closed() || !self.out.push(line) {
             return Err(RpcError::internal("the connection that would answer ended"));

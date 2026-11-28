@@ -228,6 +228,7 @@ mod loop_goal;
 mod loop_goal_tests;
 pub mod mac_approvers;
 mod machine_info;
+mod match_cap;
 mod mcp_connect;
 pub(crate) mod mcp_probe;
 pub mod media_handles;
@@ -318,8 +319,11 @@ mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
 mod move_interrupts;
+pub(crate) mod plan_first;
 pub(crate) mod prefetch;
 pub mod presence;
+/// `presence.live` followed into the presence table (RFD 0141 Live opt-in, off by default).
+pub(crate) mod presence_setting;
 mod processes;
 mod profile_respawn;
 #[cfg(test)]
@@ -355,6 +359,7 @@ mod remote_cwd;
 mod remote_floor;
 mod remote_rows;
 pub(crate) mod remote_sandbox;
+mod remote_start_bound;
 mod remote_table;
 #[cfg(test)]
 mod remote_table_bench;
@@ -495,6 +500,7 @@ pub(crate) mod turn_cap;
 mod turn_checkpoint;
 pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
+pub(crate) mod turn_frames_native;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
@@ -670,36 +676,8 @@ pub(crate) use start_gate::host_label;
 pub use subsession_send::Delivery;
 pub use vm_boundary::vm_boundary_peer_approves;
 
-/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
-/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
-pub const MAX_MATCH_BYTES: usize = 2 * 1024;
-
-/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
-/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
-/// bound.
-pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
-    match pattern {
-        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
-            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
-        ))),
-        _ => Ok(()),
-    }
-}
-
-/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
-/// it was cut.
-pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
-    let Some(p) = pattern else { return false };
-    if p.len() <= MAX_MATCH_BYTES {
-        return false;
-    }
-    let mut end = MAX_MATCH_BYTES;
-    while !p.is_char_boundary(end) {
-        end -= 1;
-    }
-    p.truncate(end);
-    true
-}
+pub(crate) use match_cap::cap_match;
+pub use match_cap::{MAX_MATCH_BYTES, validate_match};
 
 impl Hub {
     /// Run durable watches: the loop that reconciles them on hub events and the
@@ -1220,6 +1198,10 @@ pub struct Hub {
     pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
+    /// Whether the configured retry loop is disabled (`autoResumeDelaysMs: []`).
+    /// Kept as a snapshot so synchronous idle eligibility never observes a contended,
+    /// partially updated config lock.
+    pub(super) auto_resume_disabled: AtomicBool,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
@@ -1561,6 +1543,8 @@ pub struct Hub {
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
     pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
+    /// Tool calls whose wait is handed to the platform (`parked_wait.rs`).
+    pub parked: crate::parked_wait::Parked,
     /// Paused machines' replicas and write journals, when `writeJournal.enabled` (`paused_fs.rs`).
     pub(super) paused_fs: Option<Arc<crate::write_journal::paused::PausedFs>>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
@@ -1924,6 +1908,7 @@ impl Hub {
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
+        let usage_stats = usage_view::UsageCache::saved_in(store.usage_tracker_dir());
         let page_rule_sessions =
             StdMutex::new(inbox::page_rule::session_names(config.page_rule.as_ref()));
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -1931,9 +1916,12 @@ impl Hub {
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
+        let auto_resume_disabled =
+            config.auto_resume_delays_ms.as_deref().is_some_and(<[_]>::is_empty);
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
+            auto_resume_disabled: AtomicBool::new(auto_resume_disabled),
             usage_limits,
             page_rule_sessions,
             wireguard,
@@ -1979,7 +1967,7 @@ impl Hub {
             op_once: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
-            usage_stats: Default::default(),
+            usage_stats,
             usage_answers: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
@@ -2095,6 +2083,7 @@ impl Hub {
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
             person_prompts: tokio::sync::watch::channel(0).0,
+            parked: crate::parked_wait::Parked::default(),
             paused_fs,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
@@ -2379,70 +2368,6 @@ impl Hub {
         &self.mailbox
     }
 
-    pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        // A bounded debug seam for slow-filesystem startup tests; absent in release builds.
-        #[cfg(debug_assertions)]
-        if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_STORE_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-        {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(10_000)));
-        }
-        let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
-        else {
-            // Adoption still reaches every host this list hid: an off push waits for it
-            // (`full_access_turned_off`).
-            if deferred {
-                self.adoption_ready.send_replace(false);
-            }
-            return;
-        };
-        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store listed");
-        // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
-        let read = Self::read_live_host_sessions();
-        // Records that can not be read may hide a host whose lines adoption holds again: an off
-        // push waits for adoption then too (`full_access_turned_off`).
-        let unknown = read.is_none();
-        let hosted = read.unwrap_or_default();
-        let waiting =
-            metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
-        if deferred && (!hosted.is_empty() || unknown) {
-            self.adoption_ready.send_replace(false);
-        }
-        {
-            let mut plan = self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            plan.listed = true;
-            plan.waiting.extend(waiting);
-            plan.adopting.extend(hosted.iter().cloned());
-            plan.hosted.extend(hosted.iter().cloned());
-        }
-        // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
-        let unsaved = self.settle_legacy_grants(&mut metas);
-        // A deleted chat stays out of the map through its grace (`soft_delete.rs`).
-        self.hold_deleted(&mut metas);
-        self.store_load.total.store(metas.len(), Ordering::SeqCst);
-        // A first start with no ledger file: each session's running totals (`hub/ledger`).
-        if self.ledger.wants_seed() {
-            // Forks' own turns are read first, so the ledger's lock waits on no log read.
-            let seeds: Vec<_> =
-                metas.iter().map(|m| ledger::Seed::of(m, self.fork_own_turns(m))).collect();
-            self.ledger.seed(seeds);
-        }
-        for meta in metas {
-            let hosted = hosted.contains(&meta.id);
-            let saved = !unsaved.contains(&meta.id);
-            self.install_stored_session(meta, deferred, hosted, saved);
-        }
-        tracing::info!(
-            "loaded {} sessions from store",
-            self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
-        );
-        if deferred {
-            self.logs_ready.send_replace(false);
-        }
-        self.resume_races();
-    }
-
     pub(super) fn install_stored_session(
         &self,
         meta: SessionMeta,
@@ -2650,10 +2575,10 @@ impl Hub {
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
-        // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
+        // Unstarted, an adopted chat goes by its saved `agentInfo`.
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
-        // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
-        // policy change refuses it as while it moved (`queue::moving_error`).
+        // A chat that moved away stays frozen after a restart: prompts, queue, drafts and
+        // policy changes refuse as while it moved (`queue::moving_error`).
         let moving =
             meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned()).or_else(|| {
                 // A saved Auto chat is frozen from the moment it exists: the store, not this copy,
@@ -2664,10 +2589,10 @@ impl Hub {
                     .filter(|record| record.auto)
                     .map(|_| AUTO_AWAY.to_owned())
             });
-        // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
+        // Its creator may have its starts wait on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
         let parent_print = views::parent_print_of(&meta);
-        // A fork whose agent had not started before a restart starts as the first daemon's would.
+        // A fork not started at a restart starts as the first daemon would.
         let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
         let session = Arc::new(Session {
             id: meta.id.clone(),
@@ -2677,10 +2602,10 @@ impl Hub {
             book_opened: Arc::default(),
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
-            spawn_lock: Mutex::new(()),
+            spawn_lock: Arc::new(Mutex::new(())),
             fork_lock: Mutex::new(()),
             close_lock: Mutex::new(()),
-            harness_use: RwLock::new(()),
+            harness_use: Arc::new(RwLock::new(())),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: Default::default(),
             time_breakdown: StdMutex::new(Default::default()),
@@ -2765,6 +2690,7 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
             respawn_when_quiet: AtomicBool::new(false),
+            respawn_required: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
             inbound: std::sync::OnceLock::new(),
@@ -2801,6 +2727,7 @@ impl Hub {
             stopped_agent: AtomicU64::new(0),
             stop_respawn: AtomicU64::new(0),
             taps: AtomicU64::new(0),
+            raw_line_tap: AtomicU64::new(0),
             muted_taps: AtomicU64::new(0),
             stop_hold: AtomicU64::new(0),
             turn_hold: AtomicU64::new(0),
