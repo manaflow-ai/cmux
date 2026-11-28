@@ -19,6 +19,15 @@
 //! file's inode, which the listing gives without a `stat`; every other record is read again.
 //! A folder changed within [`RACY`] of its look may change again within the same modify-time
 //! tick, so that look is not reused (git's racy-index rule).
+//!
+//! A running task's liveness (its runner's lock, `bg_tasks::bg_gone`) is kept on its record's
+//! look too ([`BgTask::gone`]): every count and list of every chat opened and probed each running
+//! task's lock, about 1,000 lock probes a second on Leo's dev Mac (cmux#62401: `bg_gone` ->
+//! `liveness_of` 541 of 8,879 on-CPU samples, 492 opening files). A runner takes its lock before
+//! it writes its first record and holds it for its whole life, and a task id is never started
+//! again, so a lock found free stays free: kept for good. A lock found held is looked at again
+//! after [`LIVE_FOR`]. A runner that ends well rewrites its record, which a look reads afresh;
+//! only a runner that died without a word is seen by its lock, at most [`LIVE_FOR`] late.
 
 use super::*;
 use crate::bg_run::{self, Record};
@@ -30,6 +39,9 @@ use std::sync::OnceLock;
 /// listed again next time.
 const RACY: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// How long a running task's held lock is taken as held before it is probed again.
+pub(super) const LIVE_FOR: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// One task's record as the folder's last look found it.
 pub(super) struct BgTask {
     /// The record file's inode (0 where the platform gives none: always read again).
@@ -37,6 +49,42 @@ pub(super) struct BgTask {
     pub(super) record: Record,
     /// Its list view (`bg_view` with [`LIST_TAIL`](super::bg_tasks)), made once the task ended.
     view: OnceLock<Value>,
+    /// Its runner's lock was found free: the runner is gone for good.
+    gone: std::sync::atomic::AtomicBool,
+    /// When its runner's lock was last found held.
+    held_at: StdMutex<Option<std::time::Instant>>,
+}
+
+impl BgTask {
+    fn new(ino: u64, record: Record) -> Self {
+        Self {
+            ino,
+            record,
+            view: OnceLock::new(),
+            gone: std::sync::atomic::AtomicBool::new(false),
+            held_at: StdMutex::new(None),
+        }
+    }
+
+    /// Whether the task's runner is surely gone (`bg_tasks::bg_gone`), probing its lock at most
+    /// once per [`LIVE_FOR`] while it is held and never again once it is free.
+    pub(super) fn gone(&self, dir: &Path) -> bool {
+        use std::sync::atomic::Ordering;
+        if self.gone.load(Ordering::Relaxed) {
+            return true;
+        }
+        let mut held_at = self.held_at.lock().unwrap_or_else(|e| e.into_inner());
+        if held_at.is_some_and(|at| at.elapsed() < LIVE_FOR) {
+            return false;
+        }
+        let gone = super::bg_tasks::bg_gone(dir, &self.record.id);
+        if gone {
+            self.gone.store(true, Ordering::Relaxed);
+        } else {
+            *held_at = Some(std::time::Instant::now());
+        }
+        gone
+    }
 }
 
 /// A chat's task folder at one look.
@@ -61,8 +109,15 @@ impl BgFolder {
     /// The task's list view: kept once it ended (its record and output never change again),
     /// made afresh while it runs or was lost.
     pub(super) fn view(&self, dir: &Path, task: &BgTask, tail: u64) -> Value {
-        let make =
-            || super::bg_tasks::bg_view_at(dir, &task.record, tail, self.segments(&task.record.id));
+        let make = || {
+            super::bg_tasks::bg_view_with(
+                dir,
+                &task.record,
+                tail,
+                self.segments(&task.record.id),
+                || task.gone(dir),
+            )
+        };
         if task.record.ended_at.is_none() || tail != super::bg_tasks::LIST_TAIL {
             return make();
         }
@@ -117,7 +172,7 @@ fn scan(dir: &Path, prev: Option<&BgFolder>) -> BgFolder {
             let task = match kept {
                 Some(task) => task.clone(),
                 None => match bg_run::read_record(dir, id) {
-                    Some(record) => Arc::new(BgTask { ino, record, view: OnceLock::new() }),
+                    Some(record) => Arc::new(BgTask::new(ino, record)),
                     None => continue,
                 },
             };
