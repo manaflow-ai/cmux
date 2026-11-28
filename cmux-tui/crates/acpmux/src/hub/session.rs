@@ -431,6 +431,9 @@ pub struct Session {
     pub(super) stop_respawn: AtomicU64,
     /// How many taps `Hub::session_tap` made for it; each tap knows its number.
     pub(super) taps: AtomicU64,
+    /// The number of the last tap that logged a line the agent wrote (a `claude.*` line):
+    /// a sandboxed agent that writes none fails its start (`remote_start_bound.rs`).
+    pub(super) raw_line_tap: AtomicU64,
     /// Taps numbered up to this one belong to an agent a Stop ended (`cancel.rs`): what they
     /// still log is no sign of work (no `heard`, no unstick, no tool state).
     pub(super) muted_taps: AtomicU64,
@@ -590,6 +593,9 @@ pub struct Session {
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
     pub(super) hibernated_at: AtomicU64,
+    /// Its recent gaps between turns, which `adaptive-v1` picks its idle period from
+    /// (`residency.rs`).
+    pub(super) idle_rhythm: StdMutex<super::residency::Rhythm>,
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,
@@ -680,6 +686,17 @@ impl<T: Default> std::ops::Deref for OnFirstUse<T> {
 }
 
 impl Session {
+    /// The pid whose process tree is this chat's agent (`_acpmux/session_resources`): its host's,
+    /// which runs the harness and what it starts, or the agent this daemon runs as its own child.
+    /// `Some(None)`: no agent runs (a new or hibernated chat); `None`: a start or stop held the
+    /// slot past `wait`.
+    pub(crate) async fn agent_root_pid(&self, wait: std::time::Duration) -> Option<Option<u32>> {
+        let slot = tokio::time::timeout(wait, self.child.lock()).await.ok()?;
+        let child = (*slot).clone();
+        drop(slot);
+        Some(child.and_then(|c| c.host_record().map(|r| r.host_pid).or(c.pid)))
+    }
+
     /// The chat's inbound channel, made now when this is its first use.
     pub(super) fn inbound_channel(&self) -> &InboundChannel {
         self.inbound.get_or_init(|| {

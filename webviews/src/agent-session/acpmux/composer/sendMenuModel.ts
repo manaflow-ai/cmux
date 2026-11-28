@@ -2,7 +2,8 @@
 // way from the prompt. The keys are the Return forms the app leaves to a focused composer
 // (KeyBindingDefaults.textInputKeys, exported as the action catalog's `text_input_keys`: "Return
 // sends and its Command, Shift and Option forms steer, add a line or send another way"), so no
-// app binding takes them from the prompt. Shift-Return adds a line; the other three are these.
+// app binding takes them from the prompt. Shift-Return and Option-Return add a line.
+// Sending in a side chat is a menu action, with no Return shortcut.
 // The menu draws its keys from this table and the composer's key handler reads the same table,
 // so a key drawn on a row is the key that runs it.
 
@@ -26,10 +27,10 @@ export type SendKey = {
   aria: string;
 };
 
-export const SEND_KEYS: Record<SendChoice, SendKey> = {
+export const SEND_KEYS: Record<SendChoice, SendKey | undefined> = {
   send: { meta: false, alt: false, glyphs: ["↩"], aria: "Enter" },
   queue: { meta: true, alt: false, glyphs: ["⌘", "↩"], aria: "Meta+Enter" },
-  side: { meta: false, alt: true, glyphs: ["⌥", "↩"], aria: "Alt+Enter" },
+  side: undefined,
 };
 
 /** The row's name, in the pane's strings. */
@@ -46,7 +47,7 @@ export const SEND_ICONS: Record<SendChoice, string> = {
   side: FORK_ICON,
 };
 
-/** The way a Return key press sends, or undefined for any other key (Shift-Return adds a line). */
+/** The way a Return key press sends, or undefined for any other key (Shift/Option-Return add a line). */
 export function sendChoiceForKey(event: {
   key: string;
   metaKey: boolean;
@@ -55,9 +56,10 @@ export function sendChoiceForKey(event: {
   ctrlKey: boolean;
 }): SendChoice | undefined {
   if (event.key !== "Enter" || event.shiftKey || event.ctrlKey) return undefined;
-  return (Object.keys(SEND_KEYS) as SendChoice[]).find(
-    (choice) => SEND_KEYS[choice].meta === event.metaKey && SEND_KEYS[choice].alt === event.altKey,
-  );
+  return (Object.keys(SEND_KEYS) as SendChoice[]).find((choice) => {
+    const key = SEND_KEYS[choice];
+    return key !== undefined && key.meta === event.metaKey && key.alt === event.altKey;
+  });
 }
 
 /**
