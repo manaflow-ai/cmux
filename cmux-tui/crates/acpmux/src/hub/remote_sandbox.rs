@@ -460,6 +460,7 @@ fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
 #[cfg(target_os = "linux")]
 mod accounts;
 #[path = "remote_sandbox_sr2.rs"]
+// fleet-only-ok: acts only when a remote chain's profile runs the sr2 launcher, which hangs in the sandbox; every other profile is unchanged
 mod sr2;
 
 /// Ok when no one but `uid` can write `path` or any folder above it up to
@@ -1381,7 +1382,9 @@ impl Hub {
             let (program, args, routed) =
                 subrouter_plan(profile, plan.args, claude, route).map_err(refused)?;
             (crate::claude_stdio::SpawnPlan { program, args }, routed)
+        // fleet-only-ok: acts only when a remote chain's profile runs the sr2 launcher, which hangs in the sandbox; every other profile is unchanged
         } else if sr2::is_sr2(&profile.argv) {
+            // fleet-only-ok: acts only when a remote chain's profile runs the sr2 launcher, which hangs in the sandbox; every other profile is unchanged
             // sr2 blocks before its main in the sandbox (`remote_sandbox_sr2.rs`).
             let claude = self
                 .config
@@ -1391,7 +1394,9 @@ impl Hub {
                 .get("claude")
                 .filter(|c| c.kind == crate::config::HarnessKind::ClaudeStdio)
                 .and_then(|c| c.argv.first().cloned());
+            // fleet-only-ok: acts only when a remote chain's profile runs the sr2 launcher, which hangs in the sandbox; every other profile is unchanged
             let route = sr2::route(profile);
+            // fleet-only-ok: acts only when a remote chain's profile runs the sr2 launcher, which hangs in the sandbox; every other profile is unchanged
             let (program, args, routed) = sr2::sr2_plan(profile, plan.args, claude, route)
                 .map_err(|why| {
                     self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
@@ -1401,6 +1406,7 @@ impl Hub {
                 session,
                 "mux",
                 "remote_sandbox",
+                // fleet-only-ok: acts only when a remote chain's profile runs the sr2 launcher, which hangs in the sandbox; every other profile is unchanged
                 json!({"sr2": "claude on the sr2 gateway", "program": program}),
             );
             (crate::claude_stdio::SpawnPlan { program, args }, routed)
