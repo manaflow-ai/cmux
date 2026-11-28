@@ -30,10 +30,20 @@ const sent: Record<string, Record<string, unknown>> = {
     undefined,
     undefined,
     false,
+    undefined,
     true,
   ),
   "no project": newSessionParams({}, "claude", true),
   "peer, model": newSessionParams({ peer: "devbox" }, "codex", false, "gpt-5.5"),
+  "Cloud peer, registry": newSessionParams(
+    { peer: "cloud-builder" },
+    "claude",
+    false,
+    undefined,
+    undefined,
+    false,
+    "registry-builder",
+  ),
   adopt: newSessionParams({ adopt }),
 };
 

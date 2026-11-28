@@ -77,8 +77,9 @@ commonName = supplied
 
 
 def build_client(directory, output, diagnostics):
-    """Build the probe with the app's locked revision and reject resolver drift."""
-    lockfile = ROOT / "Packages/Shared/CmuxIrohTransport/Package.resolved"
+    """Build the probe with the locked iroh-ffi revision and reject resolver drift."""
+    # The probe's own lock: CmuxIrohTransport, whose lock this was, had no consumer and was deleted.
+    lockfile = Path(__file__).with_name("Package.resolved")
     pins = json.loads(lockfile.read_text())["pins"]
     pin = next(pin for pin in pins if pin["identity"] == "iroh-ffi")
     (directory / "Package.swift").write_text(f'''// swift-tools-version: 6.0
@@ -102,7 +103,7 @@ let package = Package(name: "RelayTLSClient", platforms: [.macOS(.v14)],
     resolved = json.loads((directory / "Package.resolved").read_text())["pins"]
     actual = next(value for value in resolved if value["identity"] == "iroh-ffi")
     if actual["state"] != pin["state"] or actual["location"] != pin["location"]:
-        raise RuntimeError("Test framework resolution drifted from the app's lockfile")
+        raise RuntimeError("Test framework resolution drifted from tests/relay_tls/Package.resolved")
     return directory / ".build/debug/RelayTLSClient", pin
 
 

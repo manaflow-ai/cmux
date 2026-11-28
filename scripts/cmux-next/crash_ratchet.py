@@ -157,8 +157,8 @@ RENDER_FONT = re.compile(
     r"|(?<![\w.])\.(?:systemFont|boldSystemFont|monospacedSystemFont|monospacedDigitSystemFont)\(ofSize")
 STATIC_LET = re.compile(r"\bstatic\s+let\b")
 # Modules that decode external input or draw on background threads (Lawrence, 2026-10-09).
-INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMUXMobileCore", "CmuxIrxTransport",
-                 "CmuxIrohTransport", "CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile", "CmuxTerminalSizing"}
+INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMUXMobileCore",
+                 "CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile", "CmuxTerminalSizing"}
 INDEX_SUBSCRIPT = re.compile(r"(?<![\w.])(?:[a-z_]\w*|self)(?:\.\w+)*(?:\(\))?\[([^\[\]]+)\]")
 OPTIONAL_BINDING = re.compile(r"\b(?:if|guard|while)\s+(?:let|var)\b|,\s*let\s+\w+\s*=")
 INT_CONVERSION = re.compile(

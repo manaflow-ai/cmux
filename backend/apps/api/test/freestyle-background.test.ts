@@ -41,12 +41,13 @@ const env = {
   CHIEF_CC_FREESTYLE_API_URL: "https://freestyle.test"
 } as unknown as Env
 
-const before = backgroundPoll.ms
+const before = { ...backgroundPoll }
 beforeEach(() => {
   backgroundPoll.ms = 1
+  backgroundPoll.outageMs = 200
 })
 afterEach(() => {
-  backgroundPoll.ms = before
+  Object.assign(backgroundPoll, before)
   seen.length = 0
   polls = 0
   vi.restoreAllMocks()
@@ -94,14 +95,32 @@ describe("settleBackground", () => {
     expect(await settleBackground(ok, "https://freestyle.test", {}, Date.now() + 60_000)).toEqual({ res: ok, polled: false })
   })
 
-  it("gives up after five failed polls in a row, and on a 202 that names no request", async () => {
+  it("waits out a provider overload past the deadline: the stored answer comes once polls answer again", async () => {
+    // Rebake 45960390204 (2026-11-27): Freestyle answered 503 to every poll for 9 min while the command ran on.
+    backgroundPoll.outageMs = 5_000
+    let n = 0
+    const overloaded: typeof fetch = async () => (++n <= 9 ? new Response("busy", { status: 503 }) : Response.json({ statusCode: 0 }, { headers: { "x-freestyle-background-request-id": "bg-9" } }))
+    const got = await settleBackground(accepted(), "https://freestyle.test", {}, Date.now() + 5, overloaded)
+    expect(got.polled).toBe(true)
+    expect(got.res.status).toBe(200)
+    expect(n).toBe(10)
+  })
+
+  it("an outage longer than the window is lost as an outage; a deadline with the provider answering is lost as a deadline", async () => {
     let n = 0
     const down: typeof fetch = async () => (n++, new Response("busy", { status: 503 }))
-    await expect(settleBackground(accepted(), "https://freestyle.test", {}, Date.now() + 60_000, down)).rejects.toBeInstanceOf(BackgroundLost)
-    expect(n).toBe(5)
+    const outage = await settleBackground(accepted(), "https://freestyle.test", {}, Date.now() + 5, down).catch((e: unknown) => e)
+    expect(outage).toBeInstanceOf(BackgroundLost)
+    expect((outage as BackgroundLost).outage).toBe(true)
+    expect(n).toBeGreaterThan(5)
+    const pending: typeof fetch = async () => Response.json({ status: "pending" }, { status: 202 })
+    const late = await settleBackground(accepted(), "https://freestyle.test", {}, Date.now() + 20, pending).catch((e: unknown) => e)
+    expect(late).toBeInstanceOf(BackgroundLost)
+    expect((late as BackgroundLost).outage).toBe(false)
     const bad = Response.json({ requestId: "../x" }, { status: 202 })
+    n = 0
     await expect(settleBackground(bad, "https://freestyle.test", {}, Date.now() + 60_000, down)).rejects.toBeInstanceOf(BackgroundLost)
-    expect(n).toBe(5)
+    expect(n).toBe(0)
   })
 
   it("reads the id from the header, and polls with the given credential only", async () => {

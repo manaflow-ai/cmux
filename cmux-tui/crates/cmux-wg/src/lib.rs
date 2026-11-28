@@ -69,7 +69,10 @@ mod watchdog;
 mod wire;
 
 pub use cmux_transport::{Medium, PathId, PathKind, PathState, SelectorConfig};
-pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
+pub use config::{
+    ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, OVERHEAD_V4, OVERHEAD_V6,
+    SMALLEST_CLOUD_PATH_MTU, WgConfig, inner_mtu_for_path,
+};
 pub use ip_network::IpNetwork;
 pub use mesh::{WgMesh, WgMeshConfig, WgMeshListener, WgPeer};
 pub use mesh_paths::{MeshPathView, PeerCandidate};
@@ -80,7 +83,7 @@ pub use pacing::Priority;
 pub use probe_schedule::{PathWatch, ProbeConfig, WatchStep};
 pub use single_path::MIN_SEND_BUFFER;
 pub use stream::WgStream;
-pub use tcp_stack::STREAM_WINDOW_ENV;
+pub use tcp_stack::{STREAM_WINDOW_ENV, SYN_DATA_ENV};
 pub use timers::TimerSchedule;
 pub use ultra::{UltraMode, UltraStats, is_parity as is_ultra_parity};
 pub use ultra_auto::UltraChoice;

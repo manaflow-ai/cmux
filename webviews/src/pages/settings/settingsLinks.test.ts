@@ -98,7 +98,10 @@ test("an unknown id is named, never a silent General", () => {
 });
 
 test("existing links keep landing where they did", () => {
-  expect(resolveSettingsLink("cloud", "cloud.claude")).toMatchObject({ section: "cloud", focus: "cloud.claude" });
+  expect(resolveSettingsLink("cloud", "cloud.claude")).toMatchObject({
+    section: "cloud",
+    focus: "cloudModels.add.claude",
+  });
   expect(resolveSettingsLink("machines", undefined)).toMatchObject({ section: "accounts", card: "machines" });
   expect(resolveSettingsLink("models", "models.add")).toMatchObject({
     section: "models",
