@@ -848,7 +848,7 @@ fn a_peer_row_says_when_it_cannot_be_reached() {
     assert!(c.unreachable.unwrap().contains("scp: Connection closed"));
 }
 
-/// fs-agent-lane-33, 2026-11-28: room for 6 by its reading, but it refused every start. A
+/// A lane host, 2026-11-28: room for 6 by its reading, but it refused every start. A
 /// refused start passes it over for the next pick; the other host takes the work.
 #[test]
 fn a_host_that_refused_a_start_takes_no_pick_while_another_has_room() {

@@ -25,7 +25,7 @@ fn cloud_peer_uses_a_durable_chat_folder() {
     let _ = std::fs::remove_dir_all(home);
 }
 
-/// fs-agent-lane-33, 2026-11-28: `~/chats` was this user's folder at mode 775, and every start
+/// A lane host, 2026-11-28: `~/chats` was this user's folder at mode 775, and every start
 /// with no folder was refused as "/home/cmux/chats is not a directory". acpmux makes its own
 /// folder private and goes on; a fault it does not repair says what it is, as the host's fault.
 #[cfg(unix)]

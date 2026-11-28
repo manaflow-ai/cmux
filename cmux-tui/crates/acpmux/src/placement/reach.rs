@@ -12,7 +12,7 @@
 //!   home, at most [`MAX_HOSTS`] hosts, read at each placement. The cooldown matches fleet-relay's
 //!   dead-route memory: one failure keeps the host off for ten minutes, then it is tried again.
 //! - a session start placed there was refused by the host within [`COOLDOWN_MS`]
-//!   ([`refused_start`]): on 2026-11-28 fs-agent-lane-33 refused every start ("the Cloud chat
+//!   ([`refused_start`]): on 2026-11-28 a lane host refused every start ("the Cloud chat
 //!   folder could not be made"), and `machine pick`, which still saw room for 6, sent every start
 //!   there. `server/requests.rs` `new_on_peer` records the refusal in the same file, and a later
 //!   start there that works (a `--machine HOST` start still goes there) forgets it.
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(Failures::parse(b"not json"), Failures::default());
     }
 
-    /// fs-agent-lane-33, 2026-11-28: its chat folder refused every start while `machine pick`
+    /// A lane host, 2026-11-28: its chat folder refused every start while `machine pick`
     /// saw room for 6 and kept sending starts there.
     #[test]
     fn a_refused_start_keeps_the_host_out_of_the_pick_until_a_start_works_or_the_cooldown_ends() {
@@ -285,16 +285,16 @@ mod tests {
         let why = refused_start(&refused).unwrap();
         assert!(why.starts_with("session_new.invalid_params: the Cloud chat folder"), "{why}");
         let mut f = Failures::default();
-        f.record_refused("Lane-33", &why, 1_000);
-        let said = f.failure("lane-33", 61_000).unwrap();
+        f.record_refused("Lane-Host", &why, 1_000);
+        let said = f.failure("lane-host", 61_000).unwrap();
         assert!(said.starts_with("start refused: session_new.invalid_params"), "{said}");
         assert!(said.contains("60s ago; tried again in 9 min"), "{said}");
         assert_eq!(Failures::parse(&f.to_bytes()), f, "the kind survives the file");
         // The bounded mark ends by itself.
-        assert_eq!(f.failure("lane-33", 1_000 + COOLDOWN_MS), None);
+        assert_eq!(f.failure("lane-host", 1_000 + COOLDOWN_MS), None);
         // A start there that worked forgets it at once.
-        assert!(f.has("lane-33") && f.clear("lane-33"));
-        assert_eq!(f.failure("lane-33", 2_000), None);
+        assert!(f.has("lane-host") && f.clear("lane-host"));
+        assert_eq!(f.failure("lane-host", 2_000), None);
     }
 
     #[test]
