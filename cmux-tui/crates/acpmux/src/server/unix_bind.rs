@@ -131,6 +131,23 @@ pub(super) fn tighten_socket_dir(dir: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// The uid of a unix socket's peer from `getpeereid` alone: what the peer check needs when the
+/// fuller credential read (uid and pid together) fails on the pid. `None` when even that fails.
+/// Linux reads uid and pid in one SO_PEERCRED answer, so there is nothing to fall back to.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))))]
+pub(crate) fn peer_uid(_fd: std::os::fd::RawFd) -> Option<u32> {
+    None
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+pub(crate) fn peer_uid(fd: std::os::fd::RawFd) -> Option<u32> {
+    let mut uid: libc::uid_t = 0;
+    let mut gid: libc::gid_t = 0;
+    // SAFETY: fd is a live socket the caller holds; uid and gid are valid out-pointers.
+    let rc = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) };
+    (rc == 0).then_some(uid)
+}
+
 /// Whether a unix socket peer with `uid` may talk to the daemon running as `own`: this user, or
 /// root (the Cloud machine's provisioner, `daemon/provision.rs`; root opens a 0600 socket anyway).
 /// A peer whose uid cannot be read is refused.

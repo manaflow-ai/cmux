@@ -1424,11 +1424,23 @@ pub(crate) fn serve_accepted(
 ) {
     // The socket's mode admits this user only; the peer's uid says so again (one
     // getsockopt, its pid read from the same answer below).
-    let cred = stream.peer_cred().ok();
+    let cred = stream.peer_cred();
+    // On macOS tokio reads the pid (LOCAL_PEERPID) in the same call, so a pid it cannot read lost
+    // the uid too and refused a peer that is this user (a Nightly's customize chat never started:
+    // "refused a socket peer that is not this user uid=None"). The uid alone decides.
+    let uid = match &cred {
+        Ok(c) => Some(c.uid()),
+        Err(_) => {
+            use std::os::fd::AsRawFd;
+            unix_bind::peer_uid(stream.as_raw_fd())
+        }
+    };
+    let cred_err = cred.as_ref().err().map(|e| e.to_string());
+    let cred = cred.ok();
     // SAFETY: geteuid has no preconditions and cannot fail.
     let own = unsafe { libc::geteuid() };
-    if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
-        tracing::warn!(uid = ?cred.map(|c| c.uid()), "refused a socket peer that is not this user");
+    if !peer_uid_allowed(uid, own) {
+        tracing::warn!(uid = ?uid, cred_err = ?cred_err, "refused a socket peer that is not this user");
         return;
     }
     tokio::spawn(async move {
