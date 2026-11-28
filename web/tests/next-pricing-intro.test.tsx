@@ -5,7 +5,13 @@ import { createTranslator, type AbstractIntlMessages } from "use-intl/core";
 import enMessages from "../messages/en.json";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { CLOUD_INTRO_BILLING_COPY } from "../services/billing/cloudIntro";
+import { CLOUD_TASTE_BILLING_COPY } from "../services/billing/cloudTaste";
 import { cloudIntroBillingCode, cloudIntroLayout, cloudIntroOfferFacts } from "../services/billing/cloudIntroOffer";
+import {
+  CLOUD_PROOF_BURST_LAST_READY_SECONDS,
+  CLOUD_PROOF_BURST_MACHINES,
+  cloudIntroProofStats,
+} from "../services/billing/cloudIntroProof";
 
 // The $1 pass on the cmux NEXT pricing preview and its /pricing notices.
 
@@ -153,6 +159,63 @@ describe("the $1 pass on the cmux NEXT pricing preview", () => {
   });
 });
 
+const tasteStrings = JSON.stringify([
+  enMessages.nextPricing.taste,
+  enMessages.pricing.cloudTaste,
+  enMessages.dashboard.billing.welcome.tasteTitle,
+  enMessages.dashboard.billing.welcome.tasteBody,
+]);
+
+describe("the free week on the cmux NEXT pricing preview", () => {
+  const tasteForm = (html: string) => html.match(/<form[^>]*data-testid="cloud-taste-form"[^>]*>[\s\S]*?<\/form>/g) ?? [];
+
+  test("with the flag off no layout offers it", async () => {
+    delete process.env.CMUX_CLOUD_INTRO;
+    for (const layout of [undefined, "a", "b", "c"]) {
+      const html = await renderPage(layout);
+      expect(tasteForm(html)).toHaveLength(0);
+      expect(html).not.toContain("/api/billing/cloud-taste");
+      expect(html).not.toContain(enMessages.nextPricing.taste.line);
+    }
+  });
+
+  test("with the flag on every layout offers it under the pass, as a POST that returns to that layout", async () => {
+    process.env.CMUX_CLOUD_INTRO = "1";
+    for (const layout of ["a", "b", "c"] as const) {
+      const forms = tasteForm(await renderPage(layout));
+      expect(forms).toHaveLength(1);
+      const form = forms[0]!;
+      expect(form).toContain('action="/api/billing/cloud-taste"');
+      expect(form).toContain('method="post"');
+      expect(form).toContain(`name="intro" value="${layout}"`);
+      expect(form).toContain("Or try a Chief free for a week. No card.");
+      expect(form).toContain("One Chief on the smallest machine (2 vCPU) for 7 days, with 10 awake hours (1,200 machine-minutes).");
+      expect(form).toContain("Start the free week");
+      // No card field, no checkout.
+      expect(form).not.toContain("checkbox");
+      expect(form).not.toContain("/api/billing/checkout");
+    }
+  });
+
+  test("the new strings name no vendor, cost or margin", () => {
+    for (const word of [
+      /margin/i, /\bcost/i, /\$/, /stripe/i, /freestyle/i, /vercel/i, /planetscale/i, /\baws\b/i, /amazon/i,
+      /anthropic/i, /openai/i, /daytona/i, /\be2b\b/i, /modal/i, /\bfly\b/i, /cloudflare/i, /google/i, /trial/i,
+    ]) {
+      expect(tasteStrings).not.toMatch(word);
+    }
+  });
+
+  test("the /pricing notices say what the route's codes mean, only with the flag on", () => {
+    expect(enMessages.pricing.cloudTaste).toEqual(CLOUD_TASTE_BILLING_COPY);
+    for (const [code, message] of Object.entries(CLOUD_TASTE_BILLING_COPY)) {
+      search = new URLSearchParams({ billing: code });
+      expect(renderToString(<ProWelcomeBanner cloudIntro />)).toContain(message.replace("'", "&#x27;"));
+      expect(renderToString(<ProWelcomeBanner cloudIntro={false} />)).toBe("");
+    }
+  });
+});
+
 describe("the $1 pass /pricing notices", () => {
   const renderBanner = (billing: string, cloudIntro: boolean) => {
     search = new URLSearchParams({ billing });
@@ -179,9 +242,6 @@ describe("the $1 pass /pricing notices", () => {
 });
 
 describe("the proof strip on the $1 pass", () => {
-  const { cloudIntroProofStats, CLOUD_PROOF_BURST_MACHINES, CLOUD_PROOF_BURST_LAST_READY_SECONDS } =
-    require("../services/billing/cloudIntroProof") as typeof import("../services/billing/cloudIntroProof");
-
   test("the constants are the measured figures", () => {
     expect(cloudIntroProofStats()).toEqual([
       { id: "newMachine", seconds: 9.5 },

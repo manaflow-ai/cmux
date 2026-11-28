@@ -10,8 +10,9 @@ import { dashboardBillingQuery } from "../../queries/billing";
 import { BillingPageFrame } from "./billing-frame";
 import { personalPlanCards, type SwitchPlanId } from "./plan-model";
 import { PlanPicker } from "./plan-picker";
-import { CloudIntroWelcome, PlanWelcome, welcomePlan } from "./plan-welcome";
+import { CloudIntroWelcome, CloudTasteWelcome, PlanWelcome, welcomePlan } from "./plan-welcome";
 import { CLOUD_INTRO_CHECKOUT_PLAN } from "@/services/billing/cloudIntro";
+import { CLOUD_TASTE_WELCOME } from "@/services/billing/cloudTaste";
 import { TeamBillingPanel } from "./team-billing-panel";
 
 export type BillingScreenSearch = {
@@ -42,6 +43,7 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
       ) : null}
       {welcome && data.personal ? <PlanWelcome plan={welcome} /> : null}
       {search.welcome === CLOUD_INTRO_CHECKOUT_PLAN && data.personal?.cloudIntroEnabled ? <CloudIntroWelcome /> : null}
+      {search.welcome === CLOUD_TASTE_WELCOME && data.personal?.cloudIntroEnabled ? <CloudTasteWelcome /> : null}
       {data.personal ? (
         <PersonalBilling data={data.personal} change={search.change} />
       ) : data.team ? (

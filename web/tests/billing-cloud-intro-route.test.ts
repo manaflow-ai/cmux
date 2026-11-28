@@ -86,6 +86,28 @@ describe("cmux Cloud $1 pass expiry", () => {
     expect(ended.update.mock.calls[0]![0]).toEqual({ clientReadOnlyMetadata: { cmuxPlan: "free", cmuxVmPlan: "free" } });
   });
 
+  test("removes the free week's keys at read time once the 7 days are over, keeping cmuxPlan and cmuxVmPlan", async () => {
+    const ended = statusFor({
+      cmuxPlan: "free",
+      cmuxVmPlan: "free",
+      cmuxNextPlan: "next_taste",
+      cmuxNextPlanStartedAt: "2020-01-01T00:00:00.000Z",
+      cmuxNextPlanEndsAt: "2020-01-08T00:00:00.000Z",
+    });
+    const status = await ended.run();
+    expect(status.metadataChanged).toBe(true);
+    expect(ended.update).toHaveBeenCalledTimes(1);
+    expect(ended.update.mock.calls[0]![0]).toEqual({ clientReadOnlyMetadata: { cmuxPlan: "free", cmuxVmPlan: "free" } });
+
+    const running = statusFor({
+      cmuxNextPlan: "next_taste",
+      cmuxNextPlanStartedAt: new Date().toISOString(),
+      cmuxNextPlanEndsAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    expect((await running.run()).metadataChanged).toBe(false);
+    expect(running.update).not.toHaveBeenCalled();
+  });
+
   test("leaves a running pass alone", async () => {
     const running = statusFor({
       cmuxNextPlan: "next_intro",

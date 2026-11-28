@@ -20,6 +20,16 @@ export const CLOUD_INTRO_CHECKOUT_PLAN = "intro" as const;
  */
 export const CLOUD_INTRO_PLAN_ID = "next_intro" as const;
 
+/**
+ * The plan id the free week (services/billing/cloudTaste.ts) writes to
+ * `cmuxNextPlan`, with the same start and end keys as the pass. It lives here
+ * so the read-time end below covers both entry offers.
+ */
+export const CLOUD_TASTE_PLAN_ID = "next_taste" as const;
+
+/** Every `cmuxNextPlan` an entry offer writes; each ends at read time once its end has passed. */
+const CLOUD_ENTRY_PLAN_IDS: readonly string[] = [CLOUD_INTRO_PLAN_ID, CLOUD_TASTE_PLAN_ID];
+
 // Stripe Price amounts are immutable, so the lookup key carries the amount
 // like the plan prices in plans.ts. The Price is one-time, not recurring.
 export const CLOUD_INTRO_PRICING_USD = {
@@ -198,35 +208,51 @@ function metadataRecord(raw: unknown): MetadataRecord {
  * that. Every other key, `cmuxPlan` and `cmuxVmPlan` included, is kept as is.
  */
 export function withCloudIntroGrant(raw: unknown, term: CloudIntroTerm): MetadataRecord | null {
+  return withCloudEntryGrant(raw, CLOUD_INTRO_PLAN_ID, term);
+}
+
+/**
+ * The metadata with an entry offer (`next_intro` or `next_taste`) written in,
+ * or null when it already says exactly that. Every other key is kept as is.
+ */
+export function withCloudEntryGrant(
+  raw: unknown,
+  planId: typeof CLOUD_INTRO_PLAN_ID | typeof CLOUD_TASTE_PLAN_ID,
+  term: CloudIntroTerm,
+): MetadataRecord | null {
   const metadata = metadataRecord(raw);
   const startedAt = term.startedAt.toISOString();
   const endsAt = term.endsAt.toISOString();
   if (
-    metadata[CLOUD_INTRO_METADATA_KEYS.plan] === CLOUD_INTRO_PLAN_ID &&
+    metadata[CLOUD_INTRO_METADATA_KEYS.plan] === planId &&
     metadata[CLOUD_INTRO_METADATA_KEYS.startedAt] === startedAt &&
     metadata[CLOUD_INTRO_METADATA_KEYS.endsAt] === endsAt
   ) {
     return null;
   }
-  metadata[CLOUD_INTRO_METADATA_KEYS.plan] = CLOUD_INTRO_PLAN_ID;
+  metadata[CLOUD_INTRO_METADATA_KEYS.plan] = planId;
   metadata[CLOUD_INTRO_METADATA_KEYS.startedAt] = startedAt;
   metadata[CLOUD_INTRO_METADATA_KEYS.endsAt] = endsAt;
   return metadata;
 }
 
-/** When the pass in the metadata ends, or null when the metadata names no pass. */
+/**
+ * When the entry offer in the metadata (the pass or the free week) ends, or
+ * null when the metadata names neither.
+ */
 export function cloudIntroEndsAt(raw: unknown): Date | null {
   const metadata = metadataRecord(raw);
-  if (metadata[CLOUD_INTRO_METADATA_KEYS.plan] !== CLOUD_INTRO_PLAN_ID) return null;
+  const plan = metadata[CLOUD_INTRO_METADATA_KEYS.plan];
+  if (typeof plan !== "string" || !CLOUD_ENTRY_PLAN_IDS.includes(plan)) return null;
   const value = metadata[CLOUD_INTRO_METADATA_KEYS.endsAt];
   const endsAt = typeof value === "string" ? new Date(value) : null;
-  // A pass key without a readable end is treated as already ended.
+  // An offer key without a readable end is treated as already ended.
   return endsAt && Number.isFinite(endsAt.getTime()) ? endsAt : new Date(0);
 }
 
 /**
- * The metadata with an ended pass removed, or null when nothing needs to
- * change (no pass, or the pass is still running). Only the three pass keys go.
+ * The metadata with an ended pass or free week removed, or null when nothing
+ * needs to change (neither, or it is still running). Only the three keys go.
  */
 export function withoutEndedCloudIntro(raw: unknown, now: Date): MetadataRecord | null {
   const endsAt = cloudIntroEndsAt(raw);

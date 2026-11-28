@@ -2,6 +2,11 @@ import { FeatureList, PlanCard, pricingActionClassName } from "../../../../compo
 import { CLOUD_INTRO_CHECKOUT_PLAN, CLOUD_INTRO_RENEW_PARAM } from "../../../../../services/billing/cloudIntro";
 import { cloudIntroProofStats } from "../../../../../services/billing/cloudIntroProof";
 import { cloudIntroOfferFacts, type CloudIntroLayout } from "../../../../../services/billing/cloudIntroOffer";
+import {
+  CLOUD_TASTE_AWAKE_HOURS,
+  CLOUD_TASTE_INCLUDED,
+  CLOUD_TASTE_TERM_DAYS,
+} from "../../../../../services/billing/cloudTaste";
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
@@ -19,6 +24,8 @@ export type CloudIntroCopy = {
   afterTitle: string;
   after: string;
   who: string;
+  /** The free week, offered under the pass. */
+  taste: { line: string; detail: string; cta: string };
   proof: { title: string; note: string; stats: { id: string; value: string; label: string }[] };
 };
 
@@ -50,6 +57,16 @@ export function cloudIntroCopy(t: Translate): CloudIntroCopy {
     afterTitle: t("intro.afterTitle", { days }),
     after: t("intro.after", { keepDays: f.keepDays }),
     who: t("intro.who"),
+    taste: {
+      line: t("taste.line"),
+      detail: t("taste.detail", {
+        vcpu: CLOUD_TASTE_INCLUDED.chiefVcpu,
+        days: CLOUD_TASTE_TERM_DAYS,
+        hours: count(CLOUD_TASTE_AWAKE_HOURS),
+        minutes: count(CLOUD_TASTE_INCLUDED.machineMinutes),
+      }),
+      cta: t("taste.cta"),
+    },
     proof: {
       title: t("proof.title"),
       note: t("proof.note", { count: f.concurrentMachines }),
@@ -84,6 +101,23 @@ function CloudIntroBuyForm({ copy, size = "default" }: { copy: CloudIntroCopy; s
         style={{ color: "var(--button-foreground, var(--background))" }}
       >
         {copy.cta}
+      </button>
+    </form>
+  );
+}
+
+/**
+ * The free week: a plain POST, no card. Signed out, the route sends the
+ * person to sign in and back to this layout.
+ */
+function CloudTasteForm({ copy, layout }: { copy: CloudIntroCopy; layout: CloudIntroLayout }) {
+  return (
+    <form method="post" action="/api/billing/cloud-taste" data-testid="cloud-taste-form" className="mt-4 border-t border-border pt-3">
+      <input type="hidden" name="intro" value={layout} />
+      <p className="text-sm font-medium">{copy.taste.line}</p>
+      <p className="mt-1 text-xs text-muted">{copy.taste.detail}</p>
+      <button type="submit" className={`mt-2 ${pricingActionClassName("secondary", "compact")}`}>
+        {copy.taste.cta}
       </button>
     </form>
   );
@@ -142,6 +176,7 @@ function CloudIntroBand({ copy }: { copy: CloudIntroCopy }) {
         </div>
         <div className="md:w-64">
           <CloudIntroBuyForm copy={copy} size="compact" />
+          <CloudTasteForm copy={copy} layout="a" />
         </div>
       </div>
     </section>
@@ -155,6 +190,7 @@ export function CloudIntroCard({ copy }: { copy: CloudIntroCopy }) {
       <PlanCard name={copy.name} price={copy.price} period={copy.period} badge={<span className={badgeClass}>{copy.badge}</span>}>
         <p className="mb-4 text-sm leading-relaxed text-muted">{copy.summary}</p>
         <CloudIntroBuyForm copy={copy} />
+        <CloudTasteForm copy={copy} layout="b" />
         <CloudIntroProof copy={copy} />
         <FeatureList items={copy.included} />
         <CloudIntroFinePrint copy={copy} />
@@ -182,6 +218,7 @@ function CloudIntroHero({ copy }: { copy: CloudIntroCopy }) {
             <span className="text-sm text-muted">{copy.period}</span>
           </div>
           <CloudIntroBuyForm copy={copy} />
+          <CloudTasteForm copy={copy} layout="c" />
           <CloudIntroFinePrint copy={copy} />
         </div>
       </div>

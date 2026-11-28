@@ -587,7 +587,9 @@ async function reconcileProMetadataIfAvailable(
  * once `cmuxNextPlanEndsAt` has passed, the three pass keys are removed from
  * the fresh metadata under the account mutation lease, like the `cmuxPlan`
  * mirror above. `cmuxPlan` and `cmuxVmPlan` are untouched. The pass is never
- * granted again: its row in cloud_intro_passes stays `granted`.
+ * granted again: its row in cloud_intro_passes stays `granted`. The free week
+ * (`next_taste`, services/billing/cloudTaste.ts) ends the same way, and its
+ * row in cloud_taste_grants keeps it from being granted again.
  */
 async function removeEndedCloudIntroIfAvailable(
   user: ProReconcileUser,
