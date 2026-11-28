@@ -188,12 +188,7 @@ final class OnboardingService {
     private func leaveTopPageForSignIn() { if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page } }
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
-    /// Meet Chief holds the card (Home draws it once Meet Chief ends), so the launch's classic import waits for it.
-    private(set) lazy var setup: FirstRunSetup = {
-        let setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps == .none)
-        setup.cardHeld = { [weak self] in self?.chief.holdsWelcome == true }
-        return setup
-    }()
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps == .none, cardHeld: { [weak self] in self?.chief.holdsWelcome == true })
 
     /// Meet Chief (``ChiefOnboarding``): a fresh install's first look at Chief, in its chat (no window: no `--onboarding` needed).
     private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },

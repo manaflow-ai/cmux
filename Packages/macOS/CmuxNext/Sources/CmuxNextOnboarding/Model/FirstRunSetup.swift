@@ -21,8 +21,10 @@ public final class FirstRunSetup {
     /// `skipsOnboarding` (`--skip-onboarding`, `CMUX_NEXT_SKIP_ONBOARDING=1`): the card stays away for this launch
     /// and starts on none, and a card still pending returns on the next launch that does not skip. `cardWait`: how
     /// long the launch's classic import waits for a card still being drawn (Home's chat starts after restore) before
-    /// its dialog asks instead.
-    public init(defaults: UserDefaults = .standard, skipsOnboarding: Bool = false, cardWait: Duration = .seconds(30)) {
+    /// its dialog asks instead. `cardHeld`: ``cardHeld``, Meet Chief holding the card back at launch.
+    public init(defaults: UserDefaults = .standard, skipsOnboarding: Bool = false, cardWait: Duration = .seconds(30),
+                cardHeld: @escaping @MainActor () -> Bool = { false }) {
+        self.cardHeld = cardHeld
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
         self.cardWait = cardWait
@@ -37,7 +39,7 @@ public final class FirstRunSetup {
     /// Home finishes before it draws the card (``ChiefOnboarding/holdsWelcome``). While it holds, ``cardWait`` starts
     /// again instead of handing the ask to the dialog, so a person reading Meet Chief for longer than ``cardWait``
     /// still answers the import on the card's cmux Classic row, not in a second dialog.
-    @ObservationIgnored public var cardHeld: @MainActor () -> Bool = { false }
+    @ObservationIgnored public var cardHeld: @MainActor () -> Bool
     /// Observed (not ignored): ``needsChiefAgent`` reads it, so a model made after a reader subscribed wakes it.
     private var agentsModel: AgentsStepModel?
 
