@@ -17,6 +17,62 @@ pub struct TeamPolicyLayer {
     /// The managing team's id and the policy version these values come from.
     pub team_id: String,
     pub version: i64,
+    /// The team's device-scoped RFD 0211 policy keys as the backend sent
+    /// them (`agents.harnesses`, `sandbox.local`, `projection.syncBack`, ...),
+    /// unfiltered: enforcement paths outside the settings catalog (sync-back)
+    /// read them from the saved layer.
+    pub features: BTreeMap<String, Value>,
+}
+
+/// A policy key's value: the backend sends `{value, mode}`; a bare value is
+/// accepted too.
+pub fn feature_value(features: &BTreeMap<String, Value>, key: &str) -> Option<Value> {
+    let raw = features.get(key)?;
+    Some(raw.get("value").cloned().unwrap_or_else(|| raw.clone()))
+}
+
+fn joined_list(value: &Value, strip_star: bool) -> Option<String> {
+    let items: Vec<String> = value
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|item| {
+            let item = item.trim();
+            if strip_star { item.trim_end_matches('*') } else { item }.to_string()
+        })
+        .filter(|item| !item.is_empty())
+        .collect();
+    (!items.is_empty()).then(|| items.join(", "))
+}
+
+/// The settings the team's RFD 0211 keys force on this install. Only keys
+/// the team set reach here, so nothing changes for a team that set none.
+/// `agents.*` fill the lockdown lists (cmux#64460) without turning
+/// `sessions.lockdown` on, which would also turn Cloud and computer use off;
+/// `sandbox.local` maps to the Seatbelt toggle (cmux#56119).
+fn settings_from_features(
+    features: &BTreeMap<String, Value>,
+    defaults: &mut BTreeMap<String, Value>,
+    enforced: &mut BTreeMap<String, Value>,
+) {
+    match feature_value(features, "sandbox.local").as_ref().and_then(Value::as_str) {
+        Some("required") => {
+            enforced.insert("sessions.sandbox".into(), Value::Bool(true));
+        }
+        Some("on") => {
+            defaults.insert("sessions.sandbox".into(), Value::Bool(true));
+        }
+        _ => {}
+    }
+    if let Some(list) =
+        feature_value(features, "agents.harnesses").and_then(|v| joined_list(&v, false))
+    {
+        enforced.insert("sessions.lockdownHarnesses".into(), Value::String(list));
+    }
+    if let Some(list) = feature_value(features, "agents.models").and_then(|v| joined_list(&v, true))
+    {
+        enforced.insert("sessions.lockdownModels".into(), Value::String(list));
+    }
 }
 
 impl TeamPolicyLayer {
@@ -61,12 +117,17 @@ impl TeamPolicyLayer {
             .get("version")
             .and_then(Value::as_f64)
             .filter(|x| crate::value::is_exact_integer(*x));
+        let features = map("features");
+        let mut defaults = map("defaults");
+        let mut enforced = map("enforced");
+        settings_from_features(&features, &mut defaults, &mut enforced);
         let layer = TeamPolicyLayer {
             team_name: text("team_name"),
-            defaults: map("defaults"),
-            enforced: map("enforced"),
+            defaults,
+            enforced,
             team_id: text("team"),
             version: version.map_or(0, |x| x as i64),
+            features,
         };
         Some(layer.limited_to_catalog(schema))
     }
@@ -112,76 +173,11 @@ impl TeamPolicyLayer {
             "version": self.version,
             "defaults": self.defaults,
             "enforced": self.enforced,
+            "features": self.features,
         })
     }
 }
 
 #[cfg(test)]
-mod owner_op_tests {
-    use super::*;
-    use serde_json::json;
-
-    fn args(op: &str) -> serde_json::Map<String, Value> {
-        json!({"route": "read", "body": {"op": op, "params": {}}}).as_object().unwrap().clone()
-    }
-
-    fn managed() -> Value {
-        json!({"status": 200, "reply": {"ok": true, "value": {
-            "managed": true, "team": "t-1", "team_name": "Acme", "version": 3,
-            "defaults": {}, "enforced": {"browser.searchEngine": "duckduckgo"}}}})
-    }
-
-    #[test]
-    fn a_managed_read_is_the_layer() {
-        let layer = TeamPolicyLayer::from_owner_op(
-            &args("team.device.policy"),
-            &managed(),
-            Schema::embedded(),
-        )
-        .unwrap();
-        assert_eq!(layer.team_id, "t-1");
-        assert_eq!(layer.version, 3);
-        assert_eq!(layer.enforced.get("browser.searchEngine"), Some(&json!("duckduckgo")));
-    }
-
-    #[test]
-    fn an_unmanaged_read_clears_the_layer() {
-        let answer = json!({"status": 200, "reply": {"ok": true, "value": {"managed": false}}});
-        let layer = TeamPolicyLayer::from_owner_op(
-            &args("team.device.policy"),
-            &answer,
-            Schema::embedded(),
-        );
-        assert_eq!(layer, Some(TeamPolicyLayer::default()));
-    }
-
-    #[test]
-    fn the_body_as_json_text_counts() {
-        let args =
-            json!({"route": "read", "body_json": r#"{"op":"team.device.policy","params":{}}"#});
-        let layer = TeamPolicyLayer::from_owner_op(
-            args.as_object().unwrap(),
-            &managed(),
-            Schema::embedded(),
-        );
-        assert_eq!(layer.map(|l| l.team_id), Some("t-1".into()));
-    }
-
-    #[test]
-    fn other_calls_and_refusals_change_nothing() {
-        let schema = Schema::embedded();
-        assert_eq!(TeamPolicyLayer::from_owner_op(&args("feed.list"), &managed(), schema), None);
-        let mut ops = args("team.device.policy");
-        ops.insert("route".into(), json!("ops"));
-        assert_eq!(TeamPolicyLayer::from_owner_op(&ops, &managed(), schema), None);
-        for answer in [
-            json!({"status": 401, "reply": null}),
-            json!({"status": 200, "reply": {"error": {"code": "forbidden", "message": "no"}}}),
-            json!({"status": 200, "reply": {"ok": false, "value": {"managed": false}}}),
-            json!({"status": 200, "reply": {"ok": true}}),
-        ] {
-            let read = TeamPolicyLayer::from_owner_op(&args("team.device.policy"), &answer, schema);
-            assert_eq!(read, None, "{answer}");
-        }
-    }
-}
+#[path = "team_tests.rs"]
+mod tests;
