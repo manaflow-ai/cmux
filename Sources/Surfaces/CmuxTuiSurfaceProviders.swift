@@ -322,6 +322,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for session in manualMirrorSessions.values { session.stop(reason: stopReason) }
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
+        // A restored terminal has no session yet to carry this stop. Its attach
+        // ends here, and the next reprojection after a resume starts it again.
+        // A provider already out of the catalog no longer speaks for these panes.
+        if catalog.provider(for: machine).map({ ObjectIdentifier($0) == ObjectIdentifier(self) }) == true {
+            showRestoredTerminalsUnavailable(detail: stopReason.endedPresentation?.detail ?? "", retry: nil)
+        }
+        for task in restoredAttachTasks.values { task.cancel() }
+        materializedPanels.subtract(restoredAttachTasks.keys)
+        restoredAttachTasks.removeAll()
         attachmentRetry.cancel()
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
@@ -402,6 +411,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 info: info,
                 pendingWrites: pendingMutationMetadata()
             )
+            // Refreshing never wakes a machine, so a restored terminal would
+            // wait in silence. Reconnect is the user's request to wake it.
+            let wakingMachineID = machineID
+            let wakingTeamID = ownerTeamID
+            catalog.showRestoredMachineUnavailable(machine, detail: info.linkFailureMessage) {
+                Task { @MainActor in
+                    _ = try? await VMClient.shared.resume(id: wakingMachineID, teamID: wakingTeamID)
+                    _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+                }
+            }
             return false
         }
         // Publish the display before the terminal link is ready: a slow or hanging
@@ -491,6 +510,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // whose items cannot be ordered against the installed snapshot.
                 await link.suspendEventsSubscription()
             }
+            catalog.clearRestoredMachineUnavailable(machine)
             guard await reconcileManualMirrorAttachments(
                 connected: connected, link: link, lifecycle: lifecycle, refresh: generation
             ) else { return false }
@@ -506,6 +526,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
+            // A restored terminal has no session yet to show the failure. Only
+            // classified text reaches the pane: link errors carry process output.
+            let detail = CloudPaneCreationFailure(machine: machine, error: error).errorText
+            catalog.showRestoredMachineUnavailable(machine, detail: detail) { [weak self] in
+                self?.scheduleRefresh(force: true)
+            }
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif

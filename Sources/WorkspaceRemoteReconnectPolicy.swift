@@ -50,7 +50,7 @@ enum CloudTerminalReconnectOverlayPolicy {
         let title: String
         let detail: String
         let showsProgress: Bool
-        let showsReconnectButton: Bool
+        var showsReconnectButton: Bool
         var diagnosticReference: String? = nil
 
         var copyableError: String {
