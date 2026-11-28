@@ -46,6 +46,9 @@ struct Entry {
 #[derive(Default)]
 pub(crate) struct PageReplies {
     entries: Mutex<VecDeque<Entry>>,
+    /// Where each subagent's records start in its chat's log, once a read proved it
+    /// (`subagent_starts.rs`): its later pages read from there.
+    pub(crate) starts: super::paging::subagent_starts::SubagentStarts,
 }
 
 /// The ask's key: its params as sent, less `_meta` (who sent it, not what it asks).
