@@ -7,6 +7,14 @@
 //
 // A key the chat's saved copy swallowed (chatSnapshot/live.ts) never reaches this watch; a change of the prompt
 // with no typed key before it (a restored draft) is no echo.
+//
+// A key typed before the page took keys never fires a keydown here: the host's key router queues it and inserts it
+// with `execCommand('insertText')` once the composer has focus (PageInputReadiness `insertTypedAhead`, which
+// dispatches TYPED_AHEAD_EVENT first). That insert is the person's key too, so it counts as one; without it the
+// launch probe's key, typed at the live chat's first paint, never read an echo (6 of 6 chat rounds, job 141017485635).
+
+/// The event the host's typed-ahead insert dispatches on the window right before it inserts (PageInputReadiness.Edit).
+export const TYPED_AHEAD_EVENT = "cmux:typed-ahead";
 
 type Report = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
@@ -24,8 +32,10 @@ export function watchLaunchInputEcho(send: Report, doc: Document = document): vo
   const key = () => {
     keyed = true;
     view.removeEventListener("keydown", key, true);
+    view.removeEventListener(TYPED_AHEAD_EVENT, key, true);
   };
   view.addEventListener("keydown", key, { capture: true, passive: true });
+  view.addEventListener(TYPED_AHEAD_EVENT, key, { capture: true, passive: true });
 }
 
 /// The composer's prompt changed (ComposerBox `onChange`): the first change after a typed key reports the frame

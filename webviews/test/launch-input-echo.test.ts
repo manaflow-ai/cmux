@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
+  TYPED_AHEAD_EVENT,
   composerChanged,
   resetLaunchInputEchoForTest,
   watchLaunchInputEcho,
@@ -44,6 +45,15 @@ describe("watchLaunchInputEcho", () => {
     composerChanged(view);
     await drawn();
     expect(sent.length).toBe(1);
+  });
+
+  test("a key the host typed ahead (no keydown in the page) counts as the key", async () => {
+    const { dom, view, sent, report, drawn } = page();
+    watchLaunchInputEcho(report, dom.window.document);
+    view.dispatchEvent(new dom.window.Event(TYPED_AHEAD_EVENT));
+    composerChanged(view);
+    await drawn();
+    expect(sent.map(([method]) => method)).toEqual(["pane.inputEchoed"]);
   });
 
   test("with no launch harness reading, nothing is watched or sent", async () => {

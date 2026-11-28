@@ -20,6 +20,13 @@ import CmuxNextDesign
 /// the same two keys once more when the live chat first painted (`agent_pane.page_painted`): a key at the first frame
 /// lands before any chat page is up, so the composer's echo mark `agent_pane.input_echoed` never came and every chat
 /// round read no number. Its marks are `chat.probe_key_typed` and `chat.probe_no_key_window`.
+///
+/// The chat probe types its Delete only after the composer echoed the space (`agent_pane.input_echoed`): at the
+/// chat's first paint the composer has not taken focus yet, so the key router queues the keys for it
+/// (KeyRouter `typesAhead`), and a Delete typed behind a queued space removes it from the queue, as it should for a
+/// person; the composer never changed and no chat round read an echo (6 of 6, job 141017485635). It also marks the
+/// window the space went to, `chat.probe_window.page` (a page's own child window, which Chromium takes keys in) or
+/// `chat.probe_window.shell` (the main window, whose key router hands the key on), so a round with no echo names it.
 @MainActor
 public final class LaunchTypeProbe {
     nonisolated static let variable = "CMUX_NEXT_LAUNCH_TYPE_PROBE"
@@ -52,8 +59,11 @@ public final class LaunchTypeProbe {
                                mark: @escaping (String) -> Void) {
         guard let probe = LaunchTypeProbe(chatEnvironment: environment, mark: mark) else { return }
         listen { name in
-            guard name == "agent_pane.page_painted" else { return }
-            Task { @MainActor in probe.type() }
+            switch name {
+            case "agent_pane.page_painted": Task { @MainActor in probe.type() }
+            case "agent_pane.input_echoed": Task { @MainActor in probe.typeDelete() }
+            default: break
+            }
         }
     }
 
@@ -62,7 +72,30 @@ public final class LaunchTypeProbe {
         guard !typed else { return }
         typed = true
         guard let window = NSApp.keyWindow ?? takeFront() else { return mark("\(scope).probe_no_key_window") }
-        for (characters, keyCode) in [(" ", UInt16(49)), ("\u{7f}", UInt16(51))] {
+        if scope == "chat" {
+            mark(window.parent == nil ? "chat.probe_window.shell" : "chat.probe_window.page")
+            post(Self.space, to: window)
+            pendingDelete = true
+        } else {
+            post(Self.space + Self.delete, to: window)
+        }
+        mark("\(scope).probe_key_typed")
+    }
+
+    /// The chat probe's Delete, once the composer echoed its space: the composer is left as it was.
+    public func typeDelete() {
+        guard pendingDelete else { return }
+        pendingDelete = false
+        guard let window = NSApp.keyWindow else { return }
+        post(Self.delete, to: window)
+    }
+
+    private var pendingDelete = false
+    private static let space = [(" ", UInt16(49))]
+    private static let delete = [("\u{7f}", UInt16(51))]
+
+    private func post(_ keys: [(String, UInt16)], to window: NSWindow) {
+        for (characters, keyCode) in keys {
             for kind in [NSEvent.EventType.keyDown, .keyUp] {
                 guard let event = NSEvent.keyEvent(with: kind, location: .zero, modifierFlags: [],
                                                    timestamp: ProcessInfo.processInfo.systemUptime,
@@ -72,7 +105,6 @@ public final class LaunchTypeProbe {
                 NSApp.postEvent(event, atStart: false)
             }
         }
-        mark("\(scope).probe_key_typed")
     }
 
     /// The front window that can take keys, made key with the app activated, as a Dock launch leaves it; nil when
