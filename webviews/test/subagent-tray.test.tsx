@@ -499,8 +499,13 @@ describe("the tray", () => {
   test("several get a header and start folded to it, however few (cmux#28875)", async () => {
     pinFoldHead("counts");
     const now = Date.now();
+    // A known harness no mark draws ("acme"): since #62299 the stack leaves a harnessless agent's
+    // slot blank, and a harness with no logo draws the sparkle in its tone, which this checks.
     const few = trayItems(
-      [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
+      [
+        agent("A", { startedAt: now - 5000, harness: "acme" }),
+        agent("B", { startedAt: now - 4000, harness: "acme" }),
+      ],
       [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
       NONE,
       true,

@@ -126,7 +126,9 @@
   /* A tray joined to the composer shares one quiet seam. Keep the stack's edge and depth
      independent from the regular floating-card treatment so the join reads as one surface. */
   --acpmux-stack-edge: color-mix(in srgb, var(--agent-text) 12%, var(--agent-page-bg, var(--acpmux-base)));
-  --acpmux-stack-shadow: 0 1px 2px color-mix(in srgb, black 4%, transparent);
+  /* The scale's first step (subtle-elevation.test.ts): the joined stack casts what a lone composer
+     casts, --elevation-1, so the composer box keeps one depth whether a tray sits on it or not. */
+  --acpmux-stack-shadow: var(--elevation-1);
   /* The composer's 8px narrow outset (composerLocation.css, under 298px of content width), for the
      other parts on the card's edges: the recap card (summary.css) and the host's line (styles.css)
      take --cv-inset and --cv-inset-end less this, as the running tray does above. The percentage
@@ -139,7 +141,7 @@
 }
 :root[data-composer-edge="minimal"] .acpmux-dock {
   --acpmux-stack-edge: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg, var(--acpmux-base)));
-  --acpmux-stack-shadow: 0 1px 2px color-mix(in srgb, black 2%, transparent);
+  --acpmux-stack-shadow: var(--elevation-1);
 }
 .acpmux-dock > .acpmux-running-tray[data-card]:has(+ .acpmux-composer),
 .acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer {

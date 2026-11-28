@@ -24,12 +24,10 @@
 :root[data-hover-look] {
   --hover-look-ring: light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, var(--cmux-tone-light, white) 12%, transparent));
   --hover-look-lit: light-dark(color-mix(in srgb, var(--cmux-tone-light, white) 70%, transparent), color-mix(in srgb, var(--cmux-tone-light, white) 10%, transparent));
-  --hover-look-tooltip-shadow:
-    0 0.5px 1px light-dark(color-mix(in srgb, black 6%, transparent), color-mix(in srgb, black 32%, transparent)),
-    0 4px 12px -2px light-dark(color-mix(in srgb, black 14%, transparent), color-mix(in srgb, black 48%, transparent));
-  --hover-look-card-shadow:
-    0 1px 2px light-dark(color-mix(in srgb, black 6%, transparent), color-mix(in srgb, black 32%, transparent)),
-    0 12px 32px -8px light-dark(color-mix(in srgb, black 20%, transparent), color-mix(in srgb, black 56%, transparent));
+  /* The shared elevation scale (desktop.css; subtle-elevation.test.ts): a label the first step, a
+     card the second, in every arm. */
+  --hover-look-tooltip-shadow: var(--elevation-1);
+  --hover-look-card-shadow: var(--elevation-2);
 }
 :root[data-hover-look][data-hover-look]
   :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass {
@@ -73,12 +71,12 @@
   --glass-tint: color-mix(in srgb, var(--glass-surface, var(--surface-popup)) 72%, transparent);
   --glass-backdrop: var(--ds-glass-menu-blur);
   --glass-rim-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 0 light-dark(color-mix(in srgb, var(--cmux-tone-light, white) 80%, transparent), color-mix(in srgb, var(--cmux-tone-light, white) 14%, transparent));
-  --glass-elevation: 0 10px 30px -6px light-dark(color-mix(in srgb, black 18%, transparent), color-mix(in srgb, black 50%, transparent));
+  --glass-elevation: var(--elevation-2);
 }
 :root[data-hover-look][data-hover-look="soft"]
   :is(.ui-tooltip:not(.ui-card), .ui-title-tooltip, .ui-hint, .cu-tooltip).ui-glass {
   --glass-tint: color-mix(in srgb, var(--surface-popup) 72%, transparent);
-  --glass-elevation: 0 6px 20px -4px light-dark(color-mix(in srgb, black 18%, transparent), color-mix(in srgb, black 50%, transparent));
+  --glass-elevation: var(--elevation-1);
 }
 
 /* ONE: one material for every hover surface (Leo, 2026-11-22, softened: "multiple styles for hover
@@ -105,9 +103,20 @@
 }
 :root[data-hover-look][data-hover-look="one"]
   :is(.ui-tooltip:not(.ui-card), .ui-title-tooltip, .ui-hint, .cu-tooltip).ui-glass {
-  --glass-elevation: 0 1px 2px light-dark(color-mix(in srgb, black 7%, transparent), transparent);
+  --glass-elevation: var(--elevation-1);
 }
 :root[data-hover-look][data-hover-look="one"] .ui-card.ui-glass {
   border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: every hover surface takes the one hover material's corner, the tooltip's */
-  --glass-elevation: 0 2px 6px light-dark(color-mix(in srgb, black 11%, transparent), transparent);
+  --glass-elevation: var(--elevation-2);
+}
+/* Dark keeps One's look as shipped: no shadow (the scale's steps cast in dark too). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-hover-look][data-hover-look="one"]
+    :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass {
+    --glass-elevation: 0 0 transparent; /* the glass default: a list slot, never `none` */
+  }
+}
+:root[data-theme="dark"][data-hover-look][data-hover-look="one"]
+  :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass {
+  --glass-elevation: 0 0 transparent; /* the glass default: a list slot, never `none` */
 }
