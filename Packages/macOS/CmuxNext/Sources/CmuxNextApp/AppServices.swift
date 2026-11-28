@@ -37,6 +37,7 @@ import CmuxNextAccounts
 import CmuxNextAppCore
 import CmuxNextPages
 import CmuxNextPopups
+import CmuxNextRemoteLocalhostService
 import CmuxNextBrowserImport
 import CmuxNextImportCards
 import CmuxNextPhone
@@ -222,7 +223,7 @@ final class AppServices {
     let resizes = ResizeCoordinator()
     /// Browser tabs each pane also lists (`browser.page.mirror`): one live page shown in a second pane.
     let tabMirrors = TabMirrors()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes, memoryPressure: memoryPressure)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes, memoryPressure: memoryPressure, localhost: remoteLocalhost)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_record` and `--record-launch`'s recordings.
     let windowRecord = DebugWindowRecord()
@@ -529,6 +530,16 @@ final class AppServices {
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
+    private(set) lazy var chatSignIn = ChatMachineSignInTab(
+        localhost: remoteLocalhost, chromiumAvailable: { [weak self] in self.map { $0.cache.browserTabs.cefUnavailable() == nil } ?? false },
+        approvalProfile: { [weak self] in self?.cache.browserRouting.callbackProfile },
+        makePage: { [weak self] configuration in
+            guard let self else { throw CancellationError() }
+            return try await cache.makeCEFTab(configuration)
+        },
+        requestClose: { [weak self] in self?.cache.pageRequests.browserTab($0, didRequest: .close) },
+        closeTab: { [weak self] in self?.cache.pageRequests.closeTab($0) }
+    )
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, localhost: remoteLocalhost)
     var chromiumLikelyObservations: [Task<Void, Never>] = []
@@ -687,7 +698,9 @@ final class AppServices {
         cache.onRelease = { [weak self] key in
             self?.home.releaseTabView(key); self?.previews.pictures.forget(key)  // and its kept pane pictures
             self?.madeAgentTabs?.releaseIfGone(key)
-            self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
+            if let cache = self?.cache {
+                cache.pageRequests.closedHistories.save(cache.browserTabs.privacy.historySource(for: key, cache.existingBrowser(key)?.tab))
+            }
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages

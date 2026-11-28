@@ -52,6 +52,10 @@ selected by the car's own change, so its timeout fails; a guard runs on every ca
 the car changes the guard's folder, and otherwise is `warn` naming the guard. Heavy entries already run alone and
 fill the job's time, so they are not retried.
 
+The whole run has one deadline (--deadline, CAR_GUARDS_DEADLINE, default 1500 s, under the train's 1800 s bound):
+each entry, retry and base re-run takes at most the time left, and one that cannot start is `unrun` (named in the
+verdict, status `error`), so a slow car ends with a verdict instead of being killed with none.
+
 The verdict (stdout, and --receipt) is one JSON object: {"car", "base", "head", "where",
 "status": "pass"|"fail"|"error", "results": [{"name", "kind", "status", "seconds", "tail"}],
 "reused": [...], "deferred": [...], "unmapped": [...]}. Exit 0 on pass, 1 on fail (the car's
@@ -94,6 +98,17 @@ RETRY_TIMEOUT = {"guard": 900, "python": 450}
 # Seconds the retries of entries the car does not touch may start within; past it they are not retried (and warn).
 RETRY_BUDGET = 900
 JOBS = int(os.environ.get("CAR_GUARDS_JOBS", str(max(2, (os.cpu_count() or 4)))))
+# The whole car's bound, in seconds. The train stops a car guard at 1800 s and keeps nothing it did (run 46068974948:
+# pr-62654 and pr-58290 each "timed out after 1800 seconds", no verdict, no name of what was slow). Every entry takes
+# at most the time left, so a slow car ends before the train's bound with a verdict that names what it did not run.
+DEADLINE = float(os.environ.get("CAR_GUARDS_DEADLINE", "1500"))
+# Below this many seconds left an entry is not started (it could not finish), and is `unrun`.
+MIN_SLICE = 10.0
+_deadline_at: float | None = None
+
+
+def time_left() -> float | None:
+    return None if _deadline_at is None else _deadline_at - time.monotonic()
 # Only the runner's own tools and pinned modules make a red the runner's: anything else a test
 # cannot import or run is the car's (it may have deleted or renamed it).
 MISSING_TOOL = re.compile(r"ModuleNotFoundError: No module named '(yaml|bashlex)'|\b(bun|cargo|swift|zig): command not found")
@@ -183,6 +198,12 @@ def touches(entry: dict, files: list[str]) -> bool:
 def run_one(root: Path, entry: dict, timeout: float | None = None) -> dict:
     start = time.monotonic()
     timeout = timeout or TIMEOUT[entry["kind"]]
+    left = time_left()
+    if left is not None:
+        if left < MIN_SLICE:
+            return {"name": entry["name"], "kind": entry["kind"], "status": "unrun", "seconds": 0,
+                    "tail": f"not run: the car's {DEADLINE:.0f}s deadline was spent"}
+        timeout = min(timeout, left)
     try:
         # A timed-out entry is stopped with everything it started, so its retry and the next entries never race it.
         proc = run_bounded(entry["cmd"], cwd=root / entry.get("cwd", "."), capture_output=True, text=True,
@@ -329,7 +350,9 @@ def at_base(root: Path, base: str, head: str, results: list[dict], todo: list[di
 
 
 def run(root: Path, base: str, head: str, where: str, the_plan: dict, prior: dict[str, str],
-        kinds: set[str] | None = None) -> dict:
+        kinds: set[str] | None = None, deadline: float | None = None) -> dict:
+    global _deadline_at
+    _deadline_at = time.monotonic() + deadline if deadline else None
     skip = reused_kinds(prior)
     todo = [e for e in entries(root, base, head, where, the_plan, skip)
             if kinds is None or e["kind"] in kinds or (e["kind"] == "swift-build" and "swift" in kinds)]
@@ -350,7 +373,8 @@ def run(root: Path, base: str, head: str, where: str, the_plan: dict, prior: dic
                 result["status"] = "base-red"
             result["own_files"] = own
     statuses = {r["status"] for r in results}
-    status = "fail" if statuses & {"fail", "timeout"} else "error" if "error" in statuses else "pass"
+    # An entry the deadline left unrun is not checked: the car's guard errs (the train warns, naming it), never fails.
+    status = "fail" if statuses & {"fail", "timeout"} else "error" if statuses & {"error", "unrun"} else "pass"
     deferred = [f"web (browser lane): {t['path']}" for t in the_plan["web"] if t.get("browser")]
     if the_plan.get("web_dropped"):
         deferred.append(f"web: {the_plan['web_dropped']} more files past the nearest {len(the_plan['web'])}")
@@ -373,6 +397,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--where", choices=("linux", "mac"))
     parser.add_argument("--prior", help="JSON {check name: conclusion} of the car's PR CI at its tree")
     parser.add_argument("--receipt")
+    parser.add_argument("--deadline", type=float, default=DEADLINE,
+                        help="seconds the whole run may take (CAR_GUARDS_DEADLINE, default 1500); 0: no bound")
     parser.add_argument("--kinds", help="comma-separated kinds to run (guard,python,web,cargo,swift); default all")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
@@ -400,7 +426,8 @@ def main(argv: list[str]) -> int:
             print(f"car_guards: the checkout is at {at or 'nothing'}, not the car's head {args.head}", file=sys.stderr)
             return 2
         kinds = set(args.kinds.split(",")) if args.kinds else None
-        verdict = dict(head, where=args.where, **run(root, args.base, args.head, args.where, the_plan, prior, kinds))
+        verdict = dict(head, where=args.where, **run(root, args.base, args.head, args.where, the_plan, prior, kinds,
+                                                       deadline=args.deadline))
         code = {"pass": 0, "fail": 1}.get(verdict["status"], 2)
         for result in verdict["results"]:
             print(f"CAR-GUARD {result['status'].upper()} {result['name']} {result['seconds']}s", file=sys.stderr)
