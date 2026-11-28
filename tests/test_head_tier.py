@@ -827,9 +827,10 @@ class SamePatchTests(unittest.TestCase):
 
     def test_decide_compares_both_heads_and_reads_the_previous_runs(self) -> None:
         calls = []
-        real = head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key
+        real = head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key, head_tier.pushed_on_top
         green = [{"id": 1, "path": "ci.yml", "status": "completed", "conclusion": "success"}]
         try:
+            head_tier.pushed_on_top = lambda *a: False  # a rebase or amend: git cannot tell, the compares do
             head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None}
             head_tier.runs_at = lambda *a: calls.append(("runs", a[1])) or green
             head_tier.own_patch_key = lambda repo, base, sha, token: calls.append(("key", sha)) or "k"
@@ -859,7 +860,40 @@ class SamePatchTests(unittest.TestCase):
                     head_tier.decide("pull_request", self.event(("ready-to-land",)))
                 self.assertEqual(calls, [])
         finally:
-            head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key = real
+            head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key, head_tier.pushed_on_top = real
+
+
+class PushedOnTopTests(BranchRepo):
+    """same_patch_facts answers an ordinary push (new commits on the previous head) from git, with no compare read."""
+
+    def commit_file(self, name: str, text: str) -> str:
+        Path(self.dir, name).write_text(text)
+        self.git("add", name)
+        self.git("commit", "-q", "-m", f"edit {name}")
+        return self.git("rev-parse", "HEAD")
+
+    def test_new_commits_on_the_previous_head_are_a_new_change_without_a_compare(self) -> None:
+        before = self.head
+        one = self.commit_file("a.txt", "1\n")
+        two = self.commit_file("b.txt", "2\n")
+        self.assertTrue(head_tier.pushed_on_top(before, one))
+        self.assertTrue(head_tier.pushed_on_top(before, two))
+        ev = {"action": "synchronize", "before": before,
+              "pull_request": {"draft": False, "head": {"sha": two}, "base": {"ref": "feat-cmux-next"}, "labels": []}}
+        with unittest.mock.patch.object(head_tier, "own_patch_key", side_effect=AssertionError("compare read")), \
+                unittest.mock.patch.object(head_tier, "runs_at", side_effect=AssertionError("runs read")):
+            self.assertEqual(head_tier.same_patch_facts(ev), {"before": before, "same_patch_green": False})
+
+    def test_anything_else_still_reads_the_compares(self) -> None:
+        before = self.head
+        self.git("commit", "-q", "--allow-empty", "-m", "empty")  # the same tree: could be the same change
+        self.assertFalse(head_tier.pushed_on_top(before, self.git("rev-parse", "HEAD")))
+        self.assertFalse(head_tier.pushed_on_top(before, before))
+        self.assertFalse(head_tier.pushed_on_top(self.own, self.head))  # base merges on the way
+        self.git("checkout", "-q", "-b", "lane/rebased", self.own)
+        rebased = self.commit_file("a.txt", "1\n")
+        self.assertFalse(head_tier.pushed_on_top(before, rebased))  # BEFORE is not an ancestor
+        self.assertFalse(head_tier.pushed_on_top("f" * 40, rebased, depth=3))  # unread
 
 
 class LandCarryTests(BranchRepo):
