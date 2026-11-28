@@ -814,3 +814,103 @@ fn rtt_nack_retry_follows_the_measured_repair_round_trip() {
         assert_eq!(r.repair_rtt_us(), Some(1_000));
     }
 }
+
+/// A viewer with the adaptive reorder grace and a known 40 ms path: the grace
+/// widens 10 ms per spurious request, up to 30 ms.
+fn reorder_viewer() -> Reassembler {
+    let mut r = Reassembler::new(1_000_000);
+    r.set_gap_grace(true);
+    r.set_reorder_window(true);
+    r.set_path_rtt_us(Some(40_000));
+    r
+}
+
+/// Frame 1 with shard 1 overtaken: everything else arrives at `t`, shard 1 is
+/// requested one grace later, and returns.
+fn overtaken_shard(r: &mut Reassembler, p: &mut Packetizer, frame: u32, t: u64) -> Shard {
+    let s = shards(p, frame, 0, &body(frame, 6000, frame == 1), 0);
+    assert!(s.len() >= 3);
+    for (i, (h, payload)) in s.iter().enumerate() {
+        if i != 1 {
+            r.push(h, payload, t);
+        }
+    }
+    s[1].clone()
+}
+
+#[test]
+fn a_duplicate_of_a_requested_shard_widens_the_reorder_grace() {
+    let mut r = reorder_viewer();
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    assert_eq!(r.reorder_grace_us(5_000), 5_000);
+    let late = overtaken_shard(&mut r, &mut p, 1, 0);
+    let nacks = r.take_nacks(5_000, 5_000, 50_000);
+    assert_eq!(nacks.len(), 1);
+    assert_eq!(nacks[0].indexes, vec![1]);
+    // The original arrives late, then the repair: the request was spurious.
+    assert_eq!(r.push(&late.0, &late.1, 7_000).len(), 1);
+    r.push(&late.0, &late.1, 9_000);
+    assert_eq!(r.spurious_requests(), 1);
+    assert_eq!(r.reorder_grace_us(5_000), 15_000);
+
+    // The next overtaken shard waits the widened grace.
+    let _ = overtaken_shard(&mut r, &mut p, 2, 20_000);
+    assert!(r.take_nacks(34_999, 5_000, 50_000).is_empty());
+    assert_eq!(r.take_nacks(35_000, 5_000, 50_000).len(), 1);
+}
+
+#[test]
+fn the_reorder_grace_stops_at_the_round_trip() {
+    let mut r = reorder_viewer();
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    for (n, t) in (1..=6u32).zip((0..).step_by(50_000)) {
+        let late = overtaken_shard(&mut r, &mut p, n, t);
+        assert_eq!(r.take_nacks(t + 40_000, 5_000, 50_000).len(), 1);
+        r.push(&late.0, &late.1, t + 41_000);
+        r.push(&late.0, &late.1, t + 42_000);
+    }
+    assert_eq!(r.spurious_requests(), 6);
+    assert_eq!(r.reorder_grace_us(5_000), 30_000);
+}
+
+#[test]
+fn a_repair_of_a_lost_shard_does_not_widen_the_reorder_grace() {
+    let mut r = reorder_viewer();
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let lost = overtaken_shard(&mut r, &mut p, 1, 0);
+    assert_eq!(r.take_nacks(5_000, 5_000, 50_000).len(), 1);
+    assert_eq!(r.push(&lost.0, &lost.1, 45_000).len(), 1);
+    assert_eq!(r.spurious_requests(), 0);
+    assert_eq!(r.reorder_grace_us(5_000), 5_000);
+}
+
+#[test]
+fn copies_of_a_shard_requested_twice_prove_nothing() {
+    let mut r = reorder_viewer();
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let lost = overtaken_shard(&mut r, &mut p, 1, 0);
+    assert_eq!(r.take_nacks(5_000, 5_000, 50_000).len(), 1);
+    assert_eq!(r.take_nacks(200_000, 5_000, 50_000).len(), 1);
+    r.push(&lost.0, &lost.1, 210_000);
+    r.push(&lost.0, &lost.1, 215_000);
+    assert_eq!(r.spurious_requests(), 0);
+    assert_eq!(r.reorder_grace_us(5_000), 5_000);
+}
+
+#[test]
+fn the_reorder_grace_steps_back_after_a_quiet_stretch() {
+    let mut r = reorder_viewer();
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let late = overtaken_shard(&mut r, &mut p, 1, 0);
+    assert_eq!(r.take_nacks(5_000, 5_000, 50_000).len(), 1);
+    r.push(&late.0, &late.1, 7_000);
+    r.push(&late.0, &late.1, 9_000);
+    assert_eq!(r.reorder_grace_us(5_000), 15_000);
+    // Sixteen 40 ms round trips (640 ms) with no spurious request.
+    let quiet = shards(&mut p, 2, 0, &body(2, 600, false), 0);
+    push_all(&mut r, &quiet, 9_000 + 639_000);
+    assert_eq!(r.reorder_grace_us(5_000), 15_000);
+    let quiet = shards(&mut p, 3, 0, &body(3, 600, false), 0);
+    push_all(&mut r, &quiet, 9_000 + 640_000);
+    assert_eq!(r.reorder_grace_us(5_000), 5_000);
+}

@@ -149,6 +149,7 @@ impl Receiver {
                 let mut r = Reassembler::with_nack_after(deadline_us, nack_after_us);
                 // A gap's reorder grace counts from when the gap is first seen.
                 r.set_gap_grace(true);
+                r.set_reorder_window(true);
                 r
             },
             nack_after_us,

@@ -126,6 +126,9 @@ pub struct Reassembler {
     /// deviation, from shards asked for once (the answer to a retried shard is
     /// ambiguous).
     repair_rtt: RttEstimator,
+    /// The reorder grace widens on spurious repairs
+    /// ([`Self::set_reorder_window`]); `None`: the caller's grace as given.
+    reorder: Option<ReorderWindow>,
     /// Recent gaps between the first shards of new frames (the frame interval).
     frame_gaps: VecDeque<u64>,
     /// The newest frame seen so far and when its first shard arrived.
@@ -187,6 +190,77 @@ const TIMING_SAMPLES: usize = 16;
 
 /// Repair samples needed before they count toward the round trip.
 const MIN_REPAIR_SAMPLES: u32 = 3;
+
+/// The most the adaptive reorder grace waits before a first request, and
+/// never more than the round trip (RFC 8985 bounds its window by SRTT): past
+/// it, waiting costs more than a spurious repair does.
+pub const MAX_REORDER_GRACE_US: u64 = 30_000;
+
+/// Round trips without a spurious repair before the adaptive grace steps
+/// back down (RFC 8985 §6.2 keeps a widened window for 16 recoveries).
+pub const REORDER_PERSIST_RTTS: u64 = 16;
+
+/// The shortest quiet time before the adaptive grace steps back down.
+pub const REORDER_PERSIST_MIN_US: u64 = 250_000;
+
+/// The round trip the grace's step is sized from before one is measured.
+const REORDER_DEFAULT_RTT_US: u64 = 20_000;
+
+/// Requested shards that arrived, kept so a later duplicate shows the
+/// request was spurious.
+const REORDER_FILLED: usize = 256;
+
+/// RFC 8985's reordering window from the receiver's side, widened only by
+/// proof that a request was spurious: a duplicate of a shard that was
+/// requested once and had already arrived (the first copy was the late
+/// original; DSACK, RFC 2883). Each proof widens the grace before a first
+/// request by a quarter round trip, at most once per round trip
+/// (`reo_wnd_mult`); a quiet stretch of [`REORDER_PERSIST_RTTS`] round trips
+/// steps it back one quarter. Reordering that resolves inside the grace costs
+/// nothing and does not widen it, so a path that only reorders a little keeps
+/// the short grace and its fast repairs.
+#[derive(Debug, Default)]
+struct ReorderWindow {
+    mult: u32,
+    last_raise_us: Option<u64>,
+    /// The newest spurious repair or step down: the quiet stretch counts from it.
+    quiet_since_us: u64,
+    /// (frame, index) of requested-once shards that then arrived, oldest first.
+    filled: VecDeque<(u32, u16)>,
+    spurious: u64,
+}
+
+impl ReorderWindow {
+    fn note_filled(&mut self, frame: u32, index: u16) {
+        if self.filled.len() == REORDER_FILLED {
+            self.filled.pop_front();
+        }
+        self.filled.push_back((frame, index));
+    }
+
+    /// A duplicate of `(frame, index)`: when that shard had been requested
+    /// once and had arrived, the request was spurious.
+    fn on_duplicate(&mut self, frame: u32, index: u16, now_us: u64, rtt_us: u64, cap_mult: u32) {
+        let Some(at) = self.filled.iter().position(|&(f, i)| f == frame && i == index) else {
+            return;
+        };
+        self.filled.remove(at);
+        self.spurious += 1;
+        self.quiet_since_us = now_us;
+        if self.last_raise_us.is_none_or(|t| now_us.saturating_sub(t) >= rtt_us) {
+            self.mult = self.mult.saturating_add(1).min(cap_mult);
+            self.last_raise_us = Some(now_us);
+        }
+    }
+
+    fn decay(&mut self, now_us: u64, rtt_us: u64) {
+        let persist = rtt_us.saturating_mul(REORDER_PERSIST_RTTS).max(REORDER_PERSIST_MIN_US);
+        if self.mult > 0 && now_us.saturating_sub(self.quiet_since_us) >= persist {
+            self.mult -= 1;
+            self.quiet_since_us = now_us;
+        }
+    }
+}
 
 /// A smoothed round trip and its variation, as TCP keeps them (RFC 6298:
 /// SRTT and RTTVAR with gains 1/8 and 1/4). Timers wait SRTT + 4 RTTVAR, so
@@ -265,6 +339,7 @@ impl Reassembler {
             rtt_retry: false,
             path_rtt_us: None,
             repair_rtt: RttEstimator::default(),
+            reorder: None,
             frame_gaps: VecDeque::new(),
             newest_started: None,
             pending: BTreeMap::new(),
@@ -319,6 +394,35 @@ impl Reassembler {
     /// How long a frame waits for its NACKed shards before it is given up.
     pub fn repair_window_us(&self) -> u64 {
         repair_window_us(self.rtt_us(), self.frame_interval_us(), self.deadline_us)
+    }
+
+    /// Widens the reorder grace before a first request each time a request
+    /// is proved spurious (a duplicate of a requested shard that had already
+    /// arrived), a quarter round trip at a time, and narrows it again after a
+    /// quiet stretch (RFC 8985 §6.2). A path whose jitter reorders shards past
+    /// the grace otherwise has those shards requested and sent twice. Off by
+    /// default.
+    pub fn set_reorder_window(&mut self, on: bool) {
+        self.reorder = on.then(ReorderWindow::default);
+    }
+
+    /// The reorder grace to use now for a caller's `after_us`: widened by a
+    /// quarter round trip per step [`Self::set_reorder_window`] took, at most
+    /// [`MAX_REORDER_GRACE_US`] and the round trip.
+    pub fn reorder_grace_us(&self, after_us: u64) -> u64 {
+        let Some(window) = &self.reorder else { return after_us };
+        let (step, cap) = self.reorder_step_cap();
+        after_us.saturating_add(step.saturating_mul(u64::from(window.mult))).min(after_us.max(cap))
+    }
+
+    /// Requests the adaptive grace proved spurious so far.
+    pub fn spurious_requests(&self) -> u64 {
+        self.reorder.as_ref().map_or(0, |w| w.spurious)
+    }
+
+    fn reorder_step_cap(&self) -> (u64, u64) {
+        let rtt = self.rtt_us().unwrap_or(REORDER_DEFAULT_RTT_US).max(1);
+        ((rtt / 4).max(1_000), rtt.min(MAX_REORDER_GRACE_US))
     }
 
     /// Counts each gap's reorder grace from when the gap is first seen (a
@@ -381,6 +485,15 @@ impl Reassembler {
     ) -> Vec<CompleteFrame> {
         self.note_datagram(now_us);
         self.expire(now_us);
+        let reorder_rtt = self.reorder.is_some().then(|| self.reorder_step_cap());
+        if let (Some(window), Some((step, cap))) = (&mut self.reorder, reorder_rtt) {
+            let rtt = step.saturating_mul(4);
+            let cap_mult = u32::try_from(cap.div_ceil(step)).unwrap_or(u32::MAX);
+            window.decay(now_us, rtt);
+            if header.frame <= self.finished_through {
+                window.on_duplicate(header.frame, header.index, now_us, rtt, cap_mult);
+            }
+        }
         let too_far = self.finished_through != 0
             && header.frame > self.finished_through.saturating_add(MAX_FRAME_LEAD);
         let no_room =
@@ -424,6 +537,25 @@ impl Reassembler {
         // of another length is refused, and pending payload bytes are capped.
         let shard_len_ok = entry.shard_len.is_none_or(|l| l == payload.len());
         let mut repair_sample = None;
+        if let (Some(window), Some((step, cap))) = (&mut self.reorder, reorder_rtt)
+            && header.index < entry.count
+        {
+            let index = usize::from(header.index);
+            let arrived = entry.shards.get(index).is_some_and(Option::is_some);
+            match (arrived, entry.nacked.get(index).copied().flatten()) {
+                // A second copy of a requested shard: the first was the late original.
+                (true, Some(_)) => {
+                    let cap_mult = u32::try_from(cap.div_ceil(step)).unwrap_or(u32::MAX);
+                    window.on_duplicate(header.frame, header.index, now_us, step * 4, cap_mult);
+                }
+                // A shard requested once arriving: the original or the repair. Two
+                // requests may both be answered, so their copies prove nothing.
+                (false, Some(mark)) if mark.times == 1 => {
+                    window.note_filled(header.frame, header.index);
+                }
+                _ => {}
+            }
+        }
         if entry.shards.len() == total
             && entry.count == header.count
             && shard_len_ok
@@ -475,6 +607,7 @@ impl Reassembler {
     /// Missing data shard indexes of incomplete frames that waited at least
     /// `after_us`, for NACKs.
     pub fn missing(&self, now_us: u64, after_us: u64) -> Vec<(u32, Vec<u16>)> {
+        let after_us = self.reorder_grace_us(after_us);
         self.pending
             .iter()
             .filter(|(_, p)| {
@@ -493,6 +626,7 @@ impl Reassembler {
     /// request for another frame nor one for another shard of the same frame
     /// can delay its repair request.
     pub fn next_nack_us(&self, after_us: u64, retry_us: u64) -> Option<u64> {
+        let after_us = self.reorder_grace_us(after_us);
         let retry_us = self.nack_retry_us(retry_us);
         let grace = self.gap_grace;
         self.pending
@@ -504,7 +638,7 @@ impl Reassembler {
 
     fn timing(&self) -> Timing {
         Timing {
-            nack_after_us: self.nack_after_us,
+            nack_after_us: self.reorder_grace_us(self.nack_after_us),
             gap_grace: self.gap_grace,
             deadline_us: self.deadline_us,
             window_us: self.repair_window_us(),
@@ -566,6 +700,7 @@ impl Reassembler {
     /// deadlines. Repaired frames disappear from this schedule as soon as
     /// their data is complete.
     pub fn take_nacks(&mut self, now_us: u64, after_us: u64, retry_us: u64) -> Vec<Nack> {
+        let after_us = self.reorder_grace_us(after_us);
         let retry_us = self.nack_retry_us(retry_us);
         let grace = self.gap_grace;
         self.pending

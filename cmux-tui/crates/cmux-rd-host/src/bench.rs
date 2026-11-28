@@ -1106,6 +1106,9 @@ pub fn run(opts: &Opts) -> Res<()> {
             r.set_rtt_nack_retry(opts.num_or("rtt-nack-retry", 0u8)? == 1);
             // A viewer's reorder grace runs from each gap's first sight.
             r.set_gap_grace(true);
+            // `--reorder-window 0`: a fixed reorder grace, not one that widens on
+            // spurious repairs.
+            r.set_reorder_window(opts.num_or("reorder-window", 1u8)? == 1);
             r
         },
         decoder: Decoder::new()?,
