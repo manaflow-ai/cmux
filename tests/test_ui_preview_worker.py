@@ -152,7 +152,7 @@ class FakeWorker(w.Worker):
         return g
 
     def web_side(self, sha, entries, gallery=None, keys=None):
-        out = self.state / "shots" / "web" / sha
+        out = self.shot_dir("web", sha)
         out.mkdir(parents=True, exist_ok=True)
         self.shot.append(f"web:{sha}")
         for e in entries:
@@ -293,6 +293,36 @@ class LookTests(unittest.TestCase):
             self.assertIn("shoots web scenes only", receipt["error"])
 
 
+class SettledShotCacheTests(unittest.TestCase):
+    """A web before shot the old way (a fixed 300 ms after ready, so mid-fade) is never paired with an after shot the
+    settled way (ui-preview-settle.mjs): the chat-motion-pass scene showed the same false 7.22% diff on every
+    transcript push (2026-11-28), its cached before a different point of one fade than each after."""
+
+    def test_web_shots_cache_under_the_settled_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            self.assertEqual(worker.shot_dir("web", BASE), Path(tmp) / "shots" / w.WEB_SHOTS / BASE)
+            self.assertEqual(worker.shot_dir("swift", BASE), Path(tmp) / "shots" / "swift" / BASE)
+            self.assertNotIn(w.WEB_SHOTS, w.OLD_WEB_SHOTS)
+
+    def test_a_before_cached_the_old_way_is_shot_again_and_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            old = Path(tmp) / "shots" / "web" / BASE
+            old.mkdir(parents=True)
+            (old / "entry.a.png").write_bytes(b"png")
+            (old / "index.json").write_text(json.dumps({"entry.a": "entry.a.png"}))
+            self.assertFalse(worker.is_cached("web", BASE, ["entry.a"]))
+            worker.drop_old_web_shots()
+            self.assertFalse((Path(tmp) / "shots" / "web").exists())
+
+    def test_the_shooter_settles_before_it_shoots(self):
+        shoot = (w.HERE / "ui-preview-shoot.mjs").read_text()
+        self.assertIn('import { settle } from "./ui-preview-settle.mjs"', shoot)
+        self.assertIn("page.evaluate(settle", shoot)
+        self.assertNotIn("setTimeout(r, 300)", shoot)
+
+
 class WarmBeforeTests(unittest.TestCase):
     """shadow-leo: "keep warm per-screen baselines refreshed on merge, re-render only mapped screens"."""
 
@@ -354,6 +384,87 @@ class WarmBeforeTests(unittest.TestCase):
             done = worker.warm_base(BASE, lambda: jobs.unfinished_tasks > 0)
             self.assertEqual(done["shot"], list(w.ALL_SWIFT_SCENES[1:]))
             self.assertEqual(worker.warm_tips(), [BASE])
+
+
+class SwiftLateTests(unittest.TestCase):
+    """A web+Swift push posts its web pictures without waiting on the Swift side: 11-28 15:29Z/15:40Z the pulling
+    Mac did not answer in 600 s and two pushes whose web shots were ready in under 60 s posted at 710 s and 818 s."""
+
+    FILES = ["Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabBar.swift", "webviews/src/a.tsx"]
+
+    def held_worker(self, tmp: Path):
+        worker = FakeWorker(tmp)
+        release = threading.Event()
+        shoot = worker.shoot_shell
+
+        def held(scenes, out):
+            release.wait(10)
+            return shoot(scenes, out)
+        worker.shoot_shell = held
+        self.addCleanup(release.set)
+        return worker, release
+
+    def test_a_slow_swift_side_posts_web_first_and_follows_with_swift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker, release = self.held_worker(Path(tmp))
+            old, w.SWIFT_GRACE_S = w.SWIFT_GRACE_S, 0.2
+            self.addCleanup(setattr, w, "SWIFT_GRACE_S", old)
+            began = time.monotonic()
+            receipt = worker.look(request(ui_files=self.FILES))
+            self.assertLess(time.monotonic() - began, 5)
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual([s["kind"] for s in receipt["scenes"]], ["web"])
+            self.assertEqual(receipt["swift_late"], ["tabs"])
+            [first] = list((Path(tmp) / "outbox").iterdir())
+            self.assertIn("still shooting", first.read_text())
+            release.set()
+            [follow] = worker.follow_ups
+            follow.join(10)
+            self.assertFalse(follow.is_alive())
+            texts = sorted(p.read_text() for p in (Path(tmp) / "outbox").iterdir())
+            self.assertEqual(len(texts), 2)
+            self.assertTrue(any("Swift scenes" in t and "swift tabs" in t for t in texts), texts)
+            [row] = json.loads(worker.receipts_path.read_text())["receipts"]
+            self.assertEqual(sorted(s["kind"] for s in row["scenes"]), ["swift", "web"])
+            self.assertIsNotNone(row["swift_posted_at"])
+            self.assertIn("swift_after", row["stages"])
+
+    def test_a_late_swift_side_that_fails_says_why_in_the_follow_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker, release = self.held_worker(Path(tmp))
+            worker.swift_side = lambda sha, scenes, branch=None: (release.wait(10), (_ for _ in ()).throw(
+                w.LookError("the pulling Mac did not answer in 600 s")))[1]
+            old, w.SWIFT_GRACE_S = w.SWIFT_GRACE_S, 0.2
+            self.addCleanup(setattr, w, "SWIFT_GRACE_S", old)
+            receipt = worker.look(request(ui_files=self.FILES))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            release.set()
+            worker.follow_ups[0].join(10)
+            texts = [p.read_text() for p in (Path(tmp) / "outbox").iterdir()]
+            self.assertTrue(any("were not shot: the pulling Mac did not answer" in t for t in texts), texts)
+            [row] = json.loads(worker.receipts_path.read_text())["receipts"]
+            self.assertIn("swift: the pulling Mac did not answer", row["error"])
+
+    def test_a_fast_swift_side_is_in_the_one_post(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            receipt = worker.look(request(ui_files=self.FILES))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual([s["kind"] for s in receipt["scenes"]], ["swift", "web"])
+            self.assertNotIn("swift_late", receipt)
+            self.assertEqual(worker.follow_ups, [])
+            self.assertEqual(len(list((Path(tmp) / "outbox").iterdir())), 1)
+
+    def test_a_swift_only_push_waits_for_its_swift_side(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker, release = self.held_worker(Path(tmp))
+            old, w.SWIFT_GRACE_S = w.SWIFT_GRACE_S, 0.05
+            self.addCleanup(setattr, w, "SWIFT_GRACE_S", old)
+            threading.Timer(0.5, release.set).start()
+            receipt = worker.look(request())
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual([s["kind"] for s in receipt["scenes"]], ["swift"])
+            self.assertEqual(worker.follow_ups, [])
 
 
 class SwiftPeerTests(unittest.TestCase):
@@ -605,6 +716,26 @@ class FollowTests(unittest.TestCase):
             return answer
 
         return calls, call
+
+    def test_a_replay_older_than_replay_max_gets_an_error_receipt_not_a_late_look(self):
+        # 2026-11-28 ~15:06Z gcp-agent-lane-2 took over with its 27T18Z follow-seq and posted the unanswered
+        # 27T18-19Z pushes 68,000-72,000 s late. Past REPLAY_MAX_S it now says why in a receipt and looks at none.
+        with tempfile.TemporaryDirectory() as tmp:
+            b = FakeWorker(Path(tmp))
+            b.host = "preview-b"
+            ago = lambda s: (b.started_at - w.dt.timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+            web = ["webviews/src/a.tsx"]
+            old = dict(request(head_sha=f"{7810:040x}", ui_files=web, pushed_at=ago(70_000)), seq=7810)
+            recent = dict(request(head_sha=f"{7811:040x}", ui_files=web, pushed_at=ago(600)), seq=7811)
+            jobs = w.queue.Queue()
+            _, call = self.census({"seq": 7811, "requests": [old, recent]}, {})
+            self.assertEqual(w.follow_once(b, jobs, 7809, call), 7811)
+            self.assertEqual(jobs.get_nowait()[0]["head_sha"], recent["head_sha"])
+            self.assertTrue(jobs.empty())
+            [row] = json.loads(b.receipts_path.read_text())["receipts"]
+            self.assertEqual(row["head_sha"], old["head_sha"])
+            self.assertIsNone(row["posted_at"])
+            self.assertIn("REPLAY_MAX_S", row["error"])
 
     def test_a_host_taking_the_lease_over_posts_what_its_predecessor_never_answered(self):
         # 2026-11-27 03:48-04:19Z: A was restarted mid-backlog, so B took over requests A never posted; the time
@@ -960,7 +1091,7 @@ class StallTests(unittest.TestCase):
             worker = FakeWorker(Path(tmp))
 
             def web_side(sha, entries, gallery=None, keys=None):
-                out = worker.state / "shots" / "web" / sha
+                out = worker.shot_dir("web", sha)
                 out.mkdir(parents=True, exist_ok=True)
                 name = (w.ABSENT_PREFIX if sha == BASE else "") + "entry.a.png"
                 (out / name).write_bytes(b"png-" + sha.encode())
