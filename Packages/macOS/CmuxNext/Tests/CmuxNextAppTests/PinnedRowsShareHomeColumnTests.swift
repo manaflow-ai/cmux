@@ -252,7 +252,7 @@ import Testing
                 #expect(abs(x - homeX) <= 0.5, "\(c.testDescription): \(item.id.rawValue)'s title starts at \(x), Home's label at \(homeX)")
             }
             let (plain, icon, groups, groupWindow) = try Self.pinnedGroups(scale: c.scale)
-            defer { groupWindow.close() }
+            defer { groupWindow.contentView = nil; groupWindow.close() }
             #expect(icon.pinSquareFrame == nil, "\(c.testDescription): the pinned group with an icon still draws its pin")
             let plainName = groups.convert(plain.name.frame, from: plain).minX, iconName = groups.convert(icon.name.frame, from: icon).minX
             #expect(abs(plainName - iconName) <= 0.5, "\(c.testDescription): the group's name starts at \(iconName) with an icon, \(plainName) without one")

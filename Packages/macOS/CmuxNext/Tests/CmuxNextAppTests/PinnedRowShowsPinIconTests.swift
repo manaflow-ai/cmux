@@ -10,7 +10,7 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct PinnedRowShowsPinIconTests {
     /// The pinned rows' states: each one is a reason a row's leading column has been reworked before.
     enum RowState: String, CaseIterable {
-        case plain, selected, hovered, unread, renamed, shownTabIcon, ownIcon, color
+        case plain, selected, hovered, unread, retitled, shownTabIcon, ownIcon, color
     }
 
     /// Redraws the harness's Pinned rows in `state`.
@@ -21,7 +21,7 @@ import Testing
             switch state {
             case .plain, .selected, .hovered: break
             case .unread: info.unreadDot = true
-            case .renamed: info.title = "Renamed " + info.title
+            case .retitled: info.title = "Renamed " + info.title
             case .shownTabIcon:
                 (info.symbol, info.textOnly, info.iconFromShownTab) = ("globe", false, true)
             case .ownIcon: (info.symbol, info.textOnly) = ("star", false)
@@ -52,10 +52,21 @@ import Testing
         }
     }
 
+    /// The default pinned-row look (`sidebar.pinnedRowLeading` unset: pin, then icon) and no motion, whatever an
+    /// earlier suite left in the shared stores.
+    static func useDefaultLook() {
+        Motion.reduceMotionOverride = true
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarPinnedRowLeading.tunable.key, nil)
+    }
+
     @Test(arguments: RowState.allCases)
     func everyPinnedRowDrawsItsPin(_ state: RowState) throws {
+        Self.useDefaultLook()
+        defer { Motion.reduceMotionOverride = nil }
         let harness = SidebarHomePinnedDragHarness()
-        defer { harness.close(); PointerHover.setDebugPointer(nil, in: harness.window) }
+        defer { PointerHover.setDebugPointer(nil, in: harness.window); harness.close() }
         try Self.apply(state, to: harness)
         for pin in SidebarHomePinnedDragHarness.pins {
             let row = try harness.item(pin.id)
@@ -67,6 +78,8 @@ import Testing
     /// The pin is the workspace's, not its shown tab's: a tab's favicon gives way to it (msg 40501), and the row's
     /// title starts after the pin, not under it.
     @Test func aPinnedRowsTitleStartsAfterItsPin() throws {
+        Self.useDefaultLook()
+        defer { Motion.reduceMotionOverride = nil }
         let harness = SidebarHomePinnedDragHarness()
         defer { harness.close() }
         for pin in SidebarHomePinnedDragHarness.pins {

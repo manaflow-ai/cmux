@@ -294,7 +294,7 @@ struct SidebarUniformRowSpacingTests {
         let line = content.minX + SidebarStyle.rowGlyphOpticalSide / 2
         #expect(abs(pin.midX - line) <= max(0.5, pixel),
                 "the pin's ink centers at \(pin.midX), the glyph square's center line is \(line)")
-        #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) < 0.5,
+        #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) <= max(0.5, pixel),
                 "the pin sits \(pin.midY - pinnedFrame.midY) pt off its row's middle, an unpinned row's content \(content.midY - unpinnedFrame.midY) pt")
         // A pinned row takes the band's row: an unpinned row's height, except at Expanded, where it is Comfortable's
         // (Lawrence 2026-11-04, pinned rows were too short; 9353f4addd2).

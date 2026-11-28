@@ -82,7 +82,10 @@ import Testing
         // The pin centers in the row glyph's optical square (`SidebarStyle.rowGlyphOptics`), as every leading glyph:
         // that square's leading edge is the inset, not the narrower pin ink's.
         let pinSquareX = pinInk.midX - SidebarStyle.rowGlyphOpticalSide / 2
-        for (name, leading) in [("the pin's glyph square", pinSquareX - pinnedFill.minX), ("a text-only title", titleX - rowFill.minX)] {
+        // The pin's square starts where a text-only title starts (the row inset, `SidebarItemRowView.layout`), #63247.
+        #expect(abs((pinSquareX - pinnedFill.minX) - (titleX - rowFill.minX)) <= Self.tolerance,
+                "\(density): the pin's glyph square starts \(pinSquareX - pinnedFill.minX) pt inside its highlight, a text-only title \(titleX - rowFill.minX) pt")
+        for (name, leading) in [("a text-only title", titleX - rowFill.minX)] {
             #expect(abs(leading - trailing) <= Self.tolerance,
                     "\(density): \(name) starts \(leading) pt inside its highlight, a status-glyph box on the trailing column ends \(trailing) pt before the highlight's end")
         }
