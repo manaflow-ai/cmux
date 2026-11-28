@@ -7,10 +7,11 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "cmux-tui/crates/acpmux/scripts/fork_matrix.py"
 spec = importlib.util.spec_from_file_location("fork_matrix", SCRIPT)
@@ -19,6 +20,51 @@ spec.loader.exec_module(matrix)
 
 
 class ForkMatrixTests(unittest.TestCase):
+    def daemon(self, root, config=None, **kwargs):
+        daemon = matrix.Daemon("unused", root / "home", config, {}, **kwargs)
+        self.addCleanup(daemon.log.close)
+        self.addCleanup(daemon.sock.parent.rmdir)
+        return daemon
+
+    def test_peerless_config_remains_a_map_and_keep_peers_is_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "source.json"
+            config.write_text('{"harnesses": {}}')
+            daemon = self.daemon(root, config)
+            self.assertEqual(json.loads((daemon.home / "config.json").read_text())["peers"], {})
+            config.write_text('{"peers": {"other": {"host": "example"}}}')
+            daemon = self.daemon(root, config, keep_peers=True)
+            self.assertEqual(json.loads((daemon.home / "config.json").read_text()), json.loads(config.read_text()))
+
+    def test_start_requires_status_from_its_live_daemon(self):
+        for status in ('{"running": false}', '{}', 'not json', '{"pid": 999}', '{"pid": 42}'):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                daemon = self.daemon(Path(tmp))
+                proc = Mock(pid=42)
+                proc.poll.return_value = None
+                with patch.object(matrix.subprocess, "Popen", return_value=proc), \
+                     patch.object(daemon, "run", return_value=subprocess.CompletedProcess([], 0, status, "")), \
+                     patch.object(matrix.time, "time", side_effect=[0, 0, 31]), \
+                     patch.object(matrix.time, "sleep"):
+                    if status == '{"pid": 42}':
+                        daemon.start()
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            daemon.start()
+
+    def test_start_reports_early_process_exit_without_waiting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self.daemon(Path(tmp))
+            proc = Mock(pid=42)
+            proc.poll.return_value = 1
+            with patch.object(matrix.subprocess, "Popen", return_value=proc), \
+                 patch.object(daemon, "run", return_value=subprocess.CompletedProcess([], 0, '{"pid": 42}', "")), \
+                 patch.object(matrix.time, "sleep") as sleep:
+                with self.assertRaisesRegex(RuntimeError, "exited.*1"):
+                    daemon.start()
+                sleep.assert_not_called()
+
     def test_copied_config_is_private_even_with_permissive_umask(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
