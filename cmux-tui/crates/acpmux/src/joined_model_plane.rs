@@ -103,6 +103,18 @@ use team claude` records on a cmux Cloud machine), or sign in to Claude here."
     )
 }
 
+/// The launch error of a remote-origin Claude launch (a peer's `acpmux new --machine`, a remote
+/// device) on a joined machine with no sign-in of its own. The hub's route needs this daemon's
+/// loopback egress proxy, which a remote chain's sandbox never reaches, so a team choice does
+/// not help it: the fixes are a launch that starts here or a sign-in here.
+pub(crate) fn remote_no_sign_in() -> String {
+    "This machine is joined to your team, but a Claude session started from another machine \
+cannot use your team's model route here (its sandbox reaches no local proxy) and this machine \
+has no Claude sign-in of its own. Start the session on this machine (`acpmux new` run here, not \
+`--machine` from a peer), or sign in to Claude here."
+        .to_owned()
+}
+
 /// The launch error of a launch that chose the team's route (`CMUX_<AGENT>_AUTH=team` or the
 /// recorded choice `team`) on a joined machine whose route declined it, with `why`, the gate's
 /// own text.
