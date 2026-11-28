@@ -115,6 +115,7 @@ public final class AgentPaneNewTabFrame {
     public func modelChanged(_ pick: AgentPaneRememberedPick, by model: AgentPaneModel) {
         let picked = pick.agent + "/" + (pick.model ?? "") + (pick.dismissesHarnessHint ? "/hint-dismissed" : "")
             + (pick.started.map { "/started:" + $0 } ?? "")
+            + (pick.forCloud ? "/cloud/" + (pick.effort ?? "") : "")
         pages[ObjectIdentifier(model), default: Page(model: model)].picked = picked
         update(\.model, picked)
     }

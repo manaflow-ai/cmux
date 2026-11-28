@@ -36,7 +36,7 @@ import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
-import { cloudAgentPick } from "../cloudAgentPick";
+import { cloudAgentPick, cloudStartPick, rememberedCloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
 import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
@@ -1026,15 +1026,24 @@ export function drawPaneBody({
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
                               // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
+                              // The agent, model and level the chips drew (cloudAgentPick.ts `cloudStartPick`):
+                              // Cloud's own pick, with its mode, never this Mac's.
                               ...(() => {
-                                const machine = cloudAgentPick();
-                                const agent = machine?.harness ?? harness;
-                                return cloudSendAgent(
-                                  snapshot.catalog.find((entry) => entry.id === agent)?.family,
-                                  agent,
-                                  machine ? machine.model : model,
-                                  machine !== undefined,
-                                );
+                                const family = snapshot.catalog.find((entry) => entry.id === harness)?.family;
+                                const pick = cloudStartPick({
+                                  harness,
+                                  ...(model ? { model } : {}),
+                                  ...(family ? { family } : {}),
+                                });
+                                return {
+                                  ...cloudSendAgent(
+                                    snapshot.catalog.find((entry) => entry.id === pick.harness)?.family ?? pick.harness,
+                                    pick.harness,
+                                    pick.model,
+                                    (cloudAgentPick() ?? rememberedCloudAgentPick()) !== undefined,
+                                  ),
+                                  ...(pick.effort && pick.effort !== "default" ? { effort: pick.effort } : {}),
+                                };
                               })(),
                             },
                             true,

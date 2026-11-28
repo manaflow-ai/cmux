@@ -220,6 +220,10 @@ type Props = {
   /** The chips belong to a page with no chat yet (a New Tab): no prompt has gone, so the harness
    * is never fixed there, even once the page's deferred chat has started behind it. */
   startsChat?: boolean;
+  /** A level held outside the chips for the chat their first send starts (a Cloud start's pick,
+   * cloudAgentPick.ts): the chip names it until a pick here replaces it, also after the chips mount
+   * again (cmux#59716). */
+  startLevel?: { harness: string; value: string };
 };
 
 /// The composer bar's controls after the + button: one model button that names the model and its
@@ -250,6 +254,7 @@ export function ComposerPickers({
   holdsModePick = false,
   holdsStartMode = false,
   startsChat = false,
+  startLevel,
 }: Props) {
   acpmuxPerf.render("composer:pickers");
   const reasoningMenu = useComposerContribution(modelPickerLayoutFrom, undefined);
@@ -1020,14 +1025,21 @@ export function ComposerPickers({
   // what acpmux starts the chat on when no setting names one (its curated catalog's default for the
   // model, hub/start_defaults.rs), so the chip names it from the first frame and acpmux's answer
   // replaces it only when it differs (Lucas 2026-10-24).
+  // A Cloud start's chip (Cloud or Auto picked) names only the level held for it (`startLevel`, Cloud's
+  // own pick, which the Cloud send carries): this Mac's start level and the level this Mac's chats last
+  // showed are This Mac's, and the machine never gets them (model-picker-local-cloud-state).
+  const cloudStartChip = (snapshot.startsOnCloud === true || snapshot.cloudPicker === true) && !summary?.sessionId;
   const heldValue =
     (heldPick && heldPick.harness === chipHarness ? heldPick.value : undefined) ??
-    startEffort ??
-    heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
-    (opensListed ? undefined : heldOption?.currentValue) ??
-    (snapshot.catalog.length === 0 && !opensListed
+    (startLevel && startLevel.harness === chipHarness ? startLevel.value : undefined) ??
+    (cloudStartChip
       ? heldLevels.find((choice) => choice.id === heldModel?.defaultEffort)?.id
-      : undefined);
+      : (startEffort ??
+        heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
+        (opensListed ? undefined : heldOption?.currentValue) ??
+        (snapshot.catalog.length === 0 && !opensListed
+          ? heldLevels.find((choice) => choice.id === heldModel?.defaultEffort)?.id
+          : undefined)));
   // The held chip steps down as the reported one does: "Med" in a narrow row (composerRowFit.ts).
   const heldChoice = heldLevels.find((choice) => choice.id === heldValue);
   const heldShort = heldChoice && heldChoice.id !== "ultracode" ? shortLevel(heldChoice, t) : undefined;
