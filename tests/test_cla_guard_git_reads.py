@@ -119,7 +119,16 @@ class CLAGuardGitReadsTests(unittest.TestCase):
             "FIXTURE_REMOTE": remote or self.repo.as_uri(), "REVISIONS": json.dumps(revisions or {}),
         }
         env.pop("CANDIDATE_DIR", None)
-        result = subprocess.run(["ruby", "-e", RUBY_DRIVER, str(VALIDATOR)], env=env,
+        # The driver runs from the fixture's temporary directory, outside any
+        # checkout, as the guard does in its own job. Run from inside this
+        # checkout, a git wrapper that acts on the working directory's
+        # repository rather than on --git-dir (the Linux runner pool's mirror
+        # shim) rewrote the guard's capped blobless fetch into a full one, so
+        # the 3 MB blob arrived and no contents-API fallback ran; and when a
+        # rewritten fetch failed it dropped this checkout's mirror alternate
+        # and reset its HEAD to an empty commit, so a later guard saw every
+        # tracked file as added.
+        result = subprocess.run(["ruby", "-e", RUBY_DRIVER, str(VALIDATOR)], env=env, cwd=self.directory.name,
                                 capture_output=True, text=True, check=False, timeout=600)
         marker = [line for line in result.stderr.splitlines() if line.startswith("API_CALLS=")]
         self.assertTrue(marker, result.stdout + result.stderr)
@@ -219,8 +228,8 @@ class CLAGuardGitReadsTests(unittest.TestCase):
         head = self.commit_large_document(3_000_000)
         result, calls = self.run_driver(
             "read", head, {}, revisions={self.base: REPOSITORY, head: HEAD_REPOSITORY})
-        self.assertIn(f"repos/{HEAD_REPOSITORY}/contents/CLA.md?ref={head}", calls, result.stderr)
-        self.assertIn(f"repos/{REPOSITORY}/contents/CLA.md?ref={self.base}", calls, result.stderr)
+        self.assertIn(f"repos/{HEAD_REPOSITORY}/contents/CLA.md?ref={head}", calls)
+        self.assertIn(f"repos/{REPOSITORY}/contents/CLA.md?ref={self.base}", calls)
 
     def test_a_symlink_policy_file_fails_the_guard(self):
         git(self.repo, "checkout", "-q", "-b", "symlink", self.base)
