@@ -380,6 +380,7 @@ struct ReplayConversationScreen: View {
                         AutoRetryQuietLine(autoRetry)
                     }
                 } else {
+                    // The same first-load placeholder while the read is retried: one id, one bound.
                     CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
                         .placeholderBound("chat.history.loading", .milliseconds(2000))
                 }
