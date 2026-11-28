@@ -21,10 +21,17 @@ const prompt = (n: number, text: string, extra: Partial<AcpmuxRow> = {}): Acpmux
   promptId: `p-${n}`,
   ...extra,
 });
-const reply = (n: number): AcpmuxRow => ({ id: `a-${n}`, version: 1, at: n + 0.5, kind: "assistant", text: `Answer ${n}` });
+const reply = (n: number): AcpmuxRow => ({
+  id: `a-${n}`,
+  version: 1,
+  at: n + 0.5,
+  kind: "assistant",
+  text: `Answer ${n}`,
+});
 
 const NOTICE = "[notice from glaeda-land · WARN] glaeda land: https://github.com/example/pull/1";
-const notice = (n: number): AcpmuxRow => prompt(n, NOTICE, { incoming: { kind: "notice", text: NOTICE }, untyped: true });
+const notice = (n: number): AcpmuxRow =>
+  prompt(n, NOTICE, { incoming: { kind: "notice", text: NOTICE }, untyped: true });
 function agentMessage(n: number): AcpmuxRow {
   const body = "HQ mirror stash cleared on the helper's branch.";
   const incoming = incomingPrompt(body, {

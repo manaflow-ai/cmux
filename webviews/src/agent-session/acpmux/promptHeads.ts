@@ -55,7 +55,9 @@ function of(heads: readonly PromptHead[]): PromptHeads {
     return id;
   });
   const promptIds = seen.size ? joined(ids) : undefined;
-  const others = heads.some((head) => head.others) ? Uint8Array.from(heads, (head) => (head.others ? 1 : 0)) : undefined;
+  const others = heads.some((head) => head.others)
+    ? Uint8Array.from(heads, (head) => (head.others ? 1 : 0))
+    : undefined;
   return {
     length: heads.length,
     seqs,
