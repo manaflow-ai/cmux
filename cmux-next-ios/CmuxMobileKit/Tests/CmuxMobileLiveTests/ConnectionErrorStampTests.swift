@@ -2,22 +2,26 @@ import Testing
 @testable import CmuxMobileLive
 
 /// Leo, 2026-11-27: "Stale errors clear on fresh data." and "An error set by a timeout clears when the next
-/// good data arrives, as in #62661." Each case: an error, then data, then what stands.
+/// good data arrives, as in #62661." Each case: an error, then data, then what stands. A mutating call goes in a
+/// `let` before `#expect`: the macro's expansion takes its operand as an immutable value.
 @Suite struct ConnectionErrorStampTests {
     @Test func timeoutThenGoodDataClears() {
         var stamp = ConnectionErrorStamp()
         stamp.set("the Mac didn't send its workspaces", by: .timeout)
         #expect(stamp.message == "the Mac didn't send its workspaces")
         #expect(stamp.error?.setBy == .timeout)
-        #expect(stamp.fresh())
+        let cleared = stamp.fresh()
+        #expect(cleared)
         #expect(stamp.message == nil)
     }
 
     @Test func fetchFailureThenGoodDataClears() {
         var stamp = ConnectionErrorStamp()
         let read = stamp.begin()
-        #expect(stamp.set("list-workspaces reply is not an object", by: .fetch, startedAt: read))
-        #expect(stamp.fresh())
+        let stood = stamp.set("list-workspaces reply is not an object", by: .fetch, startedAt: read)
+        #expect(stood)
+        let cleared = stamp.fresh()
+        #expect(cleared)
         #expect(stamp.message == nil)
     }
 
@@ -25,7 +29,8 @@ import Testing
         var stamp = ConnectionErrorStamp()
         let read = stamp.begin()
         stamp.fresh()  // the list arrived (a later read, or a push) before this read failed
-        #expect(!stamp.set("daemon channel closed", by: .fetch, startedAt: read))
+        let stood = stamp.set("daemon channel closed", by: .fetch, startedAt: read)
+        #expect(!stood)
         #expect(stamp.message == nil)
     }
 
@@ -33,7 +38,8 @@ import Testing
         var stamp = ConnectionErrorStamp()
         stamp.fresh()
         let read = stamp.begin()
-        #expect(stamp.set("daemon channel closed", by: .fetch, startedAt: read))
+        let stood = stamp.set("daemon channel closed", by: .fetch, startedAt: read)
+        #expect(stood)
         #expect(stamp.message == "daemon channel closed")
         #expect(stamp.error!.generation > stamp.freshAt)
     }
@@ -41,7 +47,8 @@ import Testing
     @Test func aUserErrorIsNotClearedByData() {
         var stamp = ConnectionErrorStamp()
         stamp.set("you declined this Mac", by: .user)
-        #expect(!stamp.fresh())
+        let cleared = stamp.fresh()
+        #expect(!cleared)
         #expect(stamp.message == "you declined this Mac")
         stamp.clear()
         #expect(stamp.message == nil)
