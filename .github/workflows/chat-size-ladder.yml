@@ -14,6 +14,8 @@ name: chat-size ladder
 
 on:
   pull_request:
+    # labeled: the ready-to-land (or full-ci) label is when a pull request's ladder runs (the job's if below).
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - "cmux-tui/crates/acpmux/**"
       - "cmux-tui/crates/coord-sim/**"
@@ -44,8 +46,10 @@ on:
         type: string
 
 concurrency:
-  # A newer push to the same pull request or branch replaces its older ladder.
-  group: chat-size-ladder-${{ github.event.pull_request.number || github.ref }}
+  # A newer push to the same pull request or branch replaces its older ladder. A label event gets its own group: on a
+  # pull request the ladder runs at the ready-to-land label, and land's later push (which runs no job here) must not
+  # cancel it.
+  group: chat-size-ladder-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -54,7 +58,12 @@ permissions:
 jobs:
   ladder:
     name: chat-size ladder (base vs head, advisory)
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # Heavy-at-land (scripts/ci/head_tier.py; CI_HEAVY_AT_LAND=0 turns it off): a pull request runs the ladder once, on
+    # the labeled event that adds ready-to-land or full-ci, not on every push. Each push ran two release builds and two
+    # 1 GB chats, about 50 runner-min: 88 pull_request runs over 73 branches in 05:26-07:58Z 11-28 (3.6k runner-min,
+    # about 35k/day). A lane that wants its delta earlier dispatches the workflow on its branch.
+    # Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && (((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled') || (github.event.action == 'labeled' && contains(fromJSON('["ready-to-land","full-ci"]'), github.event.label.name)))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 120
     steps:
