@@ -61,7 +61,9 @@ public final class PageInputReadiness {
         var script: String {
             switch self {
             case .insert(let text):
-                "return document.execCommand('insertText', false, \(JSONValue.string(text).compactText));"
+                // The page's launch echo watch (webviews launchInputEcho.ts) counts this insert as the typed key: the
+                // key fired no keydown in the page.
+                "window.dispatchEvent(new Event('cmux:typed-ahead')); return document.execCommand('insertText', false, \(JSONValue.string(text).compactText));"
             case .deleteBackward(let count):
                 // One `delete` per key, as the keys would: each is an input event the page's handlers see.
                 "for (let i = 0; i < \(max(0, count)); i += 1) { if (document.activeElement !== el || window.__cmuxInputFocusEpoch !== cmuxEditEpoch || (token !== null && el.__cmuxInputEditToken !== token)) { return false; } if (!document.execCommand('delete', false)) { return false; } } return true;"
