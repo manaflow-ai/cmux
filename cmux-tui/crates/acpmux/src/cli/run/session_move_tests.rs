@@ -1301,8 +1301,10 @@ fn every_push_a_move_makes_for_the_chat_names_its_lane() {
     };
 
     // Before: a push that names no lane is refused, with lane-gh's words.
+    // (push_branch keeps git's last line, "pre-receive hook declined"; the script's stderr
+    // carries the hook's own words.)
     let refused = push_branch(&src, "refs/heads/feat", None).unwrap_err();
-    assert!(format!("{refused:#}").contains("requires a lane session"), "{refused:#}");
+    assert!(format!("{refused:#}").contains("pushing feat to origin failed"), "{refused:#}");
     let old_input = format!("{}\nrefs/heads/feat\n", src.display());
     let refused = run_here(PUSH_SCRIPT, old_input.as_bytes()).unwrap();
     assert!(!refused.ok && refused.stderr.contains("requires a lane session"), "{refused:?}");
