@@ -2,6 +2,9 @@ import CmuxAgentQuestion
 import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileArtifacts
+#if os(iOS)
+import CmuxMobileDesign
+#endif
 #if canImport(CmuxMobileLinkFFI)
 import CmuxMobileLinkFFI
 #endif
@@ -952,6 +955,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         for record in entry.records { apply(record: record) }
         applyingKept = false
         endHistory()
+        #if os(iOS)
+        // R1: the chat's first content from this phone's kept transcript.
+        LaunchMarks.shared.firstContent("chat", cached: true)
+        #endif
     }
 
     /// The kept copy is too old to catch up from, or a reattach's hole is too wide to read
@@ -2931,6 +2938,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let pending = held
         held = []
         for record in pending { apply(record: record) }
+        #if os(iOS)
+        // R2: the chat caught up with the Mac's records.
+        LaunchMarks.shared.firstContent("chat", cached: false)
+        #endif
         startGapFill()
         emit(.historyLoading(false))
         saveKept()

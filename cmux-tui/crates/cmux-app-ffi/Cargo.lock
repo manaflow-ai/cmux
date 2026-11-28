@@ -514,6 +514,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-feed-push-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-felt"
 version = "0.1.0"
 dependencies = [
@@ -630,6 +640,7 @@ dependencies = [
  "cmux-cloud-start-core",
  "cmux-cloud-tasks",
  "cmux-error-journal",
+ "cmux-feed-push-core",
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",
