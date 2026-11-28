@@ -128,7 +128,7 @@ export function addressReleaseIneligibleReason(row: {
  * copy, and a resume would refuse it.
  */
 export function addressReleaseRestorable(
-  billingPlanId: string,
+  billingPlanId: string | null,
   reservation: { readonly vcpus: number; readonly memoryMb: number },
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
