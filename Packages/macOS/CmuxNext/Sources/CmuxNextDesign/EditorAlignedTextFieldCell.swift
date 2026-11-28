@@ -49,9 +49,16 @@ open class EditorAlignedTextFieldCell: NSTextFieldCell {
     /// The fade's erase coverage, none to whole, drawn with `destinationOut`.
     private static let eraseRamp = CGGradient(colorsSpace: nil, colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 1)] as CFArray, locations: [0, 1]) // colour-allow: alpha-only erase coverage for the fade; this colour is never displayed
 
+    /// Lines the cells laid out to draw, all cells: tests count them.
+    static var lineLayouts: UInt64 = 0
+
     private let restStorage = NSTextStorage()
     private let restLayout = NSLayoutManager()
     private let restContainer = NSTextContainer()
+    /// What the rest layout holds a line for: a redraw with the same text, padding, mode and container width (a fading
+    /// line's container is unbounded, so any field width) draws the glyphs laid out then. The omnibar's address redraws
+    /// at every width change of its bar, each divider or window resize step.
+    private var laidOut: (text: NSAttributedString, padding: CGFloat, mode: NSLineBreakMode, width: CGFloat)?
 
     public override init(textCell string: String) {
         super.init(textCell: string)
@@ -109,12 +116,19 @@ open class EditorAlignedTextFieldCell: NSTextFieldCell {
     private func drawLine(_ text: NSAttributedString, at origin: NSPoint, in box: NSRect, padding: CGFloat?) {
         let fade = min(overflowFadeWidth, box.width)
         // AppKit's field editor pads its line by 2 points a side.
-        restContainer.lineFragmentPadding = padding ?? 2
+        let padding = padding ?? 2
         // A fading line is laid out whole and cut by the clip below; else the container ends at the box and truncates.
-        restContainer.lineBreakMode = fade > 0 ? .byClipping : .byTruncatingTail
+        let mode: NSLineBreakMode = fade > 0 ? .byClipping : .byTruncatingTail
         let width = fade > 0 ? Self.unboundedWidth : max(0, box.maxX - origin.x)
-        restContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
-        restStorage.setAttributedString(text)
+        let sameLine = laidOut.map { $0.padding == padding && $0.mode == mode && $0.width == width && $0.text.isEqual(to: text) } ?? false
+        if !sameLine {
+            restContainer.lineFragmentPadding = padding
+            restContainer.lineBreakMode = mode
+            restContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
+            restStorage.setAttributedString(text)
+            Self.lineLayouts &+= 1
+            laidOut = (NSAttributedString(attributedString: text), padding, mode, width)
+        }
         let glyphs = restLayout.glyphRange(for: restContainer)
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
