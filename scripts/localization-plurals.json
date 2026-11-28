@@ -787,5 +787,23 @@
     "arguments": [
       1
     ]
+  },
+  "sessionPersistence.omittedPanels.workspace": {
+    "source": "Session restore left out %lld panels from this workspace. Only the first 512 panels are saved.",
+    "arguments": [
+      1
+    ]
+  },
+  "sessionPersistence.omittedPanels.workspaceDock": {
+    "source": "Session restore left out %lld panels from this workspace's Dock. Only the first 512 panels are saved.",
+    "arguments": [
+      1
+    ]
+  },
+  "sessionPersistence.omittedPanels.windowDock": {
+    "source": "Session restore left out %lld panels from this window's Dock. Only the first 512 panels are saved.",
+    "arguments": [
+      1
+    ]
   }
 }
