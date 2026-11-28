@@ -43,7 +43,7 @@ for load in quiet duress; do
     dir="$root"; [ "$side" = before ] && dir="$scratch/before"
     echo "P95-RUN side=$side load=$load sha=$(git -C "$dir" rev-parse --short=12 HEAD) nproc=$(nproc) load_avg=\"$(cut -d' ' -f1-3 /proc/loadavg)\""
     (cd "$dir/cmux-tui" && cargo test --profile gate -p acpmux --lib -q -- --ignored --nocapture --exact \
-      hub::paging_tests::subagent_newest_page_perf 2>&1 | grep -E "subagent newest page|panicked|test result") || true
+      hub::paging::paging_tests::subagent_newest_page_perf 2>&1 | grep -E "subagent newest page|panicked|test result") || true
   done
   for pid in ${burners[@]+"${burners[@]}"}; do kill "$pid" 2>/dev/null; done
   burners=()
