@@ -440,3 +440,130 @@ fn a_cloud_start_asks_for_the_interactive_class() {
     assert_eq!(person_priority_tags(true, true), Some(tags));
     assert_eq!(person_priority_tags(false, false), None);
 }
+
+/// A fake acpmux on a unix socket: `initialize` lists `features`; the first `closes` calls of a
+/// method in `close_on` end their connection with no reply (a restart under them); every other
+/// call answers `{"sessionId": "s1"}` (or `{}`). Each request's method and createKey is noted.
+fn restarting_acpmux(
+    features: Value,
+    close_on: &'static str,
+    closes: usize,
+) -> (std::path::PathBuf, Arc<Mutex<Vec<(String, Option<String>)>>>) {
+    use std::io::{BufRead, BufReader, Write};
+    let dir = std::env::temp_dir().join(format!(
+        "ras-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("acpmux.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let seen: Arc<Mutex<Vec<(String, Option<String>)>>> = Arc::default();
+    let noted = seen.clone();
+    let closed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let (features, noted, closed) = (features.clone(), noted.clone(), closed.clone());
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { return };
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let method = request["method"].as_str().unwrap_or_default().to_owned();
+                    let key = request
+                        .pointer("/params/_meta/acpmux/createKey")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    noted.lock().unwrap().push((method.clone(), key));
+                    if method == close_on
+                        && closed.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < closes
+                    {
+                        let _ = writer.shutdown(std::net::Shutdown::Both);
+                        return;
+                    }
+                    let result = match method.as_str() {
+                        "initialize" => json!({"_meta": {"acpmux": {"features": features}}}),
+                        "session/new" => json!({"sessionId": "s1"}),
+                        _ => json!({"ok": true}),
+                    };
+                    let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+                    if writeln!(writer, "{reply}").is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (path, seen)
+}
+
+fn creates(seen: &Mutex<Vec<(String, Option<String>)>>) -> Vec<Option<String>> {
+    seen.lock()
+        .unwrap()
+        .iter()
+        .filter(|(m, _)| m == "session/new")
+        .map(|(_, k)| k.clone())
+        .collect()
+}
+
+/// cmux run 46175571694 (a Cloud spare's claude start, 2026-11-28 18:17Z): acpmux closed the
+/// start's link after the catalog read and the start refused `agent_session.unavailable` ("this
+/// daemon has no acpmux to attach to") at once. A `session/new` acpmux closed under is sent
+/// again on a new link with the same create key, so the acpmux that comes back answers with the
+/// one session (acpmux `hub/create_key.rs`).
+#[test]
+fn a_create_acpmux_closed_under_is_sent_again_with_its_key() {
+    let (socket, seen) = restarting_acpmux(json!(["createKey"]), "session/new", 1);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let new = json!({"cwd": "/w", "mcpServers": [], "_meta": {"acpmux": {}}});
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let created = super::create_session(&socket, &mut link, new, until).expect("created");
+    assert_eq!(created, json!({"sessionId": "s1"}));
+    let keys = creates(&seen);
+    assert_eq!(keys.len(), 2, "{keys:?}");
+    assert!(keys[0].is_some());
+    assert_eq!(keys[0], keys[1], "the resend names the first create's key");
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// An acpmux that keeps no create keys is never sent a create again (it could make a second
+/// agent): the close stays the start's refusal, as before.
+#[test]
+fn a_create_without_create_keys_is_not_sent_again() {
+    let (socket, seen) = restarting_acpmux(json!([]), "session/new", 1);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let new = json!({"cwd": "/w", "mcpServers": [], "_meta": {"acpmux": {}}});
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let created = super::create_session(&socket, &mut link, new, until);
+    assert_eq!(created, Err(LinkError::Closed));
+    assert_eq!(creates(&seen), vec![None]);
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// The checks before the agent (the mode table, the trust answer) ask again on a new link when
+/// acpmux closed under them, as the catalog read already did.
+#[test]
+fn a_check_acpmux_closed_under_is_asked_again() {
+    let (socket, seen) = restarting_acpmux(json!([]), "_acpmux/web_modes", 1);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let table = super::ask_again(&socket, &mut link, until, "_acpmux/web_modes", json!({}));
+    assert_eq!(table, Ok(json!({"ok": true})));
+    let asked = seen.lock().unwrap().iter().filter(|(m, _)| m == "_acpmux/web_modes").count();
+    assert_eq!(asked, 2);
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// A start acpmux went away in names its phase, so the next such refusal says where.
+#[test]
+fn an_unavailable_start_names_its_step() {
+    let mut timings = super::StartTimings::default();
+    timings.at("trust");
+    let data = timings.refusal_data(Refusal::Unavailable, None).expect("a step");
+    assert_eq!(data, json!({"step": "trust"}));
+    assert_eq!(
+        super::super::refusal_text(Refusal::Unavailable, &data),
+        "this daemon has no acpmux to attach to at trust"
+    );
+}

@@ -2059,6 +2059,10 @@ fn refusal_text(refusal: Refusal, data: &Value) -> String {
             out
         }
         (Refusal::BadRequest, _, Some(field)) => format!("{} (field: {field})", refusal.message()),
+        // The phase acpmux went away or went quiet in (the start's `data.step`).
+        (Refusal::Unavailable | Refusal::Timeout, _, _) if text("step").is_some() => {
+            format!("{} at {}", refusal.message(), text("step").unwrap_or_default())
+        }
         _ => refusal.message().to_string(),
     }
 }
