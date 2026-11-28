@@ -389,6 +389,34 @@ impl Tracker {
         Some(self.stats(source, now, window))
     }
 
+    /// What the chat spent in each UTC hour its minute buckets keep (the last day): the hour's
+    /// start (unix ms) -> (tokens by model, cache reads by model). A purge keeps it after the
+    /// chat and its tracker go (`hub/purged_spend.rs`).
+    pub fn hours(&self) -> BTreeMap<u64, (BTreeMap<String, u64>, BTreeMap<String, u64>)> {
+        let mut hours = BTreeMap::<u64, (BTreeMap<String, u64>, BTreeMap<String, u64>)>::new();
+        for (minute, b) in &self.minutes {
+            let (tokens, cache_reads) = hours.entry(minute - minute % HOUR_MS).or_default();
+            for (into, from) in [(tokens, &b.by_model), (cache_reads, &b.cache_read_by_model)] {
+                for (model, n) in from {
+                    let total = into.entry(model.clone()).or_default();
+                    *total = total.saturating_add(*n);
+                }
+            }
+        }
+        hours
+    }
+
+    /// Since when (unix ms) the last refresh's reads cover every file: a window that starts at
+    /// or after it is known in full ([`Self::hours`] of an earlier one are lower than the truth).
+    pub fn known_since(&self) -> Option<u64> {
+        self.covered_since
+    }
+
+    /// The model of the chat's newest call, as its transcript names it.
+    pub fn model(&self) -> Option<&str> {
+        self.model.as_deref()
+    }
+
     fn stats(&self, source: &Source, now: u64, window: Option<u64>) -> UsageStats {
         let covers = |since: u64| self.covered_since.is_some_and(|from| from <= since);
         let complete = covers(now.saturating_sub(DAY_MS));

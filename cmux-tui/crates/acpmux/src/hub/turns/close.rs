@@ -195,6 +195,12 @@ impl Hub {
         if !purge && !session.replaced.load(Ordering::SeqCst) {
             self.free_closed_tmp_soon(session);
         }
+        // What it spent stays countable after it goes (`hub/purged_spend.rs`): an ephemeral run
+        // (`acpmux run --ephemeral`, `acpmux exec`) is purged as its reply ends, and its spend
+        // left every count with it. A chat an import replaces did not end.
+        if purge && !session.replaced.load(Ordering::SeqCst) {
+            self.keep_purged_spend(session).await;
+        }
         if purge {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
