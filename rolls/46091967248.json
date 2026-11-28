@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46091967248",
+  "recorded_at": "2026-11-28T02:00:09Z",
+  "reason": "image inputs changed in ef6feccd59fd786d495094ff9a9e2f204977f6ee..38a225cb8403f957ed58c69e4fbd1dbb91713867; cmux-tui 84927b92727c, the newest build published on HEAD (pinned 589544f1e56b; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "84927b92727ce69a888ea78b4bc922acec448b77",
+  "fixes": [
+    {
+      "sha": "38a225cb8403f957ed58c69e4fbd1dbb91713867",
+      "mergedAt": "2026-11-28T01:12:52+00:00",
+      "subject": "image: preinstall Executor for the Cloud Chief, keyed per machine, with a GitHub app (#63587)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T02:00:09Z",
+    "snapshot_id": "sh-b3325e8ebf5f4caa9887cd21e546cc0a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46091967248): 34 checks passed"
+  },
+  "promotion": {
+    "result": "nothing",
+    "job": "success",
+    "commit": "",
+    "image": "cloud-native-auto-84927b92-46091967248-1",
+    "revision": "ci-46091967248-1",
+    "at": null
+  },
+  "rolled_back": false
+}
