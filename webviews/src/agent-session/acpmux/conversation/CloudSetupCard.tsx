@@ -1,9 +1,10 @@
 import { useId } from "react";
 import { useT } from "../i18n";
-import { cloudSetupAction, cloudSetupName, type CloudSetupAction, type CloudSetupNeed } from "../cloudSetup";
+import { type CloudSetupAction, type CloudSetupNeed, cloudSetupAction, cloudSetupName } from "../cloudSetup";
 import type { ConnectProgress } from "../claudeConnect";
 import { ConnectCard, type ConnectCardLook } from "../ConnectCard";
-import { CloudSetupSteps, type CloudSetupStepsLook } from "./CloudSetupSteps";
+import { CloudSetupSteps } from "./CloudSetupSteps";
+import type { CloudSetupStepsLook } from "./cloudSetupStep";
 import { Spinner } from "./icons";
 
 export function CloudSetupCard({
