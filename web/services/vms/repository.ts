@@ -99,6 +99,8 @@ import {
   type VmResourcePoolPolicy,
   type VmResourceReservation,
 } from "./machineSpec";
+import { SANDBOX_VM_IDEMPOTENCY_PREFIX, SANDBOX_VM_MARKER_KEY } from "../runs/model";
+import { CREATE_WAIT_METADATA_KEY, type VmCreateWait } from "./createWait";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
@@ -256,6 +258,16 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly scope: "user" | "team";
     readonly cidr: string;
   }) => Effect.Effect<number, VmDatabaseError>;
+  /**
+   * Record a create's explicit wait (services/vms/createWait.ts) on its
+   * failed row, so the same-key retry that replaces the row keeps the first
+   * wait's deadline. False when the row is not a failed create without a
+   * provider machine.
+   */
+  readonly recordCreateWait?: (input: {
+    readonly id: string;
+    readonly wait: VmCreateWait;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** The owner's private-network row for one provider, or null when they have none yet. */
   readonly findNetwork?: (
     userId: string,
@@ -1752,6 +1764,27 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           ),
         ));
       return Number(row?.total ?? 0);
+    }),
+
+  recordCreateWait: (input) =>
+    dbEffect("recordCreateWait", async () => {
+      const db = cloudDb();
+      const updated = await db
+        .update(cloudVms)
+        .set({
+          updatedAt: new Date(),
+          providerMetadata: sql`(
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object('${sql.raw(CREATE_WAIT_METADATA_KEY)}', ${JSON.stringify(input.wait)}::jsonb)
+          )`,
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.status, "failed"),
+          isNull(cloudVms.providerVmId),
+        ))
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
     }),
 
   findNetwork: (userId, provider) =>
