@@ -1679,5 +1679,18 @@ class PeerServeFirstContact(unittest.TestCase):
         self.assertIn("peer-serve: done from 127.0.0.1", out)
 
 
+
+class HostEnv(unittest.TestCase):
+    def test_power_hint_is_allowed_as_0_or_1(self):
+        self.assertEqual(vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=0"]), {"CMUX_RD_VT_POWER_EFFICIENT": "0"})
+        self.assertEqual(vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=1"]), {"CMUX_RD_VT_POWER_EFFICIENT": "1"})
+        with self.assertRaises(ValueError):
+            vs.checked_env(["CMUX_RD_VT_POWER_EFFICIENT=2"])
+
+    def test_other_names_are_refused(self):
+        with self.assertRaises(ValueError):
+            vs.checked_env(["CMUX_RD_TIMING_LOG=/tmp/x"])
+
+
 if __name__ == "__main__":
     unittest.main()
