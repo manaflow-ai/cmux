@@ -19,6 +19,8 @@ fn record(session: &str, nonce: &str) -> HostRecord {
         claude_translator: false,
         host_level: 0,
         holder: None,
+        local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     }
 }
 
