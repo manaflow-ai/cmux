@@ -71,13 +71,6 @@ pub(super) struct Checkpoint {
     /// The folds through `seq` of an incarnation whose `host_started` comes after it.
     #[serde(default)]
     pub(super) unstarted: Option<Folds>,
-    /// `unstarted` was the same as `folds` when saved, and is left out: a checkpoint saved by a
-    /// daemon with no host running (`UNSTARTED`) holds the same folds twice, and so does one of a
-    /// host whose folds have not moved apart. A reader puts it back ([`Hub::adoption_checkpoint`]).
-    /// A build before it reads no `unstarted`, which is a whole read for another incarnation,
-    /// never a wrong one.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    unstarted_same: bool,
     /// The chat's process table (`processes.rs`) through `seq` or an earlier record; one an
     /// incarnation does not change. None in a checkpoint saved before it was kept: the next
     /// adoption reads the table from the log's copies, then keeps it.
@@ -152,69 +145,10 @@ impl Checkpoint {
             inputs,
             folds,
             unstarted,
-            unstarted_same: false,
             processes: None,
         }
     }
 }
-
-impl Checkpoint {
-    /// Takes `unstarted` out when it is the same as `folds` (marking `unstarted_same`), for the
-    /// write; gives it back so the caller restores it. An unstarted checkpoint's are the same by
-    /// construction (`journal.rs` `fold_open_work`); otherwise their bytes are compared, which
-    /// a map's order can tell apart when equal, and then both are written, as before.
-    fn leave_out_same_unstarted(&mut self) -> Option<Folds> {
-        let same = match &self.unstarted {
-            None => false,
-            Some(_) if self.incarnation == UNSTARTED => true,
-            Some(unstarted) => match (serde_json::to_vec(&self.folds), serde_json::to_vec(unstarted)) {
-                (Ok(a), Ok(b)) => a == b,
-                _ => false,
-            },
-        };
-        if !same {
-            // Not the same: written as it is.
-            return None;
-        }
-        self.unstarted_same = true;
-        self.unstarted.take()
-    }
-}
-
-/// The size of each chat's last saved checkpoint, which spaces its turn-end saves
-/// ([`turn_end_every`]).
-static SAVED_BYTES: std::sync::LazyLock<std::sync::Mutex<HashMap<String, usize>>> =
-    std::sync::LazyLock::new(Default::default);
-
-fn note_saved_bytes(id: &str, bytes: usize) {
-    SAVED_BYTES.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), bytes);
-}
-
-/// The bytes of chat `id`'s last saved checkpoint, when this daemon saved one.
-pub(super) fn saved_bytes(id: &str) -> Option<usize> {
-    SAVED_BYTES.lock().unwrap_or_else(|e| e.into_inner()).get(id).copied()
-}
-
-/// How long after a turn-end save of a checkpoint of `bytes` the next one waits: a minute, and a
-/// minute more for each [`TURN_END_BYTES_PER_MINUTE`] it holds, at most [`TURN_END_MOST`]. Each
-/// save writes the whole checkpoint, so a chat's saves write at most that many bytes a minute,
-/// however long it is; at a fixed minute, a 33 MB checkpoint was rewritten every minute a turn
-/// ended (2 GB an hour for one chat) while each save's fold read only the records since the
-/// last. The adoption after it still reads only the records since the last save: at most
-/// [`TURN_END_MOST`] of them, never the log.
-pub(super) fn turn_end_every(bytes: Option<usize>) -> std::time::Duration {
-    // timeout: not a wait; how often a chat's turn ends refresh its checkpoint.
-    const MINUTE: std::time::Duration = std::time::Duration::from_secs(60);
-    let most = TURN_END_MOST.as_secs() / MINUTE.as_secs();
-    let minutes = bytes.map_or(1, |b| 1 + (b / TURN_END_BYTES_PER_MINUTE) as u64).min(most);
-    MINUTE * u32::try_from(minutes).unwrap_or(u32::MAX)
-}
-
-/// [`turn_end_every`]'s write budget per chat.
-pub(super) const TURN_END_BYTES_PER_MINUTE: usize = 1 << 20;
-/// [`turn_end_every`]'s longest wait.
-// timeout: not a wait; the most records a restart folds past a long chat's checkpoint.
-pub(super) const TURN_END_MOST: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 impl Hub {
     /// What `session`'s adoption folds read besides its log, now.
@@ -239,11 +173,6 @@ impl Hub {
     ) -> Option<Checkpoint> {
         let bytes = self.store.adoption_checkpoint(&session.id)?;
         let mut point: Checkpoint = serde_json::from_slice(&bytes).ok()?;
-        drop(bytes);
-        if point.unstarted_same {
-            point.unstarted = Some(point.folds.clone());
-            point.unstarted_same = false;
-        }
         if point.incarnation != incarnation {
             // Another host's: its folds before any start of this one are this one's.
             let unstarted = point.unstarted.clone()?;
@@ -349,18 +278,9 @@ impl Hub {
             if self.store.log_stamp(&session.id).ok() != Some(point.stamp) {
                 return;
             }
-            let left_out = point.leave_out_same_unstarted();
-            let written = serde_json::to_vec(&*point);
-            if left_out.is_some() {
-                point.unstarted = left_out;
-            }
-            point.unstarted_same = false;
-            let Ok(bytes) = written else { return };
-            match self.store.save_adoption_checkpoint(&session.id, &bytes) {
-                Ok(()) => note_saved_bytes(&session.id, bytes.len()),
-                Err(error) => {
-                    tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
-                }
+            let Ok(bytes) = serde_json::to_vec(&*point) else { return };
+            if let Err(error) = self.store.save_adoption_checkpoint(&session.id, &bytes) {
+                tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
             }
         };
         save(&mut point);

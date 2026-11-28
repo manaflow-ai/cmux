@@ -89,10 +89,11 @@ impl Hub {
         session: &Arc<Session>,
         child: &crate::agent::ChildAgent,
     ) {
+        // timeout: not a wait; how often a chat's turn ends refresh its checkpoint.
+        const EVERY: std::time::Duration = std::time::Duration::from_secs(60);
         let Some(record) = child.host_record() else { return };
-        let every = super::checkpoint::turn_end_every(super::checkpoint::saved_bytes(&session.id));
         let hub = self.clone();
-        self.spawn_checkpoint_save(session, Some(every), move |session| {
+        self.spawn_checkpoint_save(session, Some(EVERY), move |session| {
             hub.save_checkpoint_now(session, &record.incarnation);
         });
     }

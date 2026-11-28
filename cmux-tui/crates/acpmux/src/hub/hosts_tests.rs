@@ -906,10 +906,6 @@ async fn a_checkpoint_saved_with_no_host_serves_the_hosts_started_after_it() {
                 continue;
             };
             let point: checkpoint::Checkpoint = serde_json::from_slice(&bytes).unwrap();
-            // Its unstarted folds are its folds, written once.
-            let raw: Value = serde_json::from_slice(&bytes).unwrap();
-            assert!(raw.get("unstarted").is_none_or(Value::is_null), "log {n} split {split}");
-            assert_eq!(raw["unstarted_same"], true, "log {n} split {split}");
             for record in &log.records[split..] {
                 hub.store.append("chat0", record).unwrap();
             }
@@ -933,25 +929,6 @@ async fn a_checkpoint_saved_with_no_host_serves_the_hosts_started_after_it() {
         }
     }
     assert!(resumed > 0, "no adoption resumed a checkpoint saved with no host");
-}
-
-/// A turn-end save waits a minute and a minute per MiB its last checkpoint held, at most 15
-/// minutes: a chat's saves write about a MiB a minute however long its checkpoint grows.
-#[test]
-fn turn_end_saves_space_out_with_the_checkpoints_size() {
-    use super::checkpoint::{turn_end_every, TURN_END_BYTES_PER_MINUTE as MIB, TURN_END_MOST};
-    let minutes = |m: u64| std::time::Duration::from_secs(60 * m);
-    assert_eq!(turn_end_every(None), minutes(1));
-    assert_eq!(turn_end_every(Some(700_000)), minutes(1));
-    assert_eq!(turn_end_every(Some(MIB)), minutes(2));
-    assert_eq!(turn_end_every(Some(5 * MIB + 1)), minutes(6));
-    assert_eq!(turn_end_every(Some(33_000_000)), TURN_END_MOST);
-    assert_eq!(turn_end_every(Some(usize::MAX)), TURN_END_MOST);
-    for bytes in [0, MIB / 2, MIB, 3 * MIB, 14 * MIB, 64 * MIB] {
-        let every = turn_end_every(Some(bytes)).as_secs_f64() / 60.0;
-        let per_minute = bytes as f64 / every;
-        assert!(per_minute <= MIB as f64 || every >= 15.0, "{bytes} B every {every} min");
-    }
 }
 
 /// A new hub must use the durable checkpoint, and changing the log must invalidate it even
