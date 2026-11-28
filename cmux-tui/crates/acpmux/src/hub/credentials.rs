@@ -410,14 +410,14 @@ impl Hub {
             return Ok(json!({}));
         }
         if self.hands_off(&session) {
-            return Err({eprintln!("PENDING-TAG 1 line 413"); withdrawal_pending()});
+            return Err(withdrawal_pending());
         }
         let child = session.child.lock().await.clone();
         let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let unverified_host = child.is_none() && !Self::host_record_gone(&session.id);
         if !held && meta.credential_connection.is_none() && !meta.credential_withdrawn {
             if unverified_host {
-                return Err({eprintln!("PENDING-TAG 2 line 420"); withdrawal_pending()});
+                return Err(withdrawal_pending());
             }
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
         }
@@ -425,16 +425,16 @@ impl Hub {
         // and live-child reuse read this under the same spawn lock. Try the other leases without
         // waiting because their holders may be waiting for the spawn lock.
         self.set_credential_withdrawn(&session, meta.credential_withdrawn, true)?;
-        let _turn = session.turn_lock.try_lock().map_err(|_| {eprintln!("PENDING-TAG 3 line 428"); withdrawal_pending()})?;
-        let _using = session.harness_use.try_write().map_err(|_| {eprintln!("PENDING-TAG 4 line 429"); withdrawal_pending()})?;
+        let _turn = session.turn_lock.try_lock().map_err(|_| withdrawal_pending())?;
+        let _using = session.harness_use.try_write().map_err(|_| withdrawal_pending())?;
         if unverified_host {
-            return Err({eprintln!("PENDING-TAG 5 line 431"); withdrawal_pending()});
+            return Err(withdrawal_pending());
         }
         let host_nonce =
             child.as_ref().and_then(|child| child.host_record().map(|record| record.start_nonce));
         let _link = match &child {
             Some(child) => {
-                let link = child.try_hold_host_link().map_err(|_| {eprintln!("PENDING-TAG 6 line 437"); withdrawal_pending()})?;
+                let link = child.try_hold_host_link().map_err(|_| withdrawal_pending())?;
                 let verified = if child.recovery_replay_complete() {
                     Self::drain_inbound(&session).await
                 } else {
@@ -445,7 +445,7 @@ impl Hub {
                     || child.is_retired()
                     || (host_nonce.is_some() && !child.is_alive().await)
                 {
-                    return Err({eprintln!("PENDING-TAG 7 line 448"); withdrawal_pending()});
+                    return Err(withdrawal_pending());
                 }
                 link
             }
@@ -459,7 +459,7 @@ impl Hub {
             || session.has_pending_permissions()
             || self.holds_work_below(&session)
         {
-            eprintln!("PENDING-TAG 8 turn={} ht={} comp={} asks={} areq={} perms={} below={}", session.turn().is_some(), session.harness_turn.load(Ordering::SeqCst), session.compacting.load(Ordering::SeqCst), session.asks_in_flight.load(Ordering::SeqCst), session.agent_requests.load(Ordering::SeqCst), session.has_pending_permissions(), self.holds_work_below(&session)); return Err(withdrawal_pending());
+            return Err(withdrawal_pending());
         }
         if child.is_some() {
             // Use only the link whose work was checked. A lost link cannot justify killing a host.
@@ -478,7 +478,7 @@ impl Hub {
             None => Self::host_record_gone(&session.id),
         };
         if session.child.lock().await.is_some() || !host_ended {
-            return Err({eprintln!("PENDING-TAG 9 line 481"); withdrawal_pending()});
+            return Err(withdrawal_pending());
         }
         session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
         #[cfg(unix)]
