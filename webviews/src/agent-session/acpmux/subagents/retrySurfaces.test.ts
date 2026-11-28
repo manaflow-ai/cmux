@@ -25,6 +25,13 @@ const failedAgent = (fields: Record<string, unknown>) => {
 };
 
 describe("the running tray", () => {
+  test("capacity holds stay in their transcript group, not repeated in the live or finished tray", () => {
+    for (const retry of [RETRY, null]) {
+      const agents = failedAgent({ retry, capacityWait: { reason: "capacity", resumesAt: RETRY.nextAt } });
+      expect(trayItems(agents, [], [], false)).toEqual([]);
+      expect(finishedTrayItems(agents, [])).toEqual([]);
+    }
+  });
   test("shows what acpmux retries with the running ones, never among the finished", () => {
     const agents = failedAgent({ retry: RETRY });
     expect(trayItems(agents, [], [], false).map((item) => item.id)).toEqual(["a"]);

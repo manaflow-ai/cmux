@@ -135,6 +135,8 @@ type WorktreeError = {
 
 /// What AcpmuxPane's render hands its composer tree: each value as the render worked it out.
 export type PaneComposerDeps = {
+  /// A capacity row already visible in this pane owns the countdown.
+  capacityInTranscript?: boolean;
   /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
   markDockEdge: (lit: boolean) => void;
   /// acpmux's overload verdict for this Mac (App.tsx `useHostOverload`); the notice shows only when over.
@@ -435,6 +437,7 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
+  capacityInTranscript,
   hostOverload,
   markDockEdge,
   composerTurnQueue,
@@ -874,7 +877,12 @@ export function drawPaneComposer({
               </output>
             </Notice>
             <OverloadNotice state={hostOverload} />
-            {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+            {!showNewTab && (
+              <AutoResumeNotice
+                state={liveAutoResume(liveTurnPhase, snapshot.autoResume)}
+                capacityInTranscript={capacityInTranscript}
+              />
+            )}
             {!showNewTab && !quick && (
               <MoveDock
                 session={snapshot.sessionId}

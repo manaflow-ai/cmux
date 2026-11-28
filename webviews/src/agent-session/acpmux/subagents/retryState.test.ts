@@ -119,6 +119,30 @@ describe("the fold keeps a subagent's retry", () => {
   const change = (fold: SubagentFold, fields: Record<string, unknown>) =>
     feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", ...fields }] });
 
+  test("a capacity hold survives its fired retry and clears on recovery or a permanent failure", () => {
+    for (const terminal of ["running", "completed", "cancelled", "failed"]) {
+      const fold = new SubagentFold();
+      feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Review" }] });
+      change(fold, {
+        state: "failed",
+        error: "429 no non-exhausted claude accounts available",
+        retry: FIXTURE.subagentRetry,
+        capacityWait: { reason: "capacity", resumesAt: 1_792_000_060_000 },
+      });
+      change(fold, { retry: null, capacityWait: { reason: "capacity" } });
+      expect(subagentRetry(fold.all()[0]!).kind).toBe("settling");
+      expect(retryActionOf(fold.all()[0]!)).toBeUndefined();
+      change(fold, {
+        state: terminal,
+        ...(terminal === "failed" ? { capacityWait: null, error: "401 unauthorized" } : {}),
+      });
+      const agent = fold.all()[0]!;
+      expect(agent.capacityWait).toBeUndefined();
+      expect(subagentRetry(agent).kind).toBe(terminal === "failed" ? "failed" : "none");
+      if (terminal === "failed") expect(agent.error).toBe("401 unauthorized");
+    }
+  });
+
   test("waiting; a cleared wait is not a give-up until acpmux's exhausted step says so", () => {
     const fold = new SubagentFold();
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Push relay" }] });

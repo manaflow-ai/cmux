@@ -15,7 +15,9 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
   for (const key of [
     "window",
     "document",
@@ -53,12 +55,16 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function render(container: HTMLElement, state: Parameters<typeof AutoResumeNotice>[0]["state"]) {
+async function render(
+  container: HTMLElement,
+  state: Parameters<typeof AutoResumeNotice>[0]["state"],
+  capacityInTranscript = false,
+) {
   root ??= createRoot(container);
   await act(async () => {
     root!.render(
       <NoticeSlot>
-        <AutoResumeNotice state={state} />
+        <AutoResumeNotice state={state} capacityInTranscript={capacityInTranscript} />
       </NoticeSlot>,
     );
   });
@@ -75,6 +81,23 @@ test("the retry line shows while the daemon waits to retry, and nothing once the
     await render(container, { attempt: 2 });
     expect(container.querySelector("[data-auto-resume]")).toBeNull();
     expect(container.textContent).toBe("");
+  } finally {
+    setLastingGrace(LASTING_MS);
+  }
+});
+
+test("the transcript owns one capacity indicator, but unrelated transport waits remain visible", async () => {
+  const container = installDom();
+  setLastingGrace(0);
+  try {
+    for (const reason of ["capacity", "rate_limit"] as const) {
+      await render(container, { retry: { attempt: 1, of: 4, reason } }, true);
+      expect(container.querySelector("[data-auto-resume]")).toBeNull();
+      await render(container, { retry: { attempt: 1, of: 4, reason } });
+      expect(container.querySelector('[data-auto-resume="waiting"]')).not.toBeNull();
+    }
+    await render(container, { retry: { attempt: 1, of: 4, reason: "transport" } }, true);
+    expect(container.querySelector('[data-auto-resume="waiting"]')).not.toBeNull();
   } finally {
     setLastingGrace(LASTING_MS);
   }

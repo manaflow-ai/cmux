@@ -21,7 +21,9 @@ export type CapacityWaitState = {
 };
 
 /// The chat's wait, for its transcript (TurnRows.tsx): provided beside the chat's id (App.tsx).
-export const CapacityWaitContext = createContext<CapacityWaitState | undefined>(undefined);
+export const CapacityWaitContext = createContext<(CapacityWaitState & { groupedHelpers?: boolean }) | undefined>(
+  undefined,
+);
 
 const ms = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
 const words = (value: unknown, max: number) =>
