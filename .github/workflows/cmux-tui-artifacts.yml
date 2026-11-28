@@ -1691,6 +1691,9 @@ jobs:
       build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
 
   # MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: the Cloud machine channel's thin copy of the two Linux musl
@@ -1790,6 +1793,9 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -2132,6 +2138,9 @@ jobs:
       darwin_builder: ${{ needs.darwin-fallback-plan.outputs.builder }}
       macos_stubs_ref: ${{ needs.darwin-fallback-plan.outputs.stubs_ref }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
   # The publish jobs take the build from here: the matrix build, or that
   # build with its macOS targets rebuilt by build-darwin-fallback, or every
