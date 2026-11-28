@@ -119,10 +119,7 @@ private final class LiveStub: TerminalSession {
     }
 
     static func waitUntil(_ seconds: Double, _ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(seconds * 1000)))
-        while !condition(), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10)) // test: polls the demo shell's output until a deadline
-        }
+        try await TerminalTestWait.until(seconds, condition)
     }
 
     @Test func filesAndLinksWithoutAMacSayNotConnected() async {

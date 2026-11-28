@@ -33,10 +33,7 @@ import UIKit
     }
 
     static func waitUntil(_ condition: () -> Bool) async -> Bool {
-        for _ in 0..<300 {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        try? await TerminalTestWait.until(condition)
         return condition()
     }
 

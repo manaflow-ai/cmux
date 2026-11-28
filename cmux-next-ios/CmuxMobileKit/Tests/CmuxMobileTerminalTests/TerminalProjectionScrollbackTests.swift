@@ -71,10 +71,7 @@ import Testing
             // The page keeps scrolling at the top while the reset is on its
             // way: those calls join the ask (true: the same reset follows).
             for _ in 0..<5 { #expect(session.loadOlderHistory(), "a call while older rows are on their way") }
-            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-            while page.olderRowsAsked, ContinuousClock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(10))
-            }
+            try? await TerminalTestWait.until { !page.olderRowsAsked }
             #expect(insideTheCall == 0, "load \(loads + 1): the reset came inside the call, before the page recorded its ask")
             #expect(!page.olderRowsAsked, "load \(loads + 1): the page asked for older rows and no reset followed")
             if page.olderRowsAsked { break }

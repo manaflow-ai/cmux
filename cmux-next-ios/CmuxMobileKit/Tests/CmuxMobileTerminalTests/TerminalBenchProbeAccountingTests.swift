@@ -34,10 +34,7 @@ import UIKit
     }
 
     static func waitUntil(_ seconds: Double, _ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(seconds * 1000)))
-        while !condition(), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10)) // test: polls the probe until a deadline
-        }
+        try await TerminalTestWait.until(seconds, condition)
     }
 
     @Test func probeCountsTheResetAndAnIdleEchoShowsAtOnce() async throws {
