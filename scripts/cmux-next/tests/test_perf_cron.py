@@ -3314,13 +3314,31 @@ class RateLimitTests(unittest.TestCase):
                                              perf_result="", output=out))
             with open(out) as f:
                 plan = dict(line.split("=", 1) for line in f.read().splitlines())
-            self.assertEqual((plan["action"], plan["rate_limited"]), ("none", "true"))
+            self.assertEqual(plan["rate_limited"], "true")
+            self.assertEqual(plan["part"], "", "no Mac part without the state")
+            self.assertEqual(plan["action"] == "part", json.loads(plan["linux_matrix"]) != [],
+                             "a rate-limited tick runs the tip's Linux parts as a stand-in, or nothing when it has none")
             rep = os.path.join(d, "report.out")
             cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[], run_url="u", finish=False, issues=True, output=rep))
             with open(rep) as f:
                 report = dict(line.split("=", 1) for line in f.read().splitlines())
             self.assertEqual(report["changed"], "false", "nothing is saved over the last trusted state")
             self.assertFalse(os.path.exists(os.path.join(d, "state.json")))
+
+    def test_a_drained_budget_plans_the_tips_linux_parts_not_nothing(self):
+        # Before: action none under a 403 (five ticks, 2026-11-27, no part measured). After: every Linux part the tip
+        # can measure, no Mac part, no token-spending part, and a reason that says the state was not read.
+        with mock.patch.object(cron, "supported_parts_at", lambda sha: [p["name"] for p in cron.PARTS]):
+            out = cron.stand_in_outputs("a" * 40, cron.RateLimited("GET /x: HTTP 403"))
+        names = [m["part"] for m in json.loads(out["linux_matrix"])]
+        self.assertEqual((out["action"], out["sha"], out["part"]), ("part", "a" * 40, ""))
+        self.assertIn("web-ui", names)
+        self.assertIn("web-ui-god", names)
+        self.assertNotIn("cloud-claim", names)
+        self.assertTrue(all(cron.is_linux_part(n) for n in names))
+        self.assertIn("nothing is saved", out["reason"])
+        with mock.patch.object(cron, "supported_parts_at", lambda sha: []):
+            self.assertEqual(cron.stand_in_outputs("a" * 40, cron.RateLimited("x"))["action"], "none")
 
     def test_a_result_run_waits_out_the_rate_limit_and_reads_the_state(self):
         # A result run carries the controller's result of a part that ran: doing nothing drops it.
