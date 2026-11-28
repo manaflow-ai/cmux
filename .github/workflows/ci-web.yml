@@ -1363,7 +1363,12 @@ jobs:
             exec ./scripts/build-webviews-app.sh --check --skip-typecheck
           fi
           ./scripts/check-webviews-bun-version.sh
-          (cd webviews && bun run verify:tanstack-router)
+          # build-webviews-app.sh --check installed webviews' node_modules here before #61532 restored the producer's
+          # bundles instead (build-web-bundles.sh --from installs nothing), so a runner with no node_modules left
+          # from an earlier job ran the shard with no node_modules/.bin: `vp: command not found` in
+          # check:effect-cleanup (shard 1) and no ./node_modules/.bin/playwright (Install headless engines), red on
+          # every web pull request that drew a clean runner from 18:18Z on 2026-11-27 (hosted#1050).
+          (cd webviews && bun install --frozen-lockfile && bun run verify:tanstack-router)
 
       # All shards install the producer's immutable same-run output, verified against this checkout's source key.
       - name: Source key of the web bundles

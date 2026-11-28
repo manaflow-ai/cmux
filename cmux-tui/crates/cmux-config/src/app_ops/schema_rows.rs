@@ -101,6 +101,10 @@ fn requested(request: &Value) -> Result<Vec<&'static Row>, OpError> {
         .collect())
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn call(request: &Value) -> Result<Value, OpError> {
     let rows = requested(request)?;
     let root = root(request);
