@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b6c8e10bf36bcc1c893daa1b3027252359899fc9d9803e5cdda22fdcf1495cac";
+pub const ir_sha256 = "bbdf077ccd94645ace9ffc66ef760f14a76b4f8720e0462c123423194f142ff4";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -486,6 +486,85 @@ pub const CloudConversationPresenceParticipant = struct {
 };
 
 pub const ColorHex = []const u8;
+
+pub const ColumnDock = struct {
+    /// `pinned-dock-v1`: a pinned column takes more tabs; omitted when false.
+    allow_tabs: ?bool = null,
+    /// left or right (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).
+    edge: ColumnDockEdge,
+    /// `docked` takes its width out of the scrolling area; `overlay` floats above the scrolling columns.
+    mode: ColumnDockMode,
+    /// `permanent-dock-v1`: the column stays docked on `edge` for every client; omitted when false.
+    permanent: ?bool = null,
+    /// `pinned-dock-v1`: a pinned column (the Home dock); omitted when false.
+    pinned: ?bool = null,
+    /// `dock-column-role-v1`: what the column is for; omitted when unset.
+    role: ?ColumnDockRole = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "allow_tabs",
+        "permanent",
+        "pinned",
+        "role",
+    };
+};
+
+pub const ColumnDockEdge = enum {
+    left,
+    right,
+    top,
+    bottom,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        if (std.mem.eql(u8, value, "top")) return .top;
+        if (std.mem.eql(u8, value, "bottom")) return .bottom;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+            .top => "top",
+            .bottom => "bottom",
+        };
+    }
+};
+
+pub const ColumnDockMode = enum {
+    docked,
+    overlay,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "docked")) return .docked;
+        if (std.mem.eql(u8, value, "overlay")) return .overlay;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .docked => "docked",
+            .overlay => "overlay",
+        };
+    }
+};
+
+pub const ColumnDockRole = enum {
+    agent_chat,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "agent_chat")) return .agent_chat;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .agent_chat => "agent_chat",
+        };
+    }
+};
 
 pub const ColumnMoveDirection = enum {
     left,
@@ -1392,7 +1471,7 @@ pub const Layout = union(enum) {
 
 pub const LayoutColumnNode = struct {
     /// dock-columns-v1: the viewport edge the column is pinned to.
-    dock: ?JsonValue = null,
+    dock: ?ColumnDock = null,
     id: Id,
     layout: Layout,
     /// rows-v1: only for a column with two or more rows.

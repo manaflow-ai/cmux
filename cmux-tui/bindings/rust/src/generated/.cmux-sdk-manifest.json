@@ -12,7 +12,7 @@
     },
     {
       "path": "metadata.rs",
-      "sha256": "71af383d5db1c4c2f5254bd5729880b88fc3dc9a7e35db7c0f177898a14b7aa4",
+      "sha256": "4a5bb863055e8a88dca985bd0c35115515bfc66b908920baa687babc1ca27640",
       "size": 109870
     },
     {
@@ -22,12 +22,12 @@
     },
     {
       "path": "types.rs",
-      "sha256": "4ef69934d753c512d54423e5b51f69dc75cf26b795cc0f0f01d2fd0a658eebc9",
-      "size": 132987
+      "sha256": "8cfb2d71e6c7c98d761fd749b16a0d0acb081067c74e5200f9a952ca557a14c6",
+      "size": 135082
     }
   ],
   "format": 1,
-  "ir_sha256": "b6c8e10bf36bcc1c893daa1b3027252359899fc9d9803e5cdda22fdcf1495cac",
+  "ir_sha256": "bbdf077ccd94645ace9ffc66ef760f14a76b4f8720e0462c123423194f142ff4",
   "language": "rust",
   "mux_protocol": 12,
   "schema_version": 2
