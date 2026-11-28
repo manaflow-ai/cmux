@@ -553,6 +553,10 @@ flight whose model has shown no sign for that long has stalled: `lane.stalledSin
 `turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
 one tool call is in flight, so it never stalls. It is checked when a summary is read, with
 no timer.
+`turn.wchan` {toolCallId, title?, startedAt, boundMs?}: what a running turn waits on, its
+oldest tool call in flight (RFD 0179 idea 12): its id, its masked title, when acpmux first
+saw it and the bound it declared (`rawInput.timeout`, such as a Bash timeout); unset when no
+call is in flight. A call past the open-tool cap is not tracked, so it is never the wchan.
 `stalledTurnEndMs` (default 21600000, 6 h; 0 turns it off): a running turn whose model has
 shown no sign of work, counted the same way, for that long (four times that while one of its tool
 calls has not ended; also across a daemon restart: an adopted

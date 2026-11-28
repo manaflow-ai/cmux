@@ -662,6 +662,24 @@ pub struct TurnSummary {
     /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
     /// null while it has not.
     pub stalled_since: Option<u64>,
+    /// What it sleeps on (RFD 0179 idea 12): its oldest tool call in flight; null while none is.
+    #[serde(default)]
+    #[schemars(default)]
+    pub wchan: Option<Wchan>,
+}
+
+/// A running turn's oldest tool call in flight (`TurnSummary::wchan`, `hub/activity.rs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct Wchan {
+    pub tool_call_id: String,
+    /// Its title, masked (`secret_scan`) and cut; null while untitled.
+    pub title: Option<String>,
+    /// When acpmux first saw it, ms since the epoch.
+    pub started_at: u64,
+    /// The bound it declared at its start (`rawInput.timeout`, ms); null when it declared none.
+    pub bound_ms: Option<u64>,
 }
 
 /// A prompt waiting for the running turn to end.

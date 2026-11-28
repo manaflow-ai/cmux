@@ -922,6 +922,12 @@ impl Hub {
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
+                wchan: t.doing.wchan().map(|(id, c)| crate::protocol::session::Wchan {
+                    tool_call_id: id,
+                    title: c.title,
+                    started_at: c.started_at,
+                    bound_ms: c.bound_ms,
+                }),
                 activity: t.doing.activity,
             }),
             queue: session

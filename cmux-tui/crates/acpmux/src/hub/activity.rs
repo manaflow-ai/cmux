@@ -16,6 +16,10 @@
 //! call is in flight, so it never stalls. Those in flight that run a known build
 //! or test (`host_load::heavy_of_tool`) say so: the machine's load sample reads
 //! them from `daemon status` (`host_pressure.heavy`) instead of scanning processes.
+//!
+//! Each call in flight keeps when it started, its masked title and the bound it declared
+//! (`rawInput.timeout`, ms, as Claude Code's Bash sends): the oldest of them is the turn's
+//! `wchan` (RFD 0179 idea 12), what the turn sleeps on, read with no agent cooperation.
 
 use super::*;
 
@@ -38,11 +42,30 @@ pub struct TurnActivity {
     pub open_heavy: std::collections::BTreeMap<String, crate::host_load::Heavy>,
     /// How many tool calls this turn started (`usage_share.rs`), each counted once.
     pub tool_calls: u32,
+    /// The tool calls of [`Self::open_tools`] by id: when each started, its title, its bound.
+    pub open_calls: std::collections::BTreeMap<String, OpenCall>,
+}
+
+/// A tool call in flight: what [`TurnActivity::wchan`] reports.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OpenCall {
+    /// When acpmux first saw it, ms since the epoch.
+    pub started_at: u64,
+    /// Its latest title, masked and cut like [`TurnActivity::activity`]; None while untitled.
+    pub title: Option<String>,
+    /// The bound it declared at its start (`rawInput.timeout`, ms); None when it declared none.
+    pub bound_ms: Option<u64>,
 }
 
 impl TurnActivity {
     /// Notes a `tool_call` or `tool_call_update` in `update`: in flight until it completes or fails.
+    #[cfg(test)]
     fn note_tool(&mut self, update: &Value) {
+        self.note_tool_at(update, 0);
+    }
+
+    /// [`Self::note_tool`], the call seen at `at` (ms).
+    fn note_tool_at(&mut self, update: &Value, at: u64) {
         let kind = update.get("sessionUpdate").and_then(Value::as_str);
         let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
         if !matches!(kind, Some("tool_call" | "tool_call_update")) {
@@ -51,12 +74,25 @@ impl TurnActivity {
         let status = update.get("status").and_then(Value::as_str);
         if matches!(status, Some("completed" | "failed")) {
             self.open_heavy.remove(id);
+            self.open_calls.remove(id);
             if !self.open_tools.remove(id) {
                 self.open_past_cap = self.open_past_cap.saturating_sub(1);
             }
             return;
         }
         self.note_open(id, kind, status);
+        if self.open_tools.contains(id) {
+            let call = self
+                .open_calls
+                .entry(id.to_owned())
+                .or_insert_with(|| OpenCall { started_at: at, ..Default::default() });
+            if let Some(title) = activity_of(update) {
+                call.title = Some(title);
+            }
+            if let Some(bound) = update.pointer("/rawInput/timeout").and_then(Value::as_u64) {
+                call.bound_ms = Some(bound);
+            }
+        }
         // Its command may come with the call or in a later update (a call named early).
         if self.open_tools.contains(id)
             && let Some(heavy) = crate::host_load::heavy_of_tool(update)
@@ -83,16 +119,24 @@ impl TurnActivity {
 
     /// Notes `update`'s activity and tool calls (`Hub::note_activity`; an adopted host's turn,
     /// rebuilt from the log, `hosts.rs`).
-    pub(super) fn note(&mut self, update: &Value) {
+    pub(super) fn note(&mut self, update: &Value, at: u64) {
         if matches!(
             update.get("sessionUpdate").and_then(Value::as_str),
             Some("tool_call" | "tool_call_update")
         ) {
-            self.note_tool(update);
+            self.note_tool_at(update, at);
         }
         if let Some(title) = activity_of(update) {
             self.activity = Some(title);
         }
+    }
+
+    /// What the turn sleeps on: its oldest tool call in flight, with its id (ties: the lower id).
+    pub(super) fn wchan(&self) -> Option<(String, OpenCall)> {
+        self.open_calls
+            .iter()
+            .min_by_key(|(id, c)| (c.started_at, (*id).clone()))
+            .map(|(id, c)| (id.clone(), c.clone()))
     }
 
     /// Whether a tool call of the turn is in flight.
@@ -139,7 +183,7 @@ impl Hub {
         }
         let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(turn) = turn.as_mut() {
-            turn.doing.note(update);
+            turn.doing.note(update, crate::store::now_ms());
         }
     }
 }
