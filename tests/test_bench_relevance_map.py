@@ -122,6 +122,35 @@ budget_s = 20.0
             self.assertEqual((a["run"], a["tests"], a["budget_s"]), (["bun bench/picker.ts"], ["t1", "t2"], 20.0), path)
         self.assertEqual([r["cmd"] for r in rel.runs_for(rel.plan(idx, ["a/search.ts"]))], ["bun bench/picker.ts"])
 
+    def test_a_path_runs_its_narrowest_tests(self):
+        # cmux#63214 (updater): its files took the Update flow area's tests and also the generated unit's
+        # `swift test --filter CmuxNextAppTests`, the whole app test target; a changed test file ran nothing of its own.
+        rules = rel.parse('''
+[[area]]
+name = "update"
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater"]
+tests = ["update tests"]
+[[unit]]
+name = "swift:CmuxNextUpdater"
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/**"]
+tests = ["whole updater target"]
+[[unit]]
+name = "swift:CmuxNextAppTests"
+paths = ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/**"]
+tests = ["whole app test target"]
+[[unit]]
+name = "rust:x"
+paths = ["cmux-tui/crates/x/**"]
+tests = ["cargo x"]
+''')
+        idx = rel.Index(rules)
+        got = rel.plan(idx, ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/TipUpdateCheck.swift",
+                             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TipUpdateCheckTests.swift",
+                             "cmux-tui/crates/x/src/lib.rs"])["tests"]
+        self.assertEqual(got, ["update tests",
+                               "swift test --package-path Packages/macOS/CmuxNext --filter TipUpdateCheckTests",
+                               "cargo x"])
+
     def test_step_ignore_last_match_decides(self):
         rules = rel.parse_steps('''
 [step.s]
