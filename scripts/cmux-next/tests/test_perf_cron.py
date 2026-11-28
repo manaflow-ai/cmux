@@ -6183,17 +6183,37 @@ class SideLinuxRequestTests(unittest.TestCase):
         self.assertTrue(all(not cron.is_linux_part(p) for p in cur["parts_todo"]))
         # Before: a Linux part runs only for the measurement in flight, which has none left: no request, no runner.
         self.assertEqual(cron.linux_picks(cur, [], self.NOW, True, True), ([], "", []))
-        # After: the goal parts with 9 h old rows are asked at the newer tip, one at a time, oldest first.
-        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-god")
-        cron.side_ask(state, "web-ui-god", self.TIP, self.NOW)
-        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW + datetime.timedelta(minutes=30), True, True), "",
-                         "one side ask in its answer window at a time")
-        state["side_asks"]["web-ui-god"]["answered_at"] = cron.iso(self.NOW)
-        state["part_stored"]["web-ui-god"] = {"sha": self.TIP, "at": cron.iso(self.NOW), "rows": 76}
-        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-flat",
-                         "73dd2afd's goal part next")
+        # After: the goal parts with 9 h old rows are asked at the newer tip, one at a time, oldest first, the shortest
+        # job on a tie (all five were stored at 10:25:59Z).
+        asked, t = [], self.NOW
+        while True:
+            part = cron.side_linux_pick(state, self.TIP, t, True, True)
+            if not part:
+                break
+            cron.side_ask(state, part, self.TIP, t)
+            self.assertEqual(cron.side_linux_pick(state, self.TIP, t + datetime.timedelta(minutes=30), True, True), "",
+                             "one side ask in its answer window at a time")
+            state["side_asks"][part]["answered_at"] = cron.iso(t)
+            state["part_stored"][part] = {"sha": self.TIP, "at": cron.iso(t), "rows": 1}
+            asked.append(part)
+        self.assertEqual(asked, ["web-ui-ladder", "web-ui-flat", "web-ui-flat-grown", "web-ui-god", "web-ui-fidelity"],
+                         "73dd2afd's goal part second, not behind web-ui-god's 145-minute job")
         self.assertEqual(cur["parts_todo"], self.MAC_TODO, "the Mac pass keeps its parts")
         self.assertEqual(cur["host"], "cmux20-bench", "...and its host")
+
+    def test_a_tie_goes_to_the_shortest_job(self):
+        state = self.state()
+        minutes = {n: cron.linux_job_minutes(n) for n in ("web-ui-god", "web-ui-flat", "web-ui-flat-grown", "web-ui-ladder")}
+        self.assertLess(minutes["web-ui-flat"], minutes["web-ui-god"])
+        for name in ("web-ui-ladder", "web-ui-fidelity"):
+            state["part_stored"].pop(name, None)
+        state["part_stored"]["web-ui-fidelity"] = {"sha": self.TIP, "at": self.STORED_AT, "rows": 1}
+        state["part_stored"]["web-ui-ladder"] = {"sha": self.TIP, "at": self.STORED_AT, "rows": 1}
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-flat",
+                         "same age: the 55-minute job before web-ui-god's 145")
+        state["part_stored"]["web-ui-god"]["at"] = "2026-11-28T09:00:00Z"
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-god",
+                         "older rows still go first")
 
     def test_no_side_ask_without_its_conditions(self):
         state = self.state()
@@ -6227,7 +6247,7 @@ class SideLinuxRequestTests(unittest.TestCase):
         self.assertEqual(sorted(set(asked)), sorted(goal))
         self.assertTrue(all(asked.count(p) == cron.LINUX_REQUESTS_MAX for p in goal), asked)
         self.assertNotIn("web-ui-memory", asked, "not a goal part: waits for the next tip measurement")
-        self.assertEqual(cron.side_linux_pick(state, "f" * 40, t, True, True), "web-ui-god", "a newer tip asks again")
+        self.assertEqual(cron.side_linux_pick(state, "f" * 40, t, True, True), "web-ui-ladder", "a newer tip asks again")
 
     def test_the_answer_stores_rows_at_the_tip_and_leaves_the_mac_pass_alone(self):
         state = self.state()
@@ -6277,14 +6297,14 @@ class SideLinuxRequestTests(unittest.TestCase):
 
     def test_a_yielded_answer_is_asked_again(self):
         state = self.state()
-        cron.side_ask(state, "web-ui-god", self.TIP, self.NOW)
+        cron.side_ask(state, "web-ui-ladder", self.TIP, self.NOW)
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "result.json"), "w") as f:
                 json.dump({"state": "yielded", "sha": self.TIP, "step_id": "y"}, f)
             with contextlib.redirect_stdout(io.StringIO()):
-                self.assertTrue(cron.store_side(state, "web-ui-god", d, "u", self.NOW))
-        self.assertEqual(state["part_stored"]["web-ui-god"]["sha"], self.CDF)
-        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-god")
+                self.assertTrue(cron.store_side(state, "web-ui-ladder", d, "u", self.NOW))
+        self.assertEqual(state["part_stored"]["web-ui-ladder"]["sha"], self.CDF)
+        self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-ladder")
 
     def test_the_workflow_asks_the_controller_at_the_side_sha(self):
         with open(os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-perf-budgets.yml")) as f:
