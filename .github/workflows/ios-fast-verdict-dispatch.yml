@@ -1,4 +1,7 @@
 name: ios fast verdict dispatch
+# One title per PR and head: the parallel-run detector keys a dispatch run by its title, so a recovery sweep over many
+# PRs reads as distinct targets, while the same PR dispatched again still groups.
+run-name: ios fast verdict dispatch PR ${{ inputs.pr }} at ${{ inputs.sha }}
 
 # The supported recovery for a `cmux/ios-fast` pending whose answering run died (the class: a status left pending
 # forever when its publisher crashed). pr-router.yml's route posts the pending and its ios-fast-status job answers
@@ -66,6 +69,8 @@ jobs:
           PR: ${{ inputs.pr }}
           SHA: ${{ inputs.sha }}
           GH_TOKEN: ${{ github.token }}
+          # Tried after the run token when it is refused (spent budget), as the status job's proof gate does.
+          TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
         run: python3 -I scripts/ci/ios_fast_dispatch.py resolve
 
   pipeline:
