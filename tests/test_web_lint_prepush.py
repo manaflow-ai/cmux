@@ -37,7 +37,8 @@ SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
               "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_LOCAL_HEAVY_CHECKS", "CMUX_WEB_LINT_STRICT",
-              "CMUX_WEB_LINT_TIMEOUT_SECONDS", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS")
+              "CMUX_WEB_LINT_TIMEOUT_SECONDS", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS",
+              "CMUX_PREPUSH_QUEUE_HELD", "CMUX_PREPUSH_PASS_KEY_HELD")
 # A web lint finding never stops a push in the hook unless CMUX_WEB_LINT_STRICT=1 (lint never stops a push). The
 # fixture runs strict, so the tests about what the lint finds read it as a refusal; HOOK_DEFAULT is the person's hook.
 HOOK_DEFAULT = {"CMUX_WEB_LINT_STRICT": ""}
@@ -112,6 +113,9 @@ class WebLintPrePushTests(unittest.TestCase):
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root), ESLINT_LOG=str(self.eslint_log), CMUX_WEB_LINT_STRICT="1")
+        # The hook's queue is host-wide (/tmp), independent of HOME. Fixture pushes must not wait behind
+        # another suite or a real push, nor inherit a parent's claim that it already holds a slot.
+        self.env["CMUX_PREPUSH_QUEUE_DIR"] = str(self.root)
         git_fixture_env.without_auto_maintenance(self.env)
         self.stub_lint_tools()
 
@@ -300,6 +304,35 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_fixture_push_does_not_share_its_parents_queue(self):
+        import fcntl
+
+        # Occupy a private stand-in for the runner's queue, never the runner's real slots.
+        parent_queue = self.root / "parent-queue"
+        parent_queue.mkdir()
+        with (parent_queue / f"cmux-pre-push-queue.{os.getuid()}.0.lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            for held in ("", "37"):
+                with self.subTest(inherited_held=held), mock.patch.dict(os.environ, {
+                    "CMUX_PREPUSH_QUEUE_DIR": str(parent_queue), "CMUX_PREPUSH_SLOTS": "1",
+                    "CMUX_PREPUSH_QUEUE_WAIT_SECONDS": "0.2", "CMUX_PREPUSH_QUEUE_HELD": held,
+                    "CMUX_PREPUSH_PASS_KEY_HELD": "a" * 40,
+                }):
+                    fixture = WebLintPrePushTests()
+                    try:
+                        fixture.setUp()
+                        fixture.write("webviews/src/app.ts", "export const app = 2;\n")
+                        fixture.commit("check with the parent queue occupied")
+                        result = fixture.git("push", "origin", "feat-cmux-next", check=False)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("web lint passed", result.stderr)
+                        self.assertNotIn("waiting for a turn", result.stderr)
+                        self.assertNotIn("checking now, beside", result.stderr)
+                        self.assertTrue((fixture.root / f"cmux-pre-push-queue.{os.getuid()}.0.lock").is_file(),
+                                        "the fixture must acquire its own queue slot, not bypass the queue")
+                    finally:
+                        fixture.doCleanups()
 
     def test_push_without_web_changes_runs_no_lint(self):
         self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")

@@ -35,14 +35,10 @@ public final class CloudHostReplicaFollower {
         }
     }
 
-    /// The account whose copy may exist: set when a lease is given, removed
-    /// once that daemon confirmed the purge. An off switch found later (the
-    /// setting edited while the app was closed, a purge the daemon could not
-    /// finish) still deletes the copy.
-    nonisolated static let publishedKey = "cmux.cloudReplica.publishedUser.v1"
-    /// The daemon (pid) asked to purge for `publishedKey`: its `off` state
-    /// then means the purge is done.
-    nonisolated static let purgeAskedKey = "cmux.cloudReplica.purgeAskedDaemon.v1"
+    /// The defaults keys (`cmux-phone-core`'s `replica_keys`): the account whose copy may exist (set when a lease is
+    /// given, removed once that daemon confirmed the purge), and the daemon (pid) asked to purge for it, whose `off`
+    /// state then means the purge is done. An off switch found later still deletes the copy.
+    nonisolated static let keys = ReplicaRules.ask(ReplicaRules.Keys.self, "replica_keys")
 
     private let installToken: InstallToken
     private let invalidate: @Sendable () async -> Void
@@ -107,61 +103,67 @@ public final class CloudHostReplicaFollower {
         }
     }
 
+    /// One piece of lease work; `cmux-phone-core`'s `replica_apply`, `replica_purge` and `replica_lease` decide each step.
     private func apply(_ want: Want, renew: Bool) async {
-        // No daemon: its lease died with it, and the next one starts with none.
-        guard let connection = want.connection else { return }
+        guard let connection = want.connection, let keys = Self.keys else { return }
+        var wanted: [String: Any] = ["connected": true, "on": want.on]
+        if let user = want.userID { wanted["user_id"] = user }
+        var fields: [String: Any] = ["want": wanted, "renew": renew]
+        if let published = defaults.string(forKey: keys.published) { fields["published_user"] = published }
+        guard let step = ReplicaRules.ask(ReplicaRules.Step.self, "replica_apply", fields) else {
+            logger.error("host replica: no rule answer")
+            return
+        }
         let client = CloudHostReplicaClient(connection)
         do {
-            guard let user = want.userID else {
-                // Signed out: no token to purge with; the mark stays for that account's next sign-in.
-                _ = try await client.clear(purge: false)
-                return
-            }
-            if want.on {
-                if renew { await invalidate() }
-                try await lease(client, user: user)
-            } else if defaults.string(forKey: Self.publishedKey) == user {
-                try await purge(client, user: user, daemon: want.daemon, renew: renew)
-            } else {
-                _ = try await client.clear(purge: false)
+            switch step.action {
+            case "clear": _ = try await client.clear(purge: false)
+            case "lease":
+                if step.invalidate == true { await invalidate() }
+                if let user = want.userID { try await lease(client, user: user, keys: keys) }
+            case "status":
+                if let user = want.userID { try await purge(client, user: user, daemon: want.daemon, renew: renew, keys: keys) }
+            default: return
             }
         } catch {
             logger.error("host replica: \(String(describing: error), privacy: .public)")
         }
     }
 
-    /// The off switch with a copy that may exist: lease (a purge needs a
-    /// token), then purge. A lease resets a pending purge, so the purge is
-    /// asked again after every lease. Never `clear(purge: false)` here: that
-    /// would cancel the purge.
-    private func purge(_ client: CloudHostReplicaClient, user: String, daemon: Int32?, renew: Bool) async throws {
-        let asked = defaults.object(forKey: Self.purgeAskedKey) as? Int
+    /// The off switch with a copy that may exist: the status read, then `replica_purge` says forget, or lease (a
+    /// purge needs a token) then purge.
+    private func purge(_ client: CloudHostReplicaClient, user: String, daemon: Int32?, renew: Bool, keys: ReplicaRules.Keys) async throws {
         let state = try await client.status()
-        if !renew, let daemon, asked == Int(daemon), state.state == "off", state.purgePending != true {
-            // This daemon purged (or the cloud refused the install, and drops a removed host's copy itself).
-            defaults.removeObject(forKey: Self.publishedKey)
-            defaults.removeObject(forKey: Self.purgeAskedKey)
+        var status: [String: Any] = ["state": state.state]
+        if let pending = state.purgePending { status["purge_pending"] = pending }
+        var fields: [String: Any] = ["renew": renew, "status": status]
+        if let daemon { fields["daemon"] = Int64(daemon) }
+        if let asked = defaults.object(forKey: keys.purgeAsked) as? Int { fields["purge_asked"] = Int64(asked) }
+        guard let step = ReplicaRules.ask(ReplicaRules.Step.self, "replica_purge", fields) else { return }
+        if step.action == "forget" {
+            defaults.removeObject(forKey: keys.published)
+            defaults.removeObject(forKey: keys.purgeAsked)
             return
         }
-        if renew { await invalidate() }
-        // No lease went (no Cloud origin): a purge without a token cannot run.
-        guard try await lease(client, user: user) else { return }
+        if step.invalidate == true { await invalidate() }
+        guard try await lease(client, user: user, keys: keys) else { return }
         _ = try await client.clear(purge: true)
-        if let daemon { defaults.set(Int(daemon), forKey: Self.purgeAskedKey) }
+        if let mark = step.markPurgeAsked { defaults.set(Int(mark), forKey: keys.purgeAsked) }
     }
 
-    /// Gives the daemon this account's install token; false when no lease went.
+    /// Gives the daemon this account's install token; false when no lease went (`replica_lease` found no Cloud origin).
     @discardableResult
-    private func lease(_ client: CloudHostReplicaClient, user: String) async throws -> Bool {
+    private func lease(_ client: CloudHostReplicaClient, user: String, keys: ReplicaRules.Keys) async throws -> Bool {
         let (token, expiresAt) = try await installToken()
-        guard let origin else { return false }
-        // The daemon takes 1-64 Unicode scalars (cloud-host-replica-set).
-        let name = await MacName().computerName().trimmingCharacters(in: .whitespacesAndNewlines)
-        let hostName = name.isEmpty ? "Mac" : String(String.UnicodeScalarView(name.unicodeScalars.prefix(64)))
-        defaults.set(user, forKey: Self.publishedKey)
-        defaults.removeObject(forKey: Self.purgeAskedKey)
-        _ = try await client.set(CloudHostReplicaSetRequest(apiBaseURL: origin, installToken: token, expiresAt: expiresAt,
-                                                            clientVersion: clientVersion, hostName: hostName))
+        var fields: [String: Any] = ["token": token, "expires_at": expiresAt, "computer_name": await MacName().computerName()]
+        if let origin { fields["origin"] = origin }
+        if let clientVersion { fields["client_version"] = clientVersion }
+        guard let lease = ReplicaRules.ask(ReplicaRules.Lease.self, "replica_lease", fields)?.lease else { return false }
+        defaults.set(user, forKey: keys.published)
+        defaults.removeObject(forKey: keys.purgeAsked)
+        _ = try await client.set(CloudHostReplicaSetRequest(apiBaseURL: lease.apiBaseURL, installToken: lease.installToken,
+                                                            expiresAt: lease.expiresAt, clientVersion: lease.clientVersion,
+                                                            hostName: lease.hostName))
         return true
     }
 }

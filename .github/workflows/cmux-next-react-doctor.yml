@@ -40,7 +40,7 @@ permissions:
 # newest one, which ends cancelled with no job run (base_red_excuse.py reads the newest run with a verdict). One
 # group per sha ran all 783 base pushes of 11-22 21Z..11-23 21Z, 7,355 runner-min (9.4 min each), and 732 were green.
 concurrency:
-  group: cmux-next-react-doctor-${{ github.event.pull_request.number || (github.event_name == 'push' && format('push-{0}', github.ref)) || github.sha }}
+  group: cmux-next-react-doctor-${{ github.event.pull_request.number || (github.event_name == 'push' && format('push-{0}', github.ref)) || github.sha }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
