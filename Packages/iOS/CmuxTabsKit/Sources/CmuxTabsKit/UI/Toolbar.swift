@@ -372,7 +372,9 @@ struct TabsToolbar: View {
                 }
             }
 
-            // Trailing reload / stop.
+            // Trailing reload / stop. Left out under a title action: hidden,
+            // it still sat over that action's slot and took its hit point.
+            if titleOnly == nil || titleAction == nil {
             Button(action: unlessSwiped(onReload)) {
                 ZStack {
                     if loading {
@@ -395,6 +397,7 @@ struct TabsToolbar: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
             // retry-prompt-ok: the browser's own Reload control, used on purpose
             .accessibilityLabel(loading ? "Stop" : "Reload")
+            }
         }
         .frame(width: r.width, height: r.height)
         .overlay(alignment: .bottomLeading) {
