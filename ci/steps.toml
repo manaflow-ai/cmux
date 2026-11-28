@@ -1486,7 +1486,7 @@ exit "$status"
 # feat-cmux-next runs these five steps (the job's tt- steps in its order, split so each stays well under the cap
 # on a slow runner: tt-objc-selectors-step and tt-display-suites took 83 s and 139 s there, so they sit in different steps); the job
 # keeps its push and docs-only fallback runs, and on such a pull request runs only the tt- steps the linux job cannot:
-# tt-webviews-tests-per-file and tt-web-lint-prepush (pytest -n 4), tt-remote-p10k (zsh from apt) and tt-tailnet
+# tt-webviews-tests-per-file and tt-web-lint-prepush (pytest -n 4), tt-remote-p10k and tt-cli-path-folder-access (zsh from apt) and tt-tailnet
 # (cmux-tui's pinned Rust). Each step asks tooling_steps.py which tt- steps the change reaches, as the job's
 # setup-tooling-route step does, and runs those. `inputs` is the job's: no path filter (a docs-only change starts no
 # pipeline; scripts/ci/pr_router.py).
