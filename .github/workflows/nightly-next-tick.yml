@@ -260,24 +260,14 @@ jobs:
       # once with no token (the repository is public; that budget is the runner address's), and a
       # secondary-limit refusal waits 60 s once and reads again: ticks 45700034320 to 45706304238
       # (2026-11-25 18:12 to 21:43Z) all waited on a secondary-limit 403 on both tokens.
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread prefers cmux-bot, off the build controller App 5067688.
-        if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == '' && vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
-
       - name: Mint the rolling rule's spare read token
         id: spare-read-token
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == '' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: ./.app-token-spread/.github/actions/app-token-spread
+        # Why: the spread action prefers cmux-bot, off the build controller App 5067688. It loads
+        # from the whole-tree .tick-tooling checkout above (no sparse checkout in a tick).
+        uses: ./.tick-tooling/.github/actions/app-token-spread
         with:
           route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
