@@ -9,6 +9,26 @@ import Testing
 @testable import cmux
 #endif
 extension AgentNotificationRegressionTests {
+    @Test("The control tree does not claim a restored terminal's previous TTY")
+    func controlTreeRejectsRestoredTTYMetadata() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        fixture.source.restorePersistedSurfaceTTYName("ttys8362", panelId: fixture.panelId)
+
+        let tree = TerminalController.shared.controlSystemTreeWorkspaceNode(
+            workspace: fixture.source,
+            index: 0,
+            selected: false,
+            dockStores: []
+        )
+        let surface = try #require(tree.panes.flatMap(\.surfaces).first {
+            $0.surfaceID == fixture.panelId
+        })
+
+        #expect(surface.tty == nil, "A persisted TTY is not a current process-ownership claim")
+        #expect(fixture.source.surfaceTTYNames[fixture.panelId] == "ttys8362")
+    }
+
     @Test("Local PID bindings use the live Ghostty TTY without a shell report")
     func localTTYBindingsUseLiveGhosttyTTYWithoutShellReport() async throws {
         let fixture = try makeFixture()
