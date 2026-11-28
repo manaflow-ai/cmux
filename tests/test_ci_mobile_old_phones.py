@@ -122,9 +122,11 @@ class RunsRequestTest(unittest.TestCase):
         self.assertIsNone(mop.runs_request("manaflow-ai/cmux", "").get_header("Authorization"))
 
 class FetchRunsRetryTest(unittest.TestCase):
-    def _err(self, code):
+    def _err(self, code, reset=None):
         import email.message, io, urllib.error
         h = email.message.Message(); h["x-ratelimit-remaining"] = "0"
+        if reset is not None:
+            h["x-ratelimit-reset"] = str(reset)
         return urllib.error.HTTPError("u", code, "Forbidden", h, io.BytesIO(b'{"message":"rate limit"}'))
 
     def test_403_then_ok_retries(self):
@@ -147,19 +149,52 @@ class FetchRunsRetryTest(unittest.TestCase):
         self.assertIn("x-ratelimit-remaining=0", str(cm.exception))
         self.assertIn("rate limit", str(cm.exception))
 
+    def test_spent_quota_without_a_cache_reads_again_after_the_reset(self):
+        # Run 46141489174: no earlier list (the runner cache is per host), quota due back in minutes,
+        # and the job died after 85 s of retries.
+        import io
+        calls, slept = [], []
+        def opener(req, timeout):
+            calls.append(1)
+            if len(calls) <= 4:
+                raise self._err(403, reset=1000 + 600)
+            return io.BytesIO(b'{"workflow_runs":[{"id":2}]}')
+        got = mop.fetch_runs("o/r", "t", opener=opener, sleep=slept.append, now=lambda: 1000,
+                             reset_wait_max=mop.RESET_WAIT_MAX_S)
+        self.assertEqual(got, [{"id": 2}])
+        self.assertEqual(slept, [5, 20, 60, 605])
+
+    def test_reset_further_than_the_bound_fails_without_waiting(self):
+        slept = []
+        def opener(req, timeout):
+            raise self._err(403, reset=1000 + mop.RESET_WAIT_MAX_S + 1)
+        with self.assertRaises(SystemExit):
+            mop.fetch_runs("o/r", "t", opener=opener, sleep=slept.append, now=lambda: 1000,
+                           reset_wait_max=mop.RESET_WAIT_MAX_S)
+        self.assertEqual(slept, [5, 20, 60])
+
+    def test_waits_for_the_reset_once(self):
+        slept = []
+        def opener(req, timeout):
+            raise self._err(403, reset=1060)
+        with self.assertRaises(SystemExit):
+            mop.fetch_runs("o/r", "t", opener=opener, sleep=slept.append, now=lambda: 1000,
+                           reset_wait_max=mop.RESET_WAIT_MAX_S)
+        self.assertEqual(slept, [5, 20, 60, 65])
+
 class ResolveCacheTest(unittest.TestCase):
     # Runs 46116606886 and 46125947911 died at resolve: "API rate limit exceeded for installation".
     RUNS = [{"id": 9, "conclusion": "success", "created_at": "2026-11-28T05:17:48Z",
              "display_title": "cmux-next-ios INTERNAL " + "a" * 40}]
 
     @staticmethod
-    def refused(repo, token):
+    def refused(repo, token, **kw):
         raise SystemExit("::error::GitHub answered 403 for the ios-internal-nightly runs (x-ratelimit-remaining=0)")
 
     def test_fresh_read_fills_the_cache(self):
         with tempfile.TemporaryDirectory() as d:
             cache = Path(d) / "c" / "phones.txt"
-            lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=lambda r, t: self.RUNS)
+            lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=lambda r, t, **kw: self.RUNS)
             self.assertTrue(fresh)
             self.assertEqual(lines, ["a" * 40 + " 9 2026-11-28T05:17:48Z"])
             self.assertEqual(cache.read_text(), lines[0] + "\n")
@@ -171,6 +206,17 @@ class ResolveCacheTest(unittest.TestCase):
             lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=self.refused)
             self.assertFalse(fresh)
             self.assertEqual(lines, ["b" * 40 + " 8 2026-11-28T00:49:41Z"])
+
+    def test_waits_for_the_reset_only_without_a_cache(self):
+        seen = []
+        def fetch(repo, token, *, reset_wait_max=0):
+            seen.append(reset_wait_max)
+            return self.RUNS
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d) / "phones.txt"
+            mop.resolve("o/r", "t", 3, cache, fetch=fetch)
+            mop.resolve("o/r", "t", 3, cache, fetch=fetch)
+        self.assertEqual(seen, [mop.RESET_WAIT_MAX_S, 0])
 
     def test_rate_limited_read_without_a_cache_still_fails(self):
         with tempfile.TemporaryDirectory() as d:
