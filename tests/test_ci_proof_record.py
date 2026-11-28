@@ -7,6 +7,7 @@ import json
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -136,8 +137,7 @@ class Plan(unittest.TestCase):
         step = {"name": "pair", "mode": "pair-e2e", "worker": "cmux22", "args": ["pair-e2e"]}
 
         def dispatch(head=HEAD, strict=False, attempt="1", **changes):
-            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
-            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
                 ios_verify.run_step({**step, **changes}, head, 7, strict, attempt)
             cmd = run.call_args.args[0]
             return cmd[cmd.index("--key") + 1]
@@ -175,12 +175,80 @@ class Plan(unittest.TestCase):
         for t in ("K1", "K2", "U1", "U2", "U3"):
             self.assertIn(t, joined)
 
+    def test_default_shards_and_pair_let_the_fleet_choose_workers(self):
+        # A default host hint hit a reservation and refused the proof before entering the queue.
+        steps = ios_verify.plan(self.selection(), [], ios_verify.workers_from(""), "always")
+        explicit = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "always")
+        self.assertEqual([s["args"] for s in steps], [s["args"] for s in explicit])
+        self.assertEqual(len(steps), 3)
+        keys = []
+        for step in steps:
+            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="step abc12345", stderr="")
+            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                receipt = ios_verify.run_step(step, HEAD, 7, False)
+            cmd = run.call_args.args[0]
+            self.assertNotIn("--target-worker", cmd)
+            self.assertNotIn("--pin-strict", cmd)
+            self.assertEqual(receipt["step"], "abc12345")
+            key = cmd[cmd.index("--key") + 1]
+            self.assertEqual(key, ios_verify.step_key(step, HEAD, 7))
+            self.assertNotEqual(key, ios_verify.step_key(step, OTHER, 7))
+            keys.append(key)
+        self.assertEqual(len(set(keys)), len(keys))
+
+    def test_explicit_worker_hint_and_strict_pin_reach_dispatch(self):
+        step = {"name": "sim 1/1", "mode": "test", "args": ["test"], "worker": "cmux23"}
+        for strict in (False, True):
+            with self.subTest(strict=strict):
+                result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
+                with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                    ios_verify.run_step(step, HEAD, 7, strict)
+                cmd = run.call_args.args[0]
+                self.assertEqual(cmd[cmd.index("--target-worker") + 1], "cmux23")
+                self.assertEqual("--pin-strict" in cmd, strict)
+
+    def test_cli_worker_defaults_environment_and_override(self):
+        for env, args, expected in (({}, [], ""),
+                                    ({"CMUX_IOS_VERIFY_WORKERS": "cmux23"}, [], "cmux23"),
+                                    ({"CMUX_IOS_VERIFY_WORKERS": "cmux23"},
+                                     ["--workers", "cmux22"], "cmux22")):
+            with self.subTest(env=env, args=args), \
+                    mock.patch.dict(ios_verify.os.environ, env, clear=True), \
+                    mock.patch.object(ios_verify, "workers_from", wraps=ios_verify.workers_from) as workers, \
+                    mock.patch.object(ios_verify, "pr_view", side_effect=RuntimeError("stop before GitHub")):
+                with self.assertRaisesRegex(RuntimeError, "stop before GitHub"):
+                    ios_verify.main(args)
+                workers.assert_called_once_with(expected)
+
+    def test_strict_pin_without_workers_stops_before_github(self):
+        with mock.patch.dict(ios_verify.os.environ, {}, clear=True), \
+                mock.patch.object(ios_verify, "pr_view") as view, \
+                mock.patch("sys.stderr"):
+            with self.assertRaises(SystemExit) as raised:
+                ios_verify.main(["--pin-strict"])
+        self.assertEqual(raised.exception.code, 2)
+        view.assert_not_called()
+
     def test_pair_e2e_follows_the_flows(self):
         flows = [{"id": "pairing", "pair_e2e": True}]
         sel = self.selection(flows=["pairing"])
         self.assertEqual(ios_verify.plan(sel, flows, ["cmux23"], "auto")[-1]["mode"], "pair-e2e")
         self.assertNotIn("pair-e2e", [s["mode"] for s in ios_verify.plan(sel, flows, ["cmux23"], "never")])
         self.assertNotIn("pair-e2e", [s["mode"] for s in ios_verify.plan(self.selection(), flows, ["cmux23"], "auto")])
+
+    def test_selected_pair_is_dispatched_once_and_respects_never(self):
+        flows = [{"id": "pairing", "pair_e2e": True}]
+        for workers in ([], ["cmux23"]):
+            for words in ([], ["reconnect-drops=10,60"]):
+                sel = self.selection(flows=["pairing"], pair=True, pair_e2e=words)
+                for policy in ("auto", "always", "never"):
+                    with self.subTest(workers=workers, words=words, policy=policy):
+                        steps = ios_verify.plan(sel, flows, workers, policy)
+                        pairs = [s for s in steps if s["mode"] == "pair-e2e"]
+                        self.assertEqual(len(pairs), 0 if policy == "never" else 1)
+                        if pairs:
+                            self.assertEqual(pairs[0]["args"], ["pair-e2e", *words])
+                            self.assertEqual(pairs[0]["worker"], workers[0] if workers else None)
 
     def test_never_on_leos_gui_macs(self):
         for bad in ("cosmic-gray", "air-blue.local"):
@@ -379,6 +447,54 @@ class TokenFallbackTest(unittest.TestCase):
             self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
         with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
             self.assertEqual(pr.read_tokens(), [])
+
+
+class SimStepRoutingTest(unittest.TestCase):
+    """cmux#38805, 11-27: a step pinned to cmux22 moved to a simulator host with no Xcode 27.2 (exit 3), and the
+    strict rerun at the same head was refused, its key already naming that step (HTTP 409)."""
+
+    def test_label_is_newest_macos_pin(self):
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "xcode-pins.txt"
+        tmp.write_text("# macOS  Xcode\n15       26.3\n26       27.2\n27       27.3  # newest\n")
+        self.assertEqual(ios_verify.xcode_label(tmp), "xcode-27.3")
+        self.assertIsNone(ios_verify.xcode_label(tmp.with_name("missing.txt")))
+        self.assertRegex(ios_verify.xcode_label() or "", r"^xcode-\d+\.\d+$")
+
+    def test_run_step_asks_for_the_xcode_label(self):
+        seen = {}
+
+        def fake_stream(cmd, tag):
+            seen["cmd"] = cmd
+            return 0, "step: abcdef123456"
+
+        real = ios_verify.stream
+        ios_verify.stream = fake_stream
+        try:
+            ios_verify.run_step({"name": "sim 1/1", "mode": "test", "worker": "cmux22", "args": ["test"]}, HEAD, 7, True)
+        finally:
+            ios_verify.stream = real
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[cmd.index("--label") + 1], ios_verify.xcode_label())
+        self.assertIn("--pin-strict", cmd)
+
+    def test_stream_echoes_lines_and_returns_output(self):
+        import io
+        err, real = io.StringIO(), ios_verify.sys.stderr
+        ios_verify.sys.stderr = err
+        try:
+            code, text = ios_verify.stream([sys.executable, "-c", "print('queued'); print('step: abc'); raise SystemExit(3)"], "sim 1/1")
+        finally:
+            ios_verify.sys.stderr = real
+        self.assertEqual(code, 3)
+        self.assertEqual(text, "queued\nstep: abc\n")
+        self.assertIn("[sim 1/1] queued\n", err.getvalue())
+
+    def test_key_names_head_and_pin_mode(self):
+        step = {"mode": "test", "worker": "cmux22", "name": "sim 1/1: test", "args": ["test"]}
+        loose, strict = ios_verify.step_key(step, HEAD, 7, False), ios_verify.step_key(step, HEAD, 7, True)
+        self.assertNotEqual(loose, strict)
+        self.assertNotEqual(loose, ios_verify.step_key(step, OTHER, 7, False))
+        self.assertIn(HEAD[:12], loose)
 
 
 class SeededRegression(unittest.TestCase):
