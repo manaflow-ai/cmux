@@ -69,10 +69,10 @@ RUNNERS = (
     "blacksmith-6vcpu-macos-latest",
     "glaeda-std-xcode-26.6",
 )
-# An unpinned run takes whichever macOS 26 pool pull request CI would, by
-# preference and queue depth. The rule lives in e2e_runner_pool.py, which
+# An unpinned run takes 6vcpu or an owned Mac, as pull request CI's rule picks
+# among them (never 12vcpu). The rule lives in e2e_runner_pool.py, which
 # test-e2e.yml runs too. Because the choice depends on the queue at dispatch
-# time, not on the commit, the in-flight guards below look on both pools.
+# time, not on the commit, the in-flight guards below look on all of them.
 OVERFLOW_POOLS = pool.E2E_POOLS + tuple(
     label for label in RUNNERS if pool.pr_runner_pool.persistent(label))
 # GitHub rejects a concurrency group longer than this as a workflow file
@@ -412,7 +412,7 @@ def candidate_runners(runner: str | None, pinned: bool) -> tuple[str, ...]:
     """Every pool a dispatch with this runner could land on.
 
     A pinned runner is exact. An unpinned dispatch on the 6vcpu default may
-    overflow to the 12vcpu pool or an owned Mac, so a run on any of them
+    overflow to an owned Mac (never 12vcpu: E2E_POOLS), so a run on any of them
     already answers it.
     Empty means the default could not be established.
     """
