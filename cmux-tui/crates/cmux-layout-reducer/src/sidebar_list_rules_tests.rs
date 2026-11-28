@@ -241,6 +241,15 @@ fn folds_draw_automatic_then_settled_then_done_then_archived() {
     );
 }
 
+/// A run is a top-level entry and the nested entries drawn right after it: a Done root folds with its subtree.
+#[test]
+fn runs_cut_at_each_top_level_entry() {
+    let cut = runs(&entries(&[(0, 0), (1, 1), (2, 2), (3, 0), (4, 1), (5, 0)]));
+    let indices: Vec<Vec<i64>> = cut.iter().map(|run| run.iter().map(|e| e.index).collect()).collect();
+    assert_eq!(indices, vec![vec![0, 1, 2], vec![3, 4], vec![5]]);
+    assert_eq!(runs(&entries(&[(0, 1), (1, 0)])).len(), 2, "a nested first entry still starts a run");
+}
+
 #[test]
 fn a_done_root_takes_its_run_and_the_active_row_keeps_its_run_in_place() {
     let workspaces = vec![Some(done("root")), Some(ws("child")), Some(ws("other"))];

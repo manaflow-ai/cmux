@@ -355,11 +355,6 @@ import Testing
         #expect(SidebarView.revealsSelection(selectionChanged: false, from: SidebarSessionTreeState(), to: SidebarSessionTreeState(parents: Self.parents)))
     }
 
-    @Test func runsCutAtEachTopLevelEntry() {
-        let runs = SidebarLayout.runs([(0, 0), (1, 1), (2, 2), (3, 0), (4, 1), (5, 0)])
-        #expect(runs.map { $0.map(\.index) } == [[0, 1, 2], [3, 4], [5]])
-    }
-
     /// The row's chevron toggles from what it draws: a deep parent starts folded, so its first press opens it.
     @Test func togglingADeepParentOpensItAndPersists() {
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
