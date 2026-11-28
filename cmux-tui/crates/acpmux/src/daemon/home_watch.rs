@@ -378,6 +378,23 @@ mod tests {
     }
 
     #[test]
+    fn ctime_and_link_count_changes_on_the_watched_executable_are_not_a_loss() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = tempfile::tempdir().unwrap();
+        let installed = dir.path().join("acpmux");
+        std::fs::write(&installed, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let owned = Owned::now(&[&installed]).unwrap();
+        let before = std::fs::symlink_metadata(&installed).unwrap();
+        std::fs::hard_link(&installed, dir.path().join("acpmux.prev")).unwrap();
+        let after = std::fs::symlink_metadata(&installed).unwrap();
+        assert_eq!((before.dev(), before.ino()), (after.dev(), after.ino()));
+        assert!(after.nlink() > before.nlink(), "hard-link changed no link count");
+        assert_eq!(owned.lost(), None, "ctime/link-count-only change was treated as replacement");
+    }
+
+    #[test]
     fn an_ancestor_rename_is_lost_even_when_the_home_is_unchanged() {
         let dir = tempfile::tempdir().unwrap();
         let parent = dir.path().join("parent");

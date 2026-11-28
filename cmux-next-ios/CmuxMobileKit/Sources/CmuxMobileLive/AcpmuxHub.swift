@@ -771,6 +771,8 @@ public final class AcpmuxHub {
         toldSinceWatch.insert(session.id)
         let seq = Int(params["seq"]?.numberValue ?? 0)
         if changed {
+            // A title generated after the chat opened names it in the open chat too.
+            if let name = session.chatName { emitLocal(.update(.sessionInfo(title: name)), sessionID: session.id) }
             onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
             // The open chat's footer facts (RFD 0130), from the row acpmux decided them on.
             let facts = AgentFooterFacts(composerStatus: value["composerStatus"])
@@ -1075,7 +1077,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             #if canImport(CmuxMobileLinkFFI)
             // Text, and photos the Mac takes by reference, go to the outbox at the tap: nothing
             // waits behind a photo's bytes (``sendAtTap``).
-            if sendsAtTap(attachments, hub: hub) {
+            // ...unless an earlier send is still preparing on the ordered path (a file, a video):
+            // a message never goes ahead of one sent before it, so it waits its turn there too.
+            if chainedSendsPreparing == 0, sendsAtTap(attachments, hub: hub) {
                 sendAtTap(text: text, attachments: attachments, steer: steer, promptID: promptID, resend: resend, hub: hub)
                 return
             }
@@ -1090,8 +1094,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // composer after Send does not cancel them.
             let directory = baseDirectory
             let prestaged = prestager.claim(attachments, directory: directory)
+            chainedSendsPreparing += 1
             let task = Task { [weak self] in
-                await previous?.value
+                // Until the outbox has this one (or it is given back), a later text waits behind it.
+                defer { self?.chainedSendsPreparing -= 1 }
+                if let previous {
+                    do {
+                        // Stop works while this waits its turn behind an earlier send (that one's
+                        // video may take minutes on LTE): `await previous.value` ignored the cancel.
+                        try await CancellableWait.until(previous)
+                    } catch {
+                        for entry in prestaged.values { entry.cancel() }
+                        self?.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                                  reason: "Not sent: you stopped it."))
+                        self?.sendTasks[promptID] = nil
+                        // Messages after this one still wait for the earlier one: their order holds.
+                        await previous.value
+                        return
+                    }
+                }
                 guard let self else { return }
                 defer { self.sendTasks[promptID] = nil }
                 let blocks: [JSONValue]
@@ -1277,6 +1298,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// The last message's upload, which the next one waits for (``send(_:)``).
     private var promptChain: Task<Void, Never>?
+    /// Sends on the ordered path (``promptChain``) the outbox does not have yet. While any is,
+    /// a text or photo goes on that path too instead of at the tap, so it cannot overtake it.
+    private var chainedSendsPreparing = 0
     /// Each prompt the outbox holds, by its `promptId`: what to write when it goes.
     private var promptPayloads: [String: HeldPrompt] = [:]
     /// Each message's send until it is written or held, by prompt id: Stop cancels its upload.
@@ -1828,6 +1852,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
             return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
+        } catch let failure as LinkUpload.Failure where failure.code == "cancelled" {
+            // Stop cancelled the engine's upload: the message comes back as stopped, not failed.
+            throw CancellationError()
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }
@@ -3120,6 +3147,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let detail = result["session"], let session = AcpmuxSession(detail) {
             summary.status = session.summaryStatus
             if let name = session.shownName { summary.name = name }
+            // The chat's real name (never its prompt) for the header and the composer.
+            if let name = session.chatName { emit(.update(.sessionInfo(title: name))) }
         }
         // The replay boundary is the attach reply: its page (and the session state it
         // carries) is history, applied as one change, so the chat opens on the whole

@@ -51,8 +51,7 @@ jobs:
 
       - name: Install build tools
         run: |
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3
+          bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3
           # rust-toolchain.toml pins the version; rustup installs it on first cargo call.
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
@@ -83,8 +82,7 @@ jobs:
 
       - name: Install build tools
         run: |
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3 git
+          bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends ca-certificates curl build-essential pkg-config libssl-dev python3 git
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 

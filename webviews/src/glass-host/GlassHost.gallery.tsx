@@ -108,6 +108,7 @@ function GlassHostGallery({ level, app, moves = false }: Props) {
     if (!moves) return;
     // gallery-capture: `menu-moves`'s play `movesDone` waits for the menu to rest (data-moves-done).
     let taken = 0;
+    // gallery-capture: `menu-moves`'s play `movesDone` waits for the menu to rest (data-moves-done).
     const timer = setInterval(() => {
       taken += 1;
       setStep(taken);

@@ -57,6 +57,9 @@ export interface Env {
   readonly TURN_SELF_URLS?: string
   readonly TURN_SELF_SECRET?: string
   readonly ICE_TTL_SECONDS?: string
+  /** Optional owned hop/1 PoP. Both values are required to mint scoped tickets. */
+  readonly HOP_RELAY_URL?: string
+  readonly HOP_RELAY_TICKET_SECRET?: string
   /** APNs (src/push.ts): all three or none. */
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
