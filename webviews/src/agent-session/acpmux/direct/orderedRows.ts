@@ -89,6 +89,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private publishedSeq: RowSeq<AcpmuxRow> | undefined;
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
+  /// Each row set since the last snapshot, with the row it had then: its PR key is read once, as
+  /// the snapshot is made, not on every set. A fold sets a row again for each record of it (each
+  /// call an activity adds, each chunk of a reply), and reading the key of the row before and the
+  /// one after on each set scanned it again each time: the cold attach of a long chat refolds a
+  /// whole page that way (cmux chat-attach-p95).
+  private readonly pullRequestKeyed = new Map<string, AcpmuxRow | undefined>();
   private transcriptSummaryVersion = {};
   private readonly artifactUpdates = new RowUpdates((id) => this.get(id));
   /// The turns the agent ran on its own (acpmux `background_turn`): each one's started record's
@@ -340,10 +346,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
-    if (!unchanged && pullRequestRowKey(previous) !== pullRequestRowKey(row)) {
-      this.pullRequestActivityVersion = Symbol();
-      if (row.kind === "activity") this.pullRequestCommandVersion = Symbol();
-    }
+    if (!unchanged && !this.pullRequestKeyed.has(id)) this.pullRequestKeyed.set(id, previous);
     if (!unchanged && (!known || summaryChanged)) this.transcriptSummaryVersion = {};
     if (!unchanged) this.snapshot = undefined;
     if (!known) {
@@ -612,6 +615,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (!this.has(id)) return false;
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
+    this.pullRequestKeyed.delete(id);
     this.transcriptSummaryVersion = {};
     // A row a later record takes away changed too: a cut between them would draw it again.
     const made = this.order.get(id);
@@ -629,6 +633,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   override clear(): void {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
+    this.pullRequestKeyed.clear();
     this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
@@ -990,11 +995,23 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.changedSlot = undefined;
       this.firstChanged = undefined;
       this.artifactUpdates.publish(this.snapshot);
+      this.settlePullRequestKeys();
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
       markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);
     }
     return this.snapshot;
+  }
+
+  /// Moves the PR revisions on if a row set since the last snapshot changed its PR key.
+  private settlePullRequestKeys(): void {
+    for (const [id, before] of this.pullRequestKeyed) {
+      const row = this.get(id);
+      if (pullRequestRowKey(before) === pullRequestRowKey(row)) continue;
+      this.pullRequestActivityVersion = Symbol();
+      if (row?.kind === "activity" || before?.kind === "activity") this.pullRequestCommandVersion = Symbol();
+    }
+    this.pullRequestKeyed.clear();
   }
 
   /// The RowSeq of `ordered`, from the last one published: one chunk for a row written in place,
