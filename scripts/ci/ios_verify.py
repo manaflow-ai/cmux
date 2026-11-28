@@ -150,6 +150,14 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def sign_in(step: dict) -> str | None:
+    """The `cmux-ci run --sign-in` profile a step needs. pair-e2e signs both apps in to the dev Cloud; with no
+    session it falls back to CMUX_UITEST_STACK_EMAIL/PASSWORD or ~/.secrets/cmuxterm-dev.env, which fleet Macs
+    do not hold, so an unsigned pair-e2e exits 1 at pairing ("DEBUG dev credential: set ...") after a
+    45-minute Mac build (#59658 attempt 7, step 9c79c4ec8782598d8441941a)."""
+    return "agent" if step["mode"] == "pair-e2e" else None
+
+
 def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
     """Identify one simulator submission by its work, keeping its head and shard visible in fleet logs.
 
@@ -159,7 +167,10 @@ def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str 
     The digest leaves the head out (the key's full-sha head field carries it), so a newer head's step matches the older
     queued one "commits aside" and cmux-ci's supersede replaces it rather than queueing both."""
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
-    workload = json.dumps([SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    work = [SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt]
+    if sign_in(step):  # a signed-in step is new work: never reuse the unsigned step that failed on its credential
+        work.append(f"sign-in={sign_in(step)}")
+    workload = json.dumps(work, separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
     pinned = f"-{step['worker']}" if strict else ""
     return f"ios-verify-{pr}-{head}-{step['mode']}-{shard}{pinned}-{digest}"
@@ -239,6 +250,8 @@ def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "
         cmd += ["--target-worker", step["worker"]]
     if strict:
         cmd.append("--pin-strict")
+    if sign_in(step):
+        cmd += ["--sign-in", sign_in(step)]
     for a in step["args"]:
         cmd += ["--arg", a]
     t0 = time.monotonic()
