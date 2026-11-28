@@ -186,6 +186,7 @@ class Hit:
     index: int = 0  # the hit's line within its unit's lines
     hops: int = 0  # how many providers it came through
     origin: str = ""  # the file the words are in (the provider's, for a hit passed on)
+    from_table: bool = False  # passed on by a label table or strings member (not a helper's own words)
 
 
 @dataclass
@@ -329,7 +330,12 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
         m = top.match(line)
         if m:
             name = next(g for g in m.groups() if g)
-            starts.append((i, name.split(".")[0] if path.endswith(".swift") else name))
+            if path.endswith(".swift"):
+                # An extension of a nested error type (`extension CloudAgentCredentials.Failure`) is that error
+                # type's text, not its outer type's: merged into `CloudAgentCredentials` it lost the outcome rule.
+                last = name.rsplit(".", 1)[-1]
+                name = last if "." in name and ERROR_TYPE.search(last) else name.split(".")[0]
+            starts.append((i, name))
     spans = []
     for n, (i, name) in enumerate(starts):
         end = starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines) - 1
@@ -546,10 +552,16 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
         for unit in list(units.values()):
             if not unit.hits or unit.ok or not is_provider(unit):
                 continue
+            # An outcome helper (`deviceFailure`, `startFailureText`) says what came of the person's own action
+            # wherever it is drawn: its words stay on it, where the outcome rule passes them.
+            if ERROR_TYPE.search(unit.name) or OUTCOME_UNIT.search(unit.name):
+                continue
             members = {member_at(unit, h.index) for h in unit.hits}
             # A label table or strings type passes its words on through two hops; a helper function through one,
-            # so a call chain (a host bridge's error key) does not spread to every caller.
-            if min(h.hops for h in unit.hits) >= (1 if None in members else 2):
+            # so a call chain (a host bridge's error key) does not spread to every caller. A helper that only looks
+            # a table's words up (`reasonLabels[reason]`) passes them on within the table's two.
+            relayed = all(h.from_table for h in unit.hits)
+            if min(h.hops for h in unit.hits) >= (1 if None in members and not relayed else 2):
                 continue
             name = re.escape(unit.name)
             if None in members:
@@ -603,7 +615,8 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 continue
             for other, i, said in consumers:
                 hops = min(h.hops for h in unit.hits) + 1
-                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
+                from_table = None not in members or relayed
+                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin, from_table))
             unit.hits = []
             moved = True
         if not moved:

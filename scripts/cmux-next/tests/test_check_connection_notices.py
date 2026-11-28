@@ -532,6 +532,68 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_an_extension_of_a_nested_error_type_is_that_types_outcome(self):
+        """`extension Credentials.Failure` is the failure's text (cmux#54956's model connection notice), not
+        `Credentials`'s; an extension of any other nested type still merges into its outer type."""
+        body = """\
+    extension CloudAgentCredentials.%s {
+        func notice() -> String { String(localized: "page.disconnected", defaultValue: "Not connected to cmux.") }
+    }
+"""
+        tree = Tree(self)
+        tree.write(f"{MAC}/CloudModelConnectionNotice.swift", body % "Failure")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree = Tree(self)
+        tree.write(f"{MAC}/CloudModelConnectionNotice.swift", body % "Status")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("CloudAgentCredentials shows a connection state", out)
+
+    def test_an_outcome_helper_keeps_its_words_where_it_is_drawn(self):
+        """A failure helper (`deviceFailure`) answers the person's own sign-in wherever it is drawn: its words do
+        not move onto the form around it (cmux#54956's device panel)."""
+        tree = Tree(self)
+        tree.write(f"{PAGE}/DevicePanel.tsx", """\
+    function deviceFailure(t: Translate) {
+      return t("page.disconnected");
+    }
+    export function DeviceForm({ t }: Props) {
+      return <div className="error">{deviceFailure(t)}</div>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_helper_looking_up_a_label_table_passes_the_words_to_its_drawing(self):
+        """`reasonLabels[reason]` read by a one-line helper (cmux#54956's cloud picker reason) reaches the view
+        that draws it, which carries the Connect action; drawn with no action, the view keeps the finding."""
+        labels = """\
+    const reasonLabels = {
+      none: "page.disconnected",
+    } as const;
+    export function pickerReason(reason: "none") {
+      return reasonLabels[reason];
+    }
+"""
+        picker = """\
+    import { pickerReason } from "./served";
+    export function Picker({ t, onConnect }: Props) {
+      return <div className="row">{t(pickerReason("none"))}%s</div>;
+    }
+"""
+        tree = Tree(self)
+        tree.write(f"{WEB}/served.ts", labels)
+        tree.write(f"{WEB}/Picker.tsx", picker % '<button type="button" onClick={onConnect}>Connect</button>')
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree = Tree(self)
+        tree.write(f"{WEB}/served.ts", labels)
+        tree.write(f"{WEB}/Picker.tsx", picker % "")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("Picker shows a connection state", out)
+
     def test_a_quiet_hold_at_the_bound_passes_and_a_short_one_does_not(self):
         """cmux#43311 added QuietHold (CmuxNextWakeups): a hold for the bound is a gate; a shorter literal is not."""
         view = ("struct RemoteTerminalPlaceholderView: View {{\n"

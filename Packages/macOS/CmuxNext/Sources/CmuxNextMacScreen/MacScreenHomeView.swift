@@ -35,6 +35,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
     let devices: MacScreenHomeDevices?
+    /// Holds This Mac's hub-joining note back for the shared bound (``MacScreenHomeSnapshot/HubJoinQuiet``).
+    let hubJoinQuiet = MacScreenHomeSnapshot.HubJoinQuiet()
     private let scroll = OverlayScrollView()
     private let document = MacScreenFlippedView()
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)
