@@ -50,6 +50,9 @@ final class MotionFrameTrace {
     private var committed: [String: Any]?
     private var commitWatch: MainRunLoopObserver?
 
+    /// A run samples now.
+    var isRunning: Bool { client != nil }
+
     func handle(_ action: String, _ params: [String: Any], windows: [NSWindow], samplers: [Sampler]) -> [String: Any] {
         switch action {
         case "start":

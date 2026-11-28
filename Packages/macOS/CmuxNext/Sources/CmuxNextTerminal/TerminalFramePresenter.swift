@@ -202,6 +202,8 @@ final class TerminalFramePresenter {
     /// Tests: called in the pass just before it tries to present a request's frame, with what Ghostty said of it
     /// (READY_PROGRAM: drawn after the program's output at its grid; READY: the size only).
     var presentingHook: ((TerminalSurfaceView, ghostty_host_frame_e) -> Void)?
+    /// Tests: called first in each ``TerminalSurfaceView/place(_:anchor:)`` of a view in this window (the frame asked for).
+    var placeHook: ((TerminalSurfaceView, CGRect) -> Void)?
 
     /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for its frame), "watch"
     /// (its shown size changed outside a present), "commit" (its commit is reported at the next refresh), or "-".
