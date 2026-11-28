@@ -373,6 +373,8 @@ impl Hub {
                         o.extend(super::surgery::turn_fields(&session.id));
                         // What the task cost, model and compute, and the chat's total so far.
                         super::turn_cost::add_turn_cost(session, o, started_at, ended);
+                        // What of it rebuilt a prompt cache it could have read, and why.
+                        super::cache_rebuild::add_cache_rebuild(session, o);
                         // Its spend checks during the turn, and their warnings (`spend_burn.rs`).
                         o.extend(super::spend_burn::turn_fields(&session.id, turn_id));
                         // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).

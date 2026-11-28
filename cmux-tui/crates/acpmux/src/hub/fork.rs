@@ -1105,6 +1105,7 @@ impl Hub {
                 None
             },
             task_cost_usd: None,
+            cache_rebuild: Default::default(),
             // A fork is the person's new chat, never a sub-session of the parent's parent; one
             // an agent started of its own chat is that chat's sub-session (`sub`).
             subsession,

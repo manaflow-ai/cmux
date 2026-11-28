@@ -484,6 +484,13 @@ pub struct SessionMeta {
     /// `sessionCostUsd` its last priced turn carried. A fork starts its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_cost_usd: Option<f64>,
+    /// The last turn's context and end, and the chat's cache rebuild total so far
+    /// (`hub/cache_rebuild.rs`). A fork starts its own.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::hub::cache_rebuild::CacheRebuildState::is_empty"
+    )]
+    pub cache_rebuild: crate::hub::cache_rebuild::CacheRebuildState,
     /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
