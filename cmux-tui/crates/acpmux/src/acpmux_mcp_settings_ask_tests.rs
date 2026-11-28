@@ -3,8 +3,7 @@ use super::*;
 #[test]
 fn catalog_service_targets_name_the_service() {
     assert_eq!(
-        check(&json!({"target": "connection:linear", "why": "The issue is in Linear."}))
-            .unwrap(),
+        check(&json!({"target": "connection:linear", "why": "The issue is in Linear."})).unwrap(),
         json!({"kind": "connection", "provider": "linear", "why": "The issue is in Linear."})
     );
     // Lowercased, as catalog names are.
