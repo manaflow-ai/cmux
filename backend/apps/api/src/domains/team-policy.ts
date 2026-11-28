@@ -48,11 +48,43 @@ export interface PolicyState {
 /** Objects written before team policy existed have no policy field. */
 export const currentPolicy = (state: PolicyState): Policy => state.policy ?? initialPolicy()
 
-/** The link services this team lets members reach on its Cloud machines (cloud.connectServices; a team nobody created has the product default). */
-/** The team's Cloud policy for CloudDO: connect services and whether idle pause is on (default off). */
-export const cloudPolicyOf = (state: PolicyState | undefined): { connect_services: ReadonlyArray<string>; idle_pause: boolean } => {
-  const v = (state ? currentPolicy(state).values : {}) as Record<string, { value?: unknown } | undefined>
-  return { connect_services: connectServicesOf(state), idle_pause: v["cloud.idlePause"]?.value === true }
+/**
+ * The team's Cloud policy for CloudDO (cmux-platform), read over RPC at connect, at idle and at create: connect
+ * services, whether idle pause is on (default off), and RFD 0211's create-time limits. A list is null when the team
+ * sets no limit; `egress` is null for `full`. Team-scoped keys bind in either mode (`default` and `enforced` alike):
+ * a member's own ask can only tighten them.
+ */
+export interface CloudPolicy {
+  readonly connect_services: ReadonlyArray<string>
+  readonly idle_pause: boolean
+  readonly providers: ReadonlyArray<string> | null
+  readonly regions: ReadonlyArray<string> | null
+  readonly harnesses: ReadonlyArray<string> | null
+  readonly models: ReadonlyArray<string> | null
+  readonly egress: { readonly mode: "allowlist" | "none"; readonly presets: ReadonlyArray<string>; readonly domains: ReadonlyArray<string> } | null
+  readonly sandboxes: boolean
+  readonly projection: { readonly folders: ReadonlyArray<string> | null; readonly read_only: boolean; readonly sync_back: boolean }
+}
+
+export const cloudPolicyOf = (state: PolicyState | undefined): CloudPolicy => {
+  const values = state ? currentPolicy(state).values : {}
+  const list = (xs: ReadonlyArray<string> | undefined) => (xs === undefined ? null : [...xs])
+  const egress = values["cloud.egress"]?.value
+  return {
+    connect_services: connectServicesOf(state),
+    idle_pause: values["cloud.idlePause"]?.value === true,
+    providers: list(values["cloud.providers"]?.value),
+    regions: list(values["cloud.regions"]?.value),
+    harnesses: list(values["agents.harnesses"]?.value),
+    models: list(values["agents.models"]?.value),
+    egress: egress === undefined || egress.mode === "full" ? null : { mode: egress.mode, presets: [...(egress.presets ?? [])], domains: [...(egress.domains ?? [])] },
+    sandboxes: values["cloud.sandboxes"]?.value !== false,
+    projection: {
+      folders: list(values["projection.folders"]?.value),
+      read_only: values["projection.readOnly"]?.value === true,
+      sync_back: values["projection.syncBack"]?.value !== false
+    }
+  }
 }
 
 export const connectServicesOf = (state: PolicyState | undefined): ReadonlyArray<string> => {

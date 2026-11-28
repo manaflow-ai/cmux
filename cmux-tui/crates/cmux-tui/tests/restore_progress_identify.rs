@@ -263,3 +263,44 @@ fn identify_reports_the_restore_while_the_owner_restores() {
     let status = fixture.command("status").output().unwrap();
     assert!(status.status.success(), "status: {}", String::from_utf8_lossy(&status.stderr));
 }
+
+/// `server status` against an owner held in its restore says it is starting
+/// and names the restore's phase, instead of `server.busy`. Rolls 46100096471
+/// and 46107492079: a fresh Cloud clone's `daemon status` read "running but
+/// busy" for 67 s and said nothing of what the owner was doing; status's
+/// `identify` did not ask for the restore's progress, so the restoring owner
+/// parked it past the 10 s read bound. On that build this test reads
+/// `server.busy`.
+#[test]
+fn status_names_the_restore_phase_while_the_owner_restores() {
+    let fixture = Fixture::new("status");
+    let hold = SlowRestore::hold(&fixture);
+    let mut ensure = fixture.command("ensure");
+    ensure.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let ensure = EnsureRun(Some(ensure.spawn().unwrap()));
+    let mut client = Client::connect(&fixture.socket);
+    let (first, _) = client.identify(1, Duration::from_secs(3));
+    assert_eq!(first.expect("identify while restoring")["data"]["lifecycle_ready"], false);
+
+    // Held in registry_open past status's whole wait (20 s): status gives up.
+    let status = fixture.command("status").output().unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&status.stdout),
+        String::from_utf8_lossy(&status.stderr)
+    );
+    assert!(!status.status.success(), "status passed while restoring: {text}");
+    assert!(!text.contains("server.busy"), "a restoring owner read as busy: {text}");
+    let error = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        .find_map(|v| v.get("error").cloned().or_else(|| v.get("code").map(|_| v.clone())))
+        .unwrap_or_else(|| panic!("no JSON error in: {text}"));
+    assert_eq!(error["code"], "server.unavailable", "{text}");
+    assert_eq!(error["details"]["reason"], "starting", "{text}");
+    assert_eq!(error["details"]["restore"]["phase"], "registry_open", "{text}");
+
+    drop(hold);
+    let (result, _) = progress_and_result(&ensure.output());
+    assert_eq!(result["status"], "started", "{result}");
+}
