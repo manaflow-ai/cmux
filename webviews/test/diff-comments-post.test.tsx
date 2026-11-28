@@ -3,9 +3,9 @@
 // Only the drafts posted and unchanged since leave; a refused post keeps them all and says so; a
 // retry after a lost reply reuses the post's opid, so the pull request never gets the review twice.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -24,7 +24,6 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
-  // React's queued work runs before the globals go (test/support/domTeardown.ts).
   await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

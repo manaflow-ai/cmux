@@ -2,10 +2,10 @@
 // attachment when it fails, like you can't simply just do nothing about it." A Home channel's
 // upload and its image reads are tried again on its own; what still fails shows Retry.
 import { afterAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
   url: "http://localhost/",
@@ -50,7 +50,6 @@ Object.assign(scope, {
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(async () => {
-  // React's queued work runs before the globals go (test/support/domTeardown.ts).
   await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

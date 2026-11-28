@@ -2,13 +2,13 @@
 // nothing and clears nothing: the attachment's contents are not in the draft yet, and clearing the
 // prompt would cancel it, so a stash then would come back without it after a reload.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { ComposerAttachment } from "../attachments";
 import { resetStashForTests, type StashTransport } from "./draftStash";
 import { useDraftStash } from "./useDraftStash";
-import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -33,6 +33,7 @@ afterEach(async () => {
   // React's queued work runs before the globals go (test/support/domTeardown.ts).
   await settleReact();
   if (root) await act(async () => root!.unmount());
+  await settleReact();
   root = undefined;
   dom?.window.close();
   dom = undefined;

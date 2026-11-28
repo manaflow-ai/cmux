@@ -2,11 +2,11 @@
 // no "Checking…" between, and a fresh answer that says the same renders the pane no second time
 // before the chat's first frame paints (settled page, Leo 2026-11-21).
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { type ReadSessionAuth, useSessionAuth } from "./sessionAuth";
-import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -30,9 +30,8 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
-  // React's queued work runs before the globals go (test/support/domTeardown.ts).
-  await settleReact();
   act(() => root?.unmount());
+  await settleReact();
   root = undefined;
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

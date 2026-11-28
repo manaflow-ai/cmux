@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { createHash } from "node:crypto";
 import { JSDOM } from "jsdom";
 import { copyItem, pastePlan, type ComposerCopy } from "../src/agent-session/acpmux/composer/composerCopy";
 import { stageComposerCopy } from "../src/agent-session/acpmux/composer/composerCopyStage";
-import { settleReact } from "./support/domTeardown";
 
 const MiB = 1024 * 1024;
 
