@@ -1,0 +1,5 @@
+{ "envs": [["dark","none"],["light","none"]],
+  "shots": [
+    { "name": "api-error", "entry": "agent-pane.turn-end-footer", "variant": "api-error", "width": 640, "height": 320, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "api-error-nothing-to-copy", "entry": "agent-pane.turn-end-footer", "variant": "api-error-nothing-to-copy", "width": 640, "height": 320, "deviceScaleFactor": 2, "arms": { "now": "" } }
+  ] }
