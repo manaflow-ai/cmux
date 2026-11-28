@@ -29,8 +29,8 @@ TEXT_VMADDR = 0x1_0000_0000
 SLICE_UUID = uuid.UUID("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0")
 
 
-def macho(symbols: list[tuple[str, int, int, int]], slice_uuid: uuid.UUID = SLICE_UUID) -> bytes:
-    """A thin arm64 MH_EXECUTE: __TEXT (one __text section), LC_UUID, LC_SYMTAB.
+def macho(symbols: list[tuple[str, int, int, int]], slice_uuid: uuid.UUID = SLICE_UUID, swift: bool = False) -> bytes:
+    """A thin arm64 MH_EXECUTE: __TEXT (one __text section, then __swift5_types when swift), LC_UUID, LC_SYMTAB.
     symbols: (name, n_type, n_sect, n_value)."""
     strtab = b"\x00"
     nlist = b""
@@ -39,8 +39,11 @@ def macho(symbols: list[tuple[str, int, int, int]], slice_uuid: uuid.UUID = SLIC
         strtab += name.encode() + b"\x00"
     section = struct.pack("<16s16sQQIIIIIIII", b"__text", b"__TEXT", TEXT_VMADDR + 0x1000, 0x1000,
                           0x1000, 4, 0, 0, 0x80000400, 0, 0, 0)
+    if swift:
+        section += struct.pack("<16s16sQQIIIIIIII", b"__swift5_types", b"__TEXT", TEXT_VMADDR + 0x2000, 0,
+                               0x2000, 2, 0, 0, 0, 0, 0, 0)
     segment = struct.pack("<II16sQQQQiiII", 0x19, 72 + len(section), b"__TEXT", TEXT_VMADDR, 0x2000,
-                          0, 0x2000, 5, 5, 1, 0) + section
+                          0, 0x2000, 5, 5, len(section) // 80, 0) + section
     uuid_cmd = struct.pack("<II16s", 0x1B, 24, slice_uuid.bytes)
     commands = segment + uuid_cmd
     header_size = 32 + len(commands) + 24
@@ -260,6 +263,58 @@ class AppSymbolMapTest(unittest.TestCase):
             self.strip(app)
             symbols = read_map(app / "Contents/Resources/cmux-symbols.bin")
             self.assertEqual(symbols, {SLICE_UUID: [(0x1000, "$s4cmux3AppV3runyyF"), (0x2000, "")]})
+
+    def test_the_map_takes_the_framework_s_swift_names_from_its_dsym(self):
+        # Xcode strips the framework's Swift names as it builds it (STRIP_SWIFT_SYMBOLS,
+        # `strip -D -S -T`), before the release strip: only outlined and C names are left,
+        # and nightly 4611085251001's hang records named every Swift frame by the
+        # OUTLINED_FUNCTION_N before it. The dSYM beside the app (same UUID) keeps them.
+        with tempfile.TemporaryDirectory() as tmp:
+            products = Path(tmp)
+            app = products / "cmux.app"
+            (app / "Contents/MacOS").mkdir(parents=True)
+            (app / "Contents/Resources").mkdir()
+            stub = app / "Contents/MacOS/cmux"
+            stub.write_bytes(macho([("_main", 0x0F, 1, TEXT_VMADDR + 0x1000)], uuid.UUID("11111111-2222-3333-4444-555555555555")))
+            stub.chmod(0o755)
+            code = app / "Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
+            code.parent.mkdir(parents=True)
+            stripped = [("_OUTLINED_FUNCTION_66", 0x0E, 1, TEXT_VMADDR + 0x1100), ("_swift_task_run", 0x0E, 1, TEXT_VMADDR + 0x1800)]
+            code.write_bytes(macho(stripped, swift=True))
+            code.chmod(0o755)
+            full = stripped + [("_$s11CmuxNextApp15MachineRegistryC6daemon6forTabyF", 0x0E, 1, TEXT_VMADDR + 0x1000),
+                               ("_$s11CmuxNextApp15MachineRegistryC13remoteDaemonsvg", 0x1E, 1, TEXT_VMADDR + 0x1200)]
+            dsym = products / "CmuxNextApp.framework.dSYM/Contents/Resources/DWARF/CmuxNextApp"
+            dsym.parent.mkdir(parents=True)
+
+            def run() -> str:
+                (app / "Contents/Resources/cmux-symbols.bin").unlink(missing_ok=True)
+                tools = products / "tools"
+                tools.mkdir(exist_ok=True)
+                (tools / "strip").write_text("#!/bin/sh\nexit 0\n")
+                (tools / "file").write_text('#!/bin/sh\nprintf "%s: Mach-O 64-bit executable arm64\\n" "$1"\n')
+                for tool in tools.iterdir():
+                    tool.chmod(0o755)
+                env = dict(os.environ, CMUX_STRIP_TOOL=str(tools / "strip"), CMUX_FILE_TOOL=str(tools / "file"))
+                return subprocess.run(["bash", str(STRIP), str(app)], check=True, env=env, capture_output=True, text=True).stdout
+
+            # Another build's dSYM (another UUID) names nothing here: the framework's own
+            # names, and a warning that its Swift code went unnamed.
+            dsym.write_bytes(macho(full, uuid.UUID("99999999-2222-3333-4444-555555555555"), swift=True))
+            out = run()
+            self.assertIn("holds Swift code but its map names no Swift function", out)
+            self.assertEqual(read_map(app / "Contents/Resources/cmux-symbols.bin")[SLICE_UUID],
+                             [(0x1100, "OUTLINED_FUNCTION_66"), (0x1800, "swift_task_run"), (0x2000, "")])
+
+            dsym.write_bytes(macho(full, swift=True))
+            out = run()
+            self.assertNotIn("::warning", out)
+            self.assertIn("(2 Swift)", out)
+            table = read_map(app / "Contents/Resources/cmux-symbols.bin")[SLICE_UUID]
+            self.assertEqual(table, [(0x1000, "$s11CmuxNextApp15MachineRegistryC6daemon6forTabyF"), (0x1100, "OUTLINED_FUNCTION_66"),
+                                     (0x1200, "$s11CmuxNextApp15MachineRegistryC13remoteDaemonsvg"), (0x1800, "swift_task_run"), (0x2000, "")])
+            # A frame inside remoteDaemons is named for it, not for the outlined function before it.
+            self.assertEqual(function_at(table, 0x1240), ("$s11CmuxNextApp15MachineRegistryC13remoteDaemonsvg", 0x40))
 
 
 if __name__ == "__main__":

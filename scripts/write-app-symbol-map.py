@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """Writes the app symbol map of a Mach-O image before the release strip.
 
-    scripts/write-app-symbol-map.py [--reader BINARY] IMAGE OUT
+    scripts/write-app-symbol-map.py [--reader BINARY] [--names-from DWARF] IMAGE OUT
 
 --reader names the binary that reads OUT; OUT takes the first format unless it
 holds the CMXSYM2 magic (a client built before CMXSYM2 reads only CMXSYM1).
+
+--names-from names the image's dSYM binary (CmuxNextApp.framework.dSYM's
+Contents/Resources/DWARF/CmuxNextApp): a slice whose UUID it shares takes its
+names, and it is ignored when absent or for another build. Xcode strips the
+framework while it builds (STRIP_SWIFT_SYMBOLS, `strip -D -S -T` after
+GenerateDSYMFile), before this script runs: -T removes every Swift name and
+keeps the outlined and C names, so the map of nightly 4611085251001 named
+388,720 functions and no Swift one, and every Swift frame of a hang record took
+the name of the OUTLINED_FUNCTION_N or closure destructor before it. Its dSYM
+(the same UUID) named 1,047,237, 658,523 of them Swift. An image that holds
+Swift code (a __swift5_* section) whose map would name no Swift function
+prints a warning that says so.
 
 IMAGE is the binary that holds cmux NEXT's code: CmuxNextApp.framework behind
 a stub executable (CMUX-629), or the executable of a static (live code) build;
@@ -70,6 +82,20 @@ def slices(data: bytes) -> list[bytes]:
             _, _, offset, size, _, _ = struct.unpack_from(">iiQQII", data, at)
         out.append(data[offset:offset + size])
     return out
+
+
+SWIFT_SECTION = re.compile(rb"__swift5_[a-z_]+")
+
+
+def holds_swift(image: bytes) -> bool:
+    """Whether a thin 64-bit Mach-O's load commands name a __swift5_* section (Swift code)."""
+    magic, _, _, _, ncmds, sizeofcmds = struct.unpack_from("<IiiIII", image, 0)
+    return magic == MH_MAGIC_64 and SWIFT_SECTION.search(image[32:32 + sizeofcmds]) is not None
+
+
+def swift_names(symbols: list[tuple[int, str]]) -> int:
+    """How many of a map's names are Swift (mangled `$s`, or `$S`/`_T0` of older compilers)."""
+    return sum(name.startswith(("$s", "$S", "_T0")) for _, name in symbols)
 
 
 def functions(image: bytes) -> tuple[bytes, list[tuple[int, str]]] | None:
@@ -235,16 +261,37 @@ def payload(symbols: list[tuple[int, str]], v2: bool) -> bytes:
 
 def main() -> int:
     args = sys.argv[1:]
-    reader = None
-    if args[:1] == ["--reader"]:
-        reader, args = args[1], args[2:]
+    reader = names_from = None
+    while args[:1] in (["--reader"], ["--names-from"]):
+        if args[0] == "--reader":
+            reader = args[1]
+        else:
+            names_from = args[1]
+        args = args[2:]
     executable, out = args[0], args[1]
     with open(executable, "rb") as f:
         data = f.read()
-    found = [t for t in (functions(s) for s in slices(data)) if t]
+    images = slices(data)
+    found = [t for t in (functions(s) for s in images) if t]
     if found and {uuid for uuid, _ in found} <= mapped_uuids(out):
         print(f"app symbol map: {out} already maps {executable}; unchanged")
         return 0
+    dsym: dict[bytes, list[tuple[int, str]]] = {}
+    if names_from and os.path.isfile(names_from):
+        with open(names_from, "rb") as f:
+            dsym = {uuid: symbols for uuid, symbols in (t for t in (functions(s) for s in slices(f.read())) if t)}
+    from_dsym = 0
+    for i, (uuid, symbols) in enumerate(found):
+        if len(dsym.get(uuid, ())) > len(symbols):
+            found[i], from_dsym = (uuid, dsym[uuid]), from_dsym + 1
+    if names_from and not from_dsym:
+        print(f"app symbol map: {names_from} names no slice of {executable} (absent, or another build's); the image's own names")
+    swift = {uuid for s in images if holds_swift(s) for uuid in [(functions(s) or (None,))[0]] if uuid}
+    for uuid, symbols in found:
+        if uuid in swift and symbols and not swift_names(symbols):
+            print(f"::warning title=app symbol map::{executable} (UUID {uuid.hex()}) holds Swift code but its map names no Swift function: "
+                  "the image was stripped before the map (Xcode's STRIP_SWIFT_SYMBOLS); hang records would name its Swift frames "
+                  "by the outlined function before them. Pass its dSYM binary as --names-from.")
     tables = [t for t in found if t[1]]
     if not tables:
         print(f"app symbol map: no function names in {executable}; {out} unchanged")
@@ -261,7 +308,10 @@ def main() -> int:
         f.write(blob)
     os.chmod(tmp, 0o644)
     os.replace(tmp, out)
-    print(f"app symbol map: {count} functions in {len(tables)} slice(s), {len(blob) / 1048576:.2f} MiB ({blob[:7].decode()}) -> {out}")
+    swift_count = sum(swift_names(symbols) for _, symbols in tables)
+    source = f", {from_dsym} slice(s) named from {names_from}" if from_dsym else ""
+    print(f"app symbol map: {count} functions ({swift_count} Swift) in {len(tables)} slice(s){source}, "
+          f"{len(blob) / 1048576:.2f} MiB ({blob[:7].decode()}) -> {out}")
     return 0
 
 
