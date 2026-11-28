@@ -427,6 +427,10 @@ pub enum Command {
     /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
     #[command(name = "sub-fork-job", hide = true)]
     SubForkJob,
+    /// A run-elsewhere task's runner for a Cloud or AutoCloud machine: writes the run's script
+    /// there and runs it, both over the hub carrier (`cli/run_elsewhere_carrier.rs`).
+    #[command(name = "run-elsewhere-carrier", hide = true)]
+    RunElsewhereCarrier(crate::cli::run_elsewhere_carrier::RunElsewhereCarrierArgs),
     /// Run a heavy build or test on a fork of this Cloud machine (RFD 0144 piece 3,
     /// `placement/run_vm.rs`): its output streams here, its file changes come back. Runs here
     /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
@@ -1141,10 +1145,9 @@ pub enum Command {
         /// never registered.
         #[arg(long)]
         renew: bool,
-        /// For cmux's own Claude Code hook (`cmux-tui-hook`, UserPromptSubmit): the first step
-        /// with no person's step, under NAME unless the chat has a name already. Nothing when
-        /// the chat is registered with this process; else a one-time code goes to the chat's
-        /// inbox, as from a send. Starts no daemon, never fails (`cli/hook_register.rs`).
+        /// Whether the chat is reached with this process (registered, or through the bridge):
+        /// an answer only. No code is ever delivered for it: only `acpmux send` from the chat's
+        /// own shell, or `acpmux register NAME`, sends one. Starts no daemon, never fails.
         #[arg(long, hide = true, conflicts_with_all = ["code", "renew"], requires = "name")]
         auto: bool,
     },
@@ -1259,6 +1262,8 @@ pub enum Command {
     DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
+    #[command(hide = true)]
+    DaemonExpectRelaunch { within: u64, reason: String },
     /// `daemon stats`: the busiest callers or methods over a recent window.
     #[command(hide = true)]
     DaemonStats {
@@ -1546,6 +1551,17 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// Before an update quits the app: its relaunch is expected, so the daemon waits for it
+    /// (up to `--within` seconds) instead of stopping 2 s after the app is gone, and follows the
+    /// relaunched app once it connects. Writes `owner-relaunch.json` in the acpmux home.
+    ExpectRelaunch {
+        /// Seconds to wait for the relaunched app (at most 300).
+        #[arg(long, default_value_t = 60)]
+        within: u64,
+        /// Why, for the daemon log.
+        #[arg(long, default_value = "an update")]
+        reason: String,
+    },
     /// Hold the running daemon's systemd watchdog until this machine resumes (or 15 minutes pass
     /// with no resume seen), so a pause of any length cannot trip it. The platform runs it on the
     /// guest just before it pauses the VM. Prints `{"held":true,"until_resume":true}`, or
@@ -1915,6 +1931,9 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::ExpectRelaunch { within, reason } => {
+                Command::DaemonExpectRelaunch { within, reason }
+            }
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Felt => Command::DaemonFelt,
             DaemonCmd::WatchdogHold => Command::DaemonWatchdogHold,

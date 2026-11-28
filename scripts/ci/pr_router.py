@@ -24,6 +24,11 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              a change of only prose and images does not start it;
   affects    optional, narrower: globs (same syntax) of the inputs the workflow actually reads; when given, a
              change must also touch one of them;
+  areas      optional, narrower: names of [[area]] rows of docs/benches/relevance-map.toml (the CI area map:
+             each changed path takes its most specific area, scripts/bench/benchlib/relevance.py). When given,
+             a change must touch one of those areas, or one of its `affects` globs when both are set (the
+             workflow's own files, which no area holds). A map that does not load starts the callee. The
+             route job also writes areas=<JSON list of the change's areas>, or "all" when it cannot tell;
   table_jobs for the step table's workflow (pr-pipeline.yml): the jobs of ci/steps.toml it runs. It starts
              when the change routes a step of one of them (scripts/ci/ci_steps.py, each step's `inputs`);
              a table that cannot be read starts it. A job of FULL_TIER_JOBS (the `mac` job) is routed only
@@ -192,6 +197,60 @@ def affects(config: dict, files: list[str]) -> bool:
     return any(filters.admits("paths", globs, f) for f in files)
 
 
+AREA_MAP = ROOT / "docs/benches/relevance-map.toml"
+_AREA_INDEX: dict[str, object] = {}
+
+
+def area_index(path: Path | None = None):
+    """The CI area map's index (scripts/bench/benchlib/relevance.py), or None when it does not load."""
+    path = path or AREA_MAP
+    key = str(path)
+    if key not in _AREA_INDEX:
+        try:
+            bench = str(ROOT / "scripts" / "bench")
+            if bench not in sys.path:
+                sys.path.insert(0, bench)
+            from benchlib import relevance  # noqa: PLC0415 - only a callee with `areas` needs it
+            _AREA_INDEX[key] = relevance.load(path, steps=None)
+        except Exception:  # noqa: BLE001 - any unreadable map fails open
+            _AREA_INDEX[key] = None
+    return _AREA_INDEX[key]
+
+
+def change_areas(files: list[str] | None, path: Path | None = None) -> list[str] | None:
+    """The areas a change's paths fall in (an unmapped path takes `default:<top dir>`), or None (all) when
+    the changed files or the map are unknown."""
+    if files is None:
+        return None
+    index = area_index(path)
+    if index is None:
+        return None
+    names = set()
+    for f in files:
+        hit = index.match(f)
+        names.add(hit.area.name if hit.area is not None else hit.default_area)
+    return sorted(names)
+
+
+def area_names(path: Path | None = None) -> set[str] | None:
+    index = area_index(path)
+    if index is None:
+        return None
+    return {r.name for r in index.rules if r.kind == "area"}
+
+
+def reaches(config: dict, files: list[str], path: Path | None = None) -> bool:
+    """A change reaches a callee through its `affects` globs or its `areas`; an unset key does not narrow,
+    and with both set either one is enough. An unreadable area map reaches it (fail open)."""
+    wanted = config.get("areas")
+    if not wanted:
+        return affects(config, files)
+    if config.get("affects") and affects(config, files):
+        return True
+    got = change_areas(files, path)
+    return got is None or bool(set(got) & set(wanted))
+
+
 def table_steps(config: dict, files: list[str], table: Path | None = None, full: bool = True,
                 full_ci: bool = True, tier: str = "full") -> list[str] | None:
     """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read. FULL: the head
@@ -240,11 +299,13 @@ def pipeline_tier(labels: set[str]) -> str:
 
 def route(event: dict, callees: dict, files: list[str] | None,
           draft_switch: str = "1", decided: tuple[str, str] | None = None,
-          land_update: bool = False, carried: set[str] | None = None) -> tuple[list[str], dict[str, str]]:
+          land_update: bool = False, carried: set[str] | None = None,
+          same_head: set[str] | None = None) -> tuple[list[str], dict[str, str]]:
     """(the callee files to start, a reason per callee) for one pull_request event. DECIDED: head_tier's
     (tier, reason) when the caller read the head's facts (route mode); else the draft rule alone. LAND_UPDATE:
     the head is GitHub's base merge into a ready-to-land PR (land_update_head), for `land_handoff_only` callees.
-    CARRIED: callees the red-head base merge rule keeps off (rerun_plan): they passed at the previous head."""
+    CARRIED: callees the red-head base merge rule keeps off (rerun_plan): they passed at the previous head.
+    SAME_HEAD: callees the same-head rerun rule keeps off (same_head_carry): they passed at this very head."""
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
     landing_affected = head_tier.land_affected((tier, tier_reason))
@@ -279,7 +340,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if config.get("land_handoff_only") and train_tip and action in ("opened", "reopened", "synchronize"):
             # The merge train's combined tip is the tree its last member squashes to: the one head whose build a
             # merge can take when every member's own head is behind the base (cmux_machine_channel_pr_head.py).
-            if files is None or (matches_filter(config, files) and affects(config, files)):
+            if files is None or (matches_filter(config, files) and reaches(config, files)):
                 start.append(name)
                 why[name] = f"the merge train's tip ({TRAIN_TIP})"
             else:
@@ -310,6 +371,12 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = (f"{head_tier.RERUN_REASON}: this base merge's previous head ran it green; only what was "
                          f"red there runs again ({FULL_CI} or the land runs it)")
             continue
+        if same_head and name in same_head:
+            why[name] = (f"{SAME_HEAD_RERUN_REASON}: an earlier router run at this exact head ran it green with this "
+                         f"workflow file; only what was red there runs again ({FULL_CI} or "
+                         f"${SAME_HEAD_RERUN_VAR}=0 runs it)")
+            continue
+        gates, gate_reason = landing_gates(config, files) if landing_affected else ([], "")
         if (name == IOS_VERDICT_CALLEE and head_tier.land_affected((tier, tier_reason)) and ios_verdict_on()
                 and ios_touched(files)):
             # A landing head on the affected tier starts no full-tier job, so without this nothing iOS compiles
@@ -317,17 +384,13 @@ def route(event: dict, callees: dict, files: list[str] | None,
             start.append(name)
             why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, iOS-affecting: the ios fast verdict alone (no table job) "
                          f"compiles the changed iOS targets before the merge")
-            gates = nightly_gates(config, files) if nightly_gate_on() else []
-            why[name] += f"; nightly gate: runs only {', '.join(gates)}" if gates else ""
+            why[name] += f"; {gate_reason}" if gates else ""
             continue
-        gates = nightly_gates(config, files) if landing_affected and nightly_gate_on() else []
         if gates:
-            # A landing head on the affected tier starts no full-tier job, so a check the nightly also runs first ran
-            # at the nightly, hours after the merge (NIGHTLY_GATE_JOBS). Only those steps run (main's `only`).
+            # A landing head on the affected tier otherwise starts no full-tier job. Run just the explicit
+            # landing detectors, using the existing step-table subset (main's `only`).
             start.append(name)
-            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, nightly gate: runs only "
-                         f"{', '.join(gates)} (steps the nightly also runs or a base red put on the land gate, "
-                         f"ci/steps.toml `nightly`, `land_gate`)")
+            why[name] = f"{head_tier.LAND_AFFECTED_REASON}, {gate_reason}"
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
@@ -350,7 +413,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if not matches_filter(config, files):
             why[name] = "its path filter admits no changed file"
             continue
-        if not affects(config, files):
+        if not reaches(config, files):
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
@@ -447,6 +510,29 @@ def nightly_gates(config: dict, files: list[str] | None, table: Path | None = No
         return []
 
 
+def landing_gates(config: dict, files: list[str] | None, table: Path | None = None) -> tuple[list[str], str]:
+    """The narrow detectors run before affected-tier landings, with their step-table inputs unchanged.
+
+    Phone instruction budgets are an explicit PR gate (Leo: "Run them cheap and gate the PR where they're fast"),
+    independent of the optional nightly mirror. Do not start the rest of the full-tier Linux suite for them.
+    """
+    gates = nightly_gates(config, files, table) if nightly_gate_on() else []
+    reasons = [f"nightly gate: runs only {', '.join(gates)}"] if gates else []
+    if "linux" in config.get("table_jobs", []):
+        name = "phone-speed-icount"
+        try:
+            step = ci_steps.load(table or ci_steps.TABLE).steps.get(name)
+            phone = step is not None and step.job == "linux" and ci_steps.routed(step, files)
+        except Exception:  # noqa: BLE001
+            # Let the runner report a broken table, rather than silently losing this required detector.
+            phone = True
+        if phone:
+            if name not in gates:
+                gates.append(name)
+            reasons.append(f"phone speed gate: runs only {name}")
+    return gates, "; ".join(reasons)
+
+
 def ios_verdict_on() -> bool:
     return os.environ.get("CI_IOS_FAST_VERDICT", "").strip() != "0"
 
@@ -460,6 +546,34 @@ def ios_touched(files: list[str] | None) -> bool:
         return ios_fast_verdict.affects(files)
     except Exception:  # noqa: BLE001 - unreadable routes more, never less
         return True
+
+
+# pr-pipeline.yml's ios fast verdict runner (ios-fast-runner) took a Linux runner on every pipeline only to read the diff
+# and answer run=false: 459 of them in 3 h to 05:27Z on 2026-11-28 (63 s median, 479 runner-min, about 1.9 per merged
+# PR), for 90 ios fast verdict jobs. Its plan (scripts/ci/ios_fast_verdict.py plan) runs only when a changed path is
+# this check's own file or one the ios-kit step routes that can change the Swift surface; affects() answers that from
+# the diff here, and base_marked_paths adds a Rust file whose base text named the FFI marks (a removed uniffi export),
+# so the router skips the runner exactly where its plan would say run=false. Unknown, unreadable or any error starts it.
+# Leo, 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time, period." vars.CI_IOS_FAST_ROUTER_SKIP=0
+# starts the runner on every pipeline again.
+def ios_fast_skip(files: list[str] | None) -> tuple[bool, str]:
+    """(whether pr-pipeline.yml's ios fast verdict runner skips at this head, why)."""
+    if os.environ.get("CI_IOS_FAST_ROUTER_SKIP", "1").strip() == "0":
+        return False, "CI_IOS_FAST_ROUTER_SKIP=0: the runner plans"
+    if not files:
+        return False, "changed files unknown: the runner plans"
+    try:
+        import ios_fast_verdict
+        if ios_fast_verdict.affects(files):
+            return False, "a changed path reaches an iOS target: the runner plans"
+        step = ios_fast_verdict.kit_step()
+        routed_rust = [p for p in files if ios_fast_verdict.rust_inner(p) and ios_fast_verdict.routes_ios(step, p)]
+        if routed_rust and any(ios_fast_verdict.routes_ios(step, p)
+                               for p in ios_fast_verdict.base_marked_paths(routed_rust)):
+            return False, "a changed Rust file named the FFI marks at the base: the runner plans"
+    except Exception as e:  # noqa: BLE001 - the router routes more, never less
+        return False, f"the iOS check failed here ({type(e).__name__}): the runner plans"
+    return True, "no changed path reaches an iOS target: the ios fast verdict runner skips"
 
 
 def land_update_head(event: dict, callees: dict) -> bool:
@@ -514,6 +628,13 @@ def proved(jobs: list) -> bool:
     return all(t is not None for t in took) and sum(took) >= RERUN_SHORT_SECONDS
 
 
+def jobs_under(jobs: list, prefix: str) -> list:
+    """The jobs of JOBS a caller job named PREFIX ran: the caller itself, `PREFIX / x` and `PREFIX (x)`."""
+    return [j for j in jobs if isinstance(j, dict) and (str(j.get("name") or "") == prefix
+            or str(j.get("name") or "").startswith(prefix + " / ")
+            or str(j.get("name") or "").startswith(prefix + " ("))]
+
+
 def rerun_plan(jobs: list | None, names: dict[str, list[str]], table: list[str]) -> tuple[set[str], set[str]]:
     """(callee files, table jobs) the red-head base merge rule keeps off: those whose every job passed at the
     previous head's router run (proved). JOBS: that run's jobs (the jobs API); None (unread) keeps nothing off."""
@@ -521,9 +642,7 @@ def rerun_plan(jobs: list | None, names: dict[str, list[str]], table: list[str])
         return set(), set()
 
     def under(prefix: str) -> list:
-        return [j for j in jobs if isinstance(j, dict) and (str(j.get("name") or "") == prefix
-                or str(j.get("name") or "").startswith(prefix + " / ")
-                or str(j.get("name") or "").startswith(prefix + " ("))]
+        return jobs_under(jobs, prefix)
 
     carried = {callee for callee, prefixes in names.items()
                if proved([job for prefix in prefixes for job in under(prefix)])}
@@ -538,6 +657,11 @@ def router_jobs_at(runs: list | None, repo: str, token: str) -> list | None:
     they cannot be read whole (at most three pages of 100)."""
     newest = head_tier.newest_runs(runs)
     run = next((r for path, r in newest.items() if path.split("@")[0].endswith("/pr-router.yml")), None)
+    return run_jobs(run, repo, token)
+
+
+def run_jobs(run: dict | None, repo: str, token: str) -> list | None:
+    """The latest attempt's jobs of Actions run RUN, or None when they cannot be read whole (three pages of 100)."""
     if not run or not re.fullmatch(r"\d+", str(run.get("id") or "")) or not token:
         return None
     import urllib.request
@@ -550,7 +674,8 @@ def router_jobs_at(runs: list | None, repo: str, token: str) -> list | None:
                 f"{head_tier.API}/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100&page={page}",
                 headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                          "X-GitHub-Api-Version": "2022-11-28"})
-            status, body, _ = deadline_http.request(req, head_tier.VERDICT_SECONDS)
+            status, body, _ = head_tier.read_with_spares(
+                req, lambda r: deadline_http.request(r, head_tier.VERDICT_SECONDS))
             data = json.loads(body) if status == 200 else None
             if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
                 return None
@@ -598,6 +723,17 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
     for name in jobs:
         if name not in callees:
             problems.append(f"{name}: pr-router.yml calls it but pr_router.json does not route it")
+    if any(config.get("areas") for config in callees.values()):
+        known = area_names()
+        for name, config in callees.items():
+            if not config.get("areas"):
+                continue
+            if known is None:
+                problems.append(f"{name}: docs/benches/relevance-map.toml does not load, so its areas cannot be read")
+                continue
+            unknown = sorted(set(config["areas"]) - known)
+            if unknown:
+                problems.append(f"{name}: areas {unknown} are not [[area]] names of docs/benches/relevance-map.toml")
     for name in callees:
         path = workflows / name
         if not path.is_file():
@@ -681,25 +817,145 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
     return {c for c in carried if c in callees}, rows
 
 
+# The same-head rerun rule. A new pull_request event at a head the router already ran (ready-to-land added again by
+# land or a lane, reopened, marked ready, a routed edit) started every routed callee again, though the head commit
+# was the same: 11,630 runner-min/day of pr-router.yml jobs reran on a commit where the same job had already passed
+# (replay of 209,786 jobs, 2026-11-27T03Z..11-28T03Z, ~/lane-scratch/ci100k/cache-replay.md), 8,725 of them in a
+# new router run. The same-head land carry rule (head_tier.py) only helps a head where every check is green, the
+# red-head base merge rule only a base merge, and job_reuse.py runs inside a job after its runner is set up and only
+# for cmux-next.yml's jobs with vars.CI_NEXT_JOB_REUSE=1. Here, before any runner starts, a callee stays off when its
+# jobs passed in an earlier router run at this exact head sha (proved: every job green, a minute or more of success)
+# and neither its workflow file nor pr-router.yml changed on the base since that run started (the workflow file
+# blob the run used is the one this run would use). Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of
+# ci time, period." A head whose newest earlier run of the callee was red, cancelled, unfinished or short runs it
+# again; anything unread runs everything. full-ci on the PR, or $CI_SAME_HEAD_RERUN_ONLY_RED=0, runs every callee.
+SAME_HEAD_RERUN_VAR = "CI_SAME_HEAD_RERUN_ONLY_RED"
+SAME_HEAD_RERUN_REASON = "same head rerun red only"
+# pr-pipeline.yml's table jobs route their steps by the head's tier (table_steps' full flag), so a pass of the cheap
+# tier's steps is not a pass of the full tier's: it is left to the rules that know the earlier tier.
+SAME_HEAD_TIER_ROUTED = frozenset({"pr-pipeline.yml"})
+SAME_HEAD_RUNS = 3  # earlier router runs read at one head, newest first
+
+
+def same_head_applies(event: dict, switch: str = "1") -> bool:
+    """Whether the same-head rerun rule can apply to EVENT before reading anything: switch on, a head sha, a head from
+    this repository, and no full-ci on the PR or in this event (full-ci asks for every callee)."""
+    if (switch or "1").strip() == "0":
+        return False
+    pr = event.get("pull_request") or {}
+    head = pr.get("head") or {}
+    if not re.fullmatch(r"[0-9a-f]{40}", str(head.get("sha") or "")):
+        return False
+    if (head.get("repo") or {}).get("full_name") != ((pr.get("base") or {}).get("repo") or {}).get("full_name"):
+        return False
+    added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
+    return FULL_CI not in head_tier.labels_of(event) and added != FULL_CI
+
+
+def earlier_router_runs(runs: list | None, current: str, workflow: str = "pr-router.yml") -> list[dict] | None:
+    """This head's WORKFLOW (a .github/workflows file name) runs other than CURRENT (this run's id), newest first, at
+    most SAME_HEAD_RUNS; None when RUNS is unread. scripts/ci/same_head_job.py reads it for a workflow's own job."""
+    if not isinstance(runs, list):
+        return None
+    mine = [r for r in runs if isinstance(r, dict)
+            and str(r.get("path") or "").split("@")[0].endswith(f"/{workflow}")
+            and str(r.get("id") or "") != str(current) and re.fullmatch(r"\d+", str(r.get("id") or ""))]
+    return sorted(mine, key=lambda r: int(r["id"]), reverse=True)[:SAME_HEAD_RUNS]
+
+
+def same_head_plan(job_lists: list[tuple[dict, list | None]], names: dict[str, list[str]],
+                   callees: dict) -> dict[str, dict]:
+    """{callee file: the earlier router run that proved it} for the callees the same-head rerun rule keeps off.
+    JOB_LISTS: (run, its jobs) newest first. Per callee the newest run in which it ran (a job not skipped) decides:
+    proved there keeps it off; red, cancelled, unfinished or short runs it. An unread run's jobs (None) stop the
+    search for every callee not yet decided (an unread newer run may hold a red)."""
+    out: dict[str, dict] = {}
+    for callee, prefixes in sorted(names.items()):
+        if callee in SAME_HEAD_TIER_ROUTED or callee not in callees:
+            continue
+        for run, jobs in job_lists:
+            if not isinstance(jobs, list):
+                break
+            mine = [job for prefix in prefixes for job in jobs_under(jobs, prefix)]
+            if not mine or all(j.get("conclusion") == "skipped" for j in mine if isinstance(j, dict)):
+                continue
+            if proved(mine):
+                out[callee] = run
+            break
+    return out
+
+
+def workflow_moved(repo: str, base: str, path: str, since: str, token: str) -> bool | None:
+    """Whether a commit on BASE touched PATH at or after SINCE (an ISO time): the workflow file blob an earlier run
+    used is no longer the one this run uses. None when unread."""
+    if not (re.fullmatch(r"[\w.-]+/[\w.-]+", repo) and re.fullmatch(r"[\w./-]+", base) and since and token):
+        return None
+    import urllib.parse
+    query = urllib.parse.urlencode({"sha": base, "path": path, "since": since, "per_page": 1})
+    data = head_tier._get_json(f"{head_tier.API}/repos/{repo}/commits?{query}", token)
+    return bool(data) if isinstance(data, list) else None
+
+
+def same_head_carry(event: dict, decided: tuple[str, str], callees: dict, runs_reader=None, jobs_reader=None,
+                    moved=None) -> set[str]:
+    """The callees the same-head rerun rule keeps off at EVENT's head (see SAME_HEAD_RERUN_VAR); set() when it does
+    not apply or anything it needs is unread. The readers are head_tier.runs_at, run_jobs and workflow_moved (tests
+    pass fakes)."""
+    if decided[0] == "none" or not same_head_applies(event, os.environ.get(SAME_HEAD_RERUN_VAR, "1")):
+        return set()
+    pr = event.get("pull_request") or {}
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    runs_reader = runs_reader or head_tier.runs_at
+    jobs_reader = jobs_reader or run_jobs
+    moved = moved or workflow_moved
+    earlier = earlier_router_runs(runs_reader(repo, str((pr.get("head") or {}).get("sha") or ""), token),
+                                  os.environ.get("GITHUB_RUN_ID", ""))
+    if not earlier:
+        return set()
+    job_lists: list[tuple[dict, list | None]] = []
+    for run in earlier:
+        jobs = jobs_reader(run, repo, token)
+        job_lists.append((run, jobs))
+        if jobs is None:
+            break
+    proved_at = same_head_plan(job_lists, caller_names(ENTRY.read_text()), callees)
+    base = str((pr.get("base") or {}).get("ref") or "")
+    keep: set[str] = set()
+    for callee, run in proved_at.items():
+        since = str(run.get("created_at") or run.get("run_started_at") or "")
+        if all(moved(repo, base, f".github/workflows/{path}", since, token) is False
+               for path in (callee, ENTRY.name)):
+            keep.add(callee)
+    return keep
+
+
 def nightly_gate_table(callees: dict, files: list[str] | None, decided: tuple[str, str], start: list[str],
                        table: list[str]) -> tuple[list[str], list[str]]:
     """(the table jobs pr-pipeline.yml starts, the steps its jobs run only): on a landing head of the affected tier
-    whose change routes a nightly-mirroring step (nightly_gates), that step's job joins TABLE and runs only those
+    whose change routes a nightly mirror or phone speed detector, that step's job joins TABLE and runs only those
     steps. Any other head: (TABLE, []), its jobs run their whole route."""
-    if not head_tier.land_affected(decided) or not nightly_gate_on():
+    if not head_tier.land_affected(decided):
         return table, []
     only = [step for name, config in sorted(callees.items()) if name in start
-            for step in nightly_gates(config, files)]
+            for step in landing_gates(config, files)[0]]
     jobs = [job for job in NIGHTLY_GATE_JOBS if only and job not in table]
     return (table + jobs, only) if jobs else (table, [])
+
+
+def areas_output(files: list[str] | None) -> str:
+    """The route job's `areas` output: the change's CI areas as a JSON list, or `all` when it cannot tell."""
+    got = change_areas(files)
+    return "all" if got is None else json.dumps(got, separators=(',', ':'))
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
                   table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
                   ui: tuple[str, str] = ("", ""), only: list[str] | None = None,
-                  preflight: tuple[bool, str] = (True, "")) -> None:
+                  preflight: tuple[bool, str] = (True, ""), ios_skip: tuple[bool, str] = (False, "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
+        out.write(f"areas={areas_output(files)}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"only={' '.join(only or [])}\n")
         out.write(f"land_status={status}\n")
@@ -708,10 +964,12 @@ def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None
         out.write(f"ui_status={ui[0]}\n")
         out.write(f"ui_status_description={ui[1]}\n")
         out.write(f"preflight_web={'true' if preflight[0] else 'false'}\n")
+        out.write(f"ios_fast_skip={'true' if ios_skip[0] else 'false'}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
              f"compile preflight web job: {'runs' if preflight[0] else 'skips'} ({preflight[1]})", "",
+             f"ios fast verdict runner: {'skips' if ios_skip[0] else 'plans'} ({ios_skip[1]})", "",
              "| workflow | starts | why |", "|---|---|---|"]
     lines += [f"| `{name}` | {'yes' if name in start else 'no'} | {reason} |" for name, reason in sorted(why.items())]
     text = "\n".join(lines) + "\n"
@@ -729,8 +987,11 @@ def main(argv: list[str]) -> int:
         files = changed_files()
         decided, facts = head_tier.decide_with_facts("pull_request", event)
         carried, rows = plan_for(decided, facts, callees)
+        # The same-head rerun rule: callees that passed in an earlier router run at this exact head stay off. Its
+        # passes are this head's own, so it holds no land status (as the base merge rule's previous-head ones do).
+        same_head = same_head_carry(event, decided, callees) - carried
         start, why = route(event, callees, files, decided=decided, land_update=land_update_head(event, callees),
-                           carried=carried)
+                           carried=carried, same_head=same_head)
         labels = head_tier.labels_of(event)
         full = decided[0] == "full" or FULL_CI in labels
         table = [job for job in table_jobs_routed(callees, files, full=full,
@@ -746,7 +1007,8 @@ def main(argv: list[str]) -> int:
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
         write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
-                      ui_status(event, files), only, preflight_web(event, callees, files, start))
+                      ui_status(event, files), only, preflight_web(event, callees, files, start),
+                      ios_fast_skip(files))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

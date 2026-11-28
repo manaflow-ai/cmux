@@ -60,6 +60,7 @@
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextHomeEngine",
@@ -211,10 +212,12 @@
         "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
+        "CmuxNextHibernation",
         "CmuxNextIcons",
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemoteFetch",
+        "CmuxNextResources",
         "CmuxNextSettings",
         "CmuxNextWakeups",
         "CmuxNextWindowRules"
@@ -748,6 +751,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextWakeups"
@@ -1059,6 +1063,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextCloud",
+        "CmuxNextCloudStart",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
@@ -1636,6 +1641,8 @@
         "CmuxNextHome",
         "CmuxNextHomeModel",
         "CmuxNextIcons",
+        "CmuxNextPages",
+        "CmuxNextSettings",
         "CmuxNextWakeups",
         "CmuxNextWindowRules"
       ],
@@ -2417,6 +2424,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextPalette",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -2532,6 +2540,7 @@
         "CmuxNextCopyMode",
         "CmuxNextDesign",
         "CmuxNextDictation",
+        "CmuxNextHibernation",
         "CmuxNextIcons",
         "CmuxNextProcessEnvironment",
         "CmuxNextTerminalFind",
@@ -2749,6 +2758,17 @@
         "CmuxNextWorkspaceRepair"
       ],
       "packages": [],
+      "reads": []
+    },
+    "CmuxScreenKitTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxScreenKitTests",
+      "targets": [
+        "CCmuxAppFFI"
+      ],
+      "packages": [
+        "CmuxScreenKit"
+      ],
       "reads": []
     },
     "DaemonCapabilitiesPlugin": {

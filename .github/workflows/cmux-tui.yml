@@ -1173,6 +1173,8 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
           fi
+          # The runner image grants bwrap userns via its scoped AppArmor profile.
+          bwrap --unshare-all --ro-bind / / true
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
@@ -1367,6 +1369,9 @@ jobs:
         if: ${{ !cancelled() && inputs.mode == 'full' && (steps.focused.outcome == 'success' || steps.focused.outcome == 'failure') }}
         working-directory: cmux-tui
         run: |
+          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
+          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui
           python3 scripts/smoke-tui.py
 
@@ -1492,6 +1497,11 @@ jobs:
           # breakaway marks its terminal (behavior tests through the daemon).
           cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
             --test windows_terminal_hosts -- --test-threads=1
+          # A child that leads its group runs in a job with what it starts:
+          # a drop or kill ends the tree, a detached one's tree outlives it;
+          # an owned child's tree (spawn_owned) ends with the process owning it.
+          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-process \
+            --test windows_tree
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through

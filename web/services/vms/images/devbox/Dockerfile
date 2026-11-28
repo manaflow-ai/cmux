@@ -371,10 +371,13 @@ RUN bash -n /etc/cmux/bashrc \
 # (about 0.25 s, seconds on a slow clone) without the keymap one. Both cache homes are seeded: the
 # XDG seed copied by cmux-bashrc from /etc/cmux/blesh-cache-seed, and
 # <blesh>/cache.d for uid 0 plus the uid-1000 work user (numeric chown: the
-# provider's name for that user is not guaranteed).
+# provider's name for that user is not guaranteed). ble.sh loads the emacs keymap
+# lazily, so a seed shell fed a bare `exit` quits before writing keymap.emacs
+# (rebake 46100366318 failed its `test -s` on that): `ble-bind -m emacs` forces the
+# load, and the file it writes is byte-identical to a real session's.
 RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do \
-       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+       echo 'ble-bind -m emacs -P >/dev/null; exit' | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
          script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
      done \
   && rm -rf /tmp/blesh-seed-home \
