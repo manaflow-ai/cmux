@@ -66,6 +66,17 @@ fn options() -> Options {
     Options { faults, resend, power_drops_unflushed: true }
 }
 
+/// The resident size and thread count `/proc/self/status` reports (Linux; elsewhere empty).
+fn process_size() -> String {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| ["VmRSS:", "VmHWM:", "Threads:"].iter().any(|k| l.starts_with(k)))
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn replay_command(seed: u64, opts: &Options) -> String {
     let mut env = format!("SIM_SEED={seed}");
     if !opts.resend {
@@ -201,6 +212,16 @@ fn seeds_hold_the_delivery_invariants() {
     // The latest answer after its deadline, and its seed: the data the liveness budget is set on.
     let mut latest: Option<(std::time::Duration, u64)> = None;
     for seed in base..base + seeds {
+        if (seed - base) % 100 == 0 {
+            // The process's size as the sweep goes: a sweep a runner killed (SIGKILL, base runs
+            // 45026611875 and 44905680888) shows here whether it grew per seed.
+            eprintln!(
+                "sim: {} seeds done, {:.1} s, {}",
+                seed - base,
+                started.elapsed().as_secs_f64(),
+                process_size()
+            );
+        }
         let run = world::run(seed, &opts);
         for (_, late) in invariants::answer_lateness(&run.faulty) {
             if latest.is_none_or(|(l, _)| late > l) {
