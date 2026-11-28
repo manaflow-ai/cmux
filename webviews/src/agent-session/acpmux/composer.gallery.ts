@@ -163,6 +163,12 @@ async function pasteComparison(ctx: PlayContext) {
   });
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
+  // Inline view puts the pasted image in the text only, never also in the row over it (Leo,
+  // 2026-11-27: "did we fix that inline + top isn't the thing that gets displayed when you select
+  // inline?"). Two frames after it drew, so a late placeholder-to-chip swap is counted too.
+  await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+  const inStrip = ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length;
+  if (inStrip !== 0) throw new Error(`inline view: the pasted image also drew in the strip (${inStrip})`);
 }
 
 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
@@ -2269,7 +2275,7 @@ export default agentPaneEntry({
       },
     },
     "queued-steering": {
-      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
+      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first in the queue as an ordinary row (no Steering label, no Steer button) and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],

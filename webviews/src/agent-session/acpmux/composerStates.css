@@ -1093,7 +1093,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 
 /* What the strip holds: the prompts that wait for the turn to end, one muted line each with no
    header and no number (Leo, 2026-10-21), and above them a prompt sent now that stops the turn and
-   runs next, its text led by "Steering" (ComposerQueue.tsx). Every row takes the queue's two columns
+   runs next, drawn as any queued prompt (ComposerQueue.tsx). Every row takes the queue's two columns
    (its text, its actions), so all the prompts' text starts at one edge. */
 .acpmux-queued-kind {
   flex: none;
@@ -1102,12 +1102,6 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   font-weight: 600;
   line-height: 18px;
   letter-spacing: var(--text-detail--letter-spacing);
-}
-.acpmux-queued-kind[data-kind="steer"] {
-  /* Inline before the prompt at its smaller size: top-aligned, so the line stays 18px. */
-  vertical-align: top;
-  margin-right: 6px;
-  color: var(--agent-accent);
 }
 /* acpmux's ask to resume a failed subagent (ComposerQueue.tsx `entry.retry`): "Resume subagent"
    before the subagent's name, the prompt's own words never drawn (Leo, 2026-10-30: "this looks weird

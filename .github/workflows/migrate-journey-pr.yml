@@ -18,6 +18,8 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [feat-cmux-next]
+    # labeled: the heavy-at-land rule on `migrate` runs it on the event that adds ready-to-land (or full-ci).
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - cmux-tui/crates/cmux-migrate/**
       - cmux-tui/crates/cmux-tui/src/cli/migrate*
@@ -30,7 +32,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: migrate-journey-pr-${{ github.event.pull_request.number || github.run_id }}
+  group: migrate-journey-pr-${{ github.event.pull_request.number || github.run_id }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}
   cancel-in-progress: true
 
 env:
@@ -41,7 +43,7 @@ jobs:
   # A workflow sweep that reaches this only through workflow files skips its heavy jobs (self-edit-sweep.yml,
   # scripts/ci/self_edit_sweep.py); a pull request under 10 changed files or with full-ci never starts the gate.
   self-edit:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/self-edit-sweep.yml
     with:
       workflow: .github/workflows/migrate-journey-pr.yml
@@ -55,7 +57,7 @@ jobs:
   # nothing new to prove: `migrate` skips. Only on a pull_request without full-ci; a dispatch always runs.
   # CI_MIGRATE_JOURNEY_REUSE=0 turns the reuse off.
   scope:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_MIGRATE_JOURNEY_REUSE || '1') != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_MIGRATE_JOURNEY_REUSE || '1') != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -97,7 +99,11 @@ jobs:
 
   migrate:
     needs: [self-edit, scope]
-    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && needs.scope.outputs.hit != 'true' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-26: "de facto, im
+    # asking for 99% fewer minutes of ci time, period."): on a pull request this runs only on the `labeled` event that
+    # adds ready-to-land or full-ci, at that head; land-judge pulses ready-to-land at the head it lands. On 11-28
+    # 00Z..05:37Z about 1.6k runner-min/day of it ran on heads a later push replaced. Dispatch and CI_HEAVY_AT_LAND=0: as before.
+    if: ${{ ((github.event_name != 'pull_request' || (github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled')) && !cancelled() && needs.self-edit.outputs.run != 'false' && needs.scope.outputs.hit != 'true' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository)) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: LINUX_RUNNER/RUNNER_POOLS.linux_8 (#54437)
     environment:
       name: cmux-next-vm-image-dev
@@ -198,6 +204,9 @@ jobs:
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
+          # One job per 3 GiB of a memory-capped pool slot: -j at every host thread SIGKILLed rustc (job 140983092431).
+          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
           test -x "$binary"
           # ELF 64-bit magic (7f 'E' 'L' 'F', class 2), read with coreutils: a runner image
