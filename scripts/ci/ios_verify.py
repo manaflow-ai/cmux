@@ -7,6 +7,8 @@
    holds the base: a merge-combination break (iOS regressions rows 4, 5, 7) fails here, not after landing.
    --no-merge-base skips it. A conflict stops with the files to resolve.
 2. Select. cmux-next-ios/FlowSuite/select_flows.py picks the flows the diff can affect (flows.json).
+   None (no changed path is iOS-affecting): no simulator run; the proof is a pass whose one run is that selection,
+   so a `cmux/ios-fast` that asked for a proof still turns green (cmux#58097).
 3. Run, in parallel, on the simulator fleet: two shards by default, placed by the controller. Explicit --workers
    (or env CMUX_IOS_VERIFY_WORKERS; never cosmic-gray or air-blue) selects worker hints, one shard per worker.
    A hint a reservation lease holds (read up front from `cmux-ci lease list`, or the controller's refusal) falls
@@ -247,9 +249,26 @@ def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "
             "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
+# Where a flow's `scripts` run, and with which environment. By default the checkout this tool runs from (a person's
+# head checkout). --scripts-at puts them in another tree: the automatic run (.github/workflows/cmux-next-ios-verify-
+# auto.yml) runs this tool from the protected branch, so the head's scripts run in a worktree of the head, with no
+# token in their environment (SCRUBBED): head code never sees the token that posts the record.
+SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "TOKENS", "GH_TOKEN_SPARES", "CI_POOL_GH_TOKEN", "CI_POOL_GH_TOKEN_SPARES",
+            "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+SCRIPTS_AT: Path | None = None
+
+
 def run_script(script: str) -> dict:
     t0 = time.monotonic()
-    p = subprocess.run(shlex.split(script), capture_output=True, text=True, cwd=REPO_ROOT)
+    cwd, env = REPO_ROOT, None
+    if SCRIPTS_AT is not None:
+        cwd, env = SCRIPTS_AT, {k: v for k, v in os.environ.items() if k not in SCRUBBED}
+    try:
+        p = subprocess.run(shlex.split(script), capture_output=True, text=True, cwd=cwd, env=env)
+    except FileNotFoundError as e:
+        # A tool this machine lacks (cargo on a Linux runner without Rust) cannot judge the script: skipped, as a
+        # macOS-only helper's exit 2 is, never a pass. pr-pipeline's own jobs build the same code.
+        p = subprocess.CompletedProcess(script, 2, "", f"skipped: {e.filename} only where it is installed")
     # exit 2 from a macOS-only helper on Linux (tagged-sim.sh: "xcrun not found") is skipped, not passed.
     result = "pass" if p.returncode == 0 else ("skipped" if p.returncode == 2 and "only" in p.stderr else "fail")
     return {"name": f"script: {script}", "mode": "script", "worker": os.uname().nodename, "args": [script],
@@ -453,6 +472,15 @@ def rerun_gate(repo: str, sha: str) -> str:
     return "gate job has not run yet: it reads the proof when it does"
 
 
+NO_FLOWS_RUN = "select_flows: no iOS-affecting path"
+
+
+def no_flows_run(changed: list[str]) -> dict:
+    """The one run of a proof whose selection (select_flows.select over the whole tree) found nothing iOS-affecting:
+    the selection itself, passed, with how many changed paths it read."""
+    return {"name": NO_FLOWS_RUN, "result": "pass", "mode": "select", "paths": len(changed), "seconds": 0}
+
+
 def public_runs(runs: list[dict]) -> list[dict]:
     """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
     PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
@@ -517,7 +545,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
+    ap.add_argument("--scripts-at", help="run the flows' scripts in this tree (a head worktree), with no token in "
+                    "their environment")
     a = ap.parse_args(argv)
+    if a.scripts_at:
+        global SCRIPTS_AT
+        SCRIPTS_AT = Path(a.scripts_at).resolve()
     t_start = time.monotonic()
     workers = workers_from(a.workers)
     if a.pin_strict and not workers:
@@ -539,28 +572,37 @@ def main(argv: list[str] | None = None) -> int:
     changed = select_flows.changed_from_git(base_sha, head)
     selection = select_flows.select(manifest, changed)
     steps = plan(selection, manifest["flows"], workers, a.pair_e2e)
-    if a.plan or not selection["ios"]:
+    if a.plan:
         print(json.dumps({"head": head, "ios": selection["ios"], "flows": selection["flows"],
                           "steps": steps, "scripts": selection["scripts"], "delegated": delegated(selection)}, indent=1))
         if not selection["ios"]:
-            print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
+            print("not iOS-affecting: the proof is a no-flows pass (no simulator run)", file=sys.stderr)
         return 0
-    leased = set() if a.pin_strict or not workers else leased_hosts()
-    with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
-                for s in steps]
-        futs += [pool.submit(run_script, s) for s in selection["scripts"]]
-        runs = [f.result() for f in futs]
-    runs += delegated(selection)
     work = Path(tempfile.mkdtemp(prefix="ios-verify-"))
-    shots, video = [], None
-    for r in runs:
-        if r.get("step") and r["mode"] == "test":
-            got = fetch(r["step"], work / r["step"])
-            shots += [p for p in got if p.suffix == ".png"]
-            video = video or next((str(p.relative_to(work)) for p in got if p.name == "ui-video-small.mp4"), None)
-    base_meta, base_shots = baseline(repo, view["baseRefName"], work)
-    captures = compare(shots, base_shots, view.get("body") or "")
+    if not selection["ios"]:
+        # The gate (scripts/ci/ios_fast_verdict.py plan) asks for a proof when a changed path routes to the iOS step,
+        # read from a sparse checkout; this selection reads the whole tree and can find no flow to run (cmux#58097:
+        # .github/workflows/test-ios.yml and scripts/ci/ios_app_package_paths.py). Returning without a record left
+        # `cmux/ios-fast` pending with no way out, as cmux#62950 was for the gate's own files: post the selection's
+        # answer as the proof instead, a pass with one run, so the gate reads it.
+        runs = [no_flows_run(changed)]
+        video, base_meta, captures = None, None, []
+    else:
+        leased = set() if a.pin_strict or not workers else leased_hosts()
+        with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
+            futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
+                    for s in steps]
+            futs += [pool.submit(run_script, s) for s in selection["scripts"]]
+            runs = [f.result() for f in futs]
+        runs += delegated(selection)
+        shots, video = [], None
+        for r in runs:
+            if r.get("step") and r["mode"] == "test":
+                got = fetch(r["step"], work / r["step"])
+                shots += [p for p in got if p.suffix == ".png"]
+                video = video or next((str(p.relative_to(work)) for p in got if p.name == "ui-video-small.mp4"), None)
+        base_meta, base_shots = baseline(repo, view["baseRefName"], work)
+        captures = compare(shots, base_shots, view.get("body") or "")
     proof_at = now()
     pushed = pushed_at(repo, head)
     p2p = int((dt.datetime.fromisoformat(proof_at.replace("Z", "+00:00"))
