@@ -1171,15 +1171,6 @@ class OutAndCheckTests(unittest.TestCase):
                     self.run_mode("out", out)
                 self.assertEqual(list(out.rglob("*.generated.swift")) if out.exists() else [], [])
 
-    def test_a_key_twice_in_one_object_is_refused(self) -> None:
-        # json keeps the last silently: two branches each adding a family's requests would drop one.
-        self.write_inputs(layout_bindings())
-        text = (self.root / "bindings.json").read_text(encoding="utf-8")
-        text = text.replace('"families": {', '"families": {"Layout": {}, ', 1)
-        (self.root / "bindings.json").write_text(text, encoding="utf-8")
-        with self.assertRaisesRegex(BindingError, "appears twice"):
-            self.run_mode("check")
-
     def test_a_sources_root_outside_the_repository_is_refused(self) -> None:
         for root in ("/abs/Sources", "../Sources", "Sources/../../X", ""):
             with self.subTest(root=root):
@@ -1273,6 +1264,15 @@ class SdkGeneratorHookTests(unittest.TestCase):
 
 
 class RepositoryBindingsTests(unittest.TestCase):
+    def test_a_repeated_key_is_refused_not_dropped(self) -> None:
+        """Two `enums` in one family kept only the second, and ColumnSide stopped generating (#63368)."""
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "bindings.json"
+            path.write_text('{"families": {"Creation": {"enums": {"ColumnSide": {}}, "enums": {"ColumnDockEdge": {}}}}}',
+                            encoding="utf-8")
+            with self.assertRaisesRegex(BindingError, "repeats the key"):
+                generate.load_bindings(path)
+
     def test_the_repository_bindings_render_against_the_repository_schema(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
         self.assertTrue(generate.sources_root(REPO, bindings).is_dir())
