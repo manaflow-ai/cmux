@@ -389,6 +389,8 @@ mod session_move_history;
 mod session_move_live;
 #[path = "transfer_cli/session_move_reachable.rs"]
 mod session_move_reachable;
+#[path = "transfer_cli/session_move_return_send.rs"]
+mod session_move_return_send;
 #[path = "transfer_cli/session_move_target_ask.rs"]
 mod session_move_target_ask;
 #[path = "transfer_cli/synced_pins_drafts.rs"]
