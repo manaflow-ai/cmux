@@ -744,10 +744,19 @@ impl Hub {
         // for one (`turn_opener.rs`), 4 s for a 1 GB chat. The superseded fold below touches tool
         // calls only, so it changes nothing on such a page.
         let indexed = filter.reads_indexed_kinds();
+        // A subagent's page passes the chat's other lines on a byte search, unparsed, as its
+        // forward page does; a line that starts a prompt is still read for the superseded fold.
+        let needle = filter.line_needle();
+        let may_match = |line: &[u8], dir: &[u8], kind: &[u8]| {
+            needle.as_deref().is_none_or(|needle| memchr::memmem::find(line, needle).is_some())
+                || (omit && crate::store::starts_prompt(dir, kind))
+        };
         let back = |skip: &dyn Fn(&[u8], &[u8]) -> bool,
                     visit: &mut dyn FnMut(EventRecord) -> bool| {
             if indexed {
                 self.store.scan_back_indexed(id, after, before, skip, visit)
+            } else if needle.is_some() {
+                self.store.scan_back_matching(id, after, before, skip, &may_match, visit)
             } else {
                 self.store.scan_back(id, after, before, skip, visit)
             }
@@ -802,7 +811,9 @@ impl Hub {
 pub const PROMPT_INDEX_TEXT_CHARS: usize = 240;
 
 /// A prompt's record as the prompt index carries it: its id, whether it was a steer or went on
-/// with a turn, and the start of its text. Nothing else (images, pastes, `_meta`).
+/// with a turn, the start of its text, and `others` when the person did not type it
+/// (`prompt_provenance::persons_prompt_record`): the scroll rail ticks only the person's prompts.
+/// Nothing else (images, pastes, `_meta`).
 pub fn prompt_index_msg(msg: &Value) -> Value {
     let mut out = serde_json::Map::new();
     for key in ["promptId", "steer", "turnId", "continues"] {
@@ -813,6 +824,9 @@ pub fn prompt_index_msg(msg: &Value) -> Value {
     if let Some(text) = msg.get("text").and_then(Value::as_str) {
         let cut: String = text.chars().take(PROMPT_INDEX_TEXT_CHARS).collect();
         out.insert("text".to_owned(), Value::String(cut));
+    }
+    if !crate::prompt_provenance::persons_prompt_record(msg) {
+        out.insert("others".to_owned(), Value::Bool(true));
     }
     Value::Object(out)
 }

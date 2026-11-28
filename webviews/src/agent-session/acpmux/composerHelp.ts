@@ -32,7 +32,7 @@ export const COMPOSER_KEYS: readonly { id: string; label: StringKey; keys: strin
   { id: "send", label: "help.key.send", keys: "↩" },
   { id: "newline", label: "help.key.newline", keys: "⇧↩" },
   { id: "queue", label: "help.key.queue", keys: "⌘↩" },
-  { id: "side", label: "help.key.side", keys: "⌥↩" },
+  { id: "newline-option", label: "help.key.newline", keys: "⌥↩" },
   { id: "suggestion", label: "help.key.suggestion", keys: "⇥" },
   { id: "stop", label: "help.key.stop", keys: "esc esc" },
   { id: "history", label: "help.key.history", keys: "↑ ↓" },

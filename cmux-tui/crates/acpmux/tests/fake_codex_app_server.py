@@ -271,7 +271,10 @@ for line in sys.stdin:
             reply({"method": "account/rateLimits/updated", "params": {"rateLimits": limits}})
             moved = dict(limits, secondary={"usedPercent": 90, "windowDurationMins": 10080, "resetsAt": 1790500000})
             reply({"method": "account/rateLimits/updated", "params": {"rateLimits": moved}})
-        reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "ok"}})
+        delta = "ok"
+        if text.strip() == "env: CMUX_CHATGPT_ACCESS_TOKEN":
+            delta = "CMUX_CHATGPT_ACCESS_TOKEN=" + os.environ.get("CMUX_CHATGPT_ACCESS_TOKEN", "")
+        reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": delta}})
         status = "interrupted" if "bg-codex-interrupt" in text else "completed"
         reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": status, "items": []}}})
     elif method == "account/rateLimits/read":

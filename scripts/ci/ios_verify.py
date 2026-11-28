@@ -7,14 +7,22 @@
    holds the base: a merge-combination break (iOS regressions rows 4, 5, 7) fails here, not after landing.
    --no-merge-base skips it. A conflict stops with the files to resolve.
 2. Select. cmux-next-ios/FlowSuite/select_flows.py picks the flows the diff can affect (flows.json).
-3. Run, in parallel, on the warm pool (env CMUX_IOS_VERIFY_WORKERS, default cmux22,cmux23; never cosmic-gray or
-   air-blue): one `cmux-ci run --class simulator` per shard of `test only=KIT ui=UI video` against
-   scripts/ci/cmux-next-ios-sim.sh, pinned (--target-worker) so each worker's cached DerivedData, FFI/cargo cache and
-   booted slim simulator (--sim-features none) are reused; `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
+   None (no changed path is iOS-affecting): no simulator run; the proof is a pass whose one run is that selection,
+   so a `cmux/ios-fast` that asked for a proof still turns green (cmux#58097).
+3. Run, in parallel, on the simulator fleet: two shards by default, placed by the controller. Explicit --workers
+   (or env CMUX_IOS_VERIFY_WORKERS; never cosmic-gray or air-blue) selects worker hints, one shard per worker.
+   A hint a reservation lease holds (read up front from `cmux-ci lease list`, or the controller's refusal) falls
+   to the next named worker, then to unpinned placement; --pin-strict never falls back.
+   Each `cmux-ci run --class simulator` runs `test only=KIT ui=UI video` against scripts/ci/cmux-next-ios-sim.sh,
+   reusing cached DerivedData, FFI/cargo cache and a slim simulator (--sim-features none); `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
    reconnects) when a selected flow has "pair_e2e": true; the flows' `scripts` here. A flow's macOS `swift` tests
    are named as delegated to pr-pipeline's mac job, which runs them on the same head.
 4. Compare. Each screenshot is diffed against the newest passing ios-flows proof on a PR merged into the base (the
-   last green build's captures); a change is evidence, not a failure. No baseline yet is said as such.
+   last green build's captures). A screen whose changed pixels pass 1% (channel tolerance 16, ios_gate_screen_diff.py's
+   threshold) fails the proof unless a `Visual-change: <screen or family/screen or *>: <why>` line in the PR body (its
+   grammar) says it is wanted (Leo, 2026-11-27: "i think even y'all didnt even look at sceenshots for those do we have
+   that kinda loop?"). Smaller changes, new and missing screens stay evidence. No baseline yet, a size change or an
+   unreadable screen judges nothing: missing screenshots never block.
 5. Post. The proof record (scripts/ci/proof_record.py, ci/proof-record/) goes on the PR keyed to the head, and the
    PR's `cmux/ios-fast` gate job is rerun so it reads it: the gate needs a passing proof at the current head.
 
@@ -43,6 +51,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO_ROOT / "cmux-next-ios" / "FlowSuite"))
+import ios_gate_screen_diff  # noqa: E402
 import proof_record  # noqa: E402
 import select_flows  # noqa: E402
 
@@ -58,12 +67,29 @@ REEXEC_HEAD = "CMUX_IOS_VERIFY_MERGED_HEAD"
 SUITE = "ios-flows"
 SIM_SCRIPT = "scripts/ci/cmux-next-ios-sim.sh"
 ARTIFACT = "artifacts/ios-sim/evidence.zip"
-DEFAULT_WORKERS = "cmux22,cmux23"
+DEFAULT_SHARDS = 2
+LEGACY_WORKERS = ("cmux22", "cmux23")  # Scrub old worker names from public proof text too.
 FORBIDDEN_WORKERS = {"cosmic-gray", "air-blue"}
 GATE_JOB = "ios fast verdict status"
 BROKER_ID = re.compile(r"through the broker as (\S+)")
 STEP_ID = re.compile(r"\bstep[: ]+([0-9a-f]{8,})\b")
 SAME_RATIO = 0.002
+XCODE_PINS = REPO_ROOT / "scripts" / "ci" / "xcode-pins.txt"
+
+
+def xcode_label(pins: Path = XCODE_PINS) -> str | None:
+    """The worker label naming the Xcode cmux-next-ios-sim.sh will select: the pin of the newest macOS row in
+    xcode-pins.txt (the simulator pool runs the newest macOS). Without it the controller may move a step pinned to a
+    warm worker onto any simulator host, and one without that Xcode exits 3 ("no Xcode at ..."): cmux#38805's proof
+    went from cmux22 to a host that advertised simulator but no xcode-27.2."""
+    rows = []
+    for line in pins.read_text().splitlines() if pins.is_file() else []:
+        parts = line.split("#", 1)[0].split()
+        if len(parts) == 2 and parts[0].isdigit():
+            rows.append((int(parts[0]), parts[1]))
+    return f"xcode-{max(rows)[1]}" if rows else None
+# Above this a changed screen needs a Visual-change line (ios_gate_screen_diff.CHANGED_RATIO).
+FAIL_RATIO = ios_gate_screen_diff.CHANGED_RATIO
 
 
 def now() -> str:
@@ -90,26 +116,30 @@ def workers_from(spec: str) -> list[str]:
     bad = [w for w in out if w.split(".")[0] in FORBIDDEN_WORKERS]
     if bad:
         raise SystemExit(f"ios verify: {', '.join(bad)} take no builds (Leo's GUI Macs); pick fleet minis")
-    return out or [w for w in DEFAULT_WORKERS.split(",")]
+    return out
 
 
 # ---------- plan ----------
 
 def plan(selection: dict, flows: list[dict], workers: list[str], pair: str) -> list[dict]:
-    """The cmux-ci simulator runs for SELECTION, one per worker shard, plus pair-e2e when it applies."""
+    """Plan automatic fleet shards, or one shard per explicit worker, plus pair-e2e when it applies."""
     steps = []
-    lines = select_flows.sim_args(selection, len(workers)) if selection["ios"] else []
+    placements = workers or [None] * DEFAULT_SHARDS
+    lines = select_flows.sim_args(selection, len(placements)) if selection["ios"] else []
     for i, line in enumerate(lines):
         words = line.split()
         if words[0] == "test":
             words.append("video")
         steps.append({"name": f"sim {i + 1}/{len(lines)}: {line}", "mode": words[0], "args": words,
-                      "worker": workers[i % len(workers)]})
+                      "worker": placements[i % len(placements)]})
+    if pair == "never":
+        steps = [s for s in steps if s["mode"] != "pair-e2e"]
     chosen = {f["id"] for f in flows if f["id"] in selection["flows"]}
     wants_pair = any(f.get("pair_e2e") for f in flows if f["id"] in chosen)
-    if selection["ios"] and (pair == "always" or (pair == "auto" and wants_pair)):
+    has_pair = any(s["mode"] == "pair-e2e" for s in steps)  # sim_args already names it (with its words)
+    if selection["ios"] and not has_pair and (pair == "always" or (pair == "auto" and wants_pair)):
         steps.append({"name": "pair-e2e: tagged Mac pairs, drops, reconnects", "mode": "pair-e2e",
-                      "args": ["pair-e2e"], "worker": workers[len(steps) % len(workers)]})
+                      "args": ["pair-e2e"], "worker": placements[len(steps) % len(placements)]})
     return steps
 
 
@@ -120,35 +150,190 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def sign_in(step: dict) -> str | None:
+    """The `cmux-ci run --sign-in` profile a step needs. pair-e2e signs both apps in to the dev Cloud; with no
+    session it falls back to CMUX_UITEST_STACK_EMAIL/PASSWORD or ~/.secrets/cmuxterm-dev.env, which fleet Macs
+    do not hold, so an unsigned pair-e2e exits 1 at pairing ("DEBUG dev credential: set ...") after a
+    45-minute Mac build (#59658 attempt 7, step 9c79c4ec8782598d8441941a).
+    The session is minted on the submitting machine (cmux-ci's signin_session), so this signs in only where that
+    machine holds the agent account; elsewhere (a lane VM) the step goes unsigned as before, with a note."""
+    if step["mode"] != "pair-e2e":
+        return None
+    return "agent" if has_agent_account() else None
+
+
+AGENT_KEYS = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
+AGENT_FILES = (".secrets/cmuxterm-dev.env", ".secrets/cmux.env")  # cmux-ci signin_session.SECRET_FILES
+
+
+def has_agent_account(environ=os.environ, home: str | None = None) -> bool:
+    """Whether `cmux-ci run --sign-in agent` can mint a session here: both agent keys in the environment, or in
+    one of the secrets files it reads. Reads names only; never returns a value."""
+    if all(environ.get(k) for k in AGENT_KEYS):
+        return True
+    for rel in AGENT_FILES:
+        try:
+            text = (Path(home or Path.home()) / rel).read_text()
+        except OSError:
+            continue
+        names = {line.split("=", 1)[0].strip().removeprefix("export ").strip()
+                 for line in text.splitlines() if "=" in line and line.split("=", 1)[1].strip()}
+        if all(k in names for k in AGENT_KEYS):
+            return True
+    return False
+
+
 def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
-    """Identify one simulator submission, keeping its head, shard and worker visible in fleet logs."""
+    """Identify one simulator submission by its work, keeping its head and shard visible in fleet logs.
+
+    The worker is part of the key only under --pin-strict, where the host is the evidence: the same work
+    sent to cmux22 and aws-m4pro-4 is one step, and the fleet's idempotency key dedupes it instead of
+    queueing it twice (ios-sim-queue red, 11-27: pairs c71f2d2b1a45/dc356492a3bf, 7f3a4f1e9b47/45c3414ad5f8).
+    The digest leaves the head out (the key's full-sha head field carries it), so a newer head's step matches the older
+    queued one "commits aside" and cmux-ci's supersede replaces it rather than queueing both."""
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
-    workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    work = [SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt]
+    if sign_in(step):  # a signed-in step is new work: never reuse the unsigned step that failed on its credential
+        work.append(f"sign-in={sign_in(step)}")
+    workload = json.dumps(work, separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}-{digest}"
+    pinned = f"-{step['worker']}" if strict else ""
+    return f"ios-verify-{pr}-{head}-{step['mode']}-{shard}{pinned}-{digest}"
 
 
-def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
+def stream(cmd: list[str], tag: str) -> tuple[int, str]:
+    """Run CMD, echo each line to stderr as "[TAG] line" while it runs, and return its exit code and output. A
+    capture-only run printed nothing until the step ended, so a step waiting in the fleet queue (a pinned worker busy
+    with a runner job) looked hung: two proofs sat silent for 90 min and ended at the caller's timeout, exit 124."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    lines = []
+    for line in p.stdout:
+        lines.append(line)
+        print(f"[{tag}] {line}", end="", file=sys.stderr, flush=True)
+    return p.wait(), "".join(lines)
+
+
+# The controller refuses a step pinned (--target-worker) to a host a fleet registry reservation lease holds for another
+# account: "fleet registry reservation lease-...: nothing is moved to or tested on it ... omit target_worker so the job
+# places on the rest of the fleet". A worker hint was then a FAIL unrelated to the PR (cmux/ios-fast red on a lease).
+LEASE_REFUSAL = re.compile(r"reservation lease|omit target_worker", re.I)
+
+
+def short(host: str | None) -> str:
+    return (host or "").split(".")[0]
+
+
+def leased_hosts() -> set[str]:
+    """Short names of the hosts an active fleet lease holds (`cmux-ci lease list --json --active`), or an empty set
+    when the controller cannot say: the refusal check in run_step still catches a lease this read missed."""
+    try:
+        p = subprocess.run(["cmux-ci", "lease", "list", "--json", "--active"], capture_output=True, text=True,
+                           timeout=60)
+        rows = (json.loads(p.stdout or "{}").get("leases") or []) if p.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return set()
+    return {short(h) for r in rows if isinstance(r, dict) for h in (r.get("hosts") or []) if h}
+
+
+def placements_for(step: dict, workers: list[str], strict: bool, leased: set[str]) -> list[str | None]:
+    """Where STEP may run, in order. Under --pin-strict, only its named worker (the host is the evidence). Otherwise
+    its worker hint, then the other named workers, skipping any a lease holds, then unpinned fleet placement."""
+    if strict or not step["worker"]:
+        return [step["worker"]]
+    order = [step["worker"], *(w for w in workers if w != step["worker"])]
+    return [w for w in order if short(w) not in leased] + [None]
+
+
+def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1",
+             workers: list[str] | None = None, leased: set[str] | None = None) -> dict:
+    """Run STEP on the first placement the controller takes. A placement refused for a reservation lease (and only
+    that refusal) moves to the next; under --pin-strict the refusal is the result."""
+    refused = []
+    for where in placements_for(step, workers or [], strict, leased or set()):
+        # A fallback gets its own key: off --pin-strict the key leaves the worker out, so the refused step's key
+        # would dedupe the retry back onto the refusal.
+        tries = attempt if not refused else f"{attempt}-fallback{len(refused)}"
+        run = dispatch_step({**step, "worker": where}, head, pr, strict, tries)
+        if strict or where is None or run["result"] == "pass" or not LEASE_REFUSAL.search(run["tail"]):
+            run["refused_workers"] = refused
+            return run
+        print(f"ios verify: {step['name']}: {where} is held by a reservation lease; trying the next placement",
+              file=sys.stderr, flush=True)
+        refused.append(where)
+    return run
+
+
+def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", step_key(step, head, pr, strict, attempt), "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr, strict, attempt),
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
+    label = xcode_label()
+    if label:
+        cmd += ["--label", label]
+    if step["worker"]:
+        cmd += ["--target-worker", step["worker"]]
     if strict:
         cmd.append("--pin-strict")
+    if sign_in(step):
+        cmd += ["--sign-in", sign_in(step)]
+    elif step["mode"] == "pair-e2e":
+        print(f"ios verify: {step['name']}: no agent account on this machine, so the step goes unsigned and fails "
+              "at pairing on a fleet Mac with no dev credential; run it from a machine with "
+              "~/.secrets/cmuxterm-dev.env (CMUX_UITEST_STACK_EMAIL/_PASSWORD)", file=sys.stderr, flush=True)
     for a in step["args"]:
         cmd += ["--arg", a]
     t0 = time.monotonic()
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    text = p.stdout + "\n" + p.stderr
+    code, text = stream(cmd, step["name"])
     m = BROKER_ID.search(text) or STEP_ID.search(text)
     return {"name": step["name"], "mode": step["mode"], "worker": step["worker"], "args": step["args"],
-            "step": m.group(1) if m else None, "result": "pass" if p.returncode == 0 else "fail",
-            "exit": p.returncode, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
+            "step": m.group(1) if m else None, "result": "pass" if code == 0 else "fail",
+            "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
+
+
+def finished_step(step: dict, head: str, ids: list[str]) -> dict | None:
+    """STEP's result read from a simulator step that already ran (--from-step), or None when no ID ran this work.
+
+    A proof whose poster died after its step finished (cmux#38805: 12/12 green on aws-m4pro-4, then the caller's
+    timeout, exit 124) could not be posted again: re-sending the step answered HTTP 409 "step_key already names a
+    different step" once the controller had dropped the pin, and a changed key queues the whole run again. Each ID is
+    read with `cmux-ci status`. It counts only when it ran this tool's script at HEAD with STEP's args, so another
+    head's or another shard's pass is never borrowed."""
+    for sid in ids:
+        p = subprocess.run(["cmux-ci", "status", sid], capture_output=True, text=True, timeout=120)
+        try:
+            job = json.loads(p.stdout) if p.returncode == 0 else {}
+        except ValueError:
+            job = {}
+        if job.get("ref") != head or job.get("script") != SIM_SCRIPT or job.get("args") != step["args"]:
+            continue
+        ok = job.get("state") == "done" and job.get("exit_code") == 0
+        return {"name": step["name"], "mode": step["mode"], "worker": job.get("worker") or step["worker"],
+                "args": step["args"], "step": sid, "result": "pass" if ok else "fail",
+                "exit": job.get("exit_code"), "seconds": 0, "tail": f"read from finished step {sid} ({job.get('state')})"}
+    return None
+
+
+# Where a flow's `scripts` run, and with which environment. By default the checkout this tool runs from (a person's
+# head checkout). --scripts-at puts them in another tree: the automatic run (.github/workflows/cmux-next-ios-verify-
+# auto.yml) runs this tool from the protected branch, so the head's scripts run in a worktree of the head, with no
+# token in their environment (SCRUBBED): head code never sees the token that posts the record.
+SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "TOKENS", "GH_TOKEN_SPARES", "CI_POOL_GH_TOKEN", "CI_POOL_GH_TOKEN_SPARES",
+            "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+SCRIPTS_AT: Path | None = None
 
 
 def run_script(script: str) -> dict:
     t0 = time.monotonic()
-    p = subprocess.run(shlex.split(script), capture_output=True, text=True, cwd=REPO_ROOT)
+    cwd, env = REPO_ROOT, None
+    if SCRIPTS_AT is not None:
+        cwd, env = SCRIPTS_AT, {k: v for k, v in os.environ.items() if k not in SCRUBBED}
+    try:
+        p = subprocess.run(shlex.split(script), capture_output=True, text=True, cwd=cwd, env=env)
+    except FileNotFoundError as e:
+        # A tool this machine lacks (cargo on a Linux runner without Rust) cannot judge the script: skipped, as a
+        # macOS-only helper's exit 2 is, never a pass. pr-pipeline's own jobs build the same code.
+        p = subprocess.CompletedProcess(script, 2, "", f"skipped: {e.filename} only where it is installed")
     # exit 2 from a macOS-only helper on Linux (tagged-sim.sh: "xcrun not found") is skipped, not passed.
     result = "pass" if p.returncode == 0 else ("skipped" if p.returncode == 2 and "only" in p.stderr else "fail")
     return {"name": f"script: {script}", "mode": "script", "worker": os.uname().nodename, "args": [script],
@@ -174,15 +359,20 @@ def diff_ratio(a: Path, b: Path) -> float | None:
     try:
         from PIL import Image, ImageChops
     except ImportError:
-        return None
+        # No Pillow: the gate's stdlib decoder; a size change or an unreadable file is not judged.
+        d = ios_gate_screen_diff.diff_images(a.read_bytes(), b.read_bytes())
+        return None if d.note else round(d.ratio, 4)
     with Image.open(a) as x, Image.open(b) as y:
         if x.size != y.size:
-            return 1.0
+            return None  # another device or scale: not comparable, so not judged
         d = ImageChops.difference(x.convert("RGB"), y.convert("RGB")).convert("L").point(lambda v: 255 if v > 16 else 0)
         return round(sum(1 for v in d.getdata() if v) / (x.size[0] * x.size[1]), 4)
 
 
-def compare(shots: list[Path], base: dict[str, Path]) -> list[dict]:
+def compare(shots: list[Path], base: dict[str, Path], body: str = "") -> list[dict]:
+    """Each screen's verdict against BASE. A changed screen over FAIL_RATIO is marked `unjustified` unless a
+    Visual-change line in BODY covers it (then it carries the `why`); its family is the folder it was captured in."""
+    lines = ios_gate_screen_diff.justifications(body)
     out = []
     for s in shots:
         rec = {"name": s.name, "sha256": hashlib.sha256(s.read_bytes()).hexdigest()}
@@ -195,6 +385,12 @@ def compare(shots: list[Path], base: dict[str, Path]) -> list[dict]:
             r = diff_ratio(s, b)
             rec["diff_ratio"] = r
             rec["verdict"] = "same" if r is not None and r <= SAME_RATIO else "changed"
+            if r is not None and r > FAIL_RATIO:
+                why = ios_gate_screen_diff.justify(s.parent.name, s.name, lines)
+                if why:
+                    rec["why"] = why
+                else:
+                    rec["unjustified"] = True
         out.append(rec)
     for name in sorted(set(base) - {s.name for s in shots}):
         out.append({"name": name, "verdict": "missing"})
@@ -273,14 +469,26 @@ def visual(captures: list[dict], base_meta: dict | None, video: str | None) -> d
     changed = [c["name"] for c in captures if c["verdict"] in ("changed", "new", "missing")]
     return {"screens": sum(1 for c in captures if c["verdict"] != "missing"), "baselined": base_meta is not None,
             "baseline_source": (base_meta or {}).get("source", "none"),
-            "changed": changed, "video": bool(video), "diffed": base_meta is not None and bool(captures)}
+            "changed": changed, "unjustified": unjustified(captures),
+            "video": bool(video), "diffed": base_meta is not None and bool(captures)}
+
+
+def unjustified(captures: list[dict]) -> list[str]:
+    return [c["name"] for c in captures if c.get("unjustified")]
+
+
+def verdict(runs: list[dict], captures: list[dict]) -> str:
+    """fail when a run failed or a screen changed past FAIL_RATIO with no Visual-change line; else pass."""
+    if any(r["result"] in ("fail", "error") for r in runs) or unjustified(captures):
+        return "fail"
+    return "pass"
 
 
 # ---------- PR ----------
 
 def pr_view(pr: str | None, repo: str | None) -> dict:
     args = ["pr", "view"] + ([pr] if pr else []) + ["--json",
-            "number,headRefName,headRefOid,baseRefName,url,isCrossRepository"]
+            "number,headRefName,headRefOid,baseRefName,url,isCrossRepository,body"]
     if repo:
         args += ["--repo", repo]
     return gh_json(*args)
@@ -329,11 +537,83 @@ def rerun_gate(repo: str, sha: str) -> str:
     return "gate job has not run yet: it reads the proof when it does"
 
 
+NO_FLOWS_RUN = "select_flows: no iOS-affecting path"
+
+
+def no_flows_run(changed: list[str]) -> dict:
+    """The one run of a proof whose selection (select_flows.select over the whole tree) found nothing iOS-affecting:
+    the selection itself, passed, with how many changed paths it read."""
+    return {"name": NO_FLOWS_RUN, "result": "pass", "mode": "select", "paths": len(changed), "seconds": 0}
+
+
 def public_runs(runs: list[dict]) -> list[dict]:
     """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
     PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
     worker, and the step id still leads to it. The worker stays in this run's stderr."""
-    return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+    return [{k: v for k, v in r.items() if k not in ("tail", "worker", "refused_workers")} for r in runs]
+
+
+def scrub_hosts(body: str, hosts: list[str]) -> str:
+    """BODY with every fleet host in HOSTS (and its short name) said as `a fleet worker`. The posted proof is PR text,
+    and a public repo's PR text names no fleet host (public-body-guard refused it on cmux#61688, #57488, #57672): this
+    covers any field a host reaches, not only the run worker public_runs drops. The gate reads no host."""
+    names = {n for h in hosts if h for n in (h, h.split(".")[0]) if len(n) >= 3}
+    for n in sorted(names, key=len, reverse=True):
+        body = re.sub(rf"(?<![\w.-]){re.escape(n)}(?![\w-])", "a fleet worker", body)
+    return body
+
+
+VISUAL_DIFF_START = "<!-- cmux-ios-visual-diff:start -->"
+VISUAL_DIFF_END = "<!-- cmux-ios-visual-diff:end -->"
+VISUAL_DIFF_URL = re.compile(r"https://github\.com/[^\s]+#issuecomment-\d+")
+
+
+def visual_diff_line(record: dict, proof_url: str | None) -> str | None:
+    """A claim only for a passing proof with measured comparisons against NIGHTLY."""
+    baseline = record.get("baseline") or {}
+    captures = record.get("captures") or []
+    if record.get("verdict") != "pass" or baseline.get("source") != "nightly" or not captures:
+        return None
+    if (not re.fullmatch(r"[0-9a-f]{40}", str(baseline.get("nightly_sha") or ""))
+            or proof_record.problems(record) or not proof_url or not VISUAL_DIFF_URL.fullmatch(proof_url)):
+        return None
+    if not all(c.get("verdict") in ("same", "changed")
+               and type(c.get("diff_ratio")) in (int, float) and 0 <= c["diff_ratio"] <= 1 for c in captures):
+        return None
+    changed = sum(c["verdict"] == "changed" for c in captures)
+    return (f"Visual-diff: {proof_url} ({changed} changed, {len(captures) - changed} unchanged "
+            f"vs NIGHTLY at `{baseline.get('nightly_sha', '')[:10]}`; head `{record['head_sha']}`)")
+
+
+def visual_diff_body(body: str, line: str | None) -> str:
+    """Replace only our prepended block; keep user text and the final footer intact."""
+    block = re.compile(rf"(?ms)^{re.escape(VISUAL_DIFF_START)}\n.*?^{re.escape(VISUAL_DIFF_END)}\n?")
+    clean = block.sub("", body)
+    if not line:
+        return clean
+    return f"{VISUAL_DIFF_START}\n{line}\n{VISUAL_DIFF_END}\n" + clean
+
+
+def post_proof(repo: str, number: int, head: str, record: dict, body: str, work: Path) -> bool:
+    """Check the head before publishing and again before updating its current body."""
+    current = pr_view(str(number), repo)
+    if current["headRefOid"] != head:
+        return False
+    comment = work / "comment.md"
+    comment.write_text(body)
+    output = sh("gh", "pr", "comment", str(number), "--repo", repo, "--body-file", str(comment))
+    urls = VISUAL_DIFF_URL.findall(output)
+    proof_url = urls[-1] if urls else None
+    current = pr_view(str(number), repo)
+    if current["headRefOid"] != head:
+        return False
+    original = current.get("body") or ""
+    updated = visual_diff_body(original, visual_diff_line(record, proof_url))
+    if updated != original:
+        description = work / "pr-body.md"
+        description.write_text(updated)
+        sh("gh", "pr", "edit", str(number), "--repo", repo, "--body-file", str(description))
+    return True
 
 
 def summary_md(record: dict) -> str:
@@ -348,6 +628,10 @@ def summary_md(record: dict) -> str:
     lines += ["", f"Screens: {len(record.get('captures', []))}, " +
               (f"vs #{b['pr']} at `{b['sha'][:10]}`: {len(changed)} differ" + (f" ({', '.join(changed[:8])})" if changed else "")
                if b else "no baseline yet (no passing proof merged into the base)")]
+    bad = unjustified(record.get("captures", []))
+    if bad:
+        lines.append(f"**{len(bad)} screens changed over {FAIL_RATIO:.0%} with no `Visual-change:` line** "
+                     f"({', '.join(bad[:8])}): fix them, or add `Visual-change: <screen>: <why>` to the PR body and rerun.")
     if record.get("merged_base"):
         lines.append(f"The base was merged into the head first ({record['base_sha'][:10]}).")
     return "\n".join(lines)
@@ -370,17 +654,27 @@ def main(argv: list[str] | None = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pr")
     ap.add_argument("--repo")
-    ap.add_argument("--workers", default=os.environ.get("CMUX_IOS_VERIFY_WORKERS", DEFAULT_WORKERS))
+    ap.add_argument("--workers", default=os.environ.get("CMUX_IOS_VERIFY_WORKERS", ""),
+                    help="comma-separated worker hints; by default the fleet places two shards")
     ap.add_argument("--pair-e2e", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
     ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
+    ap.add_argument("--from-step", action="append", default=[], metavar="ID",
+                    help="post from this finished simulator step instead of running it again (repeatable)")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
+    ap.add_argument("--scripts-at", help="run the flows' scripts in this tree (a head worktree), with no token in "
+                    "their environment")
     a = ap.parse_args(argv)
+    if a.scripts_at:
+        global SCRIPTS_AT
+        SCRIPTS_AT = Path(a.scripts_at).resolve()
     t_start = time.monotonic()
     workers = workers_from(a.workers)
+    if a.pin_strict and not workers:
+        ap.error("--pin-strict requires --workers or CMUX_IOS_VERIFY_WORKERS")
     view = pr_view(a.pr, a.repo)
     repo = a.repo or view["url"].split("github.com/")[1].rsplit("/pull/", 1)[0]
     merged = False
@@ -398,26 +692,44 @@ def main(argv: list[str] | None = None) -> int:
     changed = select_flows.changed_from_git(base_sha, head)
     selection = select_flows.select(manifest, changed)
     steps = plan(selection, manifest["flows"], workers, a.pair_e2e)
-    if a.plan or not selection["ios"]:
+    if a.plan:
         print(json.dumps({"head": head, "ios": selection["ios"], "flows": selection["flows"],
                           "steps": steps, "scripts": selection["scripts"], "delegated": delegated(selection)}, indent=1))
         if not selection["ios"]:
-            print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
+            print("not iOS-affecting: the proof is a no-flows pass (no simulator run)", file=sys.stderr)
         return 0
-    with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
-        futs += [pool.submit(run_script, s) for s in selection["scripts"]]
-        runs = [f.result() for f in futs]
-    runs += delegated(selection)
     work = Path(tempfile.mkdtemp(prefix="ios-verify-"))
-    shots, video = [], None
-    for r in runs:
-        if r.get("step") and r["mode"] == "test":
-            got = fetch(r["step"], work / r["step"])
-            shots += [p for p in got if p.suffix == ".png"]
-            video = video or next((str(p.relative_to(work)) for p in got if p.name == "ui-video-small.mp4"), None)
-    base_meta, base_shots = baseline(repo, view["baseRefName"], work)
-    captures = compare(shots, base_shots)
+    if not selection["ios"]:
+        # The gate (scripts/ci/ios_fast_verdict.py plan) asks for a proof when a changed path routes to the iOS step,
+        # read from a sparse checkout; this selection reads the whole tree and can find no flow to run (cmux#58097:
+        # .github/workflows/test-ios.yml and scripts/ci/ios_app_package_paths.py). Returning without a record left
+        # `cmux/ios-fast` pending with no way out, as cmux#62950 was for the gate's own files: post the selection's
+        # answer as the proof instead, a pass with one run, so the gate reads it.
+        runs = [no_flows_run(changed)]
+        video, base_meta, captures = None, None, []
+    else:
+        reused = {}
+        for s in steps if a.from_step else []:
+            got = finished_step(s, head, a.from_step)
+            if got is None:
+                raise SystemExit(f"ios verify: no --from-step ran {s['name']} at {head[:12]}")
+            reused[s["name"]] = got
+        leased = set() if a.pin_strict or not workers or reused else leased_hosts()
+        with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
+            futs = [pool.submit(lambda r: r, reused[s["name"]]) if s["name"] in reused else
+                    pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
+                    for s in steps]
+            futs += [pool.submit(run_script, s) for s in selection["scripts"]]
+            runs = [f.result() for f in futs]
+        runs += delegated(selection)
+        shots, video = [], None
+        for r in runs:
+            if r.get("step") and r["mode"] == "test":
+                got = fetch(r["step"], work / r["step"])
+                shots += [p for p in got if p.suffix == ".png"]
+                video = video or next((str(p.relative_to(work)) for p in got if p.name == "ui-video-small.mp4"), None)
+        base_meta, base_shots = baseline(repo, view["baseRefName"], work)
+        captures = compare(shots, base_shots, view.get("body") or "")
     proof_at = now()
     pushed = pushed_at(repo, head)
     p2p = int((dt.datetime.fromisoformat(proof_at.replace("Z", "+00:00"))
@@ -430,21 +742,26 @@ def main(argv: list[str] | None = None) -> int:
         "runs": public_runs(runs),
         "captures": captures, "baseline": base_meta, "video": video,
         "visual": visual(captures, base_meta, video),
-        "verdict": "fail" if any(r["result"] in ("fail", "error") for r in runs) else "pass",
+        "verdict": verdict(runs, captures),
         "timing": {"pushed_at": pushed, "proof_at": proof_at, "push_to_proof_s": p2p,
                    "verify_s": round(time.monotonic() - t_start)},
         "tool": "scripts/ci/ios_verify.py@" + git("rev-parse", "--short=12", "HEAD", check=False),
     }
+    for name in unjustified(captures):
+        print(f"FAIL {name}: changed over {FAIL_RATIO:.0%} of pixels vs the baseline, no Visual-change line", file=sys.stderr)
     for r in runs:
         if r["result"] in ("fail", "error"):
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
-    body = proof_record.render(record, summary_md(record))
+    body = scrub_hosts(proof_record.render(record, summary_md(record)),
+                       [*workers, *LEGACY_WORKERS, *FORBIDDEN_WORKERS, os.uname().nodename,
+                        *(r.get("worker") or "" for r in runs),
+                        *(w for r in runs for w in r.get("refused_workers") or [])])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:
-        f = work / "comment.md"
-        f.write_text(body)
-        sh("gh", "pr", "comment", str(view["number"]), "--repo", repo, "--body-file", str(f))
+        if not post_proof(repo, view["number"], head, record, body, work):
+            print("ios verify: PR head moved; proof was not applied to the new head", file=sys.stderr)
+            return 1
         print(rerun_gate(repo, head), file=sys.stderr)
     else:
         print(body)

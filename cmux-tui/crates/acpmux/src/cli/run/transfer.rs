@@ -596,7 +596,7 @@ async fn finish_noted(
             field(f, "size").as_u64().unwrap_or(0).saturating_sub(held)
         })
         .sum();
-    let later = if begun.history_after.is_some() { ", history follows" } else { "" };
+    let later = if begun.history_after.is_some() { ", usable now, history follows" } else { "" };
     eprintln!("acpmux: move {transfer_id}: frozen {ms} ms, {bytes} bytes carried{later}");
     let mut to_meta = to_meta;
     to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
@@ -606,14 +606,26 @@ async fn finish_noted(
     src.call("_acpmux/transfer_commit", commit, Wait::Page, true).await?;
     // The chat runs on the target now. Its history follows; a failure leaves it on the source,
     // whose copy keeps the log, and the chat on the target awaiting it.
+    let mut moved = moved;
     if let Some(through) = begun.history_after {
-        match history_follows(src, dst, id, through).await {
-            Ok(line) => eprintln!("acpmux: move {transfer_id}: {line}"),
-            Err(e) => eprintln!(
-                "acpmux: the chat moved, but its history through seq {through} did not follow: \
-                 {e:#}; it is still on the source"
-            ),
-        }
+        // Usable from the commit, fully here once the history arrived: a driver reads both
+        // (`historyFollowed`), and the chat says each in one line (`hub/transfer_history.rs`).
+        let started = std::time::Instant::now();
+        let followed = match history_follows(src, dst, id, through).await {
+            Ok(line) => {
+                eprintln!("acpmux: move {transfer_id}: {line}");
+                json!({"arrived": true, "throughSeq": through,
+                       "ms": started.elapsed().as_millis() as u64})
+            }
+            Err(e) => {
+                eprintln!(
+                    "acpmux: the chat moved, but its history through seq {through} did not follow: \
+                     {e:#}; it is still on the source"
+                );
+                json!({"arrived": false, "throughSeq": through, "error": format!("{e:#}")})
+            }
+        };
+        moved.set("historyFollowed", followed);
     }
     Ok(moved)
 }

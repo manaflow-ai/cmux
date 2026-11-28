@@ -28,6 +28,7 @@ final class SettingsPageProvider: PageProvider {
     /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
+    var loadSignInAccounts: (@MainActor () async -> Void)?
     var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Agents (BRING-YOUR-OWN-HARNESS): the harness list and its gestures; nil in tests
     /// without an app.
@@ -218,14 +219,14 @@ final class SettingsPageProvider: PageProvider {
             // On lets that machine take the VM boundary again (its remote chains run without the sandbox): ``widen``.
             let reason = RemoteStrings.vmHostConfirmReason
             return try await widen("vmHost", id, reason: reason, on: on, context, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
-        case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
+        case "cmux.settings.accounts.state": await loadSignInAccounts?(); return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
-        case "cmux.settings.environments.state": return try Self.host(environments, "environments").pageState
+        case "cmux.settings.environments.state": return try await Self.host(environments, "environments").pageState()
         case "cmux.settings.environments.run": return try await Self.host(environments, "environments").runPage(params)
         case "cmux.settings.cloud.allotment.get": return try await Self.host(allotment, "allotment").read()
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()

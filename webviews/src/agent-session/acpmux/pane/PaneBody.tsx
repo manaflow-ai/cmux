@@ -53,6 +53,7 @@ import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
 import { PeerCopyBanner } from "../PeerCopyBanner";
 import type { ExportOutcome } from "../Inspector";
+import type { ReadInspectorHistory } from "../InspectorTiming";
 import { Inspector } from "../lazyScreens";
 import { SummaryButton } from "../summary/SummaryButton";
 import { chatProcessesHere } from "../processTerminal";
@@ -307,7 +308,7 @@ export type PaneBodyDeps = NewTabShown &
     newTabKnownProjects: readonly string[] | null;
     startFolder: string | undefined;
     onNewTabPromptTyped: (text: string, target?: { harness?: string; cwd?: string }) => void;
-    onCloudMachinePicked: (machine: CloudMachine | undefined) => void;
+    onCloudMachinePicked: (machine: CloudMachine | undefined, peer?: string | null) => void;
     cloudOfferable: boolean;
     cloudFolderGrant: ReturnType<typeof cloudFolderGrants>;
     handshaken: boolean;
@@ -429,6 +430,8 @@ export type PaneBodyDeps = NewTabShown &
     setDisplayAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     closeInspector: () => void;
     sendPerf: PerfSend;
+    /// `_acpmux/history` through the client connected now (the Inspector's Timing tab).
+    readInspectorHistory: ReadInspectorHistory;
     setDock: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     paneToasts: NoticeQueue;
     /// The chat list's place and Evacuate calls (place/usePlace.ts).
@@ -712,6 +715,7 @@ export function drawPaneBody({
   setDisplayAnchor,
   closeInspector,
   sendPerf,
+  readInspectorHistory,
   setDock,
   paneToasts,
   chatListPlace,
@@ -1028,6 +1032,7 @@ export function drawPaneBody({
                                   snapshot.catalog.find((entry) => entry.id === agent)?.family,
                                   agent,
                                   machine ? machine.model : model,
+                                  machine !== undefined,
                                 );
                               })(),
                             },
@@ -1106,6 +1111,7 @@ export function drawPaneBody({
                   home={newTab.home}
                   {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
                   {...(newTab.cloudStartedProject ? { cloudStartedProject: newTab.cloudStartedProject } : {})}
+                  {...(newTab.startsRemote ? { startsRemote: true } : {})}
                   knownProjects={newTabKnownProjects}
                   {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
                   // The field takes keys from its first render (the host's buffer hands them over at
@@ -1144,6 +1150,7 @@ export function drawPaneBody({
                       cwd: newTab.cwd,
                       chatCwd: startFolder,
                       requestFolder,
+                      peerCloudRegistry: (peer) => directClient.current?.cloudPeerRegistry(peer),
                       startsHere: () => !directClient.current?.startsOnSend,
                       // After the screen's own early hold (NewTabScreen `holdsSend`): only holds and says why.
                       holdsSend: (text, here) => holdsForComputerUseSetup(text, true, here ? "here" : "machine", false),
@@ -1702,6 +1709,7 @@ export function drawPaneBody({
                     onClose={closeInspector}
                     onExport={saveLogNatively}
                     perf={sendPerf}
+                    readHistory={readInspectorHistory}
                   />
                 )}
               </div>

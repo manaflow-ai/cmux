@@ -204,6 +204,21 @@ fn protocol_keyed_params_are_closed_and_name_the_request_meta() {
     }
 }
 
+#[test]
+fn protocol_claude_login_accepts_an_optional_recovery_session() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).unwrap();
+    for name in ["AgentLoginStartParams", "AgentLoginFinishParams"] {
+        let params = &ir["types"][name];
+        assert_eq!(params["additionalProperties"], false);
+        assert_eq!(params["properties"]["recoverySession"], true);
+        assert!(
+            params["required"]
+                .as_array()
+                .is_none_or(|fields| { !fields.iter().any(|field| field == "recoverySession") })
+        );
+    }
+}
+
 /// Every `_meta.acpmux` key acpmux's own clients put in a request (the CLI, the hand, the TUI, a peer's
 /// `initialize`) is one [`super::params::AcpmuxRequestMeta`] lists, so the closed type accepts acpmux's own
 /// requests: `acpmux send --class/--thread`, `run --effort/--tag`, a peer's `compression` offer.

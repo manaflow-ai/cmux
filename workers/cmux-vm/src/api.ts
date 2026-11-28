@@ -337,6 +337,11 @@ export const CreateHeaders = Schema.Struct({
 export const CreateVmHeaders = Schema.Struct({
   ...CreateHeaders.fields,
   "x-cmux-create-priority": Schema.optional(Schema.Literal("background")),
+  /**
+   * When the caller stops waiting for this create (epoch ms). Its wait for a provider create slot spans the time left,
+   * less what the create needs after (limits/create-admission.ts queueWaitFor), instead of a fixed 25 s per try.
+   */
+  "x-cmux-create-deadline": Schema.optional(Schema.String.pipe(Schema.maxLength(20))),
 });
 
 const VmPath = Schema.Struct({ vmId: Schema.String });
