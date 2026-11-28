@@ -378,6 +378,38 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(used, ["app", "job"])
         self.assertEqual(slept, [])
 
+    def test_a_spent_write_token_falls_to_the_fallback_budget(self) -> None:
+        # The tick's dispatch: the bot App's budget spent, the job token (GH_FALLBACK_TOKEN) still has room.
+        limited = "gh: API rate limit exceeded for installation ID 175618676. (HTTP 403)"
+        replies = [(1, limited), (0, "")]
+        used: list[str] = []
+
+        def fake_run(argv, env=None, **_):
+            used.append((env or {}).get("GH_TOKEN", ""))
+            code, text = replies.pop(0)
+            return subprocess.CompletedProcess(argv, code, stdout="", stderr=text if code else "")
+
+        keys = ("GH_TOKEN", "GH_READ_TOKEN", "GH_FALLBACK_TOKEN")
+        saved = {k: os.environ.get(k) for k in keys}
+        os.environ.update({"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "job"})
+        os.environ.pop("GH_READ_TOKEN", None)
+        try:
+            self.assertEqual(pmb.write_tokens(), ["app", "job"])
+            self.assertEqual(pmb.read_tokens(), ["app", "job"])
+            slept: list[float] = []
+            pmb.gh_api("repos/x/y/actions/workflows/w.yml/dispatches", method="POST", fields={}, run=fake_run,
+                       sleep=slept.append, clock=lambda: 1000.0, reset_at=lambda: 1100.0)
+            self.assertEqual(used, ["app", "job"])
+            self.assertEqual(slept, [])
+            os.environ["GH_FALLBACK_TOKEN"] = "app"
+            self.assertEqual(pmb.write_tokens(), ["app"])
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
 
     def test_plan_runs_every_suite_when_the_runs_are_unreadable(self) -> None:
         def refused(*_a, **_k):
@@ -1011,6 +1043,49 @@ class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
                 mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), mock.patch("sys.stderr"):
             code = pmb.cmd_judge(args)
         self.assertEqual(code, 0)  # refused is 1; here the culprit step goes on to its confirm runs
+
+
+
+class DeeperReachTest(unittest.TestCase):
+    """Run 45971503699 (11-27): eight reds red on every batch run in the 24-batch reach, first red at 0e0818af (11-24),
+    were "a known red, no bisect": stuck_reds had no last green. The judges now read further back for such a red."""
+    job = "cmux-tui-sdks / protocol contract"
+    suites = {"cmux-tui-sdks": pmb.Suite("cmux-tui-sdks", "s.yml", ["x/**"], {"protocol contract": "contract"})}
+
+    def setUp(self) -> None:
+        self.reach = [run(50, "5" * 40, "2026-11-27T08:00:00Z"), run(40, "4" * 40, "2026-11-26T08:00:00Z")]
+        self.deep = [run(30, "3" * 40, "2026-11-25T08:00:00Z"), run(20, "2" * 40, "2026-11-24T08:00:00Z")]
+        self.jobs = {50: ({self.job: ("cmux-tui-sdks", "failure")}, True), 40: ({self.job: ("cmux-tui-sdks", "failure")}, True),
+                     30: ({self.job: ("cmux-tui-sdks", "failure")}, True), 20: ({self.job: ("cmux-tui-sdks", "success")}, True)}
+        self.verdicts = {self.job: ("cmux-tui-sdks", "failure")}
+
+    def test_a_red_with_no_green_in_reach_is_bisected_from_a_deeper_green(self) -> None:
+        jobs_of = lambda rid: self.jobs[rid]
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, self.reach, jobs_of, self.suites), [])
+        self.assertEqual(pmb.unreached_reds("6" * 40, self.verdicts, self.reach, jobs_of), [self.job])
+        asked: list = []
+
+        def deeper(repo, branch, **kw):
+            asked.append(kw)
+            return self.reach + self.deep  # a mock that ignores the filter: the reach's own runs are not added twice
+        with mock.patch.object(pmb, "list_runs", deeper):
+            runs = pmb.with_deeper_runs("o/r", "feat", "6" * 40, self.verdicts, self.reach, jobs_of)
+        self.assertEqual(asked, [{"batches": pmb.DEEP_LOOKBACK_BATCHES, "created_before": "2026-11-26T08:00:00Z"}])
+        self.assertEqual([r["id"] for r in runs], [50, 40, 30, 20])
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, runs, jobs_of, self.suites),
+                         [(self.job, "cmux-tui-sdks", "2" * 40, "3" * 40)])
+
+    def test_no_deeper_read_when_every_red_has_a_green_in_reach(self) -> None:
+        self.jobs[40] = ({self.job: ("cmux-tui-sdks", "success")}, True)
+        with mock.patch.object(pmb, "list_runs", side_effect=AssertionError("read deeper")):
+            got = pmb.with_deeper_runs("o/r", "feat", "6" * 40, self.verdicts, self.reach, lambda rid: self.jobs[rid])
+        self.assertEqual(got, self.reach)
+
+    def test_list_runs_filters_by_creation(self) -> None:
+        calls: list = []
+        pmb.list_runs("o/r", "feat", api=lambda path, **_: calls.append(path) or {"workflow_runs": []}, batches=3,
+                      created_before="2026-11-26T08:00:00Z")
+        self.assertIn("&created=%3C2026-11-26T08:00:00Z", calls[0])
 
 
 class KnownVerdictTest(unittest.TestCase):
