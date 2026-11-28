@@ -51,7 +51,7 @@ pub(super) async fn run(
     }
     let mut spawn = profile.clone();
     spawn.env = env;
-    let mut cmd = match crate::agent::harness_command_ready(
+    let (mut cmd, _scratch) = match crate::agent::harness_command_ready(
         id,
         &spawn,
         &temp.path,
@@ -60,7 +60,7 @@ pub(super) async fn run(
     )
     .await
     {
-        Ok(cmd) => cmd,
+        Ok(prepared) => prepared,
         Err(e) => {
             r.push("prompt", StepStatus::Fail, &e.to_string(), None);
             return;

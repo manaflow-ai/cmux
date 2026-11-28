@@ -30,6 +30,9 @@ scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNex
 python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
 # Why: cmux#59531 (a 2-6 s sidebar hang: fileRoot sent to Rust per Chief per row)
 python3 -I scripts/cmux-next/check-bridge-on-main.py --root "$GITHUB_WORKSPACE"
+# Why: reviewed-exemption markers (main-actor-ok, bridge-ok, ...) only go down (ci-rigor part 5)
+python3 -I scripts/cmux-next/check-exemption-ratchet.py --root "$GITHUB_WORKSPACE" --base-ref "${AFFECTED_BASE:-origin/feat-cmux-next}"
+python3 -I tests/test_cmux_next_exemption_ratchet.py
 [overlay-glass]
 python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
 [conn-notices]
@@ -153,6 +156,7 @@ bash scripts/cmux-next/tests/base-autofix-land.test.sh
 bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
 bash scripts/cmux-next/tests/base-autofix-changed.test.sh
 bash scripts/cmux-next/tests/base-autofix-window.test.sh
+bash scripts/cmux-next/tests/base-autofix-push-preflight.test.sh
 bash scripts/cmux-next/tests/generated-autofixable.test.sh
 bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
 bash scripts/cmux-next/tests/judge-action-exports.test.sh
