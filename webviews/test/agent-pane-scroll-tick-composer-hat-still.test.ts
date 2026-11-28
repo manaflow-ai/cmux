@@ -8,11 +8,11 @@
 //
 // The real pane (`?mock`: the real direct client against the in-page mock daemon), a chat of 300
 // heavy turns seeded through attach (`cmuxAcpmuxDebug.loadSeed`), then `loadTick`: the turn sends one
-// or two shells to the background (the hat shows them, its time ticking each second), one command
+// or two shells to the background (the hat names them), one command
 // runs for eight seconds with its output updating every 100 ms, another chat in the list changes every
 // 250 ms, and the reader scrolls up twelve viewports and back the whole time. Its still window opens
 // once the hat shows and the turn's start has settled, and closes before the turn ends: nothing the
-// composer or the hat draws changes inside it but the ticking time's own text.
+// composer or the hat draws changes inside it.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -44,7 +44,10 @@ await requireBrowserLane("agent-pane-scroll-tick-composer-hat-still.test.ts", as
   /// may cause (a status change of the chat list racing the window's edge): one, never one per second.
   const EVENTS = 1;
 
-  // One shell heads the hat alone (its name and time); two head it with their counts and the hat's time.
+  // The hat is one line of words since #56287 and #61105 (Leo, 2026-11-27, on the composer hat: "we
+  // like the semantic x subagents working"): a lone shell reads its name, two read their count, and
+  // neither draws a time (the several-item time went in #51151, trayHeadClock.experiment.ts). So
+  // nothing in the hat ticks: its text holds as still as its nodes.
   for (const shells of [1, 2])
     test(`scrolling while the hat ticks (${shells} background shell${shells > 1 ? "s" : ""}) leaves the composer and the hat still`, async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
@@ -105,8 +108,7 @@ await requireBrowserLane("agent-pane-scroll-tick-composer-hat-still.test.ts", as
       }
       expect(report.composer_renders, "composer renders in the still window").toBeLessThanOrEqual(EVENTS);
       expect(report.hat_renders, "hat renders in the still window").toBeLessThanOrEqual(EVENTS);
-      // The hat's time ticks in its own text node: no node added, removed or re-attributed per second.
-      expect(still.parts.hat.text_mutations, "the hat's time ticked").toBeGreaterThanOrEqual(3);
+      expect(still.parts.hat.text_mutations, "the hat's words changed").toBeLessThanOrEqual(EVENTS);
       expect(still.parts.hat.structure_mutations, "hat nodes added, removed or re-attributed").toBeLessThanOrEqual(
         EVENTS,
       );
