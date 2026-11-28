@@ -17181,9 +17181,10 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
                                   step_names=names, base=side == "base")
 
     def test_cmux_41790_a_runner_hook_notice_past_the_post_step_still_places_the_checks_log(self):
-        # The head keeps every red section; the base keeps its failed rollup and the one check that rollup names red
-        # (rollup_vouched), never the warn-only scrollbar guard's ERRORED section.
-        for side, sections in (("head", self.CHECKS_FAILED),
+        # Each side keeps its failed rollup and the one check that rollup names red (rollup_named), never the warn-only
+        # scrollbar guard's ERRORED section: the rollup's whole list says that step's outcome was not a failure.
+        for side, sections in (("head", {name: status for name, status in self.CHECKS_FAILED.items()
+                                         if name != "Scrollbars thin, one style"}),
                                ("base", {name: status for name, status in self.CHECKS_FAILED.items()
                                          if name != "Scrollbars thin, one style"})):
             with self.subTest(side=side):
@@ -17234,6 +17235,66 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
             self.judge(self.github(self.CHECKS, (head_job, added), self.fixture(self.CHECKS, "base")))
         self.assertIn("pin-cmux-tui.test.sh", str(said.exception))
         self.assertNotIn("does not map one to one", str(said.exception))
+
+    # cmux#45463 and #45212 (2026-11-17, checks job 134113595096 and 134096943990): the job was red for one rolled-up
+    # check, as feat-cmux-next's was (job 134109369146), and was refused with "errors not on feat-cmux-next" for lines a
+    # step whose outcome passed printed: its tests' fixture output, one of them a live `::error::`, so the step's section
+    # was ERRORED and every line in it a head error. The shapes as served, in the passing "Bundled terminfo" step.
+    PASSING_STEP_NOISE = (
+        "##[error]could not post cmux-next daemon tests (same-tree)=success on 9d25fa9fb577e46c0cd5ebd62471718a679e32f2: "
+        "NO_VERDICT, the status stays as last posted; re-run this job to post it",
+        "fatal: not a commit: 'nope'",
+        "prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in cmux-tui/); "
+        "Rust formatting NOT checked: error: 'rustfmt' is not installed for the toolchain '1.90.0-x86_64-unknown-linux-gnu'.",
+        "test_cloud_chat_matrix.py: error: --grant-claude-login works only with --app, the app this run launches",
+    )
+    PASSING_ANCHOR = "PASS: bundled terminfo has ghostty-next capabilities, Pst and cmux's 256-color 8-15 patch"
+
+    def with_passing_step_noise(self):
+        head_job, head_log = self.fixture(self.CHECKS, "head")
+        for line in reversed(self.PASSING_STEP_NOISE):
+            head_log = self.after(head_log, self.PASSING_ANCHOR, line)
+        return head_job, head_log
+
+    def test_cmux_45463_errors_a_passing_step_printed_are_not_the_heads_red(self):
+        head = self.with_passing_step_noise()
+        view = self.checks_view("head", head[1])
+        self.assertNotIn("Bundled terminfo", {str(view.steps[k]["name"]) for k, _, _ in view.sections})
+        said = self.judge(self.github(self.CHECKS, head, self.fixture(self.CHECKS, "base")))
+        self.assertIn("excused 'cmux-next checks (god files, concurrency, crash safety, l10n)'", said)
+        for noise in ("NO_VERDICT", "nope", "rustfmt", "grant-claude-login"):
+            self.assertNotIn(noise, said)
+
+    def test_cmux_45463_without_the_rollups_whole_list_a_passing_steps_errors_stay_the_heads(self):
+        # Fail closed: a rollup whose list does not parse whole proves no step passed, so the head keeps every ERRORED
+        # section, the passing step's live `##[error]` included, and the red is refused.
+        head_job, head_log = self.with_passing_step_noise()
+        withheld = head_log.replace("### 1 cmux-next check(s) failed", "### 2 cmux-next check(s) failed")
+        view = self.checks_view("head", withheld)
+        self.assertIn("Bundled terminfo", {str(view.steps[k]["name"]) for k, _, _ in view.sections})
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.CHECKS, (head_job, withheld), self.fixture(self.CHECKS, "base")))
+        self.assertIn("NO_VERDICT", str(said.exception))
+
+    def test_cmux_45463_a_tools_warning_in_the_red_step_is_no_error_line(self):
+        # The rolled-up red step itself printing a tool's WARNING that quotes an error word (its toolchain differs from
+        # host to host) is still the base's red; a real error line beside it is not.
+        head_job, head_log = self.fixture(self.CHECKS, "head")
+        red = "##[error]bash scripts/cmux-next/tests/generated-ownership.test.sh"
+        warned = self.after(head_log, red, self.PASSING_STEP_NOISE[2])
+        said = self.judge(self.github(self.CHECKS, (head_job, warned), self.fixture(self.CHECKS, "base")))
+        self.assertIn("excused 'cmux-next checks (god files, concurrency, crash safety, l10n)'", said)
+        errored = self.after(head_log, red, "Sources/A.swift:3:1: error: cannot find 'x' in scope")
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(self.github(self.CHECKS, (head_job, errored), self.fixture(self.CHECKS, "base")))
+        self.assertIn("Sources/A.swift", str(refused.exception))
+
+    def test_warning_led_reads_only_a_warning_tag_before_any_error_word(self):
+        for line, led in (("prepush-gate: WARNING: x; error: y", True), ("WARNING: rustfmt missing", True),
+                          ("error: x; WARNING: y", False), ("##[error]WARNING: x", False),
+                          ("Sources/A.swift:3: error: x", False), ("an error happened. WARNING: y", False)):
+            with self.subTest(line=line):
+                self.assertIs(excuse.warning_led(line), led)
 
 
 class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
@@ -17315,7 +17376,9 @@ class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
         view = self.view(self.CHECKS, "head", base=False)
         self.assertIsNot(view, excuse.UNPLACED)
         statuses = {str(view.steps[k]["name"]): status for k, status, _ in view.sections}
-        self.assertEqual(statuses.get("Package conventions lint"), "errored")
+        # The warn-only lint's ERRORED section is out of the head's view: the rollup's whole list leaves it out, so its
+        # outcome was not a failure (failed_view, rollup_named). Without that list it stays (the test below).
+        self.assertNotIn("Package conventions lint", statuses)
         self.assertEqual(statuses.get("Fail on any red check"), "failed")
         with self.assertRaises(excuse.Refused) as said:
             excuse.guard_tests(view)
@@ -18696,8 +18759,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
-            # Builds each iPhone-touching head's cmux Dev device app ahead on the fleet (#51721); advisory.
-            "cmux-next-ios-try-ahead.yml",
+            # The Nightly auto-update e2e (#62005): a PR touching it runs it against the live Nightly feed.
+            "nightly-next-update-e2e.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
             # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
             "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
