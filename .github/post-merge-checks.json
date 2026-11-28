@@ -266,6 +266,10 @@
       "kind": "publish",
       "why": "records the bench baselines a pull request fetches for its areas (R2), from the base"
     },
+    "chat-move-nightly-readback.yml": {
+      "kind": "publish",
+      "why": "a probe of the published NIGHTLY: moves a chat every Local/Cloud/Auto direction in the app; push only on its own file"
+    },
     "cloud-mvp-nightly-readback.yml": {
       "kind": "publish",
       "why": "a probe of the published NIGHTLY: reads the Auto/Cloud MVP back in the app; push only on its own file"
