@@ -9017,6 +9017,14 @@
           "group": "Labs"
         },
         {
+          "key": "labs.editThisView",
+          "title": "Edit This View",
+          "help": "Adds Edit this view to each Settings section: an agent changes that page live, then you keep or revert it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
           "key": "labs.hostsSidebar",
           "title": "Hosts Sidebar",
           "help": "Shows your machines in the sidebar with Add Host and per-host terminal actions.",

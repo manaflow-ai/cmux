@@ -3974,6 +3974,51 @@ button.menu-disclosure {
   opacity: 0.55;
 }
 
+/* Edit this view (EditThisView.tsx, Labs: labs.editThisView): beside the section title, the
+   title's margin moves to the row so the page below does not shift when the switch flips. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  margin: 0 0 var(--ds-space-5);
+}
+
+.section-head .section-title {
+  margin: 0;
+}
+
+.edit-this-view {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  margin-inline-start: auto;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.edit-this-view:hover {
+  background: var(--input-bg);
+}
+
+.edit-this-view:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.edit-this-view[data-look="icon"] {
+  padding: var(--ds-space-1);
+}
+
+.edit-this-view[data-look="link"] {
+  border: 0;
+  padding: 0;
+  color: var(--cmux-accent);
+}
+
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
    One row under "No settings match.", a hover fill on its own box like a result row, the words
    quoted under the action; Return in the search does the same. */

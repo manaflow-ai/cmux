@@ -422,6 +422,28 @@
             "gmail",
             "mcp"
           ]
+        },
+        {
+          "key": "labs.editThisView",
+          "note": "Settings shows an Edit this view button beside each section's title (wow-20 idea 16). It opens the Customize chat with a request that names the section, its React source (webviews/src/pages/settings) and cmux live start, so the agent's edits show in the running page and end with Keep or Revert. Off by default.",
+          "title": {
+            "key": "settings.labs.editThisView",
+            "text": "Edit This View"
+          },
+          "help": {
+            "key": "settings.labs.editThisView.help",
+            "text": "Adds Edit this view to each Settings section: an agent changes that page live, then you keep or revert it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "edit",
+            "view",
+            "customize",
+            "agent",
+            "live"
+          ]
         }
       ]
     }

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.editThisView.draft" : {
+      "comment" : "Settings: the request drafted in the Customize chat by Edit this view. First %@ is the section's title, second its id; the path and commands stay as written.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عدّل عرض الإعدادات › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "uredi prikaz Postavke › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "rediger visningen Indstillinger › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "bearbeite die Ansicht Einstellungen › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "edit the Settings › %@ view (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "edita la vista Ajustes › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "modifie la vue Réglages › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "modifica la vista Impostazioni › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "設定 › %@ のビューを編集 (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កែទិដ្ឋភាព ការកំណត់ › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "설정 › %@ 화면 편집 (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "rediger visningen Innstillinger › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "edytuj widok Ustawienia › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "edite a tela Ajustes › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "измени экран Настройки › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แก้ไขมุมมอง การตั้งค่า › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ayarlar › %@ görünümünü düzenle (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "зміни екран Налаштування › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "sửa giao diện Cài đặt › %@ (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "编辑 设置 › %@ 视图 (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "編輯 設定 › %@ 檢視 (webviews/src/pages/settings, section %@; cmux live start, then Keep or Revert)"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

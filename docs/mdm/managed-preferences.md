@@ -863,6 +863,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.teamCompute` | boolean | `false` |  | Team Compute. Show your team's compute allotment and each member's use in Settings > Cloud. |
 | `labs.hostsSidebar` | boolean | `false` |  | Hosts Sidebar. Shows your machines in the sidebar with Add Host and per-host terminal actions. |
 | `labs.connectionsUpcoming` | boolean | `false` |  | Upcoming Connections. Lists Slack and Google in Connections before they can be connected. |
+| `labs.editThisView` | boolean | `false` |  | Edit This View. Adds Edit this view to each Settings section: an agent changes that page live, then you keep or revert it. |
 | `experiments.appFontChrome` | boolean | `false` |  | App Font in Native Chrome. The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts. |
 | `experiments.glassToolbarGroups` | boolean | `false` |  | Glass Toolbar Groups. The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps. |
 | `experiments.composerButtonsVisible` | boolean | `false` |  | Always Show Composer Buttons. Keep Send, attachment removal, and queued message actions visible in agent chats. |
