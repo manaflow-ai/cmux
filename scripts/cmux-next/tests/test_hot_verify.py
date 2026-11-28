@@ -690,6 +690,32 @@ class PlanTest(unittest.TestCase):
                     hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
                 self.assertIn(said, str(raised.exception))
 
+    def test_a_failed_fleet_app_build_says_its_error_not_the_waits_progress(self):
+        # 2026-11-28, cmux#63536: the build had failed on a link error, the look said "... still waiting".
+        scratch = Path(self.tmp.name) / "scratch"
+        progress = ("cmux-ci: job job-9 running on cmux-linux-pool-1 after 11m05s; still waiting "
+                    "(deadline 2026-11-28T08:17Z)\n")
+        failed = json.dumps({"id": "job-9", "state": "failed", "error": "exit status 1; rust_compile: tui-fetch: "
+                             "error: could not compile `cmux-tui`"})
+
+        def run(argv, **kwargs):
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"job-9"}', "")
+            if argv[1] == "wait":
+                return subprocess.CompletedProcess(argv, 1, "", progress)
+            if argv[1] == "status":
+                return subprocess.CompletedProcess(argv, 0, failed + "\n", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            with self.assertRaises(hv.LookError) as raised:
+                hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+        said = str(raised.exception)
+        self.assertIn("fleet app build job-9 failed: exit status 1; rust_compile", said)
+        self.assertIn("cmux-ci log job-9", said)
+        self.assertNotIn("still waiting", said)
+
     def test_swift_app_fallback_builds_a_clean_ref_with_cmux_ci(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 3 }\n"})
         scratch = Path(self.tmp.name) / "scratch"
@@ -1898,6 +1924,56 @@ class LaunchBound(unittest.TestCase):
         self.assertGreaterEqual(len(launches), 2)
         for call in launches:
             self.assertIn("timeout=launch_seconds()", call)
+
+
+class LaunchFailureTest(unittest.TestCase):
+    """A copy whose control socket never answers says why: whether it still runs, and its own output's end
+    (cmuxterm-hq docs/handbook/failure-drops-its-reason.md: the look said only "nothing within 120 s")."""
+
+    def test_a_dead_copy_names_its_end_and_its_output_redacted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("".join(f"line {i}\n" for i in range(200))
+                           + "dyld: Library not loaded: @rpath/Foo.framework\n"
+                           + "auth token=abcdefgh12345678 bearer: ZZZZZZZZZZZZZZ\n")
+            dead = subprocess.Popen([sys.executable, "-c", "pass"])
+            dead.wait()
+            said = hv.launch_failure(dead.pid, [str(Path(tmp) / "app.stdout.log"), str(err)])
+        self.assertIn("app launch: running False", said)
+        self.assertIn("dyld: Library not loaded", said)
+        self.assertIn("app.stderr.log (last 80 lines)", said)
+        self.assertNotIn("line 100\n", said)
+        self.assertNotIn("abcdefgh12345678", said)
+        self.assertNotIn("ZZZZZZZZZZZZZZ", said)
+
+    def test_a_live_copy_with_no_output_says_so(self):
+        said = hv.launch_failure(os.getpid(), [])
+        self.assertEqual(said, "app launch: running True\nno output from the copy")
+
+    def test_the_socket_wait_raises_the_why_and_the_receipt_keeps_it(self):
+        side = unittest.mock.Mock()
+        side.logs.return_value = []
+        with unittest.mock.patch.object(hv, "LAUNCH_SECONDS", 0.01), \
+                unittest.mock.patch.object(hv, "control_socket", return_value=None):
+            with self.assertRaises(hv.LookError) as caught:
+                hv.copy_socket(side, os.getpid(), None)
+        text = str(caught.exception)
+        self.assertIn("the copy's control socket: nothing within", text)
+        self.assertIn("app launch: running True", text)
+        long = hv.LookError(text + "x" * 5000)
+        self.assertGreater(hv.error_chars(long), 500)
+        self.assertEqual(hv.error_chars(hv.LookError("other")), 500)
+
+    def test_both_launch_sites_use_the_socket_wait_that_says_why(self):
+        source = ENGINE.read_text()
+        self.assertEqual(source.count("copy_socket(side, pid, named)"), 2)
+        self.assertNotIn('until("the copy\'s control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))\n'
+                         '        until(', source)
+
+    def test_side_instance_keeps_the_copys_output(self):
+        script = (ENGINE.parent / "side-instance.sh").read_text()
+        self.assertIn('--stdout "$dir/app.stdout.log" --stderr "$dir/app.stderr.log"', script)
+        self.assertIn("\n  logs)\n", script)
 
 
 if __name__ == "__main__":
