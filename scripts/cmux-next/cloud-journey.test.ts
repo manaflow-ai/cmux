@@ -17,7 +17,7 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, KEPT_FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -858,7 +858,7 @@ describe("cloud journey: leaked machine sweep", () => {
     const old = tagAt(now - 48 * 3600_000);
     expect(ids([
       { id: "vm_kept", name: `cloud journey ${old}`, status: "paused" },
-      { id: "vm_kept_gw", name: `cloud journey ${old} gateway`, status: "failed" },
+      { id: "vm_kept_gw", name: `cloud journey ${old} gateway`, status: "paused" },
       { id: "vm_dev", name: "dev machine", status: "paused" },
       { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
       { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
@@ -870,6 +870,20 @@ describe("cloud journey: leaked machine sweep", () => {
     ])).toEqual([]);
     const [m] = staleJourneyMachines([{ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created_at: now - 48 * 3600_000 }], now);
     expect(m).toEqual({ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created: new Date(now - 48 * 3600_000).toISOString() });
+  });
+
+  test("takes a --keep run's machine only once failed and a day old (one failed 454 h held the prod journey team's slot, run 46086801578)", () => {
+    const day = tagAt(now - KEPT_FAILED_JOURNEY_MS - 60_000);
+    const hour = tagAt(now - 3600_000);
+    expect(ids([
+      { id: "vm_kept_dead", name: `cloud journey ${day}`, status: "failed" },
+      { id: "vm_kept_dead_gw", name: `cloud journey ${day} gateway`, status: "failed" },
+      { id: "vm_kept_young", name: `cloud journey ${hour}`, status: "failed" },
+      { id: "vm_kept_paused", name: `cloud journey ${day}`, status: "paused" },
+      { id: "vm_kept_running", name: `cloud journey ${day}`, status: "running" },
+      { id: "vm_kept_kept", name: `cloud journey kept ${day}`, status: "failed" },
+      { id: "vm_kept_sfx", name: `cloud journey ${day} move B`, status: "failed" },
+    ])).toEqual(["vm_kept_dead", "vm_kept_dead_gw"]);
   });
 
   test("takes the Auto mode journey's leftovers (auto journey aj-<tag>), by the same age and name rules", () => {

@@ -4558,6 +4558,8 @@ export const IDLE_JOURNEY_MS = 60 * 60_000;
  * 10:29Z 2026-11-27: 130 machines, 37 failed) while each sweep deleted 0-1.
  */
 export const FAILED_JOURNEY_MS = 15 * 60_000;
+/** A --keep run's failed machine is the sweep's after a day: time enough to read its row, and it never comes back. */
+export const KEPT_FAILED_JOURNEY_MS = 24 * 3_600_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
 /** The account's machines counted by state, for the sweep's before and after (`running 12, paused 63, failed 37`). */
 export function machinesByState(rows: any[]): string {
@@ -4575,8 +4577,8 @@ export function machinesByState(rows: any[]): string {
  * long run's `jr-<tag> long…`), with no activity
  * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted. A failed one is picked once
  * its tag is FAILED_JOURNEY_MS old, whatever its window or activity.
- * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
- * does not read as a time are never picked.
+ * Ownership is the name: a --keep run's `cloud journey jr-<tag>` is picked only once failed and KEPT_FAILED_JOURNEY_MS
+ * old; any other name, and a tag that does not read as a time, are never picked.
  */
 /**
  * Whether a GET /v1/cloud/inference-gateway answer shows a team stranded in gateway mode: mode "gateway" with no
@@ -4614,10 +4616,21 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
     // So are the Auto mode journey's (auto-journey.ts `auto journey aj-<tag>`): it always deletes its machine.
     const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
-    if (!m) continue;
-    const started = parseInt(m[1], 36);
+    // A --keep run's machine (`cloud journey jr-<tag>`, or its ` gateway`) is kept to look at, but a failed one shows
+    // nothing and never comes back: past KEPT_FAILED_JOURNEY_MS it is the sweep's too. One failed 454 h ago held a
+    // slot of the production journey team (used 4/5, need 2), so every after-deploy journey failed its capacity
+    // preflight and image roll 589544f1 was never green in production (cmux-vm run 46086801578, 2026-11-28).
+    const kept = m ? null : /^cloud journey (jr-([0-9a-z]+))(?: gateway)?$/.exec(name);
+    if (!m && !(kept && r.status === "failed")) continue;
+    const started = parseInt(m ? m[1] : kept![2], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
+    if (kept) {
+      if (nowMs - started <= KEPT_FAILED_JOURNEY_MS) continue;
+      const id = String(r.id ?? r.machine_id ?? "");
+      if (id) out.push({ id, name, status: "failed", created: typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString() });
+      continue;
+    }
     if (r.status === "failed" ? nowMs - started <= FAILED_JOURNEY_MS : nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
     if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
