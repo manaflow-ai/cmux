@@ -31,7 +31,8 @@ import { NoticeRow } from "../rows/NoticeRow";
 import { rowKind } from "../virtualTranscriptModel";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
-import { rowDomId, RowFrame, RowContent } from "./RowFrame";
+import { rowDomId } from "./rowDomId";
+import { RowFrame, RowContent } from "./RowFrame";
 import { mountsOffscreen, skipsOffscreenRows, entersUnseen } from "../conversation/offscreenRows";
 import { shelvedHeight } from "../conversation/shelvedRows";
 

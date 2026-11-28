@@ -359,8 +359,9 @@ fi
 # handoff through the fleet controller's shots form: the controller's MODE list (hq
 # build-fleet/cmd/controller/ios_next_sim_step.go iosNextSimModes) does not name handoff yet, and
 # shots takes name=WORDS scenes, so `shots handoff=TAG` (exactly that one scene) is handoff tag=TAG.
-if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
-  set -- handoff "tag=${2#handoff=}"
+# `shots handoff=TAG nightly=BUILD` is handoff tag=TAG nightly=BUILD (the NIGHTLY attach, below).
+if [[ "$mode" == shots && ( $# -eq 2 || ( $# -eq 3 && "${3:-}" == nightly=* ) ) && "${2:-}" == handoff=* ]]; then
+  set -- handoff "tag=${2#handoff=}" ${3:+"$3"}
   mode=handoff
 fi
 # theme-relaunch through the shots form too (shots theme-relaunch=N), until the controller lists it.
@@ -420,10 +421,19 @@ if [[ "$mode" == theme-relaunch ]]; then
     { echo "cmux-next-ios-sim.sh: theme-relaunch wants a count of 1-20, got '$theme_relaunches'" >&2; exit 2; }
 fi
 # handoff's one argument: the task tag (already a slug: lowercase letters, digits, dashes).
-handoff_tag=""
+# With nightly=BUILD (latest or a NIGHTLY build number) it is the NIGHTLY attach instead: the untagged cmux
+# Dev app (dev.cmux.mobile.dev, the default build space a published NIGHTLY Mac is in, as try mode's) on the
+# simulator, signed in from the step's session, attached to a side copy of that NIGHTLY's terminal on this
+# Mac, both screens recorded (scripts/ci/cmux_next_nightly_attach.py). Leo, 2026-11-28 (ask-ef11d55db3):
+# "can't connect to cosmic-gray (NIGHTLY) on my connected iphone". Send it with
+#   cmux-ci run --class simulator --label gui-session-v1 --sign-in agent --script scripts/ci/cmux-next-ios-sim.sh \
+#     --arg=shots --arg=handoff=TAG --arg=nightly=latest
+handoff_tag="" handoff_nightly=""
 if [[ "$mode" == handoff ]]; then
-  [[ $# -eq 2 && "${2:-}" == tag=* ]] || { echo "cmux-next-ios-sim.sh: handoff takes one argument, tag=TAG" >&2; exit 2; }
+  [[ ( $# -eq 2 || ( $# -eq 3 && "${3:-}" =~ ^nightly=(latest|[0-9]{1,16})$ ) ) && "${2:-}" == tag=* ]] ||
+    { echo "cmux-next-ios-sim.sh: handoff takes tag=TAG and optionally nightly=latest|BUILD" >&2; exit 2; }
   handoff_tag="${2#tag=}"
+  [[ $# -eq 3 ]] && handoff_nightly="${3#nightly=}"
   # The one tag rule of every build entry point (reload.sh, review.sh): a canonical tag (its own slug, so
   # no two spellings share the space dev:<tag>), and none of the reserved ones: default, dev (the cmux Dev
   # app, try mode, which shows the person's real data), demo and prod (demo-build.sh's installs).
@@ -742,6 +752,7 @@ sims=""
 perf_udid=""
 cleanup() {
   local result=$?
+  rm -f "${TMPDIR:-/tmp}/cmux-sim-display.$$."* 2>/dev/null || true  # sim_display's answers
   # A cancelled UI test profile: stop xctrace before its simulator goes.
   if [[ -n "${profile_waiter:-}" ]]; then kill "$profile_waiter" 2>/dev/null || true; fi
   if [[ -n "${profiler:-}" ]]; then stop_profiler "$profiler" 60; fi
@@ -945,7 +956,35 @@ if [[ "$mode" != release-build && "$mode" != try && "$mode" != ui-build ]]; then
   fi
   udid="$(sim_create "$sim_name" "$device_type" "$runtime" "$sims")"
 fi
-simctl() { xcrun simctl --set "$sims" "$@"; }
+# A device type with two displays (iPhone Duo, the iOS 27.2 runtime's fallback phone) refuses
+# `io UDID screenshot` and `recordVideo` with "Cannot choose between 2 displays" (exit 22) unless
+# --display names one. sim_display prints the primary's flag for a device that has two (once per
+# device and set, then cached), else nothing: every screenshot and recording here means the primary.
+sim_display() {  # UDID [SET]
+  # The answer is kept in a file named for this script's pid ($$ is the same in every subshell, and
+  # most calls run in one) and only once known: a probe of a device not yet booted keeps nothing.
+  local cache="${TMPDIR:-/tmp}/cmux-sim-display.$$.$1" probe err display=""
+  if [[ ! -f "$cache" ]]; then
+    probe="$(mktemp "${TMPDIR:-/tmp}/sim-display.XXXXXX")"
+    if err="$(xcrun simctl ${2:+--set "$2"} io "$1" screenshot "$probe.png" 2>&1 >/dev/null)"; then
+      : >"$cache"
+    else
+      display="$(sed -n 's/^ *--display=\([0-9][0-9]*\) .*(primary).*/\1/p' <<<"$err" | head -n 1)"
+      [[ -z "$display" ]] || printf -- '--display=%s' "$display" >"$cache"
+    fi
+    rm -f "$probe" "$probe.png"
+  fi
+  [[ ! -f "$cache" ]] || cat "$cache"
+}
+simctl() {
+  if [[ "${1-}" == io && ( "${3-}" == screenshot || "${3-}" == recordVideo ) && " $* " != *" --display"* ]]; then
+    local display
+    display="$(sim_display "$2" "$sims")"
+    xcrun simctl --set "$sims" io "$2" "$3" ${display:+"$display"} "${@:4}"
+    return
+  fi
+  xcrun simctl --set "$sims" "$@"
+}
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -1103,7 +1142,10 @@ if [[ "$mode" == release-build ]]; then
   build_settings=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
 fi
 build_settings+=(${family_settings[@]+"${family_settings[@]}"})
-if [[ "$mode" == handoff ]]; then
+if [[ "$mode" == handoff && -n "$handoff_nightly" ]]; then
+  # The NIGHTLY attach: the cmux Dev app (try mode's settings), no dev tag, so no build space.
+  build_settings+=("CMUX_MOBILE_TAG=.dev" "CMUX_MOBILE_DISPLAY_NAME=cmux Dev" "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
+elif [[ "$mode" == handoff ]]; then
   # The task's own install beside every other build: its bundle id, home-screen name and commit, and
   # its tag's cloud data space (Info.plist CmuxMobileDevTag, `X-Cmux-Build-Space: dev:<tag>`), the space
   # its same-tag Mac app's hostd registers in. project.yml sets CMUX_MOBILE_DEV_TAG only for Debug: a
@@ -1209,7 +1251,10 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 
 # --- handoff: the device app ------------------------------------------------
 device_app=""
-if [[ "$mode" == handoff ]]; then
+if [[ "$mode" == handoff && -n "$handoff_nightly" ]]; then
+  [[ "$bundle_id" == dev.cmux.mobile.dev ]] ||
+    { echo "error: the simulator app is $bundle_id, not dev.cmux.mobile.dev" >&2; exit 1; }
+elif [[ "$mode" == handoff ]]; then
   [[ "$bundle_id" == "dev.cmux.mobile.$handoff_tag" ]] ||
     { echo "error: the simulator app is $bundle_id, not dev.cmux.mobile.$handoff_tag" >&2; exit 1; }
   t0=$SECONDS
@@ -1370,6 +1415,19 @@ fi  # the build and the app's launch (skipped with products=JOB)
 # first signed in from the injected account (auto_login), then relaunched with no credentials
 # and signed in from its own Keychain (restored). A check that fails is recorded, not fatal.
 handoff_sim_status="" handoff_sim_reason=""
+if [[ "$mode" == handoff && -n "$handoff_nightly" ]]; then
+  t0=$SECONDS
+  set +e
+  python3 -I scripts/ci/cmux_next_nightly_attach.py --udid "$udid" --sims "$sims" --bundle-id "$bundle_id" \
+    --ios-app "$app" --out "$out" --build "$handoff_nightly" 2>&1 | tee "$work/nightly-attach.log"
+  status=${PIPESTATUS[0]}
+  set -e
+  grep '^NIA ' "$work/nightly-attach.log" | sed 's/^NIA /- nightly attach: /' >>"$summary" || true
+  note "- nightly attach: exit $status in $((SECONDS - t0)) s (nightly-attach.mp4, nightly-attach/, nightly-attach.json)"
+  (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
+  cat "$summary"
+  exit "$status"
+fi
 if [[ "$mode" == handoff ]]; then
   t0=$SECONDS
   handoff_check() {
@@ -1387,7 +1445,7 @@ if [[ "$mode" == handoff ]]; then
     # xcrun itself in the background, never the simctl() wrapper: `wrapper &` is a subshell, which
     # ignores SIGINT (an async command in a non-interactive shell) and waits on its xcrun, so the
     # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
-    xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
+    simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
     # Until the recorder says "Recording started" (simctl prints it once its first frame is in), at most 10 s.
     for _ in $(seq 100); do
@@ -1889,7 +1947,7 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     fi
   fi
   if [[ $ui_video -eq 1 ]]; then
-    xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
+    xcrun simctl io "$ui_udid" recordVideo $(sim_display "$ui_udid") --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
     # The wall-clock time of the recording's first frame, for scripts/mobile-bench/cut.py: simctl prints
     # "Recording started" once it writes frames (bounded: 10 s). Without that line the time is the launch's,
@@ -2574,7 +2632,18 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
   cp "$work/mac-build.log" "$out/mac-build.log"
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
-  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  if [[ $status -ne 0 || ! -d "$mac_app" ]]; then
+    # xcodebuild's failing step is often thousands of lines above its "BUILD FAILED" tail (run
+    # 46162159864: the tail named only plug-in steps), and the log stays on the runner, so print
+    # every compiler/tool error line first, then the tail.
+    echo "== Mac app build errors (reload.sh exit $status):"
+    grep -n -E '(^|[[:space:]:])(fatal )?error:|^error\[|Command .* failed with a nonzero exit code' "$work/mac-build.log" \
+      | grep -v 'tagged cmux NEXT Mac app build failed' | head -80 || true
+    echo "== last 60 lines:"
+    tail -60 "$work/mac-build.log"
+    echo "error: tagged cmux NEXT Mac app build failed" >&2
+    exit 1
+  fi
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \

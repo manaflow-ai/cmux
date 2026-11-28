@@ -44,6 +44,7 @@ def load(name: str, path: Path):
 lkr = load("lkr", HERE / "look-keys-readback.py")
 hot = load("hot_apply", ROOT / "scripts/cmux-next/hot-apply.py")
 cli_json = load("ext_reload_nightly", HERE / "ext-reload-nightly.py").cli_json
+unattended_capture = load("unattended_capture", HERE / "unattended_capture.py")
 
 
 class Copy:
@@ -62,6 +63,11 @@ class Copy:
         return self.run(["--json", "computer-use", "call", tool, "--args", json.dumps(args)], timeout=timeout)
 
     def shot(self, path: Path, window: str | None = None) -> dict:
+        refused = unattended_capture.capture_refusal()
+        if refused:
+            reply = {"exit": None, "skipped": refused, "png": None}
+            self.log.append(reply)
+            return reply
         argv = ["computer-use", "screenshot", "--out", str(path)] + (["--window", window] if window else [])
         reply = self.run(argv, timeout=60)
         reply["png"] = str(path) if path.is_file() and path.stat().st_size else None
@@ -206,6 +212,8 @@ def main() -> int:
     receipt["ocr_built"] = built.returncode == 0
 
     strip = copy.shot(shots / "01-strip-window.png", main_window)
+    if strip.get("skipped"):
+        return finish(3, f"no capture: {strip['skipped']}")
     if not strip.get("png"):
         return finish(3, "Computer Use did not capture the copy's window (refusal is terminal)")
     receipt["strip"] = {"png": strip["png"], "ocr": ocr(strip["png"], tool)[:3000]}

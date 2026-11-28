@@ -139,3 +139,41 @@ async fn a_refused_ticket_opens_no_socket() {
     assert_eq!(last["error"], "Cloud wire ticket response");
     server.await.unwrap();
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the access token rides only in the ticket
+/// mint's `Authorization`, and the ticket and team only in the upgrade's `Sec-WebSocket-Protocol`,
+/// never the token. tests/egress_seeded.json names this test for `cmux_tui::cli::cloud_wire_watch`.
+#[tokio::test]
+async fn seeded_secrets_ride_only_where_the_wire_needs_them() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let access = "SEEDwireAccess-5b21";
+    let team = "SEEDwireTeam-c9e4";
+    let ticket = "SEEDwireTicket-7a03";
+    let request =
+        json!({"api": cmux_cloud_environment::PRODUCTION_API, "access": access, "team": team});
+    let wire = parse(request.to_string().as_bytes()).unwrap();
+    // The capture server answers `200 {}` (no ticket) and `200` to the upgrade: each call
+    // fails after its request was seen.
+    assert!(super::mint_ticket(&wire).await.is_err());
+    assert!(super::open(&wire, ticket).await.is_err());
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(sent.iter().any(|r| r.target == "/v1/wire/ticket"), "{sent:?}");
+    assert!(sent.iter().any(|r| r.target == "/v1/wire/cloud"), "{sent:?}");
+    let places = cmux_egress::capture::leaks(access);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(
+        places
+            .iter()
+            .all(|p| p.contains("/v1/wire/ticket") && p.ends_with(": header authorization")),
+        "{places:?}"
+    );
+    for secret in [ticket, team] {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(
+            places.iter().all(|p| p.ends_with(": header sec-websocket-protocol")),
+            "{secret}: {places:?}"
+        );
+    }
+}

@@ -150,6 +150,7 @@ describe("rebake inputs", () => {
       "web/scripts/devbox-agent-launch.ts",
       "web/scripts/devbox-agent-launch.py",
       "web/scripts/check-devbox-image-reachable.ts",
+      "web/services/vms/images/rebake-state.json",
     ]);
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
     // The account and the devbox-rebake/* PRs are shared: one canonical branch bakes.

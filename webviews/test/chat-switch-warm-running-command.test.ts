@@ -18,7 +18,9 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
   ...extra,
 });
 const call = (id: string, command: string, status: string): AcpmuxRow =>
-  row(id, "activity", { items: [{ tool: { id: `${id}-tool`, kind: "execute", title: command, command, status } }] } as Partial<AcpmuxRow>);
+  row(id, "activity", {
+    items: [{ tool: { id: `${id}-tool`, kind: "execute", title: command, command, status } }],
+  } as Partial<AcpmuxRow>);
 
 const ahead = (sessionId: string, rows: AcpmuxRow[]) =>
   shapeAhead(

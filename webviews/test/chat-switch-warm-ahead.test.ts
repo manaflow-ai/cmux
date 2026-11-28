@@ -11,7 +11,7 @@
 //   - a chat that ran on after it was folded ahead draws what it says now, not the rows folded ahead.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { WarmedChat } from "../src/agent-session/acpmux/direct";
+import type { AcpmuxDirectClient as DirectClient, WarmedChat } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { TurnView } from "../src/agent-session/acpmux/conversation/turns";
 import type { SubagentRows } from "../src/agent-session/acpmux/subagents/subagentRows";
@@ -184,7 +184,7 @@ const twoChats = async (name: string) => {
   return { daemon, A, B };
 };
 
-const warmedOn = (client: InstanceType<typeof AcpmuxDirectClient>, sessionId: string) =>
+const warmedOn = (client: DirectClient, sessionId: string) =>
   new Promise<WarmedChat>((resolve) => {
     const stop = client.onWarmed((warmed) => {
       if (warmed.sessionId !== sessionId) return;

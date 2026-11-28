@@ -115,6 +115,10 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       const search = frame.querySelector<HTMLElement>(".acpmux-cols-search")!;
       const footer = frame.querySelector<HTMLElement>(".acpmux-cols-update");
       const card = popup.querySelector<HTMLElement>(".acpmux-cols-card")!;
+      // The card never grows the menu (#63167 follow-up): past the room the lists leave it, it
+      // scrolls as one block. Scrolled to its end, its last child shows.
+      const cardScrolls = card.scrollHeight > card.clientHeight + 1;
+      card.scrollTop = card.scrollHeight;
       const accountList = card.querySelector<HTMLElement>(".acpmux-cols-card-list:has(> .acpmux-cols-caption)")!;
       const accounts = [...accountList.querySelectorAll<HTMLElement>("[role=button]")];
       const names = accounts.map((row) => row.querySelector(".acpmux-cols-name")?.textContent ?? "");
@@ -166,6 +170,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         })),
         account: {
           box: box(card),
+          cardScrolls,
           contentBottom: Math.max(...cardChildren.map((child) => child.bottom)),
           current: card.querySelector(".acpmux-cols-card-name")?.textContent ?? "",
           listHeight: box(accountList).height,
@@ -240,7 +245,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       });
     }
 
-    test(`${engine}: a short account card is as tall as its content`, async () => {
+    test(`${engine}: a short account card is as tall as its content, or scrolls to it in the menu's own height`, async () => {
       // Leave room for the card's avatar header as well as its few switching rows.
       const page = await open(engine, FEW, undefined, 520);
       await shoot(page, `${engine}-${FEW}-open`);
@@ -249,9 +254,12 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       expect(layout.account.names).toContain("Anthropic API key");
       expect(layout.account.names.length).toBeGreaterThan(1);
       expect(layout.account.scrolls, "a short account list does not need to scroll").toBe(false);
+      // Scrolled to its end (measure), the card's last child reaches its bottom whether or not the
+      // card had to scroll in the menu's fixed height.
       expect(layout.account.box.bottom, "no room under the card's last child").toBeGreaterThanOrEqual(
         layout.account.contentBottom - 1,
       );
+      console.log(`card scrolls in the menu's own height: ${layout.account.cardScrolls}`);
       expectBounded(layout);
       await page.close();
     });

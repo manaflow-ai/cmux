@@ -1,7 +1,8 @@
 //! Harness magic `dedupe` (`dedupe.rs`, `dedupe_shell.rs`).
 
 use super::dedupe::{
-    Call, Dedupe, attached, attached_fingerprint, enabled_in, env_off, prefetch_stub, stub,
+    Call, Dedupe, attached, attached_fingerprint, enabled_in, env_off, prefetch_stub, spill_path,
+    stub,
 };
 use super::dedupe_shell::{inputs, words};
 use super::*;
@@ -536,4 +537,56 @@ async fn the_translator_enters_a_prompts_prefetch_and_stubs_its_read() {
     assert_eq!(out["permissionDecision"], "deny");
     assert_eq!(out["permissionDecisionReason"], prefetch_stub());
     assert_eq!(t.dedupe.turn_ended().reads_stubbed_prefetched, 1);
+}
+
+#[test]
+fn asking_past_a_stub_counts_one_regret_per_stub() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = file(dir.path(), "a.txt", &"line\n".repeat(400));
+    let d = Dedupe::default();
+    let now = Instant::now();
+    let body = "x".repeat(4000);
+    assert_eq!(call(&d, "1", "", &read(&f, None, None), &body, now), None);
+    assert!(call(&d, "2", "", &read(&f, None, None), &body, now).is_some());
+    // The stub was not taken: the same Read again runs, and counts.
+    assert_eq!(call(&d, "3", "", &read(&f, Some(10), Some(5)), &body, now), None);
+    // A Bash `cat` of it after that adds nothing: that stub was counted.
+    d.observe("", &bash(dir.path(), &format!("cat {}", f.display())));
+    let c = d.turn_ended();
+    assert_eq!((c.reads_stubbed, c.stub_regrets), (1, 1), "{c:?}");
+}
+
+#[test]
+fn a_bash_command_naming_a_stubbed_read_is_a_regret_and_a_longer_name_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = file(dir.path(), "a.txt", &"line\n".repeat(400));
+    let d = Dedupe::default();
+    let now = Instant::now();
+    let body = "x".repeat(4000);
+    assert_eq!(call(&d, "1", "", &read(&f, None, None), &body, now), None);
+    assert!(call(&d, "2", "", &read(&f, None, None), &body, now).is_some());
+    d.observe("", &bash(dir.path(), &format!("sed -n 1,5p {}.bak", f.display())));
+    d.observe("sub", &bash(dir.path(), &format!("cat {}", f.display())));
+    assert_eq!(d.turn_ended().stub_regrets, 0, "another file, another agent");
+    assert!(call(&d, "3", "", &read(&f, None, None), &body, now).is_none());
+    assert!(call(&d, "4", "", &read(&f, None, None), &body, now).is_some());
+    d.observe("", &bash(dir.path(), &format!("head -5 {} | wc -l", f.display())));
+    assert_eq!(d.turn_ended().stub_regrets, 2, "the rerun, then the head");
+}
+
+#[test]
+fn a_spill_file_read_back_counts_once() {
+    let text = "<persisted-output>\nOutput too large (47.3KB). Full output saved to: \
+                /h/.claude/projects/-w/s1/tool-results/b6ed2jix1.txt\n\nPreview (first 2KB):\n...";
+    let path = spill_path(text).expect("a spill");
+    assert_eq!(path, "/h/.claude/projects/-w/s1/tool-results/b6ed2jix1.txt");
+    assert_eq!(spill_path("Full output saved to: /x"), None, "not Claude Code's block");
+    let d = Dedupe::default();
+    d.spilled(path);
+    d.observe("", &json!({"tool_name": "Grep", "tool_input": {"pattern": "x", "path": "/h"}}));
+    let read = json!({"tool_name": "Read", "tool_input": {"file_path": path, "offset": 200}});
+    d.observe("", &read);
+    d.observe("", &read);
+    let c = d.turn_ended();
+    assert_eq!((c.spills, c.spill_read_backs), (1, 1), "{c:?}");
 }
