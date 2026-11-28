@@ -16,7 +16,12 @@ private enum DockTileAppIconMode: String {
     func imageName(isDarkAppearance: Bool) -> NSImage.Name? {
         switch self {
         case .automatic:
-            return isDarkAppearance ? NSImage.Name("AppIconDark") : NSImage.Name("AppIconLight")
+            // Returning nil makes updateDockTile clear any persisted Finder icon and
+            // call showDefaultAppIcon(), so the bundle's layered AppIcon (Icon
+            // Composer .icon) is used and macOS can apply light/dark/tinted/clear
+            // treatments natively. Replacing the dock tile with a flat NSImage
+            // silently disables Tinted/Clear on macOS 26.
+            return nil
         case .light:
             return NSImage.Name("AppIconLight")
         case .dark:
