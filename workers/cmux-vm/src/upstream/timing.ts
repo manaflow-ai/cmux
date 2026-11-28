@@ -14,15 +14,16 @@ export interface UpstreamTally {
   /**
    * cmux-vm's own serial steps on the request's path, by name (ms): `own` the caller gate (scope, rate limit and the
    * ownership read), `admit` the wait for a provider operation slot. Inside `own`, which waits for two reads at once,
-   * `rate` is the tenant limits object's rate spend and `read` the Postgres ownership read, so the slower one is named. The caller's trace reads which of cmux-vm's
+   * `rate` is the tenant limits object's rate spend and `read` the Postgres ownership read, so the slower one is named;
+   * `connect` is the request's Postgres connection handshake (Hyperdrive), which the first query (often `read`) waits for. The caller's trace reads which of cmux-vm's
    * steps holds its time past the provider's (cmuxterm-hq goals/cloud-resume-gap.md). Numbers only.
    */
   steps?: Record<string, number>;
 }
 
 /** cmux-vm's own steps a caller's trace can name (fixed tokens, never ids). */
-export type StepName = "own" | "rate" | "read" | "admit";
-const STEP_ORDER: ReadonlyArray<StepName> = ["own", "rate", "read", "admit"];
+export type StepName = "own" | "rate" | "read" | "connect" | "admit";
+const STEP_ORDER: ReadonlyArray<StepName> = ["own", "rate", "read", "connect", "admit"];
 
 /** The request's tally; null outside a request (cron, tests that call the client directly). */
 export const UpstreamTime: FiberRef.FiberRef<UpstreamTally | null> = FiberRef.unsafeMake<UpstreamTally | null>(null);
