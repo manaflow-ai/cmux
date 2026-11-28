@@ -47,5 +47,30 @@ class RowsFrom(unittest.TestCase):
         self.assertTrue(any("never changed" in w for w in incomplete))
 
 
+
+class ReportAlways(unittest.TestCase):
+    """Every run writes report.json and exits 0, so the cron stores why a surface has no row (NOW read blank)."""
+
+    def test_no_receipt_names_the_bench_exit_first(self):
+        report = gsw.report_of([], 1, 20)
+        self.assertEqual(report["rows"], [])
+        self.assertEqual(report["incomplete"][0], "graceful-swap-fleet.py exited 1")
+        self.assertIn("focused: no latency receipt", report["incomplete"])
+
+    def test_an_error_of_this_script_still_writes_the_report_and_exits_0(self):
+        import json, tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(gsw, "measure", side_effect=OSError("no app")):
+            path = os.path.join(d, "report.json")
+            self.assertEqual(gsw.main(["--app", "/nope.app", "--json", path]), 0)
+            with open(path) as f:
+                report = json.load(f)
+        self.assertEqual(report["incomplete"][0], "graceful-swap-cron.py: OSError: no app")
+
+    def test_a_valid_run_has_no_incomplete(self):
+        report = gsw.report_of([receipt("focused", "chat-a", 90), receipt("unfocused", "chat-b", 210),
+                                receipt("hidden", "chat-c", 60)], 0, 20)
+        self.assertNotIn("incomplete", report)
+
 if __name__ == "__main__":
     unittest.main()

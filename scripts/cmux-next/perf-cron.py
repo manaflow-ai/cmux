@@ -5232,6 +5232,33 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
     return len(named)
 
 
+PART_OUTCOME_WHY = {"build_failed": "the app did not build at this tip", "yielded_out": "the fleet never ran it"}
+
+
+def note_part_outcomes(state, cur, part, entry, report, worker, t):
+    """Each part's newest outcome, whatever it was (state['part_outcomes'][part]: state, why, worker, sha, at), so a
+    part that stores no row still says why (pure but for state). Before it, a run that measured nothing (a crash, a
+    missing receipt, a build failure) left only the part's older rows, and NOW's row read blank with no reason: goal
+    hot-swap-fast's hot_swap_mac_*_p95_ms read unknown for 4 days (graceful-swap-cron.py's exit 1 on 2026-11-28 06:07Z,
+    step 99c6a45937a1f0d863f22461). Also the Mac parts a failed build ended (build_failed), which never ran."""
+    if entry.get("state") == "yielded":
+        return  # still to do: no outcome yet
+    outcomes = state.setdefault("part_outcomes", {})
+    done = entry.get("state") == "done"
+    incomplete = done and report_is_incomplete(PART_BY_NAME.get(part) or {}, report)
+    why = (incomplete_why(report) if incomplete else
+           None if done else entry.get("why") or entry.get("reason") or PART_OUTCOME_WHY.get(entry.get("state"))
+           or ("timed out" if entry.get("timed_out") else None))
+    outcomes[part] = {"state": "incomplete" if incomplete else entry.get("state"), "why": (why or "")[:200] or None,
+                      "worker": worker if isinstance(worker, str) else entry.get("worker"), "sha": cur.get("sha"),
+                      "at": iso(t), "step_id": entry.get("step_id")}
+    for other, p in (cur.get("parts") or {}).items():
+        if other != part and isinstance(p, dict) and p.get("state") == "build_failed" and \
+                (outcomes.get(other) or {}).get("sha") != cur.get("sha"):
+            outcomes[other] = {"state": "build_failed", "why": PART_OUTCOME_WHY["build_failed"], "worker": None,
+                               "sha": cur.get("sha"), "at": iso(t), "step_id": None}
+
+
 def stale_parts(state, now):
     """The parts whose newest stored rows (store_part_rows) are older than STALE_HOURS, oldest first; per part, not
     per measurement: a measurement that keeps failing one part leaves the others' rows fresh."""
@@ -5326,6 +5353,7 @@ def report(o, t=None):
                     store_part_rows(state, cur, part, entry, report_value, stored_mod, stored_budgets, o.run_url, t)
                 except Exception as error:  # a row that does not parse is the finish's to report; never fail the tick
                     print(f"perf-cron report: part {part}: rows not stored now ({error!r})", file=sys.stderr)
+        note_part_outcomes(state, cur, part, entry, report_value, result.get("worker"), t)
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
         mod, budgets = load_budgets()
