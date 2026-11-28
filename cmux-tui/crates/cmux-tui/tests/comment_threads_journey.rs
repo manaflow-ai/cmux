@@ -262,4 +262,180 @@ mod cmux_next_comment_threads_journey {
         }
         assert!(client.threads().is_empty());
     }
+
+    /// A comment from a surface past the first three (the iOS app, a Cloud
+    /// machine's session, a pull request comment, a Slack thread), as that
+    /// surface saves it: `surface`, `place`, the quote and `submissionText`.
+    fn place_comment(surface: &str, place: &str, quote: &str, message: &str) -> Value {
+        json!({"surface": surface, "place": place, "quote": quote, "message": message,
+               "submissionText": format!("> **{surface}** · {place}\n> {quote}\n\n{message}")})
+    }
+
+    /// One surface's round trip: its comment, saved, goes to the chat in one
+    /// threaded send under its surface's label, the agent's answer lands in
+    /// its thread, and resolving it deletes it.
+    fn surface_round_trip(surface: &str, label: &str, place: &str) {
+        let (root, _cleanup) = scratch();
+        let socket = root.join("mac").join("mux.sock");
+        let env = vec![
+            ("FAKE_REVIEW_CMUX", bin().to_owned()),
+            ("FAKE_REVIEW_SOCKET", socket.to_string_lossy().into_owned()),
+        ];
+        let mac = Machine::start(&root, "mac", env);
+        let mut acpmux = mac.acpmux();
+        let created =
+            acpmux.call("session/new", json!({"cwd": mac.home().join("work"), "mcpServers": []}));
+        let session = created["sessionId"].as_str().unwrap().to_owned();
+        let mut client = Client::connect(&mac.socket);
+
+        let message = format!("the {surface} comment needs an answer");
+        let comment = place_comment(surface, place, "Sign in failed", &message);
+        let id = client.save(comment, &format!("save-{surface}"));
+        let key = format!("{SEND}-{surface}");
+        let send = json!({"root": ROOT, "acp_session": session, "ids": [id], "threads": true});
+        let sent = client.ok("diff.comments.send", send, &key);
+        assert_eq!(sent["value"]["sent"], 1, "{surface}: {sent}");
+        let events = wait_until(60, &format!("the agent's answer to the {surface} thread"), || {
+            let events = acpmux.events(&session);
+            (turn_prompt_ids(&events).len() == 1).then_some(events)
+        });
+        let turns = user_texts(&events);
+        assert_eq!(turns.len(), 1, "{surface}: one send, one turn: {turns:?}");
+        let prompt = &turns[0];
+        assert!(prompt.starts_with("Code review of /work/app:"), "{surface}: {prompt}");
+        assert!(
+            prompt.contains(&format!("## Thread {id}: {label} {place}\n")),
+            "{surface}: the thread is under its surface's label: {prompt}"
+        );
+        assert!(prompt.contains(&message), "{surface}: {prompt}");
+        assert!(!prompt.contains("(no file)"), "{surface}: {prompt}");
+
+        let threads = client.threads();
+        let thread = &threads[&id];
+        assert_eq!(thread["surface"], surface, "{surface}: {thread}");
+        assert_eq!(thread["place"], place, "{surface}: {thread}");
+        assert_eq!(
+            replies(thread),
+            [("agent".to_owned(), format!("answered {id}"))],
+            "{surface}: the agent's reply: {thread}"
+        );
+        assert_eq!(thread["sentIn"], key, "{surface}: {thread}");
+        // The agent answered, so nothing chases it.
+        assert!(thread.get("stalled").is_none(), "{surface}: {thread}");
+
+        let resolved = client.ok(
+            "diff.comments.delete",
+            json!({"root": ROOT, "ids": [id]}),
+            &format!("resolve-{surface}"),
+        );
+        assert_eq!(resolved["value"]["ids"], json!([id]), "{surface}: {resolved}");
+        assert!(client.threads().is_empty(), "{surface}: resolved");
+    }
+
+    #[test]
+    fn ios_round_trip() {
+        surface_round_trip("ios", "iOS app", "Chat fix-login (iPhone)");
+    }
+
+    #[test]
+    fn cloud_round_trip() {
+        surface_round_trip("cloud", "Cloud machine session", "cmux-vm-3 cargo build (/work/app)");
+    }
+
+    #[test]
+    fn pr_round_trip() {
+        surface_round_trip(
+            "pr",
+            "pull request comment",
+            "https://github.com/acme/app/pull/7#discussion_r101",
+        );
+    }
+
+    #[test]
+    fn slack_round_trip() {
+        surface_round_trip("slack", "Slack thread", "#eng 1732800000.123400");
+    }
+
+    /// The chase: an agent that takes two threads and answers neither gets
+    /// them back with no person relaying them. One answered by hand after the
+    /// send is never chased; the other is chased, each wait twice the last,
+    /// and after three chases it is `stalled` and chased no more.
+    #[test]
+    fn chase_round_trip() {
+        const BOUND_MS: u64 = 1500;
+        let (root, _cleanup) = scratch();
+        // No FAKE_REVIEW_CMUX: this agent never answers a thread itself.
+        let env = vec![("CMUX_COMMENT_CHASE_BOUND_MS", BOUND_MS.to_string())];
+        let mac = Machine::start(&root, "mac", env);
+        let mut acpmux = mac.acpmux();
+        let created =
+            acpmux.call("session/new", json!({"cwd": mac.home().join("work"), "mcpServers": []}));
+        let session = created["sessionId"].as_str().unwrap().to_owned();
+        let mut client = Client::connect(&mac.socket);
+
+        let answered = client.save(
+            place_comment("ios", "Chat fix-login (iPhone)", "Sign in failed", "answered by hand"),
+            "save-answered",
+        );
+        let ignored = client.save(
+            place_comment("slack", "#eng 1732800000.123400", "deploy is red", "never answered"),
+            "save-ignored",
+        );
+        let key = format!("{SEND}-chase");
+        let send = json!({"root": ROOT, "acp_session": session,
+                          "ids": [answered, ignored], "threads": true});
+        let sent = client.ok("diff.comments.send", send, &key);
+        assert_eq!(sent["value"]["sent"], 2, "{sent}");
+        let threads = client.threads();
+        assert_eq!(threads[&ignored]["sentTo"], session.as_str(), "chase: {}", threads[&ignored]);
+
+        // The agent's own CLI answers one thread inside the bound.
+        let reply = mac
+            .command()
+            .env("CMUX_TUI_SOCKET", &mac.socket)
+            .args(["git", "comments", "reply", &answered, "--root", ROOT])
+            .args(["--text", "looking at it", "--json"])
+            .output()
+            .unwrap();
+        assert!(reply.status.success(), "reply: {}", String::from_utf8_lossy(&reply.stderr));
+
+        let chase_ids = |events: &[Value]| -> Vec<String> {
+            turn_prompt_ids(events).into_iter().filter(|id| id.starts_with("dchase_")).collect()
+        };
+        // Three chases: at 1, 3 and 7 bounds after the send.
+        let events = wait_until(120, "three chases of the unanswered thread", || {
+            let events = acpmux.events(&session);
+            (chase_ids(&events).len() >= 3).then_some(events)
+        });
+        let ids = chase_ids(&events);
+        assert_eq!(ids.len(), 3, "chase: {ids:?}");
+        let mut unique = ids.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), 3, "chase: each chase its own prompt: {ids:?}");
+        let chases: Vec<String> = user_texts(&events)
+            .into_iter()
+            .filter(|text| text.contains("you took has no answer in it yet"))
+            .collect();
+        assert_eq!(chases.len(), 3, "chase: {chases:?}");
+        for text in &chases {
+            assert!(text.starts_with("1 review thread you took"), "chase: {text}");
+            assert!(text.contains(&format!("- Thread {ignored} ")), "chase: {text}");
+            assert!(text.contains("never answered"), "chase: {text}");
+            assert!(!text.contains(&answered), "chase: an answered thread is not chased: {text}");
+            assert!(text.contains("cmux git comments reply"), "chase: {text}");
+        }
+
+        let threads = wait_until(30, "the chased thread stalled", || {
+            let threads = client.threads();
+            (threads[&ignored]["stalled"] == true).then_some(threads)
+        });
+        assert_eq!(threads[&ignored]["chases"], 3, "chase: {}", threads[&ignored]);
+        assert!(threads[&answered].get("stalled").is_none(), "chase: {}", threads[&answered]);
+        assert!(threads[&answered].get("chases").is_none(), "chase: {}", threads[&answered]);
+
+        // A stalled thread is chased no more.
+        std::thread::sleep(Duration::from_millis(2 * BOUND_MS));
+        assert_eq!(chase_ids(&acpmux.events(&session)).len(), 3, "chase: no fourth chase");
+    }
 }
