@@ -123,32 +123,22 @@ pub(crate) fn normalize_pi(request: &mut Value, family: Option<&str>) {
     let text = |v: &Value| v.as_str().map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned);
     let title = text(&input["title"]).or_else(|| text(&call["title"]));
     let message = text(&input["message"]);
-    let mut item = Map::new();
-    item.insert("id".into(), json!("q0"));
-    let prompt = match (message, title.clone()) {
-        (Some(message), Some(title)) => {
-            item.insert("header".into(), json!(title));
-            message
-        }
-        (Some(only), None) | (None, Some(only)) => only,
-        (None, None) => "Pi asks".to_owned(),
+    let (header, prompt) = match (message, title) {
+        (Some(message), title) => (title, message),
+        (None, Some(title)) => (None, title),
+        (None, None) => (None, "Pi asks".to_owned()),
     };
-    item.insert("prompt".into(), json!(prompt));
-    item.insert("options".into(), Value::Array(options));
-    item.insert("multiSelect".into(), json!(false));
-    item.insert("allowsOther".into(), json!(false));
-    let copy = json!({"harness": "acp", "agent": "pi", "items": [Value::Object(item)]});
-    if let Some(call) = request.get_mut("toolCall").and_then(Value::as_object_mut) {
-        let meta = call.entry("_meta").or_insert_with(|| json!({}));
-        if !meta.is_object() {
-            *meta = json!({});
-        }
-        let acpmux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
-        if !acpmux.is_object() {
-            *acpmux = json!({});
-        }
-        acpmux.as_object_mut().unwrap().insert("question".into(), copy);
+    let mut item = json!({
+        "id": "q0", "prompt": prompt, "options": options,
+        "multiSelect": false, "allowsOther": false,
+    });
+    if let Some(header) = header {
+        item.set("header", json!(header));
     }
+    request.set_path(
+        &["toolCall", "_meta", "acpmux", "question"],
+        json!({"harness": "acp", "agent": "pi", "items": [item]}),
+    );
 }
 
 /// True for an `acp` question (the folder-trust card, a Pi dialog): its answer is the picked
