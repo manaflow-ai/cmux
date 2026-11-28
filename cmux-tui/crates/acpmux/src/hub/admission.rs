@@ -346,16 +346,6 @@ pub(super) fn claim(id: &str) {
     let _ = MAKING.try_with(|making| making.made.set(id.to_owned()));
 }
 
-/// A session counts as live when its harness runs: a live status, or (any
-/// status but Closed) an agent host still running for it.
-pub(super) fn is_live(status: SessionStatus, hosted: bool) -> bool {
-    match status {
-        SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting => true,
-        SessionStatus::Closed => false,
-        SessionStatus::Idle | SessionStatus::Disconnected => hosted,
-    }
-}
-
 /// The live sessions `live` plus the admitted creates whose session is not one of
 /// them: a create is counted once, as its session once that runs.
 fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usize {
@@ -371,8 +361,10 @@ impl Drop for Admitted<'_> {
 }
 
 impl Hub {
-    /// This host's sessions whose harness runs (`hosted`: those with a running
-    /// agent host), plus the admitted creates whose session is not (yet) one of them.
+    /// This host's sessions whose harness runs and that cost the cap
+    /// (`residency::costs_for_cap`; `hosted`: those with a running agent host), plus
+    /// the admitted creates whose session is not (yet) one of them, plus the resident
+    /// fillers, whose room a real start takes (returned too).
     /// `hosted` is read before the lock: a session whose host comes back after it is
     /// a resume of an existing session, which the cap never refuses either, so no
     /// later snapshot could hold it back.
@@ -383,8 +375,12 @@ impl Hub {
     ) -> (usize, Vec<String>) {
         let sessions: Vec<Arc<Session>> =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
-        let live: Vec<&Arc<Session>> =
-            sessions.iter().filter(|s| is_live(s.status(), hosted.contains(&s.id))).collect();
+        // What a cap counts (`residency::costs_for_cap`): a chat whose harness is resident,
+        // not records, so a hibernated chat (its record kept, its harness gone) takes no lane.
+        let live: Vec<&Arc<Session>> = sessions
+            .iter()
+            .filter(|s| super::residency::costs_for_cap(s, s.status(), hosted.contains(&s.id)))
+            .collect();
         // Filler work a real start may take the room of (`admission_redirect::is_filler`).
         let fillers = live
             .iter()
@@ -896,14 +892,49 @@ mod tests {
         assert!(text.contains("a machine is being added"), "{text}");
     }
 
-    #[test]
-    fn a_session_whose_agent_host_runs_is_live_whatever_its_status() {
-        // After a daemon restart every kept session reads Idle until it is reattached.
-        assert!(is_live(SessionStatus::Idle, true));
-        assert!(is_live(SessionStatus::Disconnected, true));
-        assert!(!is_live(SessionStatus::Idle, false));
-        assert!(!is_live(SessionStatus::Closed, true));
-        assert!(is_live(SessionStatus::Ready, false));
+    /// The cap counts what is resident (`residency::costs_for_cap`), not records: a
+    /// hibernated chat takes no lane, one whose agent host runs does whatever its status
+    /// (after a daemon restart every kept chat reads Idle until it is reattached), and a
+    /// resident filler is room a real start takes.
+    #[tokio::test]
+    async fn a_hibernated_session_does_not_count_toward_the_cap() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let chat = || async {
+            let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+            hub.new_session(req).await.unwrap()
+        };
+        let (busy, asleep, restarted, filler) =
+            (chat().await, chat().await, chat().await, chat().await);
+        hub.set_status(&busy, NotWaiting::Ready);
+        hub.set_status(&filler, NotWaiting::Ready);
+        let tags = json!({"filler": "true"});
+        hub.set_tags(&filler, tags.as_object(), &[], None);
+        // Hibernated: its record stays, its harness exited (`idle.rs`, `pause.rs`). Without
+        // a harness yet the pause says `stopped`: no harness either way.
+        for idle in [&asleep, &restarted] {
+            let paused = hub.pause(idle).await;
+            assert!(paused.is_ok(), "{paused:?}");
+        }
+        hub.set_status(&asleep, NotWaiting::Idle);
+        asleep.hibernated_at.store(1, Ordering::SeqCst);
+        hub.set_status(&restarted, NotWaiting::Idle);
+        let none = std::collections::HashSet::new();
+        let (live, fillers) = hub.live_sessions(&[], &none);
+        assert_eq!(fillers, vec![filler.id.clone()]);
+        assert_eq!(live, 2, "the busy chat and the filler's room; never the hibernated one");
+        let hosted: std::collections::HashSet<String> = [restarted.id.clone()].into();
+        assert_eq!(hub.live_sessions(&[], &hosted).0, 3, "its agent host runs: it counts");
+        hub.set_status(&busy, NotWaiting::Closed);
+        assert_eq!(hub.live_sessions(&[], &hosted).0, 2, "a closed chat never counts");
+        hub.shutdown_all().await;
     }
 
     /// A registry that turns unreadable keeps its last good copy: a partial write

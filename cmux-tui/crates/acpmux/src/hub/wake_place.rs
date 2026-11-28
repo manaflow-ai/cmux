@@ -217,7 +217,7 @@ impl Hub {
             .collect();
         let live = others
             .iter()
-            .filter(|s| super::admission::is_live(s.status(), hosted.contains(&s.id)))
+            .filter(|s| super::residency::costs_for_cap(s, s.status(), hosted.contains(&s.id)))
             .filter(|s| !super::admission_redirect::is_filler(s))
             .count();
         // A family as the rebalancer reads it: an agent started it, or it has an open child.
