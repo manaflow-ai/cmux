@@ -3065,6 +3065,7 @@ class Orchestrator:
 
     def run_cmux(self, clock):
         firsts, g2g, fps, rows = [], [], [], []
+        clipboard = getattr(self.a, "cmux_input", "key") == "clipboard"
         # The first session after the rig starts can miss every key (the marker window is
         # not key yet), so warm-up attempts are logged but not counted.
         for n in range(1 - self.a.warmup, self.a.trials + 1):
@@ -3076,7 +3077,11 @@ class Orchestrator:
                 self.log(dict(rec, warmup=True))
                 continue
             rec["trial"] = n
-            if rec["ok"]:
+            if rec["ok"] and clipboard:
+                # A copy-paste sample is a round trip to the echo (`echo_ns`): no frame, no
+                # first frame, no stage breakdown; the row keeps the bench's `g2g_ms` and `lost`.
+                g2g += [(s["echo_ns"] - s["sent_ns"]) / 1e6 for s in rec.get("sample_times") or []]
+            elif rec["ok"]:
                 firsts.append(rec["first_frame_ms"])
                 g2g += [(s["decoded_ns"] - s["sent_ns"]) / 1e6 for s in rec.get("sample_times") or []]
                 # A build with the stage ledger hands one per sample; every row then reads it.
