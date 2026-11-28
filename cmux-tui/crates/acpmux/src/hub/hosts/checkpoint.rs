@@ -47,6 +47,56 @@ use crate::subagents::SubagentTree;
 /// The checkpoint's format and the folds' meaning. Another one is not read.
 const VERSION: u32 = 5;
 
+/// The most a chat's turn-end checkpoint writes on average, bytes a second. A checkpoint is the
+/// whole fold state written whole (`write_atomic`), tens of MB for a long chat, and a turn-end
+/// save ran every minute whatever its size: cosmic-gray, 2026-11-28, `~/.acpmux/sessions/*/
+/// adoption-checkpoint.json` of 25 MB, 14 MB and 1.5 MB were each rewritten every minute, which
+/// with the app's other whole-file writes was ~108 GB a day on Leo's SSD. The gap between a
+/// chat's saves is now at least its last checkpoint's size over this (25 MB: about 6.5 min, 4 GB
+/// a day at most for that chat); a small checkpoint keeps the one-minute gap.
+const WRITE_BUDGET_BYTES_PER_SEC: u64 = 64 * 1024;
+/// The longest gap the budget asks for: a restart then reads at most an hour of records.
+const WRITE_GAP_MAX: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Bytes of each chat's last checkpoint this daemon saved.
+static SAVED_BYTES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn note_saved_bytes(id: &str, bytes: u64) {
+    SAVED_BYTES.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), bytes);
+}
+
+/// The least gap between two turn-end saves of a chat whose last checkpoint was `bytes`: `floor`
+/// or what keeps its writes under [`WRITE_BUDGET_BYTES_PER_SEC`], at most [`WRITE_GAP_MAX`].
+pub(super) fn gap_for_bytes(bytes: u64, floor: std::time::Duration) -> std::time::Duration {
+    let budgeted = std::time::Duration::from_secs(bytes / WRITE_BUDGET_BYTES_PER_SEC);
+    floor.max(budgeted.min(WRITE_GAP_MAX))
+}
+
+/// [`gap_for_bytes`] for chat `id`'s last saved checkpoint (`floor` when this daemon saved none).
+pub(super) fn write_gap(id: &str, floor: std::time::Duration) -> std::time::Duration {
+    let bytes = SAVED_BYTES.lock().unwrap_or_else(|e| e.into_inner()).get(id).copied().unwrap_or(0);
+    gap_for_bytes(bytes, floor)
+}
+
+#[cfg(test)]
+mod write_budget_tests {
+    use super::gap_for_bytes;
+    use std::time::Duration;
+
+    #[test]
+    fn small_checkpoints_keep_the_floor_and_big_ones_wait_longer() {
+        let floor = Duration::from_secs(60);
+        assert_eq!(gap_for_bytes(0, floor), floor);
+        assert_eq!(gap_for_bytes(1_500_000, floor), floor);
+        // 25 MB at 64 KiB/s is 381 s, 14 MB is 210 s.
+        assert_eq!(gap_for_bytes(25_146_959, floor), Duration::from_secs(383));
+        assert_eq!(gap_for_bytes(13_788_595, floor), Duration::from_secs(210));
+        // A 4 GB checkpoint is held to the hour.
+        assert_eq!(gap_for_bytes(4_000_000_000, floor), Duration::from_secs(3600));
+    }
+}
+
 /// The incarnation of no host: the folds it gives are those of any incarnation not started yet.
 pub(super) const UNSTARTED: &str = "\u{0}unstarted";
 
@@ -279,8 +329,11 @@ impl Hub {
                 return;
             }
             let Ok(bytes) = serde_json::to_vec(&*point) else { return };
-            if let Err(error) = self.store.save_adoption_checkpoint(&session.id, &bytes) {
-                tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
+            match self.store.save_adoption_checkpoint(&session.id, &bytes) {
+                Ok(()) => note_saved_bytes(&session.id, bytes.len() as u64),
+                Err(error) => {
+                    tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
+                }
             }
         };
         save(&mut point);
