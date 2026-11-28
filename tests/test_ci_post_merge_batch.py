@@ -378,6 +378,38 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(used, ["app", "job"])
         self.assertEqual(slept, [])
 
+    def test_a_spent_write_token_falls_to_the_fallback_budget(self) -> None:
+        # The tick's dispatch: the bot App's budget spent, the job token (GH_FALLBACK_TOKEN) still has room.
+        limited = "gh: API rate limit exceeded for installation ID 175618676. (HTTP 403)"
+        replies = [(1, limited), (0, "")]
+        used: list[str] = []
+
+        def fake_run(argv, env=None, **_):
+            used.append((env or {}).get("GH_TOKEN", ""))
+            code, text = replies.pop(0)
+            return subprocess.CompletedProcess(argv, code, stdout="", stderr=text if code else "")
+
+        keys = ("GH_TOKEN", "GH_READ_TOKEN", "GH_FALLBACK_TOKEN")
+        saved = {k: os.environ.get(k) for k in keys}
+        os.environ.update({"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "job"})
+        os.environ.pop("GH_READ_TOKEN", None)
+        try:
+            self.assertEqual(pmb.write_tokens(), ["app", "job"])
+            self.assertEqual(pmb.read_tokens(), ["app", "job"])
+            slept: list[float] = []
+            pmb.gh_api("repos/x/y/actions/workflows/w.yml/dispatches", method="POST", fields={}, run=fake_run,
+                       sleep=slept.append, clock=lambda: 1000.0, reset_at=lambda: 1100.0)
+            self.assertEqual(used, ["app", "job"])
+            self.assertEqual(slept, [])
+            os.environ["GH_FALLBACK_TOKEN"] = "app"
+            self.assertEqual(pmb.write_tokens(), ["app"])
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
 
     def test_plan_runs_every_suite_when_the_runs_are_unreadable(self) -> None:
         def refused(*_a, **_k):
