@@ -60,6 +60,7 @@ const NEVER = /(^settings\.(set|reset|reset_all|edit|undo|restore|reset_group)$|
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
+  "cloud.artifacts.read",
   "cloud.machine.chat_access",
   "cloud.machine.io",
   "cloud.machine.share_chat",

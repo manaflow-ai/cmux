@@ -35,6 +35,10 @@ python3 -I scripts/cmux-next/check-exemption-ratchet.py --root "$GITHUB_WORKSPAC
 python3 -I tests/test_cmux_next_exemption_ratchet.py
 [overlay-glass]
 python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
+[flag-default-drift]
+# Why: a switch's code default and its written default drifted (CMUX_NEXT_CHAT_RENDERER_RECYCLE, cmux#64383)
+python3 -I scripts/cmux-next/check-flag-default-drift.py "$GITHUB_WORKSPACE"
+python3 -I scripts/cmux-next/tests/test_check_flag_default_drift.py
 [conn-notices]
 scripts/cmux-next/check-connection-notices.sh "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/tests/test_check_connection_notices.py
