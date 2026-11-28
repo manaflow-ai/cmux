@@ -1,0 +1,217 @@
+[
+  {
+    "id": "off",
+    "note": "AutoCloud off: chats stay on this Mac",
+    "status": {
+      "cloud": "off",
+      "sync": {
+        "state": "synced"
+      },
+      "here": []
+    },
+    "expect": {
+      "headline": "off",
+      "tone": "quiet",
+      "pending": 0,
+      "people": 0,
+      "agents": 0
+    }
+  },
+  {
+    "id": "synced",
+    "note": "Cloud ready, everything synced",
+    "status": {
+      "cloud": "ready",
+      "sync": {
+        "state": "synced"
+      },
+      "here": []
+    },
+    "expect": {
+      "headline": "ready",
+      "tone": "quiet",
+      "pending": 0,
+      "people": 0,
+      "agents": 0
+    }
+  },
+  {
+    "id": "syncing",
+    "note": "Syncing 3 changes",
+    "status": {
+      "cloud": "ready",
+      "sync": {
+        "state": "syncing",
+        "changes": 3
+      },
+      "here": []
+    },
+    "expect": {
+      "headline": "syncing",
+      "tone": "working",
+      "pending": 3,
+      "people": 0,
+      "agents": 0
+    }
+  },
+  {
+    "id": "offline",
+    "note": "Offline, 7 edits queued; they merge conflict-free",
+    "status": {
+      "cloud": "ready",
+      "sync": {
+        "state": "offline",
+        "pending": 7
+      },
+      "here": []
+    },
+    "expect": {
+      "headline": "offline",
+      "tone": "attention",
+      "pending": 7,
+      "people": 0,
+      "agents": 0
+    }
+  },
+  {
+    "id": "warming",
+    "note": "VM getting ready while the local chat runs",
+    "status": {
+      "cloud": "warming",
+      "sync": {
+        "state": "synced"
+      },
+      "here": []
+    },
+    "expect": {
+      "headline": "warming",
+      "tone": "working",
+      "pending": 0,
+      "people": 0,
+      "agents": 0
+    }
+  },
+  {
+    "id": "active",
+    "note": "An agent is working in the cloud",
+    "status": {
+      "cloud": "active",
+      "sync": {
+        "state": "synced"
+      },
+      "here": [
+        {
+          "name": "claude",
+          "kind": "agent",
+          "at": "cloud"
+        }
+      ]
+    },
+    "expect": {
+      "headline": "active",
+      "tone": "working",
+      "pending": 0,
+      "people": 0,
+      "agents": 1
+    }
+  },
+  {
+    "id": "here",
+    "note": "Someone else is here: two people",
+    "status": {
+      "cloud": "ready",
+      "sync": {
+        "state": "synced"
+      },
+      "here": [
+        {
+          "name": "Lawrence",
+          "kind": "person",
+          "at": "mac"
+        },
+        {
+          "name": "Austin",
+          "kind": "person",
+          "at": "phone"
+        }
+      ]
+    },
+    "expect": {
+      "headline": "ready",
+      "tone": "quiet",
+      "pending": 0,
+      "people": 2,
+      "agents": 0
+    }
+  },
+  {
+    "id": "crowd",
+    "note": "Busy room: two people and three agents, syncing 2",
+    "status": {
+      "cloud": "active",
+      "sync": {
+        "state": "syncing",
+        "changes": 2
+      },
+      "here": [
+        {
+          "name": "Lawrence",
+          "kind": "person",
+          "at": "mac"
+        },
+        {
+          "name": "Austin",
+          "kind": "person",
+          "at": "phone"
+        },
+        {
+          "name": "claude",
+          "kind": "agent",
+          "at": "cloud"
+        },
+        {
+          "name": "codex",
+          "kind": "agent",
+          "at": "cloud"
+        },
+        {
+          "name": "pi",
+          "kind": "agent",
+          "at": "mac"
+        }
+      ]
+    },
+    "expect": {
+      "headline": "syncing",
+      "tone": "working",
+      "pending": 2,
+      "people": 2,
+      "agents": 3
+    }
+  },
+  {
+    "id": "offline-here",
+    "note": "Offline with a teammate here",
+    "status": {
+      "cloud": "ready",
+      "sync": {
+        "state": "offline",
+        "pending": 2
+      },
+      "here": [
+        {
+          "name": "Lawrence",
+          "kind": "person",
+          "at": "mac"
+        }
+      ]
+    },
+    "expect": {
+      "headline": "offline",
+      "tone": "attention",
+      "pending": 2,
+      "people": 1,
+      "agents": 0
+    }
+  }
+]

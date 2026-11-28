@@ -1,0 +1,137 @@
+/* AutoCloud status icon designs (AutoCloudStatus.tsx): a mock of the native sidebar footer row.
+ * Colors, spacing, type and motion come from the app's tokens; controls are ui/ Button, Switch, Toggle
+ * and Popover, so the mock carries their focus, hover and keyboard contracts. */
+.acs-root {
+  --acs-tone: var(--cmux-app-sidebar, var(--cmux-surface-background, Canvas));
+  --acs-ink: var(--cmux-text, CanvasText);
+  --acs-ink-2: var(--cmux-text-secondary, color-mix(in srgb, var(--acs-ink) 62%, transparent));
+  --acs-ink-3: var(--cmux-text-tertiary, color-mix(in srgb, var(--acs-ink) 42%, transparent));
+  --acs-green: var(--cmux-app-success, var(--cmux-success, CanvasText));
+  --acs-amber: var(--cmux-app-warning, var(--cmux-warning, CanvasText));
+  --acs-line: var(--cmux-hairline, color-mix(in srgb, var(--acs-ink) 14%, transparent));
+  /* Avatars, the badge and the more chip keep a ring of the sidebar's tone where they overlap. */
+  --acs-ring-width: calc(var(--grid-half-step) * 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+  font-family: var(--font-ui, system-ui);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--acs-ink);
+}
+.acs-sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 248px;
+  height: calc(var(--grid-base) * 82);
+  border-radius: var(--ds-radius-xl);
+  background: var(--acs-tone);
+  outline: 1px solid var(--acs-line);
+}
+.acs-rows { flex: 1; padding: var(--ds-space-3) var(--ds-space-2); display: flex; flex-direction: column; gap: var(--ds-space-1); }
+.acs-row { height: var(--grid-row); border-radius: var(--ds-radius-control); background: color-mix(in srgb, var(--acs-ink) 5%, transparent); }
+.acs-row[data-on] { background: color-mix(in srgb, var(--acs-ink) 11%, transparent); }
+.acs-row.short { width: 60%; }
+
+/* The footer row: account avatar leads, Search ends it; the icon sits right after the avatar, where the
+ * spaces dots used to be. With Spaces on the dots keep their place and the icon is before them. */
+.acs-footer { position: relative; display: flex; align-items: center; gap: var(--ds-space-2); height: calc(var(--grid-base) * 9); padding: 0 var(--ds-space-3); }
+.acs-account { width: var(--grid-pill); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; font-size: var(--text-caption); line-height: var(--text-caption--line-height); font-weight: var(--weight-emphasis); background: color-mix(in srgb, var(--acs-ink) 16%, transparent); }
+.acs-slot { display: inline-flex; align-items: center; }
+.acs-spacer { flex: 1; }
+.acs-search { color: var(--acs-ink-2); margin-right: var(--ds-space-1); }
+.acs-spaces { display: inline-flex; gap: var(--ds-space-1); margin-left: var(--ds-space-2); }
+.acs-spaces i { width: 6px; aspect-ratio: 1; border-radius: 50%; background: var(--acs-ink-3); opacity: 0.6; }
+.acs-spaces i[data-on] { background: var(--acs-ink); opacity: 0.85; }
+
+/* A (and D's footer slot): an icon Button; its mark overflows for the badge. */
+.acs-btn { position: relative; overflow: visible; color: var(--acs-ink-2); }
+.acs-btn[data-open], .acs-people[data-open], .acs-pill[data-open] { color: var(--acs-ink); }
+
+/* The mark: cloud glyph, status ring, status dot, badge. */
+.acs-mark { position: relative; display: grid; place-items: center; width: var(--grid-row); height: var(--grid-row); }
+.acs-mark > * { grid-area: 1 / 1; }
+.acs-ring { fill: none; opacity: 0; transform-origin: 50% 50%; }
+.acs-ring circle { stroke: currentColor; }
+.acs-mark[data-headline="syncing"] .acs-ring { opacity: 0.9; color: var(--acs-ink); animation: acs-spin calc(var(--cmux-motion-standard) * 6) linear infinite; }
+.acs-mark[data-headline="syncing"] .acs-ring circle { stroke-dasharray: 22 54; stroke-linecap: round; }
+.acs-mark[data-headline="warming"] .acs-ring { opacity: 0.8; color: var(--acs-ink-2); animation: acs-breathe calc(var(--cmux-motion-standard) * 10) var(--cmux-ease-out) infinite; }
+.acs-mark[data-headline="warming"] .acs-ring circle { stroke-dasharray: 1.5 5; stroke-linecap: round; }
+.acs-mark[data-headline="offline"] .acs-ring { opacity: 0.85; color: var(--acs-amber); }
+.acs-mark[data-headline="offline"] .acs-glyph { color: var(--acs-amber); }
+.acs-mark[data-headline="off"] .acs-glyph { color: var(--acs-ink-3); }
+.acs-dot { position: absolute; right: var(--ds-space-1); bottom: var(--ds-space-1); width: 6px; aspect-ratio: 1; border-radius: 50%; background: var(--acs-green); outline: var(--acs-ring-width) solid var(--acs-tone); }
+.acs-mark[data-headline="active"] .acs-dot { animation: acs-breathe calc(var(--cmux-motion-standard) * 9) var(--cmux-ease-out) infinite; }
+.acs-badge { position: absolute; right: calc(var(--ds-space-1) * -1); top: calc(var(--ds-space-1) * -1); min-width: var(--grid-icon-box); height: var(--grid-icon-box); padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-full); box-sizing: border-box; display: grid; place-items: center; font-size: var(--text-caption); line-height: 1; font-weight: var(--weight-emphasis); font-variant-numeric: tabular-nums; background: color-mix(in srgb, var(--acs-ink) 80%, var(--acs-tone)); color: var(--acs-tone); outline: var(--acs-ring-width) solid var(--acs-tone); }
+.acs-badge[data-kind="pending"] { background: var(--acs-ink); }
+.acs-mark[data-tone="attention"] .acs-badge { background: var(--acs-amber); color: var(--acs-ink); }
+
+/* Avatars: people are circles, agents rounded squares. */
+.acs-stack { display: inline-flex; align-items: center; }
+.acs-avatar { --acs-hue: 200; width: calc(var(--grid-base) * 5); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; font-size: var(--text-caption); line-height: 1; font-weight: var(--weight-emphasis); color: var(--acs-tone); background: hsl(var(--acs-hue) 45% 46%); outline: var(--acs-ring-width) solid var(--acs-tone); box-sizing: border-box; flex: none; }
+.acs-avatar[data-kind="agent"] { border-radius: var(--ds-radius-md); background: hsl(var(--acs-hue) 25% 38%); }
+.acs-stack .acs-avatar + .acs-avatar, .acs-stack .acs-avatar + .acs-more { margin-left: calc(var(--ds-space-2) * -1); }
+.acs-more { height: var(--grid-icon-box); min-width: var(--grid-icon-box); padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-full); box-sizing: border-box; display: grid; place-items: center; font-size: var(--text-caption); line-height: 1; font-weight: var(--weight-emphasis); background: color-mix(in srgb, var(--acs-ink) 16%, var(--acs-tone)); color: var(--acs-ink-2); outline: var(--acs-ring-width) solid var(--acs-tone); }
+
+/* B: the pill, a small subtle Button. */
+.acs-pill { gap: var(--ds-space-2); color: var(--acs-ink-2); }
+.acs-pill-dot { width: 8px; aspect-ratio: 1; border-radius: 50%; background: var(--acs-green); flex: none; }
+.acs-pill[data-headline="off"] .acs-pill-dot { background: transparent; outline: 1px solid var(--acs-ink-3); outline-offset: -1px; }
+.acs-pill[data-headline="syncing"] .acs-pill-dot { background: var(--acs-ink); animation: acs-breathe calc(var(--cmux-motion-standard) * 5) var(--cmux-ease-out) infinite; }
+.acs-pill[data-headline="warming"] .acs-pill-dot { background: transparent; outline: 1px solid var(--acs-ink-2); outline-offset: -1px; animation: acs-breathe calc(var(--cmux-motion-standard) * 10) var(--cmux-ease-out) infinite; }
+.acs-pill[data-headline="offline"] .acs-pill-dot { background: var(--acs-amber); }
+.acs-pill[data-headline="offline"] .acs-pill-count { color: var(--acs-amber); }
+.acs-pill-count { font-size: var(--text-caption); line-height: 1; font-weight: var(--weight-emphasis); font-variant-numeric: tabular-nums; }
+.acs-pill .acs-glyph { width: 14px; aspect-ratio: 1; }
+
+/* C: two slots. */
+.acs-split { display: inline-flex; align-items: center; gap: var(--grid-half-step); }
+.acs-split .acs-btn[aria-pressed="true"] { color: var(--acs-ink); }
+.acs-split-count { font-size: var(--text-caption); line-height: 1; font-weight: var(--weight-emphasis); font-variant-numeric: tabular-nums; color: var(--acs-ink-2); padding: 0 var(--ds-space-1); }
+.acs-split-count[data-tone="attention"] { color: var(--acs-amber); }
+
+/* D: the strip over the footer, only when something is going on: a full-width subtle Button. */
+.acs-strip-host { padding: 0 var(--ds-space-2) var(--grid-half-step); }
+.acs-strip { width: 100%; height: auto; min-height: var(--ds-space-6); justify-content: flex-start; gap: var(--ds-space-2); padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) 0; text-align: start; }
+.acs-strip[data-tone="attention"] { background: color-mix(in srgb, var(--acs-amber) 14%, transparent); }
+.acs-strip-mark { display: grid; place-items: center; color: var(--acs-ink-2); }
+.acs-strip-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.acs-strip-text b { font-weight: var(--weight-emphasis); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.acs-strip-text small { font-size: var(--text-caption); line-height: var(--text-caption--line-height); color: var(--acs-ink-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* The popover (ui/Popover: its surface, radius, elevation and layer) opens above the footer. */
+.acs-popover { width: 232px; display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-3); }
+.acs-pop-head { display: flex; align-items: center; }
+.acs-pop-title { flex: 1; font-weight: var(--weight-emphasis); font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.acs-pop-lede { margin: 0; color: var(--acs-ink-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.acs-pop-rows { display: grid; grid-template-columns: auto 1fr; gap: var(--ds-space-1) var(--ds-space-3); margin: 0; font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.acs-pop-rows dt { color: var(--acs-ink-3); }
+.acs-pop-rows dd { margin: 0; }
+.acs-pop-rows dd[data-tone="attention"] { color: var(--acs-amber); }
+.acs-pop-here h4 { margin: 0 0 var(--ds-space-1); font-size: var(--text-caption); line-height: var(--text-caption--line-height); font-weight: var(--weight-emphasis); color: var(--acs-ink-3); }
+.acs-pop-here ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--ds-space-1); }
+.acs-pop-here li { display: flex; align-items: center; gap: var(--ds-space-2); }
+.acs-pop-here .acs-avatar { outline: none; }
+.acs-who { flex: 1; }
+.acs-at { color: var(--acs-ink-3); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.acs-pop-empty { margin: 0; color: var(--acs-ink-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.acs-pop-foot { display: flex; justify-content: space-between; padding-top: var(--ds-space-2); border-top: 1px solid var(--acs-line); color: var(--acs-ink-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+
+/* The gallery's simulate bar (not part of the design): a ui/Toggle group. */
+.acs-sim { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); width: 248px; }
+
+@keyframes acs-spin { to { transform: rotate(360deg); } }
+@keyframes acs-breathe { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .acs-ring, .acs-dot, .acs-pill-dot { animation: none !important; }
+}
+
+.acs-sidebar[data-footer-only] { height: auto; }
+.acs-matrix { display: grid; grid-template-columns: 88px repeat(4, 248px); gap: var(--ds-space-1) var(--ds-space-2); align-items: center; padding: var(--ds-space-3); font-family: var(--font-ui, system-ui); font-size: var(--text-detail); line-height: var(--text-detail--line-height); color: var(--cmux-text, CanvasText); }
+.acs-matrix > b { font-weight: var(--weight-emphasis); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.acs-matrix-row { display: contents; }
+.acs-matrix-row .acs-root { padding: 0; }
+.acs-matrix-label { color: var(--cmux-text-secondary, GrayText); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.acs-matrix .acs-strip-host { margin-top: var(--grid-half-step); }
