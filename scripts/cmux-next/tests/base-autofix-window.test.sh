@@ -40,7 +40,7 @@ grep -q 'actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next
 # 2. An older run that repaired (green or red) holds this one; so does one still in flight.
 rows "499|completed|success|fix: a thing"
 expect false "run 499 ended success"
-rows "480|completed|failure|fix: a thing"
+rows "510|completed|success|chore(next): base autofix at 0123456789ab" "480|completed|failure|fix: a thing"
 expect false "run 480 ended failure"
 rows "499|in_progress||fix: b"
 expect false "run 499 is in flight"
@@ -60,8 +60,18 @@ rows "499|completed|success|fix: a|95" "498|completed|failure|fix: b|11"
 expect true "no run repaired"
 rows "499|completed|success|fix: a|95" "498|completed|success|fix: b|2300"
 expect false "run 498 ended success"
-rows "499|completed|failure|fix: a|2355"
+rows "510|completed|success|chore(next): base autofix at 0123456789ab" "499|completed|failure|fix: a|2355"
 expect false "run 499 ended failure"
+
+# 3c. A failed run with no repair commit pushed after it pushed nothing, so it never holds this one (2026-11-28: run
+#     46113326457 failed having pushed nothing and the window held every push run for 120 min). A repair commit
+#     pushed before it does not count for it.
+rows "499|completed|failure|fix: a|2355"
+expect true "no run repaired"
+rows "499|completed|failure|fix: a|2355" "470|completed|success|chore(next): base autofix at 0123456789ab"
+expect true "no run repaired"
+rows "499|completed|success|fix: a|2355"
+expect false "run 499 ended success"
 rows "499|completed|success|fix: a|95"
 NEXT_BASE_AUTOFIX_HELD_MAX_SECONDS=60 expect false "run 499 ended success"
 NEXT_BASE_AUTOFIX_HELD_MAX_SECONDS=junk expect true "no run repaired"

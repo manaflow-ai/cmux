@@ -24,7 +24,8 @@
 # CMUX_WEB_MATRIX_JOBS). The first red stops the rest; its log's first error is printed as FILE:LINE.
 #
 # Exit 0 green, 1 red (the failing job, FILE:LINE and message on stderr, and in OUT/failure.tsv:
-# job TAB file TAB line TAB message), 2 usage or a missing tool. Needs bun and node on PATH, as the builders do.
+# job TAB file TAB line TAB message), 2 usage or a missing tool, 3 the prelude could not run (no verdict).
+# Needs bun and node on PATH, as the builders do.
 set -uo pipefail
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
@@ -91,13 +92,6 @@ prelude() {
   fi
   (cd webviews && bun scripts/pages/gen-strings.mjs && bun run protocol:codegen) || return 1
 }
-if ! prelude > "$OUT/logs/prelude.log" 2>&1; then
-  summarize() { :; }
-  echo "web bundle matrix: the prelude (bun install, page strings, protocol codegen) failed:" >&2
-  tail -n 30 "$OUT/logs/prelude.log" >&2
-  printf 'prelude\t\t\tsee %s\n' "$OUT/logs/prelude.log" > "$OUT/failure.tsv"
-  exit 1
-fi
 
 # First FILE:LINE a log names, and the error line around it. esbuild and Vite print `path:line:col`, Babel
 # `msg (line:col)` after the file in its message, Oxlint `,-[path:line:col]`, tsc `path(line,col)`.
@@ -119,6 +113,27 @@ first_error() { # <log>: prints "file<TAB>line<TAB>message"
   [ -n "$msg" ] || msg="$(tail -n 1 "$log" | cut -c1-300)"
   printf '%s|%s|%s\n' "$file" "$line" "$msg"
 }
+
+# The prelude runs twice at most: a runner hiccup (a registry timeout, an unwritable bun dir, an empty log) is
+# not the tree's fault. Still red after the retry, it is the tree's only when the log says so: bun's frozen
+# lockfile refusal, or a FILE:LINE (a codegen or strings error). Anything else exits 3 with no failure record,
+# so the push workflow posts no status (unknown is never red; 2026-11-27 c9bbf76cd5 went red "in prelude"
+# with an empty log and the nightly train refused it).
+if ! prelude > "$OUT/logs/prelude.log" 2>&1 && ! prelude > "$OUT/logs/prelude.log" 2>&1; then
+  echo "web bundle matrix: the prelude (bun install, page strings, protocol codegen) failed twice:" >&2
+  tail -n 30 "$OUT/logs/prelude.log" >&2
+  IFS='|' read -r file line msg < <(first_error "$OUT/logs/prelude.log")
+  if grep -qiE 'lockfile had changes|frozen-lockfile|lockfile is frozen' "$OUT/logs/prelude.log"; then
+    file="${file:-webviews/bun.lock}"
+  fi
+  if [ -z "$file" ]; then
+    echo "web bundle matrix: the prelude failed on no file of the tree: could not run, no verdict" >&2
+    exit 3
+  fi
+  printf 'prelude\t%s\t%s\t%s\n' "$file" "$line" "$msg" > "$OUT/failure.tsv"
+  echo "::error file=${file},line=${line:-1},title=web bundle matrix (prelude)::$msg"
+  exit 1
+fi
 
 set -m # one process group per job, so the first red can stop the rest
 PIDS=(); RUNNING=(); NEXT=0; FAILED=""; TOTAL="${#JOB_NAMES[@]}"
