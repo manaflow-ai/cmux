@@ -86,6 +86,94 @@ struct SSHTuiMigrationTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["cmux.remote.agent:codex"] == .running)
     }
 
+    @MainActor
+    @Test("An idle SSH agent marks its panel as running an agent without a lifecycle state")
+    func idleAgentMarksItsPanelWithoutALifecycleState() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.ssh("ssh-idle-agent")
+        let catalog = SurfaceCatalog()
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal-1")
+        catalog.upsert(SurfaceResource(
+            id: resourceID,
+            title: "terminal",
+            lifecycle: .running,
+            agent: SurfaceAgentBadge(state: "idle", source: "hook", agent: "codex")
+        ))
+        catalog.record(SurfaceProjection(resource: resourceID, workspaceID: workspace.id, panelID: panelID))
+
+        let projector = SSHTuiAgentStatusProjector(catalog: catalog, workspaceLookup: { id in
+            id == workspace.id ? workspace : nil
+        })
+
+        #expect(workspace.statusEntries["cmux.remote.agent:codex"]?.value == "Idle")
+        // Idle must stay out of the lifecycle map, or the panel could hibernate.
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID] == nil)
+        #expect(workspace.panelRunsAgent(panelID))
+
+        catalog.upsert(SurfaceResource(id: resourceID, title: "terminal", lifecycle: .running, agent: nil))
+        projector.reconcile()
+
+        #expect(!workspace.panelRunsAgent(panelID))
+    }
+
+    /// `cmux paste` and `cmux send` ask `surface.input_state` whether the
+    /// surface runs an agent before they let a draft on screen block typing.
+    @MainActor
+    @Test("surface.input_state reports an idle SSH agent's panel as running an agent")
+    func inputStateReportsAnIdleSSHAgent() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+            let workspace = try #require(manager.tabs.first)
+            let panelID = try #require(workspace.focusedPanelId)
+            let params = ["workspace_id": workspace.id.uuidString, "surface_id": panelID.uuidString]
+            func reportsAgent() throws -> Bool {
+                guard case .ok(let payload) = TerminalController.shared.v2SurfaceInputState(params: params) else {
+                    Issue.record("surface.input_state failed")
+                    return false
+                }
+                return try #require((payload as? [String: Any])?["agent"] as? Bool)
+            }
+            #expect(try !reportsAgent())
+
+            let machine = SurfaceMachineID.ssh("ssh-input-state")
+            let catalog = SurfaceCatalog()
+            catalog.register(CloudPlacementTestProvider(machine: machine))
+            let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal-1")
+            catalog.upsert(SurfaceResource(
+                id: resourceID,
+                title: "terminal",
+                lifecycle: .running,
+                agent: SurfaceAgentBadge(state: "idle", source: "hook", agent: "codex")
+            ))
+            catalog.record(SurfaceProjection(resource: resourceID, workspaceID: workspace.id, panelID: panelID))
+            let projector = SSHTuiAgentStatusProjector(catalog: catalog, workspaceLookup: { id in
+                id == workspace.id ? workspace : nil
+            })
+
+            #expect(try reportsAgent())
+
+            // A restore clears the workspace's record; the next pass puts it back.
+            workspace.remoteAgentPanelIds.removeAll()
+            projector.reconcile()
+            #expect(try reportsAgent())
+        }
+    }
+
     @Test("OpenSSH resolves the cmux-tui carrier as a non-PTY exec channel")
     func carrierOverridesInteractiveHostDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

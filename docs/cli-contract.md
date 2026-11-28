@@ -336,7 +336,7 @@ surface, and returns:
 | --- | --- |
 | `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the active screen (not the scrolled viewport): Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel" below the input row. |
 | `draft_length` | Characters in the draft, when `state` is `draft`. The text itself is not returned. |
-| `agent` | Whether an agent reports lifecycle state for the surface. |
+| `agent` | Whether the surface runs an agent: one that reports lifecycle state, or one in a `cmux ssh` terminal in any state, idle included (its `lifecycle` reads `unknown`). |
 | `lifecycle` | The agent's lifecycle: `unknown`, `running`, `idle` or `needsInput`. |
 | `waiting_on_human` | `lifecycle` is `needsInput`. Informational: it can stay set after an interrupt or an API error, so it does not block on its own. |
 | `blocks_typing` | Typing text now could disturb a human: a draft or a dialog, on a surface that runs an agent. |

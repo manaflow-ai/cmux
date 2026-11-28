@@ -539,6 +539,21 @@ extension Workspace {
         return didClear
     }
 
+    /// Whether `panelId` hosts an agent: a local one with a lifecycle state,
+    /// or one on a remote host. An idle remote agent has no lifecycle state
+    /// (that would make the panel eligible for hibernation), so the lifecycle
+    /// map alone misses it.
+    func panelRunsAgent(_ panelId: UUID) -> Bool {
+        agentLifecycleStatesByPanelId[panelId]?.isEmpty == false || remoteAgentPanelIds.contains(panelId)
+    }
+
+    /// Replaces the remote agent panels a projector reported. It passes back
+    /// what it set last time, so only its own panels are cleared.
+    func replaceRemoteAgentPanels(_ previous: Set<UUID>, with current: Set<UUID>) {
+        remoteAgentPanelIds.subtract(previous)
+        remoteAgentPanelIds.formUnion(current.filter { panels[$0] != nil })
+    }
+
     func hasRunningAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         if let panelId {
             return agentLifecycleStatesByPanelId[panelId]?[key] == .running
