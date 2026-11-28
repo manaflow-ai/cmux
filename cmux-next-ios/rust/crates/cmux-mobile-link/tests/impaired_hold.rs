@@ -115,6 +115,10 @@ struct Hold {
     expired: usize,
     /// Changes of the phone's path label (Direct, Turn, ...).
     path_flips: usize,
+    /// Phone roams asked (`IMPAIRED_HOLD_ROAM_MS`: one per that many ms,
+    /// as iOS path changes reach `network_changed`) and finished.
+    roams_asked: usize,
+    roams_done: usize,
 }
 
 async fn hold() -> Hold {
@@ -194,6 +198,30 @@ async fn hold() -> Hold {
             }
         })
     };
+    // A roam storm: the phone's network_changed at the rate Leo's phone logged
+    // (2,891 Wi-Fi/cellular changes in 15 min, about one per 310 ms), each
+    // fired without waiting, as the FFI spawns one per call.
+    let roams_asked = Arc::new(AtomicUsize::new(0));
+    let roams_done = Arc::new(AtomicUsize::new(0));
+    let roamer =
+        std::env::var("IMPAIRED_HOLD_ROAM_MS").ok().and_then(|s| s.parse::<u64>().ok()).map(|every| {
+            let (asked, done, id) =
+                (Arc::clone(&roams_asked), Arc::clone(&roams_done), connected.session_id.clone());
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(Duration::from_millis(every));
+                tick.tick().await;
+                loop {
+                    tick.tick().await;
+                    asked.fetch_add(1, Ordering::Relaxed);
+                    let (done, id) = (Arc::clone(&done), id.clone());
+                    tokio::spawn(async move {
+                        if dial::wireguard::roam_session(&id, true).await.is_some() {
+                            done.fetch_add(1, Ordering::Relaxed);
+                        }
+                    });
+                }
+            })
+        });
     // The counts start with the hold, not the dial.
     counter.rekey_timeouts.store(0, Ordering::Relaxed);
     counter.expired.store(0, Ordering::Relaxed);
@@ -230,6 +258,9 @@ async fn hold() -> Hold {
     connected.link.close("done");
     reader.abort();
     flips.abort();
+    if let Some(roamer) = roamer {
+        roamer.abort();
+    }
     Hold {
         secs,
         sessions: sessions.load(Ordering::SeqCst),
@@ -242,6 +273,8 @@ async fn hold() -> Hold {
         rekey_timeouts: counter.rekey_timeouts.load(Ordering::Relaxed),
         expired: counter.expired.load(Ordering::Relaxed),
         path_flips: path_flips.load(Ordering::Relaxed),
+        roams_asked: roams_asked.load(Ordering::Relaxed),
+        roams_done: roams_done.load(Ordering::Relaxed),
     }
 }
 
@@ -250,7 +283,7 @@ async fn hold() -> Hold {
 async fn a_phone_link_holds_60s_on_a_flapping_direct_path_with_slow_turn() {
     let run = hold().await;
     eprintln!(
-        "IMPAIRED_HOLD secs={} sessions={} phone_closed={:?} mac_closed={:?} sent={} echoed={} longest_gap_ms={} stalls_2s={} rekey_timeouts={} expired={} path_flips={}",
+        "IMPAIRED_HOLD secs={} sessions={} phone_closed={:?} mac_closed={:?} sent={} echoed={} longest_gap_ms={} stalls_2s={} rekey_timeouts={} expired={} path_flips={} roams_asked={} roams_done={}",
         run.secs,
         run.sessions,
         run.phone_closed,
@@ -262,6 +295,8 @@ async fn a_phone_link_holds_60s_on_a_flapping_direct_path_with_slow_turn() {
         run.rekey_timeouts,
         run.expired,
         run.path_flips,
+        run.roams_asked,
+        run.roams_done,
     );
     assert_eq!(run.phone_closed, None, "the phone's link closed: {run:?}");
     assert_eq!(run.mac_closed, None, "the Mac's link closed: {run:?}");
@@ -282,5 +317,10 @@ async fn a_phone_link_holds_60s_on_a_flapping_direct_path_with_slow_turn() {
 async fn the_path_label_settles_on_a_flapping_direct_path_with_slow_turn() {
     let run = hold().await;
     eprintln!("IMPAIRED_HOLD_FLIPS secs={} path_flips={} {run:?}", run.secs, run.path_flips);
-    assert!(run.path_flips <= 2, "the path label flipped {} times in {} s: {run:?}", run.path_flips, run.secs);
+    assert!(
+        run.path_flips <= 2,
+        "the path label flipped {} times in {} s: {run:?}",
+        run.path_flips,
+        run.secs
+    );
 }
