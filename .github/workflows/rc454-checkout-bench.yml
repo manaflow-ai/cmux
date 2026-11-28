@@ -1,0 +1,87 @@
+# Temporary bench for rnd rc-454d007c; removed before merge. Times the pool mirror checkout of a newer SHA in
+# A = a .git last checked out with the guards sparse list, widened to the fast-gates list (today on a shared VM),
+# B = a .git last checked out with the fast-gates list (a .git keyed by sparse list), C = a fresh .git.
+name: rc454 checkout bench
+on:
+  pull_request:
+    paths: ['.github/workflows/rc454-checkout-bench.yml']
+permissions:
+  contents: read
+jobs:
+  bench:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: cmux-linux
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [1, 2]
+    steps:
+      - name: Bench
+        env:
+          NARROW: |
+            /*
+            !/*/
+            /scripts/
+            /.github/
+            /tests/
+          WIDE: |
+            /*
+            !/*/
+            /scripts/
+            /.github/
+            /Packages/
+            /cmux-tui/
+            /webviews/
+            /Resources/markdown-viewer/
+            /web/
+            /config/vite-plus/
+            /cmux-next-ios/
+            /schemas/
+            /release-notes/next/
+            /first-party-apps/
+            /Native/OptChat/
+            /plans/cmux-next/
+            /cmux.xcodeproj/project.pbxproj
+            /tests/workflow_jobs.py
+            /tests/test_egress_gate.py
+            /tests/test_outbound_hosts.py
+            /tests/guard_delta.py
+            /tests/test_classic_cloud_routes.py
+            /docs/mdm/
+            /docs/ci/cmux-next-workflow-notes.md
+            /docs/ci/nightly-workflow-notes.md
+            /backend/apps/api/
+            *.xcstrings
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git
+          echo "runner=$RUNNER_NAME nproc=$(nproc) load=$(cut -d' ' -f1-3 /proc/loadavg)"
+          git --git-dir="$mirror" for-each-ref --count=5 --format='%(refname) %(objectname)' --sort=-committerdate
+          new=$(git --git-dir="$mirror" for-each-ref --count=1 --sort=-committerdate --format='%(objectname)' refs/heads/feat-cmux-next refs/remotes/origin/feat-cmux-next)
+          [[ -n "$new" ]] || new=$(git --git-dir="$mirror" for-each-ref --count=1 --sort=-committerdate --format='%(objectname)')
+          old=$(git --git-dir="$mirror" rev-parse "$new~40")
+          echo "old=$old new=$new changed=$(git --git-dir="$mirror" diff --name-only "$old" "$new" | wc -l)"
+          base="$(dirname "$GITHUB_WORKSPACE")/rc454-bench"; rm -rf "$base"; mkdir -p "$base"
+          now() { date +%s.%N; }
+          mk() { # dir list sha: a .git borrowing the mirror, checked out at sha with list
+            mkdir -p "$1"; cd "$1"; git init -q .; echo "$mirror/objects" > .git/objects/info/alternates; git config gc.auto 0
+            git config core.sparseCheckout true; printf '%s\n' "$2" > .git/info/sparse-checkout
+            git -c checkout.workers=8 checkout -q -f --detach "$3"; cd - >/dev/null; }
+          step() { # dir list: the workflow's reused-path checkout of $new
+            cd "$1"; git reset -q --hard; git clean -ffdxq; printf '%s\n' "$2" > .git/info/sparse-checkout
+            git -c checkout.workers=8 checkout -q -f --detach "$new"; git sparse-checkout reapply; cd - >/dev/null; }
+          for i in 1 2; do
+            for leg in A B C; do
+              d="$base/$leg$i"
+              case $leg in
+                A) mk "$d" "$NARROW" "$old"; sync; t0=$(now); step "$d" "$WIDE" ;;
+                B) mk "$d" "$WIDE" "$old"; sync; t0=$(now); step "$d" "$WIDE" ;;
+                C) sync; t0=$(now); mk "$d" "$WIDE" "$new" ;;
+              esac
+              t=$(echo "$(now) - $t0" | bc); files=$(cd "$d" && git ls-files -t | grep -vc '^S' || true)
+              echo "RESULT leg=$leg run=$i secs=$t files=$files load=$(cut -d' ' -f1 /proc/loadavg)"
+              rm -rf "$d"
+            done
+          done
+          rm -rf "$base"
