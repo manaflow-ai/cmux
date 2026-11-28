@@ -11,6 +11,12 @@
 .acpmux-live-count > svg {
   flex: none;
 }
+/* On the live line the mark leads the row, so it sits in the transcript's glyph slot like every other
+   row's icon: the 12 px mark centred in the 16 px box, not flush at the words' start edge, which put
+   its centre 2 px off the column (gallery-health icon-column, #61696). */
+.cv-thinking > .acpmux-live-count > svg {
+  margin-inline: calc((var(--cv-glyph-slot, 16px) - 12px) / 2);
+}
 /* A quiet state's word (StateMark.tsx): kept for screen readers, not drawn. */
 .acpmux-state-mark--quiet {
   position: absolute;
