@@ -10,6 +10,7 @@
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
+import { WEB_SWAP_KEPT_SCROLL } from "../../../pages/shared/webSwap";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { writeScrollTop } from "../conversation/scrollController";
 import { useCountedRender } from "../perfRender";
@@ -1908,6 +1909,10 @@ function ThreadMinimapView({
             ref={list}
             className="acpmux-minimap__list"
             {...{ [HIDDEN_SCROLLER_ATTRIBUTE]: "" }}
+            // Its offset follows the transcript's band (railScrollTop above), so a reload that keeps the
+            // transcript's place puts it back: a hidden grown chat's rebuild (hiddenRebuild.ts) is not held
+            // by it (pages/shared/webSwap.ts unkeptScrollHold read "scroll" for every rail that overflowed).
+            {...{ [WEB_SWAP_KEPT_SCROLL]: "kept" }}
             // The edge fades: 2.5rem, a quarter of a short rail, and clear of the band when following the transcript.
             data-fade-top={fades.top || undefined}
             data-fade-bottom={(overflow && fades.bottom) || undefined}

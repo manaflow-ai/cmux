@@ -123,3 +123,42 @@ test("a small page, a shown page, and one that holds an edit keep their document
   expect(reloads).toBe(1);
   stopEdited();
 });
+
+test("a scroller the page puts back itself does not hold it; one it would lose holds it, said once", () => {
+  // The prompt rail's list scrolls itself to follow the transcript (threadMinimap/ThreadMinimap.tsx): it is marked
+  // kept, so a grown hidden chat with an overflowing rail rebuilds. An unmarked scrolled element still holds it.
+  const { view, hide } = page(
+    `<ol class="rail" data-cmux-swap-scroll="kept" style="height:10px;overflow:auto"></ol><div class="free"></div>`,
+  );
+  const clock = manual();
+  let reloads = 0;
+  const said: string[] = [];
+  const info = console.info;
+  console.info = (line: string) => void said.push(line);
+  try {
+    const free = view.document.querySelector(".free") as HTMLElement;
+    let freeTop = 40;
+    Object.defineProperty(free, "scrollTop", { configurable: true, get: () => freeTop });
+    const rail = view.document.querySelector(".rail") as HTMLElement;
+    Object.defineProperty(rail, "scrollTop", { configurable: true, get: () => 300 });
+    const stop = installHiddenRebuild(view.document, {
+      grownFrames: 1,
+      hiddenMs: 5,
+      recheckMs: 5,
+      reload: () => reloads++,
+      timers: clock.timers,
+    });
+    grow(1);
+    hide(true);
+    clock.run();
+    clock.run();
+    expect(reloads).toBe(0);
+    expect(said.filter((line) => line.startsWith("cmux.hiddenRebuildHeld scroll"))).toHaveLength(1);
+    freeTop = 0;
+    clock.run();
+    expect(reloads).toBe(1);
+    stop();
+  } finally {
+    console.info = info;
+  }
+});

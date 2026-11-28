@@ -517,11 +517,18 @@ try {
       const pages: { page: Page; cdp: CDPSession }[] = [];
       // Hidden pages that rebuilt their document (hiddenRebuild.ts), printed with the launch's numbers.
       let rebuilds = 0;
+      // And the holds that kept a grown hidden page from it (hiddenRebuild.ts `cmux.hiddenRebuildHeld`), by reason.
+      const held = new Map<string, number>();
       for (let index = 0; index < count; index++) {
         const page = await context.newPage();
         const said: string[] = [];
         page.on("console", (message) => {
-          if (message.text().startsWith("cmux.hiddenRebuild")) rebuilds++;
+          const text = message.text();
+          if (text.startsWith("cmux.hiddenRebuild ")) rebuilds++;
+          if (text.startsWith("cmux.hiddenRebuildHeld ")) {
+            const reason = text.split(" ")[1]!;
+            held.set(reason, (held.get(reason) ?? 0) + 1);
+          }
           said.push(`${message.type()}: ${message.text().slice(0, 300)}`);
           if (said.length > 40) said.shift();
         });
@@ -1393,6 +1400,10 @@ try {
         );
       }
       if (rebuilds) console.log(`  ${name}: ${rebuilds} hidden page(s) rebuilt their document`);
+      if (held.size)
+        console.log(
+          `  ${name}: hidden rebuild held: ${[...held].map(([reason, pages]) => `${reason} (${pages} page(s))`).join(", ")}`,
+        );
       const row: Launch = {
         name,
         idlePct,
