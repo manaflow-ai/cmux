@@ -1,8 +1,8 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDevices
-import Observation
 import CmuxNextWakeups
+import Observation
 
 /// What the home page asks of its owner.
 public struct MacScreenHomeActions {

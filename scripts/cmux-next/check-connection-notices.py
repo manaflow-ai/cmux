@@ -329,7 +329,11 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
         m = top.match(line)
         if m:
             name = next(g for g in m.groups() if g)
-            starts.append((i, name.split(".")[0] if path.endswith(".swift") else name))
+            if path.endswith(".swift"):
+                # `extension Credentials.Failure` is the Failure type, not Credentials: its words answer something
+                # the person did (ERROR_TYPE), so it keeps its own name instead of merging into its outer type.
+                name = name if ERROR_TYPE.search(name) else name.split(".")[0]
+            starts.append((i, name))
     spans = []
     for n, (i, name) in enumerate(starts):
         end = starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines) - 1
