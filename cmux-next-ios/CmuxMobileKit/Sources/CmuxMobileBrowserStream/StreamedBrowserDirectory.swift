@@ -60,6 +60,17 @@ public final class StreamedBrowserDirectory {
         return try await link.openLocalhost(port: port)
     }
 
+    /// The Mac's one-shot hand-off of browser tab `tab`'s cookies and local storage
+    /// for `url`'s site (`site-data`, PROTOCOL.md): its one frame, or nil (not linked,
+    /// refused, or nothing sent). Only Open on iPhone calls it.
+    public func siteData(macID: String?, tab: String, url: String) async -> Data? {
+        guard let link = await link(macID: macID),
+              let channel = try? await link.openSiteData(tab: tab, url: url) else { return nil }
+        let frame = try? await channel.receive()
+        await channel.close(code: "eof", reason: "")
+        return frame ?? nil
+    }
+
     /// A Mac's link (`macID`: its own; nil: the focused Mac's), or nil when not linked.
     func link(macID: String?) async -> (any BrowserStreamOpening)? {
         if let macID, !macID.isEmpty, let macOpener { return await macOpener(macID) }
