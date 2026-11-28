@@ -56,7 +56,8 @@ where
     let deadline = tokio::time::Instant::now() + START_BUDGET;
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(20)).await;
-        if let Ok(value) = connect().await {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if let Ok(Ok(value)) = tokio::time::timeout(left.max(HANDOVER_RETRY), connect()).await {
             return Some(value);
         }
         if !starting() {
@@ -78,13 +79,22 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    if let Ok(value) = connect().await {
+    // Bounded: a holder whose accept loop stopped leaves the dial queued with no answer forever
+    // (`daemon/hung_holder.rs`); past it the command waits on, and may replace, that holder.
+    let dialed = tokio::time::Instant::now();
+    let first = tokio::time::timeout(DIAL_BOUND, connect()).await;
+    if let Ok(Ok(value)) = first {
         return Ok(value);
     }
+    // The dial queued the whole bound against a holder that served before: that time counts as
+    // unanswered in `wait_on_holder`, and the holder is not a start in progress to wait for.
+    let hung_since = (first.is_err() && serving_holder(current_home)).then_some(dialed);
     // A daemon that holds the home and is not serving yet (a restart or an update mid-dial):
     // wait for it to answer instead of failing or starting a second one (F10).
-    if let Some(value) = connect_when_ready(current_home, &connect).await {
-        return Ok(value);
+    if hung_since.is_none() {
+        if let Some(value) = connect_when_ready(current_home, &connect).await {
+            return Ok(value);
+        }
     }
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
@@ -96,8 +106,16 @@ where
     if let Some(value) = managed_unit_connect_with(systemctl, current_home, path, &connect).await? {
         return Ok(value);
     }
-    start_and_connect(path, connect).await
+    start_and_connect(path, connect, hung_since).await
 }
+
+/// One dial of the daemon (connect and its hello), which has no limit of its own: the serving
+/// stall bound, so a busy daemon at high load still answers inside it.
+// timeout: hazard is a dial queued on a socket nobody accepts from; fallback is the holder wait.
+#[cfg(unix)]
+pub(super) const DIAL_BOUND: Duration = hung_holder::SERVING_STALL;
+#[cfg(not(unix))]
+pub(super) const DIAL_BOUND: Duration = Duration::from_secs(15);
 
 /// How often a command tries again while another daemon holds the lock.
 pub(super) const HANDOVER_RETRY: Duration = Duration::from_millis(250);
@@ -105,7 +123,13 @@ pub(super) const HANDOVER_RETRY: Duration = Duration::from_millis(250);
 /// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
 /// line says `lockHeld`), another daemon is stopping or starting: the command connects once that
 /// one serves, or starts the next daemon once it has exited.
-pub(super) async fn start_and_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<T>
+pub(super) async fn start_and_connect<T, F, Fut>(
+    path: &std::path::Path,
+    connect: F,
+    #[cfg_attr(not(unix), allow(unused_variables, unused_mut))] mut hung_since: Option<
+        tokio::time::Instant,
+    >,
+) -> Result<T>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
@@ -126,6 +150,12 @@ where
         return Err(serves_elsewhere(path, &other));
     }
     loop {
+        // A live holder: this command never starts one more `daemon run` behind it (13 queued on
+        // one Mac, 2026-11-27); it waits for that one, replacing it once it is proven hung.
+        #[cfg(unix)]
+        if let Some(c) = wait_on_holder(&connect, hung_since.take()).await? {
+            return Ok(c);
+        }
         let ready = start_daemon().await?;
         let error = match connect().await {
             Ok(c) => return Ok(c),
@@ -133,6 +163,19 @@ where
         };
         if !lock_held(&ready) {
             return Err(not_ready(path, &ready, &error));
+        }
+        // Another start already waits for the holder and replaces it if it hung
+        // (`daemon/hung_holder.rs`): wait with it rather than start one more every retry.
+        #[cfg(unix)]
+        if hung_holder::says_waiter_stands(&ready) {
+            while hung_holder::waiter_stands(&home()) {
+                tokio::time::sleep(HANDOVER_RETRY).await;
+                // Bounded: the holder may be the hung one, whose queue nobody accepts from.
+                if let Ok(Ok(c)) = tokio::time::timeout(hung_holder::PROBE_BOUND, connect()).await {
+                    return Ok(c);
+                }
+            }
+            continue;
         }
         // The lock's holder serves this home at another socket: no wait makes it serve this one.
         if let Some(other) = holder_elsewhere(path).await {
@@ -142,6 +185,100 @@ where
         if let Ok(c) = connect().await {
             return Ok(c);
         }
+    }
+}
+
+/// Whether the home's lock holder is a daemon that served (its beat says so): a dial that timed
+/// out against it is a hung or busy daemon, not a start in progress.
+#[cfg(unix)]
+fn serving_holder(home: &std::path::Path) -> bool {
+    lock::live_holder_pid(&home.join("daemon.lock")).is_some_and(|pid| {
+        matches!(hung_holder::beat_of(home, pid), Some((hung_holder::Phase::Serving, _)))
+    })
+}
+#[cfg(not(unix))]
+fn serving_holder(_home: &std::path::Path) -> bool {
+    false
+}
+
+/// While a live daemon holds this home's lock, waits for it to answer (each dial bounded: the
+/// holder may be the hung one, whose queue nobody accepts from) instead of starting another.
+/// Past the stall rule (`hung_holder::stalled`) the one standing waiter of the home replaces it
+/// (`hung_holder::replace`); a command finding another waiter standing keeps waiting for it.
+/// `Ok(None)`: no live holder now (none, or it was replaced): the caller may start one.
+#[cfg(unix)]
+pub(super) async fn wait_on_holder<T, F, Fut>(
+    connect: &F,
+    mut hung_since: Option<tokio::time::Instant>,
+) -> Result<Option<T>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let home = home();
+    let lock = home.join("daemon.lock");
+    let bounds = hung_holder::Bounds::current();
+    // timeout: hazard is a holder that keeps beating and never answers; fallback is the error,
+    // with the daemon left running (it is not proven hung).
+    let budget = bounds.starting + hung_holder::TERM_WAIT * 2 + bounds.probe * 4;
+    let began = tokio::time::Instant::now();
+    let mut watched: Option<(u32, tokio::time::Instant)> = None;
+    let mut said = began;
+    loop {
+        let Some(pid) = lock::live_holder_pid(&lock) else { return Ok(None) };
+        if let Ok(Ok(c)) = tokio::time::timeout(bounds.probe, connect()).await {
+            return Ok(Some(c));
+        }
+        let now = tokio::time::Instant::now();
+        let since = match watched {
+            Some((p, since)) if p == pid => since,
+            _ => {
+                // The first holder seen is the one the caller's own dial queued against: its
+                // unanswered time began at that dial, so the stall bound is counted once.
+                let since = hung_since.take().unwrap_or(now);
+                watched = Some((pid, since));
+                since
+            }
+        };
+        let unanswered = now - since;
+        if hung_holder::stalled(unanswered, hung_holder::beat_of(&home, pid), bounds) {
+            match hung_holder::stand(&home) {
+                Ok(_standing) => {
+                    let why =
+                        format!("daemon {pid} answered no dial for {}s", unanswered.as_secs());
+                    match hung_holder::replace(&home, &why).await {
+                        Ok(_) => {
+                            watched = None;
+                            continue;
+                        }
+                        Err(refusal) => {
+                            tracing::warn!(pid, "not replacing the lock holder: {refusal}");
+                            watched = Some((pid, tokio::time::Instant::now()));
+                        }
+                    }
+                }
+                // Another start stands as the waiter and replaces it: wait with it.
+                Err(_waiter) => {}
+            }
+        }
+        if now - began >= budget {
+            return Err(anyhow!(
+                "daemon {pid} holds {} and has not answered {} for {}s; `acpmux daemon restart` \
+                 replaces it",
+                lock.display(),
+                socket_path().display(),
+                (now - began).as_secs()
+            ));
+        }
+        if now - said >= hung_holder::WAITER_SAYS_EVERY {
+            said = now;
+            tracing::info!(
+                pid,
+                "waiting for the lock holder; no answer for {}s",
+                unanswered.as_secs()
+            );
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
     }
 }
 

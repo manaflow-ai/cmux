@@ -123,7 +123,22 @@ impl Hub {
             }
             _ => None,
         };
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).idle_launch = stored;
+        let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
+        let given = child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        meta.idle_launch = stored;
+        // The session's namespace, recorded once at its first start (`session_manifest.rs`).
+        let on = crate::session_manifest::on();
+        let manifest = crate::session_manifest::to_record(
+            on,
+            meta.manifest.as_ref(),
+            &meta.cwd,
+            all,
+            given.as_ref(),
+        );
+        if manifest.is_some() {
+            meta.manifest = manifest;
+        }
     }
 
     /// An adopted host's servers, from its session's meta when they were kept for this
