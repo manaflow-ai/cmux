@@ -15,7 +15,8 @@
 //! started, its context (input + cache read + cache write tokens) and its cache tier (1 hour when
 //! it wrote any `ephemeral_1h` tokens, else 5 minutes). When the context is at least the chat
 //! setting's bar (`agents.cacheCompact.minContextTokens`, 60K by default; the same
-//! `agents.cacheCompact.enabled`, on by default, and the same `ACPMUX_CACHE_COMPACT*` overrides),
+//! `agents.cacheCompact.enabled`, off by default as for chats, and the same `ACPMUX_CACHE_COMPACT*`
+//! overrides),
 //! one timer per terminal is armed for [`lead_ms`] before that cache's expiry: 30 s for the
 //! 5-minute tier, 3 min for the hour, as acpmux does. The terminal's window size is not in the
 //! transcript, so only the token bar applies here, not `minContextPercent`.
@@ -198,7 +199,7 @@ fn read_tail(path: &Path) -> Option<String> {
 }
 
 /// The token bar a terminal agent's context must reach, from the chat settings and their
-/// environment overrides (`env` wins), or None when warm compaction is off.
+/// environment overrides (`env` wins), or None when warm compaction is off (unless turned on).
 pub(super) fn min_tokens(root: &Value, env: impl Fn(&str) -> Option<String>) -> Option<u64> {
     let get = |key: &str| {
         root.get(key)
@@ -207,7 +208,10 @@ pub(super) fn min_tokens(root: &Value, env: impl Fn(&str) -> Option<String>) -> 
     };
     let enabled = env_flag(env(ENV_ENABLED).as_deref())
         .or_else(|| get(SETTING_ENABLED).and_then(|value| value.as_bool()));
-    if enabled == Some(false) {
+    // Off unless the person turns it on, as for chats (`hub/cache_compact.rs`, 2026-11-26). On by
+    // default, a `claude` in a terminal got `/compact` typed into it about 4.5 min after each turn
+    // on a 5-minute cache ("compacted after ~5 minutes").
+    if enabled != Some(true) {
         return None;
     }
     Some(

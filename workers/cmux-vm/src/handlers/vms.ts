@@ -128,6 +128,10 @@ interface NewVm {
   readonly maxRunSeconds: number | undefined;
   readonly autoDeleteSeconds: number | undefined;
   readonly size: SizeRequest | undefined;
+  /** `x-cmux-create-priority: background`: a create no one is waiting on (a spare), queued behind everyone else's. */
+  readonly background?: boolean;
+  /** `x-cmux-create-deadline` (epoch ms): when the caller stops waiting; the create's wait for a provider slot spans it. */
+  readonly deadlineAt?: number;
 }
 
 /**
@@ -332,6 +336,8 @@ const createRecordedTimed = <C, S, M>(
           ...(spec.size === undefined ? {} : { size: spec.size }),
           environment: policy.environment,
           ...(caller.value.actor.kind === "service" && policy.createsWithoutReads(caller.value.actor.serviceId) ? { withoutReads: true } : {}),
+          ...(spec.background === true ? { background: true } : {}),
+          ...(spec.deadlineAt === undefined ? {} : { deadlineAt: spec.deadlineAt }),
           journal,
           phases,
         },
@@ -416,7 +422,7 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
 
 /**
  * Settles an agent create's slot (limits/agent-slots.ts) by how it ended: a recorded VM keeps the slot naming it; a
- * create whose send began (its intent is `creating`, not rejected) may exist upstream unrecorded, so the slot stays, naming the
+ * create whose send began (its intent is `creating`, dispatch `sent`) may exist upstream unrecorded, so the slot stays, naming the
  * intent's VM id and bound to the creation key, until that VM is deleted or a retry records it; any other failure
  * gives the slot back. Best effort: a slot left unsettled
  * lapses on its own, after the longest create.
@@ -427,16 +433,18 @@ const settleAgentCreate = <C>(caller: Named<C, Principal>, slot: { readonly agen
     const tenantId = caller.value.tenantId;
     if (Exit.isSuccess(exit)) return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, { recorded: exit.value.id });
     const progress = (yield* limits.inspect(tenantId, key))?.progress;
-    // A send the provider definitely rejected (400/429) made nothing: its slot goes back like any other failure.
+    // Only a send that began (dispatch `sent`, or a legacy intent with no receipt) may have made a VM. A send the
+    // provider definitely rejected (400/429), or one that never left `ready` (the create queue refused it, 503
+    // vm-provider.createQueueFull, or the fence or image read failed first), made nothing: its slot goes back.
     const outcome = progress?.phase === "done" ? { recorded: progress.vmId }
-      : progress?.phase === "creating" && progress.dispatch?.state !== "rejected" ? { held: key, vmId: progress.vmId }
+      : progress?.phase === "creating" && (progress.dispatch === undefined || progress.dispatch.state === "sent") ? { held: key, vmId: progress.vmId }
       : "released" as const;
     return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, outcome);
   }).pipe(Effect.ignore);
 
 /**
  * A resumed agent create: one that recorded its VM binds the slot its first attempt held to that VM; one whose send
- * the provider definitely rejected made nothing, so that held slot goes back.
+ * the provider definitely rejected, or that never sent, made nothing, so that held slot goes back.
  */
 const resumedAgentCreate = <C>(caller: Named<C, Principal>, key: string, exit: Exit.Exit<{ readonly id: string }, unknown>) =>
   Effect.gen(function* () {
@@ -444,7 +452,7 @@ const resumedAgentCreate = <C>(caller: Named<C, Principal>, key: string, exit: E
     const tenantId = caller.value.tenantId;
     if (Exit.isSuccess(exit)) return yield* limits.bindAgentCreation(tenantId, agentSlotOwner(caller.value), key, exit.value.id);
     const progress = (yield* limits.inspect(tenantId, key))?.progress;
-    if (progress?.phase === "creating" && progress.dispatch?.state === "rejected") yield* limits.forgetAgentVm(tenantId, progress.vmId, key);
+    if (progress?.phase === "creating" && (progress.dispatch?.state === "rejected" || progress.dispatch?.state === "ready")) yield* limits.forgetAgentVm(tenantId, progress.vmId, key);
   }).pipe(Effect.ignore);
 
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
@@ -522,7 +530,11 @@ const withMeshToJoin = <C, A, E, R>(
     );
   });
 
-const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined) =>
+/** `x-cmux-create-deadline`: epoch ms, a whole number; anything else is no deadline (the configured queue wait). */
+const createDeadlineOf = (raw: string | undefined): number | undefined =>
+  raw !== undefined && /^[0-9]{13}$/u.test(raw.trim()) ? Number(raw.trim()) : undefined;
+
+const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined, background = false, deadlineAt?: number) =>
   withCaller("vm:write", "write", (caller, scope) =>
     Effect.flatMap(Clock.currentTimeMillis, (entered) =>
     Effect.gen(function* () {
@@ -567,6 +579,8 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
         maxRunSeconds: payload.maxRunSeconds,
         autoDeleteSeconds: payload.autoDeleteSeconds,
         size: payload.resources,
+        ...(background ? { background: true } : {}),
+        ...(deadlineAt === undefined ? {} : { deadlineAt }),
       };
       if (imageIntent !== undefined) request.push(`image:${imageIntent.fingerprint}`);
       const generated = idempotencyKey === undefined ? yield* issueCreation(principal, "create", payload) : undefined;
@@ -588,8 +602,9 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
             // Its slot is settled by how the create ends (settleAgentCreate), so concurrent creates count it.
             let agentSlot: { readonly agent: string; readonly slotId: string } | undefined;
-            // A retry of a send the provider rejected allocates afresh, so an agent key is admitted again, atomically.
-            const rejectedRetry = prior?.phase === "creating" && prior.dispatch?.state === "rejected";
+            // A retry of a send the provider rejected, or of one that never sent (its slot went back), allocates afresh,
+            // so an agent key is admitted again, atomically.
+            const rejectedRetry = prior?.phase === "creating" && (prior.dispatch?.state === "rejected" || prior.dispatch?.state === "ready");
             if (resumeSlot(key, prior) === undefined || (rejectedRetry && caller.value.agent !== undefined)) {
               yield* reclaimGoneCiVms(caller, scope);
               agentSlot = yield* agentBudgetAllows(caller, scope, payload.resources);
@@ -923,7 +938,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       ),
     )
     .handle("createVm", ({ payload, headers }) =>
-      audited("vm.create", null, createVm(payload, headers["idempotency-key"]), (vm) => vm.id),
+      audited("vm.create", null, createVm(payload, headers["idempotency-key"], headers["x-cmux-create-priority"] === "background", createDeadlineOf(headers["x-cmux-create-deadline"])), (vm) => vm.id),
     )
     .handle("listVms", ({ urlParams }) => listVms(urlParams))
     .handle("resizeVm", ({ path, payload, headers }) =>
@@ -940,7 +955,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
     .handle("revokeVmPublicEgress", ({ path }) =>
       audited("vm.public_egress.revoke", auditableVmId(path.vmId), revokeVmPublicEgress(path.vmId), (receipt) => receipt.id),
     )
-    .handle("startVm", ({ path }) =>
+    .handle("startVm", ({ path, headers }) =>
       timedStart("start", (phases) => audited(
         "vm.start",
         auditableVmId(path.vmId),
@@ -950,7 +965,10 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             phases["vmId"] = vm.value;
             // A team key's running and spend caps (RFD 0016): read the VM only when the key sets one.
             yield* agentStartAllows(caller, proofs.scope, upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead)));
-            const started = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs))
+            const started = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs, {
+              tenant: caller.value.tenantId,
+              background: headers["x-cmux-create-priority"] === "background" || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined,
+            }))
               .pipe(Effect.mapError(onVm("The VM cannot start now: it no longer exists or no capacity is available")));
             phases["stateAfter"] = started.state;
             return toVm(vm.value, proofs.owns, started);
@@ -958,7 +976,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         ),
       )),
     )
-    .handle("resumeVm", ({ path }) =>
+    .handle("resumeVm", ({ path, headers }) =>
       timedStart("resume", (phases) => audited(
         "vm.resume",
         auditableVmId(path.vmId),
@@ -972,7 +990,10 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             phases["vmId"] = vm.value;
             phases["stateBefore"] = current.state;
             yield* agentStartAllows(caller, proofs.scope, Effect.succeed(current));
-            const resumed = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs))
+            const resumed = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs, {
+              tenant: caller.value.tenantId,
+              background: headers["x-cmux-create-priority"] === "background" || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined,
+            }))
               .pipe(Effect.mapError(onVm("The VM cannot resume now: no capacity is available")));
             phases["stateAfter"] = resumed.state;
             return toVm(vm.value, proofs.owns, resumed);

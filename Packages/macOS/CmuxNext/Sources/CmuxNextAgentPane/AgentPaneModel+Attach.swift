@@ -24,12 +24,12 @@ extension AgentPaneModel {
     func attachDropped(_ kind: AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil) async -> [String: Any] {
         guard onLocalPaths?() == true else { return Self.unsupported("chat.attach.dropped") }
         let generation = droppedPaths.generation
-        guard let items = droppedPaths.takeItems(kind, names: names, gestureAt: gestureAt),
-              let urls = await retainedDropURLs(items, generation: generation) else { return AgentPaneReply.success(["items": [Any]()]) }
+        guard let taken = droppedPaths.takeItemsWithID(kind, names: names, gestureAt: gestureAt),
+              let urls = await retainedDropURLs(taken.items, generation: generation) else { return AgentPaneReply.success(["items": [Any]()]) }
         let links = await Self.attachItems(urls)
         guard generation == droppedPaths.generation else { return AgentPaneReply.success(["items": [Any]()]) }
         droppedPaths.linked(Self.paths(of: links))
-        return AgentPaneReply.success(["items": links])
+        return AgentPaneReply.success(["items": links, "dropId": taken.id.uuidString])
     }
 
     /// A macOS screenshot or recording preview may disappear as soon as its drag ends. Its

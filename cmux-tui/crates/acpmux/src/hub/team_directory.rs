@@ -277,6 +277,7 @@ pub fn view_of_book(team_id: &str, person_id: Option<&str>, book: &AddressBook) 
             integrations: Vec::new(),
             policy: Grants::all(),
             customization: BTreeMap::new(),
+            admins: Vec::new(),
         }],
         spaces: vec![Space {
             id: space_id.clone(),

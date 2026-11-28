@@ -23,6 +23,27 @@ import Testing
         #expect(defaults.bool(forKey: UpdateSettings.intervalMigrationKey))
     }
 
+    @Test func newInstallDefaultsToAutomaticDownloadAndInstall() throws {
+        let (defaults, suite) = try freshDefaults()
+        defer { TestDefaults.remove(suite) }
+
+        UpdateSettings().apply(to: defaults)
+
+        #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+    }
+
+    @Test func explicitAutomaticInstallOptOutStaysFalse() throws {
+        let (defaults, suite) = try freshDefaults()
+        defer { TestDefaults.remove(suite) }
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
+
+        UpdateSettings().apply(to: defaults)
+        #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+
+        UpdateSettings().apply(to: defaults)
+        #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+    }
+
     @Test func staleHourlyIntervalUpgradesToTheFreshnessDefault() throws {
         let (defaults, suite) = try freshDefaults()
         defer { TestDefaults.remove(suite) }
