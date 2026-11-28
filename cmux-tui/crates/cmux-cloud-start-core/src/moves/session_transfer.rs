@@ -71,7 +71,7 @@ fn whole_index(value: &Value) -> Option<usize> {
     }
     let number = value.as_f64()?;
     // Negative whole numbers parse in the app too, then fail the exactly-once check; none is an index.
-    (number.fract() == 0.0 && number >= 0.0 && number <= u32::MAX as f64).then(|| number as usize)
+    (number.fract() == 0.0 && number >= 0.0 && number <= u32::MAX as f64).then_some(number as usize)
 }
 
 /// What a classic surface is to a taker, the app's `SessionTransferItem` fields.

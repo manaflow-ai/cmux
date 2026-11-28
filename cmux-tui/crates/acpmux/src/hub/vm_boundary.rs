@@ -181,7 +181,7 @@ impl Hub {
         if !session.meta().vm_boundary {
             return Ok(());
         }
-        if crate::pairing::read_only_allows(m) {
+        if crate::pairing::read_only_allows(m, params) {
             if control == Control::Peer {
                 super::merge_mux_meta(params, json!({"via": "web"}));
             }

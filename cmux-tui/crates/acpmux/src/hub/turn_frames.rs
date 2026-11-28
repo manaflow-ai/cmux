@@ -8,7 +8,8 @@
 //! - `edit`: a finished tool call named a UI file ([`ui_path`]); debounced [`DEBOUNCE`], so a burst
 //!   of edits is one frame.
 //! - `build`: a finished shell call (a build, a reload); debounced the same way. Also a `cmux live`
-//!   loop's build in place ([`built`], `acpmux frame @ --built SOURCE`), at once.
+//!   loop's build in place ([`built`], `acpmux frame @ --built SOURCE --tree PATH`), at once, in the
+//!   loop's chat and every other chat whose turn worked in the loop's tree ([`worked_in`]).
 //! - `turn-end`: the turn's result was written.
 //! - `look`: the agent asked (the `look` MCP tool), the one trigger that costs it tokens.
 //!
@@ -96,7 +97,14 @@ struct Turn {
     /// The turn drives the iOS Simulator ([`drives_simulator`]): with no agent-driven page, frames
     /// are of the booted simulator's screen.
     simulator: bool,
+    /// The chat's folder, to match a `cmux live` loop's tree ([`worked_in`]).
+    cwd: PathBuf,
+    /// Paths this turn's finished, non-read tool calls named (at most [`MAX_TOUCHED`]).
+    touched: Vec<String>,
 }
+
+/// Paths a turn keeps to match a `cmux live` loop's tree.
+const MAX_TOUCHED: usize = 64;
 
 static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);
 
@@ -336,8 +344,10 @@ pub(crate) fn drives_simulator(update: &Value) -> bool {
 
 /// The turn began: a new frame list, and its first frame. Nothing for a chat with no workspace.
 pub(super) fn turn_began(session: &Session, turn: &str) {
-    let workspace =
-        session.meta.lock().unwrap_or_else(PoisonError::into_inner).workspace_id.clone();
+    let (workspace, cwd) = {
+        let meta = session.meta.lock().unwrap_or_else(PoisonError::into_inner);
+        (meta.workspace_id.clone(), meta.cwd.clone())
+    };
     let Some(workspace) = workspace else { return };
     if turn_dir(&root(), &session.id, turn).is_none() {
         return;
@@ -355,6 +365,8 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
             kinds: HashMap::new(),
             chrome: false,
             simulator: false,
+            cwd,
+            touched: Vec::new(),
         },
     );
     ask(&session.id, "turn-start");
@@ -385,6 +397,14 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
         if drives_simulator(update) {
             turn.simulator = true;
         }
+        if tool != Some("read") && update.get("status").and_then(Value::as_str) == Some("completed")
+        {
+            for path in named_paths(update) {
+                if turn.touched.len() < MAX_TOUCHED && !turn.touched.contains(&path) {
+                    turn.touched.push(path);
+                }
+            }
+        }
         let Some(trigger) = trigger_of(tool, update) else { return };
         turn.debounce += 1;
         (turn.id.clone(), turn.debounce, trigger)
@@ -406,31 +426,61 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
 /// Where a `built` ask may come from: a `cmux live` loop that just swapped in its build (RFD 0152).
 pub(crate) const BUILT_SOURCES: [&str; 4] = ["rust", "swift", "chromium", "web"];
 
+/// Whether a turn in `cwd` that named `touched` worked in `tree`: the chat's folder is in it, or a
+/// path one of its finished tool calls named is (a relative path is the chat folder's).
+pub(crate) fn worked_in(tree: &Path, cwd: &Path, touched: &[String]) -> bool {
+    if !tree.is_absolute() || tree.parent().is_none() {
+        return false; // `/` or a relative tree would match every chat
+    }
+    cwd.starts_with(tree)
+        || touched.iter().any(|p| {
+            let p = Path::new(p);
+            if p.is_absolute() { p.starts_with(tree) } else { cwd.join(p).starts_with(tree) }
+        })
+}
+
 /// A frame after a `cmux live` loop's build is in place: the daemon swap, the live code injection or
 /// the engine restart finished, long after the save's own `edit` frame (a Rust build takes minutes).
-/// The loop runs in the chat's shell, so it names the chat (`ACPMUX_SESSION_ID`). A live build
-/// changes the app itself, so the app's window is the fallback when no agent-driven page shows. Its
-/// own `build` frame, at once (the build is already settled); none when the chat has no turn
-/// running. What happened, for the loop's log.
-pub(crate) fn built(session: &str, source: &str) -> Value {
+/// The chats asked: `session` (the loop's own, `ACPMUX_SESSION_ID`, when it runs in a chat) and,
+/// with `tree` (the loop's checkout), every chat whose running turn worked in it, so a second chat
+/// editing the same checkout, or a loop started from a plain terminal, still gets the frame. A live
+/// build changes the app itself, so the app's window is the fallback when no agent-driven page
+/// shows. Each its own `build` frame, at once (the build is already settled); none for a chat with
+/// no turn running. What happened, for the loop's log.
+pub(crate) fn built(session: Option<&str>, source: &str, tree: Option<&Path>) -> Value {
     let Some(source) = BUILT_SOURCES.iter().find(|s| **s == source) else {
         return json!({"asked": false, "reason": format!("unknown source {source:?}: one of {}", BUILT_SOURCES.join(", "))});
     };
-    let turn = {
+    let asked: Vec<(String, String)> = {
         let mut all = turns();
-        match all.get_mut(session).filter(|t| t.live) {
-            Some(turn) => {
-                turn.chrome = true;
-                turn.debounce += 1; // a pending edit frame of the same burst is this one
-                turn.id.clone()
-            }
-            None => {
-                return json!({"asked": false, "reason": "the chat has no turn running"});
-            }
-        }
+        all.iter_mut()
+            .filter(|(id, t)| {
+                t.live
+                    && (session == Some(id.as_str())
+                        || tree.is_some_and(|tree| worked_in(tree, &t.cwd, &t.touched)))
+            })
+            .map(|(id, t)| {
+                t.chrome = true;
+                t.debounce += 1; // a pending edit frame of the same burst is this one
+                (id.clone(), t.id.clone())
+            })
+            .collect()
     };
-    ask(session, "build");
-    json!({"asked": true, "turnId": turn, "source": source})
+    if asked.is_empty() {
+        let reason = if tree.is_some() {
+            "no chat with a turn running worked in the tree"
+        } else {
+            "the chat has no turn running"
+        };
+        return json!({"asked": false, "reason": reason});
+    }
+    for (id, _) in &asked {
+        ask(id, "build");
+    }
+    let own = session.and_then(|s| asked.iter().find(|(id, _)| id == s)).map(|(_, turn)| turn);
+    let chats: Vec<Value> =
+        asked.iter().map(|(id, turn)| json!({"sessionId": id, "turnId": turn})).collect();
+    json!({"asked": true, "turnId": own, "chats": chats, "source": source})
 }
 
 /// The turn's result was written: its last frame.
