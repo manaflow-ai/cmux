@@ -59,7 +59,8 @@ def is_mac(job: dict) -> bool:
     """A macOS label anywhere on the route, or an owned Xcode label (promote's route forks to Ubuntu), in any matrix
     cell (workflow_jobs.runs_on_cells). A runner nothing resolves (a fromJSON matrix) may be a Mac, so it counts."""
     cells = workflow_jobs.runs_on_cells(job)
-    return cells is None or any("macos" in cell or "xcode" in cell for cell in cells)
+    # RFD 0185 (#61222): the owned Mac labels are the unified mac-* labels now.
+    return cells is None or any("macos" in cell or "xcode" in cell or re.search(r"'mac-[\w-]+'", cell) for cell in cells)
 
 
 def runs_on_text(job: dict, name: str = "") -> str:
@@ -730,11 +731,11 @@ class OwnedVerify(unittest.TestCase):
         # same Xcode on the minis).
         cases = (
             ({}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "mac-nightly", "overflow"),
             ({"github.run_attempt": "3"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.run_attempt": "4"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"vars.CI_PR_POOL_OWNED": "0"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "mac-nightly", "overflow"),
             ({"github.ref_name": "main"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.repository_owner": "fork"}, "macos-26", "overflow"),
             ({"github.run_attempt": "1"}, "glaeda-runner-old-single-host", "fleet"),
