@@ -28,8 +28,30 @@ out="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY -u CMUX_TUI_TREE_KEY CMUX_TUI
   CMUX_TUI_TREE_SAME_PATHS=plans/cmux-next/daemon-capabilities.json \
   CMUX_TUI_TREE_SEARCH_COMMITS="${CMUX_TUI_TREE_TIP_SEARCH_COMMITS:-400}" \
   CMUX_TUI_TREE_MAX_AGE_HOURS="${CMUX_TUI_TREE_MAX_AGE_HOURS:-24}" \
-  bash "$here/pin-cmux-tui.sh" resolve-newest-published </dev/null)" || {
-  echo "older-tree: no published cmux-tui tree within ${CMUX_TUI_TREE_MAX_AGE_HOURS:-24} h of ${tip:0:12} has its daemon-capabilities.json" >&2
+  bash "$here/pin-cmux-tui.sh" resolve-newest-published </dev/null)" || out=""
+# The window counts commits, not hours: at about 60 merges an hour its 400 commits are under 7 h, so a tree
+# 7-24 h back is never seen. NIGHTLY sat at 1708b0ea from 2026-11-28 13:47Z while c6cd14b5's tree (ac0dea4e:
+# published, verified, the tip's daemon-capabilities.json, 12.5 h back) was 831 commits behind the tip. The
+# signed Linux pointer (channels/linux-feat-cmux-next.json, scripts/ci/linux-release-sign.sh) names the newest
+# signed tree's commit in one read; it is taken under the same age, history, capabilities and verify checks.
+signed_pointer_tree() {
+  local dir commit key rev_time tip_time behind hours
+  dir="$(mktemp -d)"; trap 'rm -rf "$dir"' RETURN
+  curl -fsS -m 20 "https://files.cmux.com/cmux-tui/channels/linux-feat-cmux-next.json?t=$(date +%s)" -o "$dir/p.json" 2>/dev/null || return 1
+  read -r commit < <(python3 -c 'import base64,json,sys; d=json.load(open(sys.argv[1])); print(json.loads(base64.b64decode(d["payload"])).get("commit") or "-")' "$dir/p.json" 2>/dev/null) || return 1
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || return 1
+  git cat-file -e "$commit^{commit}" 2>/dev/null || git fetch -q --no-tags --depth=1 origin "$commit" 2>/dev/null || return 1
+  if [[ "$(git rev-parse --is-shallow-repository)" != true ]]; then git merge-base --is-ancestor "$commit" "$tip" || return 1; fi
+  rev_time="$(git log -1 --format=%ct "$commit")" tip_time="$(git log -1 --format=%ct "$tip")"
+  (( tip_time - rev_time <= ${CMUX_TUI_TREE_MAX_AGE_HOURS:-24} * 3600 )) || return 1
+  git diff --quiet "$commit" "$tip" -- plans/cmux-next/daemon-capabilities.json || return 1
+  key="$(python3 "$root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$commit" 2>/dev/null)" || return 1
+  env -u CMUX_TUI_TREE_KEY bash "$here/pin-cmux-tui.sh" verify-key "$key" >/dev/null 2>&1 || return 1
+  behind="$(git rev-list --count "$commit..$tip" 2>/dev/null || echo 0)" hours=$(( (tip_time - rev_time) / 3600 ))
+  printf 'commit=%s\nkey=%s\nsource_commit=%s\nbehind=%s\nbehind_hours=%s\n' "$commit" "$key" "$commit" "$behind" "$hours"
+}
+[[ -n "$out" ]] || out="$(signed_pointer_tree)" || {
+  echo "older-tree: no published cmux-tui tree within ${CMUX_TUI_TREE_MAX_AGE_HOURS:-24} h of ${tip:0:12} has its daemon-capabilities.json (window and signed pointer)" >&2
   exit 1
 }
 field() { sed -n "s/^$1=//p" <<<"$out" | head -1; }

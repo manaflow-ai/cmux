@@ -703,6 +703,20 @@ pub fn task_command(program: &str, destination: &str, script: &Path) -> String {
     )
 }
 
+/// The task that runs `script` on `machine` over the hub carrier (`acpmux run-elsewhere-carrier`,
+/// `cli/run_elsewhere_carrier.rs`), then removes it here, as [`task_command`] does for ssh.
+pub fn carrier_task_command(
+    me: &crate::self_command::SelfCommand,
+    machine: &str,
+    script: &Path,
+) -> String {
+    let exe = shell_quote(&me.exe.to_string_lossy());
+    let words = me.args_lossy(&["run-elsewhere-carrier", "--machine", machine, "--script"]);
+    let words: Vec<String> = words.iter().map(|w| shell_quote(w)).collect();
+    let script = shell_quote(&script.to_string_lossy());
+    format!("{exe} {} {script}; rc=$?; rm -f {script}; exit $rc", words.join(" "))
+}
+
 #[cfg(test)]
 #[path = "run_elsewhere_tests.rs"]
 mod tests;

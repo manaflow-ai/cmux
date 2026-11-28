@@ -4966,6 +4966,14 @@ class ReattachViewRequest:
 
 
 @dataclass(frozen=True)
+class RecordNotificationDeliveryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/record-notification-delivery/request'
+    desktop: str
+    notification: int
+    reason: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RegisterBrowserProviderRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/register-browser-provider/request'
     authentication: BrowserProviderAuthentication
@@ -7589,6 +7597,7 @@ __all__ = [
     'ReadScreenRequest',
     'ReadScrollbackRequest',
     'ReattachViewRequest',
+    'RecordNotificationDeliveryRequest',
     'RegisterBrowserProviderRequest',
     'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
