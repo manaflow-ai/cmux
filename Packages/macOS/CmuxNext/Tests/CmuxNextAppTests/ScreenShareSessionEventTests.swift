@@ -28,6 +28,21 @@ import Testing
         #expect(event.tags?["present_p95_ms"] == "8.0")
     }
 
+    @Test func reliabilityCountsBecomeTagsAndOlderReportsLeaveThemOut() throws {
+        let json = #"{"schema":"cmux.rd-session-report/1","first_frame_ms":150.0,"total":null,"present":null,"frames_presented":900,"presenting_s":60.0,"freezes":2,"frozen_ms":740.5,"freeze_unattributed":1,"stalls":1,"stalled_ms":2500.0,"resume_first_frame":{"n":1,"p50_ms":120.0,"p95_ms":120.0},"keyframes":3,"recovery_frames":1,"end":"stalled"}"#
+        let event = try #require(ScreenShareSessionEvent(reportJSON: json)).event()
+        #expect(event.tags?["freezes"] == "2")
+        #expect(event.tags?["frozen_ms"] == "740.5")
+        #expect(event.tags?["stalls"] == "1")
+        #expect(event.tags?["resume_first_frame_p95_ms"] == "120.0")
+        #expect(event.tags?["keyframes"] == "3")
+        #expect(event.tags?["end"] == "stalled")
+        let older = #"{"schema":"cmux.rd-session-report/1","first_frame_ms":18.0,"total":null,"present":null,"frames_presented":1,"presenting_s":0.0,"end":"any text"}"#
+        let olderEvent = try #require(ScreenShareSessionEvent(reportJSON: older)).event()
+        #expect(olderEvent.tags?["freezes"] == nil)
+        #expect(olderEvent.tags?["end"] == nil, "only live or stalled is sent")
+    }
+
     @Test func otherTextIsNotASessionReport() {
         #expect(ScreenShareSessionEvent(reportJSON: #"{"schema":"cmux.rd-stage-ledger/1"}"#) == nil)
         #expect(ScreenShareSessionEvent(reportJSON: "not json") == nil)

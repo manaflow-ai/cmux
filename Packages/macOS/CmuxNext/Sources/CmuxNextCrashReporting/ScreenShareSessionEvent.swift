@@ -20,6 +20,18 @@ public nonisolated struct ScreenShareSessionEvent: Sendable, Equatable {
     public let presentCount: Int
     public let framesPresented: Int
     public let presentingSeconds: Double
+    /// Reliability (report fields added 2026-11-28; absent in older cores' reports): the main
+    /// surface's freezes and frozen ms, link stalls and their silent ms, each resume to the next
+    /// frame on glass (p95 ms), keyframes and recovery frames, and how the session ended
+    /// ("live" or "stalled").
+    public let freezes: Int?
+    public let frozenMs: Double?
+    public let stalls: Int?
+    public let stalledMs: Double?
+    public let resumeFirstFrameP95Ms: Double?
+    public let keyframes: Int?
+    public let recoveryFrames: Int?
+    public let end: String?
 
     /// Reads a session report; nil when it is not one.
     public init?(reportJSON: String) {
@@ -37,6 +49,16 @@ public nonisolated struct ScreenShareSessionEvent: Sendable, Equatable {
         presentCount = Int(number(present?["n"]) ?? 0)
         framesPresented = Int(number(object["frames_presented"]) ?? 0)
         presentingSeconds = number(object["presenting_s"]) ?? 0
+        func count(_ key: String) -> Int? { number(object[key]).map { Int($0) } }
+        freezes = count("freezes")
+        frozenMs = number(object["frozen_ms"])
+        stalls = count("stalls")
+        stalledMs = number(object["stalled_ms"])
+        resumeFirstFrameP95Ms = number((object["resume_first_frame"] as? [String: Any])?["p95_ms"])
+        keyframes = count("keyframes")
+        recoveryFrames = count("recovery_frames")
+        // Only the two values the core writes: nothing free-form leaves the Mac.
+        end = (object["end"] as? String).flatMap { ["live", "stalled"].contains($0) ? $0 : nil }
     }
 
     /// The numbers as Sentry `extra` (absent percentiles left out).
@@ -47,6 +69,13 @@ public nonisolated struct ScreenShareSessionEvent: Sendable, Equatable {
                                              ("total_p95_ms", totalP95Ms), ("present_p50_ms", presentP50Ms),
                                              ("present_p95_ms", presentP95Ms)]
         for (key, value) in optional { if let value { extra[key] = value } }
+        let optionalDoubles: [(String, Double?)] = [("frozen_ms", frozenMs), ("stalled_ms", stalledMs),
+                                                    ("resume_first_frame_p95_ms", resumeFirstFrameP95Ms)]
+        for (key, value) in optionalDoubles { if let value { extra[key] = value } }
+        let optionalCounts: [(String, Int?)] = [("freezes", freezes), ("stalls", stalls), ("keyframes", keyframes),
+                                                ("recovery_frames", recoveryFrames)]
+        for (key, value) in optionalCounts { if let value { extra[key] = value } }
+        if let end { extra["end"] = end }
         return extra
     }
 

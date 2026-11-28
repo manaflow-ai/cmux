@@ -186,7 +186,7 @@ impl Session {
             return Err(ReceiverError::Carrier.into());
         }
         self.check_alive()?;
-        self.liveness.heard(now_us);
+        self.heard(now_us);
         self.on_datagram(datagram, now_us)
     }
 
@@ -198,7 +198,7 @@ impl Session {
         }
         self.check_alive()?;
         if !bytes.is_empty() {
-            self.liveness.heard(now_us);
+            self.heard(now_us);
         }
         self.deframer.extend(bytes);
         loop {
@@ -222,6 +222,11 @@ impl Session {
     /// Drops frames past their deadline in every stream and notes a stall.
     pub fn tick(&mut self, now_us: u64) {
         self.liveness.tick(now_us);
+        if self.liveness.stalled
+            && let Some(since) = self.liveness.last_heard_us
+        {
+            self.report.on_stalled(since);
+        }
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for id in ids {
             if let Some(r) = self.streams.get_mut(&id) {
@@ -249,6 +254,9 @@ impl Session {
                     frame.last_shard_us,
                     frame.released_us,
                 );
+                if stream == 0 {
+                    self.report.on_released(frame.flags);
+                }
                 return Some((stream, frame));
             }
         }
@@ -305,7 +313,11 @@ impl Session {
         self.receiver(stream)?;
         let row = self.ledger.on_presented(stream, frame, presented_at_us);
         let offset = self.clock().map(|c| c.offset_us);
-        self.report.on_presented(row.as_ref(), offset, presented_at_us);
+        if stream == 0 {
+            self.report.on_main_presented(row.as_ref(), offset, presented_at_us);
+        } else {
+            self.report.on_presented(row.as_ref(), offset, presented_at_us);
+        }
         Ok(())
     }
 
@@ -316,8 +328,10 @@ impl Session {
     }
 
     /// This session's report so far, as one JSON object
-    /// (`cmux.rd-session-report/1`): connect to first frame on glass, and
-    /// display-to-glass and Present p50/p95 over every presented frame.
+    /// (`cmux.rd-session-report/1`): connect to first frame on glass,
+    /// display-to-glass and Present p50/p95 over every presented frame, and
+    /// the main surface's freezes, the link's stalls and resumes, keyframes,
+    /// and whether it ended stalled.
     pub fn session_report_json(&self) -> String {
         self.report.summary().to_json()
     }
@@ -392,6 +406,12 @@ impl Session {
         let stall = self.liveness.deadline_us().unwrap_or(u64::MAX);
         let streams = self.streams.values().map(Receiver::next_deadline_us).min();
         streams.unwrap_or(u64::MAX).min(ping).min(stall)
+    }
+
+    /// Bytes from the host arrived: liveness, and the report's stall end.
+    fn heard(&mut self, now_us: u64) {
+        self.liveness.heard(now_us);
+        self.report.on_heard(now_us);
     }
 
     fn receiver(&mut self, stream: u16) -> Result<&mut Receiver, SessionError> {
