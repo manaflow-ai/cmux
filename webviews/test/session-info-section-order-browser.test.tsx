@@ -11,9 +11,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("session-info-section-order-browser.test.tsx", async () => {
+  const { gridLength } = await importWithDom(() => import("../src/agent-session/acpmux/transcriptGrid"));
   setDefaultTimeout(60_000);
   const { JSDOM, VirtualConsole } = await import("jsdom");
   const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -55,7 +57,6 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   const { act, createElement } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
-  const { gridLength } = await import("../src/agent-session/acpmux/transcriptGrid");
   const { SessionInfo } = await import("../src/agent-session/acpmux/session-info/SessionInfo");
   const gallery = (await import("../src/agent-session/acpmux/session-info/SessionInfo.gallery")).default;
   const { chromium } = await import("playwright");

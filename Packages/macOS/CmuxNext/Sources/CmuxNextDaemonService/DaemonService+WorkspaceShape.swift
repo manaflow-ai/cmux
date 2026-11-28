@@ -18,6 +18,20 @@ extension DaemonService {
         return try await connection.listWorkspaces().workspaces.first { $0.key == key }.map(WorkspaceShape.init)
     }
 
+    /// The pane in workspace `key` that holds `surface`, which `connection`'s last command made (a split's new pane).
+    /// The store answers first. When it lists the workspace without that pane (it said it caught up with the reply,
+    /// yet trails the split under load: the classic re-upgrade red of 2026-11-22, "pane for surface 18 not found"),
+    /// the daemon's own list is asked once before the pane counts as gone.
+    public func pane(holding surface: SurfaceID, in key: WorkspaceKey, after connection: DaemonConnection) async throws -> PaneID {
+        if let pane = try await shape(of: key, after: connection)?.pane(holding: surface) { return pane }
+        let listed = try await connection.listWorkspaces().workspaces.first { $0.key == key }.map(WorkspaceShape.init)
+        guard let pane = listed?.pane(holding: surface) else {
+            let why = listed == nil ? "the daemon lists no such workspace" : "the daemon lists the workspace without it"
+            throw DaemonError.malformedResponse("pane for surface \(surface) not found (\(why))")
+        }
+        return pane
+    }
+
     /// Names tab `surface` of workspace `key`. A terminal whose shell ended before the rename reached it took its tab
     /// with it: a refused rename for a tab the workspace no longer lists is not an error. Only a refusal reads the shape.
     public func renameTab(_ surface: SurfaceID, to name: String, in key: WorkspaceKey, on connection: DaemonConnection) async throws {
