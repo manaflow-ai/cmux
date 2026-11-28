@@ -31,6 +31,89 @@ fn anything_but_a_failed_result_with_the_refusal_is_ignored() {
 
 const REFUSED: &str = "Sandbox is required but failed to initialize: EPERM: operation not permitted, listen '/tmp/srt-mux-2-2.sock'";
 
+#[tokio::test]
+async fn remote_repository_refusal_is_visible_and_reaches_the_starters_watch() {
+    let mut m = meta("remote-refusal");
+    m.remote_origin = true;
+    let (hub, session) = restored(m, &[]);
+    hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+    let mut watch = super::super::watches::Watch {
+        id: "starter-report".into(),
+        to: "starter".into(),
+        sessions: vec![session.id.clone()],
+        until: vec!["blocked".into()],
+        match_text: None,
+        once: true,
+        caller: None,
+        active: true,
+        cursors: [(session.id.clone(), Default::default())].into_iter().collect(),
+        offline: Default::default(),
+        ..Default::default()
+    };
+    hub.append(
+        &session,
+        "mux",
+        "turn_result",
+        json!({"turnId": "early-progress", "status": "completed"}),
+    );
+    assert!(
+        super::super::watch_events::collect(&hub, &mut watch, &session.id)
+            .await
+            .unwrap()
+            .0
+            .is_empty()
+    );
+    let denied = "fatal: Unable to create '/tmp/work/.git/index.lock': Permission denied";
+    hub.note_harness_sandbox(&session, &result("failed", denied));
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary["indicator"], "failed");
+    assert_eq!(summary["lane"]["state"], "failed");
+    assert!(summary["lane"]["error"].as_str().unwrap().contains("index.lock"));
+    assert!(summary["lane"]["error"].as_str().unwrap().contains("Full access"));
+
+    let (rows, _) =
+        super::super::watch_events::collect(&hub, &mut watch, &session.id).await.unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0].contains("blocked") && rows[0].contains("index.lock"), "{rows:?}");
+    assert!(rows[0].contains("Full access"), "{rows:?}");
+    assert!(
+        super::super::watch_events::collect(&hub, &mut watch, &session.id)
+            .await
+            .unwrap()
+            .0
+            .is_empty()
+    );
+
+    hub.note_harness_sandbox(&session, &execute("unrelated-command"));
+    hub.note_harness_sandbox(&session, &done("unrelated-command", "completed"));
+    assert_eq!(hub.session_summary(&session)["harnessSandboxFailing"], true);
+    hub.harness_sandbox_recovered(&session, "respawn");
+    assert_eq!(hub.session_summary(&session)["harnessSandboxFailing"], false);
+}
+
+#[tokio::test]
+async fn remote_harness_sandbox_recovers_after_its_command_succeeds() {
+    let mut m = meta("remote-harness-recovery");
+    m.remote_origin = true;
+    let (hub, session) = restored(m, &[]);
+    hub.note_harness_sandbox(&session, &result("failed", REFUSED));
+    hub.note_harness_sandbox(&session, &execute("recovered-command"));
+    hub.note_harness_sandbox(&session, &done("recovered-command", "completed"));
+    assert_eq!(hub.session_summary(&session)["harnessSandboxFailing"], false);
+}
+
+#[test]
+fn remote_refusal_does_not_infer_a_sandbox_from_an_arbitrary_command_error() {
+    assert!(remote_refusal(&result("failed", "test failed: assertion mismatch")).is_none());
+    let denied = "mkdir .git: Permission denied";
+    assert!(remote_refusal(&result("completed", denied)).is_none());
+    assert!(remote_refusal(&result("failed", denied)).is_some());
+    assert!(
+        remote_refusal(&result("failed", "Read-only file system: /home/user/.cache/state"))
+            .is_some()
+    );
+}
+
 fn meta(id: &str) -> crate::store::SessionMeta {
     serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": id, "name": id,

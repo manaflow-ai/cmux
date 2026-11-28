@@ -51,7 +51,7 @@ pub(super) const START_BOUND: Duration = Duration::from_secs(90);
 pub(super) const FRESH_RETRIES: usize = 1;
 
 /// The code of a start whose new machine never came up ([`stuck`]); after the retries, the run's answer.
-pub(super) const STUCK_CODE: &str = "cloud.machine_stuck";
+pub(super) const STUCK_CODE: &str = cmux_cloud_start_core::recover::STUCK_CODE;
 
 /// The app's words for a start whose machine never came up (CloudStartSessionStrings `notConnected`) or whose
 /// agent never answered in time (`agentFailed` with a timed-out reason, e.g. `timed out: identify`). The app sends
@@ -581,6 +581,7 @@ pub(super) fn replace_stuck(
                 && let Some(message) = error.get("message").and_then(Value::as_str)
                 && !message.contains("could not be deleted")
             {
+                // retry-prompt-ok: another start makes a new machine, billed by the hour; the person chooses.
                 let message = format!(
                     "{message}. cmux deleted it and every machine it tried for this chat ({}); run the same \
                      command again to start on a new one",

@@ -24,7 +24,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.y*ml"))
-STATUS = re.compile(r"(?<![\w.-])(always|cancelled|failure|success)\s*\(")
+STATUS = re.compile(r"(?<![\w.-])(always|cancelled|failure)\s*\(")
 
 
 def needs_of(job: dict) -> list[str]:

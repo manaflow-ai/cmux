@@ -485,6 +485,17 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(row["log"]["bind_probe"]["agent_last"], "other")
         self.assertNotIn("agent_journal_lines", row["log"]["bind_probe"])
         self.assertNotIn("secret", json.dumps(row))
+        # The updater's line class, the last cloud line apart and the pre-bind flip count (a count past 1 is a loop).
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "bind_probe": {
+            "outcome": "ran", "out": "agent_last=updater_flipped\nagent_cloud_last=waiting_bind_file\nagent_flips=7\n"}}))
+        probe = row["log"]["bind_probe"]
+        self.assertEqual((probe["agent_last"], probe["agent_cloud_last"], probe["agent_flips"]),
+                         ("updater_flipped", "waiting_bind_file", 7))
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "bind_probe": {
+            "outcome": "ran", "out": "agent_cloud_last=secret line\nagent_flips=7x\n"}}))
+        self.assertEqual(row["log"]["bind_probe"]["agent_cloud_last"], "other")
+        self.assertNotIn("agent_flips", row["log"]["bind_probe"])
+        self.assertNotIn("secret", json.dumps(row))
         self.assertNotIn("10.0.0", json.dumps(logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM,
                                                                "bind_probe": {"outcome": "ran", "out": out}}))))
 
@@ -724,6 +735,15 @@ class NeverBoundTests(unittest.TestCase):
                  ("VM API: secret-tenant-words", "VM API: other"),
                  ("TypeError: secret-tenant-words is not a function", "TypeError"),
                  ("the machine network is unavailable", "the machine network is unavailable"),
+                 # ownhost/CloudProvider.ts: the step and its fixed tail, the status and the daemon's code token.
+                 ("own-host: find VM: no readable answer", "own-host: find VM: no readable answer"),
+                 ("own-host: create VM: HTTP 503 (host_full)", "own-host: create VM: HTTP 503 (host_full)"),
+                 ("own-host: create VM: HTTP 530", "own-host: create VM: HTTP 530"),
+                 ("own-host: resume VM: the host answered refused", "own-host: resume VM: the host answered refused"),
+                 ("own-host: no TLS edge rules", "own-host: no TLS edge rules"),
+                 ("own-host: create VM: HTTP 500 (Secret Tenant Words)", "own-host: create VM: other"),
+                 ("own-host: find VM: secret-tenant-words", "own-host: find VM: other"),
+                 ("own-host: secret-tenant-words: no readable answer", "own-host: other"),
                  (None, "other"))
         for message, want in cases:
             with self.subTest(message=message):

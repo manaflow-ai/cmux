@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextIcons
 import Observation
 
@@ -56,7 +57,7 @@ final class OnboardingPageImages {
         return encode(key, side: 16) { (try? Data(blockingContentsOf: url)).flatMap(NSImage.init(data:)) }
     }
 
-    /// The helper app's icon at 96 pt, or cmux's own until the helper is found on disk.
+    /// The helper app's icon at 96 pt (Computer Use's when its bundle names none), or cmux's own until the helper is found on disk.
     func helper(_ url: URL?) -> Image? {
         let key = "helper:\(url?.path ?? "")"
         if let image = drawn[key] { return image }
@@ -64,7 +65,7 @@ final class OnboardingPageImages {
         let fallback = Self.bitmap(NSApp.applicationIconImage, side: 96)
         return encode(key, side: 96) {
             guard let url, FileManager.checked.fileExists(atPath: url.path) else { return fallback.map { NSImage(cgImage: $0, size: .zero) } }
-            return NSWorkspace.shared.icon(forFile: url.path)
+            return ComputerUseAppIcon.image(forApp: url)
         }
     }
 

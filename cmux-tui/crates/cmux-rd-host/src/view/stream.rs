@@ -293,6 +293,10 @@ pub fn run(
                 NetEvent::Endpoint(EndpointEvent::PathChanged {
                     kind: Some(k), rtt_us, ..
                 }) => {
+                    // A current path again: the host learns it is back from the first
+                    // feedback after the silence (D12), so that goes now, not at the
+                    // next keepalive.
+                    last_feedback_ns = 0;
                     let name = k.wire_name().to_owned();
                     let relayed = cmux_hub_host::rd_doc::is_relayed(&name);
                     let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));

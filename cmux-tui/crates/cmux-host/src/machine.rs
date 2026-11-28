@@ -342,6 +342,12 @@ pub enum DaemonState {
     Backoff,
 }
 
+/// Periodic announces after a bind, a resume or a (re)start on a bound
+/// machine (each one `announce_interval` after the last, 30 s by default):
+/// two minutes of repeats, then quiet, so an idle VM reaches the provider's
+/// 300 s idle timeout. A resume or a bind announces again.
+pub const ANNOUNCE_REPEATS: u32 = 4;
+
 /// The agent's decision state.
 #[derive(Clone, Debug)]
 pub struct Machine {
@@ -373,6 +379,9 @@ pub struct Machine {
     resume_pending: bool,
     /// The periodic announce timer is armed.
     announce_loop: bool,
+    /// Periodic announces since the last bind, resume or (re)start on a
+    /// bound machine; the loop stops at [`ANNOUNCE_REPEATS`].
+    announce_repeats: u32,
     exiting: bool,
     /// The running session host is of an older build and waits to be
     /// replaced; cleared by any exit of it (every spawn runs the new build).
@@ -415,6 +424,7 @@ impl Machine {
             verify_pending: false,
             resume_pending: false,
             announce_loop: false,
+            announce_repeats: 0,
             exiting: false,
             old_host: None,
             over_budget: false,
@@ -495,6 +505,7 @@ impl Machine {
             Input::AnnounceTick => {
                 self.announce_loop = false;
                 if self.identity_settled() {
+                    self.announce_repeats = self.announce_repeats.saturating_add(1);
                     self.announce(&mut out);
                 }
             }
@@ -604,6 +615,7 @@ impl Machine {
                 self.start_roles(out);
                 // An agent restart or an unpark on a bound machine starts
                 // the periodic announce too, not only a bind or a resume.
+                self.announce_repeats = 0;
                 self.arm_announce_loop(out);
                 if std::mem::take(&mut self.resume_pending) {
                     // The id is confirmed unchanged: deliver the resume.
@@ -613,8 +625,18 @@ impl Machine {
         }
     }
 
+    /// Re-arms the periodic announce, at most [`ANNOUNCE_REPEATS`] times after
+    /// a bind, a resume or a (re)start on a bound machine. A loop with no end
+    /// was outbound traffic every 30 s forever, so an idle VM never reached
+    /// the provider's 300 s idle timeout and never paused (staging,
+    /// 2026-11-27: every running VM's `lastNetworkActivity` under a minute old).
     fn arm_announce_loop(&mut self, out: &mut Vec<Action>) {
-        if !self.parked && self.current_id.is_some() && !self.announcing && !self.announce_loop {
+        if !self.parked
+            && self.current_id.is_some()
+            && !self.announcing
+            && !self.announce_loop
+            && self.announce_repeats < ANNOUNCE_REPEATS
+        {
             self.announce_loop = true;
             out.push(Action::ArmAnnounce);
         }
@@ -656,6 +678,7 @@ impl Machine {
     fn finish_bind(&mut self, id: String, out: &mut Vec<Action>) {
         self.fast_exits = 0;
         self.spawn(out);
+        self.announce_repeats = 0;
         self.announce(out);
         out.push(Action::Rekey(id.clone()));
         out.push(Action::RestartPromptSync);
@@ -739,6 +762,7 @@ impl Machine {
             return;
         }
         self.notify(Lifecycle::Resumed, out);
+        self.announce_repeats = 0;
         self.announce(out);
     }
 
@@ -903,3 +927,7 @@ impl Machine {
 #[cfg(test)]
 #[path = "machine_carrier_tests.rs"]
 mod carrier_tests;
+
+#[cfg(test)]
+#[path = "machine_announce_tests.rs"]
+mod announce_tests;

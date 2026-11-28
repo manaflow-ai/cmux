@@ -279,7 +279,7 @@ const MAX_PATH: usize = 4096;
 
 /// An absolute path git reads as one line (`objects/info/alternates`, a remote's URL): no
 /// control character, no `..` part.
-fn check_local_path(name: &str, path: &str) -> Result<(), SeedRefusal> {
+pub(super) fn check_local_path(name: &str, path: &str) -> Result<(), SeedRefusal> {
     let fine = path.starts_with('/')
         && path.len() <= MAX_PATH
         && !path.chars().any(char::is_control)
@@ -332,7 +332,7 @@ fn check_clone_ref(git_ref: &str) -> Result<(), SeedRefusal> {
 
 /// `url` is exactly `https://github.com/<owner>/<name>.git` and `repo` is
 /// `<owner>/<name>`.
-fn check_url(url: &str, repo: &str) -> Result<(), SeedRefusal> {
+pub(super) fn check_url(url: &str, repo: &str) -> Result<(), SeedRefusal> {
     let refused = || SeedRefusal::bad_request("url must be https://github.com/OWNER/NAME.git");
     let rest = url.strip_prefix("https://github.com/").ok_or_else(refused)?;
     let rest = rest.strip_suffix(".git").ok_or_else(refused)?;

@@ -454,3 +454,79 @@ fn a_bare_id_reads_only_its_own_row_at_12000_rows() {
     assert_eq!(rows.short_named("lane-5").len(), 30, "one per peer with that short name");
     assert_eq!(rows.short_named("missing").len(), 0);
 }
+
+/// `exact_of_peer` finds every row of the peer a walk finds naming the key exactly, by its
+/// name, alias (stored or spoken), handle (set or default) in any case, a former name or an
+/// id prefix, through a rename and a removal.
+#[test]
+fn the_exact_index_finds_every_row_a_walk_names_exactly() {
+    use crate::session_handle::{matches, spoken_alias};
+    let mut rows = RemoteRows::default();
+    let row = |peer: &str, mux: &str, extra: Value| {
+        let receipt = SessionReceipt::new(peer, mux, None, 0);
+        let mut summary = json!({"sessionId": mux, "peer": peer, "status": "running"});
+        for (k, v) in extra.as_object().into_iter().flatten() {
+            summary[k] = v.clone();
+        }
+        (
+            receipt.qualified_id(),
+            RemoteSession { peer: peer.into(), summary: summary.into(), receipt },
+        )
+    };
+    let all = [
+        ("a", "0a1b-1", json!({"name": "a/lane"})),
+        ("a", "0a1b-2", json!({"name": "lane", "handle": "Fig-Lane"})),
+        ("a", "4f0e2c1a-0000-4000-8a2b-0123456789ab", json!({"name": "a/x"})),
+        ("a", "0a1b-3", json!({"name": "a/y", "tags": {"session.alias": "big+lane"}})),
+        ("a", "0a1b-4", json!({"name": "a/z", "formerNames": ["lane"]})),
+        ("b", "0a1c-1", json!({"name": "b/lane", "tags": {"session.alias": "lane"}})),
+    ];
+    for (peer, mux, extra) in all.clone() {
+        let (key, r) = row(peer, mux, extra);
+        rows.insert(key, r);
+    }
+    let mut keys: Vec<String> =
+        ["lane", "fig-lane", "FIG-LANE", "big lane", "big+lane", "0a1b", "0a1b-4", "x", "missing"]
+            .map(String::from)
+            .to_vec();
+    keys.push(
+        crate::session_handle::default_handle("4f0e2c1a-0000-4000-8a2b-0123456789ab")
+            .to_uppercase(),
+    );
+    let check = |rows: &RemoteRows| {
+        for peer in ["a", "b", "c"] {
+            for key in &keys {
+                let exact = |r: &RemoteSession| {
+                    let name = r.summary.name().unwrap_or_default();
+                    let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
+                    let alias = r.summary.alias();
+                    bare == key
+                        || alias == Some(key.as_str())
+                        || alias.map(spoken_alias).as_deref() == Some(key.as_str())
+                        || r.receipt.mux_session_id.starts_with(key.as_str())
+                        || matches(r.summary.handle(), &r.receipt.mux_session_id, key)
+                        || r.summary.has_former_name(key)
+                };
+                let mut walked: Vec<&String> =
+                    rows.of_peer(peer).filter(|(_, r)| exact(r)).map(|(k, _)| k).collect();
+                let mut found: Vec<&String> = rows
+                    .exact_of_peer(peer, key)
+                    .into_iter()
+                    .filter(|(_, r)| exact(r))
+                    .map(|(k, _)| k)
+                    .collect();
+                walked.sort();
+                found.sort();
+                assert_eq!(found, walked, "{peer}/{key}");
+            }
+        }
+    };
+    check(&rows);
+    let (key, r) = row("a", "0a1b-2", json!({"name": "renamed", "handle": "Fig-Other"}));
+    rows.insert(key, r);
+    check(&rows);
+    assert!(rows.exact_of_peer("a", "fig-lane").is_empty(), "a changed handle leaves its old one");
+    rows.take_peer("a");
+    rows.take_peer("b");
+    assert!(rows.names.is_empty(), "no name entry is left behind");
+}

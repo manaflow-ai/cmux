@@ -1,7 +1,9 @@
 //! A pack reads back every byte, an appended log repacks to the same chunks as a fresh pack, and
 //! a move to a store with an older copy ships only what was sealed since.
 
-use cmux_session_pack::{Manifest, Pack, Params, RangeId, Store, pack, pack_after, ship};
+use cmux_session_pack::{
+    Manifest, Pack, Params, RangeId, SegmentCheck, Store, pack, pack_after, pack_kept, ship,
+};
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
@@ -274,4 +276,73 @@ fn a_pack_extended_from_its_sealed_end_is_the_whole_pack() {
     let mut back = Vec::new();
     Pack::open(&grown, "s").unwrap().cat(&mut back).unwrap();
     assert!(back == bytes, "the extended pack does not read back");
+}
+
+/// A pack that keeps its first sealed segments and encodes only the lines after them (what
+/// acpmux does at a compaction's outline or an export, from records, never writing the whole
+/// log) is the pack a whole pack of the log makes, also through a line before the pack's sealed
+/// end (it is cut back there, as a whole pack cuts it). The segments are checked as the lines
+/// stream by, nothing written: a log whose bytes changed in a segment keeps the ones before it.
+#[test]
+fn a_pack_that_keeps_its_first_segments_is_the_whole_pack() {
+    use std::io::Write as _;
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = log(3000);
+    let whole = dir.path().join("whole.ndjson");
+    std::fs::write(&whole, &bytes).unwrap();
+    let grown = Store::new(dir.path().join("grown"));
+    let (full, _) = pack(&grown, "s", std::slice::from_ref(&whole), &params(), false).unwrap();
+    let sealed: Vec<_> = full.segments.iter().filter(|s| s.sealed).collect();
+    assert!(sealed.len() > 6, "{} sealed", sealed.len());
+
+    // Every sealed segment checks against the log as it streams by, in odd-sized writes.
+    let mut check = SegmentCheck::new(&sealed);
+    for piece in bytes.chunks(777) {
+        if check.write_all(piece).is_err() {
+            break;
+        }
+    }
+    assert_eq!(check.matched(), sealed.len());
+    // A byte changed in the fourth segment: three are kept, and the check says it diverged.
+    let mut changed = bytes.clone();
+    let at = (sealed[..3].iter().map(|s| s.raw).sum::<u64>() + 10) as usize;
+    changed[at] ^= 1;
+    let mut check = SegmentCheck::new(&sealed);
+    assert!(check.write_all(&changed).is_err());
+    assert!(check.diverged());
+    assert_eq!(check.matched(), 3);
+
+    // Keep 4 of them and encode the rest of the log (the pack's further segments are redone).
+    let keep = 4;
+    let kept_raw = sealed[..keep].iter().map(|s| s.raw).sum::<u64>() as usize;
+    let tail = dir.path().join("tail.ndjson");
+    std::fs::write(&tail, &bytes[kept_raw..]).unwrap();
+    let (m, stats) =
+        pack_kept(&grown, "s", keep, std::slice::from_ref(&tail), &params()).unwrap().unwrap();
+    assert_eq!(stats.kept_segments as usize, keep);
+    assert_eq!(stats.encoded_bytes as usize, bytes.len() - kept_raw);
+    let fresh = Store::new(dir.path().join("fresh"));
+    let (want, _) = pack(&fresh, "s", std::slice::from_ref(&whole), &params(), true).unwrap();
+    assert_eq!(m, want, "the pack that kept 4 segments is the whole pack");
+
+    // Through a line before the pack's sealed end: cut back there, as a whole pack of it is.
+    let short_end = sealed[..6].iter().map(|s| s.raw).sum::<u64>() as usize + 5;
+    let short_end = short_end + bytes[short_end..].iter().position(|b| *b == b'\n').unwrap() + 1;
+    std::fs::write(&tail, &bytes[kept_raw..short_end]).unwrap();
+    let (m, _) =
+        pack_kept(&grown, "s", keep, std::slice::from_ref(&tail), &params()).unwrap().unwrap();
+    let short = dir.path().join("short.ndjson");
+    std::fs::write(&short, &bytes[..short_end]).unwrap();
+    let other = Store::new(dir.path().join("other"));
+    let (want, _) = pack(&other, "s", &[short], &params(), true).unwrap();
+    assert_eq!(m, want, "a pack cut back is the whole pack of the shorter log");
+    let mut back = Vec::new();
+    Pack::open(&grown, "s").unwrap().cat(&mut back).unwrap();
+    assert!(back == bytes[..short_end], "the cut pack does not read back");
+
+    // More than the pack has sealed, none, or other params: nothing packed.
+    assert!(pack_kept(&grown, "s", 999, std::slice::from_ref(&tail), &params()).unwrap().is_none());
+    assert!(pack_kept(&grown, "s", 0, std::slice::from_ref(&tail), &params()).unwrap().is_none());
+    let other_params = Params { level: 4, ..params() };
+    assert!(pack_kept(&grown, "s", 1, &[tail], &other_params).unwrap().is_none());
 }
