@@ -409,3 +409,5 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `export-action-catalog-dump.sh`, `export-action-surfaces.sh`, `export-settings-artifacts.sh`: generators, not measurements; they fit better in a generators directory.
 - `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`: correctness checks that run on the fleet, not measurements.
 - `ci140-input-hash-repeats`: CI minutes spent on job runs whose declared inputs (router/step-table/workflow `paths`, else whole tree) hash the same as an earlier green run of the same job; read-only, needs the hq meter's `--save` records (goal ci-min-per-pr-140).
+
+Phone terminal deterministic work: `cmux-bench phone-speed` wraps the `phone-speed-icount` Linux PR gate; `--import LOG` records its six Callgrind instruction counts. Calibration and scope: [phone-speed](../bench/phone-speed/README.md).
