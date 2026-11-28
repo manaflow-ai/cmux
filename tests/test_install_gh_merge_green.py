@@ -370,7 +370,8 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         fresh = self.gh_merge_green("x#14")
         self.assertEqual(fresh.stdout, "v1 x#14\n")
         self.assertNotIn("confirmed current", fresh.stderr)
-        old = __import__("time").time() - 10 * 86400
+        # 3.5 days: past "more than 3", though `find -mtime +3` counts it as 3 whole days and stays quiet.
+        old = __import__("time").time() - 3.5 * 86400
         os.utime(self.home / "checked", (old, old))
         stale = self.gh_merge_green("x#15")
         self.assertEqual(stale.stdout, "v1 x#15\n")
