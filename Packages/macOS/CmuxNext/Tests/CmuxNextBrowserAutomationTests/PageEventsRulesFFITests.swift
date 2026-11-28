@@ -1,6 +1,7 @@
 import Security
 import Foundation
 import Testing
+import CmuxNextBrowserCore
 @testable import CmuxNextBrowserAutomation
 
 /// The console, dialog and cookie backup key rules answered by Rust (cmux-browser-rules
