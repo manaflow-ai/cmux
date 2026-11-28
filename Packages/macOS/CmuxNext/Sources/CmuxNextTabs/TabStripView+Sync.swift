@@ -90,7 +90,7 @@ extension TabStripView {
                 groups.membershipOverride = [:]
                 if let detachedID, !order.contains(detachedID) { self.detachedID = nil }
                 if let detached = groups.detachedGroupID, !membership.contains(detached) { groups.detachedGroupID = nil }
-                if let pendingDrop, !order.contains(pendingDrop.id) { (self.pendingDrop, dropPlaceholderIndex) = (nil, nil) }
+                if let pendingDrop, !order.contains(pendingDrop.id) { (self.pendingDrop, dropPlaceholderIndex, groups.phantomTabWidth) = (nil, nil, nil) }
                 lastModelOrder = order
                 groups.lastMembership = membership
             }
@@ -184,7 +184,7 @@ extension TabStripView {
             closingWatch.end()
         }
 
-        if pendingDrop.map({ ids.contains($0.id) }) == true { (dropPlaceholderIndex, dropPlaceholderGroup) = (nil, nil) }
+        if pendingDrop.map({ ids.contains($0.id) }) == true { (dropPlaceholderIndex, dropPlaceholderGroup, groups.phantomTabWidth) = (nil, nil, nil) }
 
         displayed = ordered
         let styleChanged = lastStyle != nil && lastStyle != model.style

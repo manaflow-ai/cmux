@@ -37,6 +37,8 @@ struct TabDragPreviewSlotTests {
         try #require(squeezed.width < width - 1, "the bar is not crowded: an unsized gap is \(squeezed.width) wide")
         let sized = try #require(strip.dropHitTest(screenPoint: point, payload: .tab(id: "incoming", sourceStripID: UUID(), width: width))?.ghostFrame)
         #expect(abs(sized.width - width) <= 0.5, "the gap is \(sized.width) wide, not the dragged tab's \(width)")
+        let laidOut = try #require(strip.result.slot(TabStripView.placeholderID), "the bar shows no gap")
+        #expect(abs(laidOut.width - width) <= 0.5, "the bar lays its gap out \(laidOut.width) wide, not \(width)")
         strip.dropExited()
         #expect(strip.groups.phantomTabWidth == nil, "the gap's width outlived the drag")
     }

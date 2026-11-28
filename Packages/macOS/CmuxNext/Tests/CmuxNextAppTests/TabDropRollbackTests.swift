@@ -115,7 +115,7 @@ struct TabDropRollbackTests {
         settle(false)
         #expect(strip.view.pendingDrop == nil)
         #expect(strip.view.dropPlaceholderIndex == index && strip.view.phantomPoint == point)
-        guard case .tab("next", _) = strip.view.groups.dropPayload else { Issue.record("new drag lost its payload"); return }
+        guard case .tab("next", _, _) = strip.view.groups.dropPayload else { Issue.record("new drag lost its payload"); return }
         strip.view.dropExited()
         #expect(strip.view.dropPlaceholderIndex == nil)
     }
