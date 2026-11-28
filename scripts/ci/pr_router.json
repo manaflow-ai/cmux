@@ -209,8 +209,54 @@
     "ready_for_review",
     "labeled"
    ],
+   "affects": [
+    "webviews/**",
+    "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+    "schemas/**",
+    "release-notes/next/**",
+    "Resources/markdown-viewer/**",
+    "Packages/macOS/**/*.xcstrings",
+    "Packages/macOS/**/*.xcstrings.d",
+    "Packages/macOS/**/*.xcstrings.d/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/**",
+    "scripts/cmux-next/*web*",
+    "scripts/*webviews*",
+    "examples/**",
+    "clients/ts/**",
+    "config/vite-plus/**",
+    "web/data/**"
+   ],
    "draft": true,
-   "affects_why": "No path filter, and its caller job in pr-router.yml has no `start` gate: the compile preflight runs on every tier (Leo, 2026-11-27: \"surely we can just have legit build fail preflight checks\"), and the callee's first step decides from web-bundle-key.py --routed, the exact web bundle inputs, whether to build."
+   "paths-ignore": [
+    "**.rs",
+    "**/Cargo.toml",
+    "**/Cargo.lock",
+    "**.swift",
+    "!Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
+    "**.py",
+    "!scripts/webviews_bun_version.py",
+    "!scripts/cmux-next/web-bundle-key.py",
+    "!scripts/ci/compile_preflight.py",
+    "!scripts/ci/pr_router.py",
+    "!tests/test_ci_compile_preflight.py",
+    "!tests/test_webviews_no_duplicate_import_names.py",
+    "docs/**.md",
+    "plans/**.md",
+    ".github/workflows/**",
+    "!.github/workflows/cmux-next-compile-preflight.yml",
+    "!.github/workflows/pr-router.yml",
+    "!webviews/**",
+    "!schemas/**",
+    "!web/**",
+    "!clients/**",
+    "!examples/**",
+    "!config/**",
+    "!Resources/**",
+    "!release-notes/**",
+    "!Packages/macOS/CmuxNext/Sources/**/*.xcstrings.d/**"
+   ],
+   "draft_why": "Web-affecting drafts retain the build check; the web input skips known unrelated changes.",
+   "affects_why": "The caller runs independently of tier and carry decisions, so every web change can get a build verdict. The narrowed affects list still bounds the ordinary start list and never-web-check detects bundle inputs outside it. Restored paths-ignore skips known non-web changes before allocating a runner; possible inputs keep the exact router_web check and its fail-open behavior. A forced bundle consumer still runs the callee. Leo: \"surely we can just have legit build fail preflight checks\"."
   },
   "cmux-next-fast-gates.yml": {
    "types": [
@@ -223,7 +269,7 @@
    "draft": true,
    "affects_why": "No path filter (it had none as its own pull_request trigger): every head the router starts anything for starts it, and its jobs' own `if:`s keep their tier rules (a draft, a cheap or a not-yet-landing head skips resolve as before), so `draft` only lets those `if:`s decide. A head the router starts nothing for (head_tier's `none`: an idle or green-head base merge) starts none of its jobs; until 11-26 each such head still started its jobs (cmux-next-fast-gates.yml 32k runner-minutes in the 24 h to 2026-11-26; Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"). `labeled` is listed as its trigger had it; the router turns an added ready-to-land or full-ci into ready_for_review and skips any other label."
   },
-  "swift-logic-ratchet.yml": {
+  "swift-acpmux-protocol.yml": {
    "types": [
     "opened",
     "synchronize",
@@ -237,13 +283,15 @@
     "scripts/cmux-next/swift-logic-delta.py",
     "scripts/cmux-next/arch_counts.py",
     "plans/cmux-next/swift-logic-classes.tsv",
-    ".github/workflows/swift-logic-ratchet.yml"
+    ".github/workflows/swift-acpmux-protocol.yml"
    ],
    "affects_why": "swift-logic-delta.py --gate counts swift_logic_lines + mirror_lines (swift-logic-lines.py) at the base and the merge commit: it reads only Swift files, the class table plans/cmux-next/swift-logic-classes.tsv and its own counter. A change touching none of them moves neither number. Before: the 400 feat-cmux-next merges to 2026-11-25T23Z added 3,334 lines in 43 PRs, none asked why.",
    "skip_docs_only": true
   },
   "nightly-pr-build.yml": {
    "land_affected": true,
+   "land_ask_only": true,
+   "land_ask_only_why": "On the affected landing tier it starts only when land asks: the labeled event adding ready-to-land or full-ci (land-judge pulses it at the head it lands) and the merge train's tip, not on each push or base merge of a labelled or ask-named PR. 15-21Z 2026-11-27 its two Mac stubs were the 2nd and 3rd largest jobs (arm64 17.9, x86_64 17.5 runner-min per merged PR, 11,896 runner-min): 80% on PRs not merged by 21Z, 56% on base-merge heads, 25% on pushes after the label, and 31% of runs repeated an input key already compiled. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts it on every landing head again.",
    "types": [
     "opened",
     "synchronize",

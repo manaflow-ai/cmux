@@ -324,6 +324,16 @@ class FollowTests(unittest.TestCase):
         self.assertEqual(ran[0][:3], ["lane-gh", "call", "ui_preview_requests"])
         self.assertEqual(ran[1][3:], ["manaflow-ai/cmuxterm-hq", "-"])
 
+    def test_a_state_put_that_wrote_its_commit_201_is_a_success(self):
+        # 2026-11-27: state_put answers 201 with the commit it wrote; read as a refusal, every census publish that
+        # landed logged "publish exited 1".
+        from unittest import mock
+        body = {"ok": True, "status": 201, "data": {"name": "now-census", "changed": True, "commit": "fcf0949"}}
+        with mock.patch.object(w.subprocess, "run",
+                               lambda argv, **kw: mock.Mock(returncode=0, stdout=json.dumps(body), stderr="")):
+            self.assertEqual(w.lane_gh_call("state_put", {"name": "now-census"}, 5, repo="manaflow-ai/cmuxterm-hq"),
+                             body["data"])
+
     def test_a_host_taking_the_lease_over_posts_nothing_its_predecessor_had(self):
         # Host A led and posted 7614..7616; host B, last leading at 7613, takes the lease over and resumes there.
         with tempfile.TemporaryDirectory() as tmp:
@@ -916,6 +926,119 @@ class PublishTests(unittest.TestCase):
             finally:
                 w.log = real
             self.assertTrue(any("publish exited 1" in x and "STATE_MAX" in x for x in lines), lines)
+
+
+class SendTests(unittest.TestCase):
+    """A post names the pushing session HOST/NAME: a bare NAME's fleet lookup refuses while any machine is unread."""
+
+    def test_a_bare_recipient_goes_to_its_host_first(self):
+        self.assertEqual(w.send_targets(request(recipient="lane-x", recipient_host="fs-agent-lane-1")),
+                         ["fs-agent-lane-1/lane-x", "lane-x"])
+        self.assertEqual(w.send_targets(request()), ["gcp-agent-lane-12/lane-x"])
+        self.assertEqual(w.send_targets(request(recipient="lane-x", recipient_host=None)), ["lane-x"])
+
+    def fake_send(self, tmp: str, refuse: set) -> str:
+        script = Path(tmp) / "send.sh"
+        log = Path(tmp) / "sent.log"
+        script.write_text("#!/bin/sh\ncat >/dev/null\necho \"$1\" >> %s\n" % log
+                          + "".join(f'[ "$1" = "{r}" ] && {{ echo "lane-gh send: a report reads faster with its '
+                                    f'state: add --state" >&2; echo "lane-gh: send: no session named \'{r}\'" >&2;'
+                                    f' exit 1; }}\n' for r in refuse) + "exit 0\n")
+        script.chmod(0o755)
+        return f"{script} {{recipient}}"
+
+    def test_a_moved_session_falls_back_to_the_bare_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, self.fake_send(tmp, {"h1/lane-x"}), None, host="t")
+            w.SEND_RETRY_S, keep = 0, w.SEND_RETRY_S
+            try:
+                self.assertEqual(worker.send(["h1/lane-x", "lane-x"], "hi\n"), "lane-x")
+            finally:
+                w.SEND_RETRY_S = keep
+            self.assertEqual((Path(tmp) / "sent.log").read_text().split(), ["h1/lane-x", "lane-x"])
+
+    def test_a_refusal_names_the_refusal_not_the_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, self.fake_send(tmp, {"lane-x"}), None, host="t")
+            with self.assertRaises(w.LookError) as caught:
+                worker.send(["lane-x"], "hi\n")
+            self.assertIn("no session named 'lane-x'", str(caught.exception))
+            self.assertNotIn("reads faster", str(caught.exception))
+
+
+class ErrorNoteTests(unittest.TestCase):
+    """A push whose own code stops touched.ts gets a note saying why, not silence; posted_at stays null."""
+
+    def worker(self, tmp: str, why: str) -> FakeWorker:
+        worker = FakeWorker(Path(tmp))
+
+        def scenes(files):
+            raise w.LookError(why)
+
+        def gallery_for(sha, avoid=()):
+            g = worker.web
+            g.install = lambda: False
+            g.scenes = scenes
+            return g
+
+        worker.gallery_for = gallery_for
+        return worker
+
+    def test_a_pushers_load_error_is_posted_to_the_pusher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp, "touched.ts exited 1: SyntaxError: 'x' has already been declared")
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertIsNone(receipt["posted_at"])
+            self.assertIsNotNone(receipt["error_posted_at"])
+            [sent] = list((Path(tmp) / "outbox").iterdir())
+            self.assertIn("already been declared", sent.read_text())
+            [row] = json.loads(worker.receipts_path.read_text())["receipts"]
+            self.assertIsNotNone(row["error_posted_at"])
+
+    def test_a_workers_own_failure_is_not_posted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp, "gallery:dev did not answer in 90 s")
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertNotIn("error_posted_at", receipt)
+            self.assertFalse((Path(tmp) / "outbox").exists())
+
+
+class StringsTests(unittest.TestCase):
+    """generated/strings.json is gitignored postinstall output: a new catalog on an unchanged lockfile regenerates it."""
+
+    def test_a_changed_catalog_reruns_gen_strings_without_bun_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp) / "tree"
+            (tree / "webviews" / "node_modules").mkdir(parents=True)
+            (tree / "webviews" / "src" / "a").mkdir(parents=True)
+            (tree / "bun.lock").write_text("lock\n")
+            (tree / "webviews" / "src" / "a" / "Localizable.xcstrings").write_text("{}\n")
+            for argv in (["init", "-q"], ["add", "-A"], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "a"]):
+                subprocess.run(["git", "-C", str(tree), *argv], check=True)
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            worker.bun = lambda: "bun"
+            g = w.Gallery(worker, tree, 0, "web")
+            calls, real = [], w.run
+
+            def fake_run(argv, *a, **k):
+                if argv[0] == "git":
+                    return real(argv, *a, **k)
+                calls.append(argv[1])
+                return ""
+
+            w.run = fake_run
+            try:
+                self.assertTrue(g.install())  # first: bun install (its postinstall writes the tables)
+                self.assertFalse(g.install())  # nothing changed: nothing runs
+                (tree / "webviews" / "src" / "b").mkdir()
+                (tree / "webviews" / "src" / "b" / "Localizable.xcstrings").write_text("{}\n")
+                subprocess.run(["git", "-C", str(tree), "add", "-A"], check=True)
+                subprocess.run(["git", "-C", str(tree), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "b"],
+                               check=True)
+                self.assertFalse(g.install())  # a new catalog, same lockfile: gen-strings only
+            finally:
+                w.run = real
+            self.assertEqual(calls, ["install", w.STRINGS_GENERATOR])
 
 
 if __name__ == "__main__":
