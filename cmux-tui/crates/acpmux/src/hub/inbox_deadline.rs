@@ -115,7 +115,15 @@ impl Hub {
         let meta = session.meta();
         let receiver = if meta.name.is_empty() { &session.id } else { &meta.name };
         let lapsed = super::super::cold_wake::coldness(&meta, now).is_some();
-        let due = |i: &Item| due_for(i, quiet(&session.id, &meta, lapsed, i));
+        // A program's FYI rides along with no wake deadline (`Item::rides_along`), and expires
+        // from its class's.
+        let due = |i: &Item| {
+            if i.rides_along() {
+                i.expiry_due()
+            } else {
+                due_for(i, quiet(&session.id, &meta, lapsed, i))
+            }
+        };
         let grace = grace_ms(session);
         let (expired, why) = {
             let mut inbox = session.inbox();

@@ -143,6 +143,8 @@
 //! Leo, 2026-11-25: "is there a timeout where it can always check again at some point, like a
 //! promise of "i'll respond within x minutes since this isn't urgent"".
 //!
+//! A program's FYI has no wake deadline: it rides along with the next notice (`inbox_ride_along.rs`).
+//!
 //! The timer lives in memory: a restart reviews every restored inbox that holds new messages,
 //! a sweep reviews every chat's inbox every 10 minutes, and a message still undelivered a day
 //! past its deadline in a chat with no running turn expires and goes back to its sender with
@@ -173,6 +175,8 @@ pub(super) mod page_rule;
 pub(super) mod reader;
 #[path = "inbox_restore.rs"]
 mod restore;
+#[path = "inbox_ride_along.rs"]
+mod ride_along;
 #[path = "inbox_surge.rs"]
 mod surge;
 #[path = "inbox_topic.rs"]
@@ -1093,9 +1097,10 @@ fn loudest(items: &[&Item]) -> Option<&'static str> {
 }
 
 impl Item {
-    /// When the daemon wakes an idle receiver to deliver it (module docs, "Deadlines").
+    /// When the daemon wakes an idle receiver to deliver it (module docs, "Deadlines"): never
+    /// for one that [`rides_along`](Self::rides_along).
     pub(super) fn due(&self) -> u64 {
-        crate::prompt_class::due_at(self.class, self.at, self.within)
+        if self.rides_along() { u64::MAX } else { self.expiry_due() }
     }
 }
 
@@ -1174,7 +1179,7 @@ fn quiet(session_id: &str, meta: &SessionMeta, lapsed: bool, item: &Item) -> boo
 
 /// `item`'s deadline ([`Item::due`]), or an FYI's when it is [`quiet`] (`is_quiet`).
 fn due_for(item: &Item, is_quiet: bool) -> u64 {
-    if is_quiet {
+    if is_quiet && !item.rides_along() {
         crate::prompt_class::due_at(PromptClass::Fyi, item.at, item.within)
     } else {
         item.due()

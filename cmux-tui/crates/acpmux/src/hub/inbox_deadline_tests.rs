@@ -185,3 +185,82 @@ async fn a_chat_whose_folder_is_gone_expires_its_messages_at_their_deadline() {
     let (_hub, kept) = hub_with_chats(&["lane-here"]);
     assert_eq!(grace_ms(&kept[0]), EXPIRE_AFTER_MS, "a chat with its folder keeps the day");
 }
+
+/// A sender record as the lane-gh broker relays it: from `relayed_from` (`VM/LANE`), labelled
+/// `label`, the address its answers go to (`prompt_provenance::sender_record`'s shape).
+fn relayed_sender(relayed_from: &str, label: &str) -> Value {
+    let (machine, session) = relayed_from.split_once('/').unwrap();
+    json!({"label": label, "labelDeclared": true,
+        "relay": {"by": "lane-gh", "machine": machine, "session": session}})
+}
+
+/// The gap in cmuxterm-hq's notice rule ("A program's message is an inbox fyi"): the broker sent
+/// RFD-IDLE, "co-owner ... started" and "UI preview of your push" as FYIs, and each still woke
+/// its idle chat at the 60-minute FYI deadline, a turn of its own for a message nobody acts on
+/// (14 of 33 program-only notices on one host over 30 hours). A program's FYI now has no wake
+/// deadline: an idle chat takes no turn for it, and it goes in with the next notice. An agent's
+/// FYI keeps its deadline, and so does a program's FIRE or one that waited for this machine.
+#[tokio::test]
+async fn a_programs_fyi_rides_along_and_never_wakes_the_chat_at_its_deadline() {
+    use crate::prompt_class::FYI_DEADLINE_MS;
+    let at = now_ms().saturating_sub(FYI_DEADLINE_MS + 60_000);
+    let program = || {
+        let mut item = held("p1", "other", PromptClass::Fyi, at);
+        item.from_session = None;
+        item.sender = relayed_sender("vm-2/rfd-idle", "coord-host/coord");
+        item
+    };
+    assert!(program().rides_along());
+    assert_eq!(program().due(), u64::MAX, "a program's FYI wakes no chat");
+    assert_eq!(program().expiry_due(), at + FYI_DEADLINE_MS, "it expires from the FYI deadline");
+
+    let mut agent = held("a1", "other", PromptClass::Fyi, at);
+    agent.sender = relayed_sender("vm-2/lane-7", "vm-2/lane-7");
+    assert!(!agent.rides_along(), "an agent's FYI is not a program's");
+    assert_eq!(agent.due(), at + FYI_DEADLINE_MS);
+    let mut fire = program();
+    fire.fire = true;
+    assert!(!fire.rides_along(), "a FIRE keeps its deadline");
+    let mut waited = program();
+    waited.waited = true;
+    assert!(!waited.rides_along(), "a message that waited for this machine keeps its deadline");
+    let mut within = program();
+    within.within = Some(5 * 60_000);
+    assert!(!within.rides_along(), "a sender's own deadline is kept");
+    let mut result = program();
+    result.class = PromptClass::Result;
+    assert!(!result.rides_along(), "only an FYI rides along");
+
+    // The sweep reviews the idle chat: the program's FYI, past its FYI deadline, starts nothing.
+    let (hub, sessions) = hub_with_chats(&["lane-program"]);
+    let session = &sessions[0];
+    session.inbox().items.push(program());
+    assert_eq!(hub.inbox_deadline_sweep(), 0, "nothing expired");
+    review_after_restore(session);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(!tried(session), "a program's FYI woke the idle chat");
+
+    // An agent's FYI past its deadline wakes it, and the program's goes in with it.
+    let (hub, sessions) = hub_with_chats(&["lane-agent"]);
+    let session = &sessions[0];
+    session.inbox().items.push(program());
+    session.inbox().items.push(agent);
+    assert_eq!(hub.inbox_deadline_sweep(), 0);
+    assert!(tried(session), "the agent's overdue FYI was delivered");
+}
+
+/// A program's FYI no notice ever took expires from its FYI deadline, as an agent's does: a chat
+/// that never wakes again keeps no program notices past the grace.
+#[tokio::test]
+async fn a_programs_fyi_no_notice_took_expires_from_the_fyi_deadline() {
+    use crate::prompt_class::FYI_DEADLINE_MS;
+    let (hub, sessions) = hub_with_chats(&["lane-program-old"]);
+    let session = &sessions[0];
+    let at = now_ms().saturating_sub(FYI_DEADLINE_MS + EXPIRE_AFTER_MS + 60_000);
+    let mut item = held("p-old", "other", PromptClass::Fyi, at);
+    item.from_session = None;
+    item.sender = relayed_sender("vm-2/rfd-idle", "coord-host/coord");
+    session.inbox().items.push(item);
+    assert_eq!(hub.inbox_deadline_sweep(), 1, "the stale program notice expired");
+    assert!(session.inbox().items.is_empty());
+}
