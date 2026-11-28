@@ -66,8 +66,10 @@ use jsonschema::error::ValidationErrorKind;
 use serde_json::Value;
 use std::sync::OnceLock;
 
-/// The manifest v2 JSON Schema, embedded so every consumer validates identically.
-pub static SCHEMA: &str = cmux_config::schema::APP_MANIFEST_SCHEMA;
+/// The manifest v2 JSON Schema, embedded so every consumer validates identically. A
+/// re-export, not `static SCHEMA: &str = ...`: a static initialized from another crate's
+/// static gets its own copy of the bytes (rustc re-emits the allocation per crate).
+pub use cmux_config::schema::APP_MANIFEST_SCHEMA as SCHEMA;
 
 /// Compiles an embedded JSON Schema. The embedded schemas have unit tests
 /// that they compile, so an `Err` means a broken build; callers then refuse
