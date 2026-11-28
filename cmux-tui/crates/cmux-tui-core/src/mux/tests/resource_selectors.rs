@@ -654,11 +654,11 @@ fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
         assert_eq!(error.code, "validation.invalid", "{shared}: {error:?}");
         assert!(error.message.contains("at least 4 hex digits"), "{}", error.message);
     }
-    let four = one.get(..8).unwrap().to_owned();
-    if tabs.iter().filter(|id| id.starts_with(four.as_str())).count() == 1 {
-        let (_, tab, _) = w5p_resolve(&mux, "tab", &four).unwrap();
-        assert_eq!(tab.as_deref(), Some(one.as_str()), "{four}");
-    }
+    // A long prefix (31 of the 32 digits) is unique among 17 random ids and
+    // selects its tab; the 4-digit case is in resource_selector/id_forms/tests.rs.
+    let long = one.get(..one.len() - 1).unwrap().to_owned();
+    let (_, tab, _) = w5p_resolve(&mux, "tab", &long).unwrap();
+    assert_eq!(tab.as_deref(), Some(one.as_str()), "{long}");
     // A prefix of no object is not found (32 prefixes, 20 tabs).
     let missing = (0..16u8)
         .flat_map(|first| (0..2u8).map(move |second| format!("tab_{first:x}{second:x}00")))
@@ -668,4 +668,188 @@ fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
     assert_eq!(error.code, "selector.not_found", "{missing}: {error:?}");
     assert!(error.message.contains("32 hex digits"), "{}", error.message);
     assert!(error.message.contains("cmux tab list"), "{}", error.message);
+}
+
+/// W5-P review: a parent named with 32 hex digits (a name, since no object
+/// has that id) does not stop the child's `focused` from being `current`.
+/// The bare-id pass left the whole request unexpanded when one slot matched
+/// no id, so `tab focused` under that workspace was not found.
+#[test]
+fn w5p_a_hex_named_parent_keeps_focused_for_its_child() {
+    let mux = test_mux();
+    let name = "0123456789abcdef0123456789abcdef";
+    let root = mux.new_workspace(Some(name.into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    assert!(mux.focus_pane(root_pane));
+    let root_tab =
+        mux.with_state(|state| state.resource_indexes.tab_ids.get(&root.id).map(|t| t.to_string()));
+    // The CLI shape: `--workspace <name> tab focused` puts `current` above
+    // the tab.
+    let selectors = crate::ResourceSelectors {
+        workspace: Some(name.into()),
+        screen: Some("current".into()),
+        pane: Some("current".into()),
+        tab: Some("focused".into()),
+        ..Mux::ordinary_resource_selectors()
+    };
+    let path = mux
+        .resolve_resource_path(crate::ResourceTarget::Tab, &selectors)
+        .unwrap_or_else(|error| panic!("workspace {name}, tab focused: {error:?}"));
+    assert_eq!(path.tab.map(|tab| tab.to_string()), root_tab);
+}
+
+/// W5-P B: the rules a terminal name had in each client, now only here (the
+/// CLI's `terminal … send`, `agent start --pane`, `agent resume` and the MCP
+/// terminal tools ask this resolver): a terminal title in the session first,
+/// then a tab name whose terminal runs, then one whose terminal exited (so
+/// `agent resume alpha` finds the kept tab of an agent that quit); two live
+/// tabs, or two exited tabs, with the name are ambiguous with every
+/// candidate.
+#[test]
+fn w5p_a_terminal_name_takes_a_title_then_a_live_tab_then_an_exited_one() {
+    use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
+    let mux = test_mux();
+    let root = mux.new_workspace(Some("w5p-names".into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    let terminal_of = |surface: SurfaceId| {
+        mux.with_state(|state| match state.resource_indexes.content_ids.get(&surface) {
+            Some(ContentPublicId::Terminal(id)) => Some(id.to_string()),
+            _ => None,
+        })
+    };
+    let resolved = |mux: &Arc<Mux>| w5p_resolve(mux, "terminal", "alpha").map(|place| place.2);
+
+    let exited = mux.split(root_pane, SplitDir::Right, None).unwrap();
+    assert!(mux.rename_surface(exited.id, "alpha".into()));
+    mux.surface(exited.id)
+        .unwrap()
+        .record_process_end_for_test(TerminalExit::now(TerminalExitOutcome::Exit { code: 0 }));
+    assert!(mux.focus_pane(root_pane));
+    assert_eq!(resolved(&mux).unwrap(), terminal_of(exited.id), "only an exited tab");
+
+    // Two exited tabs with the name are ambiguous with both candidates: a
+    // resume never picks one of them.
+    let exited_pane = mux.with_state(|state| state.pane_of(exited.id).unwrap());
+    let twin = mux.split(exited_pane, SplitDir::Right, None).unwrap();
+    assert!(mux.rename_surface(twin.id, "alpha".into()));
+    mux.surface(twin.id)
+        .unwrap()
+        .record_process_end_for_test(TerminalExit::now(TerminalExitOutcome::Exit { code: 0 }));
+    assert!(mux.focus_pane(root_pane));
+    let error = resolved(&mux).unwrap_err();
+    assert_eq!(error.code, "selector.ambiguous", "two exited tabs: {error:?}");
+    assert_eq!(error.details["candidates"].as_array().map(Vec::len), Some(2), "{error:?}");
+    assert!(mux.rename_surface(twin.id, "twin".into()));
+
+    let live = mux.split(exited_pane, SplitDir::Down, None).unwrap();
+    assert!(mux.rename_surface(live.id, "alpha".into()));
+    assert!(mux.focus_pane(root_pane));
+    assert_eq!(resolved(&mux).unwrap(), terminal_of(live.id), "the live tab first");
+
+    let live_pane = mux.with_state(|state| state.pane_of(live.id).unwrap());
+    let titled = mux.split(live_pane, SplitDir::Down, None).unwrap();
+    mux.surface(titled.id).unwrap().set_test_title("alpha");
+    assert!(mux.focus_pane(root_pane));
+    assert_eq!(resolved(&mux).unwrap(), terminal_of(titled.id), "a title first");
+
+    mux.surface(titled.id).unwrap().set_test_title("");
+    assert!(mux.rename_surface(titled.id, "alpha".into()));
+    assert!(mux.focus_pane(root_pane));
+    let error = resolved(&mux).unwrap_err();
+    assert_eq!(error.code, "selector.ambiguous", "two live tabs: {error:?}");
+}
+
+/// W5-P: a pane, tab or terminal name with no parents at all (what
+/// `terminal … send`, `agent start --pane` and `agent resume` ask) is looked
+/// up with the session rules only, never first in the place the person
+/// focuses: a title or a tab name two live terminals share is
+/// `selector.ambiguous` with both candidates even while the person focuses
+/// one of them, and a name one object has selects it. The same names under
+/// the CLI's `current` parents keep their reply (the focused place first),
+/// and a word nothing has is `selector.not_found`.
+#[test]
+fn w5p_a_name_with_no_parents_never_takes_the_persons_focus() {
+    let mux = test_mux();
+    let root = mux.new_workspace(Some("w5p-no-parents".into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    let other = mux.split(root_pane, SplitDir::Right, None).unwrap();
+    let place_of = |surface: SurfaceId| -> W5pPlace {
+        mux.with_state(|state| {
+            let indexes = &state.resource_indexes;
+            let pane = state.pane_of(surface).and_then(|pane| indexes.pane_ids.get(&pane));
+            let terminal = match indexes.content_ids.get(&surface) {
+                Some(ContentPublicId::Terminal(id)) => Some(id.to_string()),
+                _ => None,
+            };
+            (
+                pane.map(ToString::to_string),
+                indexes.tab_ids.get(&surface).map(ToString::to_string),
+                terminal,
+            )
+        })
+    };
+    let placeless = |scope: &str, value: &str| -> Result<W5pPlace, ResourceError> {
+        let mut selectors = Mux::ordinary_resource_selectors();
+        let target = match scope {
+            "pane" => {
+                selectors.pane = Some(value.into());
+                crate::ResourceTarget::Pane
+            }
+            "tab" => {
+                selectors.tab = Some(value.into());
+                crate::ResourceTarget::Tab
+            }
+            _ => {
+                selectors.terminal = Some(value.into());
+                crate::ResourceTarget::Terminal
+            }
+        };
+        let path = mux.resolve_resource_path(target, &selectors)?;
+        Ok((
+            path.pane.map(|id| id.to_string()),
+            path.tab.map(|id| id.to_string()),
+            path.terminal.map(|id| id.to_string()),
+        ))
+    };
+    let ambiguous = |found: Result<W5pPlace, ResourceError>, what: &str| {
+        let error = found.expect_err(what);
+        assert_eq!(error.code, "selector.ambiguous", "{what}: {error:?}");
+        assert_eq!(error.details["candidates"].as_array().map(Vec::len), Some(2), "{error:?}");
+    };
+
+    // Two terminals with the title "build"; the person focuses the first.
+    mux.surface(root.id).unwrap().set_test_title("build");
+    mux.surface(other.id).unwrap().set_test_title("build");
+    assert!(mux.focus_pane(root_pane));
+    assert_eq!(
+        w5p_resolve(&mux, "terminal", "build").unwrap(),
+        place_of(root.id),
+        "under `current` parents the focused tab's title is first, as before"
+    );
+    ambiguous(placeless("terminal", "build"), "no parents: a title two terminals share");
+    mux.surface(other.id).unwrap().set_test_title("other");
+    assert_eq!(placeless("terminal", "build").unwrap(), place_of(root.id), "one title");
+    assert_eq!(placeless("terminal", "other").unwrap(), place_of(other.id), "away from focus");
+
+    // Two live tabs named "alpha"; the person focuses the first.
+    assert!(mux.rename_surface(root.id, "alpha".into()));
+    assert!(mux.rename_surface(other.id, "alpha".into()));
+    assert!(mux.focus_pane(root_pane));
+    assert_eq!(
+        w5p_resolve(&mux, "tab", "alpha").unwrap(),
+        place_of(root.id),
+        "under `current` parents the focused pane's tab is first, as before"
+    );
+    ambiguous(placeless("tab", "alpha"), "no parents: a tab name two tabs share");
+    ambiguous(placeless("pane", "alpha"), "no parents: the pane of a shared tab name");
+    ambiguous(placeless("terminal", "alpha"), "no parents: a shared tab name as a terminal");
+    assert!(mux.rename_surface(other.id, "beta".into()));
+    assert_eq!(placeless("tab", "beta").unwrap(), place_of(other.id), "one tab name");
+    assert_eq!(placeless("pane", "beta").unwrap().0, place_of(other.id).0, "its pane");
+    assert_eq!(placeless("terminal", "beta").unwrap(), place_of(other.id), "its terminal");
+
+    for scope in ["pane", "tab", "terminal"] {
+        let error = placeless(scope, "nothing-has-this").unwrap_err();
+        assert_eq!(error.code, "selector.not_found", "{scope}: {error:?}");
+    }
 }

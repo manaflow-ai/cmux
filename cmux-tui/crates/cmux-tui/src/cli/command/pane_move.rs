@@ -55,7 +55,8 @@ pub(super) fn parse(
     // alone it makes a new screen in that workspace.
     let into_existing = to_pane.is_some() || to_tab.is_some();
     let screen_in_workspace = to_workspace.is_some() && !into_existing;
-    let chosen = [to_pane.is_some(), to_tab.is_some(), screen_in_workspace, new_screen];
+    // `--new-screen --to-workspace <ws>` is one destination: a new screen there.
+    let chosen = [to_pane.is_some(), to_tab.is_some(), screen_in_workspace || new_screen];
     if chosen.iter().filter(|chosen| **chosen).count() != 1 {
         return Err(UsageError::new(format!("{USAGE}: give exactly one destination")));
     }

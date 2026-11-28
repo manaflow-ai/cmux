@@ -620,7 +620,7 @@ impl Mux {
                     .map(|(wi, _)| state.workspaces[wi].key.clone())
             });
             if let Some(key) = key {
-                let _ = surface_handle.persist_host_workspace(&key);
+                surface_handle.mirror_host_workspace(&key, "tab.move");
             }
         }
         self.refresh_terminal_size_policy(surface);
