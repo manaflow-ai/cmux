@@ -63,7 +63,7 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      # The release features (cmux-rd-release.yml, machine-join-e2e.yml) plus `bench`, the viewer the probe
+      # The release features (cmux-rd-release.yml, machine-vault-e2e suite=machine-join) plus `bench`, the viewer the probe
       # drives (release builds leave it out): Cisco's OpenH264,
       # downloaded at run time, and the link. cmux-rd-host is its own Cargo workspace.
       - name: Build cmux-rd

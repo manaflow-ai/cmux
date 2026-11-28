@@ -175,43 +175,12 @@ function violations(d: Drawing, line: string | undefined): string[] {
 
 // Drawings that break the rules above, by "icon where", with what they break and why. Each must still
 // exist and still break exactly what is listed, so a fixed drawing leaves this list in the same PR.
-const TRANSCRIPT_16 =
-  "transcript batch drawn on a 16 grid at stroke 1.25 and scaled 1.5 (stroke 1.875); redraw on the 24 grid";
 const UNFILLED_SLASH =
   "the Solid's slash is a line with no fill='none', so it inherits SVG's black fill; a line encloses nothing, so nothing draws";
 const WIDGET_175 =
   "widget SF Symbol solid (weather, time, calendar) drawn at stroke 1.75 for the scene renderer; redraw at 1.5 or 2";
 const ALTERNATE = "an alternate the gallery compares, not the shipped drawing";
 const EXCEPTIONS: Record<string, { breaks: string[]; reason: string }> = {
-  ...Object.fromEntries(
-    [
-      "action.quote",
-      "action.retry",
-      "action.save",
-      "agent.bot",
-      "agent.paused",
-      "media.stop.circle",
-      "message.delivered",
-      "message.send",
-      "nav.down",
-      "permission.ask",
-      "permission.auto",
-      "permission.checked",
-      "permission.full-access",
-      "permission.shield",
-      "sources.connected",
-      "status.failure",
-      "time.waiting",
-      "tool.multiple",
-      "tool.thought",
-      "transcript.summary",
-      "view.expand",
-      "view.tab.trailing",
-    ].flatMap((name) => [
-      [`${name} line`, { breaks: ["w1.875"], reason: TRANSCRIPT_16 }],
-      [`${name} solid`, { breaks: ["w1.875"], reason: TRANSCRIPT_16 }],
-    ]),
-  ),
   ...Object.fromEntries(
     [
       "action.hide",

@@ -21,6 +21,7 @@ import {
 import { type CloudSetupAction, type CloudSetupNeed, waitForCloudSetUp } from "../cloudSetup";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "../cloudSignIn";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "../cloudStartCarry";
+import { cloudStartOpened } from "../cloudStartOpened";
 import {
   cloudStartBegun,
   cloudStartEnded,
@@ -105,6 +106,7 @@ export interface CloudSendDeps {
   setCloudStartsEnded: Dispatch<SetStateAction<number>>;
   cloudAfterCheck: ReturnType<typeof cloudSendAfterCheck>;
   cloudEnvironment: ReturnType<typeof useChatCloudEnvironment>;
+  cloudDraftMachineID: RefObject<string | null | undefined>;
   cloudSwitchTeam: ReturnType<typeof cloudStartTeam>;
   cloudReservation: CloudComposeReservation;
   cloudStartKeys: ReturnType<typeof makeCloudStartKeys>;
@@ -157,6 +159,7 @@ export function sendToCloudWith(
     setCloudStart,
     sendHeldForPlan,
     cloudEnvironment,
+    cloudDraftMachineID,
     cloudSwitchTeam,
     emptyLocalChat,
     snapshot,
@@ -226,12 +229,14 @@ export function sendToCloudWith(
   const retryEnvironment =
     cloudStart?.state === "failed" && cloudStart.task === text ? cloudStart.environment : undefined;
   const environment = cloudEnvironment.forSend(start.environment, retryEnvironment);
+  const machine = cloudDraftMachineID.current;
   const team = cloudSwitchTeam.forSend();
   const unreserved: CloudStart = {
     task: text,
     attachments,
     ...start,
     ...(environment ? { environment } : {}),
+    ...(machine ? { machine } : {}),
     ...(team ? { team } : {}),
     // The empty chat this start replaces: the host closes this tab with it once the Cloud chat opens.
     ...(emptyLocalChat && snapshot.sessionId ? { replacesChat: snapshot.sessionId } : {}),
@@ -239,7 +244,8 @@ export function sendToCloudWith(
   // The compose's warm machine goes only with the Send it first went with (or that Send's retry,
   // the same start key): after a refused start, another prompt from this page would be refused
   // by the platform as `409 reservation.bound` (cloudComposeReservation.ts `handoff`).
-  const reservationKey = cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
+  if (machine) cloudReservation.abandon();
+  const reservationKey = machine ? undefined : cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
   const request: CloudStart = { ...unreserved, ...(reservationKey ? { reservationKey } : {}) };
   // A page's send leaves the page: its draft comes back in the chat composer, compared there.
   const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
@@ -305,7 +311,9 @@ export function beginCloudSendWith(
     const pick = cloudSetUpPick.current;
     cloudSetUpPick.current = undefined;
     setUpNeed = pick?.need;
-    signIn = pick ? waitForCloudSetUp(callNative, key, pick.action, pick.need) : waitForCloudSignIn(callNative, key);
+    signIn = pick
+      ? waitForCloudSetUp(callNative, key, pick.action, pick.need, undefined, request.machine, request.environment)
+      : waitForCloudSignIn(callNative, key);
     cloudSignInWait.current = signIn;
   }
   const wait = signIn;
@@ -438,7 +446,8 @@ export function beginCloudSendWith(
       // The chat opened on its machine: a pick's local session on this page (pickOnlyChat) is nobody's now.
       harnessSwitch.cancel();
     }
-    setCloudStart((current) => cloudStartEnded(current, key, answer));
+    // Opened: the card stays until the Cloud chat's first page is drawn, never an empty chat between (cloudStartOpened.ts).
+    setCloudStart((current) => (answer.ok ? cloudStartOpened(current, key) : cloudStartEnded(current, key, answer)));
     if (!answer.ok && !cloudStartSaid(answer))
       notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
   });

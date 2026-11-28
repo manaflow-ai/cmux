@@ -534,10 +534,20 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-api-compat"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -696,6 +706,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
@@ -708,6 +725,13 @@ name = "cmux-message-preview"
 version = "0.1.0"
 dependencies = [
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-mobile-api"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -738,12 +762,15 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "bytes",
+ "cmux-api-compat",
  "cmux-build-space",
  "cmux-bundle",
  "cmux-deadline",
  "cmux-egress",
  "cmux-fault",
+ "cmux-json",
  "cmux-message-preview",
+ "cmux-mobile-api",
  "cmux-mobile-core",
  "cmux-mobile-link",
  "cmux-output-paint",
@@ -839,6 +866,7 @@ dependencies = [
  "webrtc",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -859,6 +887,7 @@ dependencies = [
  "cmux-mobile-host",
  "cmux-mobile-last-place",
  "cmux-mobile-link",
+ "cmux-mobile-tailnet",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-ffi",
@@ -921,6 +950,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -977,8 +1007,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2 0.6.5",
  "windows-sys 0.61.2",
 ]
 

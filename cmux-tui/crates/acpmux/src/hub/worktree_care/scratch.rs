@@ -49,11 +49,11 @@ pub(crate) fn is_peer_scratch_in(cwd: &Path, temp: &Path, uid: u32) -> bool {
 /// Makes `dir` owner-only, or accepts it when it is already this user's owner-only folder.
 #[cfg(unix)]
 fn own_dir(dir: &Path, uid: u32) -> std::io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _};
-    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+    use std::os::unix::fs::MetadataExt as _;
+    match crate::home_fs::create_dir(dir, 0o700) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let meta = std::fs::symlink_metadata(dir)?;
+            let meta = crate::home_fs::symlink_metadata(dir)?;
             if meta.file_type().is_dir() && meta.uid() == uid && meta.mode() & 0o077 == 0 {
                 Ok(())
             } else {
@@ -72,12 +72,12 @@ fn own_dir(dir: &Path, uid: u32) -> std::io::Result<()> {
 #[cfg(unix)]
 pub(crate) fn revive_peer_scratch_in(cwd: &Path, temp: &Path, uid: u32) -> std::io::Result<bool> {
     let Some(root) = cwd.parent() else { return Ok(false) };
-    if std::fs::symlink_metadata(cwd).is_ok() || !is_peer_scratch_in(cwd, temp, uid) {
+    if crate::home_fs::symlink_metadata(cwd).is_ok() || !is_peer_scratch_in(cwd, temp, uid) {
         return Ok(false);
     }
     own_dir(root, uid)?;
     own_dir(cwd, uid)?;
-    match std::fs::OpenOptions::new()
+    match crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(cwd.join(crate::trust::AGENT_HOME_MARKER))
@@ -93,6 +93,112 @@ pub(crate) fn revive_peer_scratch_in(cwd: &Path, temp: &Path, uid: u32) -> std::
 #[cfg(unix)]
 pub(crate) fn revive_peer_scratch(cwd: &Path) -> std::io::Result<bool> {
     revive_peer_scratch_in(cwd, &std::env::temp_dir(), unsafe { libc::geteuid() })
+}
+
+/// Whether `rel` (a chat's folder below a temp dir) is `claude-<uid>/<slug>/<uuid>/scratchpad`, the
+/// scratch folder Claude Code makes for a session of a project (`<slug>` is the project path with
+/// its slashes as dashes). Returns the three parent names to make, in order.
+fn claude_scratchpad_parts(rel: &Path, uid: u32) -> Option<[String; 3]> {
+    let mut names = Vec::new();
+    for c in rel.components() {
+        match c {
+            std::path::Component::Normal(s) => names.push(s.to_str()?.to_owned()),
+            _ => return None,
+        }
+    }
+    let [root, slug, id, leaf] = <[String; 4]>::try_from(names).ok()?;
+    (root == format!("claude-{uid}")
+        && leaf == "scratchpad"
+        && uuid::Uuid::parse_str(&id).is_ok()
+        && leaf_name_ok(&slug))
+    .then_some([root, slug, id])
+}
+
+/// Makes the missing Claude Code scratchpad `cwd` below one of `bases` again (module text of
+/// `revive_peer_scratch_in`, same rules): `Ok(true)` when it made it, `Ok(false)` when `cwd` is
+/// not one or is there. It is an empty per-session scratch folder under the temp dir, which a
+/// temp cleaner (macOS's, a reboot) empties; the agent's own history for that path resumes there.
+/// 2026-11-28, cosmic-gray: the coordinator chat's folder was such a scratchpad, gone, so every
+/// deadline wake was refused `session.folder_missing` and its held messages sat 23 h overdue until
+/// they expired unread.
+#[cfg(unix)]
+pub(crate) fn revive_claude_scratchpad_in(
+    cwd: &Path,
+    bases: &[&Path],
+    uid: u32,
+) -> std::io::Result<bool> {
+    if crate::home_fs::symlink_metadata(cwd).is_ok() {
+        return Ok(false);
+    }
+    for base in bases {
+        let Some(parts) = cwd.strip_prefix(base).ok().and_then(|r| claude_scratchpad_parts(r, uid))
+        else {
+            continue;
+        };
+        let mut dir = base.to_path_buf();
+        for part in &parts {
+            dir.push(part);
+            own_dir(&dir, uid)?;
+        }
+        own_dir(cwd, uid)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// `revive_claude_scratchpad_in` for this process's user, below `/private/tmp` and `/tmp`.
+#[cfg(unix)]
+pub(crate) fn revive_claude_scratchpad(cwd: &Path) -> std::io::Result<bool> {
+    revive_claude_scratchpad_in(cwd, &[Path::new("/private/tmp"), Path::new("/tmp")], unsafe {
+        libc::geteuid()
+    })
+}
+
+#[cfg(all(test, unix))]
+mod claude_scratchpad_tests {
+    use super::*;
+    use std::os::unix::fs::MetadataExt as _;
+
+    const ID: &str = "6fcbbd31-ac86-40d4-9bd9-373079591ec2";
+
+    fn base() -> (std::path::PathBuf, u32) {
+        let t = std::env::temp_dir().join(format!("acpmux-claude-pad-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&t).unwrap();
+        (t, unsafe { libc::geteuid() })
+    }
+
+    #[test]
+    fn a_gone_claude_scratchpad_is_made_again_owner_only() {
+        let (t, uid) = base();
+        let cwd =
+            t.join(format!("claude-{uid}")).join("-Users-x-Projects").join(ID).join("scratchpad");
+        assert!(revive_claude_scratchpad_in(&cwd, &[t.as_path()], uid).unwrap());
+        assert_eq!(std::fs::metadata(&cwd).unwrap().mode() & 0o777, 0o700);
+        assert!(!revive_claude_scratchpad_in(&cwd, &[t.as_path()], uid).unwrap());
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn only_the_scratchpad_shape_is_made() {
+        let (t, uid) = base();
+        let root = format!("claude-{uid}");
+        for cwd in [
+            t.join(&root).join("-p").join(ID),
+            t.join(&root).join("-p").join(ID).join("work"),
+            t.join(&root).join("-p").join("not-a-uuid").join("scratchpad"),
+            t.join(format!("claude-{}", uid + 1)).join("-p").join(ID).join("scratchpad"),
+            t.join(&root).join("..").join("x").join(ID).join("scratchpad"),
+            t.join("project").join("-p").join(ID).join("scratchpad"),
+        ] {
+            assert!(
+                !revive_claude_scratchpad_in(&cwd, &[t.as_path()], uid).unwrap(),
+                "{}",
+                cwd.display()
+            );
+            assert!(!cwd.exists(), "{}", cwd.display());
+        }
+        std::fs::remove_dir_all(&t).unwrap();
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -148,6 +254,36 @@ mod tests {
             assert!(!cwd.exists(), "{}", cwd.display());
         }
         std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    /// A configured temp folder may sit below the home: reads and writes stay in its held tree.
+    #[test]
+    fn scratch_revival_stays_in_the_held_home() {
+        crate::lost_home_race_tests::isolated(
+            module_path!(),
+            "scratch_revival_stays_in_the_held_home",
+            |home| {
+                // SAFETY: geteuid takes no arguments and has no caller preconditions.
+                let uid = unsafe { libc::geteuid() };
+                let temp = home.join("tmp");
+                std::fs::create_dir(&temp).unwrap();
+                let existing = temp.join(format!("acpmux-peer-scratch-{uid}-{ID}"));
+                own_dir(&existing, uid).unwrap();
+                crate::config::hold_home();
+                crate::lost_home_race_tests::replace(home);
+                let new_root = temp.join(format!("acpmux-peer-scratch-{uid}-{}", "0".repeat(32)));
+                for root in [existing, new_root] {
+                    let cwd = root.join("chat");
+                    assert!(revive_peer_scratch_in(&cwd, &temp, uid).unwrap());
+                    assert!(!revive_peer_scratch_in(&cwd, &temp, uid).unwrap());
+                    let saved = home.with_extension("old").join(cwd.strip_prefix(home).unwrap());
+                    assert!(saved.join(crate::trust::AGENT_HOME_MARKER).is_file());
+                    assert_eq!(std::fs::metadata(saved).unwrap().mode() & 0o777, 0o700);
+                }
+                assert!(!home.join("tmp").exists(), "the replacement home stays untouched");
+            },
+            |_, _| {},
+        );
     }
 
     /// A root someone else could write is not used.

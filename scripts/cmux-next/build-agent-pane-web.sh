@@ -14,6 +14,8 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
+# Joins an inherited BUN_OPTIONS preload and gives bun a writable temp dir (EACCES on Hetzner slots, run 46063462029).
+. "$ROOT/scripts/lib/bun-options.sh"
 SRC="$ROOT/webviews/src/agent-session"
 OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
@@ -57,35 +59,50 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # --preload-list is empty with --classic: the static chunks are inside pane.js.
 # --frame-sites writes chunks/frame-sites.js, the source file behind each stretch of pane.js and its
 # chunks (agent-pane/frameSites.mjs): `cmux app chat perf` names a frame owner's file with it.
-if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
-else
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js"
-fi
+# These bundles read only the sources and write their own outputs, so they run side by side (the
+# build was a serial chain of them): a failure stops the build at the wait below.
+PIDS=''
+(
+  if [ -n "$REPORT_DIR" ]; then
+    bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
+  else
+    bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --classic --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js"
+  fi
+) &
+PIDS="$PIDS $!"
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
 # with a policy that allows no network.
-if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js" --metafile "$REPORT_DIR/agent-pane-highlight-worker.json"
-else
-  bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
-fi
+(
+  if [ -n "$REPORT_DIR" ]; then
+    bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js" --metafile "$REPORT_DIR/agent-pane-highlight-worker.json"
+  else
+    bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
+  fi
+) &
+PIDS="$PIDS $!"
 # An attached image's decode, scale and encode run in a worker beside the page too
 # (composer/imagePool.ts), so pasting large screenshots never blocks typing.
-if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js" --metafile "$REPORT_DIR/agent-pane-image-worker.json"
-else
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js"
-fi
+(
+  if [ -n "$REPORT_DIR" ]; then
+    bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js" --metafile "$REPORT_DIR/agent-pane-image-worker.json"
+  else
+    bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js"
+  fi
+) &
+PIDS="$PIDS $!"
 # The chat's drawn copy (acpmux/chatSnapshot/boot.ts): a classic script the document runs before
 # pane.js; it draws the chat's last frame once the host's `__snapshot/chat.js` (async: the document
 # never waits on the host) set the chat's snapshot. Small and with no imports of the pane's.
-if [ -n "$REPORT_DIR" ]; then
-  bun build "$SRC/acpmux/chatSnapshot/boot.ts" --format=iife --target=browser --minify --outfile "$WORK/chat-snapshot.js" --metafile="$REPORT_DIR/agent-pane-chat-snapshot.json" >/dev/null
-else
-  bun build "$SRC/acpmux/chatSnapshot/boot.ts" --format=iife --target=browser --minify --outfile "$WORK/chat-snapshot.js" >/dev/null
-fi
+(
+  if [ -n "$REPORT_DIR" ]; then
+    bun build "$SRC/acpmux/chatSnapshot/boot.ts" --format=iife --target=browser --minify --outfile "$WORK/chat-snapshot.js" --metafile="$REPORT_DIR/agent-pane-chat-snapshot.json" >/dev/null
+  else
+    bun build "$SRC/acpmux/chatSnapshot/boot.ts" --format=iife --target=browser --minify --outfile "$WORK/chat-snapshot.js" >/dev/null
+  fi
+) &
+PIDS="$PIDS $!"
 
 # The page's sheets, derived, never a hand-kept list here (a sheet missing from one shipped its
 # component unstyled in the app only, and five times this month failed every app build at the check
@@ -93,7 +110,11 @@ fi
 # the base sheets in the page's order, then main.tsx, whose components import the rest; bundle.mjs
 # lists them depth-first as the modules run (cssInImportOrder). A new sheet a component imports
 # ships with no change here, after the base sheets, and the app and the dev server agree.
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/dev.tsx" "$SRC/acpmux/shiki" "$WORK/order/dev.js" --split --css-inputs "$WORK/page-sheets" --css-inputs-only
+(
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/dev.tsx" "$SRC/acpmux/shiki" "$WORK/order/dev.js" --split --css-inputs "$WORK/page-sheets" --css-inputs-only
+) &
+PIDS="$PIDS $!"
+for pid in $PIDS; do wait "$pid"; done
 # A sheet's own @import never loads here (mid-sheet in the joined pane.css): the walk
 # lists an imported local sheet before its importer, and Tailwind's import is compiled last below.
 strip_imports() { perl -ne 'print unless /^\@import /' "$1"; }

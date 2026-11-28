@@ -293,9 +293,17 @@ public actor CmuxConfigFile {
         return (applied.map { matching[$0].path }, current)
     }
 
+    /// The last text `validated` parsed and its document: one write reads the file in the controller's plan and again
+    /// in `set`/`edit`'s check, the same text, so the second costs a compare, not a parse (`ConfigFileParseCacheTests`).
+    /// Keyed by the whole text, so any edit (ours, the daemon's, the user's) parses again; a failed parse is never kept.
+    private var lastParsed: (text: String, root: JSONValue)?
+
     private func validated(_ text: String) throws -> JSONValue {
+        if let lastParsed, lastParsed.text == text { return lastParsed.root }
         do {
-            return try JSONC.parse(text)
+            let root = try JSONC.parse(text)
+            lastParsed = (text, root)
+            return root
         } catch {
             // Never rewrite a file the user left broken: they would lose it.
             throw Failure.unreadable(JSONC.problem(error, in: text))

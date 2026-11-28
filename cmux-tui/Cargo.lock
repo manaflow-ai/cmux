@@ -29,6 +29,7 @@ dependencies = [
  "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
+ "cmux-bytes",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -111,8 +112,10 @@ dependencies = [
  "getrandom 0.3.4",
  "glob",
  "hpke",
+ "ignore",
  "imbl",
  "inotify",
+ "iroh",
  "jpeg-encoder",
  "jsonschema",
  "libc",
@@ -130,6 +133,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "schemars 1.2.2",
+ "security-framework",
  "serde",
  "serde_json",
  "sha1",
@@ -253,6 +257,7 @@ dependencies = [
  "cmux-bounded",
  "cmux-json",
  "cmux-scope",
+ "cmux-view-rows",
  "crossterm",
  "dirs",
  "futures-util",
@@ -1387,10 +1392,25 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-agent-screen-detection"
+version = "0.1.0"
+dependencies = [
+ "cmux-sdk",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml",
 ]
 
 [[package]]
@@ -1429,6 +1449,14 @@ dependencies = [
  "regex",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1559,11 +1587,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-grants"
+version = "0.1.0"
+dependencies = [
+ "psl",
+ "url",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "base64",
  "chacha20poly1305",
+ "cmux-browser-grants",
  "cmux-embed",
  "cmux-json",
  "cmux-process",
@@ -1602,9 +1639,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-egress",
  "getrandom 0.3.4",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
@@ -1714,6 +1753,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-cloud-client",
+ "cmux-cloud-disk",
+ "cmux-cloud-wire",
+ "cmux-terminal-iface",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-cloud-api"
 version = "1.0.0"
 dependencies = [
@@ -1778,6 +1832,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1820,6 +1875,7 @@ dependencies = [
  "cmux-lifeline",
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1872,7 +1928,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tempfile",
  "tokio",
  "tower-http",
  "tracing",
@@ -2188,6 +2243,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-feed-push-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-felt"
 version = "0.1.0"
 dependencies = [
@@ -2366,7 +2431,6 @@ dependencies = [
  "cmux-unix-socket",
  "flate2",
  "libc",
- "proptest",
  "ring",
  "serde",
  "serde_json",
@@ -2596,6 +2660,7 @@ name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-conversation",
+ "cmux-feed-push-core",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
@@ -2729,6 +2794,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-phone-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-phone-page"
 version = "0.1.0"
 dependencies = [
@@ -2761,6 +2835,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2841,7 +2916,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2874,8 +2949,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2",
  "windows-sys 0.61.2",
 ]
 
@@ -2991,6 +3069,7 @@ dependencies = [
  "rcgen",
  "ring",
  "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3340,7 +3419,6 @@ dependencies = [
  "cmux-tasks-core",
  "fs4",
  "getrandom 0.3.4",
- "proptest",
  "serde",
  "serde_json",
  "tempfile",
@@ -3371,7 +3449,6 @@ dependencies = [
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "base64",
  "bytes",
  "cmux-json",
@@ -3488,6 +3565,7 @@ dependencies = [
  "cmux-action-catalog",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-agent-screen-detection",
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
@@ -3501,6 +3579,7 @@ dependencies = [
  "cmux-bytes",
  "cmux-cas",
  "cmux-chat-index",
+ "cmux-cloud",
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-config",
@@ -3571,6 +3650,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vault-e2e",
+ "cmux-view-rows",
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
@@ -3676,6 +3756,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-browser-grants",
  "cmux-browser-import",
  "cmux-build-space",
  "cmux-classic-import",
@@ -3726,6 +3807,7 @@ dependencies = [
  "cmux-transport-rewrite",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
+ "cmux-tui-core",
  "cmux-tui-image-paste",
  "cmux-tui-platform",
  "cmux-tui-remote-access",
@@ -3754,7 +3836,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "socket2",
  "subsecond",
  "tar",
  "time",
@@ -3867,6 +3948,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "cmux-config",
+ "cmux-json",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -8368,6 +8450,21 @@ dependencies = [
  "regex-syntax",
  "unarray",
 ]
+
+[[package]]
+name = "psl"
+version = "2.1.265"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6872c2df60248a709a9a1bda933f7db785147afcb3e5e6a892a3cc613f576c9c"
+dependencies = [
+ "psl-types",
+]
+
+[[package]]
+name = "psl-types"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 
 [[package]]
 name = "pulldown-cmark"

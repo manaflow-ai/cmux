@@ -3,7 +3,9 @@
 // ask still shows the image when the first load ends, and asks itself if that load failed.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
-import { useDom } from "./support/unknownWrite";
+import { importWithDom } from "./support/importWithDom";
+
+const { useDom } = await importWithDom(() => import("./support/unknownWrite"));
 
 const dom = useDom();
 const data = "data:image/png;base64,aW1hZ2U=";

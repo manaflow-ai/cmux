@@ -106,6 +106,19 @@ nonisolated struct AgentListFollow: Sendable {
         cursor = (reply.listEpoch, max(reply.listSeq, cursor.map { $0.epoch == reply.listEpoch ? $0.seq : 0 } ?? 0))
     }
 
+    /// A new connection (a reconnect, maybe to a restarted acpmux): the positions of the last reply
+    /// and of the rows pushed since are the last connection's, maybe of another run, whose
+    /// positions start over at 1. Kept, a row the old run pushed at a higher position than the new
+    /// run has reached refused every push of it, and the cursor took that position: after rapid
+    /// `acpmux daemon restart`s a peer's chat that came back by push never got its lane
+    /// (`open-tab --host walk-remote` refused as no peer's for 30 s, reconnect probe 2026-11-25,
+    /// 2026-11-27). The cursor stays: the watch follows it, and a reply of this connection places
+    /// every row again (a reset's whole list, or a follow's rows, at its own position).
+    mutating func reconnected() {
+        replied = 0
+        rowSeq = [:]
+    }
+
     /// Back to `earlier`, a cursor this run held before: pushes after it were dropped.
     mutating func rewind(to earlier: (epoch: String, seq: UInt64)?) {
         guard let earlier, cursor?.epoch == earlier.epoch else { return }

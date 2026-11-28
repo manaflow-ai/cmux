@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.kimi-code.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux اشتراكك في Kimi Code للوصول إلى النماذج التي يدعمها Kimi Code. تسجيل الدخول باستخدام Kimi Code لربط حسابك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoju pretplatu na Kimi Code za pristup opciji modeli koje podržava Kimi Code. Prijavi se putem Kimi Code da povežeš svoj nalog."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger dit abonnement på Kimi Code til at tilgå modeller, som Kimi Code understøtter. Log ind med Kimi Code for at forbinde din konto."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet dein Abo für Kimi Code für den Zugriff auf von Kimi Code unterstützte Modelle. Mit Kimi Code anmelden, um dein Konto zu verbinden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your subscription to access Kimi Code supported models. Sign in with Kimi Code to connect your account."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu suscripción a Kimi Code para acceder a los modelos compatibles con Kimi Code. Iniciar sesión con Kimi Code para conectar tu cuenta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre abonnement Kimi Code pour accéder à des modèles pris en charge par Kimi Code. Se connecter avec Kimi Code pour associer votre compte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà il tuo abbonamento a Kimi Code per accedere a modelli supportati da Kimi Code. Accedi con Kimi Code per collegare il tuo account."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのKimi Codeのサブスクリプションを使用してKimi Code対応モデルにアクセスします。Kimi Codeでサインインしてアカウントを接続してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ ការជាវ Kimi Code របស់អ្នក ដើម្បីចូលប្រើ ម៉ូដែលដែល Kimi Code គាំទ្រ។ ចូលដោយប្រើ Kimi Code ដើម្បីភ្ជាប់គណនីរបស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Kimi Code 구독로 Kimi Code에서 지원하는 모델에 액세스합니다. Kimi Code로 로그인하여 계정을 연결하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker abonnementet ditt på Kimi Code for å få tilgang til modeller som støttes av Kimi Code. Logg på med Kimi Code for å koble til kontoen din."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojej subskrypcji Kimi Code, aby uzyskać dostęp do modeli obsługiwanych przez Kimi Code. Zaloguj się przez Kimi Code, aby połączyć konto."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua assinatura de Kimi Code para acessar os modelos compatíveis com Kimi Code. Entrar com Kimi Code para conectar sua conta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать вашу подписку на Kimi Code для доступа к следующему: модели, которые поддерживает Kimi Code. Войти через Kimi Code, чтобы подключить аккаунт."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้การสมัครใช้บริการ Kimi Code ของคุณเพื่อเข้าถึงโมเดลที่ Kimi Code รองรับ ลงชื่อเข้าใช้ด้วย Kimi Codeเพื่อเชื่อมต่อบัญชีของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Kimi Code tarafından desteklenen modellere erişmek için Kimi Code aboneliğinizi kullanacak. Hesabınızı bağlamak için Kimi Code ile oturum aç."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає вашу підписку на Kimi Code для доступу до такого: моделі, які підтримує Kimi Code. Увійти через Kimi Code, щоб підключити обліковий запис."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng gói đăng ký Kimi Code của bạn để truy cập các mô hình mà Kimi Code hỗ trợ. Đăng nhập bằng Kimi Code để kết nối tài khoản của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的Kimi Code订阅访问Kimi Code支持的模型。使用Kimi Code登录以连接你的账号。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的Kimi Code訂閱存取Kimi Code支援的模型。使用Kimi Code登入以連接你的帳號。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

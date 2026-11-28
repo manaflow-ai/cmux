@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # CmuxMobileLinkFFI.xcframework for the `ios` job's steps (ci/steps.toml ios-kit and ios-phone-cells) on a pull
-# request: the build fleet's copy of the pull request head when it has the same FFI inputs as the merge commit, else
-# this Mac builds it with cmux-next-ios/rust/scripts/build-xcframework.sh as before. The request key is scoped to the
-# submitting runner, so this step's submit is the build it waits for (a head start from another runner was a second,
-# separate build: pr-pipeline.yml's ios-ffi-fleet gateway job did that until 2026-11-26 and is gone).
+# request, built on the build fleet's Linux pool (cmuxterm-hq build-fleet/swift-linux-builder/pool/ios-ffi/build.sh).
+# This Mac no longer builds it: the fleet build took 150 s from submit to output against the Mac build's 277 s
+# (2026-11-27), and it makes the Mac build's checks (the locked fetch, each slice exports the uniffi symbols, the
+# generated bindings equal the checked-in ones), so a fleet red is this step's red. The simulator typecheck and link
+# the Mac build made is the steps' own kit build, which compiles those bindings and links the framework.
 #
-# The fleet's build passes only when the bindings it generates match the checked-in CmuxMobileLinkFFI.swift, and the
-# key (scripts/ci/ios_link_ffi_key.py) names those bindings, so a fleet copy has passed the drift check the Mac build
-# makes. A copy is marked with its input key (in RUNNER_TEMP), the fleet's and a Mac build's alike: the job's next step
-# with the same inputs reuses it instead of building again. (A Mac build was not marked until 2026-11-26, so the
-# second step, ios-phone-cells after ios-kit, rebuilt it incrementally: 1.9 min of Blacksmith run 45720177041.) Every
-# path that is not the fleet copy is a logged "Mac fallback". CI_IOS_FFI_FLEET=0 turns the fleet off.
+# Where: an owned Mac submits with its cmux-ci client (the pull request head when the merge commit has the same FFI
+# inputs, so reruns reuse it, else the merge commit). A hosted Mac has no client and asks the controller's public
+# route with the job's OIDC token (scripts/ci/fleet_ios_build.py, the run's own commit). A run with neither (a
+# fork's pull request gets no OIDC token), or CI_IOS_FFI_FLEET=0, is the one Mac build left, logged "Mac fallback".
+#
+# A copy is marked with its input key (scripts/ci/ios_link_ffi_key.py, in RUNNER_TEMP): the job's next step with the
+# same inputs reuses it instead of building again.
 #
 #   scripts/ci/ios_link_ffi.sh [JOBS]
 set -uo pipefail
@@ -22,13 +24,12 @@ tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 mark="$tmp/link-ffi-fleet.key"  # this job's steps only
 key="$(python3 -I scripts/ci/ios_link_ffi_key.py 2>/dev/null)" || key=""
 
+# Only where the fleet cannot be asked (see above).
 mac_build() {
   echo "::notice title=Mac fallback::CmuxMobileLinkFFI.xcframework built on this Mac: $1"
   rm -f "$mark"
   local rc=0
   JOBS="$jobs" bash cmux-next-ios/rust/scripts/build-xcframework.sh || rc=$?
-  # The same inputs give the same framework: the job's next step reuses this build (the step's own drift check has
-  # read its bindings). A failed build, or no key, marks nothing.
   if [[ "$rc" == 0 && -n "$key" && -f "$xcf/Info.plist" ]]; then
     printf '%s\n' "$key" > "$mark"
   fi
@@ -36,33 +37,45 @@ mac_build() {
 }
 
 if [[ -n "$key" && -f "$mark" && "$(cat "$mark")" == "$key" && -f "$xcf/Info.plist" ]]; then
-  echo "CmuxMobileLinkFFI.xcframework: an earlier step's copy (the build fleet's or this Mac's), same inputs"
+  echo "CmuxMobileLinkFFI.xcframework: an earlier step's copy, same inputs"
   exit 0
 fi
 rm -f "$mark"
 
 [[ "${CI_IOS_FFI_FLEET:-1}" != 0 ]] || { mac_build "the build fleet is off (CI_IOS_FFI_FLEET=0)"; exit; }
-[[ "${RUNNER_NAME:-}" != blacksmith* ]] || { mac_build "a hosted runner"; exit; }
 client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-[[ -x "$client" ]] || { mac_build "no build fleet client on ${RUNNER_NAME:-this runner}"; exit; }
-[[ -n "$key" ]] || { mac_build "no input key"; exit; }
-# The fleet builds a pushed commit: the pull request head (the merge commit's second parent).
-head="$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null || git rev-parse HEAD)"
-head_key="$(python3 -I scripts/ci/ios_link_ffi_key.py --ref "$head" 2>/dev/null)" || head_key=""
-[[ "$head_key" == "$key" ]] || { mac_build "the base changed the FFI inputs since the head"; exit; }
-
 out="$tmp/link-ffi-fleet"
 rm -rf "$out"
 start=$SECONDS
 status=0
-# Queued: at most 2 min (a Mac build takes 3-5). Running: at most 8 min, or the Mac builds it.
-"$client" ios-build --what ffi --ref "$head" --out "$out" --timeout 480 --queue-timeout 120 || status=$?
-if [[ "$status" != 0 || ! -f "$out/CmuxMobileLinkFFI.xcframework/Info.plist" ]]; then
-  mac_build "no copy from the build fleet (exit $status)"
+# Queued: at most 10 min (the pool boots a VM for it in 1-3). Running: at most 8 (it takes 1.5-2.5).
+if [[ -x "$client" ]]; then
+  # The fleet builds a pushed commit: the pull request head (the merge commit's second parent) when the base left
+  # the FFI inputs as they were, else the merge commit itself (GitHub serves it by SHA).
+  ref="$(git rev-parse HEAD)"
+  head="$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null || true)"
+  if [[ -n "$head" && -n "$key" ]] && [[ "$(python3 -I scripts/ci/ios_link_ffi_key.py --ref "$head" 2>/dev/null)" == "$key" ]]; then
+    ref="$head"
+  fi
+  echo "CmuxMobileLinkFFI.xcframework: the build fleet builds $ref (cmux-ci client)"
+  "$client" ios-build --what ffi --ref "$ref" --out "$out" --timeout 480 --queue-timeout 600 || status=$?
+elif [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
+  echo "CmuxMobileLinkFFI.xcframework: the build fleet builds this run's commit (OIDC route)"
+  python3 -I scripts/ci/fleet_ios_build.py --what ffi --out "$out" --timeout 480 --queue-timeout 600 || status=$?
+else
+  mac_build "no build fleet client and no OIDC token on ${RUNNER_NAME:-this runner}"
   exit
+fi
+if [[ "$status" != 0 || ! -f "$out/CmuxMobileLinkFFI.xcframework/Info.plist" ]]; then
+  if [[ "$status" == 1 ]]; then
+    echo "::error title=CmuxMobileLinkFFI.xcframework::the build fleet's build failed (its reason is above). A 'bindings' failure is CmuxMobileLinkFFI.swift drift: run cmux-next-ios/rust/scripts/build-xcframework.sh and commit the result (the base autofix, scripts/ios-ffi-bindings.sh, does it too)"
+  else
+    echo "::error title=CmuxMobileLinkFFI.xcframework::no answer from the build fleet (exit $status). Re-run the job; CI_IOS_FFI_FLEET=0 builds it on this Mac instead"
+  fi
+  exit 1
 fi
 mkdir -p "$dest"
 rm -rf "$xcf"
 cp -R "$out/CmuxMobileLinkFFI.xcframework" "$dest/"
-printf '%s\n' "$key" > "$mark"
+[[ -z "$key" ]] || printf '%s\n' "$key" > "$mark"
 echo "fleet-built xcframework after $((SECONDS - start)) s"

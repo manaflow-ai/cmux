@@ -87,10 +87,6 @@ PR_EVENTS = ("pull_request", "pull_request_target")
 
 # Workflows whose superseded pull request runs are deliberately not cancelled.
 ALLOWED = {
-    # Only the `changed` job (a few seconds, one compare call) runs without a group: it decides whether this push
-    # measures by the files changed since the previous head, so cancelling the previous head's `changed` would lose
-    # that head's chat-pane change. The measuring `report` job cancels a superseded head's run.
-    "chat-open-perf-report.yml": "its seconds-long changed job diffs against the previous head; report cancels",
     # Debounce runs supersede themselves and exit 0 (next_batch.py
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
@@ -99,10 +95,36 @@ ALLOWED = {
     # (cloud-resume-matrix.yml's header), so an hour of samples on staging machines is not thrown away mid-cell.
     "cloud-resume-matrix.yml": "opt-in resume measurement; a new head runs beside the running one, never cancelled",
     "cloud-wake-echo.yml": "opt-in wake measurement, as cloud-resume-matrix.yml: a new head runs beside the running one",
-    # Its 3 min `changed` gate has no group on purpose: a push that measures nothing must not cancel the head still
-    # being measured. The measuring `report` job cancels per pull request (its job concurrency).
-    "chat-open-perf-report.yml": "the push gate has no group so a no-measure push never cancels a running report",
+
 }
+
+
+# These gates must finish even when a later push does not request a measurement.
+# Exempt only the named, bounded gate; every other job must cancel per PR.
+PRESERVED_GATES = {"chat-open-perf-report.yml": {"changed": 3}}
+
+
+def job_groups_problem(workflow: dict, name: str, event: str) -> str | None:
+    jobs = workflow.get("jobs") or {}
+    gates = PRESERVED_GATES.get(name, {})
+    if not jobs or not (set(jobs) - set(gates)):
+        return "no measuring job with a concurrency group"
+    for gate in gates:
+        if gate not in jobs:
+            return f"preserved gate {gate} no longer exists; remove its exception"
+    for job_id, job in jobs.items():
+        if job_id in gates:
+            timeout = job.get("timeout-minutes")
+            if type(timeout) not in (int, float) or not 0 < timeout <= gates[job_id]:
+                return f"{job_id}: preserved gate must finish within {gates[job_id]} minutes"
+            if job.get("concurrency"):
+                return f"{job_id}: preserved gate now has a group; remove its exception"
+            continue
+        reason = problem(job.get("concurrency"), workflow, event)
+        reason = reason or collision_problem(job.get("concurrency"), workflow, event)
+        if reason:
+            return f"{job_id}: {reason}"
+    return None
 
 
 # Closed-cancel twins: each ends its target's run for a pull request when that
@@ -488,7 +510,7 @@ def collision_problem(concurrency: Any, workflow: dict, event: str) -> str | Non
     return None
 
 
-def workflow_problem(workflow: dict) -> str | None:
+def workflow_problem(workflow: dict, name: str = "") -> str | None:
     for event in PR_EVENTS:
         if event not in triggers(workflow):
             continue
@@ -499,6 +521,11 @@ def workflow_problem(workflow: dict) -> str | None:
             collision = collision_problem(workflow.get("concurrency"), workflow, event)
             if collision:
                 return f"{event}: {collision}"
+            continue
+        if name in PRESERVED_GATES and not workflow.get("concurrency"):
+            reason = job_groups_problem(workflow, name, event)
+            if reason:
+                return f"{event}: {reason}"
             continue
         jobs = jobs_on(workflow, event)
         job_reasons = {job_id: problem(job.get("concurrency"), workflow, event) for job_id, job in jobs.items()}
@@ -719,6 +746,23 @@ def self_check() -> list[str]:
         verdict = problem(concurrency, on, "pull_request") is None
         if verdict != ok:
             failures.append(f"self-check {name!r}: expected {'pass' if ok else 'fail'}")
+    gate_workflow = {**on, "jobs": {
+        "changed": {"timeout-minutes": 3},
+        "report": {"concurrency": {"group": "w-${{ github.event.pull_request.number || github.ref }}",
+                                   "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"}},
+    }}
+    gate_name = "chat-open-perf-report.yml"
+    if workflow_problem(gate_workflow, gate_name):
+        failures.append("self-check: a bounded gate beside a cancellable report must pass")
+    for jobs in (
+        {**gate_workflow["jobs"], "changed": {}},
+        {**gate_workflow["jobs"], "changed": {"timeout-minutes": 4}},
+        {**gate_workflow["jobs"], "report": {}},
+        {**gate_workflow["jobs"], "another": {}},
+        {"changed": {"timeout-minutes": 3}},
+    ):
+        if workflow_problem({**gate_workflow, "jobs": jobs}, gate_name) is None:
+            failures.append("self-check: preserved gates must not exempt unbounded or uncancelled jobs")
     # A pull request into feat-cmux-next and a push to it both get `w-feat-cmux-next` (#47604's first fixture,
     # `number || 'deploy'`, gave w-101 and w-deploy: no shared group, so it never failed).
     shared = {"on": {"pull_request": None, "push": None},
@@ -813,6 +857,14 @@ def event_types(trigger: Any) -> list[str]:
     return [types] if isinstance(types, str) else list(types)
 
 
+# Workflows whose same-head fix waits on a gate this PR may not pass. language-boundaries.yml is the
+# language-boundaries check itself: land_judge refuses any PR that edits it without Leo's
+# `leo-approved-port` label, so its READY_GROUP_SUFFIX ships in its own PR (cmux#62221 split it out).
+SAME_HEAD_PENDING = {
+    "language-boundaries.yml": "edits to the language-boundaries check need Leo's leo-approved-port label",
+}
+
+
 def same_head_problems(workflow: dict) -> list[str]:
     """Why a ready_for_review run of this workflow (or, for a reusable workflow, of its pull request caller, whose
     event it inherits) cancels the in-flight draft run of the same head, in the workflow's group or a job's."""
@@ -889,12 +941,17 @@ def main() -> int:
             if not edits:
                 failures.append(f"EDIT_SKIP_PENDING names {path.name}, which passes the edit rule now: remove it")
             edits = []
-        for reason in edits + comment_problems(workflow) + same_head_problems(workflow):
+        same_head = same_head_problems(workflow)
+        if path.name in SAME_HEAD_PENDING:
+            if not same_head:
+                failures.append(f"SAME_HEAD_PENDING names {path.name}, which passes the same-head rule now: remove it")
+            same_head = []
+        for reason in edits + comment_problems(workflow) + same_head:
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
         if not any(event in triggers(workflow) for event in PR_EVENTS):
             continue
         checked += 1
-        reason = workflow_problem(workflow)
+        reason = workflow_problem(workflow, path.name)
         if path.name in ALLOWED:
             if reason is None:
                 failures.append(f"{path.name} now cancels superseded runs; remove its ALLOWED entry")
@@ -917,6 +974,9 @@ def main() -> int:
     for name, why in sorted(EDIT_SKIP_PENDING.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"EDIT_SKIP_PENDING names {name}, which no longer exists or has no reason")
+    for name, why in sorted(SAME_HEAD_PENDING.items()):
+        if not why.strip() or not (WORKFLOWS / name).exists():
+            failures.append(f"SAME_HEAD_PENDING names {name}, which no longer exists or has no reason")
     if failures:
         print("superseded pull request runs that keep running:", file=sys.stderr)
         for failure in failures:

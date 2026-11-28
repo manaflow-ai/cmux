@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextPalette
 @testable import CmuxNextSettings
 import CmuxNextTestSupport
+import CmuxNextSettingsWindow
 import Foundation
 import os
 import Testing
