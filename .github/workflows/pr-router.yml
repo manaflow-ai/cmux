@@ -63,6 +63,8 @@ jobs:
     permissions:
       # head_tier.py reads the previous head's Actions runs (the green-head base merge rule).
       actions: read
+      # head_tier.py reads the head's check runs (the same-head land carry rule).
+      checks: read
       contents: read
       # The land tier's `cmux/land-tier` commit status (below).
       statuses: write
@@ -82,8 +84,9 @@ jobs:
       # The `cmux/ui-proof` commit status the route posted (pr_router.py ui_status); `pending` hands it to
       # ui-proof-status below, which reads the proof record at the head.
       ui_status: ${{ steps.route.outputs.ui_status }}
-      # `false` when every changed path is one no web bundle reads (pr_router.py preflight_web, pr_router.json's
-      # compile preflight `paths-ignore`); the compile preflight's job then skips with no runner.
+      # `false` when no changed path is a web bundle input (pr_router.py preflight_web: the callee's own web-touched
+      # answer, compile_preflight.py router_web, which checks webviews/ out of this sparse checkout to read its
+      # imports); the compile preflight's web job then skips with no runner. Anything unread answers `true`.
       preflight_web: ${{ steps.route.outputs.preflight_web }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
@@ -120,6 +123,8 @@ jobs:
             scripts/ci/gh_http.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
+            scripts/ci/compile_preflight.py
+            scripts/cmux-next/web-bundle-key.py
             scripts/ci/ios_fast_verdict.py
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
@@ -141,6 +146,10 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # The compile preflight's web job runs only when a changed file is a web bundle input, answered here by the
+          # job's own check (pr_router.py preflight_web, compile_preflight.py router_web); 0 runs it on every head
+          # the preflight starts and leaves the answer to the job's first step.
+          CI_ROUTER_WEB_EXACT: ${{ vars.CI_ROUTER_WEB_EXACT || '1' }}
           # A landing head of the affected tier runs the step table's nightly-mirroring steps its change routes
           # (pr_router.py NIGHTLY_GATE_JOBS); 0 turns that off.
           CI_NIGHTLY_GATE_ON_LAND: ${{ vars.CI_NIGHTLY_GATE_ON_LAND || '1' }}
@@ -165,6 +174,8 @@ jobs:
           # tip and land's update-branch head only (pr_router.py handoff_label_skip); 0 builds the label handoff too.
           CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}
           CI_NIGHTLY_PR_BUILD_AT_LAND: ${{ vars.CI_NIGHTLY_PR_BUILD_AT_LAND || '1' }}
+          # nightly-pr-build.yml runs on the tip (pr_router.py per_pr_on); 1 starts it on pull requests too.
+          CI_NIGHTLY_PR_BUILD_PER_PR: ${{ vars.CI_NIGHTLY_PR_BUILD_PER_PR || '0' }}
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
@@ -179,6 +190,9 @@ jobs:
           # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
           # rule); 0 turns that off.
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          # ready-to-land added again to a head whose land tier and every check already passed there runs nothing
+          # and keeps cmux/land-tier success (head_tier.py's same-head land carry rule); 0 turns that off.
+          CI_SAME_HEAD_LAND_CARRY: ${{ vars.CI_SAME_HEAD_LAND_CARRY || '1' }}
           # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
           # 0 turns the UI proof gate off (scripts/ci/ui_proof_verdict.py); cmux/ui-proof then posts success.
@@ -453,6 +467,15 @@ jobs:
     permissions:
       contents: read
 
+  motion-frames:
+    name: cmux-next motion frames
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-motion-frames.yml') }}
+    uses: ./.github/workflows/cmux-next-motion-frames.yml
+    permissions:
+      # dispatch starts cmux-next-frame-pacing.yml's `frames` suite on the pull request's branch.
+      actions: write
+
   transcript-replay-perf-report:
     name: transcript-replay perf report
     needs: route
@@ -476,7 +499,9 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'nightly-pr-build.yml') }}
     uses: ./.github/workflows/nightly-pr-build.yml
+    # actions: read is its coalesce job's (skipped on a pull request); GitHub checks the callee's permissions at startup.
     permissions:
+      actions: read
       contents: read
       checks: read
 
@@ -512,13 +537,16 @@ jobs:
       contents: read
 
   compile-preflight:
-    # A web-bundle input can break the build on every tier (Leo, 2026-11-27: "surely we can just have legit build
-    # fail preflight checks"). The router's conservative `affects` superset admits web inputs and unknown diffs,
-    # while docs/tooling-only changes skip this Linux runner at the caller job. cmux#57269 landed a web break through
-    # the tier gates; actual web inputs still run the callee, whose first step remains a cache-aware build.
+    # The build a change can break, on every tier (Leo, 2026-11-27: "surely we can just have legit build fail
+    # preflight checks"). No tier rule and no `start` gate: the land tier's cheap and none tiers skip every other
+    # build, and cmux#57269 landed a web bundle build break through them. A change whose every path no web bundle
+    # reads (the route's preflight_web: Rust, Swift, Python, prose, other workflows) passes web: false and the
+    # callee's job skips before taking a runner (Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can
+    # reuse, we reuse."); any other change starts it, and its first step decides from the exact web bundle inputs,
+    # so a change that reaches a web bundle always gets a verdict, never "skipped".
     name: compile preflight
     needs: route
-    if: ${{ !cancelled() && needs.route.result == 'success' && contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-compile-preflight.yml') }}
+    if: ${{ !cancelled() && needs.route.result == 'success' }}
     uses: ./.github/workflows/cmux-next-compile-preflight.yml
     with:
       web: ${{ needs.route.outputs.preflight_web || 'true' }}
