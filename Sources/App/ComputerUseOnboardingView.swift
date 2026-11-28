@@ -28,10 +28,10 @@ struct ComputerUseOnboardingView: View {
     @State private var helperAppURL: URL?
     @State private var helperUnavailableInThisBuild = false
     @State private var initialPermissionFlowStarted = false
-    @State private var permissionSetupInFlight = false
+    @State private var permissionSetup = ComputerUsePermissionSetupRequest()
     private var directCaptureReady: Bool { runtimeService.onboardingIsComplete }
     @State private var directCaptureVerificationInFlight = false
-    @State private var directCaptureVerificationAttempted = false
+    @State private var directCaptureAutoVerification = ComputerUseDirectCaptureAutoVerification()
     @State private var settingsOpened: Set<ComputerUseSystemPermission> = []
     @State private var setupOperation: SetupOperation?
     @State private var setupGeneration = 0
@@ -40,7 +40,6 @@ struct ComputerUseOnboardingView: View {
     private enum SetupOperation: Equatable {
         case refresh
         case prepare
-        case permission(ComputerUseOnboardingStep)
     }
 
     init(
@@ -104,6 +103,12 @@ struct ComputerUseOnboardingView: View {
         .task(id: setupGeneration) {
             guard let setupOperation else { return }
             await runSetup(setupOperation)
+        }
+        .task(id: permissionSetup.generation) {
+            guard let permissionStep = permissionSetup.activeStep else { return }
+            let generation = permissionSetup.generation
+            await runPermissionSetup(permissionStep)
+            permissionSetup.finish(generation: generation)
         }
         .task(id: verificationGeneration) {
             guard verificationGeneration > 0 else { return }
@@ -315,16 +320,34 @@ struct ComputerUseOnboardingView: View {
     /// direct-capture consent alert. Say so instead of re-explaining
     /// screenshots while a scary system dialog is (or is about to be) up.
     private var screenshotsCardDetail: String {
-        if permissionStatusIsKnown, screenRecordingGranted, !directCaptureReady {
+        switch ComputerUseScreenshotsCardDetail.resolve(
+            statusIsKnown: permissionStatusIsKnown,
+            screenRecordingGranted: screenRecordingGranted,
+            directCaptureReady: directCaptureReady,
+            verificationInFlight: directCaptureVerificationInFlight,
+            verificationAttempted: directCaptureAutoVerification.attempted
+        ) {
+        case .explainScreenshots:
+            return String(
+                localized: "computerUse.onboarding.screenshots.cardDetail",
+                defaultValue: "cmux uses screenshots to know where to click"
+            )
+        case .confirmInMacOS:
             return String(
                 localized: "computerUse.onboarding.screenshots.confirmDetail",
                 defaultValue: "macOS asks for confirmation. Allow screen capture."
             )
+        case .waitingForMacOSAlert:
+            return String(
+                localized: "computerUse.onboarding.screenshots.waitingDetail",
+                defaultValue: "Waiting for you to answer the macOS alert."
+            )
+        case .retry:
+            return String(
+                localized: "computerUse.onboarding.screenshots.retryDetail",
+                defaultValue: "Screen capture is not confirmed. Click Allow to retry."
+            )
         }
-        return String(
-            localized: "computerUse.onboarding.screenshots.cardDetail",
-            defaultValue: "cmux uses screenshots to know where to click"
-        )
     }
 
     private func permissionCard(
@@ -405,7 +428,7 @@ struct ComputerUseOnboardingView: View {
         } else {
             let isButtonEnabled = ComputerUsePermissionRowAction.isButtonEnabled(
                 helperIsReady: helperAppURL != nil,
-                permissionSetupInFlight: permissionSetupInFlight
+                permissionSetupInFlight: permissionSetup.isInFlight
                     || directCaptureVerificationInFlight
             )
             Button {
@@ -473,40 +496,43 @@ struct ComputerUseOnboardingView: View {
             } else if initialStep == .screenRecording, !status.screenRecording {
                 beginPermissionSetup(for: initialStep)
             }
-        case .permission(let permissionStep):
-            defer { permissionSetupInFlight = false }
-            _ = await runtimeService.ensureStandaloneHelperInstalled()
-            let status = await runtimeService.refreshHelperStatus()
-            guard !Task.isCancelled else { return }
-            refreshHelperPresentation()
-            applyPermissions(
-                statusIsKnown: runtimeService.permissionStatusIsKnown,
-                accessibilityGranted: status.accessibility,
-                screenRecordingGranted: status.screenRecording
-            )
-            guard
-                !Task.isCancelled,
-                let systemPermission = systemPermission(for: permissionStep)
-            else { return }
-            let currentlyGranted = permissionStep == .accessibility
-                ? accessibilityGranted
-                : screenRecordingGranted
-            guard !permissionStatusIsKnown || !currentlyGranted else { return }
-            let action = ComputerUsePermissionRowAction.resolve(
-                granted: currentlyGranted,
-                statusIsKnown: permissionStatusIsKnown,
-                systemSettingsOpened: settingsOpened.contains(systemPermission)
-            )
-            guard action.destination == .systemSettings else { return }
-            settingsOpened.insert(systemPermission)
-            await openSystemSettings(for: permissionStep)
         }
+    }
+
+    /// Runs in its own task so a permission refresh can never replace a
+    /// started setup and leave its Allow button disabled.
+    private func runPermissionSetup(_ permissionStep: ComputerUseOnboardingStep) async {
+        _ = await runtimeService.ensureStandaloneHelperInstalled()
+        let status = await runtimeService.refreshHelperStatus()
+        guard !Task.isCancelled else { return }
+        refreshHelperPresentation()
+        applyPermissions(
+            statusIsKnown: runtimeService.permissionStatusIsKnown,
+            accessibilityGranted: status.accessibility,
+            screenRecordingGranted: status.screenRecording
+        )
+        guard
+            !Task.isCancelled,
+            let systemPermission = systemPermission(for: permissionStep)
+        else { return }
+        let currentlyGranted = permissionStep == .accessibility
+            ? accessibilityGranted
+            : screenRecordingGranted
+        guard !permissionStatusIsKnown || !currentlyGranted else { return }
+        let action = ComputerUsePermissionRowAction.resolve(
+            granted: currentlyGranted,
+            statusIsKnown: permissionStatusIsKnown,
+            systemSettingsOpened: settingsOpened.contains(systemPermission)
+        )
+        guard action.destination == .systemSettings else { return }
+        settingsOpened.insert(systemPermission)
+        await openSystemSettings(for: permissionStep)
     }
 
     private func beginPermissionSetup(for permissionStep: ComputerUseOnboardingStep) {
         guard
             permissionStep == .accessibility || permissionStep == .screenRecording,
-            !permissionSetupInFlight
+            !permissionSetup.isInFlight
         else {
             return
         }
@@ -516,12 +542,10 @@ struct ComputerUseOnboardingView: View {
             : screenRecordingGranted
         guard !permissionStatusIsKnown || !granted else { return }
 
+        guard permissionSetup.begin(permissionStep) else { return }
         step = permissionStep
-        permissionSetupInFlight = true
         permissionCheckArmed = true
         onPermissionSetupStarted(permissionStep)
-        setupOperation = .permission(permissionStep)
-        setupGeneration &+= 1
     }
 
     private func performAllowAction(for permissionStep: ComputerUseOnboardingStep) {
@@ -534,6 +558,7 @@ struct ComputerUseOnboardingView: View {
         case .openSystemSettings:
             beginPermissionSetup(for: permissionStep)
         case .verifyScreenCapture:
+            directCaptureAutoVerification.reset()
             beginDirectCaptureVerification()
         case .none:
             break
@@ -603,7 +628,7 @@ struct ComputerUseOnboardingView: View {
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
         if !newScreenRecordingGranted {
-            directCaptureVerificationAttempted = false
+            directCaptureAutoVerification.reset()
         }
 
         switch ComputerUseOnboardingAdvance.resolve(
@@ -619,7 +644,7 @@ struct ComputerUseOnboardingView: View {
             step = .screenRecording
             onExpandedRequested()
         case .verifyScreenCapture:
-            if !directCaptureVerificationAttempted {
+            if directCaptureAutoVerification.shouldVerifyAutomatically {
                 beginDirectCaptureVerification()
             }
         case .complete:
@@ -632,7 +657,7 @@ struct ComputerUseOnboardingView: View {
 
     private func beginDirectCaptureVerification() {
         guard !directCaptureVerificationInFlight else { return }
-        directCaptureVerificationAttempted = true
+        directCaptureAutoVerification.began()
         directCaptureVerificationInFlight = true
         presentationState.beginScreenCaptureConsent()
         onExpandedRequested()
@@ -652,7 +677,7 @@ struct ComputerUseOnboardingView: View {
                 )
             } else {
                 if verification == .unavailable {
-                    directCaptureVerificationAttempted = false
+                    directCaptureAutoVerification.recordUnavailable()
                 }
                 step = .screenRecording
                 onExpandedRequested()
