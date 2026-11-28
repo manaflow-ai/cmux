@@ -20,7 +20,8 @@ import UIKit
     typealias Kept = AgentKeptTranscriptTests
     typealias Long = LongChatOpenLiveTests
 
-    @Test func readBackARelaunchedChatsFirstFrame() async throws {
+    // Measurement only (keptframe-repeat): 20 runs in one process, serialized, to count first-frame turns per run.
+    @Test(arguments: 0..<20) func readBackARelaunchedChatsFirstFrame(run: Int) async throws {
         let directory = Kept.folder()
         defer { try? FileManager.default.removeItem(at: directory) }
         let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
@@ -33,7 +34,7 @@ import UIKit
         func line(_ name: String, _ store: AgentChatStore, _ extra: String = "") {
             let ms = Double((ContinuousClock.now - start) / .microseconds(1)) / 1000
             let spinner = store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt
-            log.append("KEPTFRAME \(name) t=\(ms)ms turns=\(store.turns.count) spinner=\(spinner) newest=\(store.turns.last?.id ?? "-")\(extra)")
+            log.append("KEPTFRAME run=\(run) \(name) t=\(ms)ms turns=\(store.turns.count) spinner=\(spinner) newest=\(store.turns.last?.id ?? "-")\(extra)")
         }
 
         // The relaunch: a new cache instance (nothing in memory) and a hub with no link.
@@ -59,7 +60,7 @@ import UIKit
                     window.layer.render(in: context.cgContext)
                 }
             }
-            if let png = image.pngData() { Attachment.record(png, named: "kept-chat-\(name).png") }
+            if let png = image.pngData() { Attachment.record(png, named: "kept-chat-run\(run)-\(name).png") }
             return (store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt, store.turns.count)
         }
 
@@ -75,7 +76,7 @@ import UIKit
         let settled = shot("2-settled-500ms")
         let text = log.joined(separator: "\n")
         print(text)
-        Attachment.record(text, named: "keptframe-log.txt")
+        Attachment.record(text, named: "keptframe-log-run\(run).txt")
 
         #expect(source.replayCount > 0, "the kept turns are restored in the open's own turn")
         #expect(!first.spinner, "the first frame draws the kept turns, not \"Loading chat…\"")
