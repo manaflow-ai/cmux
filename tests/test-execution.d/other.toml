@@ -1356,6 +1356,10 @@ path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_workflow_inline_python_f_strings.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_xcode_build_timeline.py"
 lane = "linux-guard"
 
