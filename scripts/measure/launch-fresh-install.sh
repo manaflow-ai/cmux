@@ -21,6 +21,8 @@
 #   s   as n, the executable started directly (posix_spawn, suspended) and stopped at main: spawn_ms is the kernel's
 #       exec of the image (its signature and policy check), resume_to_main is dyld, the frameworks it links and
 #       initializers. Splits a new copy's wait between exec and dyld with no root and no prompt.
+#       On a stub that loads the framework after its main (stub_main mark), the probe splits that again at stub_main,
+#       with syspolicyd's CPU in each span.
 #   x   as n, but the first thing run on the new copy is the exec of a small separately signed bundle inside it (the
 #       smallest Chromium helper app's executable, spawned suspended and killed): spawn_ms says whether a nested
 #       bundle's first exec pays only its own check or the whole app's, which is what a small stub bundle would pay
@@ -66,7 +68,7 @@ main() {
   [[ "$rows" =~ ^[nqmpksx](,[nqmpksx])*$ ]] || { echo "rows= takes n,q,m,p,k,s,x" >&2; exit 2; }
   [[ "$load" =~ ^([0-9]|[12][0-9]|3[0-2])$ ]] || { echo "load= must be 0 to 32" >&2; exit 2; }
   echo "LF host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
-  sudo -n true 2>/dev/null && echo "LF root yes" || echo "LF root no (trace=1 needs it for fs_usage)"
+  can_trace && echo "LF root yes" || echo "LF root no (trace=1 needs sudo for /usr/bin/fs_usage)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
     || { echo "LF probe build failed"; cat "$out/swiftc.log"; exit 3; }
   if [[ "$dmg" == nightly ]]; then
@@ -144,7 +146,8 @@ for name in dict.fromkeys(r["row"] for r in rows):
              "prompt_left": sum(1 for r in runs if r.get("prompt_left"))}
     for key in ("prompt", "prompt_gone", "start", "main", "window", "usable", "main_start",
                 "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms",
-                "spawn_ms", "resume_to_main", "request_to_start"):
+                "spawn_ms", "resume_to_main", "request_to_start", "stub_main", "resume_to_stub_main", "stub_main_to_main",
+                "syspolicyd_to_stub_main", "syspolicyd_stub_to_main", "syspolicyd_to_main"):
         table[key] = med([r.get(key) for r in runs])
     # The prompt's dwell (on screen to dismissed) is a person's click, not ours to cut: window, usable and main are
     # reported as measured above and again with the dwell subtracted (*_less_dwell; equal to the measured value when
@@ -236,6 +239,9 @@ quarantine() {
   xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$1"
 }
 
+# A fleet host's sudoers is scoped to named commands: ask for fs_usage itself (sudo -n true is not on every list).
+can_trace() { sudo -n -l /usr/bin/fs_usage >/dev/null 2>&1; }
+
 qattr() { xattr -p com.apple.quarantine "$1" 2>/dev/null || echo none; }
 
 # cpu_delta BEFORE AFTER: the checkers' summed CPU ms between two checker_cpu readings.
@@ -299,7 +305,7 @@ first() {
   fwq="$(qattr "$fw")"
   local cpu_before trace_pid="" t0
   cpu_before="$(checker_cpu)"
-  if [[ "$rep" == T ]] && sudo -n true 2>/dev/null; then
+  if [[ "$rep" == T ]] && can_trace; then
     # fs_usage itself under sudo (a fleet host's sudoers allows /usr/bin/fs_usage, not a shell); the redirect stays in
     # this unprivileged shell. -t 70 ends it after the launch's 60 s bound; the plain kill below ends it sooner (sudo
     # runs with this user's real uid, so it takes the signal and passes it to fs_usage).
@@ -319,8 +325,13 @@ first() {
   t0="$(date '+%Y-%m-%d %H:%M:%S')"
   if [[ "$name" == x ]]; then
     local helper
-    helper="$(find "$app/Contents/Frameworks" -maxdepth 1 -name '* Helper*.app' | while read -r h; do
-      e="$h/Contents/MacOS/$(basename "$h" .app)"; [[ -x "$e" ]] && echo "$(stat -f %z "$e") $e"; done | sort -n | head -1 | cut -d' ' -f2-)"
+    # Anywhere under Frameworks (the stub layout nests them in a framework), each by its own CFBundleExecutable.
+    helper="$(find "$app/Contents/Frameworks" -maxdepth 6 -type d -name '* Helper*.app' -prune | while read -r h; do
+      plist="$h/Contents/Info.plist" bin=""
+      [[ -f "$plist" ]] && bin="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist" 2>/dev/null || true)"
+      e="$h/Contents/MacOS/${bin:-$(basename "$h" .app)}"
+      [[ -f "$e" && -x "$e" ]] && echo "$(stat -f %z "$e") $e"; done | sort -n | head -1 | cut -d' ' -f2-)"
+    [[ -n "$helper" ]] || echo "LF x: no nested Helper app under $app/Contents/Frameworks" >&2
     line="$(console "$OUT/launch-premain" spawn "$helper" "$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
   elif [[ "$name" == s ]]; then
     # The hold file exists before the spawn: the probe resumes the suspended child as soon as it has its pid.
