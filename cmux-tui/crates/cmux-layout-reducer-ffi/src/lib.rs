@@ -21,6 +21,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 // Every module's `mod` line and the op modules' dispatch (`respond_op_module`), from the files
 // in src/: see build.rs.
 include!(concat!(env!("OUT_DIR"), "/dispatch.rs"));
+
+/// How many sidebar drag geometries stay live (`sidebar_geometry`, an op module build.rs declares).
+pub use sidebar_geometry::KEEP as SIDEBAR_GEOMETRY_KEEP;
+
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -228,6 +232,20 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_drag_geometry::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_drag_geometry::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_region_layout" => {
+                use cmux_layout_reducer::sidebar_region_layout;
+                let request: sidebar_region_layout::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_region_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_band_heights" => {
+                use cmux_layout_reducer::sidebar_region_layout;
+                let request: sidebar_region_layout::BandHeights =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_region_layout::band_heights(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_nav" => {

@@ -379,6 +379,7 @@ struct FakeVault {
     node: RefCell<Option<(String, String)>>,
     revision: RefCell<u64>,
     refuse_put: bool,
+    refuse_lease: bool,
     lease: RefCell<vault::Lease>,
 }
 
@@ -405,6 +406,9 @@ impl vault::NodeVault for FakeVault {
         Ok(())
     }
     fn lease(&self) -> Result<vault::Lease, String> {
+        if self.refuse_lease {
+            return Err("your vault is unreachable (offline)".to_owned());
+        }
         Ok(self.lease.borrow().clone())
     }
     // The platform's rules (cmux-platform#2167): compare-and-set on the epoch.
@@ -442,6 +446,7 @@ fn kept(name: &str, state: &str) -> FakeVault {
         node: RefCell::new(Some((name.to_owned(), state.to_owned()))),
         revision: RefCell::new(7),
         refuse_put: false,
+        refuse_lease: false,
         lease: RefCell::new(vault::Lease { holder: None, epoch: 0 }),
     }
 }
@@ -590,4 +595,119 @@ fn leave_drops_only_the_signed_out_node_from_the_vault() {
     assert_eq!(drop_if_kept(&store, "vm_b", "leo-cmux"), None);
     assert!(store.node.borrow().is_none());
     assert_eq!(store.lease().unwrap().holder, None);
+}
+
+#[test]
+fn connect_is_a_join_for_the_one_stable_node() {
+    let env = |name: &str| (name == "USER").then(|| "Leo.Smith".to_owned());
+    let args = parse_connect(&words("vm_1 --oauth --key-stdin --tag tag:cmux"), &env).unwrap();
+    assert!(args.request.ssh && !args.request.ephemeral && args.oauth);
+    assert_eq!(args.request.hostname.as_deref(), Some("leo-smith-cmux"));
+    let named = parse_connect(&words("vm_1 --key-stdin --hostname box"), &env).unwrap();
+    assert_eq!(named.request.hostname.as_deref(), Some("box"));
+    let why = parse_connect(&words("vm_1 --key-stdin --ephemeral"), &env).unwrap_err();
+    assert!(why.contains("never --ephemeral"), "{why}");
+    let why = parse_connect(&words("vm_1"), &env).unwrap_err();
+    assert!(why.contains("tailnet connect needs"), "{why}");
+}
+
+#[test]
+fn the_stable_name_is_a_dns_label() {
+    let name = |user: &str| {
+        let user = user.to_owned();
+        stable_name(&move |key: &str| (key == "USER").then(|| user.clone()))
+    };
+    assert_eq!(name("leo"), "leo-cmux");
+    assert_eq!(name("  Ann_Lee--"), "ann-lee-cmux");
+    assert_eq!(name("!!!"), "cmux");
+    assert_eq!(stable_name(&|_: &str| None), "cmux");
+    assert!(name(&"a".repeat(80)).len() <= 63);
+}
+
+#[test]
+fn connect_refuses_while_the_vault_keeps_a_node() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    let why = may_connect(&store, "vm_2").unwrap_err();
+    assert!(why.contains("keeps your node leo-cmux") && why.contains("adopt vm_2"), "{why}");
+    let empty = kept("x", "c3RhdGU=");
+    *empty.node.borrow_mut() = None;
+    assert_eq!(may_connect(&empty, "vm_2"), Ok(()));
+}
+
+// MARK: A resumed VM checks the holder lease (RFD 0169)
+
+const NODE: &str = "leo-cmux.tail1.ts.net";
+
+fn resumed(
+    store: Result<Option<&dyn vault::NodeVault>, &String>,
+) -> (Option<String>, bool, Vec<String>) {
+    let mut vm = fake(vec![said("cmux-tailnet-stood-down\n")]);
+    let (note, stood_down) = settle_resumed(store, "vm_a", NODE, |_| vault::stand_down(&mut vm));
+    (note, stood_down, vm.commands)
+}
+
+#[test]
+fn a_resumed_holder_keeps_its_node() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    held(&store, "vm_a", 3);
+    let (note, stood_down, commands) = resumed(Ok(Some(&store)));
+    assert_eq!((note, stood_down), (None, false));
+    assert!(commands.is_empty(), "the holder is not touched");
+    assert_eq!(*store.lease.borrow(), vault::Lease { holder: Some("vm_a".to_owned()), epoch: 3 });
+}
+
+#[test]
+fn a_resumed_vm_stops_the_node_another_vm_now_holds() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    held(&store, "vm_b", 4);
+    let (note, stood_down, commands) = resumed(Ok(Some(&store)));
+    assert!(stood_down);
+    assert!(note.unwrap().starts_with("vm_b holds your tailnet node now"));
+    assert_eq!(commands, vec![cmux_tailnet_join::handoff::stand_down_command()]);
+    assert_eq!(*store.lease.borrow(), vault::Lease { holder: Some("vm_b".to_owned()), epoch: 4 });
+    assert!(store.node.borrow().is_some(), "the vault keeps the node the holder runs");
+}
+
+#[test]
+fn a_resumed_vm_with_no_lease_or_no_sign_in_is_unchanged() {
+    let free = kept("leo-cmux", "c3RhdGU=");
+    for store in [Ok(Some(&free as &dyn vault::NodeVault)), Ok(None)] {
+        let (note, stood_down, commands) = resumed(store);
+        assert_eq!((note, stood_down), (None, false));
+        assert!(commands.is_empty());
+    }
+}
+
+#[test]
+fn a_resumed_vm_is_unchanged_when_the_vault_keeps_another_node() {
+    let store = kept("other-box", "c3RhdGU=");
+    held(&store, "vm_b", 4);
+    let (note, stood_down, commands) = resumed(Ok(Some(&store)));
+    assert_eq!((note, stood_down), (None, false));
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn a_failed_lease_check_only_warns_and_the_resume_stands() {
+    let store = FakeVault { refuse_lease: true, ..kept("leo-cmux", "c3RhdGU=") };
+    let (note, stood_down, commands) = resumed(Ok(Some(&store)));
+    assert!(!stood_down);
+    assert!(
+        note.unwrap().starts_with("could not check your vault's tailnet lease after resuming vm_a")
+    );
+    assert!(commands.is_empty());
+    let signed_out = "no device credential".to_owned();
+    let (note, stood_down, _) = resumed(Err(&signed_out));
+    assert!(!stood_down && note.unwrap().contains("no device credential"));
+}
+
+#[test]
+fn a_resumed_vm_that_will_not_stop_keeps_its_record_and_says_so() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    held(&store, "vm_b", 4);
+    let (note, stood_down) = settle_resumed(Ok(Some(&store)), "vm_a", NODE, |_| {
+        Err("exit 3: tailscaled did not stop".to_owned())
+    });
+    assert!(!stood_down);
+    assert!(note.unwrap().contains("did not stop (exit 3: tailscaled did not stop)"));
 }
