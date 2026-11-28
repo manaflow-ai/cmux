@@ -413,6 +413,88 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(state.commands.filter { $0.contains(#""method":"coderouter.claude_upstream.add""#) }.count, 1)
     }
 
+    // `claude setup-token` breaks its token over terminal lines, so a token
+    // copied by selection arrives with line breaks and padding inside it.
+    func testCoderouterClaudeAddOAuthTokenJoinsATokenWrappedOverStdinLines() throws {
+        let token = Self.sampleOAuthToken
+        let cut = token.index(token.startIndex, offsetBy: 30)
+        nonisolated(unsafe) var receivedToken: String?
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "claude", "add", "oauth-token", "--stdin", "--label", "work"],
+            socketName: "coderouter-add-oauth-wrapped",
+            standardInput: "\n  \(token[..<cut])  \r\n\t\(token[cut...]) \n\n"
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedToken = params["token"] as? String
+            return self.okResponse([
+                "teamId": "team_local",
+                "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work"),
+                "accountsTotal": 1,
+            ])
+        }
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(receivedToken, token)
+        XCTAssertEqual(state.commands.filter { $0.contains(#""method":"coderouter.claude_upstream.add""#) }.count, 1)
+    }
+
+    func testCoderouterClaudeAddOAuthTokenDropsWhitespaceFromTheEnvironmentToken() throws {
+        let token = Self.sampleOAuthToken
+        let cut = token.index(token.startIndex, offsetBy: 30)
+        nonisolated(unsafe) var receivedToken: String?
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "claude", "add", "oauth-token", "--label", "work"],
+            socketName: "coderouter-add-oauth-env-wrapped",
+            extraEnvironment: ["CLAUDE_CODE_OAUTH_TOKEN": " \(token[..<cut])\n  \(token[cut...])\n"]
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedToken = params["token"] as? String
+            return self.okResponse([
+                "teamId": "team_local",
+                "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work"),
+                "accountsTotal": 1,
+            ])
+        }
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(receivedToken, token)
+    }
+
+    func testCoderouterClaudeAddOAuthTokenRejectsWhitespaceOnlyStdinBeforeTheSocket() throws {
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "claude", "add", "oauth-token", "--stdin"],
+            socketName: "coderouter-add-oauth-blank",
+            standardInput: " \n\t\r\n",
+            waitForSocket: false
+        ) { _, _ in nil }
+
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("No Claude Code OAuth token on stdin"), result.stderr)
+        XCTAssertFalse(state.commands.contains { $0.contains("coderouter.claude_upstream.add") }, "\(state.commands)")
+    }
+
+    func testCoderouterClaudeAddAPIKeyJoinsAKeyWrappedOverStdinLines() throws {
+        let apiKey = "sk-ant-api03-0123456789abcdefghijklmnopqrstuvwxyz"
+        let cut = apiKey.index(apiKey.startIndex, offsetBy: 24)
+        nonisolated(unsafe) var receivedKey: String?
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "claude", "add", "api-key", "--stdin"],
+            socketName: "coderouter-add-api-key-wrapped",
+            standardInput: "\(apiKey[..<cut])\n \(apiKey[cut...])\n"
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedKey = params["apiKey"] as? String
+            return self.okResponse([
+                "teamId": "team_local",
+                "account": Self.account(id: Self.accountB, kind: "anthropic_api_key", identifier: "sk-ant-...wxyz"),
+                "accountsTotal": 1,
+            ])
+        }
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(receivedKey, apiKey)
+    }
+
     /// Runs `claude add oauth-token` on a terminal with no `--label`, the token
     /// in the environment, and `claudeJSON` as the Claude Code config, typing
     /// `typed` at any prompt. Returns the label CodeRouter received.
