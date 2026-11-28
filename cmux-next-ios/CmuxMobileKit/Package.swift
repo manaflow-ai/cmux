@@ -383,7 +383,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     }
     try project("CmuxMobileLive", directory: "Sources/CmuxMobileLive", sources: [
         "ClockInstants.swift", "LinkConnectivityEvents.swift", "LinkController.swift", "LinkMachine.swift",
-        "LinkPairingRetry.swift", "LinkServiceFailure.swift", "PresenceTiming.swift", "ReliabilityLinuxShims.swift",
+        "LinkPairingRetry.swift", "LinkServiceFailure.swift", "MacDiscoveryPoll.swift", "PresenceTiming.swift", "ReliabilityLinuxShims.swift",
         "RetryBounds.swift",
     ], dependencies: [
         "CmuxMobileModel", "CmuxMobileTransport",
@@ -393,7 +393,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
         "WorkspacesLaunchState.swift",
     ], dependencies: ["CmuxMobileModel"])
     try project("CmuxMobileLiveTests", directory: "Tests/CmuxMobileLiveTests", sources: [
-        "AwakeDeadline.swift", "ConnectionContractScenarioTests.swift", "ConnectivityMatrixTests.swift", "LinkRecoveryTests.swift",
+        "AwakeDeadline.swift", "BackgroundDiscoveryTests.swift", "ConnectionContractScenarioTests.swift", "ConnectivityMatrixTests.swift", "LinkRecoveryTests.swift",
         "LinkClockDriver.swift", "LinkTestClock.swift", "PairingRetryTests.swift", "TickRandom.swift",
     ], dependencies: ["CmuxMobileLive", "CmuxMobileModel", "CmuxMobileTransport"])
     try project("CmuxMobileWorkspacesTests", directory: "Tests/CmuxMobileWorkspacesTests", sources: [
