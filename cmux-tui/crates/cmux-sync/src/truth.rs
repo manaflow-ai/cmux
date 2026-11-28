@@ -25,10 +25,17 @@ pub struct Report {
 /// The index of the most truthful report, and the indexes of the others holding edits it lacks
 /// (to pull deltas from). `None` when `reports` is empty.
 pub fn most_truthful(reports: &[Report], stale_ms: u64) -> Option<(usize, Vec<usize>)> {
-    let fresh: Vec<usize> = (0..reports.len()).filter(|&i| reports[i].age_ms < stale_ms).collect();
+    let fresh: Vec<usize> = reports
+        .iter()
+        .enumerate()
+        .filter(|(_, report)| report.age_ms < stale_ms)
+        .map(|(i, _)| i)
+        .collect();
     let pool: Vec<usize> = if fresh.is_empty() { (0..reports.len()).collect() } else { fresh };
     let best = *pool.iter().max_by(|&&a, &&b| {
-        let (ra, rb) = (&reports[a], &reports[b]);
+        let (Some(ra), Some(rb)) = (reports.get(a), reports.get(b)) else {
+            return std::cmp::Ordering::Equal;
+        };
         let a_dominates = ra.vv.dominates(&rb.vv) && ra.vv != rb.vv;
         let b_dominates = rb.vv.dominates(&ra.vv) && ra.vv != rb.vv;
         a_dominates
@@ -38,8 +45,12 @@ pub fn most_truthful(reports: &[Report], stale_ms: u64) -> Option<(usize, Vec<us
             // Reverse so that among full ties the first listed wins.
             .then(b.cmp(&a))
     })?;
-    let lacking = (0..reports.len())
-        .filter(|&i| i != best && !reports[best].vv.dominates(&reports[i].vv))
+    let best_report = reports.get(best)?;
+    let lacking = reports
+        .iter()
+        .enumerate()
+        .filter(|(i, report)| *i != best && !best_report.vv.dominates(&report.vv))
+        .map(|(i, _)| i)
         .collect();
     Some((best, lacking))
 }

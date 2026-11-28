@@ -65,7 +65,8 @@ jobs:
     name: request the cmux-tui tree publish
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && inputs.pr == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    # Up to an hour waiting out the installation's API limit (gh_budget_wait.sh below), then the few calls.
+    timeout-minutes: 70
     permissions:
       # actions: write re-runs a cmux-tui artifacts run.
       actions: write
@@ -119,9 +120,17 @@ jobs:
           echo "$COMMIT is on feat-cmux-next ($TIP)."
           git checkout --quiet --detach "$COMMIT"
 
+      # Every workflow shares the installation's hourly API limit. A request that meets it waits for the reset and
+      # tries again rather than failing: run 46170141626 (2026-11-28 17:24Z), dispatched to publish the tree the NEXT
+      # nightly's signing step needs, got HTTP 403 on its first runs listing (core 0 left) and requested nothing.
+      - name: Wait out the API limit on every gh call
+        run: bash scripts/ci/gh_budget_wait.sh --install
+
       - name: Dispatch one publisher when the tree is missing
         id: request
         env:
+          # The wait ends inside the job's 70 minutes.
+          GH_BUDGET_WAIT_MAX_SECONDS: 3600
           COMMIT: ${{ inputs.commit }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
