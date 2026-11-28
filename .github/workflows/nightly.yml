@@ -182,6 +182,10 @@ env:
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
   # Why: docs/ci/nightly-workflow-notes.md#note-35
   NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
+  # Why: docs/ci/nightly-workflow-notes/2026-11-28-cargo-net-retry.md
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_TIMEOUT: "120"
+  CARGO_HTTP_MULTIPLEXING: "false"
 
 jobs:
   # Why: docs/ci/nightly-workflow-notes.md#note-29
@@ -199,11 +203,7 @@ jobs:
         env:
           FETCH_TOKEN: ${{ github.token }}
         run: |
-          # The Macs get 403 from github.com on anonymous requests. Every checkout here sets
-          # persist-credentials: false, so actions/checkout's clean of a reused partial clone (a lazy
-          # promisor fetch, before it sets up auth) and every later git fetch went out with no credential.
-          # One header job-wide: the empty entry clears any header in .git/config (two make GitHub answer
-          # 400); a step that sets its own GIT_CONFIG_COUNT still sends only its own.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-mac-git-token-header.md
           set -euo pipefail
           [ -n "${FETCH_TOKEN:-}" ] || exit 0
           header=$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')
