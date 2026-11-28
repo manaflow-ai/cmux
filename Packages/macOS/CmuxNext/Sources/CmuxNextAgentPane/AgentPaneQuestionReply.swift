@@ -6,7 +6,7 @@ public import Foundation
 ///
 /// Never looser than acpmux's own check (hub/questions.rs check_answers, check_annotations); a
 /// choice-only multi-select answer is split on ", " exactly as acpmux splits it. Its size and count
-/// limits are the pane relay's (AcpmuxPaneMethods breaksAnswersRule's maximumAnswer* bounds), which
+/// limits are the pane relay's (AcpmuxPaneMethods.answerBounds, policy.json `question_answers`), which
 /// already refuse a larger answer today. Beyond those it holds the reply to what the pane's question
 /// card sends (webviews question/model.ts answerProblems and reply): one choice on a single-select
 /// item and no Other on a choice-only one, for Codex too. It covers question cards only (a request
@@ -37,8 +37,8 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
     public let intent: AgentPaneGestureIntent
     public let canonicalJSON: String
 
-    /// Only a parse bound, above the largest reply the pane relay passes (its maximumAnswer* and
-    /// maximumAnnotationBytes bounds, per item); the per-field limits below are what decide.
+    /// Only a parse bound, above the largest reply the pane relay passes (its answerBounds,
+    /// per item); the per-field limits below are what decide.
     static let maximumReplyBytes = 64 << 20
     /// The captured native request, bounded the same way; acpmux sent it.
     static let maximumRequestBytes = 64 << 20
@@ -57,7 +57,7 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
               let harness = normalized["harness"] as? String, ["claude", "chief", "codex"].contains(harness),
               // Entries that are not objects are skipped, as acpmux skips them.
               let items = (normalized["items"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
-              (1...AcpmuxPaneMethods.maximumAnswerItems).contains(items.count) else { throw .question }
+              !items.isEmpty, items.count <= AcpmuxPaneMethods.answerBounds.items else { throw .question }
         // Entries that are not objects are skipped, as acpmux and the question card skip them.
         guard let options = (request["options"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
               !options.isEmpty else { throw .question }
@@ -99,13 +99,13 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
             guard let raw = item[codex ? "id" : "prompt"] as? String,
                   case let key = codex ? raw.trimmingCharacters(in: .whitespacesAndNewlines) : raw,
                   !codex || !key.isEmpty,
-                  key.utf8.count <= AcpmuxPaneMethods.maximumAnswerBytes, seen.insert(Data(key.utf8)).inserted,
+                  key.utf8.count <= AcpmuxPaneMethods.answerBounds.valueBytes, seen.insert(Data(key.utf8)).inserted,
                   let value = answers.first(where: { equalBytes($0.key, key) })?.value else { return false }
             let labels: [String]
             if codex {
                 guard let value = value as? [String: Any], Set(value.keys) == ["answers"],
                       let list = value["answers"] as? [String],
-                      (1...AcpmuxPaneMethods.maximumAnswerListStrings).contains(list.count),
+                      !list.isEmpty, list.count <= AcpmuxPaneMethods.answerBounds.listStrings,
                       multiSelect || list.count == 1 else { return false }
                 labels = list
             } else {
@@ -113,7 +113,7 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
                 labels = [text]
             }
             guard labels.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && $0.utf8.count <= AcpmuxPaneMethods.maximumAnswerBytes }) else { return false }
+                && $0.utf8.count <= AcpmuxPaneMethods.answerBounds.valueBytes }) else { return false }
             if !allowsOther {
                 let options = item["options"] as? [[String: Any]] ?? []
                 let allowed = options.compactMap { $0["label"] as? String }
@@ -146,14 +146,14 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
         guard asks, let entries = (tool?["rawInput"] as? [String: Any])?["questions"] as? [Any] else { return true }
         let originals = entries.compactMap { $0 as? [String: Any] }
         guard let annotations = raw as? [String: Any],
-              (1...AcpmuxPaneMethods.maximumAnswerItems).contains(annotations.count) else { return false }
+              !annotations.isEmpty, annotations.count <= AcpmuxPaneMethods.answerBounds.items else { return false }
         for (key, value) in annotations {
             guard items.contains(where: { ($0["prompt"] as? String).map { equalBytes($0, key) } == true }),
                   let original = originals.first(where: { ($0["question"] as? String).map { equalBytes($0, key) } == true }),
                   let note = value as? [String: Any], !note.isEmpty,
                   Set(note.keys).isSubset(of: ["preview", "notes"]) else { return false }
             if let rawPreview = note["preview"] {
-                guard let preview = rawPreview as? String, preview.utf8.count <= AcpmuxPaneMethods.maximumAnnotationBytes,
+                guard let preview = rawPreview as? String, preview.utf8.count <= AcpmuxPaneMethods.answerBounds.annotationBytes,
                       let options = (original["options"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
                       options.contains(where: { option in
                           guard let text = option["preview"] as? String else { return false }
