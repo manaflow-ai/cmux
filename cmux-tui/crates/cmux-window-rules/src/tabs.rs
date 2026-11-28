@@ -8,14 +8,20 @@
 
 use serde::{Deserialize, Serialize};
 
+#[path = "tabs_agent_key.rs"]
+pub mod agent_key;
 #[path = "tabs_approval.rs"]
 pub mod approval;
 #[path = "tabs_draft.rs"]
 pub mod draft;
+#[path = "tabs_group_drop.rs"]
+pub mod group_drop;
 #[path = "tabs_groups.rs"]
 pub mod groups;
 #[path = "tabs_layout.rs"]
 pub mod layout;
+#[path = "tabs_page_closes.rs"]
+pub mod page_closes;
 #[path = "tabs_panes.rs"]
 pub mod panes;
 #[path = "tabs_place.rs"]
@@ -26,6 +32,8 @@ pub mod plus_menu;
 pub mod selection;
 #[path = "tabs_strip.rs"]
 pub mod strip;
+#[path = "tabs_type_ahead.rs"]
+pub mod type_ahead;
 
 // MARK: New tab kind
 
