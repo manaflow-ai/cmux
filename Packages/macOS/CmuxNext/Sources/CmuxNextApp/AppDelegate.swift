@@ -91,13 +91,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let read = await launchSnapshot?.value ?? LaunchSnapshotRead(snapshot: nil, kind: .unknown); launchSnapshot = nil; self.settingsTask = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if read.snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for the read; the daemon's start reads no file. No snapshot: maybe the bare launch (piece 8); `read.kind` says whether it is
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
-                try Task.checkCancellation(); DebugTimings.markLaunch("cloud_env.awaited")
+                try Task.checkCancellation(); DebugTimings.markLaunch("cloud_env.awaited"); DebugTimings.markLaunch("app.cloud_env_awaited") // app.*: the launch-tti line keeps it (KEPT_MARK_PREFIXES)
                 environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
-                try await finishLaunching(read, settings: settingsTask.value); await firstFrame.opened(); await refresh()
+                let settings = await settingsTask.value; DebugTimings.markLaunch("app.settings_awaited"); try await finishLaunching(read, settings: settings); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -108,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for key in LaunchIdentity.cloudSelectionKnobs + ["CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
-                try? await finishLaunching(read, settings: settingsTask.value) // only cancellation throws; Quit must not resume startup
+                DebugTimings.markLaunch("app.cloud_env_failed"); let settings = await settingsTask.value; DebugTimings.markLaunch("app.settings_awaited"); try? await finishLaunching(read, settings: settings) // only cancellation throws; Quit must not resume startup
             }
             cloudBootstrap = nil
         }
@@ -126,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()
         })
-        control.startWatchdog()
+        control.startWatchdog(); DebugTimings.markLaunch("app.daemon_prestarted") // the test delay, the daemon's prestart, the quit signals and the watchdog
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
         defer { DebugTimings.markLaunch("did_finish_launching_end") }

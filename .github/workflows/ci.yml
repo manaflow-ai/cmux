@@ -118,7 +118,7 @@ concurrency:
   # A label event into feat-cmux-next for a label nothing here reads gets a
   # group of its own, so it neither waits behind the running run nor replaces a
   # pending one; every job but ci-status skips, and the run ends in seconds.
-  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # A label-only rerun can escalate the same head to full-ci. Let the current
   # compile finish and publish its app-host product so the queued run can reuse
   # it instead of throwing away a long compile and starting from zero.
@@ -139,6 +139,8 @@ jobs:
     # left it queued for hours (cmux#45735). Measured: 11 s of work, 5 min timeout.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     outputs:
       # true for a pull request on the cmux NEXT line, stacked ones included
       # (scripts/ci/next_line.sh); the legacy lanes below skip it.
@@ -1150,7 +1152,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || (vars.CI_PAID_MACOS_OVERFLOW != '1' && endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26 || vars.CMUX_CI_XCODE_APP_MACOS_15) }}
         run: |
           set -euo pipefail
           fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
@@ -1167,7 +1169,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR || (vars.CI_PAID_MACOS_OVERFLOW != '1' && endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26 || vars.CMUX_CI_XCODE_APP_MACOS_15) }}
           HEAD_FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
           set -euo pipefail

@@ -127,7 +127,7 @@ owned simulators):
 
 Locally (a Mac you may build on; never huge-blue, big-red, air-blue or cosmic-gray):
 
-    swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
+    CMUX_MOBILE_KIT_TEST_TARGETS=CmuxMobileInstantPerfTests swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
     CMUX_INSTANT_PERF_OUT=/tmp/instant-perf.jsonl CMUX_INSTANT_PERF_RUNS=9 swift test ...   # JSONL, more runs
     python3 cmux-next-ios/scripts/instant_perf_table.py /tmp     # the table
 
@@ -146,7 +146,11 @@ simulator, prints the table to the job log and the job summary, and uploads the
 JSONL as the `instant-perf-*` artifact. Both bench steps are advisory there
 (`continue-on-error`, since 2026-11-21): a miss is a warning on the report step, not a
 red job, because on shared runners the bench was red on most kit runs for code the pull
-request never touched. The rules above still hold when you run it yourself; a known-red
+request never touched. Both bench steps set `CMUX_MOBILE_KIT_TEST_TARGETS=CmuxMobileInstantPerfTests`,
+which `Package.swift` reads to keep only that test target (the library targets all stay): `--filter` and
+`-only-testing:` alone still compile every test target, so a compile error in a neighbour
+(CmuxMobileShellTests, base run 45853032811) left the bench with no INSTANTPERF line. Set it
+when you run the bench yourself too. The rules above still hold when you run it yourself; a known-red
 or a fix is still how a red check is answered.
 
 ## Adding a metric
