@@ -1384,7 +1384,9 @@ export class UserDO extends DurableObject<Env> {
     } catch (err) {
       console.error("session approve failed", err instanceof Error ? err.message : String(err));
       const current = this.session(s.id);
-      if (current) await this.endSession(current, "approve_failed", "revoked", true);
+      // `step` names which part of the setup threw (init, entitlement, relay, tickets), never its message:
+      // the viewer's tab and probes can then tell a relay or billing failure from a Session DO one.
+      if (current) await this.endSession(current, "approve_failed", "revoked", true, { step: approveStep(err) });
       throw new ApiError(500, "internal", "could not start the session");
     }
   }
@@ -1408,7 +1410,7 @@ export class UserDO extends DurableObject<Env> {
     const viewer = this.device(s.viewer_id)!;
     const host = this.device(s.host_id)!;
     const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
-    const init = await internalCall(
+    const init = await atStep("init", internalCall(
       stub,
       "https://session.do/internal/init",
       {
@@ -1420,13 +1422,14 @@ export class UserDO extends DurableObject<Env> {
         host: { id: host.id, key: host.signing_key },
       },
       `session ${s.id} init`,
-    );
+    ));
     // Ended during init: endSession closed the Session DO (a close that got there
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
-    if (!init.ok) throw new Error(`session init ${init.status}`);
-    const answer = await entitled;
-    const tickets = await this.issueTickets(s, c, await this.relayIce(s.id, answer), answer, TICKET_TTL_S, false, pushed);
+    if (!init.ok) throw stepError("init", new Error(`session init ${init.status}`));
+    const answer = await atStep("entitlement", entitled);
+    const ice = await atStep("relay", this.relayIce(s.id, answer));
+    const tickets = await atStep("tickets", this.issueTickets(s, c, ice, answer, TICKET_TTL_S, false, pushed));
     if (!tickets) return;
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? viewer.id : host.id, { type: "session.ticket", ...ticket });
   }
@@ -1894,4 +1897,28 @@ export class UserDO extends DurableObject<Env> {
     }
     return json({ ok: false }, 404);
   }
+}
+
+/** The approve() setup steps a `session.revoked` `approve_failed` names in its `step` (PROTOCOL.md). */
+export type ApproveStep = "init" | "entitlement" | "relay" | "tickets";
+const APPROVE_STEP = Symbol("approveStep");
+
+function stepError(step: ApproveStep, err: unknown): unknown {
+  if (err && typeof err === "object" && !(APPROVE_STEP in err)) (err as Record<symbol, ApproveStep>)[APPROVE_STEP] = step;
+  return err;
+}
+
+/** Awaits `p`, tagging what it throws with `step` (the first tag wins). */
+async function atStep<T>(step: ApproveStep, p: Promise<T>): Promise<T> {
+  try {
+    return await p;
+  } catch (err) {
+    throw stepError(step, err);
+  }
+}
+
+/** The step a failed approve() threw at, else `unknown`. */
+export function approveStep(err: unknown): ApproveStep | "unknown" {
+  if (!err || typeof err !== "object") return "unknown";
+  return (err as Record<symbol, ApproveStep | undefined>)[APPROVE_STEP] ?? "unknown";
 }

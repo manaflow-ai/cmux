@@ -118,7 +118,10 @@ describe("session bookkeeping", () => {
     });
     const decided = await host.call("POST", `/v1/sessions/${sid}/decision`, { decision: "once" });
     expect(decided.status).toBe(500);
-    expect((await viewer.user!.next((f) => f.type === "session.revoked" && f.sessionId === sid)).reason).toBe("approve_failed");
+    const revoked = await viewer.user!.next((f) => f.type === "session.revoked" && f.sessionId === sid);
+    expect(revoked.reason).toBe("approve_failed");
+    // The Session DO's init refused, and the push names that step (never the error's text).
+    expect(revoked.step).toBe("init");
     const again = await host.call("POST", `/v1/sessions/${sid}/decision`, { decision: "once" });
     expect(again.json.error.code).toBe("session_not_pending");
   });

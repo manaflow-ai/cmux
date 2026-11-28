@@ -151,7 +151,9 @@ public enum DeviceHubPush: Sendable, Equatable {
             self = .sessionDenied(sessionID: id)
         case "session.revoked":
             guard let id = envelope.sessionId else { return nil }
-            self = .sessionRevoked(sessionID: id, reason: envelope.reason)
+            // `approve_failed:<step>` keeps the hub's step with its reason (MacScreenEndReason reads the prefix).
+            let reason = envelope.step.flatMap { step in envelope.reason.map { "\($0):\(step)" } } ?? envelope.reason
+            self = .sessionRevoked(sessionID: id, reason: reason)
         case "session.ended":
             guard let id = envelope.sessionId else { return nil }
             self = .sessionEnded(sessionID: id, reason: envelope.reason, movedTo: envelope.movedTo)
@@ -166,6 +168,8 @@ public enum DeviceHubPush: Sendable, Equatable {
         var sessionId: String?
         var reason: String?
         var movedTo: String?
+        /// With `approve_failed`: the part of the hub's setup that threw (`init`, `entitlement`, `relay`, `tickets`).
+        var step: String?
     }
 
     struct RequestMessage: Decodable {

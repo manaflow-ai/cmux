@@ -11,7 +11,7 @@ import CmuxNextSettings
 /// - `state`: where the tab is, from the hub's request to the picture (``stateName(hub:session:hasFrame:)``):
 ///   `idle` (the Connect card), `requesting`, `waiting_for_approval`, `connecting`, `waiting_for_frame`,
 ///   `viewing`, `failed`, `declined`, `refused`, `revoked`, `ended`; `hub_phase` and `scope` (`view`, `full`)
-///   are the hub's own; `error` is the text the tab's card says for a failure, refusal or end (null otherwise);
+///   are the hub's own, as is `hub_reason` (why the hub revoked or ended the session); `error` is the text the tab's card says for a failure, refusal or end (null otherwise);
 /// - `phase` (`connecting`, `connected`, `failed`, `ended`; null with no session), `connected`,
 ///   `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
 /// - `started_by`: who started the view without a person's click (the agent session's title or the
@@ -131,6 +131,7 @@ extension MacScreenPages {
         let hubPhase = pane.model.hub?.phase
         row["state"] = .string(stateName(hub: hubPhase, session: pane.session?.phase, hasFrame: pane.model.hasFrame))
         row["hub_phase"] = hubPhase.map { .string(hubPhaseName($0)) } ?? .null
+        row["hub_reason"] = hubPhase.flatMap(Self.hubReason).map(JSONValue.string) ?? .null
         row["scope"] = hubPhase.flatMap(Self.scope).map { .string($0.rawValue) } ?? .null
         row["error"] = errorText(pane.model).map(JSONValue.string) ?? .null
         // Waiting for Connect to show: the hub holds a scope to resume.
@@ -253,6 +254,15 @@ extension MacScreenPages {
         case .refused: "refused"
         case .revoked: "revoked"
         case .ended: "ended"
+        }
+    }
+
+    /// The hub's own words for why it ended the session (`session.revoked` / `session.ended`'s reason,
+    /// with `approve_failed`'s step as `approve_failed:relay`); nil in any other phase.
+    nonisolated static func hubReason(_ phase: MacScreenHubPhase) -> String? {
+        switch phase {
+        case let .revoked(reason), let .ended(reason): reason
+        default: nil
         }
     }
 

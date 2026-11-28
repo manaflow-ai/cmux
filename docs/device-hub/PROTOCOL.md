@@ -212,7 +212,7 @@ others. Server → device messages:
 {type:'session.request', session:{id, viewerId, viewerName, viewerKeyFingerprint, scope}}   // to the host
 {type:'session.ticket', sessionId, ticket, signalURL, ice:[…], peer:{id, name, signingKey}, role, scope, ownerKind:'user'}
 {type:'session.denied', sessionId}             // to the viewer
-{type:'session.revoked', sessionId, reason}    // to both; end at once
+{type:'session.revoked', sessionId, reason, step?}    // to both; end at once (step: approve_failed's part)
 {type:'session.ended', sessionId, reason}
 ```
 Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`), every 30 s.
@@ -388,7 +388,7 @@ authoritative end does not replace its reason. The same string is pushed in `ses
 | `expired` | a pending request was not decided within 5 min | `session.revoked` |
 | `peer_offline` | a device went offline (socket closed, or silent for 75 s) and was not back 120 s after it was last heard | `session.ended` |
 | `bye` | a device sent `bye` and no authoritative reason followed within 3 s | `session.ended` |
-| `approve_failed` | the server could not set up the approved session | `session.revoked` |
+| `approve_failed` | the server could not set up the approved session; the push adds `step`, the part that threw: `init` (the Session DO), `entitlement` (the billing read), `relay` (the relay credentials), `tickets`, or `unknown` | `session.revoked` |
 
 A denied request ends with `session.denied`, not a reason.
 
