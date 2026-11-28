@@ -2,7 +2,7 @@
 import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import { logTimedEvent, timedPhase, type TimedPhases } from "../lib/timing.ts";
-import type { CreateAdmissionClient } from "../limits/create-admission.ts";
+import { PROVIDER_CREATE_BUDGET_MS, type CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
@@ -85,9 +85,10 @@ const providerTimings = (answer: unknown): { readonly providerTotalMs?: number; 
  * budget, or no slot came within it) fails the create before anything is sent. A queue that cannot be reached does
  * not stop creates: the create is sent as it was before the queue existed, and the line says so.
  */
-const admitSend = (admission: CreateAdmissionClient | undefined, holder: string, phases: TimedPhases | undefined): Effect.Effect<Effect.Effect<void>, UpstreamError> => {
+const admitSend = (admission: CreateAdmissionClient | undefined, holder: string, phases: TimedPhases | undefined, background: boolean): Effect.Effect<Effect.Effect<void>, UpstreamError> => {
   if (admission === undefined) return Effect.succeed(Effect.void);
-  return timedPhase(phases, "admitWaitMs", Effect.tryPromise(() => admission.admit(holder))).pipe(
+  if (background && phases !== undefined) phases["admitBackground"] = true;
+  return timedPhase(phases, "admitWaitMs", Effect.tryPromise(() => admission.admit(holder, background))).pipe(
     Effect.matchEffect({
       onFailure: () => logTimedEvent("vm_create_admission_unavailable", { vmId: holder }).pipe(Effect.as(Effect.void)),
       onSuccess: (outcome) => {
@@ -106,6 +107,29 @@ const admitSend = (admission: CreateAdmissionClient | undefined, holder: string,
     }),
   );
 };
+
+/**
+ * How long a provider create may hold its create slot (limits/create-admission.ts), its background polls included:
+ * past this, the create is given up as unanswered and its slot goes to the next create. PATCH, not a fix at the
+ * cause: the cause is the provider holding some creates before it starts them.
+ *
+ * Staging 2026-11-27 (ask-6b8661d57a), 3 or fewer in flight:
+ * - 14:30-14:45Z, before background requests: 72 creates, createMs p50 1.7 s, p90 82 s, 7 at the 120 s timeout, while
+ *   the provider's own providerTotalMs was p50 1.3 s, p90 2.5 s, max 38.6 s; each timed-out create's exact-slug read
+ *   answered 404. 364 creates in that window were refused 503 queue_full/wait_expired; the platform's went
+ *   create_overdue.
+ * - 15:52-16:00Z, with background requests (#61044): 6 of 11 creates failed at 129-152 s with no VM, each holding a
+ *   slot the whole time; 42 were refused queue_full/wait_expired and POST /v1/vms answered 503 48 times against 5 201s.
+ *
+ * 45 s (PROVIDER_CREATE_BUDGET_MS, which the slot's lease also derives from) is above the provider's slowest own
+ * time seen (38.6 s). A cut create's exact-slug read below, and the same
+ * key's retry (whose first step is that read: "recovered"), find its VM if the provider makes it later; one no create
+ * records is deleted by the orphan sweep (upstream/orphan-sweep.ts, cmux_vm_orphan_sweep). "createCut" marks a
+ * create given up here, so a later "recovered" under the same key counts a held create the provider did make.
+ */
+export const CREATE_SEND_TIMEOUT_MS = PROVIDER_CREATE_BUDGET_MS;
+/** A create the provider is still working on after this long answers 202 and is polled, within the send timeout. */
+export const CREATE_BACKGROUND_AFTER_SECS = 20;
 
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);
@@ -259,15 +283,21 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       if (Either.isLeft(imageVerdict)) return yield* Effect.fail(imageVerdict.left);
       // A provider create slot (limits/create-admission.ts) is taken before the send begins, so a refusal sent
       // nothing and the same key's retry starts clean, like a failed image read above.
-      const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases);
+      const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases, spec.background === true);
       const token = yield* journal.beginSend().pipe(Effect.onError(() => release));
-      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000 }).pipe(
+      // Staging, 2026-11-27 05:51-06:01Z: in a burst of creates the provider held POST /v5/vms past the 120 s cut, 13
+      // creates failed at createMs 120000 with no VM yet under the slug to recover, and the caller's retries ran a
+      // journey's create past its 300 s bound. As a background request it answers 202 after 60 s and the stored
+      // answer (the VM) is polled, so a slow create is still one create with its answer. A create with no answer at all
+      // in CREATE_SEND_TIMEOUT_MS, polls included, gives its slot back (see that constant).
+      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: CREATE_SEND_TIMEOUT_MS, backgroundUntil: Date.now() + CREATE_SEND_TIMEOUT_MS, backgroundAfterSecs: CREATE_BACKGROUND_AFTER_SECS }).pipe(
         Effect.tap(keep),
         Effect.tap((body) => Effect.sync(() => { if (phases !== undefined) Object.assign(phases, providerTimings(body)); })),
         Effect.flatMap(decode), Effect.flatMap(checkedSent),
       )).pipe(
         Effect.ensuring(release),
         // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
+        Effect.tapError((error) => Effect.sync(() => { if (phases !== undefined && error.status === null) phases["createCut"] = true; })),
         Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(Effect.flatMap((found) => Option.isSome(found)
           ? Effect.sync(() => { if (phases !== undefined) phases["recovered"] = true; return found.value; })
           : definitelyRejected(error.status) ? journal.rejected(token).pipe(Effect.zipRight(Effect.fail(error))) : Effect.fail(error)))),

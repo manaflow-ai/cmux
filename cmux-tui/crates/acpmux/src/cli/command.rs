@@ -247,6 +247,11 @@ pub enum Command {
     /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
     #[command(name = "pr-wait")]
     PrWait(crate::cli::pr_wait::PrWaitArgs),
+    /// One GitHub read of a repos/OWNER/REPO/... path through this machine's one poller: a kept
+    /// answer while it is fresh, a conditional read (a 304 costs no quota) when not, the kept
+    /// answer marked stale when the budget is spent. Prints the body (`cli/gh_read.rs`).
+    #[command(name = "gh-read")]
+    GhRead(crate::cli::gh_read::GhReadArgs),
     /// Run another person's agent's accepted forum `run` ask: one command at a repo's pushed ref,
     /// here when light, through the scheduler (cmux-ci) when heavy; prints the result as JSON,
     /// `{exit, tail, artifacts}`. A refused ask exits 7 with its reason (`run_ask.rs`).
@@ -444,6 +449,14 @@ pub enum Command {
     #[command(name = "ci-log-cache", hide = true)]
     CiLogCache {
         /// The `gh` command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
+    /// A check served from the run the daemon made of it ahead of the lane, while the tree is as
+    /// it was then, or run as asked (harness magic `speculative`, `spec_exec.rs`).
+    #[command(name = "spec-serve", hide = true)]
+    SpecServe {
+        /// The check's command line, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
@@ -1011,7 +1024,12 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    RouteDeath { facts: PathBuf },
+    RouteDeath {
+        session: Option<String>,
+        facts: Option<PathBuf>,
+        #[arg(long)]
+        show_facts: bool,
+    },
     #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
@@ -1030,6 +1048,7 @@ pub enum Command {
         reason: Option<String>,
         status: bool,
         hold_for: Option<String>,
+        thaw_order: Option<Vec<String>>,
     },
     #[command(hide = true)]
     ResumeQueue {
@@ -1145,8 +1164,9 @@ pub enum Command {
         /// conversation with its first prompt.
         #[arg(long)]
         harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
+        /// The model the fork runs, on --harness or the chat's own harness (MODEL or
+        /// HARNESS/MODEL). A model the harness does not list fails the fork.
+        #[arg(long, short)]
         model: Option<String>,
     },
     #[command(hide = true)]
@@ -1252,6 +1272,9 @@ pub enum Command {
     /// `daemon felt`: the felt-latency histograms (the net graph).
     #[command(hide = true)]
     DaemonFelt,
+    /// `daemon watchdog-hold`: hold the daemon's systemd watchdog for a pause.
+    #[command(hide = true)]
+    DaemonWatchdogHold,
     /// `daemon placement`: one tailnet placement update.
     #[command(hide = true)]
     DaemonPlacement { message: String },
@@ -1343,7 +1366,22 @@ pub enum Command {
         /// then exits 1, never 75, so the unit keeps retrying.
         #[arg(long)]
         take_over: bool,
+        /// A restart's exec in place (`daemon/handoff.rs`): the inherited daemon lock.
+        #[arg(long, hide = true)]
+        handoff_lock_fd: Option<i32>,
+        /// A restart's exec in place: the inherited unix socket listener.
+        #[arg(long, hide = true)]
+        handoff_unix_fd: Option<i32>,
+        /// A restart's exec in place: the inherited WebSocket listener.
+        #[arg(long, hide = true)]
+        handoff_ws_fd: Option<i32>,
+        /// A restart's exec in place: how many restarts this process came through.
+        #[arg(long, hide = true)]
+        handoff_count: Option<u32>,
     },
+    /// `daemon handoff-check`: the build and the restart handoff this binary takes.
+    #[command(hide = true)]
+    DaemonHandoffCheck,
 }
 
 #[derive(Args)]
@@ -1435,7 +1473,23 @@ pub enum DaemonCmd {
         /// then exits 1, never 75, so the unit keeps retrying.
         #[arg(long)]
         take_over: bool,
+        /// A restart's exec in place (`daemon/handoff.rs`): the inherited daemon lock.
+        #[arg(long, hide = true)]
+        handoff_lock_fd: Option<i32>,
+        /// A restart's exec in place: the inherited unix socket listener.
+        #[arg(long, hide = true)]
+        handoff_unix_fd: Option<i32>,
+        /// A restart's exec in place: the inherited WebSocket listener.
+        #[arg(long, hide = true)]
+        handoff_ws_fd: Option<i32>,
+        /// A restart's exec in place: how many restarts this process came through.
+        #[arg(long, hide = true)]
+        handoff_count: Option<u32>,
     },
+    /// Print this build and the restart handoff it takes, as one JSON line: a daemon asks its
+    /// installed path this before a restart execs it in place. Takes no lock, opens no home.
+    #[command(hide = true)]
+    HandoffCheck,
     /// Daemon status, hosts, and the web URL (without its token).
     Status {
         /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
@@ -1492,6 +1546,12 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// Hold the running daemon's systemd watchdog until this machine resumes (or 15 minutes pass
+    /// with no resume seen), so a pause of any length cannot trip it. The platform runs it on the
+    /// guest just before it pauses the VM. Prints `{"held":true,"until_resume":true}`, or
+    /// `held:false` when no systemd watchdog is armed; fails on a daemon from before it.
+    #[command(hide = true)]
+    WatchdogHold,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
     /// pid file of a daemon whose lock nobody holds and whose pid is gone. A running daemon is
     /// never stopped from outside: one whose executable is gone stops itself once unused for 5
@@ -1681,22 +1741,32 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Undelete { session } => Command::Undelete { session },
             SessionCmd::Deleted => Command::Deleted,
             SessionCmd::Restart { session } => Command::RestartAgent { session },
-            SessionCmd::Route { facts } => Command::RouteDeath { facts },
+            SessionCmd::Route { session, facts, show_facts } => {
+                Command::RouteDeath { session, facts, show_facts }
+            }
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
-                Command::SessionHold {
-                    session,
-                    held: true,
-                    fleet,
-                    allow,
-                    set_allow,
-                    reason,
-                    status,
-                    hold_for,
-                }
-            }
+            SessionCmd::Hold {
+                session,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            } => Command::SessionHold {
+                session,
+                held: true,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            },
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
@@ -1706,6 +1776,7 @@ pub fn flatten(c: Command) -> Command {
                 reason: None,
                 status: false,
                 hold_for: None,
+                thaw_order: None,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
@@ -1814,6 +1885,10 @@ pub fn flatten(c: Command) -> Command {
                 allow_dev_origin,
                 dev,
                 take_over,
+                handoff_lock_fd,
+                handoff_unix_fd,
+                handoff_ws_fd,
+                handoff_count,
             } => Command::DaemonRun {
                 listen,
                 token,
@@ -1825,7 +1900,12 @@ pub fn flatten(c: Command) -> Command {
                 allow_dev_origin,
                 dev,
                 take_over,
+                handoff_lock_fd,
+                handoff_unix_fd,
+                handoff_ws_fd,
+                handoff_count,
             },
+            DaemonCmd::HandoffCheck => Command::DaemonHandoffCheck,
             DaemonCmd::Status { show_token } => Command::Status { show_token },
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }
@@ -1837,6 +1917,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Felt => Command::DaemonFelt,
+            DaemonCmd::WatchdogHold => Command::DaemonWatchdogHold,
             DaemonCmd::Placement { message } => Command::DaemonPlacement { message },
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
@@ -1947,5 +2028,24 @@ pub enum ExecCmd {
         /// How many of the newest decisions.
         #[arg(long, default_value_t = 20)]
         last: usize,
+    },
+    /// The identical-result rule (`placement/exec_conformance.rs`): run a fixed corpus of
+    /// commands (a tiny cargo build and test, file writes, a failing exit, stdout and stderr
+    /// order, creates, deletes, renames and a symlink, ...) in fresh copies of a fixture
+    /// checkout, once with CMUX_EXEC_ROUTE=local and once routed, and compare exit code, output
+    /// and the resulting file tree. One row per case, then `identical N/M`; exits 1 unless every
+    /// case was routed and none differed beyond its documented divergence. Run it in a Cloud
+    /// machine session with run VMs on: elsewhere the routed side runs here and proves nothing.
+    Conformance {
+        /// Only these cases (repeatable); default every case.
+        #[arg(long = "case", value_name = "NAME")]
+        cases: Vec<String>,
+        /// Where the work copies go (default `$ACPMUX_HOME/exec-conformance/run-*`, removed
+        /// after a passing run). Must be on the disk a fork copies.
+        #[arg(long, value_name = "DIR")]
+        dir: Option<std::path::PathBuf>,
+        /// Keep the work copies after a passing run too.
+        #[arg(long)]
+        keep: bool,
     },
 }

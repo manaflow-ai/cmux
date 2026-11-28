@@ -1,0 +1,3 @@
+ci-step ios-verify-57738-pair-e2e-aws-m4pro-4: scripts/ci/cmux-next-ios-sim.sh pair-e2e at dd236940ccd8f728ff53822a457c081df4c47191: exit 1
+error: tagged cmux NEXT Mac app build failed
+ci-step ios-verify-57738-pair-e2e-aws-m4pro-4 exited 1

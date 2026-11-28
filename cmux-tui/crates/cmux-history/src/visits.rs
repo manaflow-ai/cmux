@@ -3,6 +3,7 @@
 //! Chromium's `History` model, opened in WAL mode with one connection.
 //! Incognito never gets one.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -27,7 +28,10 @@ const MAX_IMPORT_URL_BYTES: i64 = 8_192;
 const MAX_IMPORT_TITLE_BYTES: i64 = 1_024;
 const MAX_IMPORT_TAB_BYTES: i64 = 1_024;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
+
+/// SQL for a new stable visit id: 128 bits from SQLite's CSPRNG, as lowercase hex.
+const NEW_UID_SQL: &str = "lower(hex(randomblob(16)))";
 
 /// A finished main-frame navigation to record.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +48,14 @@ pub struct NewVisit {
 /// One stored visit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Visit {
+    /// The local row id: this store's handle (`page:<profile>:<id>`). It can come back as a
+    /// different number after a restore, and it means nothing on another device.
     pub id: i64,
+    /// The stable id (RFD 0125 D8 step 1): 32 lowercase hex characters from 128 random bits,
+    /// set once when the visit is recorded (or when a store from before the column opens) and
+    /// kept through remove, restore and moves between ids, so sync can name one visit on
+    /// every device and tombstone it.
+    pub uid: String,
     pub url: String,
     pub title: Option<String>,
     pub at_ms: i64,
@@ -179,6 +190,26 @@ impl VisitStore {
                 }
             }
         }
+        for table in ["visits", "removed_visits"] {
+            let present = transaction
+                .prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = 'uid'"))?
+                .exists([])?;
+            if !present {
+                transaction.execute(&format!("ALTER TABLE {table} ADD COLUMN uid TEXT"), [])?;
+            }
+            // Rows from before the column (and any written without one) get their stable id
+            // here, once; it never changes after.
+            transaction.execute(
+                &format!("UPDATE {table} SET uid = {NEW_UID_SQL} WHERE uid IS NULL"),
+                [],
+            )?;
+        }
+        transaction.execute_batch(&format!(
+            "CREATE UNIQUE INDEX IF NOT EXISTS visits_uid ON visits(uid);
+             CREATE TRIGGER IF NOT EXISTS visits_uid_fill AFTER INSERT ON visits
+               WHEN NEW.uid IS NULL
+               BEGIN UPDATE visits SET uid = {NEW_UID_SQL} WHERE id = NEW.id; END;"
+        ))?;
         let searchable = transaction
             .prepare("SELECT 1 FROM pragma_table_info('visits') WHERE name = 'search'")?
             .exists([])?;
@@ -291,7 +322,7 @@ impl VisitStore {
         actor_filter: ActorFilter,
     ) -> Result<Vec<Visit>, HistoryError> {
         let mut sql = String::from(
-            "SELECT id, url, title, visit_time_ms, tab, actor, session_id FROM visits WHERE visit_time_ms >= ?",
+            "SELECT id, url, title, visit_time_ms, tab, actor, session_id, uid FROM visits WHERE visit_time_ms >= ?",
         );
         let mut bindings = vec![Sql::Integer(filter.after_ms.unwrap_or(0))];
         if let Some(before) = filter.before_ms {
@@ -323,6 +354,7 @@ impl VisitStore {
                 at_ms: row.get(3)?,
                 tab: row.get(4)?,
                 actor: VisitActor::from_db(row.get(5)?, row.get(6)?),
+                uid: row.get(7)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -343,23 +375,65 @@ impl VisitStore {
             .collect())
     }
 
-    /// One row per URL, most recent first.
+    /// One row per URL the person visited (agent visits are left out), most recent first.
+    ///
+    /// One sequential scan of the table (rowid order, no index walk): each URL keeps its count,
+    /// its last visit and the title of its newest titled visit, then the URLs sort by last
+    /// visit. The `GROUP BY` with a title subquery per URL it replaced grew faster than the log
+    /// (4.3x the per-visit cost from 10k to 100k visits).
     pub fn summaries(&self, limit: usize) -> Result<Vec<VisitSummary>, HistoryError> {
-        let mut statement = self.connection.prepare(
-            "SELECT url, (SELECT title FROM visits v2 WHERE v2.url = v.url AND v2.title IS NOT NULL AND v2.actor = 'person' \
-             ORDER BY visit_time_ms DESC LIMIT 1), COUNT(*), MAX(visit_time_ms) \
-             FROM visits v WHERE v.actor = 'person' GROUP BY url ORDER BY MAX(visit_time_ms) DESC LIMIT ?1",
-        )?;
-        let rows =
-            statement.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
-                Ok(VisitSummary {
-                    url: row.get(0)?,
-                    title: row.get(1)?,
-                    visit_count: row.get::<_, i64>(2)?.unsigned_abs(),
-                    last_visit_ms: row.get(3)?,
-                })
-            })?;
-        Ok(rows.collect::<Result<_, _>>()?)
+        struct Sum {
+            summary: VisitSummary,
+            titled_ms: i64,
+        }
+        let mut statement = self
+            .connection
+            .prepare("SELECT url, title, visit_time_ms FROM visits WHERE actor = 'person'")?;
+        let mut at: HashMap<String, usize> = HashMap::new();
+        let mut sums: Vec<Sum> = Vec::new();
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let url = row.get_ref(0)?.as_str().map_err(rusqlite::Error::from)?;
+            let visit_ms: i64 = row.get(2)?;
+            let index = match at.get(url) {
+                Some(&index) => index,
+                None => {
+                    let index = sums.len();
+                    at.insert(url.to_owned(), index);
+                    sums.push(Sum {
+                        summary: VisitSummary {
+                            url: url.to_owned(),
+                            title: None,
+                            visit_count: 0,
+                            last_visit_ms: visit_ms,
+                        },
+                        titled_ms: i64::MIN,
+                    });
+                    index
+                }
+            };
+            // `at` only holds indexes into `sums`, so this always finds the entry.
+            let Some(sum) = sums.get_mut(index) else {
+                continue;
+            };
+            sum.summary.visit_count = sum.summary.visit_count.saturating_add(1);
+            sum.summary.last_visit_ms = sum.summary.last_visit_ms.max(visit_ms);
+            // The title of the newest visit that has one. A URL's visits mostly repeat its title:
+            // a newer one that matches only moves the time, with no copy.
+            if (sum.summary.title.is_none() || visit_ms > sum.titled_ms)
+                && let Some(title) =
+                    row.get_ref(1)?.as_str_or_null().map_err(rusqlite::Error::from)?
+            {
+                if sum.summary.title.as_deref() != Some(title) {
+                    sum.summary.title = Some(title.to_owned());
+                }
+                sum.titled_ms = visit_ms;
+            }
+        }
+        let mut out: Vec<VisitSummary> = sums.into_iter().map(|sum| sum.summary).collect();
+        out.sort_unstable_by_key(|summary| std::cmp::Reverse(summary.last_visit_ms));
+        out.truncate(limit);
+        Ok(out)
     }
 
     /// The visit with `id`, if it exists.
@@ -367,7 +441,7 @@ impl VisitStore {
         Ok(self
             .connection
             .query_row(
-                "SELECT id, url, title, visit_time_ms, tab, actor, session_id FROM visits WHERE id = ?1",
+                "SELECT id, url, title, visit_time_ms, tab, actor, session_id, uid FROM visits WHERE id = ?1",
                 params![id],
                 |row| {
                     Ok(Visit {
@@ -377,10 +451,23 @@ impl VisitStore {
                         at_ms: row.get(3)?,
                         tab: row.get(4)?,
                         actor: VisitActor::from_db(row.get(5)?, row.get(6)?),
+                        uid: row.get(7)?,
                     })
                 },
             )
             .optional()?)
+    }
+
+    /// The visit whose stable id is `uid`, if it exists.
+    pub fn visit_by_uid(&self, uid: &str) -> Result<Option<Visit>, HistoryError> {
+        let id: Option<i64> = self
+            .connection
+            .query_row("SELECT id FROM visits WHERE uid = ?1", params![uid], |row| row.get(0))
+            .optional()?;
+        match id {
+            Some(id) => self.visit(id),
+            None => Ok(None),
+        }
     }
 
     /// Removes one visit; `backup` names the backup it can be restored
@@ -402,8 +489,8 @@ impl VisitStore {
         let transaction = self.connection.unchecked_transaction()?;
         transaction.execute(
             &format!(
-                "INSERT INTO removed_visits(backup, id, url, title, visit_time_ms, tab, actor, session_id) \
-                 SELECT ?1, id, url, title, visit_time_ms, tab, actor, session_id FROM visits WHERE {condition}"
+                "INSERT INTO removed_visits(backup, id, url, title, visit_time_ms, tab, actor, session_id, uid) \
+                 SELECT ?1, id, url, title, visit_time_ms, tab, actor, session_id, uid FROM visits WHERE {condition}"
             ),
             params_from_iter(all.iter()),
         )?;
@@ -421,12 +508,13 @@ impl VisitStore {
     }
 
     /// Restores the visits removed into `backup`; returns how many came back.
-    /// A visit whose id was taken meanwhile comes back under a new id.
+    /// A visit whose id was taken meanwhile comes back under a new id; its stable `uid` comes
+    /// back unchanged either way.
     pub fn restore(&self, backup: &str) -> Result<usize, HistoryError> {
         let transaction = self.connection.unchecked_transaction()?;
         let rows: Vec<Visit> = {
             let mut statement = transaction.prepare(
-                "SELECT id, url, title, visit_time_ms, tab, actor, session_id FROM removed_visits WHERE backup = ?1",
+                "SELECT id, url, title, visit_time_ms, tab, actor, session_id, uid FROM removed_visits WHERE backup = ?1",
             )?;
             statement
                 .query_map(params![backup], |row| {
@@ -437,6 +525,7 @@ impl VisitStore {
                         at_ms: row.get(3)?,
                         tab: row.get(4)?,
                         actor: VisitActor::from_db(row.get(5)?, row.get(6)?),
+                        uid: row.get(7)?,
                     })
                 })?
                 .collect::<Result<_, _>>()?
@@ -445,17 +534,18 @@ impl VisitStore {
         let mut taken = Vec::new();
         for visit in &rows {
             let inserted = transaction.execute(
-                "INSERT OR IGNORE INTO visits(id, url, title, visit_time_ms, tab, actor, session_id, search) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![visit.id, visit.url, visit.title, visit.at_ms, visit.tab, visit.actor.db_values().0, visit.actor.db_values().1, search_text(&visit.url, visit.title.as_deref())],
+                "INSERT OR IGNORE INTO visits(id, url, title, visit_time_ms, tab, actor, session_id, search, uid) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![visit.id, visit.url, visit.title, visit.at_ms, visit.tab, visit.actor.db_values().0, visit.actor.db_values().1, search_text(&visit.url, visit.title.as_deref()), visit.uid],
             )?;
             if inserted == 0 {
                 taken.push(visit);
             }
         }
+        // A uid already live means that visit is already back: the unique index ignores it.
         for visit in taken {
             transaction.execute(
-                "INSERT INTO visits(url, title, visit_time_ms, tab, actor, session_id, search) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![visit.url, visit.title, visit.at_ms, visit.tab, visit.actor.db_values().0, visit.actor.db_values().1, search_text(&visit.url, visit.title.as_deref())],
+                "INSERT OR IGNORE INTO visits(url, title, visit_time_ms, tab, actor, session_id, search, uid) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![visit.url, visit.title, visit.at_ms, visit.tab, visit.actor.db_values().0, visit.actor.db_values().1, search_text(&visit.url, visit.title.as_deref()), visit.uid],
             )?;
         }
         transaction.execute("DELETE FROM removed_visits WHERE backup = ?1", params![backup])?;
@@ -496,8 +586,8 @@ impl VisitStore {
         let mut removed = 0;
         {
             let mut keep = transaction.prepare(
-                "INSERT INTO removed_visits(backup, id, url, title, visit_time_ms, tab, actor, session_id) \
-                 SELECT ?1, id, url, title, visit_time_ms, tab, actor, session_id FROM visits WHERE id = ?2",
+                "INSERT INTO removed_visits(backup, id, url, title, visit_time_ms, tab, actor, session_id, uid) \
+                 SELECT ?1, id, url, title, visit_time_ms, tab, actor, session_id, uid FROM visits WHERE id = ?2",
             )?;
             let mut delete = transaction.prepare("DELETE FROM visits WHERE id = ?1")?;
             for id in ids {
@@ -842,3 +932,7 @@ fn move_aside(path: &Path) -> Result<(), HistoryError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "visits_summaries_tests.rs"]
+mod summaries_tests;
