@@ -1366,7 +1366,7 @@ export function sbomScanCommand(out: string, skip: readonly string[]): string {
   ].join("\n");
 }
 
-export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
+export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out", wake?: () => Promise<unknown>): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
   await writeGuestFile(vm, `${out}/manifest.py`, readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
@@ -1381,9 +1381,9 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // The scan and the manifest are detached steps (StepLog.detachedStep) with their own budget, not one exec each.
   const scanSbom = async (): Promise<string> => {
     await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
-    return L.detachedStep(vm, "sbom", sbomScanCommand(out, skip), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS });
+    return L.detachedStep(vm, "sbom", sbomScanCommand(out, skip), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS, wake });
   };
-  const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS });
+  const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS, wake });
   const settled = await Promise.allSettled([fileManifest(), scanSbom()]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
