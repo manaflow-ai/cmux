@@ -33,6 +33,8 @@ jobs:
     # The step holds the CI pool tokens (secrets), so the job leads with the one-job secret JIT label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (feat-cmux-next scripts/ci/gh_http.py)
     permissions:
       contents: read
       pull-requests: read
@@ -42,6 +44,7 @@ jobs:
         with:
           ref: feat-cmux-next
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
             scripts/ci/gh_http.py
@@ -53,6 +56,7 @@ jobs:
         with:
           path: floor
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/job_token_floor.py
             scripts/ci/app_spend_mark.py
           sparse-checkout-cone-mode: false

@@ -227,6 +227,24 @@ jobs:
         with:
           persist-credentials: false
 
+      # The sweep's GET reads (run pages, every in-flight run's job listing: up to 2,000 a sweep) go on a quota-goblin
+      # CI pool token (quota-goblin-9008/9009, pushed as CI_POOL_TOKEN_1/2 by the key home), not on the routing
+      # App's (5067688) one hour that the build controller and the runner scaler share: at 04:01Z on 2026-11-28 it
+      # held 541 of 5,000 burning 144/min, with the controller itself ~6/min of that. Leo: "use the pools we have".
+      # No pool token with room (or no secret) leaves this empty, and the glaeda-route read token is used as before.
+      - name: Pick a quota-goblin pool read token
+        id: pool-read
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.github/actions/app-token-spread
+        with:
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+          probe: sweep-read
+
       # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this recurring pass sends
       # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
       - name: Read the GITHUB_TOKEN floor
@@ -283,9 +301,11 @@ jobs:
           # budget while cmux-bot's token is GH_TOKEN; writes, GraphQL and the cmux-bot re-run stay on GH_TOKEN, and a
           # refused read moves back to it (queue_janitor.GitHub.use_read_token()). A backed-up queue made each sweep
           # list ~1,000-2,000 runs' jobs on the cmux-bot installation every reconciler shares.
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}
+          # A quota-goblin pool token first (the step above), else glaeda-route.
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && (steps.pool-read.outputs.token || steps.glaeda-token.outputs.token) || '' }}
           # The calls an hour the sweep leaves on that installation for the runner scaler's JIT creates (default 3000).
-          READ_TOKEN_FLOOR: ${{ vars.CI_JANITOR_READ_TOKEN_FLOOR }}
+          # A pool token's installation carries no JIT creates: the sweep leaves 500 there for the pool's other jobs.
+          READ_TOKEN_FLOOR: ${{ steps.pool-read.outputs.token != '' && '500' || vars.CI_JANITOR_READ_TOKEN_FLOOR }}
           # Under that floor the reads go on cmux-bot's token while it has more than this left (default 4000), so the
           # sweep still writes the pool snapshot; at or under both floors it stops (queue_janitor.SWEEP_TOKEN_READ_FLOOR).
           SWEEP_TOKEN_READ_FLOOR: ${{ vars.CI_JANITOR_SWEEP_TOKEN_READ_FLOOR }}
