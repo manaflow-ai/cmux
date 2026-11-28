@@ -5,8 +5,10 @@ Pure JSON: the cmux-shotdiff numbers are given, so nothing renders. The seeded r
 Chrome renders runs in shotdiff.yml.
 """
 from pathlib import Path
+import subprocess
 import sys
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -65,6 +67,33 @@ class VisualBaselineTest(unittest.TestCase):
         got = judge(imgs, [row(f"kit.e{i}/v", passed=False) for i in range(9)])
         self.assertLessEqual(len(got["description"]), 140)
         self.assertIn("9 unexplained", got["description"])
+
+
+class PostThroughRateLimitTest(unittest.TestCase):
+    """A rate-limited status post is asked again: a refused one left the status pending for good (cmux#65276)."""
+
+    def run_post(self, replies):
+        calls = []
+
+        def fake_run(args, **kw):
+            calls.append(args)
+            code, err = replies[min(len(calls), len(replies)) - 1]
+            return subprocess.CompletedProcess(args, code, "", err)
+
+        with mock.patch.object(vb.subprocess, "run", fake_run), mock.patch.object(vb.time, "sleep") as sleep:
+            code = vb.post("o/r", SHA, "success", "ok")
+        return code, len(calls), sleep.call_count
+
+    def test_rate_limit_is_waited_out(self):
+        limited = (1, "gh: API rate limit exceeded for installation.\n")
+        self.assertEqual(self.run_post([limited, limited, (0, "")]), (0, 3, 2))
+
+    def test_other_refusal_fails_at_once(self):
+        self.assertEqual(self.run_post([(1, "gh: Not Found (HTTP 404)\n")]), (1, 1, 0))
+
+    def test_rounds_are_bounded(self):
+        code, calls, sleeps = self.run_post([(1, "API rate limit exceeded")])
+        self.assertEqual((code, calls, sleeps), (1, vb.POST_ROUNDS, vb.POST_ROUNDS - 1))
 
 
 if __name__ == "__main__":
