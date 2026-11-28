@@ -513,6 +513,20 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         finally:
             subprocess.run(["rm", "-rf", str(root)], check=False)
 
+    def test_only_a_warm_launch_asks_for_stage_zero(self):
+        """Stage 0 (the saved image of the last window) runs in a no-activate launch only when the harness asks
+        (CMUX_NEXT_LAUNCH_SHELL, AppEnvironment.launchShellKey): the warm launches do, so the board's saved-image row
+        fills; every other harness's copy keeps the no-activate launch with no stage 0."""
+        root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
+        try:
+            self.assertEqual(smoke.LAUNCH_SHELL_VARIABLE, "CMUX_NEXT_LAUNCH_SHELL")
+            self.assertNotIn(smoke.LAUNCH_SHELL_VARIABLE, smoke.fresh_env(root, root / "s.sock", 3))
+            asked = smoke.fresh_env(root, root / "s.sock", 3, launch_shell=True)
+            self.assertEqual(asked[smoke.LAUNCH_SHELL_VARIABLE], "1")
+            self.assertEqual(asked["CMUX_NEXT_NO_ACTIVATE"], "1")
+        finally:
+            subprocess.run(["rm", "-rf", str(root)], check=False)
+
     def test_the_app_sees_an_empty_home_and_none_of_the_runner_environment(self):
         app = make_app(self.dir, "healthy")
         root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
