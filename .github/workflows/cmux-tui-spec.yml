@@ -199,6 +199,8 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 12
+    env:
+      GH_HTTP_DEADLINE_S: "660"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     # head_tier.py reads the previous head's Actions runs (green-head base merge rule) and cmux/land-tier
     # (land carry rule); the post-merge batch's caller grants the same.
     permissions:
@@ -240,8 +242,12 @@ jobs:
           fetch-depth: 2
           filter: blob:none
           sparse-checkout-cone-mode: false
+          # The two .github/post-merge-*.json files feed head_tier.py's post-merge tier rule (#63989): without them it
+          # read no config and planned `full` on every feat-cmux-next head (39 PR runs, ~917 runner-min, 11-28 06:30-10Z).
           sparse-checkout: &changes-sparse |
             /.github/workflows/cmux-tui-spec.yml
+            /.github/post-merge-checks.json
+            /.github/post-merge-batch.json
             /.github/scripts/
             /scripts/ci/*.py
             /scripts/ci/*.json
@@ -280,6 +286,19 @@ jobs:
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
+          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
+          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
+          ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
+          key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)
+          have=$(cat "$ws/.git/cmux-pool-key" 2>/dev/null || true)
+          if [[ "$have" != "$key" ]] && { [[ "$have" =~ ^[0-9a-f]{16}$ ]] || [[ -d "$stash/$key" ]]; }; then
+            mkdir -p "$stash"; cd "$stash"
+            if [[ "$have" =~ ^[0-9a-f]{16}$ ]]; then rm -rf "${stash:?}/$have"; mv "$ws" "$stash/$have"; touch "$stash/$have"; else rm -rf "$ws"; fi
+            if [[ -d "$stash/$key" ]]; then mv "$stash/$key" "$ws"; else mkdir -p "$ws"; fi
+            ls -1t "$stash" | tail -n +5 | while read -r old; do rm -rf "${stash:?}/$old"; done
+          fi
           cd "$GITHUB_WORKSPACE"
           # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
           # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
@@ -321,7 +340,8 @@ jobs:
           git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
           if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
-          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
+          [[ -z "${key:-}" ]] || echo "$key" > .git/cmux-pool-key
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse sparse_key=${key:-}"
 
       # head_tier.py, the router's own tier decision (pr-router.yml, ci.yml's changes job), with the same switches.
       # Its failure (continue-on-error) leaves skip empty: every job routes as before.
@@ -555,6 +575,18 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       - name: Protocol changes need compat rules
         working-directory: cmux-tui
         run: cargo run --locked -p cmux-api-compat --bin api-compat-check
@@ -612,6 +644,18 @@ jobs:
       - name: Set up pinned Rust
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
 
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
       - name: Cache cargo build
@@ -826,6 +870,18 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       # The test step's library runner: a three-crate workspace, about 10 s.
       - name: Test the library test runner
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -902,24 +958,6 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
 
-      - name: v2 bench home emits all gate rows
-        if: ${{ steps.tree.outputs.hit != 'true' }}
-        working-directory: cmux-tui
-        run: |
-          output="$RUNNER_TEMP/acpmux-v2-bench.json"
-          # The test step's profile, not bench's (release: thin LTO, acpmux at one codegen unit).
-          # With no --measures the home only lists its rows and times nothing, so optimizing it
-          # bought nothing, and the release build was a second full build of acpmux and every
-          # dependency beside the test step's; under the test profile the test step reuses it.
-          cargo bench -q --profile test -p acpmux --bench v2 -- --output "$output"
-          python3 - "$output" <<'PY'
-          import json, sys
-          with open(sys.argv[1], encoding="utf-8") as f:
-              rows = json.load(f)["rows"]
-          expected = {"1", "1b", "2", "2b", "3", "4", "5", "5b", "6", "7", "8", "9", "10", "11", "12", "13"}
-          assert expected.issubset({row["pr"] for row in rows})
-          PY
-
       - name: cargo test -p acpmux --lib --test hub_integration
         id: test
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -970,8 +1008,9 @@ jobs:
           # request runs in 12-18Z on 2026-11-22 (1,512 min) ended so, in a slow host's library tests or in the merge
           # parent's replay. Every run here stops at the budget instead: what it cut short is printed and judged
           # red by name. The steps after this one get the rest (the push saves the cargo cache).
-          reserve=150
-          [[ "$EVENT_NAME" == pull_request ]] || reserve=420
+          # 60 s of each reserve is the v2 bench step after this one (it links the bench against this build).
+          reserve=210
+          [[ "$EVENT_NAME" == pull_request ]] || reserve=480
           deadline=$(( ${ACPMUX_TESTS_STARTED:-$(date +%s)} + 40 * 60 - reserve ))
           out_of_time="$RUNNER_TEMP/acpmux-tests-out-of-time"
           # The seconds left before the deadline less $1 (kept for what follows), at least 1.
@@ -1103,6 +1142,30 @@ jobs:
           fi
           echo "acpmux tests: red head run judged after $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
           python3 "$verdict" judge --head "$head_log" --retry "$retry_log" --base "$base_log" --job "$JOB" "${recent[@]}"
+
+      # After the test step, with its packages: alone, `-p acpmux` resolved acpmux-client without `tokio` and
+      # acpmux-book without `gate-rounds`, so the test step built acpmux and its five sibling crates a second time
+      # (jobs 140927035957 and 5 more sampled 2026-11-28: this step 5.6-9.9 min, then the test build 7.6-11.8 min,
+      # one after the other). Now the test step builds acpmux's library and its test binary at once and this step
+      # links only the bench. It runs only when every step before it passed, as it did before.
+      - name: v2 bench home emits all gate rows
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        working-directory: cmux-tui
+        run: |
+          output="$RUNNER_TEMP/acpmux-v2-bench.json"
+          # The test step's profile, not bench's (release: thin LTO, acpmux at one codegen unit).
+          # With no --measures the home only lists its rows and times nothing, so optimizing it
+          # bought nothing, and the release build was a second full build of acpmux and every
+          # dependency beside the test step's; under the test profile it reuses the test step's build.
+          cargo bench -q --profile test --locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client \
+            -p acpmux-core -p acpmux-list-types --bench v2 -- --output "$output"
+          python3 - "$output" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              rows = json.load(f)["rows"]
+          expected = {"1", "1b", "2", "2b", "3", "4", "5", "5b", "6", "7", "8", "9", "10", "11", "12", "13"}
+          assert expected.issubset({row["pr"] for row in rows})
+          PY
 
       # feat-cmux-next's build for the R2 restore above, red or green (as rust-cache's cache-on-failure): dependencies
       # only, as rust-cache keeps (scripts/ci/cargo_target_strip.py; cmux-next.yml's fast-tier-cargo does the same).
@@ -1239,6 +1302,18 @@ jobs:
       - name: Set up pinned Rust
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
 
       - name: Cache cargo build
         id: rust-cache
@@ -1388,6 +1463,18 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       # Keyed on the toolchain and the UTC day, not cmux-tui/Cargo.lock (24 changes in the 24 h to 2026-11-28
       # 02:30Z, each one a new entry in the 10 GB GitHub cache that evicts the rest): one save a day.
       - name: Day of the target-dir cache
@@ -1520,9 +1607,11 @@ jobs:
     # router read as `result != 'success'` ran this on every head (273 runs in 40 min, 11-27 04Z). The post-merge batch
     # (suite cmux-tui-spec) and the feat-cmux-next push run it. Routed by the crate graph (scripts/ci/affected-jobs.json): it builds cmux-remote-web and what that reaches, so a
     # change none of those inputs sees skips it; a failed router, a push and full-ci on a reaching change run it.
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || (needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false'))) }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || (needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
+    env:
+      GH_HTTP_DEADLINE_S: "1140"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1546,6 +1635,18 @@ jobs:
       - name: Set up pinned Rust
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
 
       - name: Install wasm32 target
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1687,6 +1788,18 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (jobs 141004111691 and 6 more sampled
+      # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
+      # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       # Warm start (projected fleet checkouts; Leo, 2026-11-17: "what if we were able to adopt
       # that... for our own workflows? our own remote machines, our own ci?"): the last
       # feat-cmux-next clippy's whole target dir and cargo registry on a Blacksmith sticky disk,
@@ -1817,6 +1930,8 @@ jobs:
         id: clippy
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          # The job's timeout-minutes: the autofix's full rebuild is tried only when it ends 10 min before it.
+          CLIPPY_JOB_MINUTES: "40"
           AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' && github.event.pull_request.head.sha || '' }}
         run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" ${AUTOFIXED_OK:+--autofixed-ok "$AUTOFIXED_OK"}
 
