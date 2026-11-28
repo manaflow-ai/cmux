@@ -4,20 +4,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { DETAIL_KEY } from "../src/agent-session/acpmux/chatDetail";
-import {
-  PRESENTATION_KEY,
-  chatDisplayValues,
-  defaultPresentation,
-  setChatDisplay,
-} from "../src/agent-session/acpmux/chatDisplay";
-import {
-  hasOwnPresentation,
-  makePresentationDefault,
-  presentationOf,
-  resetPresentations,
-  setPresentation,
-} from "../src/agent-session/acpmux/conversation/presentation";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { PRESENTATION_KEY, chatDisplayValues, defaultPresentation, setChatDisplay } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chatDisplay"),
+);
+const { hasOwnPresentation, makePresentationDefault, presentationOf, resetPresentations, setPresentation } =
+  await importWithDom(() => import("../src/agent-session/acpmux/conversation/presentation"));
 
 let dom: JSDOM | undefined;
 const scope = globalThis as Record<string, unknown>;
