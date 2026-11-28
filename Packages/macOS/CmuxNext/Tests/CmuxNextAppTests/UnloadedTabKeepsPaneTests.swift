@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 @testable import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextTestSupport
@@ -17,11 +18,11 @@ import Testing
 /// shows until the new content is in, and a pane left with nothing shows its selection in the same turn.
 @Suite(.serialized, .closesItsWindows)
 @MainActor struct UnloadedTabKeepsPaneTests {
-    private static func tree() -> DaemonTree {
+    private static func tree(coldBrowser: Bool = false) -> DaemonTree {
         let tabs = [TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .browser, url: URL.historyPageString,
                                 browserRenderer: "frontend", browserEngine: "webkit"),
-                    TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .browser, title: "Blank", url: "about:blank",
-                                browserRenderer: "frontend", browserEngine: "webkit"),
+                    TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .browser, title: "Blank", url: coldBrowser ? "https://example.com/cold" : "about:blank",
+                                browserRenderer: "frontend", browserEngine: coldBrowser ? "cef" : "webkit"),
                     TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~")]
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: tabs)
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [pane])
@@ -60,12 +61,16 @@ import Testing
         let history: String, blank: String, terminal: String
         let page: HistoryPageTab
 
-        init() async throws {
+        init(coldBrowser: Bool = false) async throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
             let store = services.daemon.store
             store.connectionState = .connected(try UnloadedTabKeepsPaneTests.connected())
-            store.apply(snapshot: UnloadedTabKeepsPaneTests.tree())
+            store.apply(snapshot: UnloadedTabKeepsPaneTests.tree(coldBrowser: coldBrowser))
+            if coldBrowser {
+                services.cache.browserTabs.cefUnavailable = { nil }
+                services.cache.browserTabs.opened(BrowserEngineChoice(engine: .cef), SurfaceID(rawValue: 2), on: services.daemon)
+            }
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             history = try #require(store.tab(surface: SurfaceID(rawValue: 1))).id
             blank = try #require(store.tab(surface: SurfaceID(rawValue: 2))).id
@@ -117,10 +122,85 @@ import Testing
         var emptyPasses = fixture.pane.view.hostsContent ? 0 : 1
         for _ in 0..<12 where fixture.pane.currentTabKey != target {
             await Self.nextCommittedPass()
-            if !fixture.pane.view.hostsContent, fixture.pane.currentTabKey != target { emptyPasses += 1 }
+            if !fixture.pane.view.hostsContent { emptyPasses += 1 }
         }
         #expect(emptyPasses == 0, "the pane showed nothing for \(emptyPasses) committed pass(es) between the click and the \(kind) tab")
         #expect(fixture.pane.currentTabKey == target, "the unloaded \(kind) tab never showed")
+        #expect(fixture.pane.view.hostsContent, "matching the selected key does not prove its content exists")
+    }
+
+    /// Holds actual asynchronous page creation, rather than stopping observation as soon as the selected key matches.
+    @MainActor private final class PageArrival {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var released = false
+        var started = false
+        func wait() async {
+            started = true
+            if !released { await withCheckedContinuation { continuation = $0 } }
+        }
+        func release() { released = true; continuation?.resume(); continuation = nil }
+    }
+
+    private static func until(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !condition() {
+            try #require(ContinuousClock.now < deadline, "page creation did not reach the expected state")
+            try await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    @Test(arguments: ["ready", "switchAway", "clearSelection", "initiallyEmpty"])
+    func aDelayedPageKeepsTheOutgoingContentUntilItArrives(outcome: String) async throws {
+        let fixture = try await Fixture(coldBrowser: true)
+        let arrival = PageArrival()
+        defer { arrival.release(); fixture.close() }
+        var ready = false
+        fixture.services.cache.makeCEFTab = { configuration in
+            await arrival.wait()
+            return MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab(configuration)
+        }
+        // This standalone pane is not in WindowRegistry. Use the same selected-aware callback as AppServices.
+        fixture.services.cache.onBrowserReady = { [weak pane = fixture.pane] key in
+            ready = true
+            _ = pane?.showsAgain(key)
+        }
+        if outcome == "initiallyEmpty" {
+            fixture.pane.stripModel.selectedID = nil
+            fixture.pane.showSelected()
+            try #require(!fixture.pane.view.hostsContent)
+        }
+        fixture.select(fixture.blank)
+        try await Self.until { arrival.started }
+        for _ in 0..<6 {
+            await Self.nextCommittedPass()
+            #expect(fixture.services.cache.existingBrowser(fixture.blank) == nil, "creation remains held")
+            if outcome != "initiallyEmpty" {
+                #expect(fixture.pane.currentTabKey == fixture.history)
+                #expect(fixture.pane.view.hostsContent && fixture.page.contentView.window === fixture.window)
+                #expect(fixture.services.cache.isRendering(fixture.history), "an attached but withdrawn Chromium page would still blank")
+            }
+        }
+        if outcome == "switchAway" { fixture.select(fixture.history) }
+        if outcome == "clearSelection" {
+            fixture.pane.stripModel.selectedID = nil
+            fixture.pane.showSelected()
+            #expect(fixture.pane.currentTabKey == nil && !fixture.pane.view.hostsContent)
+            #expect(!fixture.services.cache.isRendering(fixture.history))
+        }
+        arrival.release()
+        try await Self.until { ready }
+        for _ in 0..<6 { await Self.nextCommittedPass() }
+        switch outcome {
+        case "switchAway":
+            #expect(fixture.pane.currentTabKey == fixture.history && fixture.pane.view.hostsContent)
+            #expect(fixture.services.cache.isRendering(fixture.history))
+        case "clearSelection":
+            #expect(fixture.pane.currentTabKey == nil && !fixture.pane.view.hostsContent, "a late completion must not restore a cleared selection")
+        default:
+            #expect(fixture.pane.currentTabKey == fixture.blank && fixture.pane.view.hostsContent)
+            #expect(fixture.services.cache.isRendering(fixture.blank))
+            #expect(!fixture.services.cache.isRendering(fixture.history))
+        }
     }
 
     /// The source pane of a tab move, when the move's view leaves before the pane learns its new selection: the
