@@ -84,8 +84,7 @@ fn bundle_for(slots: &[Slot], install_key: &str) -> Bundle {
         .iter()
         .zip(&indices)
         .map(|(slot, &i)| {
-            // `arm_index` only returns 0 or 1, and 1 only when the slot has two arms.
-            let arm = slot.arms.get(i).or(slot.arms.first()).copied().unwrap_or_default();
+            let arm = slot.arms.get(i).or_else(|| slot.arms.first()).copied().unwrap_or_default();
             (slot.id.to_string(), arm.to_string())
         })
         .collect();
