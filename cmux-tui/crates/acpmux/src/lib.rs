@@ -150,6 +150,8 @@ pub mod hypervisor;
 pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
+mod subscription_store;
+mod subscriptions;
 pub mod model_router;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
@@ -297,6 +299,7 @@ pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
+pub mod peer_starved;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
 pub mod peer_path_stats;
