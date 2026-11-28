@@ -2656,7 +2656,13 @@ export function rpcFailureReason(reason: unknown): string {
 }
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): Exec {
+export type PremintExec = Exec & {
+  /** Mint the client session now, before the first exec: the probe starts it when create answers, so the mint runs
+   * beside the wait for running instead of inside the agent's start. Resolves with the mint's ms, or null when it
+   * failed (the first exec then mints again and reports that failure itself). */
+  premint: () => Promise<number | null>;
+};
+export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): PremintExec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   // Calls that start together (the agent's start and its first-text observer) share one mint.
@@ -2670,7 +2676,20 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}${rpcFailureReason(v?.error?.reason)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
-  return async (command, timeoutMs = 60_000) => {
+  const mintOnce = (): Promise<number> => minting ?? (minting = (async () => {
+    const m0 = performance.now();
+    const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
+    const ms = Math.round(performance.now() - m0);
+    if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
+      guestRoute = true;
+      return ms;
+    }
+    if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
+    session = r.body.value;
+    journey.secrets.push(session!.token);
+    return ms;
+  })().finally(() => { minting = null; }));
+  const run: Exec = async (command, timeoutMs = 60_000) => {
     const timedGuest = async () => {
       const t0 = performance.now();
       const out = await guestExec(command, timeoutMs);
@@ -2679,20 +2698,7 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     let mintMs: number | undefined;
     if (guestRoute) return timedGuest();
     if (!session || session.expires_at - Date.now() < 60_000) {
-      const mint = minting ?? (minting = (async () => {
-        const m0 = performance.now();
-        const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
-        const ms = Math.round(performance.now() - m0);
-        if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
-          guestRoute = true;
-          return ms;
-        }
-        if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
-        session = r.body.value;
-        journey.secrets.push(session!.token);
-        return ms;
-      })().finally(() => { minting = null; }));
-      mintMs = await mint;
+      mintMs = await mintOnce();
       if (guestRoute) return timedGuest();
     }
     const s = session!;
@@ -2707,6 +2713,7 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     const route = { ...(mintMs === undefined ? {} : { client_session_ms: mintMs }), call_ms: Math.round(performance.now() - c0) };
     return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? ""), route };
   };
+  return Object.assign(run, { premint: () => (session || guestRoute ? Promise.resolve(0) : mintOnce().catch(() => null)) });
 }
 
 /**
@@ -4264,6 +4271,7 @@ export const CREDENTIAL_PROCESSES_PROGRAM =
  */
 export const STUB_BYPASS_PROGRAM =
   `[ -e /etc/cmux/model-plane.env ] && echo "model-plane.env present" || echo "model-plane.env absent"; ` +
+  `echo "vm-kind $(head -c 32 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]'), claude choice $(head -c 16 /home/cmux/.config/cmux/agent-auth/claude 2>/dev/null | tr -d '[:space:]')"; ` +
   `echo "settings.json base URL host: $(grep -oE '"ANTHROPIC_BASE_URL": *"[a-z]+://[^/"]+' /home/cmux/.claude/settings.json 2>/dev/null | sed -E 's#.*://##')"; ` +
   `n=0; for d in /proc/[0-9]*; do [ -O "$d" ] || continue; ` +
   `c=$(tr '\\0\\n' '  ' < "$d/cmdline" 2>/dev/null | cut -c1-60); ` +
@@ -4784,9 +4792,16 @@ export function strandedGatewayMode(body: any): boolean {
  * ("offline") instead of setting it off: the heal that set it off during the 11-27 gateway outage left the team off
  * after the gateway came back, and every later real leg read "has no model route" (run 46059370159). Any other run
  * sets a stranded team back to off ("off", #61939) and leaves the rest alone ("keep").
+ * A model stub run (`stub`) sets gateway mode off even with a gateway online, and puts it back at cleanup: its chat
+ * machine, made while the team is in gateway mode, sent the acpmux-started Claude to the team's route
+ * (coderouter.cmux.internal), never settings.json's stub endpoint, so the stub logged 0 turn requests. Since the
+ * real leg with no login (#63318) leaves the shared production team in gateway mode, every hourly claude stub leg
+ * failed that way (runs 46102669858, 46134801449, 46144617765 read "gateway, gateway online"; 46097985091 read
+ * "off" and passed on the same daemon).
  */
-export function gatewayModeAction(body: unknown, gatewayOnly: boolean): "keep" | "off" | "gateway" | "offline" {
+export function gatewayModeAction(body: unknown, gatewayOnly: boolean, stub = false): "keep" | "off" | "gateway" | "offline" {
   const g = (body as { gateway?: { mode?: unknown; online?: unknown } } | null)?.gateway;
+  if (stub && !gatewayOnly) return g && typeof g === "object" && g.mode === "gateway" ? "off" : "keep";
   if (gatewayOnly) {
     if (!g || typeof g !== "object") return "keep";
     if (g.mode !== "gateway") return "gateway";
@@ -6158,12 +6173,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (g.status !== 200) return { value: null, detail: `unread: GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}` };
         const mode = String(g.body?.gateway?.mode ?? "off");
         const online = g.body?.gateway?.online === true;
-        const action = gatewayModeAction(g.body, gatewayOnlyRoute);
+        const stubLeg = modelStub && Boolean(provider);
+        const action = gatewayModeAction(g.body, gatewayOnlyRoute, stubLeg);
         if (action === "keep") return { value: null, detail: `${mode}${online ? ", gateway online" : ""}` };
         if (action === "offline") throw new Error("gateway mode with no gateway online: this run's agent has no login of its own, so its only model route is the team's gateway, which is down; the mode is left on for when it comes back");
         const to = action === "gateway" ? "gateway" : "off";
         const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: to, machine: null });
         if (r.status !== 200) throw new Error(`was ${mode}; PUT ${to} HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+        if (stubLeg && mode === "gateway") {
+          // Put back at cleanup ("team gateway mode restored"), so a real leg with no login finds its route as it left it.
+          gatewayModeBefore = mode;
+          gatewayMachineBefore = typeof g.body?.gateway?.machine === "string" ? g.body.gateway.machine : null;
+          gatewayApi = installApi;
+          return { value: null, detail: `was gateway${online ? " (gateway online)" : ""}; set to off for this run: in gateway mode the chat's Claude takes the team's route, not the model stub; restored at cleanup` };
+        }
         return { value: null, detail: to === "gateway"
           ? `was ${mode}; set to gateway: this run's agent has no login of its own, so the team's gateway is its model route${online ? " (gateway online)" : ""}`
           : "was gateway with no gateway online (a killed --gateway run's); set back to off" };
@@ -6415,12 +6438,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (process.env.GITHUB_ACTIONS === "true") console.log(spareNotice(backendName, process.env.JOURNEY_PHASE ?? "", spare));
           return { value: v.machine, detail: `${machine} status ${v.machine.status}${room.refusals ? `; waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)` : ""}` };
         });
+    // The client-session mint needs only the machine's id: start it now so it runs beside the wait for running, not
+    // inside the agent's start (run 46146598393: start 4275 ms, 875 of it on the guest, the rest the exec route).
+    const direct = cmux ? null : directExec(api, created.id, J);
+    // Not awaited: a first exec that comes before it ends shares this same mint (directExec's minting promise).
+    void direct?.premint().then((ms) => {
+      if (ms !== null) J.firstText.route("premint_client_session", ms);
+    });
     const bound = await J.step("running (status)", async () => {
       const m = await waitRunning(api, created.id, 300_000);
       J.firstText.mark("running");
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
-    const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J));
+    const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : direct!);
     machineExec = exec;
     if (wakeEchoN > 0) {
       const row = async (timeoutMs = 30_000) => (await api.read("cloud.machine.get", { machine: created.id }, timeoutMs).catch(() => null)) as Record<string, any> | null;
