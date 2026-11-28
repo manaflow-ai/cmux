@@ -1626,6 +1626,193 @@ describe("VM Effect workflows", () => {
     expect(result.memoryTotalMb).toBe(memoryMb);
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/43170: a Team's custom deal
+  // raises the machine ceiling above the plain Team 16 GiB tier on resize.
+  test("a Team with a 24 GiB custom deal can resize memory to 24 GiB", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000149",
+      userId: "user-workflow-resize-team-override",
+      billingTeamId: "team-workflow-resize-team-override",
+      billingPlanId: "team",
+      providerVmId: "provider-vm-resize-team-override",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    let resized = false;
+    let resizeOptions: { cpu?: number; memoryMb?: number } | undefined;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: 8,
+        memoryTotalMb: resized ? 24 * 1024 : 16 * 1024,
+        diskTotalMb: 65536,
+      }),
+      resize: (_provider, _providerVmId, options) => Effect.sync(() => {
+        resizeOptions = options;
+        resized = true;
+      }),
+    };
+    const resizeInput = {
+      userId: vm.userId,
+      teamIds: [vm.billingTeamId!],
+      providerVmId: vm.providerVmId!,
+      billingPlanId: "team",
+      maxActiveVms: 40,
+      memoryMb: 24 * 1024,
+    };
+
+    const withoutDeal = await Effect.runPromise(
+      resizeVm(resizeInput).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(withoutDeal).toMatchObject({ _tag: "VmResizePlanLimitError", max: 16 * 1024, planId: "team" });
+
+    const result = await Effect.runPromise(
+      resizeVm({
+        ...resizeInput,
+        entitlementOverride: {
+          maxActiveVms: 40,
+          poolVcpus: 320,
+          poolMemoryMb: 640 * 1024,
+          maxMemoryMb: 32 * 1024,
+          planLabel: "Enterprise",
+          monthlyPriceCents: null,
+        },
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(resizeOptions).toEqual({ cpu: undefined, memoryMb: 24 * 1024 });
+    expect(result.memoryTotalMb).toBe(24 * 1024);
+  });
+
+  // https://github.com/manaflow-ai/cmux/issues/44362: a deal up to the
+  // ladder top resizes to 64 GiB / 32 vCPU.
+  test("a Team with a 64 GiB custom deal can resize to 64 GiB and 32 vCPUs", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000152",
+      userId: "user-workflow-resize-team-deal-top",
+      billingTeamId: "team-workflow-resize-team-deal-top",
+      billingPlanId: "team",
+      providerVmId: "provider-vm-resize-team-deal-top",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    let resized = false;
+    let resizeOptions: { cpu?: number; memoryMb?: number } | undefined;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: resized ? 32 : 8,
+        memoryTotalMb: resized ? 64 * 1024 : 16 * 1024,
+        diskTotalMb: 65536,
+      }),
+      resize: (_provider, _providerVmId, options) => Effect.sync(() => {
+        resizeOptions = options;
+        resized = true;
+      }),
+    };
+    const result = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "team",
+        maxActiveVms: 40,
+        cpu: 32,
+        memoryMb: 64 * 1024,
+        entitlementOverride: {
+          maxActiveVms: 40,
+          poolVcpus: 320,
+          poolMemoryMb: 640 * 1024,
+          maxMemoryMb: 64 * 1024,
+          planLabel: null,
+          monthlyPriceCents: null,
+        },
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(resizeOptions).toEqual({ cpu: 32, memoryMb: 64 * 1024 });
+    expect(result.cpus).toBe(32);
+    expect(result.memoryTotalMb).toBe(64 * 1024);
+  });
+
+  test("a Team over its custom deal's ceiling gets no Max upgrade hint", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000150",
+      userId: "user-workflow-resize-team-deal-cap",
+      billingTeamId: "team-workflow-resize-team-deal-cap",
+      billingPlanId: "team",
+      providerVmId: "provider-vm-resize-team-deal-cap",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStats: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { state: "awake" as const, sampledAt: Date.now(), cpus: 8, memoryTotalMb: 16 * 1024, diskTotalMb: 65536 };
+      }),
+      resize: () => Effect.sync(() => { providerCalls += 1; }),
+    };
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "team",
+        memoryMb: 32 * 1024,
+        entitlementOverride: {
+          maxActiveVms: null,
+          poolVcpus: null,
+          poolMemoryMb: null,
+          maxMemoryMb: 24 * 1024,
+          planLabel: null,
+          monthlyPriceCents: null,
+        },
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(error).toMatchObject({ _tag: "VmResizePlanLimitError", max: 24 * 1024, planId: "team" });
+    expect(error).not.toHaveProperty("upgradePlanId", "max");
+    expect(providerCalls).toBe(0);
+  });
+
+  test.each([
+    ["a deal at or below the plan ceiling", { memoryMb: 24 * 1024 }, 8 * 1024],
+    ["disk past the plan ceiling", { storageMb: 256 * 1024 }, 24 * 1024],
+  ] as const)("a Team keeps the Max upgrade hint for %s", async (_case, request, dealMaxMemoryMb) => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000151",
+      userId: "user-workflow-resize-team-deal-hint",
+      billingTeamId: "team-workflow-resize-team-deal-hint",
+      billingPlanId: "team",
+      providerVmId: "provider-vm-resize-team-deal-hint",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "team",
+        ...request,
+        entitlementOverride: {
+          maxActiveVms: null,
+          poolVcpus: null,
+          poolMemoryMb: null,
+          maxMemoryMb: dealMaxMemoryMb,
+          planLabel: null,
+          monthlyPriceCents: null,
+        },
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm }), unusedProviderGateway()))),
+    );
+    expect(error).toMatchObject({ _tag: "VmResizePlanLimitError", planId: "team", upgradePlanId: "max" });
+  });
+
   test("rejects an unsupported port before attempting to resume a paused VM", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000130",
