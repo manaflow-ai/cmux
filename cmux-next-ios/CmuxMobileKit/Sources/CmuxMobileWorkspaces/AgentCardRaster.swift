@@ -222,24 +222,59 @@ final class AgentCardRasterizer: NSObject {
         }
         dequeue(feed)
         held = nil
-        if let image = AgentChatPreview.drawing(hold, { Self.render(feed, key) }) {
-            // Leo, 2026-11-22: "isn't this literally apple telling you theres nothing there?" A row
-            // that reached a UIKit-backed view drew the mark: never show it; the live preview stays.
-            if CannotDrawMark.isIn(image) {
-                refused[id] = key
-                refusals += 1
-                Self.log.fault("agent card picture held the system's cannot-draw mark; showing the live preview")
-                return
-            }
-            refused[id] = nil
-            feed.raster = (key, image)
-            renders += 1
-            remember(feed)
+        if let image = draw(feed, key, hold) {
             // The tab's last-known picture, for the next launch and for a card whose chat
             // has not loaded yet. A chat still loading is not one: its empty page would
             // replace the picture of its turns.
             if let snapshotKey = feed.snapshotKey, !feed.awaitingHistory { snapshots.put(image, for: snapshotKey) }
         }
+    }
+
+    /// Draws `feed`'s picture for `key` (its thumbnails resident in `hold`) and makes it the
+    /// card's picture; nil when the drawing held the system's cannot-draw mark.
+    private func draw(_ feed: AgentCardFeed, _ key: AgentCardRasterKey, _ hold: AgentChatPreview.PictureHold) -> UIImage? {
+        let id = ObjectIdentifier(feed)
+        guard let image = AgentChatPreview.drawing(hold, { Self.render(feed, key) }) else { return nil }
+        // Leo, 2026-11-22: "isn't this literally apple telling you theres nothing there?" A row
+        // that reached a UIKit-backed view drew the mark: never show it; the live preview stays.
+        if CannotDrawMark.isIn(image) {
+            refused[id] = key
+            refusals += 1
+            Self.log.fault("agent card picture held the system's cannot-draw mark; showing the live preview")
+            return nil
+        }
+        refused[id] = nil
+        feed.raster = (key, image)
+        renders += 1
+        remember(feed)
+        return image
+    }
+
+    /// The person left the tab (for the grid or another tab) or the app went to the background:
+    /// the card's picture of the chat as it is now becomes the tab's last-known picture
+    /// (`TabCardSnapshots`), so its card is never empty while its history loads after a relaunch.
+    /// Only the grid drew agent pictures before, so a tab left for another tab kept none.
+    /// A picture already drawn for `key` is kept as it is. Otherwise, with `drawNow`, it is drawn
+    /// here once (a page of transcript, tens of milliseconds on the main thread: the caller picks
+    /// a moment no animation runs), else asked for when the grid next rests (`want`). A chat
+    /// still loading keeps its earlier picture. True when a picture was kept.
+    @discardableResult
+    func keepLastKnown(_ feed: AgentCardFeed, _ key: AgentCardRasterKey, drawNow: Bool) -> Bool {
+        guard let snapshotKey = feed.snapshotKey, !feed.awaitingHistory else { return false }
+        if let raster = feed.raster, raster.key == key {
+            snapshots.put(raster.image, for: snapshotKey)
+            return true
+        }
+        guard key.isDrawable, refused[ObjectIdentifier(feed)] != key else { return false }
+        let hold = AgentChatPreview.PictureHold()
+        guard drawNow, AgentChatPreview.picturesResident(key.turns, holding: hold) else {
+            want(feed, key)
+            return false
+        }
+        dequeue(feed)
+        guard let image = draw(feed, key, hold) else { return false }
+        snapshots.put(image, for: snapshotKey)
+        return true
     }
 
     private func dequeue(_ feed: AgentCardFeed) {
@@ -278,7 +313,8 @@ final class AgentCardRasterizer: NSObject {
     static let log = Logger(subsystem: "com.cmux.app", category: "agent-card-raster")
 
     static func render(_ feed: AgentCardFeed, _ key: AgentCardRasterKey) -> UIImage? {
-        let content = AgentChatPreview(store: feed.store, turns: key.turns, topInset: key.topInset, bottomInset: key.bottomInset)
+        let content = AgentChatPreview(store: feed.store, turns: key.turns, topInset: key.topInset, bottomInset: key.bottomInset,
+                                       cardSlice: key.visibleHeight)
             .frame(width: key.page.width, height: key.page.height)
             .frame(width: key.page.width, height: key.visibleHeight, alignment: .top)
             .clipped()
@@ -304,6 +340,9 @@ struct AgentTabCard: View {
     let bottomInset: CGFloat
     /// The tab's last-known picture (`TabCardSnapshots`), from an earlier launch too.
     var snapshot: TabSnapshotEntry?
+    /// The chat's last turns as the Mac laid them out in text (its `tabs` service,
+    /// `MacCardEntry.screen`): what a card shows for a chat this phone has no turns of.
+    var macScreen: String?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dynamicTypeSize) private var textSize
@@ -321,6 +360,8 @@ struct AgentTabCard: View {
         case lastKnown
         /// The live preview: a page of transcript laid out in the card.
         case live
+        /// The chat's last turns as text from the Mac (`macScreen`).
+        case macScreen
     }
 
     /// A card is a still whenever one exists. Its own picture when that may
@@ -330,9 +371,16 @@ struct AgentTabCard: View {
     /// scroll frame otherwise, which is what moved in the grid: Leo,
     /// 2026-11-22, "why are they moving???"). The live preview is left for a
     /// card with no picture at all, and for one whose image is still loading,
-    /// which only a live row loads.
-    nonisolated static func face(awaitingHistory: Bool, mayShowPicture: Bool, drawable: Bool, hasLastKnown: Bool) -> Face {
+    /// which only a live row loads. A chat this phone has no turns of (never
+    /// opened here, or its session hibernated) shows the Mac's text of its last
+    /// turns, not an empty page (Leo, 2026-11-25, "there are too many empty
+    /// previews in the safari grid").
+    nonisolated static func face(awaitingHistory: Bool, mayShowPicture: Bool, drawable: Bool, hasLastKnown: Bool,
+                                 hasTurns: Bool = true, hasMacScreen: Bool = false) -> Face {
         if awaitingHistory, hasLastKnown { return .lastKnown }
+        // A picture of the chat beats the Mac's text of it.
+        if !hasTurns, hasLastKnown { return .lastKnown }
+        if !hasTurns, hasMacScreen { return .macScreen }
         if mayShowPicture { return .picture }
         if drawable, hasLastKnown { return .lastKnown }
         return .live
@@ -349,7 +397,8 @@ struct AgentTabCard: View {
         let lastKnown = snapshot?.image
         let face = Self.face(awaitingHistory: feed.awaitingHistory,
                              mayShowPicture: feed.raster.map { key.mayShow($0.key) } ?? false,
-                             drawable: key.isDrawable, hasLastKnown: lastKnown != nil)
+                             drawable: key.isDrawable, hasLastKnown: snapshot?.hasKnownPicture == true || lastKnown != nil,
+                             hasTurns: !feed.turns.isEmpty, hasMacScreen: !(macScreen ?? "").isEmpty)
         Group {
             // The picture, also while a newer one waits for the grid to rest:
             // building a card never lays out a page of transcript then.
@@ -363,11 +412,20 @@ struct AgentTabCard: View {
                         .background(Color.cmuxMobileBackground)
                 }
             case .lastKnown:
-                if let lastKnown {
-                    TabSnapshotPicture(image: lastKnown).background(Color.cmuxMobileBackground)
-                }
+                TabSnapshotPicture(image: lastKnown, pixelWidth: snapshot?.pixelWidth ?? 0,
+                                   pixelHeight: snapshot?.pixelHeight ?? 0)
+                    .background(Color.cmuxMobileBackground)
             case .live:
-                AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset)
+                AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset,
+                                 cardSlice: key.visibleHeight)
+            case .macScreen:
+                Text(verbatim: macScreen ?? "")
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(Color.primary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, topInset + 48).padding(.horizontal, 16)
+                    .clipped()
+                    .background(Color.cmuxMobileBackground)
             }
         }
         .onAppear { rasterizer.setShown(feed, true) }

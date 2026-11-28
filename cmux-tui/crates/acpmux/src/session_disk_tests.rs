@@ -113,6 +113,26 @@ fn the_watch_acts_per_scope_and_forgets_gone_ones() {
 }
 
 #[test]
+fn a_chat_is_warned_once_for_all_its_scopes_until_its_use_doubles() {
+    let mut w = Watch { budget: 8 * GB, free: 30 * GB, floor: 10 * GB, ..Watch::default() };
+    assert_eq!(w.apply(vec![sample("run-a.scope", 9 * GB, Some(9), Some(2))]).len(), 1);
+    // The next build is a new scope of the same chat: nothing new to say.
+    assert!(w.apply(vec![sample("run-b.scope", 12 * GB, Some(9), Some(2))]).is_empty());
+    // Twice what it was told: told again.
+    let acts = w.apply(vec![sample("run-c.scope", 18 * GB, Some(9), Some(2))]);
+    assert_eq!(acts.len(), 1);
+    assert_eq!(acts[0].1, Action::Warn);
+    // Another chat is told on its own.
+    let mut other = sample("run-d.scope", 9 * GB, Some(9), Some(2));
+    other.session = Some("s2".to_owned());
+    assert_eq!(w.apply(vec![other]).len(), 1);
+    // A stop still goes out to a chat already warned.
+    w.free = GB;
+    let acts = w.apply(vec![sample("run-e.scope", 9 * GB, Some(9), Some(2))]);
+    assert_eq!(acts[0].1, Action::Stop(9));
+}
+
+#[test]
 fn status_lists_the_top_scopes_and_every_one_over() {
     let mut w = Watch { budget: 100, free: u64::MAX, floor: 0, ..Watch::default() };
     let mut samples: Vec<Sample> =

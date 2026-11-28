@@ -48,7 +48,7 @@
 //!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
 //!   is the provider's whatever account asks, so the session waits where it is. After
-//!   `capacityFallbackAfter` capacity failures of one prompt (default 1), its attempts run on a
+//!   `capacityFallbackAfter` capacity failures of one prompt (default 0: never), its attempts run on a
 //!   smaller model of the same harness until a turn there ends well ([`capacity_failover`]).
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
@@ -121,6 +121,7 @@ mod first_send;
 mod compact_first;
 // A chat a full disk cut waits for free space (`disk_wait.rs`).
 mod disk_wait;
+pub(super) use disk_wait::RefusedRules;
 
 /// A dead agent's unread steers go into its continuation.
 mod unread_steers;
@@ -644,13 +645,29 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
 }
 
 impl TurnInfo {
-    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq.
+    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq,
+    /// showing its prompt's own line (`prompt_line.rs`, no provenance).
     pub(super) fn prompted(
         client: &str,
         text: &str,
         turn_id: &str,
         prompt_id: &str,
         control: Control,
+    ) -> Self {
+        let line = super::prompt_line::prompt_line(text, client, None);
+        Self::prompted_as(client, text, turn_id, prompt_id, control, &line)
+    }
+
+    /// [`TurnInfo::prompted`] showing `line` instead: masked once, here. A secret scan is the
+    /// costliest step of a prompt's start at scale, so a caller that knows its line passes it
+    /// rather than masking a default line and then its own.
+    pub(super) fn prompted_as(
+        client: &str,
+        text: &str,
+        turn_id: &str,
+        prompt_id: &str,
+        control: Control,
+        line: &str,
     ) -> Self {
         TurnInfo {
             trigger: false,
@@ -668,7 +685,7 @@ impl TurnInfo {
             accepted: true,
             device: None,
         }
-        .shown_as(&super::prompt_line::prompt_line(text, client, None))
+        .shown_as(line)
     }
 
     /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
@@ -776,6 +793,8 @@ impl Hub {
         // Once a shutdown began none waits here to fire: a cut it hands on is the next daemon's
         // to continue (`restart_resume.rs`), and Quit Everything continues nothing.
         let cut = cut.filter(|_| !self.shutting_down());
+        // Read before the mark's lock: the chat's meta is never taken under it.
+        let cause = cut.as_ref().and_then(|c| super::goal_watch::cut_cause(session, c.error));
         let compaction = Self::take_compaction(session, turn_id);
         let mut pending = session.auto_resume.lock();
         let ending = match pending.as_ref() {
@@ -788,8 +807,7 @@ impl Hub {
             self.compaction_ended(session, pending, turn_id, ending, cut.is_some(), step);
             return;
         }
-        let reason = cut.as_ref().and_then(|c| super::turn_errors::resume_cause(c.error, c.error));
-        let reason = reason.and_then(RetryReason::from_cause);
+        let reason = cause.and_then(RetryReason::from_cause);
         // A first send a revoked token failed: sent again once, its wait this mark's.
         if let (Some(cut), None, Some(true)) = (cut.as_ref(), reason, ending)
             && first_send::retries(session, cut)
@@ -880,6 +898,7 @@ impl Hub {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
                     hub.append_retry(&session, "auto_resume_exhausted", msg);
                     hub.lane_stranded(&session);
+                    hub.goal_retries_exhausted(&session);
                 } else if ours {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }
@@ -1476,10 +1495,11 @@ impl Hub {
         }
         match (session.turn().map(|t| t.turn_id), ending) {
             (Some(t), _) => pending.replace(Mark::Stopped(t)),
-            (None, Some(t)) if let Some(fired_gen) = fired => {
-                pending.replace(Mark::stopping(t, fired_gen))
-            }
-            (None, Some(t)) => pending.replace(Mark::Stopped(t)),
+            // A nested match, not an `if let` guard: those need Rust 1.95, past the 1.91 MSRV.
+            (None, Some(t)) => match fired {
+                Some(fired_gen) => pending.replace(Mark::stopping(t, fired_gen)),
+                None => pending.replace(Mark::Stopped(t)),
+            },
             (None, None) => pending.take(),
         };
         drop(pending);
@@ -1763,7 +1783,7 @@ impl Hub {
         }
         // A sustained overload: this attempt runs on a smaller model (`capacity_failover.rs`).
         if reason == "capacity" {
-            self.fail_over_on_capacity(session, root, attempt).await;
+            self.fail_over_on_capacity(session, root, attempt, cut.error).await;
         }
         let held = self.held_by(session, root, cut_turn);
         // At a rate limit's reset, what queued meanwhile goes in as the one next turn, carrying

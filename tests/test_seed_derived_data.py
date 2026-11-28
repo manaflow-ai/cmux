@@ -1438,7 +1438,7 @@ class Wiring(unittest.TestCase):
             f"{path.name}:{number}"
             for path in sorted((ROOT / ".github/workflows").glob("*.yml"))
             for number, line in enumerate(path.read_text().splitlines(), 1)
-            if bare.search(line)
+            if not line.lstrip().startswith("#") and bare.search(line)
         ]
         self.assertEqual(offenders, [], "an unset variable is null, which equals '0'; give it a default first")
 

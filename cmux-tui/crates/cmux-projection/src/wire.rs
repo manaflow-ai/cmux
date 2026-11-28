@@ -6,7 +6,11 @@
 //!   [`OP_BATCH`] `count u32, entry u32 * count` (whole files, answered in that order); for
 //!   [`OP_PING`] nothing; for [`OP_STORED`] `since u32` (which files the Mac has put in the store,
 //!   from the `since`-th on: answered with an epoch part, `u64`, then one part per file, `entry u32`
-//!   and its blob id in hex; asked only of a Mac whose store is configured).
+//!   and its blob id in hex; asked only of a Mac whose store is configured); for [`OP_LISTING`]
+//!   `since u64` (the journal sequence the machine's listing is at: answered with one part, the
+//!   encoded [`crate::listing_patch::Patch`] since then, or [`CHANGED`] when the Mac's journal no
+//!   longer reaches back that far and the machine must take the whole listing; asked only of a
+//!   Mac that advertised patches, an older Mac ends a stream on an ask it does not know).
 //! - answer: `ask u32, count u32`, then `count` times `status u8, len u32, bytes`.
 //!
 //! A packed answer (RFD 0065, "Projection answers compressed and binary") carries a file's bytes
@@ -17,6 +21,11 @@
 //!
 //! Asks carry their own number, so several are in flight at once and answers may come in any
 //! order.
+//!
+//! The protocol grows by new statuses: a machine reads a status it does not know as a failed part,
+//! so an older machine fails that one read, as it did before, and the stream goes on.
+//! [`RESTATED`] (RFD 0007, hard case 7) is one: its bytes start with the file's stat now
+//! ([`Restat`], [`RESTAT_LEN`] bytes), then the asked range of the file as it is now.
 
 use std::io::{self, Read, Write};
 
@@ -24,6 +33,7 @@ pub const OP_READ: u8 = 1;
 pub const OP_BATCH: u8 = 2;
 pub const OP_PING: u8 = 3;
 pub const OP_STORED: u8 = 4;
+pub const OP_LISTING: u8 = 5;
 
 /// The bytes asked for.
 pub const OK: u8 = 0;
@@ -40,6 +50,12 @@ pub const OK_ZSTD: u8 = 4;
 pub const ZSTD_LEVEL: i32 = 3;
 /// Bytes shorter than this go as they are: a zstd frame's own head eats what it would save.
 const ZSTD_MIN: usize = 64;
+/// The file changed on the Mac since the manifest, and the Mac re-listed it: the part is its stat
+/// now ([`Restat`]), then the asked range as the file is now (the whole file, for a batch). The
+/// bytes may stop at the stat when they would not fit the answer; the machine then asks again.
+pub const RESTATED: u8 = 5;
+/// The bytes of the [`Restat`] at the start of a [`RESTATED`] part.
+pub const RESTAT_LEN: usize = 20;
 
 /// The most bytes one read asks for.
 pub const MAX_READ: u32 = 8 * 1024 * 1024;
@@ -55,6 +71,7 @@ pub enum Ask {
     Batch { ask: u32, entries: Vec<u32> },
     Ping { ask: u32 },
     Stored { ask: u32, since: u32 },
+    Listing { ask: u32, since: u64 },
 }
 
 impl Ask {
@@ -64,7 +81,8 @@ impl Ask {
             Self::Read { ask, .. }
             | Self::Batch { ask, .. }
             | Self::Ping { ask }
-            | Self::Stored { ask, .. } => *ask,
+            | Self::Stored { ask, .. }
+            | Self::Listing { ask, .. } => *ask,
         }
     }
 
@@ -111,6 +129,11 @@ impl Ask {
                 bytes.extend_from_slice(&ask.to_le_bytes());
                 bytes.extend_from_slice(&since.to_le_bytes());
             }
+            Self::Listing { ask, since } => {
+                bytes.push(OP_LISTING);
+                bytes.extend_from_slice(&ask.to_le_bytes());
+                bytes.extend_from_slice(&since.to_le_bytes());
+            }
         }
         out.write_all(&bytes)
     }
@@ -144,8 +167,44 @@ impl Ask {
             }
             OP_PING => Self::Ping { ask },
             OP_STORED => Self::Stored { ask, since: u32_of(input)? },
+            OP_LISTING => Self::Listing { ask, since: u64_of(input)? },
             _ => return Err(bad("unknown ask")),
         }))
+    }
+}
+
+/// A file's stat as the Mac re-listed it after a change: its size, modification time and mode now.
+/// That version is the session's base for the file from then on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Restat {
+    pub size: u64,
+    pub mtime_ns: i64,
+    pub mode: u32,
+}
+
+impl Restat {
+    fn encode(self) -> [u8; RESTAT_LEN] {
+        let mut out = [0u8; RESTAT_LEN];
+        for (at, byte) in self
+            .size
+            .to_le_bytes()
+            .into_iter()
+            .chain(self.mtime_ns.to_le_bytes())
+            .chain(self.mode.to_le_bytes())
+            .enumerate()
+        {
+            if let Some(slot) = out.get_mut(at) {
+                *slot = byte;
+            }
+        }
+        out
+    }
+
+    fn decode(bytes: &[u8]) -> Option<Self> {
+        let size = u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?);
+        let mtime_ns = i64::from_le_bytes(bytes.get(8..16)?.try_into().ok()?);
+        let mode = u32::from_le_bytes(bytes.get(16..RESTAT_LEN)?.try_into().ok()?);
+        Some(Self { size, mtime_ns, mode })
     }
 }
 
@@ -165,6 +224,31 @@ impl Part {
     #[must_use]
     pub fn status(status: u8) -> Self {
         Self { status, bytes: Vec::new() }
+    }
+
+    /// A [`RESTATED`] part: the file's stat now, then `bytes` of it as it is now.
+    #[must_use]
+    pub fn restated(stat: Restat, bytes: &[u8]) -> Self {
+        let mut out = Vec::with_capacity(RESTAT_LEN + bytes.len());
+        out.extend_from_slice(&stat.encode());
+        out.extend_from_slice(bytes);
+        Self { status: RESTATED, bytes: out }
+    }
+
+    /// A [`RESTATED`] part's stat and bytes; `None` for any other part, or a short one.
+    #[must_use]
+    pub fn restat(&self) -> Option<(Restat, &[u8])> {
+        if self.status != RESTATED {
+            return None;
+        }
+        Some((Restat::decode(&self.bytes)?, self.bytes.get(RESTAT_LEN..)?))
+    }
+
+    /// Drops a [`RESTATED`] part's bytes after its stat (the machine asks for them again).
+    pub fn keep_stat_only(&mut self) {
+        if self.status == RESTATED {
+            self.bytes.truncate(RESTAT_LEN);
+        }
     }
 }
 
@@ -201,10 +285,11 @@ fn write_answer_as(out: &mut impl Write, ask: u32, parts: &[Part], packed: bool)
 
 /// `part`'s bytes as one zstd frame, when it is a file's bytes and the frame is smaller.
 fn pack(part: &Part) -> Option<Vec<u8>> {
-    if part.status != OK || part.bytes.len() < ZSTD_MIN {
+    let level = crate::tune::zstd_level();
+    if part.status != OK || part.bytes.len() < ZSTD_MIN || level == 0 {
         return None;
     }
-    let frame = zstd::bulk::compress(&part.bytes, ZSTD_LEVEL).ok()?;
+    let frame = zstd::bulk::compress(&part.bytes, level).ok()?;
     (frame.len() < part.bytes.len()).then_some(frame)
 }
 
@@ -291,6 +376,7 @@ mod tests {
             Ask::Batch { ask: 2, entries: vec![3, 4, 5] },
             Ask::Ping { ask: 3 },
             Ask::Stored { ask: 4, since: 1025 },
+            Ask::Listing { ask: 5, since: 1 << 40 },
         ];
         let mut bytes = Vec::new();
         for ask in &asks {
@@ -302,12 +388,25 @@ mod tests {
         }
         assert_eq!(Ask::read(&mut input).unwrap(), None);
 
-        let parts = vec![Part::ok(b"abc".to_vec()), Part::status(CHANGED)];
+        let stat = Restat { size: 1 << 40, mtime_ns: -5, mode: 0o755 };
+        let parts = vec![
+            Part::ok(b"abc".to_vec()),
+            Part::status(CHANGED),
+            Part::restated(stat, b"new bytes"),
+        ];
         let mut bytes = Vec::new();
         write_answer(&mut bytes, 7, &parts).unwrap();
         let mut input = bytes.as_slice();
-        assert_eq!(read_answer(&mut input).unwrap(), Some((7, parts)));
+        let (ask, read) = read_answer(&mut input).unwrap().unwrap();
+        assert_eq!((ask, &read), (7, &parts));
+        assert_eq!(read[2].restat(), Some((stat, &b"new bytes"[..])));
+        assert_eq!(read[0].restat(), None);
         assert_eq!(read_answer(&mut input).unwrap(), None);
+        let mut trimmed = read[2].clone();
+        trimmed.keep_stat_only();
+        assert_eq!(trimmed.restat(), Some((stat, &[][..])));
+        // A part too short to hold a stat is not one.
+        assert_eq!(Part { status: RESTATED, bytes: vec![1, 2, 3] }.restat(), None);
     }
 
     #[test]

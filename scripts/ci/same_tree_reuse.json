@@ -130,6 +130,8 @@
    "ci-guard-group": "reads pull request metadata or the base (github.event.before), not only the tree; checks out ${{ steps.changes.outputs.base }}, not the run's commit",
    "static-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
    "rust-notices-tree": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
+   "spec-checks": "reads the base (the merge commit's first parent) for its base rerun, so its verdict is not the tree's alone; about 35 s of stdlib Python",
+   "ios-placeholder-bounds": "below break-even: seconds of stdlib Python; a receipt write per green run costs about what reuse saves, and land-judge needs its own check run on every head",
    "own-change-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
    "pr-red-checks": "calls a reusable workflow: no step here can record its pass; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
    "tooling-tests": "reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
@@ -281,6 +283,7 @@
    "smoke-production": "its outputs feed later jobs; a skipped run leaves them empty; needed by image-roll-settle: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
    "image-roll-settle": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out feat-cmux-next, not the run's commit; judges other jobs (if: always() or failure())",
    "tail-production": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "tail-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
    "sweep-orphans-production": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
    "journey-machines-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
    "migrate-production": "needed by deploy-production: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",
@@ -290,9 +293,6 @@
   },
   "cmux-vnc.yml": {
    "swift-test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
-  "coderouter-ci.yml": {
-   "test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
   "device-hub.yml": {
    "test": "needed by deploy-dev, deploy-prod: a skip would skip them or read as no verdict",
@@ -406,11 +406,11 @@
    "phase-attribution": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
   "test-ios.yml": {
-   "runner": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-simulator-build, ios-tests, mobile-core-package: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.base_ref), not only the tree",
-   "detect-ios-changes": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-simulator-build, ios-tests, mobile-core-package, package-conventions-lint: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree; checks out ${{ github.ref }}, not the run's commit",
-   "package-conventions-lint": "needed by ios-simulator-build, ios-tests, mobile-core-package: a skip would skip them or read as no verdict; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
-   "mobile-core-package": "needed by ios-tests: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.base_ref, github.event.pull_request.labels), not only the tree; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
-   "ios-simulator-build": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-tests: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
+   "runner": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-simulator-build, ios-tests: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.base_ref), not only the tree",
+   "detect-ios-changes": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-simulator-build, ios-tests, mobile-core-linux, package-conventions-lint: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree; checks out ${{ github.ref }}, not the run's commit",
+   "package-conventions-lint": "needed by ios-simulator-build, ios-tests: a skip would skip them or read as no verdict; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
+   "mobile-core-linux": "needed by ios-tests: a skip would skip them or read as no verdict",
+   "ios-simulator-build": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-tests: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
    "ios-tests": "below break-even: 21 runs, 1 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
   },
   "web-complexity.yml": {

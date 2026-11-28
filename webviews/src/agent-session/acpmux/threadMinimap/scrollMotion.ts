@@ -7,6 +7,7 @@ import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
 import { railOwnsWheel } from "./railWheel";
 import { userScrollIntent } from "../conversation/userScroll";
 import { holdMomentum } from "./momentumHold";
+import { writeScrollBy, writeScrollTop } from "../conversation/scrollController";
 
 const running = new WeakMap<HTMLElement, () => void>();
 
@@ -81,7 +82,7 @@ export function animateScroll(
       const externalDelta = node.scrollTop - last;
       if (Math.abs(externalDelta) > 0.5) from += externalDelta;
       const next = from + (target() - from) * progress;
-      node.scrollTop = next;
+      writeScrollTop(node, next, "glide");
       last = next;
     },
     then,
@@ -118,7 +119,7 @@ export function animateScrollBy(
       // so WebKit cannot floor a fractional tail past the target and bounce back. The live
       // offset (including the row-id anchor's own corrections) is never rounded or replaced.
       const next = Math.round(distance * progress);
-      node.scrollTop += toEnd ? left() * fraction : next - done;
+      writeScrollBy(node, toEnd ? left() * fraction : next - done, "glide");
       done = next;
       previous = progress;
     },
@@ -258,7 +259,7 @@ export function settleScroll(
       const max = Math.max(0, node.scrollHeight - node.clientHeight);
       const to = Math.max(0, Math.min(max, node.scrollTop + move));
       if (Math.abs(to - node.scrollTop) > 0.5) {
-        node.scrollTop = to;
+        writeScrollTop(node, to, "glide");
         announceScroll(node);
         steady = 0;
       } else if (by !== undefined) steady += 1;

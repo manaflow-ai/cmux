@@ -48,6 +48,14 @@ EXEMPT = {
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
+    ("auto-journey.yml", "nightly-journal-recovery"):
+        "unpacks a published NIGHTLY and drives it with Bun, Node and the Claude CLI; builds nothing, no Xcode",
+    ("chat-move-nightly-readback.yml", "readback"):
+        "submits a fleet-client step that moves a chat in a published NIGHTLY on a display Mac; builds nothing, no Xcode",
+    ("cloud-mvp-nightly-readback.yml", "readback"):
+        "submits a fleet-client step that reads a published NIGHTLY back on a display Mac; builds nothing, no Xcode",
+    ("cmux-next-crash-notice.yml", "notice"):
+        "crashes the installed NIGHTLY and reads its restart notice with a shell probe; builds nothing, no Xcode",
     ("nightly-next-launch-smoke.yml", "smoke"):
         "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
@@ -397,6 +405,14 @@ def check_detects_regressions() -> list[str]:
                 "      - name: Report\n        run: swift --version  # for swift-check\n      - name: Select Xcode\n",
             ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
             ["before scripts/select-ci-xcode.sh runs"],
+        ),
+        "a comment naming swift is not the toolchain": (
+            base.replace(
+                "      - name: Select Xcode\n",
+                "      - name: Checkout\n        uses: actions/checkout@v6\n        with:\n"
+                "          # Why: 2026-11-24-swift-test-1.md\n          fetch-depth: 2\n      - name: Select Xcode\n",
+            ),
+            [],
         ),
         "selector through a step alias": (
             base.replace("      - name: Select Xcode\n", "      - &select-xcode\n        name: Select Xcode\n")

@@ -12,7 +12,8 @@
 // - `floor`: the end a followed view keeps for a sent prompt whose queue card left;
 // - `foldRoom`: the end a collapse near the end keeps, so the offset never clamps;
 // - `newerRoom`: the room the newer history a reader scrolled far up let go of (newerReserve.ts).
-// No room is held for a sent prompt: a send keeps the earlier chat in view above it (issue 51841).
+// No room is held for a sent prompt: a send keeps the earlier chat in view above it (issue 51841),
+// unless the person turned on `sendTop` (a sent prompt scrolls to the view's top, off by default).
 //
 // One release rule for the stack's holds (`rowsMoved`): a card, the tray or a notice that changed
 // gives its room back, or takes it, in the pass whose rows move anyway (they grew: a reply streaming
@@ -90,6 +91,9 @@ export type RoomUnderInput = {
   /// The rows' height from the newest prompt's top to the rows' end (`roomUnderRows`' `tail`); read
   /// only while room is held or kept. Absent: the kept room stays a fixed height.
   promptTail?: () => number;
+  /// The room that puts the newest prompt, one this view sent, at the view's top while the view follows
+  /// (Settings `agentPane.display.sendScrollsToTop`, off by default). Absent: none. Read only while following.
+  sendTop?: () => number;
   /// The content end a collapse keeps (foldAnchor.ts `foldRoomFor`), 0 for none.
   foldRoom: number;
   /// The room under the rows for newer history let go of (conversation/newerReserve.ts), 0 for none.
@@ -202,8 +206,13 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
       : released
         ? dockTray - Math.min(0, dockTray - bases.tray + input.rowsGrew)
         : bases.tray;
-  // Never over the running turn's live line: at most half its rest gap.
-  const trayBase = input.lineLast ? Math.max(heldBase, dockTray - input.restExtra / 2) : heldBase;
+  // Never over the running turn's live line: at most half its rest gap. And never under the rows: a
+  // fold of a list the room had already taken (opened from the tucked tab, or taken by the wheel or the
+  // rows' growth) gives that room back as it closes, so the rows come down on the fold's own frames
+  // and rest on the folded hat. Held, it left the list's height as blank room under the last row
+  // until the rows grew again, the transcript's end gone from view over the hat's one line (Leo,
+  // ask-31a1e4b192, 2026-11-27: "this isn't great").
+  const trayBase = Math.min(dockTray, input.lineLast ? Math.max(heldBase, dockTray - input.restExtra / 2) : heldBase);
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
   // The overlay card's growth where the view follows but cannot lift, until the rows move.
   const cardHolds =
@@ -239,13 +248,18 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
         )
       : grown;
   const followedRoom = input.dockRoom - lifted - holds;
-  const { room, kept } = roomUnderRows(input.held, {
+  const rowsRoom = roomUnderRows(input.held, {
     following,
     sessionSwitched,
     followedRoom,
     prompt: input.prompt,
     tail: input.promptTail,
   });
+  // A sent prompt at the view's top (opt-in): room enough under the rows that the followed view's top is
+  // the prompt's, and the reply fills it as it comes; once the reply is taller, the stack's room as before.
+  const sendTop = following && !sessionSwitched && input.sendTop ? input.sendTop() : 0;
+  const room = Math.max(rowsRoom.room, Number.isFinite(sendTop) ? sendTop : 0);
+  const kept = rowsRoom.kept;
   const rowsHeight = input.rowsHeight + input.over + room + (input.newerRoom ?? 0);
   const rowsEnd = Math.max(input.floor - lifted, rowsHeight);
   const keptEnd = sessionSwitched ? 0 : input.foldRoom;

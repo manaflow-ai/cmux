@@ -14,8 +14,8 @@ Every app runs the same session on one Mac, one app at a time, each launch in an
             empty home: the first launch a new install pays (first exec signature check, first-run setup).
             Safari is the system's and cannot be copied: its fresh row is an empty home only.
   restart   the same copy and home, quit, `sudo -n /usr/sbin/purge` (drops the file cache, the closest a
-            step gets to a reboot without one), opened again. With no passwordless sudo the row is null and
-            says so. A real reboot for cmux alone: scripts/measure/launch-reboot.sh.
+            step gets to a reboot without one), opened again. If purge is unavailable or fails, its rows are
+            null with the reason; warm launches still run. A real reboot for cmux alone: scripts/measure/launch-reboot.sh.
   warm      quit and opened again at once, --warm times (the everyday relaunch).
   quarantined  (opt-in, --quarantined) another new copy with an empty home, the `com.apple.quarantine` xattr set on
             every item as a browser download leaves it (RFD 0131 option G: the launch a new user gets from a DMG
@@ -138,11 +138,11 @@ for _kind, _kind_label in (("signed-in", "Signed in"), ("tabs", "Background tabs
 UNITS = {row: unit for row, _label, unit, _summary in ROWS}
 LABELS = {"cmux": "cmux NEXT", "claude": "Claude", "codex": "Codex", "t3code": "T3 Code", "rex": "Rex",
           "slack": "Slack", "chrome": "Chrome", "edge": "Microsoft Edge", "helium": "Helium", "safari": "Safari",
-          "zed": "Zed"}
-ORDER = ["cmux", "rex", "zed", "claude", "codex", "t3code", "slack", "chrome", "edge", "helium", "safari"]
+          "zed": "Zed", "chatgpt": "ChatGPT"}
+ORDER = ["cmux", "rex", "zed", "claude", "chatgpt", "codex", "t3code", "slack", "chrome", "edge", "helium", "safari"]
 CHROMIUM = {"chrome", "edge", "helium"}
 ELECTRON = {"claude", "codex", "t3code", "slack"}
-NATIVE = {"zed"}  # native UI, no webview (Zed: Rust and its own GPU UI): launched with no extra switches
+NATIVE = {"zed", "chatgpt"}  # native UI (Zed: Rust and its own GPU UI; ChatGPT: SwiftUI): launched with no extra switches
 SYSTEM = {"safari"}  # sealed system apps: no fresh copy
 BROWSERS = CHROMIUM | SYSTEM
 GROUPS = ["app", "renderer", "gpu", "acpmux", "terminals", "other"]
@@ -184,6 +184,41 @@ def by_group(memory_kinds: dict, window_kinds: dict) -> dict:
         group["wakeups"] += entry.get("wakeups_per_s", 0.0)
         group["processes"] += entry.get("n", 0)
     return out
+
+
+def growth_by_process(series: dict, settle_cut: float) -> list[dict]:
+    """Which process an idle soak's growth came from (RFD 0062: the renderer's +27 MB/min in one 300 s run).
+
+    `series` is {pid: {"kind", "command", "points": [(seconds, MB), ...]}}, one point per soak window the pid was
+    alive in. Per process, after the settle cut: first and last MB, its own slope, and whether it was there for
+    every settled window ("steady") or was born or gone inside it. A group's slope mixes the two: a renderer
+    that starts at minute 3 reads as growth though no process grows. Sorted by MB added, largest first."""
+    stamps = sorted({t for entry in series.values() for t, _mb in entry["points"] if t >= settle_cut})
+    out = []
+    for pid, entry in series.items():
+        settled = [(t, mb) for t, mb in entry["points"] if t >= settle_cut]
+        if not settled:
+            continue
+        steady = bool(stamps) and settled[0][0] == stamps[0] and settled[-1][0] == stamps[-1]
+        born = None if settled[0][0] == stamps[0] else round(settled[0][0])
+        gone = None if settled[-1][0] == stamps[-1] else round(settled[-1][0])
+        added = (settled[-1][1] if gone is None else 0.0) - (settled[0][1] if born is None else 0.0)
+        out.append({"pid": pid, "kind": entry["kind"], "group": group_of(entry["kind"]),
+                    "command": entry.get("command", "")[:120], "first_mb": round(settled[0][1], 1),
+                    "last_mb": round(settled[-1][1], 1), "growth_mb_per_min": slope_per_min(settled),
+                    "added_mb": round(added, 1), "steady": steady, "born_s": born, "gone_s": gone})
+    return sorted(out, key=lambda row: -row["added_mb"])
+
+
+def growth_split(rows: list[dict], group: str, minutes: float) -> dict:
+    """A group's settled growth split in MB/min: steady processes' own slopes, and the rest from processes born or
+    gone in the settled window (their footprint over its length)."""
+    mine = [r for r in rows if r["group"] == group]
+    steady = sum(r["growth_mb_per_min"] or 0.0 for r in mine if r["steady"])
+    churn = sum(r["added_mb"] for r in mine if not r["steady"]) / minutes if minutes > 0 else 0.0
+    return {"steady": round(steady, 3), "churn": round(churn, 3),
+            "born": sum(1 for r in mine if r["born_s"] is not None),
+            "gone": sum(1 for r in mine if r["gone_s"] is not None)}
 
 
 def log(message: str):
@@ -310,8 +345,17 @@ def translocation_root() -> str | None:
     return os.path.join(os.path.realpath(out), "AppTranslocation") + "/" if out else None
 
 
+def purge_error() -> str | None:
+    """Drop the file cache, or return why restart measurements must be skipped."""
+    try:
+        subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, timeout=180, check=True)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"purge failed: {error}"[:300]
+    return None
+
+
 def can_purge() -> bool:
-    return subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, timeout=180).returncode == 0
+    return purge_error() is None
 
 
 def make_writable_and_remove(path: str):
@@ -491,11 +535,16 @@ class Run:
         next_trough = every
         began = time.monotonic()
         last_memory = last_window = detail_memory = None
+        series: dict = {}  # pid -> {kind, command, points}: which process grew (growth_by_process)
         while time.monotonic() - began < a.soak:
             last_round = time.monotonic() - began + a.sample >= a.soak
             window = app.instance.window(a.sample, per_pid=last_round)
-            memory = app.instance.memory(per_pid=last_round)
-            points.append((time.monotonic() - began, memory["mb"]))
+            memory = app.instance.memory(per_pid=True)
+            now = time.monotonic() - began
+            points.append((now, memory["mb"]))
+            for row in memory.get("pids", []):
+                entry = series.setdefault(row["pid"], {"kind": row["kind"], "command": row["command"], "points": []})
+                entry["points"].append((now, row["footprint_mb"]))
             groups.append(by_group(memory["kinds"], window["kinds"]))
             if last_round:
                 last_window, detail_memory = window, memory
@@ -552,6 +601,14 @@ class Run:
                    "wakeups_per_s": (cpu_of.get(row["pid"]) or {}).get("wakeups_per_s")}
                   for row in (detail_memory or {}).get("pids", [])]
         self.record(app.name, round_no, f"{prefix}-detail", len(detail), pids=detail)
+        stamps = [t for t, _mb in settled]
+        minutes = (stamps[-1] - stamps[0]) / 60 if len(stamps) > 1 else 0.0
+        by_process = growth_by_process(series, a.settle_cut)
+        self.record(app.name, round_no, f"{prefix}-growth-by-process", len(by_process), settle_cut=a.settle_cut,
+                    minutes=round(minutes, 2), pids=by_process,
+                    split={g: growth_split(by_process, g, minutes) for g in GROUPS},
+                    series={str(pid): {"kind": e["kind"], "points": [[round(t), mb] for t, mb in e["points"]]}
+                            for pid, e in series.items()})
 
     def extra_pass(self, app: App, round_no: int, kind: str):
         """One more launch and idle soak after the signed-out session: signed-in (a copied profile) or tabs."""
@@ -600,13 +657,14 @@ class Run:
                 return
             app.quit()
             time.sleep(3)  # sleep-ok: quit() already waited for exit; writes after exit (prefs, caches) have no signal
-            if purge:
-                subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, timeout=180)
+            restart_error = purge_error() if purge else "purge unavailable (initial cache-purge check failed)"
+            if restart_error is None:
                 self.launch(app, round_no, "restart", profile)
                 app.quit()
                 time.sleep(3)  # sleep-ok: quit() already waited for exit; writes after exit (prefs, caches) have no signal
             else:
-                self.record(app.name, round_no, "restart-window", None, note="no passwordless sudo for purge")
+                for metric in ("restart-window", "restart-cpu", "restart-memory-peak"):
+                    self.record(app.name, round_no, metric, None, note=restart_error)
             for index in range(self.args.warm):
                 ok = self.launch(app, round_no, "warm", profile)
                 if ok and index == self.args.warm - 1:
@@ -759,6 +817,36 @@ def first_line(watches: list, timeout: float) -> list[str]:
     return []
 
 
+def growth_by_process_lines(samples: list[dict], present: list[str], top: int = 8) -> list[str]:
+    """Report section: per app, each group's growth split (steady processes against born or gone ones) and the
+    processes that added the most MB after the settle cut."""
+    lines = []
+    for app in present:
+        got = [s for s in samples if s.get("browser") == app and s.get("row") == "soak-growth-by-process"]
+        if not got:
+            continue
+        last = got[-1]
+        split = last.get("split") or {}
+        lines += [f"## Idle growth by process: {LABELS.get(app, app)} (after the {last.get('settle_cut')} s settle cut, "
+                  f"{last.get('minutes')} min)", "",
+                  "| group | steady processes (MB/min) | born or gone (MB/min) | born | gone |", "|---|---:|---:|---:|---:|"]
+        for group in GROUPS:
+            row = split.get(group)
+            if row and (row["steady"] or row["churn"] or row["born"] or row["gone"]):
+                lines.append(f"| {GROUP_LABELS[group]} | {row['steady']:+.3f} | {row['churn']:+.3f} | {row['born']} | "
+                             f"{row['gone']} |")
+        lines += ["", "| pid | group | kind | first (MB) | last (MB) | added (MB) | slope (MB/min) | born / gone (s) |",
+                  "|---:|---|---|---:|---:|---:|---:|---|"]
+        for row in (last.get("pids") or [])[:top]:
+            slope = row.get("growth_mb_per_min")
+            when = " / ".join(str(v) if v is not None else "-" for v in (row.get("born_s"), row.get("gone_s")))
+            lines.append(f"| {row['pid']} | {row['group']} | {row['kind']} | {row['first_mb']:,.1f} | "
+                         f"{row['last_mb']:,.1f} | {row['added_mb']:+,.1f} | "
+                         f"{'–' if slope is None else f'{slope:+.3f}'} | {when} |")
+        lines.append("")
+    return lines
+
+
 def report(out: str, md_path: str | None, json_path: str | None) -> int:
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
@@ -839,6 +927,7 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
                 seen.add(key)
                 lines.append(f"- {LABELS.get(e['browser'], e['browser'])} {e['row']}: {e['note']}")
         lines.append("")
+    lines += growth_by_process_lines(samples, present)
     lines += ["Method: scripts/perf-bench/rivals.py (docstring). Every app is signed out (its first screen) outside the Signed in rows.", ""]
     import growth_bounds
     lines += growth_bounds.lines(rows, "cmux", meta["args"].get("soak"))

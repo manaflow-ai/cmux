@@ -919,6 +919,138 @@
         }
       }
     },
+    "cloud.place.experimentOff": {
+      "comment": "A palette place or Evacuate action while Settings > Experiments' Cloud Toggle is off",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل زر السحابة في الإعدادات > التجارب أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo uključite Prekidač za oblak u Postavke > Eksperimenti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå først Cloud-knap til under Indstillinger > Eksperimenter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schalte zuerst den Cloud-Schalter unter Einstellungen > Experimente ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Cloud Toggle in Settings > Experiments first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero activa Interruptor de nube en Ajustes > Experimentos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez d’abord Bouton Cloud dans Réglages > Expériences."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva prima Interruttore cloud in Impostazioni > Esperimenti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に 設定 > 実験 で クラウドトグル をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបើក ប៊ូតុងបិទបើក Cloud ក្នុង ការកំណត់ > ការពិសោធន៍ ជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 설정 > 실험에서 클라우드 토글을 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå først på Sky-bryter under Innstillinger > Eksperimenter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najpierw włącz Przełącznik chmury w Ustawienia > Eksperymenty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primeiro ative Botão de nuvem em Ajustes > Experimentos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала включите Переключатель облака в Настройки > Эксперименты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด สวิตช์คลาวด์ ใน การตั้งค่า > การทดลอง ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce Ayarlar > Deneyler'de Bulut anahtarı'nı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу увімкніть Перемикач хмари в Налаштування > Експерименти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy bật Nút bật/tắt đám mây trong Cài đặt > Thử nghiệm trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在“设置 > 实验”中打开“云端开关”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在「設定 > 實驗」中開啟「雲端切換」。"
+          }
+        }
+      }
+    },
     "cloud.seedRefused.tooLarge": {
       "extractionState": "manual",
       "localizations": {
@@ -11589,6 +11721,137 @@
         }
       }
     },
+    "cloud.move.movingRow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ النقل…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premješta se…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytter…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird verschoben…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moving…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moviendo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacement…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spostamento…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងផ្លាស់ទី…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이동 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytter…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenoszenie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movendo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемещение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังย้าย…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taşınıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переміщення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang di chuyển…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在移动…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在移動…"
+          }
+        }
+      }
+    },
     "cloud.move.noFolder": {
       "extractionState": "manual",
       "localizations": {
@@ -12661,6 +12924,137 @@
       "zh-Hans": {"stringUnit": {"state": "translated","value": "聊天留在这里：无法读取你在 %1$@ 上的代理登录信息：%2$@"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "聊天留在這裡：無法讀取你在 %1$@ 上的代理登入資訊：%2$@"}}
     }},
+    "cloud.move.loginUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection and try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستبقى هذه المحادثة على جهاز Mac لأن ميزة النقل إلى السحابة لا تستطيع نقل اتصال النموذج الخاص بها. اختر اتصالًا آخر وحاول مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor ostaje na vašem Macu jer premještanje u oblak ne može prenijeti njegovu vezu s modelom. Odaberite drugu vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat bliver på din Mac, fordi Flyt til Cloud ikke kan overføre dens modelforbindelse. Vælg en anden forbindelse, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat bleibt auf deinem Mac, da seine Modellverbindung beim Verschieben in die Cloud nicht mitgenommen werden kann. Wähle eine andere Verbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat se queda en tu Mac porque Mover a la nube no puede transferir su conexión con el modelo. Elige otra conexión y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion reste sur votre Mac, car le déplacement vers le cloud ne peut pas transférer sa connexion au modèle. Choisissez une autre connexion et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat rimane sul Mac perché il trasferimento nel cloud non può includere la connessione al modello. Scegli un'altra connessione e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル接続をクラウドに移せないため、このチャットは Mac に残ります。別の接続を選んで、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះនឹងនៅលើ Mac របស់អ្នក ព្រោះមុខងារផ្លាស់ទីទៅ Cloud មិនអាចផ្ទេរការតភ្ជាប់ទៅម៉ូដែលរបស់វាបានទេ។ ជ្រើសរើសការតភ្ជាប់ផ្សេង ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드로 이동할 때 모델 연결을 함께 옮길 수 없어 이 채팅은 Mac에 남습니다. 다른 연결을 선택하고 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten blir på Macen fordi flytting til skyen ikke kan overføre modelltilkoblingen. Velg en annen tilkobling og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat pozostanie na Macu, ponieważ przeniesienie do chmury nie obejmuje jego połączenia z modelem. Wybierz inne połączenie i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat fica no seu Mac porque a opção Mover para a nuvem não consegue transferir a conexão com o modelo. Escolha outra conexão e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат останется на вашем Mac, поскольку при переносе в облако нельзя перенести его подключение к модели. Выберите другое подключение и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้จะยังอยู่บน Mac ของคุณ เพราะการย้ายไปยัง Cloud ไม่สามารถย้ายการเชื่อมต่อกับโมเดลไปด้วยได้ เลือกการเชื่อมต่ออื่นแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buluta Taşı bu sohbetin model bağlantısını aktaramadığı için sohbet Mac'inizde kalır. Başka bir bağlantı seçip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат залишиться на вашому Mac, оскільки під час перенесення в хмару неможливо перенести його підключення до моделі. Виберіть інше підключення та спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này vẫn ở trên máy Mac vì tính năng Chuyển lên đám mây không thể chuyển kết nối mô hình của cuộc trò chuyện. Hãy chọn kết nối khác rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天会保留在你的 Mac 上，因为移至云端时无法一同转移它的模型连接。请选择其他连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這則聊天會保留在你的 Mac 上，因為移至雲端時無法一併轉移它的模型連線。請選擇其他連線後再試一次。"
+          }
+        }
+      }
+    },
     "cloud.move.tabFailed": {
       "extractionState": "manual",
       "localizations": {

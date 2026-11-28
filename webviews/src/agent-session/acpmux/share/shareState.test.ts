@@ -1,6 +1,15 @@
 // l10n-allow-file: test fixtures.
 import { afterEach, expect, test } from "bun:test";
-import { forgetShareLinks, isAccount, shareClient, shareView, type ChatShare } from "./shareState";
+import {
+  forgetShareLinks,
+  isAccount,
+  shareClient,
+  shareView,
+  type ChatShare,
+  normalAccount,
+  inviteStep,
+  type ShareView,
+} from "./shareState";
 
 const base: ChatShare = {
   shareId: "s",
@@ -18,7 +27,14 @@ const base: ChatShare = {
 afterEach(forgetShareLinks);
 
 test("a chat shared with nobody reads Restricted with only the owner", () => {
-  expect(shareView([])).toEqual({ people: [], general: "restricted", links: [], inviteUrl: null, guestsNow: 0 });
+  expect(shareView([])).toEqual({
+    people: [],
+    general: "restricted",
+    links: [],
+    inviteUrl: null,
+    guestsNow: 0,
+    requests: [],
+  });
 });
 
 test("invitees across live shares are one row each; removed and ended ones are not", () => {
@@ -48,9 +64,50 @@ test("invitees across live shares are one row each; removed and ended ones are n
       invitees: [{ account: "@old", role: "view", state: "invited", joined: false }],
     },
   ]);
-  expect(view.people).toEqual([{ account: "ana@example.com", role: "talk", joined: true }]);
+  expect(view.people).toEqual([{ account: "ana@example.com", role: "talk", joined: true, opened: true }]);
   expect(view.inviteUrl).toBe("https://room/i/b");
   expect(view.general).toBe("restricted");
+});
+
+// An invite nobody has opened yet is pending: the row says "Hasn't opened it yet" (opened false),
+// while someone who joined and left is neither pending nor in the chat now.
+test("an invitee with no guest record is pending; one who left has opened it", () => {
+  const view = shareView([
+    {
+      ...base,
+      shareId: "p",
+      invitees: [
+        { account: "@new", role: "view", state: "invited", joined: false },
+        { account: "@left", role: "talk", state: "invited", joined: false },
+      ],
+      guests: [{ guestId: "g", name: "Left", account: "@left", role: "talk", joined: false }],
+    },
+  ]);
+  expect(view.people).toEqual([
+    { account: "@new", role: "view", joined: false, opened: false },
+    { account: "@left", role: "talk", joined: false, opened: true },
+  ]);
+});
+
+test("normalAccount compares accounts as the daemon does", () => {
+  expect(normalAccount("  Ana@Example.COM ")).toBe("ana@example.com");
+  expect(normalAccount("@Sam")).toBe("@sam");
+});
+
+// Inviting someone already in People with access never makes a second row or a daemon refusal
+// (share.invited): the same role says they have access; another role changes theirs.
+test("Invite on someone with access says so, or changes their role", () => {
+  const view: ShareView = {
+    people: [{ account: "ana@example.com", role: "view", joined: false, opened: false }],
+    general: "restricted",
+    links: [],
+    inviteUrl: null,
+    guestsNow: 0,
+    requests: [],
+  };
+  expect(inviteStep(view, " Ana@Example.com", "view")).toEqual({ kind: "already", account: "ana@example.com" });
+  expect(inviteStep(view, "ana@example.com", "talk")).toEqual({ kind: "role", account: "ana@example.com" });
+  expect(inviteStep(view, "@sam", "view")).toEqual({ kind: "invite" });
 });
 
 test("a live viewer link is Anyone with the link; a Share with Guest link is not", () => {
@@ -92,10 +149,20 @@ test("Copy link reuses the page's live viewer link, and Restricted revokes every
   expect(calls.filter(([op]) => op === "link")).toHaveLength(2);
 });
 
-test("a role change is uninvite then invite, in that order", async () => {
+test("a role change is one invite with the new role, never a remove first", async () => {
+  const calls: [string, Record<string, unknown>][] = [];
+  await shareClient("chat", async (op, params = {}) => void calls.push([op, params])).setRole("@sam", "view");
+  expect(calls).toEqual([["invite", { account: "@sam", role: "view", session: "chat" }]]);
+});
+
+test("a role change the daemon refuses leaves the person invited: nothing was removed", async () => {
   const ops: string[] = [];
-  await shareClient("chat", async (op) => void ops.push(op)).setRole("@sam", "talk");
-  expect(ops).toEqual(["uninvite", "invite"]);
+  const refusing = async (op: string) => {
+    ops.push(op);
+    throw new Error("share.limit");
+  };
+  await expect(shareClient("chat", refusing).setRole("@sam", "talk")).rejects.toThrow("share.limit");
+  expect(ops).toEqual(["invite"]);
 });
 
 test("accounts are an email or an @handle", () => {
@@ -165,4 +232,38 @@ test("Copy link asks the daemon once, for a view link (the host's gesture gate a
   });
   await client.viewerLink(shareView([]));
   expect(calls).toEqual([["link", { role: "view", session: "chat" }]]);
+});
+
+// Access requests (RFD 0077 D2, D5): the daemon lists pending ones only; the dialog shows one row per
+// account across the chat's live shares, oldest first, none for an ended share or an account that
+// has access by now.
+test("access requests are one row per account, oldest first, none once the account has access", () => {
+  const ask = (account: string, requestedAt: number) => ({ account, name: account, avatarUrl: null, requestedAt });
+  const view = shareView([
+    {
+      ...base,
+      shareId: "a",
+      invitees: [{ account: "@in", role: "view", state: "invited", joined: false }],
+      requests: [ask("@late", 9), ask("@in", 1), ask("@early", 2)],
+    },
+    { ...base, shareId: "b", requests: [ask("@early", 5)] },
+    { ...base, shareId: "c", state: "revoked", requests: [ask("@gone", 1)] },
+  ]);
+  expect(view.requests.map((request) => request.account)).toEqual(["@early", "@late"]);
+  // A host older than requests sends none.
+  expect(shareView([base]).requests).toEqual([]);
+});
+
+test("approve and decline name the chat, the account and, for approve, the role", async () => {
+  const calls: unknown[] = [];
+  const client = shareClient("chat-1", async (op, params) => {
+    calls.push({ op, ...params });
+    return {};
+  });
+  await client.approve("mei@example.com", "view");
+  await client.decline("@jordan");
+  expect(calls).toEqual([
+    { op: "approve", account: "mei@example.com", role: "view", session: "chat-1" },
+    { op: "decline", account: "@jordan", session: "chat-1" },
+  ]);
 });

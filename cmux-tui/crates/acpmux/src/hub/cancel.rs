@@ -20,7 +20,7 @@
 //! Codex's `turn/interrupt`, ACP `session/cancel`), and if the turn is still open [`INTERRUPT_GRACE`]
 //! later acpmux ends its process (its own process group, `ChildAgent::kill`), ends the turn,
 //! and starts it again on the same conversation before the next turn can start
-//! (`turns.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
+//! (`turns/finish.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
 //! process still had in flight never reaches the next turn (`permissions.rs`).
 //!
 //! Stop never ends a process that runs background work (2026-10-31: a Stop for one tool call
@@ -82,6 +82,7 @@ const INTERRUPT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 /// (`tools.rs`), the end of a hosted agent whose link does not answer. A Stop that waited on it
 /// never answered and its turn never ended (freeze map, ask-bb427cbcae). Past this the Stop is
 /// taken all the same and its escalation ends the turn itself (`stop_escalated` `slot_held`).
+// timeout: past it the Stop is taken anyway and its escalation ends the turn (slot_held).
 const SLOT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Another operation held the agent slot through [`SLOT_WAIT`].

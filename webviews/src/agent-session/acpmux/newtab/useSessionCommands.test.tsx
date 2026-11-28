@@ -1,15 +1,13 @@
-// The New Tab's first `/`: its menu lists the commands of a deferred chat of its agent. That chat
-// started in a folder the pane had not been granted, so the relay refused it and the menu kept only
-// cmux's own commands; and a chat that did start was read once, before the agent answered, so its
-// skills never came. The page grants the folder first (newTabCommandsChat) and reads the chat's list
-// again each time the chat publishes one (useSessionCommands `watch`).
+// The New Tab's `/` menu lists the commands of a deferred chat of its agent. That chat was read once,
+// before the agent answered (its start takes seconds), so its skills never came. The page reads the
+// chat's list again each time the chat publishes one (useSessionCommands `watch`), and watches again
+// on a new client (a reconnect).
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../../test/support/domTeardown";
 import type { SlashCommand } from "../slashCommands";
-import { newTabCommandsChat } from "../startFolderModel";
 import { useSessionCommands, type WatchSessionCommands } from "./useSessionCommands";
 
 let dom: JSDOM | undefined;
@@ -72,32 +70,22 @@ test("a deferred chat's commands are read again each time it publishes a list", 
   expect(published).toBeUndefined();
 });
 
-test("the New Tab grants its folder before the chat that lists the commands starts there", async () => {
-  const calls: [string, Record<string, unknown> | undefined][] = [];
-  const host = async (method: string, params?: Record<string, unknown>) => {
-    calls.push([method, params]);
-    // The host spells the folder its own way (a link resolved).
-    if (method === "workspace.useFolder") return { status: "ok", cwd: "/Users/you/src/cmux" };
-    return "chat-1";
-  };
-  await newTabCommandsChat(host, "claude", "/Users/you/cmux");
-  expect(calls).toEqual([
-    ["workspace.useFolder", { cwd: "/Users/you/cmux" }],
-    ["chat.new", { harness: "claude", cwd: "/Users/you/src/cmux", deferred: true }],
-  ]);
-});
-
-test("a folder the host asks about first starts the commands chat with no folder", async () => {
-  const calls: [string, Record<string, unknown> | undefined][] = [];
-  const host = async (method: string, params?: Record<string, unknown>) => {
-    calls.push([method, params]);
-    if (method === "workspace.useFolder") return { status: "confirm", reason: "home", cwd: "/Users/you" };
-    return "chat-1";
-  };
-  await newTabCommandsChat(host, "claude", "/Users/you");
-  expect(calls.at(-1)).toEqual(["chat.new", { harness: "claude", deferred: true }]);
-  // No folder: nothing to grant.
-  calls.length = 0;
-  await newTabCommandsChat(host, "codex", undefined);
-  expect(calls).toEqual([["chat.new", { harness: "codex", deferred: true }]]);
+test("a new watch (a reconnect's client) replaces the old one", async () => {
+  const live = new Set<string>();
+  const watchOn =
+    (client: string): WatchSessionCommands =>
+    (sessionId) => {
+      live.add(`${client}:${sessionId}`);
+      return () => live.delete(`${client}:${sessionId}`);
+    };
+  const read = async () => [] as SlashCommand[];
+  function Probe({ watch }: { watch: WatchSessionCommands }) {
+    useSessionCommands("chat-1", undefined, read, watch);
+    return null;
+  }
+  const first = watchOn("first");
+  await act(async () => root!.render(<Probe watch={first} />));
+  expect([...live]).toEqual(["first:chat-1"]);
+  await act(async () => root!.render(<Probe watch={watchOn("second")} />));
+  expect([...live]).toEqual(["second:chat-1"]);
 });

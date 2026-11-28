@@ -29,4 +29,26 @@ struct RemoteDesktopDefaultsSettingsTests {
         #expect(wild.remoteDesktop.maxFps == 240 && wild.remoteDesktop.maxKbps == 500)
         #expect(!wild.diagnostics.isEmpty, "a clamped number says nothing")
     }
+
+    /// Settings > Customize "Sharper Text from Linux Machines": off unless the person turns it on, a
+    /// toggle row in Settings (CloudDesktopLinkTests: the Open Desktop hello offers `video.sharp_text` only then).
+    @Test func sharpLinuxTextIsOffUntilTurnedOnAndOffersTheCap() throws {
+        #expect(!Self.parse(nil).remoteDesktop.sharpLinuxText)
+        let row = try #require(SettingsSchema.descriptor(for: RemoteDesktopDefaults.sharpLinuxTextPath), "Settings has no Sharper Text from Linux Machines row")
+        #expect(row.defaultValue == .bool(false))
+        let on = Self.parse(["sharpLinuxText": .bool(true)])
+        #expect(on.remoteDesktop.sharpLinuxText && on.diagnostics.isEmpty)
+    }
+
+    /// `remoteDesktop.clipboard` (cmux#53615 shipped the policy with nothing reading the key): own devices
+    /// only when unset, each written value kept, an unknown one left at the default with a diagnostic.
+    @Test func clipboardDefaultsToOwnDevicesAndKeepsAPick() {
+        #expect(Self.parse(nil).remoteDesktop.clipboard == .ownDevicesOnly)
+        for value in RemoteDesktopClipboard.allCases {
+            let picked = Self.parse(["clipboard": .string(value.rawValue)])
+            #expect(picked.remoteDesktop.clipboard == value && picked.diagnostics.isEmpty)
+        }
+        let wild = Self.parse(["clipboard": .string("sometimes")])
+        #expect(wild.remoteDesktop.clipboard == .ownDevicesOnly && !wild.diagnostics.isEmpty)
+    }
 }

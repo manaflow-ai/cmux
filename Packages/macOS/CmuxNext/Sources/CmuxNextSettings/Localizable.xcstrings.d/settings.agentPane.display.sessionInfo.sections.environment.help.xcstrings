@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.sessionInfo.sections.environment.help" : {
+      "comment" : "Settings > Agent Pane > Display: help for the Session Info Environment toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where the chat runs: this Mac or Cloud, its folder and branch."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مكان تشغيل المحادثة: هذا الـ Mac أو Cloud، ومجلدها وفرعها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gdje se razgovor izvodi: ovaj Mac ili Cloud, njegova mapa i grana."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor chatten kører: denne Mac eller Cloud, dens mappe og branch."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wo der Chat läuft: dieser Mac oder Cloud, sein Ordner und Branch."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dónde se ejecuta el chat: este Mac o Cloud, su carpeta y su rama."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Où le chat s’exécute : ce Mac ou Cloud, son dossier et sa branche."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dove viene eseguita la chat: questo Mac o Cloud, la sua cartella e il suo branch."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットの実行場所：この Mac か Cloud、そのフォルダとブランチ。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កន្លែងដែលការជជែកដំណើរការ៖ Mac នេះ ឬ Cloud ថតឯកសារ និង branch របស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅이 실행되는 곳: 이 Mac 또는 Cloud, 폴더와 브랜치."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor chatten kjører: denne Macen eller Cloud, mappen og grenen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gdzie działa czat: ten Mac lub Cloud, jego folder i gałąź."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onde o chat é executado: este Mac ou o Cloud, sua pasta e branch."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Где выполняется чат: этот Mac или Cloud, его папка и ветка."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แชตทำงานที่ใด: Mac เครื่องนี้หรือ Cloud โฟลเดอร์และ branch ของแชต"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbetin çalıştığı yer: bu Mac ya da Cloud, klasörü ve dalı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Де виконується чат: цей Mac або Cloud, його тека й гілка."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nơi cuộc trò chuyện chạy: máy Mac này hoặc Cloud, thư mục và nhánh của nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天运行的位置：这台 Mac 或 Cloud，以及其文件夹和分支。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天執行的位置：這台 Mac 或 Cloud，以及其資料夾和分支。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

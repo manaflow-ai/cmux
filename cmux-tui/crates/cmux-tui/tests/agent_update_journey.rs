@@ -75,10 +75,14 @@ fn machine_with(root: &Path, before_update: &str) -> Machine {
     let config = json!({"harnesses": {"fake": {"argv": [claude], "family": "fake"}},
                         "defaultHarness": "fake"});
     fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
+    // These journeys exercise a requested update. Keep the startup health check's
+    // automatic updater from racing the request (or updating before a refusal).
+    fs::write(dir.join("acpmux/harness-auto-update.json"), json!({"off": ["fake"]}).to_string())
+        .unwrap();
     // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-    std::fs::set_permissions(
+    fs::set_permissions(
         dir.join("acpmux/config.json"),
-        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+        <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
     )
     .unwrap();
     // The newest version as the last check read it, fresh: no registry is asked.
@@ -168,14 +172,18 @@ fn agent_update_plan_and_apply_update_the_cli_and_continue_the_chat() {
         "{plan}"
     );
 
-    // A command, or any param the verb does not take, is refused before acpmux.
-    let smuggled = machine.rpc(json!({"id": 4, "cmd": "agent-update-apply", "ids": ["fake"],
-                                      "argv": ["sh", "-c", "true"]}));
-    assert_eq!(smuggled["error_code"], "agent_update.bad_request", "{smuggled}");
+    // Known fields still require the right type before acpmux is called.
+    let malformed = machine.rpc(json!({"id": 4, "cmd": "agent-update-apply", "ids": "fake"}));
+    assert_eq!(malformed["error_code"], "agent_update.bad_request", "{malformed}");
     assert!(!machine.dir.join("update-runs").exists(), "a refused apply ran the update");
 
+    // Newer peers may add fields. An ignored argv must never replace the
+    // machine's configured updater or execute alongside it.
+    let injected = machine.dir.join("injected-command-ran");
     let applied = machine.rpc(json!({"id": 5, "cmd": "agent-update-apply", "ids": ["fake"],
-                                     "continue_threads": true}));
+                                     "continue_threads": true,
+                                     "argv": ["sh", "-c", "printf unexpected > \"$1\"",
+                                              "ignored", injected]}));
     assert_eq!(applied["ok"], true, "{applied}");
     assert_eq!(
         applied["data"],
@@ -185,6 +193,7 @@ fn agent_update_plan_and_apply_update_the_cli_and_continue_the_chat() {
     );
     let runs = fs::read_to_string(machine.dir.join("update-runs")).unwrap();
     assert_eq!(runs.lines().count(), 1, "one update run");
+    assert!(!injected.exists(), "an unknown field executed a client-supplied command");
 
     // The chat runs the new version now, in the same conversation.
     assert_eq!(harness_version(&mut acpmux, &session, "p-after"), 1);
@@ -197,8 +206,8 @@ fn agent_update_plan_and_apply_update_the_cli_and_continue_the_chat() {
 }
 
 /// An apply that names no harness of this machine runs nothing: acpmux
-/// answers it as not ok with why, and no chat restarts. A plan takes no
-/// param.
+/// answers it as not ok with why, and no chat restarts. A plan ignores
+/// unknown fields from a newer peer without starting an update.
 #[test]
 fn agent_update_apply_of_an_unknown_harness_runs_nothing() {
     let (root, _cleanup) = journey_root("aun");
@@ -223,8 +232,10 @@ fn agent_update_apply_of_an_unknown_harness_runs_nothing() {
         "{applied}"
     );
     assert!(!machine.dir.join("update-runs").exists(), "an update ran");
-    let bad = machine.rpc(json!({"id": 2, "cmd": "agent-update-plan", "ids": ["fake"]}));
-    assert_eq!(bad["error_code"], "agent_update.bad_request", "{bad}");
+    let plan = machine.rpc(json!({"id": 2, "cmd": "agent-update-plan", "ids": ["fake"]}));
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(plan["data"]["harnesses"][0]["id"], "fake", "{plan}");
+    assert!(!machine.dir.join("update-runs").exists(), "a plan ran an update");
 }
 
 /// A WebSocket client (an app page with the listener's credential) is not a

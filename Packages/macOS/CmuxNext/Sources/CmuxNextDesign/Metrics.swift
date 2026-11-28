@@ -38,6 +38,18 @@ public struct Metrics {
         return tokens.resolve(compact: compact, comfortable: comfortable, token: token)
     }
 
+    /// A look's `appearance.metrics.<key>` in points at the interface scale, or nil when unset (the density's value
+    /// stands). Observation-tracked, so a look applied or removed re-lays out live.
+    public static func lookOverride(_ key: MetricKey) -> CGFloat? { DesignSettings.shared.overrides[key].map(scale) }
+
+    /// The spacing grid step `value` at the density's spacing and a look's `appearance.metrics.spacingScale` (a
+    /// multiplier, on the half-point grid); unset, the density's alone.
+    static func spaced(_ value: CGFloat) -> CGFloat {
+        let step = tokens.space(value)
+        guard let multiplier = DesignSettings.shared.overrides[.spacingScale], multiplier != 1 else { return step }
+        return DensityTokens.half(step * multiplier)
+    }
+
     // MARK: Window chrome
 
     /// Default sidebar width when visible.
@@ -149,12 +161,12 @@ public struct Metrics {
 
     // MARK: Spacing (2 pt grid)
 
-    public static var space1: CGFloat { scale(tokens.space(ChromeTunables.space1.value)) }
-    public static var space2: CGFloat { scale(tokens.space(ChromeTunables.space2.value)) }
-    public static var space3: CGFloat { scale(tokens.space(ChromeTunables.space3.value)) }
-    public static var space4: CGFloat { scale(tokens.space(ChromeTunables.space4.value)) }
-    public static var space5: CGFloat { scale(tokens.space(ChromeTunables.space5.value)) }
-    public static var space6: CGFloat { scale(tokens.space(ChromeTunables.space6.value)) }
+    public static var space1: CGFloat { scale(spaced(ChromeTunables.space1.value)) }
+    public static var space2: CGFloat { scale(spaced(ChromeTunables.space2.value)) }
+    public static var space3: CGFloat { scale(spaced(ChromeTunables.space3.value)) }
+    public static var space4: CGFloat { scale(spaced(ChromeTunables.space4.value)) }
+    public static var space5: CGFloat { scale(spaced(ChromeTunables.space5.value)) }
+    public static var space6: CGFloat { scale(spaced(ChromeTunables.space6.value)) }
 
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }

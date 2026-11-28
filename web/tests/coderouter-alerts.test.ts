@@ -77,7 +77,7 @@ describe("coderouter alert checks", () => {
 
   test("upstream failures across providers aggregate into one warning and list the breakdown", async () => {
     const { sent, run } = harness([
-      { outcome: "upstream_error", failure_stage: "upstream_response", team_id: "t1", provider: "codex", c: 3 },
+      { outcome: "upstream_error", failure_stage: "upstream_response", team_id: "t1", provider: "codex", status: 529, c: 3 },
       { outcome: "no_usable_account", failure_stage: "upstream_transport", team_id: "t1", provider: "codex", c: 1 },
       { outcome: "provider_unavailable", failure_stage: "upstream_transport", team_id: "t3", provider: "opencode-go", c: 1 },
       { outcome: "success", failure_stage: "none", team_id: "t1", provider: "codex", c: 5 },
@@ -87,7 +87,10 @@ describe("coderouter alert checks", () => {
     expect(sent[0]!.severity).toBe("warning");
     expect(sent[0]!.body).toContain("5 of 10 requests");
     expect(sent[0]!.body).toContain("ended in a provider failure after failover.");
-    expect(sent[0]!.body).not.toContain("codex");
+    expect(sent[0]!.body).toContain("Providers: codex: 4, opencode-go: 1.");
+    expect(sent[0]!.body).toContain("Stages: upstream_error/upstream_response: 3, no_usable_account/upstream_transport: 1, provider_unavailable/upstream_transport: 1.");
+    expect(sent[0]!.body).toContain("Statuses: 529: 3, unknown: 2.");
+    expect(sent[0]!.body).not.toContain("t1");
   });
 
   test("tenants without a usable account are named, auth rejects use their own threshold", async () => {
@@ -99,6 +102,8 @@ describe("coderouter alert checks", () => {
     await run();
     expect(sent.map((alert) => alert.key)).toEqual(["coderouter-no-usable-account", "coderouter-auth-rejected"]);
     expect(sent[0]!.body).toContain("across 2 affected team(s)");
+    expect(sent[0]!.body).toContain("Stages: account_selection: 6, provider_config: 4");
+    expect(sent[0]!.body).toContain("Providers: codex: 6, claude: 4");
     expect(sent[0]!.body).not.toContain("team-a");
     expect(sent[0]!.body).not.toContain("team-b");
     expect(sent[1]!.body).toContain("30 unauthorized requests");
@@ -109,7 +114,7 @@ describe("coderouter alert checks", () => {
       outcome: "no_usable_account",
       failure_stage: "account_selection",
       team_id: null,
-      provider: "codex",
+      provider: "",
       c: 10,
     } as unknown as Row;
     const { sent, run } = harness([malformed], healthy, webhook);
@@ -119,6 +124,7 @@ describe("coderouter alert checks", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.key).toBe("coderouter-no-usable-account");
     expect(sent[0]!.body).toContain("across 0 affected team(s)");
+    expect(sent[0]!.body).toContain("Providers: unknown: 10");
   });
 
   test("a degraded or down health probe alerts with the failing checks", async () => {

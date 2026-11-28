@@ -4,11 +4,11 @@
 //! [`SubagentTree`], [`WorkFold`]), stepped one head at a time, so an adoption resumes them from
 //! the chat's adoption checkpoint (`checkpoint.rs`) and reads only the records after it.
 
-use super::checkpoint::{Checkpoint, FoldInputs, Folds};
+use super::checkpoint::{Checkpoint, FoldInputs, Folds, UNSTARTED};
 use super::*;
 use crate::store::RecordHead;
 use crate::subagents::SubagentTree;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 impl Hub {
     pub(super) fn recovery_work(
@@ -39,11 +39,125 @@ impl Hub {
             }
         }
         drop(state);
-        // The next adoption of this host reads only what follows it.
-        if let Some(checkpoint) = checkpoint {
-            self.save_adoption_checkpoint(session, checkpoint);
+        // The next adoption of this host reads only what follows it. The table it keeps is
+        // saved, then moved to the adoption's rebuild (`recover_work`), never copied: a long
+        // chat's is its every process (32 MB of a 4 GB chat's checkpoint), and each copy was
+        // the restart's peak (cmux#51494).
+        if let Some(checkpoint) = self.keep_processes(session, &mut work, checkpoint) {
+            work.processes = self.save_adoption_checkpoint(session, checkpoint);
         }
         work
+    }
+
+    /// `checkpoint` with the chat's process table through its record, from the one the resumed
+    /// checkpoint kept (taken from `work.processes`): no read covers more than the records after
+    /// a checkpoint.
+    fn keep_processes(
+        &self,
+        session: &Session,
+        work: &mut OpenWork,
+        checkpoint: Option<Checkpoint>,
+    ) -> Option<Checkpoint> {
+        let mut checkpoint = checkpoint?;
+        checkpoint.processes =
+            Some(self.processes_through(session, work.processes.take(), checkpoint.seq));
+        Some(checkpoint)
+    }
+
+    /// Folds `session`'s log for host `incarnation` once, from its adoption checkpoint when it
+    /// has one, and saves the checkpoint it reaches: the adoption's later reads (`last_host_seq`,
+    /// `subagents_from_log`, `recovery_work`) resume from it. Without it, the first adoption after
+    /// a host started read the whole log once per read (three for a local chat: 1.48x the 1M
+    /// chat's restart peak RSS at 1G, against 1.12x for the next restart, which resumed).
+    pub(super) fn save_checkpoint_now(&self, session: &Session, incarnation: &str) {
+        if session.meta().fork_seq.is_some() {
+            return;
+        }
+        self.catch_up(session);
+        let settled = self.settled_seq(session);
+        // With the process table, so the adoption that resumes it reads no copy of it either.
+        if let Some(checkpoint) = self.fold_checkpoint(session, incarnation, settled) {
+            let _ = self.save_adoption_checkpoint(session, checkpoint);
+        }
+    }
+
+    /// [`Self::save_checkpoint_now`] for a live host at a turn's end, off the executor, so the
+    /// next daemon's adoption of it reads only what follows. One a minute: each reads the records
+    /// since the last.
+    pub(in crate::hub) fn checkpoint_at_turn_end(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &crate::agent::ChildAgent,
+    ) {
+        // timeout: not a wait; how often a chat's turn ends refresh its checkpoint.
+        const EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+        let Some(record) = child.host_record() else { return };
+        let hub = self.clone();
+        self.spawn_checkpoint_save(session, Some(EVERY), move |session| {
+            hub.save_checkpoint_now(session, &record.incarnation);
+        });
+    }
+
+    /// A chat's log as a daemon read it with no host of it running: its checkpoint saved in the
+    /// background under [`UNSTARTED`], which the first adoption of a host started after it
+    /// resumes from (`adoption_checkpoint`). Without it that adoption read the whole log on the
+    /// restart's critical path: 1.46x the 1M chat's restart peak RSS at 1G, against 1.10x for
+    /// the next restart, which resumed. One such fold runs at a time on the machine, and only
+    /// for a log long enough that reading it whole weighs on a restart.
+    pub(in crate::hub) fn checkpoint_after_load(self: &Arc<Self>, session: &Arc<Session>) {
+        // A log this short folds whole in milliseconds.
+        const FROM_RECORDS: u64 = 10_000;
+        static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        if session.meta().fork_seq.is_some()
+            || session.seq.load(Ordering::SeqCst) < FROM_RECORDS
+            || Self::host_record_live(&session.id)
+        {
+            return;
+        }
+        let hub = self.clone();
+        self.spawn_checkpoint_save(session, None, move |session| {
+            let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            // A host that started meanwhile saves its own; this one would hold its start.
+            if !hub.shutting_down() && !Self::host_record_live(&session.id) {
+                crate::qos::background(|| hub.save_checkpoint_now(session, UNSTARTED));
+            }
+        });
+    }
+
+    /// Runs `save` off the executor unless a save of `session`'s checkpoint runs, or one ended
+    /// within `every`: one at a time per chat, so none overwrites a later one with its own.
+    fn spawn_checkpoint_save(
+        &self,
+        session: &Arc<Session>,
+        every: Option<std::time::Duration>,
+        save: impl FnOnce(&Arc<Session>) + Send + 'static,
+    ) {
+        type Saving = HashMap<String, Option<std::time::Instant>>;
+        static SAVING: std::sync::LazyLock<std::sync::Mutex<Saving>> =
+            std::sync::LazyLock::new(Default::default);
+        {
+            let mut saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+            match (saving.get(&session.id), every) {
+                // One runs.
+                (Some(None), _) => return,
+                (Some(Some(at)), Some(every)) if at.elapsed() < every => return,
+                _ => {}
+            }
+            saving.insert(session.id.clone(), None);
+        }
+        let session = session.clone();
+        let save = move || {
+            save(&session);
+            SAVING
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(session.id.clone(), Some(std::time::Instant::now()));
+        };
+        match tokio::runtime::Handle::try_current() {
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
+            Ok(rt) => drop(rt.spawn_blocking(save)),
+            Err(_) => save(),
+        }
     }
 
     pub(super) fn remote_host_env_current(&self, session: &Session, incarnation: &str) -> bool {
@@ -147,6 +261,39 @@ impl Hub {
         self.store.scan_heads_from(&session.id, from.0, from.1, &mut |head, _| visit(head))
     }
 
+    /// Under the host link lease, verify a previously incomplete adoption without replaying
+    /// any work handlers. The inbound loop has handled the late host entries normally.
+    pub(in crate::hub) async fn verify_recovery_replay(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &ChildAgent,
+    ) -> bool {
+        if !child.recovery_replay_retryable() || replay_stalls() {
+            return false;
+        }
+        let Some(record) = child.host_record() else { return false };
+        let Some(end) = child.learn_replay_end(REPLAY_STALL).await else { return false };
+        if !child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await
+            || !Self::drain_inbound(session).await
+        {
+            return false;
+        }
+        let incarnation = record.incarnation;
+        let idle = self
+            .read_whole_log(session, move |hub, s| {
+                hub.catch_up(s);
+                hub.fold_open_work(s, &incarnation, Fold::Resume { settled: None })
+                    .0
+                    .can_end_replayed_host()
+            })
+            .await
+            .unwrap_or(false);
+        if idle {
+            child.mark_recovery_replay_complete();
+        }
+        idle
+    }
+
     /// Scan the log for the work in flight under host `incarnation`. Agent
     /// requests, answers and permission records count only within this
     /// incarnation: every harness restarts its own request ids.
@@ -202,36 +349,53 @@ impl Hub {
         // knew a later last turn: a checkpoint ends before an open last turn's start, so each
         // record it holds was read as every later fold reads it.
         let turn_bound = if last_turn_starts { last_turn - 1 } else { u64::MAX };
-        let resumed = resume
+        let mut resumed = resume
             .then(|| self.adoption_checkpoint(session, incarnation, &inputs))
             .flatten()
             .filter(|c| c.seq <= turn_bound);
-        let ((from, next), mut folds) = match resumed {
-            Some(c) => ((c.seq + 1, c.next), c.folds),
-            None => ((0, None), Folds::new(&inputs)),
+        // The process table it kept goes on beside the work (`keep_processes`).
+        let resumed_processes = resumed.as_mut().and_then(|c| {
+            let seq = c.seq;
+            c.processes.take().filter(|p| p.through <= seq)
+        });
+        // Beside them, while saving a checkpoint, the folds of an incarnation not started yet,
+        // which the next host's first adoption resumes from (`checkpoint.rs` `unstarted`).
+        let unstarted_too = resume && settled.is_some() && incarnation != UNSTARTED;
+        let ((from, next), mut folds, mut unstarted) = match resumed {
+            Some(c) => {
+                let unstarted = c.unstarted.filter(|_| unstarted_too);
+                // Saved before this fold kept them: read from the start.
+                if unstarted_too && unstarted.is_none() {
+                    ((0, None), Folds::new(&inputs), Some(Folds::new(&inputs)))
+                } else {
+                    ((c.seq + 1, c.next), c.folds, unstarted)
+                }
+            }
+            None => ((0, None), Folds::new(&inputs), unstarted_too.then(|| Folds::new(&inputs))),
         };
         // The last record a checkpoint may hold.
         let bound = settled.map(|settled| settled.min(turn_bound));
         let mut folded = from.saturating_sub(1);
-        let mut kept: Option<(u64, Option<crate::store::LinePos>, Folds)> = None;
+        let mut kept: Option<(u64, Option<crate::store::LinePos>, Folds, Option<Folds>)> = None;
         let scanned = self.store.scan_heads_from(&session.id, from, next, &mut |head, at| {
             if let Some(bound) = bound
                 && kept.is_none()
                 && head.seq > bound
             {
-                kept = Some((folded, at, folds.clone()));
+                kept = Some((folded, at, folds.clone(), unstarted.clone()));
             }
-            folds.env.step(head, incarnation);
-            folds.host_seq.step(head, incarnation);
-            seed_step(&mut folds.subagents, head);
-            folds.work.step(head, incarnation, &inputs, reads, last_turn);
+            folds.step(head, incarnation, &inputs, reads, last_turn);
+            if let Some(unstarted) = unstarted.as_mut() {
+                unstarted.step(head, UNSTARTED, &inputs, reads, last_turn);
+            }
             folded = folded.max(head.seq);
             true
         });
         if bound.is_some() && kept.is_none() {
-            kept = Some((folded, None, folds.clone()));
+            kept = Some((folded, None, folds.clone(), unstarted.clone()));
         }
-        let (work, host_seq_at) = folds.work.finish(scanned.is_err());
+        let (mut work, host_seq_at) = folds.work.finish(scanned.is_err());
+        work.processes = resumed_processes;
         // A line cut short showed it: the whole records decide, as before.
         if let Some(seq) = host_seq_at
             && !self.logs_host_seq(session, seq, work.last_host_seq)
@@ -241,10 +405,52 @@ impl Hub {
         // None when the log could not be read to its end, or when it is the one resumed from.
         let checkpoint = kept
             .filter(|(seq, ..)| *seq > 0 && *seq >= from && scanned.is_ok())
-            .and_then(|(seq, next, folds)| {
-                Some(Checkpoint::new(seq, next, incarnation, inputs, folds, stamp?))
+            .and_then(|(seq, next, folds, unstarted)| {
+                // An unstarted fold's own checkpoint is its own unstarted one too.
+                let unstarted =
+                    if incarnation == UNSTARTED { Some(folds.clone()) } else { unstarted };
+                Some(Checkpoint::new(seq, next, incarnation, inputs, folds, unstarted, stamp?))
             });
         (work, checkpoint)
+    }
+}
+
+impl Hub {
+    /// `incarnation`'s checkpoint through `settled` (the log's last seq while no append ran),
+    /// with the folds of an incarnation not started yet beside it: what
+    /// `prime_adoption_checkpoint` saves.
+    pub(super) fn fold_checkpoint(
+        &self,
+        session: &Session,
+        incarnation: &str,
+        settled: u64,
+    ) -> Option<Checkpoint> {
+        let (mut work, checkpoint) =
+            self.fold_open_work(session, incarnation, Fold::Resume { settled: Some(settled) });
+        self.keep_processes(session, &mut work, checkpoint)
+    }
+
+    /// The checkpoint of an incarnation not started yet through `settled`.
+    #[cfg(test)]
+    pub(super) fn fold_unstarted(&self, session: &Session, settled: u64) -> Option<Checkpoint> {
+        self.fold_checkpoint(session, UNSTARTED, settled)
+    }
+}
+
+impl Folds {
+    /// Every fold steps `head`, as adopting `incarnation` reads it.
+    fn step(
+        &mut self,
+        head: &RecordHead<'_>,
+        incarnation: &str,
+        inputs: &FoldInputs,
+        reads: Reads,
+        last_turn: u64,
+    ) {
+        self.env.step(head, incarnation);
+        self.host_seq.step(head, incarnation);
+        seed_step(&mut self.subagents, head);
+        self.work.step(head, incarnation, inputs, reads, last_turn);
     }
 }
 
@@ -350,7 +556,7 @@ fn seed_step(tree: &mut SubagentTree, head: &RecordHead<'_>) {
     if let Some(mut e) = head.record()
         && let Some(params) = e.msg.get_mut("params")
     {
-        tree.annotate_live(params, !replay);
+        tree.annotate_at(params, !replay, e.at);
     }
 }
 
@@ -431,7 +637,9 @@ impl WorkFold {
         };
         let subagents_own = e.dir == "in"
             && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-            && e.msg.get_mut("params").is_some_and(|p| self.subagents.annotate(p).is_some());
+            && e.msg
+                .get_mut("params")
+                .is_some_and(|p| self.subagents.annotate_at(p, true, e.at).is_some());
         if e.dir == "mux" {
             let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {

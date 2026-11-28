@@ -89,7 +89,7 @@ fn the_grammar_takes_each_verb_and_refuses_the_rest() {
         Ok(Request::Remove { which: Some("a/b".to_owned()) })
     );
     assert_eq!(parse(&words(&["installed"])), Ok(Request::Installed));
-    let Ok(Request::Export { dir, header }) = parse(&words(&[
+    let Ok(Request::Export { dir, header, profile: None }) = parse(&words(&[
         "export",
         "out",
         "--id",
@@ -104,11 +104,18 @@ fn the_grammar_takes_each_verb_and_refuses_the_rest() {
     assert_eq!(dir, Path::new("out"));
     assert_eq!((header.id.as_str(), header.name.as_str()), ("leo/night", "night"));
     assert_eq!(header.extensions, ["github.com/a/b"]);
+    let Ok(Request::Export { profile, .. }) =
+        parse(&words(&["export", "out", "--id", "leo/night", "--profile", "kept-night"]))
+    else {
+        panic!()
+    };
+    assert_eq!(profile.as_deref(), Some("kept-night"));
     for bad in [
         &["install"][..],
         &["install", "a", "b"],
         &["export", "out"],
         &["export", "--id", "a/b"],
+        &["export", "out", "--id", "a/b", "--profile"],
         &["installed", "x"],
         &["remove", "--yes"],
         &["undo", "x"],
@@ -568,6 +575,48 @@ fn two_folders_stack_as_layers_that_turn_off_reorder_and_remove_alone() {
     assert_eq!(failure.code, "setup.id_taken");
 }
 
+/// Installing a look that is installed already puts it on, on top: the gallery's Install of
+/// Linen after Basalt and others went on above it showed Basalt's theme still (hq feature flow
+/// `looks`, NIGHTLY c6ff1246), since an update alone keeps its place in the order and its off.
+#[test]
+fn installing_an_installed_look_again_puts_it_on_top_and_on() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let home = root.path().join("home");
+    let customize = Customize::open(Roots::under(&home));
+    let dusk = views_setup(root.path(), "leo/dusk", "dusk");
+    let dawn = views_setup(root.path(), "leo/dawn", "dawn");
+    let theme = || -> Value {
+        let text = fs::read_to_string(home.join("config/cmux-next.json")).unwrap();
+        cmux_config::jsonc::parse(&text).unwrap()["appearance"]["themeFile"].clone()
+    };
+    let top = || customize.setups().unwrap().first().map(|receipt| receipt.id.clone());
+    install(&customize, &world, OutputMode::Json, dusk.to_str().unwrap(), true).unwrap();
+    install(&customize, &world, OutputMode::Json, dawn.to_str().unwrap(), true).unwrap();
+    assert_eq!(theme(), json!("dawn"));
+
+    // Again, unchanged: no update, and still on top with its theme.
+    let answer =
+        install(&customize, &world, OutputMode::Json, dusk.to_str().unwrap(), true).unwrap();
+    assert_eq!(answer["on_top"], json!(true), "{answer}");
+    assert_eq!(top().as_deref(), Some("leo/dusk"));
+    assert_eq!(theme(), json!("dusk"));
+
+    // Off, then installed again: on, on top.
+    set_on(&customize, &world, Some("leo/dawn"), false).unwrap();
+    install(&customize, &world, OutputMode::Json, dawn.to_str().unwrap(), true).unwrap();
+    assert!(customize.setup("leo/dawn").unwrap().unwrap().on);
+    assert_eq!(top().as_deref(), Some("leo/dawn"));
+    assert_eq!(theme(), json!("dawn"));
+
+    // Changed since: the update goes on on top too, not in its old place.
+    fs::write(dusk.join("customize/main.js"), "// leo/dusk, v2\nvar __cmuxAppExports = {};\n")
+        .unwrap();
+    install(&customize, &world, OutputMode::Json, dusk.to_str().unwrap(), true).unwrap();
+    assert_eq!(top().as_deref(), Some("leo/dusk"));
+    assert_eq!(theme(), json!("dusk"));
+}
+
 #[test]
 fn the_grammar_takes_gallery_and_preview() {
     assert_eq!(parse(&words(&["gallery"])), Ok(Request::Gallery));
@@ -605,7 +654,7 @@ fn an_empty_machine_gets_every_look_and_no_stack() {
         json!({
             "id": "manaflow-ai/studio-look",
             "name": "Studio",
-            "tagline": "A dense, near-black workbench for agent chats: quiet chrome, compact rows, a boxed prompt.",
+            "tagline": "Dark and compact, made for long agent chats.",
             "repo": "github.com/manaflow-ai/cmux-studio-look",
             "tags": ["chat", "dark", "sidebar"],
             "installed": null,

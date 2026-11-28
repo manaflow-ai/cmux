@@ -37,7 +37,6 @@ fn a_plain_cloud_start_is_the_hybrid_ones_and_every_cloud_only_option_is_not() {
         &["--environment", "env_1"],
         &["--wait"],
         &["--timings"],
-        &["--name", "n"],
         &["--attach", "f.txt"],
         &["--allow-large"],
     ] {
@@ -47,6 +46,18 @@ fn a_plain_cloud_start_is_the_hybrid_ones_and_every_cloud_only_option_is_not() {
         assert_eq!(takes(&start(&list), &Machine::New), None, "{extra:?}");
     }
     assert_eq!(takes(&start(&["--on", "vm:new"]), &Machine::New), None);
+}
+
+#[test]
+fn a_named_cloud_start_is_hybrid_and_its_chat_here_carries_the_name() {
+    let named = start(&["--on", "vm:new", "--name", "triage", "--prompt", "hi"]);
+    assert_eq!(takes(&named, &Machine::New).as_deref(), Some("new"));
+    // Off, the Cloud start still refuses the name, as it did.
+    assert!(cloud_words(&named, &Machine::New).is_err());
+    // On, the chat here is started with it.
+    let here = here_words(&[], &here_of(&named, "/fresh")).unwrap();
+    let at = here.iter().position(|word| word == "--name").expect("--name");
+    assert_eq!(here[at + 1], "triage");
 }
 
 #[test]

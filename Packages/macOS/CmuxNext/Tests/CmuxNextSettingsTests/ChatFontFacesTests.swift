@@ -3,8 +3,9 @@ import Foundation
 import Testing
 
 /// The agent chat's font files (`agentPane.display.font.faces`, a community typography theme's font
-/// pack): the cases of the Rust reader (cmux-tui/crates/cmux-config/src/font_faces/tests.rs), so both
-/// readers agree on which faces load, and the theme file's path to the chat page.
+/// pack), through the loader Rust answers: the reader's own cases (bytes, keys) are its Rust tests
+/// (cmux-tui/crates/cmux-config/src/font_faces/tests.rs, app_ops/effective.rs), and the theme file's
+/// path to the chat page.
 @Suite(.serialized) struct ChatFontFacesTests {
     static let woff2 = Data("wOF2".utf8) + Data([0, 1, 0, 0]) + Data("rest of the font".utf8)
 
@@ -25,24 +26,6 @@ import Testing
 
     static func file(_ path: String) -> JSONValue { .string("file:" + path) }
 
-    @Test func theFirstBytesNameTheFontType() {
-        #expect(ChatFontFaces.kind(of: Array("wOF2....".utf8)) == "woff2")
-        #expect(ChatFontFaces.kind(of: Array("wOFF....".utf8)) == "woff")
-        #expect(ChatFontFaces.kind(of: [0, 1, 0, 0, 9]) == "ttf")
-        #expect(ChatFontFaces.kind(of: Array("true....".utf8)) == "ttf")
-        #expect(ChatFontFaces.kind(of: Array("OTTO....".utf8)) == "otf")
-        #expect(ChatFontFaces.kind(of: [0x89, 0x50, 0x4E, 0x47]) == nil)
-        #expect(ChatFontFaces.kind(of: Array("wO".utf8)) == nil)
-    }
-
-    @Test func aKeyIsOneFamilyOptionallyItalic() {
-        #expect(ChatFontFaces.pageKey("Inter Display") == "Inter Display")
-        #expect(ChatFontFaces.pageKey(" Lora :italic") == "Lora:italic")
-        for bad in ["Lora:bold", "Lora, serif", "Lo\"ra", "a}b", "", ":italic"] {
-            #expect(ChatFontFaces.pageKey(bad) == nil, "\(bad)")
-        }
-    }
-
     @Test func aGoodFaceBecomesADataURL() throws {
         let folder = try Folder()
         let path = try folder.write(Self.woff2, "Lora-Italic.woff2")
@@ -57,7 +40,7 @@ import Testing
         let png = try folder.write(Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]), "x.woff2")
         let mismatched = try folder.write(Self.woff2, "x.ttf")
         let svg = try folder.write(Self.woff2, "x.svg")
-        let big = try folder.write(Self.woff2 + Data(count: ChatFontFaces.maximumBytes), "big.woff2")
+        let big = try folder.write(Self.woff2 + Data(count: 2 << 20), "big.woff2")
         let values: [JSONValue] = [
             Self.file(png), Self.file(mismatched), Self.file(svg), Self.file(big),
             Self.file(folder.url.appending(path: "missing.woff2").path), Self.file(folder.url.path),

@@ -36,6 +36,19 @@ pub fn platform_origin_env() -> Option<String> {
     platform_origin_from(|key| std::env::var(key).ok())
 }
 
+/// The origin that serves cmux-platform's HttpApi routes (`/v1/machines/...`) for a caller
+/// handed `api`: a known owner API's own platform (the owner API forwards only `/v1/cloud/...`
+/// and the ops, and answers every `/v1/machines/...` route an empty 404: prod journey run
+/// 46112352774, where every exec-router fork got that 404 and ran here), else the platform
+/// origin the environment names ([`platform_origin_from`]), else `api` itself (a local stack,
+/// or a platform origin already).
+pub fn platform_for(api: &str, env: impl Fn(&str) -> Option<String>) -> String {
+    if let Some(backend) = Backend::of_owner_api(api) {
+        return backend.platform().to_owned();
+    }
+    platform_origin_from(env).unwrap_or_else(|| api.trim().trim_end_matches('/').to_owned())
+}
+
 /// A NEXT Cloud environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Backend {
@@ -82,6 +95,14 @@ impl Backend {
         }
     }
 
+    /// Which backend `owner_api` is, when it is one of the three.
+    pub fn of_owner_api(owner_api: &str) -> Option<Self> {
+        let origin = owner_api.trim().trim_end_matches('/');
+        [Self::Production, Self::Staging, Self::Development]
+            .into_iter()
+            .find(|b| b.owner_api() == origin)
+    }
+
     /// Which backend `platform_origin` is, when it is one of the three.
     pub fn of_platform(platform_origin: &str) -> Option<Self> {
         let origin = platform_origin.trim_end_matches('/');
@@ -92,43 +113,5 @@ impl Backend {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_round_trip_and_origins_are_bare_https() {
-        for b in [Backend::Production, Backend::Staging, Backend::Development] {
-            assert_eq!(Backend::parse(b.name()), Some(b));
-            assert_eq!(Backend::of_platform(b.platform()), Some(b));
-            for origin in [b.platform(), b.owner_api()] {
-                assert!(cmux_cloud_config::origin::is_bare_https_origin(origin), "{origin}");
-            }
-        }
-        assert_eq!(Backend::parse("prod"), Some(Backend::Production));
-        assert_eq!(Backend::parse("moon"), None);
-    }
-
-    /// One name, one alias, one precedence: `CMUX_PLATFORM_ORIGIN` wins, `CMUX_PLATFORM_URL`
-    /// counts only when it is unset or empty.
-    #[test]
-    fn the_platform_origin_is_one_variable_with_one_alias() {
-        let read = |origin: Option<&str>, url: Option<&str>| {
-            platform_origin_from(|key| match key {
-                PLATFORM_ORIGIN_ENV => origin.map(str::to_owned),
-                PLATFORM_ORIGIN_ALIAS_ENV => url.map(str::to_owned),
-                _ => None,
-            })
-        };
-        assert_eq!(read(Some("https://o.example"), None).as_deref(), Some("https://o.example"));
-        assert_eq!(read(None, Some("https://u.example")).as_deref(), Some("https://u.example"));
-        assert_eq!(
-            read(Some(" https://o.example "), Some("https://u.example")).as_deref(),
-            Some("https://o.example")
-        );
-        assert_eq!(
-            read(Some(" "), Some("https://u.example")).as_deref(),
-            Some("https://u.example")
-        );
-        assert_eq!(read(None, None), None);
-    }
-}
+#[path = "backend_tests.rs"]
+mod tests;

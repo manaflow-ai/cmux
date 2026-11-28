@@ -163,6 +163,9 @@ fn search(
         }
         for (turn, row) in page.turns.iter().enumerate().rev() {
             let mut hit = |role: &str, text: &str| {
+                if !needle.may_match(text) {
+                    return false;
+                }
                 let flat = flatten(text);
                 if let Some(at) = needle.find(&flat) {
                     hits.push(json!({"pageEnd": page.end, "turn": turn, "role": role, "snippet": snippet(&flat, at)}));
