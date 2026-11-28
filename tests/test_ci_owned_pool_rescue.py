@@ -9589,6 +9589,24 @@ class SpendLess(unittest.TestCase):
         self.assertIn("resets in", rescue.quota_skip(raised.exception))
         self.assertIsNone(rescue.quota_skip(RuntimeError("x")))
 
+    def test_a_dispatch_whose_run_read_finds_the_budget_spent_ends_green(self):
+        # The dispatch reads its named run before end_on_spent is set in
+        # main(), so a spent budget on that first read waited for the reset
+        # instead of ending as an infra skip. One frozen wall clock for the refusal's reset and the limiter's read.
+        now = rescue.time.time()
+        with unittest.mock.patch.object(rescue.time, "time", lambda: now):
+            seen, patch = Tokens.refusing(self, [self.spent_refusal()])
+        waits = []
+        with patch, unittest.mock.patch("sys.stderr", io.StringIO()), \
+                unittest.mock.patch.object(rescue.time, "time", lambda: now):
+            clock = Clock()
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)})
+        self.assertEqual((code, waits), (0, []), summary)
+        self.assertEqual(len(seen), 1, "the spent read was not retried")
+        self.assertIn("infra skip", summary)
+
     def test_a_write_and_every_read_after_it_still_wait_through_a_spent_budget(self):
         # A rescue that cancelled a run must still get to its re-run (review on #28844): nothing after a write ends
         # the watch early, and neither does the write itself.

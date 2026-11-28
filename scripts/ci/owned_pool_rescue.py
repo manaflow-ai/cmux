@@ -2966,7 +2966,8 @@ def read(call: Callable[[], Any], sleep: Callable[[float], None], log: Callable[
         try:
             return call()
         except READ_ERRORS as error:
-            if attempt == READ_ATTEMPTS:
+            # A spent budget is refused at once (QuotaSpent); retrying it only waits for the same refusal.
+            if attempt == READ_ATTEMPTS or isinstance(error, QuotaSpent):
                 raise
             log(f"read failed ({error}); retrying")
             sleep(READ_RETRY_SECONDS * attempt)
@@ -5730,6 +5731,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                     return finish(skip)
                 finish(f"gave up: could not re-run run {run_id}: {error}")
                 return 1
+        # The named run is read before main() sets end_on_spent (nightly-ness needs the run): a spent budget ends it.
+        if hasattr(client, "end_on_spent"):
+            client.end_on_spent = True
         try:
             event = {"workflow_run": read(lambda: client.run(int(run_id)), sleep, log)}
         except READ_ERRORS as error:
