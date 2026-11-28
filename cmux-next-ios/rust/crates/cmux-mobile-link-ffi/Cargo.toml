@@ -23,6 +23,8 @@ bindgen = ["uniffi/cli"]
 
 [dependencies]
 cmux-local-url.workspace = true
+# cmux link grammar (src/cmux_link.rs) parses URLs.
+url.workspace = true
 async-trait = "0.1"
 cmux-auto-session.workspace = true
 # Wake on intent (src/cloud_wake.rs): the Mac's `wake_hint` rules.
@@ -37,6 +39,8 @@ cmux-mobile-core.workspace = true
 # The launch's last place (src/last_place.rs).
 cmux-mobile-last-place.workspace = true
 cmux-mobile-link.workspace = true
+# transport.tailnetCarrier's modes, read like the Mac (src/lan.rs, RFD 0164 T5).
+cmux-mobile-tailnet.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-link.workspace = true
 cmux-rd-proto.workspace = true
@@ -67,8 +71,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 unicode-normalization = "0.1"
 uniffi = "=0.31.1"
-# cmux link grammar (src/cmux_link.rs).
-url.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 

@@ -1,4 +1,5 @@
 import { AppPricingContent, type AppPlanSnapshot } from "./pricing-content";
+import { isWebPlusPlanEnabledImmediately } from "../../services/billing/goPlanFlag";
 
 export const unknownPlan: AppPlanSnapshot = {
   authenticated: false,
@@ -16,7 +17,7 @@ export function AppPricingFallback() {
       params={{ cmux_app: "1", cmux_distribution: "appstore" }}
       headersList={new Headers()}
       snapshot={unknownPlan}
-      goPlanEnabled={false}
+      goPlanEnabled={isWebPlusPlanEnabledImmediately()}
       pending
     />
   );
