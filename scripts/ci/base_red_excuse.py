@@ -504,8 +504,24 @@ def settled_answer(route: str):
         return kept if completed_state(kept) == state else NOT_KEPT
     if (found := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
         state = completed_state(run_now(found["repo"], int(found["run"])))
-        return settled_get(route, state) if state is not None else NOT_KEPT
+        if state is None:
+            return NOT_KEPT
+        kept = settled_get(route, state)
+        if kept is NOT_KEPT and state[0] == 1:
+            kept = settled_get(sibling_jobs_route(route), state)
+        return kept
     return NOT_KEPT
+
+
+# One attempt, one list (2026-11-28, forge-land-no-github-read): a completed run of one attempt has the same jobs
+# under filter=all (last_real_jobs) and filter=latest (base_run_jobs), yet each was kept under its own route, so a
+# judgement that read a base run both ways spent two job-list reads on one answer. Each now serves the other's kept
+# list for that attempt only: a run re-run since names attempt 2, and is read live as before. Detector:
+# tests/test_base_red_excuse.py SettledEvidence.test_a_one_attempt_run_serves_both_filters_from_one_kept_list.
+def sibling_jobs_route(route: str) -> str:
+    """ROUTE (a run's jobs list) under the other filter: filter=all for filter=latest, and the reverse."""
+    return (route.replace("filter=all&", "filter=latest&", 1) if "filter=all&" in route
+            else route.replace("filter=latest&", "filter=all&", 1))
 
 
 def settle(route: str, found) -> None:
