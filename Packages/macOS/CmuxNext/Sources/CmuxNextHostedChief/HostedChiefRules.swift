@@ -24,7 +24,7 @@ nonisolated enum ChiefRules {
         case reachRoute = "reach_route"
 
         /// The op as `cmux_home_call` names it: `cloud.<name>`.
-        var path: String { "cloud." + rawValue }
+        var path: String { ChiefRules.area + rawValue }
     }
 
     /// A rule that cannot fail on its input: a failure is a cmux-app-ffi without the op (its pin
