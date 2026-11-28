@@ -3648,6 +3648,8 @@ jobs:
           bash scripts/ci/tests/cargo-groups-memory.test.sh
           # The same cap for a single cargo build (repro-capsule journey job 140983092431).
           bash scripts/ci/tests/cargo-mem-jobs.test.sh
+          # Capped, the acpmux and cmux_tui rustc compile one at a time (relay journey run 46172359390, both SIGKILLed at -j2).
+          bash scripts/ci/tests/cargo-mem-env.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)

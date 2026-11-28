@@ -548,9 +548,8 @@ jobs:
         run: |
           set -euo pipefail
           target_dir="${CARGO_TARGET_DIR:-target}"
-          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
-          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
-          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
+          # scripts/ci/cargo-mem-env.sh: one job per 6 GiB of a memory-capped slot, and the acpmux/cmux_tui rustc one at a time (-j2 alone still SIGKILLed both in 14 GiB).
+          source "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-env.sh"
           cargo build -p cmux-tui --bin cmux-tui --locked
           mkdir -p "$RUNNER_TEMP/journey-cmux"
           cp "$target_dir/debug/cmux-tui" "$RUNNER_TEMP/journey-cmux/cmux-tui"
