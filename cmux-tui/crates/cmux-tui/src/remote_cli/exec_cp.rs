@@ -26,6 +26,8 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 use tokio::signal::unix::{SignalKind, signal};
 
+use cmux_remote::phase_timing::mark;
+
 use super::{
     REMOTE_VALUE_OPTIONS, credential_free_route_hint, parse_connect_flags, start_connected,
     tokio_runtime,
@@ -363,14 +365,18 @@ fn exec(args: &[String]) -> anyhow::Result<i32> {
     let parsed = parse_exec_args(args)?;
     let flags = parse_connect_flags(&parsed.connect)?;
     let connected = start_connected(flags)?;
+    mark("connected");
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
+        mark("workspace-client");
         exec_on(client, parsed, None).await
     });
+    mark("exited");
     // The command's status is the answer; a slow or failed teardown after it
     // does not change what the command did.
     let _ = connected.runtime.shutdown();
+    mark("shutdown");
     result
 }
 
@@ -409,6 +415,7 @@ pub(super) async fn exec_on(
     first_output: Option<&std::sync::OnceLock<Instant>>,
 ) -> anyhow::Result<i32> {
     let workspace = open_root(&client).await?;
+    mark("root-open");
     let io = if parsed.tty {
         let (cols, rows) = local_terminal_size();
         ProcessIo::Pty {
@@ -438,6 +445,7 @@ pub(super) async fn exec_on(
         environment: ProcessEnvironment::Inherit,
     };
     let spawned = client.spawn_process_with_events(process, request).await?;
+    mark("spawned");
     let _raw = if parsed.tty { RawMode::enter() } else { None };
     // Input runs beside the output loop in this future (no task to own): the
     // command's status ends both, and an input side that finished waits.

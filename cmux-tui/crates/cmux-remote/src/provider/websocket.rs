@@ -216,6 +216,7 @@ pub async fn connect_websocket_within(
     .await
     .map_err(|_| stage_timed_out(upgrade_stage))?
     .map_err(|error| LinkError::Transport(error.to_string()))?;
+    crate::phase_timing::mark("websocket-upgraded");
     Ok(TungsteniteWebSocketLink::new(description, maximum, socket))
 }
 

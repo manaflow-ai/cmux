@@ -809,6 +809,7 @@ fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
 
 fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
+    cmux_remote::phase_timing::mark("start");
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     refuse_unusable_local_paths(&flags)?;
     let invitation = flags
@@ -1033,6 +1034,7 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         ssh,
         ssh_bootstrap,
     };
+    cmux_remote::phase_timing::mark("routes-resolved");
     let runtime = if recover_first_connect {
         start_recovering_client_runtime(options, move || owner.is_none_or(parent_process_is))?
     } else {
