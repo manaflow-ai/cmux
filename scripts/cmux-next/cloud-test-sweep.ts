@@ -192,7 +192,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let budget = MAX_DELETES;
   let refused = 0;
   for (const { scope, team } of teams) {
-    const rows = await listAllMachines((p) => read(team, "cloud.machine.list", p), 40);
+    const rows = await listAllMachines((p) => read(team, "cloud.machine.list", p), 40, { partial: true });
     const picks = sweepPicks(rows, now, minAgeMs, team === null ? null : me).slice(0, budget);
     budget -= picks.length;
     const entry = { scope, before: statusCounts(rows), picks: picks as Array<SweepPick & { ok?: boolean; error?: string | null }> };
