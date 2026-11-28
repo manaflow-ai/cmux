@@ -122,6 +122,7 @@ import {
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, DNS_SCOPE_PATH, dnsCheckScript, dnsScopeScript, dnsScopeUnits, resolverBakeCommand } from "./dns";
+import { BBR_STAGE_DIR, netBaselineBakeCommand, netBaselineFiles, SYN_RETRY_PATH } from "./net-baseline";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { homeReadmeFile } from "./home-readme";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
@@ -951,6 +952,10 @@ async function configureSystem(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, DNS_SCOPE_PATH, dnsScopeScript(), 0o755);
   for (const [unitPath, text] of Object.entries(dnsScopeUnits())) await writeGuestFile(vm, unitPath, text, 0o644);
   ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
+  // The fleet's network baseline (net-baseline.ts): IPv6 first, BBR where the kernel has it, the first SYN resent after 200 ms.
+  await L.step(vm, "net-baseline-dirs", `install -d -m 0755 ${path.posix.dirname(SYN_RETRY_PATH)} ${BBR_STAGE_DIR}`);
+  for (const f of netBaselineFiles()) await writeGuestFile(vm, f.path, f.text, f.mode);
+  ctx.result.netBaseline = (await L.step(vm, "net-baseline", netBaselineBakeCommand(), 60_000)).trim();
   await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 

@@ -280,14 +280,37 @@ fi
 # Only that exact message counts, and only once:
 # CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED marks the rerun, which reports its own
 # failure as usual.
+#
+# The rerun builds without the compilation cache when the build had it on.
+# From 22:12Z on 2026-11-27 every nightly-next build on ultra1-glaeda crashed
+# the build service ("bad_optional_access was thrown in -fno-exceptions mode",
+# then a dependency file rename failed) on both attempts, clean DerivedData
+# included (runs 46074261734, 46076637784, 46079235693), with no settings or
+# build change in the 47 commits since the last good build. A clean
+# DerivedData still keeps the host's CAS (nightly_build_state.prepare_host
+# links it across clean builds), so the cache is the one input every crashed
+# attempt shared; a same-arguments rerun read it again and crashed again.
 build_service_crash_message='The Xcode build system has crashed. Build again to continue.'
 if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]] \
   && [[ "${CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED:-0}" != 1 ]] \
   && grep -qF "$build_service_crash_message" "$output_log" 2>/dev/null; then
-  echo "::warning::xcodebuild: the Xcode build service crashed (status=$status: \"$build_service_crash_message\"); building once more, same arguments"
+  rerun=()
+  cache_dropped=0
+  for arg in "$@"; do
+    if [[ "$arg" == COMPILATION_CACHE_ENABLE_CACHING=YES ]]; then
+      arg=COMPILATION_CACHE_ENABLE_CACHING=NO
+      cache_dropped=1
+    fi
+    rerun+=("$arg")
+  done
+  if (( cache_dropped )); then
+    echo "::warning::xcodebuild: the Xcode build service crashed (status=$status: \"$build_service_crash_message\"); building once more, without the compilation cache"
+  else
+    echo "::warning::xcodebuild: the Xcode build service crashed (status=$status: \"$build_service_crash_message\"); building once more, same arguments"
+  fi
   rm -rf "$output_dir"
   clear_result_bundle "$@"
-  CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED=1 exec "$script_dir/$(basename "$0")" -- "$@"
+  CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED=1 exec "$script_dir/$(basename "$0")" -- "${rerun[@]}"
 fi
 set -e
 
