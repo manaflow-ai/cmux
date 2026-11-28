@@ -41,6 +41,22 @@ enum HomeDockOpens {
         nonisolated deinit {}
     }
 
+    /// The end of a placement's move, for a caller that awaits the run's work (`action.run`, the CLI): the run's
+    /// answer then says the tab is beside Home, not still on its way out of the dock. Without it a script that
+    /// opened a tab from Home's focused dock and split at once was refused ("The agent chat can't be split"):
+    /// the split ran before the move had given the new tab the focus (vw4a-ctl-2, HomeFirstOpenTests).
+    /// Ends when the move lands or fails, or when the creator drops the placement unused (a refused open).
+    private final class MoveEnd: Sendable {
+        let ended: AsyncStream<Never>
+        private let continuation: AsyncStream<Never>.Continuation
+
+        init() { (ended, continuation) = AsyncStream<Never>.makeStream() }
+
+        func finish() { continuation.finish() }
+
+        deinit { continuation.finish() }
+    }
+
     /// Whether a new tab made in `pane` moves beside it: `pane` is in Home's pinned dock while it
     /// takes tabs. A dock closed to tabs takes none (`dock-column-pinned`): its creators open beside it themselves.
     static func opensBeside(_ pane: PaneModel, services: AppServices) -> Bool {
@@ -59,16 +75,23 @@ enum HomeDockOpens {
         // The creator's own refusal paths release this hold; successful opens
         // name it below before the callback can observe the strip.
         let hold = PlacementHold(services.paneController(for: pane).map { OutboundTab.begin(in: $0) })
+        // A caller that awaits the run's work (a script, the CLI) gets its answer once the move has ended.
+        let moveEnd = services.registry.isCapturingWork ? MoveEnd() : nil
+        if let ended = moveEnd?.ended {
+            // task-owner: one-shot; ends with the move (or the placement's release), never holds the placement.
+            services.registry.track(Task { for await _ in ended {}; return nil })
+        }
         return { [weak services] surface in
-            guard let services else { hold.cancel(); then?(surface); return }
+            guard let services else { hold.cancel(); then?(surface); moveEnd?.finish(); return }
             hold.made(surface)
             then?(surface)
             if let controller = services.paneController(for: pane) {
                 services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target,
-                                                outbound: hold.outbound)
+                                                outbound: hold.outbound, then: { moveEnd?.finish() })
             } else {
                 hold.fail()
                 moveOffscreen(surface, from: pane, services: services)
+                moveEnd?.finish()
             }
         }
     }
