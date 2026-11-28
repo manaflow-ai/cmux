@@ -95,4 +95,30 @@ enum HomeChiefOnboardingStrings {
     static var lookLater: String {
         String(localized: "home.chiefOnboarding.lookLater", defaultValue: "More in Settings › Appearance.", bundle: .localizedModule)
     }
+
+    // The chat styles (``HomeChiefOnboardingCard/Style``): Chief says each step as its own message, and the
+    // primary button is your reply.
+    static func chatBody(_ step: ChiefOnboardingStep) -> String {
+        switch step {
+        case .meet:
+            String(localized: "home.chiefOnboarding.chat.meet",
+                   defaultValue: "Hi, I’m Chief, your assistant in cmux. Tell me what you want done, in plain words. I work only for you.",
+                   bundle: .localizedModule)
+        case .access:
+            String(localized: "home.chiefOnboarding.chat.access",
+                   defaultValue: "I run commands, edit files and use the cmux browser on this Mac, as you. How often should I check with you first?",
+                   bundle: .localizedModule)
+        case .look:
+            String(localized: "home.chiefOnboarding.chat.look",
+                   defaultValue: "Last thing: how should cmux look? Pick a density and a text size. You’ll see it change right here.",
+                   bundle: .localizedModule)
+        }
+    }
+    static func chatReply(_ step: ChiefOnboardingStep) -> String {
+        switch step {
+        case .meet: String(localized: "home.chiefOnboarding.chat.reply.meet", defaultValue: "Nice to meet you", bundle: .localizedModule)
+        case .access: String(localized: "home.chiefOnboarding.chat.reply.access", defaultValue: "Sounds good", bundle: .localizedModule)
+        case .look: String(localized: "home.chiefOnboarding.chat.reply.look", defaultValue: "Let’s go", bundle: .localizedModule)
+        }
+    }
 }

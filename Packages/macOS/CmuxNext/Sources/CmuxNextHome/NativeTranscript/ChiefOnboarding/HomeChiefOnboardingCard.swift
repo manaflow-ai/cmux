@@ -42,6 +42,13 @@ final class HomeChiefOnboardingCard: NSView {
     /// The access step's modes.
     private(set) var choices: [HomeChiefOnboardingChoiceRow] = []
     private(set) var state: HomeChiefOnboardingState?
+    /// How Meet Chief is drawn (``Style``), read at each ``apply(_:)``.
+    private(set) var style: Style = .card
+    /// The chat styles' message bubbles behind the step's words, its rows and its note (Chief's side).
+    let bodyBubble = NSView()
+    let rowsBubble = NSView()
+    let noteBubble = NSView()
+    private var bubbles: [NSView] { [bodyBubble, rowsBubble, noteBubble] }
     var onAction: (HomeChiefOnboardingAction) -> Void = { _ in }
     /// The live interface scale (``applyScale(_:)``).
     private(set) var scale: CGFloat = 1
@@ -55,6 +62,15 @@ final class HomeChiefOnboardingCard: NSView {
     /// How far a new step's content rises into place.
     static let rise: CGFloat = 6
 
+    /// Meet Chief's look. `card`: one raised card. `chat`: Chief's messages in bubbles on the chat, the buttons
+    /// as your replies at the trailing edge. `chatPlain`: the same messages as plain text with no bubble, as
+    /// Chief's replies read in the transcript. Set by `defaults write <bundle> home.chiefOnboarding.style chat`
+    /// or `debug.onboarding` (`style`).
+    enum Style: String { case card, chat, chatPlain }
+    static let styleKey = "home.chiefOnboarding.style"
+    static var storedStyle: Style { UserDefaults.standard.string(forKey: styleKey).flatMap(Style.init(rawValue:)) ?? .card }
+    var isChat: Bool { style != .card }
+
     private struct Colors {
         var primary, secondary, tertiary, fill, hover, border, accent, onAccent, lit, danger: NSColor
     }
@@ -65,6 +81,13 @@ final class HomeChiefOnboardingCard: NSView {
         surface.layer?.cornerCurve = .continuous
         surface.layer?.borderWidth = 1
         addSubview(surface)
+        for bubble in [bodyBubble, rowsBubble, noteBubble] {
+            bubble.wantsLayer = true
+            bubble.layer?.cornerCurve = .continuous
+            bubble.isHidden = true
+            bubble.setAccessibilityElement(false)
+            addSubview(bubble)
+        }
         for label in [progress, title, body, note, status] {
             label.isSelectable = false
             label.maximumNumberOfLines = 0
@@ -114,16 +137,26 @@ final class HomeChiefOnboardingCard: NSView {
     /// Shows `state`. A new step rebuilds the content and plays its short entrance; the same step only updates
     /// what changed (the picked mode, a failed save).
     func apply(_ state: HomeChiefOnboardingState) {
-        guard state != self.state else { return }
-        let newStep = state.step != self.state?.step
+        guard state != self.state || Self.storedStyle != style else { return }
+        let newStyle = Self.storedStyle
+        let newStep = state.step != self.state?.step || newStyle != style
+        style = newStyle
         self.state = state
         progress.stringValue = HomeChiefOnboardingStrings.progress(state.index + 1, of: state.count)
         title.stringValue = HomeChiefOnboardingStrings.title(state.step)
         body.stringValue = HomeChiefOnboardingStrings.body(state.step)
-        primary.title = state.isLast ? HomeChiefOnboardingStrings.start : HomeChiefOnboardingStrings.next
+        primary.title = isChat ? HomeChiefOnboardingStrings.chatReply(state.step)
+            : state.isLast ? HomeChiefOnboardingStrings.start : HomeChiefOnboardingStrings.next
+        body.stringValue = isChat ? HomeChiefOnboardingStrings.chatBody(state.step) : body.stringValue
+        surface.isHidden = false
+        progress.isHidden = isChat
+        title.isHidden = isChat
+        bodyBubble.isHidden = style != .chat
+        rowsBubble.isHidden = style != .chat || state.step != .meet
         back.isHidden = !state.canGoBack
         let access = state.step == .access, look = state.step == .look
         note.isHidden = !access
+        noteBubble.isHidden = style != .chat || !access
         status.isHidden = !access && !look
         openSettings.isHidden = status.isHidden || (access && state.modeManaged)
         status.stringValue = state.writeFailed ? HomeChiefOnboardingStrings.writeFailed
@@ -254,8 +287,15 @@ final class HomeChiefOnboardingCard: NSView {
 
     private func applyStoredColors() {
         guard let colors else { return }
-        surface.layer?.backgroundColor = colors.fill.cgColor
-        surface.layer?.borderColor = colors.border.cgColor
+        // In chat the surface is the chat's own page behind Chief's messages, so the transcript under it stays out.
+        surface.layer?.backgroundColor = (isChat ? Palette.pageBackground : colors.fill).cgColor
+        surface.layer?.borderColor = (isChat ? NSColor.clear : colors.border).cgColor
+        for bubble in bubbles {
+            bubble.layer?.backgroundColor = colors.fill.cgColor
+            bubble.layer?.cornerRadius = Metrics.surfaceCornerRadius * scale
+        }
+        // In chat, Chief's words read as its messages: primary text, not the card's secondary.
+        if isChat { body.textColor = colors.primary; note.textColor = colors.secondary }
         progress.textColor = colors.tertiary
         title.textColor = colors.primary
         body.textColor = colors.secondary
@@ -285,6 +325,7 @@ final class HomeChiefOnboardingCard: NSView {
 
     /// The frames of everything the card shows, for a card `width` wide, from its top; `height` is the card's.
     private func frames(width: CGFloat) -> (height: CGFloat, place: [(NSView, CGRect)]) {
+        if isChat { return chatFrames(width: width) }
         let pad = Self.padding * scale, inner = max(0, width - 2 * pad)
         var place: [(NSView, CGRect)] = []
         var y = pad - 4 * scale
@@ -374,12 +415,78 @@ final class HomeChiefOnboardingCard: NSView {
         return y + trackHeight
     }
 
+    /// The chat styles: Chief's messages from the leading edge (in bubbles for `chat`), the step's controls under
+    /// them, then your replies at the trailing edge (the primary, and Skip or Back beside it), as a chat reads.
+    private func chatFrames(width: CGFloat) -> (height: CGFloat, place: [(NSView, CGRect)]) {
+        var place: [(NSView, CGRect)] = []
+        let bubbled = style == .chat
+        let pad = (bubbled ? 12 : 0) * scale, column = (width * 0.86).rounded()
+        let inner = max(0, column - 2 * pad), between = (bubbled ? 6 : 12) * scale
+        var y: CGFloat = 0
+        /// One message: `views` stacked in a bubble (when bubbled) as wide as its widest line.
+        func message(_ bubble: NSView, _ rows: [(NSView, (CGFloat) -> CGFloat, CGFloat?)]) {
+            let fit = rows.map { $0.2 ?? inner }.max() ?? inner
+            var top = y + pad
+            for (index, row) in rows.enumerated() {
+                if index > 0 { top += Self.rowGap * scale }
+                let height = row.1(fit)
+                place.append((row.0, CGRect(x: pad, y: top, width: fit, height: height)))
+                top += height
+            }
+            place.append((bubble, CGRect(x: 0, y: y, width: fit + 2 * pad, height: top + pad - y)))
+            y = top + pad + between
+        }
+        let label = { (l: ChromeLabel) -> (NSView, (CGFloat) -> CGFloat, CGFloat?) in
+            (l, { ceil(l.size(forWidth: $0).height) }, min(inner, ceil(l.size(forWidth: inner).width) + 1))
+        }
+        message(bodyBubble, [label(body)])
+        if !features.isEmpty { message(rowsBubble, features.map { row -> (NSView, (CGFloat) -> CGFloat, CGFloat?) in (row, { row.height(for: $0) }, nil) }) }
+        let shownChoices = choices.filter { !$0.isHidden }
+        for (index, row) in shownChoices.enumerated() {
+            if index > 0 { y += Self.choiceGap * scale }
+            let height = row.height(for: column)
+            place.append((row, CGRect(x: 0, y: y, width: column, height: height)))
+            y += height
+        }
+        if !shownChoices.isEmpty { y += between }
+        if !densityTrack.isHidden { y = placeLook(&place, y: y, x: 0, width: column) + between }
+        if !note.isHidden { message(noteBubble, [label(note)]) }
+        if !status.isHidden {
+            let settingsWidth = openSettings.isHidden ? 0 : openSettings.fittingWidth
+            let statusHeight = ceil(status.size(forWidth: column - settingsWidth).height)
+            let buttonHeight = HomeChiefOnboardingButton.height * scale
+            let line = max(statusHeight, openSettings.isHidden ? 0 : buttonHeight)
+            place.append((status, CGRect(x: 0, y: y + (line - statusHeight) / 2, width: max(0, column - settingsWidth), height: statusHeight)))
+            if !openSettings.isHidden {
+                // Open Settings follows the line's words, as a link in a message does.
+                let after = min(ceil(status.size(forWidth: column).width), max(0, column - settingsWidth)) - 4 * scale
+                place.append((openSettings, CGRect(x: after, y: y + (line - buttonHeight) / 2, width: settingsWidth, height: buttonHeight)))
+            }
+            y += line
+        }
+        y += 14 * scale
+        // Your replies, at the trailing edge: the primary pill, and Back (or Skip) before it.
+        let buttonHeight = HomeChiefOnboardingButton.height * scale
+        let primaryWidth = primary.fittingWidth
+        place.append((primary, CGRect(x: width - primaryWidth, y: y, width: primaryWidth, height: buttonHeight)))
+        let quiet = back.isHidden ? skip : back
+        let quietWidth = quiet.fittingWidth
+        place.append((quiet, CGRect(x: width - primaryWidth - 6 * scale - quietWidth, y: y, width: quietWidth, height: buttonHeight)))
+        if !back.isHidden { place.append((skip, CGRect(x: width - primaryWidth - 12 * scale - quietWidth - skip.fittingWidth, y: y,
+                                                       width: skip.fittingWidth, height: buttonHeight))) }
+        y += buttonHeight
+        return (ceil(y), place)
+    }
+
     /// The card's height when `width` wide.
     func height(for width: CGFloat) -> CGFloat { frames(width: width).height }
 
     override func layout() {
         super.layout()
         surface.frame = bounds
-        for (view, frame) in frames(width: bounds.width).place where view.frame != frame { view.frame = frame }
+        // Chat styles fill the panel and sit their messages at its bottom, over the message box, as new messages do.
+        let laid = frames(width: bounds.width)
+        let drop = isChat ? max(0, bounds.height - laid.height) : 0
+        for (view, frame) in laid.place where view.frame != frame.offsetBy(dx: 0, dy: drop) { view.frame = frame.offsetBy(dx: 0, dy: drop) }
     }
 }

@@ -1,0 +1,208 @@
+{
+ "title": "Meet Chief in its three looks (card, Chief messages in bubbles, plain Chief messages), each step, dark. Record it with: cmux-ci capture SHA --state tour:chief-onboarding-styles",
+ "steps": [
+  {
+   "title": "Launch a fresh install",
+   "wait": 6,
+   "shot": false
+  },
+  {
+   "title": "Dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Style card",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_style_card"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Close Meet Chief before card",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_end"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Card (today), step 1 (meet)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "meet"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Card (today), step 2 (access)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "access"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Card (today), step 3 (look)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "look"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Style chat",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_style_chat"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Close Meet Chief before chat",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_end"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Chief messages in bubbles, step 1 (meet)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "meet"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Chief messages in bubbles, step 2 (access)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "access"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Chief messages in bubbles, step 3 (look)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "look"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Style chatPlain",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_style_chatPlain"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Close Meet Chief before chatPlain",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_end"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Chief messages, plain text, step 1 (meet)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "meet"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Chief messages, plain text, step 2 (access)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "access"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Chief messages, plain text, step 3 (look)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "look"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Style card",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_style_card"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Back to the card",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_end"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  }
+ ]
+}
