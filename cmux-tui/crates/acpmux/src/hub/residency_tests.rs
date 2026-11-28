@@ -116,6 +116,7 @@ async fn a_closed_chat_is_not_resident_and_no_cap_counts_it() {
 #[tokio::test]
 async fn residency_counts_a_detached_host_until_it_exits_but_never_a_closed_chat() {
     let (hub, session) = chat().await;
+    hub.detach_child(&session).await;
     hub.set_status(&session, NotWaiting::Idle);
     assert!(session.child.lock().await.is_none(), "no adopted child link");
     let now = Instant::now();
@@ -131,7 +132,7 @@ async fn residency_counts_a_detached_host_until_it_exits_but_never_a_closed_chat
     hub.set_status(&session, NotWaiting::Closed);
     assert_eq!(hub.session_summary(&session)["residency"]["resident"], false);
     assert_eq!(hub.residency_status(&[session.clone()])["countsForCap"], 0);
-    hub.set_status(&session, NotWaiting::Idle);
+    assert!(hub.test_reopen(&session.id));
     // Simulate the next read after the detached host exited, without sleeping or changing env.
     hub.residency_hosts.lock().unwrap().read_at = None;
     hub.residency_hosts.lock().unwrap().read(Instant::now(), || Some(HashSet::new()));
