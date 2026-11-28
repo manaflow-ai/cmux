@@ -228,13 +228,13 @@ impl Revision {
                 return Ok(None);
             }
             let colon = rest.iter().position(|&b| b == b':').ok_or(BadRevision("length"))?;
-            let len: usize = std::str::from_utf8(&rest[..colon])
+            let len: usize = std::str::from_utf8(rest.get(..colon).ok_or(BadRevision("length"))?)
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .ok_or(BadRevision("length"))?;
             let body = rest.get(colon + 1..colon + 1 + len).ok_or(BadRevision("truncated"))?;
             let text = String::from_utf8(body.to_vec()).map_err(|_| BadRevision("utf-8"))?;
-            rest = &rest[colon + 1 + len..];
+            rest = rest.get(colon + 1 + len..).ok_or(BadRevision("truncated"))?;
             Ok(Some(text))
         };
         let mut tree = Tree::new();
