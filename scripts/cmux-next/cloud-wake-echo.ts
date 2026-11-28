@@ -126,7 +126,7 @@ export function summarize(cycles: WakeCycle[]) {
  * max 136.79 s, so most of restore came after the platform had answered. `answer` is cloud.machine.start's wall time
  * on the runner (with any retries), `vmapi` and `provider` its Server-Timing (the VM API call and the provider's own ms
  * in it, absent when it did not say), and `after_answer` restore less answer: the provider's resume and the guest's
- * first tick, which no platform stage times.
+ * first tick, which no platform stage times. The table prints in every wake-echo report (cmux#64661).
  */
 export const RESTORE_PARTS = ["answer", "vmapi", "provider", "after_answer"] as const;
 export type RestorePart = (typeof RESTORE_PARTS)[number];
