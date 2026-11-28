@@ -173,7 +173,6 @@
     "webviews/test/chief-views-page.test.tsx": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/cli/peer_status_tests.rs": {"count": 4, "reason": "safe: unit-test fixtures for rendering an unreachable sample machine; no service, timer, runner, cache or default depends on big-red"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/GroupJoinHoldTests.swift": {"count": 4, "reason": "safe: sample machine id and name in a unit test's sidebar fixture; nothing depends on the host"},
-    "cmux-tui/crates/acpmux/src/agent_link_tests.rs": {"count": 5, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/hub/locate_tests.rs": {"count": 20, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/opaque_agent_id_tests.rs": {"count": 1, "reason": "safe: sample link text in an inline unit test of the opaque-id rewrite; nothing depends on the host"},
     "cmux-tui/crates/acpmux/src/hub/admission_scale_up.rs": {"count": 4, "reason": "safe: sample machine name in the file's inline unit test of a placement reply; nothing depends on the host"},

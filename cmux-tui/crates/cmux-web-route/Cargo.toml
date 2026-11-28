@@ -1,0 +1,17 @@
+[package]
+name = "cmux-web-route"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Where a cmux link or web client URL points: agent session links (cmux.com/deeplink/agent, cmux://agent), the web client's routes (/m/<machine>/agent/<harness>/<session>, /m/<machine>/ws/<workspace>), and resolving one to exactly one chat or a typed refusal. Pure, no I/O, builds for wasm"
+
+[lints]
+workspace = true
+
+[dependencies]
+regex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

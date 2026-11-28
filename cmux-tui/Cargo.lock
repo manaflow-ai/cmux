@@ -101,6 +101,7 @@ dependencies = [
  "cmux-usage-share",
  "cmux-vault-egress",
  "cmux-wallpaper",
+ "cmux-web-route",
  "cmux-wg",
  "cmux-worktree-care",
  "dhat",
@@ -4146,6 +4147,14 @@ dependencies = [
  "cmux-signed-envelope",
  "ring",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-web-route"
+version = "0.1.0"
+dependencies = [
+ "regex",
  "serde_json",
 ]
 

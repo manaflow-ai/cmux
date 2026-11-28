@@ -7,6 +7,7 @@ on:
       # cmux-tui-spec), not per push; its clippy and test jobs save their cargo caches there.
       - main
     paths:
+      - "schemas/deeplinks/web-routes.json"
       - "cmux-tui/**"
       - ".github/workflows/cmux-tui-spec.yml"
       - ".github/scripts/cmux-tui-fmt-changed.py"

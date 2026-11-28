@@ -121,6 +121,7 @@ members = [
     "crates/cmux-signed-bundle",
     "crates/cmux-signed-envelope",
     "crates/cmux-web-pieces",
+    "crates/cmux-web-route",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-tag-cache",
@@ -319,6 +320,7 @@ default-members = [
     "crates/cmux-signed-bundle",
     "crates/cmux-signed-envelope",
     "crates/cmux-web-pieces",
+    "crates/cmux-web-route",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-tag-cache",
@@ -488,6 +490,7 @@ cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-cas = { path = "crates/cmux-cas" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
+cmux-web-route = { path = "crates/cmux-web-route" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-bytes = { path = "crates/cmux-bytes" }
 cmux-deadline = { path = "crates/cmux-deadline" }

@@ -452,6 +452,35 @@ jobs:
             fi
           fi
 
+  web-host:
+    # The web client's static site (scripts/cmux-next/build-web-host.sh, cmuxterm-hq
+    # docs/rfd/0083-cmux-web-client.md step 3): its first load, gzip, held under
+    # webviews/scripts/web-host/first-load-budget.json. Over it warns (first-load-size.mjs says why it
+    # does not fail yet); the summary shows the number on every PR.
+    name: cmux-next size budget (web host first load)
+    needs: plan
+    if: ${{ needs.plan.outputs.web == 'true' && github.event.action != 'edited' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Build the web host and check its first load
+        run: |
+          set -euo pipefail
+          (cd webviews && bun install --frozen-lockfile >/dev/null)
+          ./scripts/cmux-next/build-web-host.sh --out "$RUNNER_TEMP/web-host"
+          (cd webviews && bun scripts/web-host/first-load-size.mjs "$RUNNER_TEMP/web-host" --report) | tee "$RUNNER_TEMP/web-host.txt"
+          { echo '### Web host first load (gzip)'; echo '```'; cat "$RUNNER_TEMP/web-host.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   size-budget:
     # An edit with no `size:` line skips this job, and a skipped job reads as success for a check:
     # that run publishes another name so it never replaces a red `cmux-next size budget`.
