@@ -475,12 +475,13 @@ fn pull_based(
     // The next base, on the machine and here: a pull that ran again finds
     // nothing new. This Mac's copy moves only once the machine's did, so
     // the two stay equal when the machine's write fails.
-    let saved = keeps_record
-        && serde_json::to_vec(&next)
-            .ok()
-            .and_then(|manifest| remote.write(&manifest_path, &mut manifest.as_slice(), 0o600).ok())
-            .is_some()
-        && base::save(&local, remote_root, &next).is_ok();
+    let saved = keeps_record.then(|| -> anyhow::Result<()> {
+        let manifest = serde_json::to_vec(&next).context("cannot encode the next sync record")?;
+        remote
+            .write(&manifest_path, &mut manifest.as_slice(), 0o600)
+            .with_context(|| format!("cannot save the machine's sync record at {manifest_path}"))?;
+        base::save(&local, remote_root, &next).context("cannot save this Mac's sync record")
+    });
     let mut answer = json!({
         "ok": true,
         "written": written,
@@ -494,8 +495,13 @@ fn pull_based(
         "head": head,
         "repositories": repositories,
         "fast_forwarded_repositories": fast_forwarded,
-        "manifest_saved": saved,
+        "manifest_saved": saved.as_ref().is_some_and(Result::is_ok),
     });
+    if let Some(Err(error)) = saved {
+        // The edits already landed. Keep their result, but say why the base did not advance:
+        // silently losing this error makes a later sync conflict look like an edit conflict.
+        answer["manifest_save_error"] = json!(format!("{error:#}"));
+    }
     if per_file && let Some(fields) = answer.as_object_mut() {
         fields.insert("written_files".into(), json!(written_files));
         fields.insert("deleted_files".into(), json!(deleted_files));
