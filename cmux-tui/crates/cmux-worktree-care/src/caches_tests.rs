@@ -208,6 +208,69 @@ fn absent_roots_report_nothing() {
 }
 
 #[test]
+fn a_command_family_is_still_its_entry_with_nothing_on_disk() {
+    let home = scratch("caches-command");
+    let opts = options(&home, Pressure::Critical, 1, true, &no_uses, &not_open);
+    for family in default_families(&home)
+        .into_iter()
+        .filter(|f| matches!(f.source, Source::Docker | Source::Simulators))
+    {
+        assert!(still_an_entry(&opts, &family, &family.root.clone()).is_ok(), "{}", family.name);
+        assert!(still_an_entry(&opts, &family, &home.join("x")).is_err());
+    }
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn a_folder_holding_a_never_delete_child_stays() {
+    let home = scratch("caches-never-child");
+    let idle = derived(&home, "Old-abc");
+    std::fs::create_dir_all(idle.join("Logs/keep-this")).unwrap();
+    age(&idle, 10);
+    let never = crate::never_delete::NeverDelete::from_globs(["keep-this".to_string()]);
+    let mut opts =
+        options(&home, Pressure::Normal, crate::inventory::now_ms(), true, &no_uses, &not_open);
+    opts.never = &never;
+    let report = run(&opts);
+    assert!(idle.join("Logs/keep-this").exists());
+    assert!(report.items[0].verdict.reason.contains("never-delete"), "{:?}", report.items[0]);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_clone_reached_through_a_link_out_of_home_is_not_an_entry() {
+    let home = scratch("caches-clone-link");
+    let elsewhere = scratch("caches-clone-link-target");
+    std::fs::create_dir_all(elsewhere.join("repo/.git")).unwrap();
+    let root = home.join(".wt/checkouts");
+    std::fs::create_dir_all(&root).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, root.join("linked")).unwrap();
+    let mine = root.join("mine");
+    std::fs::create_dir_all(mine.join(".git")).unwrap();
+    assert!(really_under_home(&home, &mine));
+    assert!(!really_under_home(&home, &root.join("linked/repo")));
+    assert!(!really_under_home(&home, &home));
+    // A clone root that is itself a link is skipped.
+    let mut found = Vec::new();
+    clone_entries(0, &[root.join("linked")], &mut found);
+    assert!(found.is_empty());
+    let family = Family {
+        name: "lane-clones",
+        root: root.clone(),
+        per_child: true,
+        idle_hours: [Some(1), Some(1), Some(1)],
+        kind: Kind::Unique,
+        source: Source::Clones { roots: vec![root.clone()] },
+    };
+    let opts = options(&home, Pressure::Critical, 1, true, &no_uses, &not_open);
+    assert!(still_an_entry(&opts, &family, &root.join("linked/repo")).is_err());
+    assert!(elsewhere.join("repo/.git").exists());
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&elsewhere);
+}
+
+#[test]
 fn protected_descendants_keep_their_parent_even_after_scan() {
     for pattern in ["~/Library/Developer/Xcode/DerivedData/Old/keep.txt", "keep.*", "**/keep.txt"] {
         let home = scratch("caches-descendant-preserve");
@@ -215,7 +278,7 @@ fn protected_descendants_keep_their_parent_even_after_scan() {
         let sibling = derived(&home, "Disposable");
         age(&parent, 10);
         age(&sibling, 10);
-        let never = crate::never_delete::NeverDelete::from_globs([pattern.to_string()]);
+        let never = NeverDelete::from_globs([pattern.to_string()]);
         let mut opts =
             options(&home, Pressure::Normal, crate::inventory::now_ms(), true, &no_uses, &not_open);
         opts.never = &never;
@@ -228,4 +291,65 @@ fn protected_descendants_keep_their_parent_even_after_scan() {
         assert_eq!(std::fs::read_to_string(parent.join("keep.txt")).unwrap(), "preserve this");
         assert!(!sibling.exists());
     }
+}
+
+/// A Rust checkout at `dir` with a build folder.
+fn checkout_with_target(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::write(dir.join("Cargo.toml"), "[package]\n").unwrap();
+    let target = dir.join("target");
+    std::fs::create_dir_all(target.join("debug")).unwrap();
+    std::fs::write(target.join("debug/app"), b"bin").unwrap();
+    target
+}
+
+/// First-run findings, new row (clean macOS 26 VM): the daemon's startup cleanup pass listed
+/// every folder in the home folder and read inside each, so a new Mac's first launch raised
+/// macOS's Desktop, Documents and Downloads prompts one after another, "A program running within
+/// cmux would like to access files in your Desktop folder", before the person did anything
+/// (LAUNCH-NO-TCC-PROMPTS). The build-folder search never reads inside a folder macOS guards
+/// (data/protected-folders.json in acpmux), nor treats one as a checkout; a checkout elsewhere
+/// in the home folder is still found.
+#[test]
+fn the_build_folder_search_never_reads_inside_a_folder_macos_guards() {
+    let home = scratch("caches-guarded");
+    let found = checkout_with_target(&home.join("code/app"));
+    let top = checkout_with_target(&home.join("site"));
+    let mut guarded = Vec::new();
+    for name in ["Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music"] {
+        guarded.push(checkout_with_target(&home.join(name).join("app")));
+    }
+    // A guarded folder that is itself a checkout, and one two levels down in Library.
+    guarded.push(checkout_with_target(&home.join("Documents")));
+    guarded.push(checkout_with_target(&home.join("Library/Mobile Documents/app")));
+    let families = default_families(&home);
+    let build = families.iter().position(|f| f.name == "checkout-build-dirs").unwrap();
+    let paths: Vec<PathBuf> =
+        entries(&families).into_iter().filter(|e| e.family == build).map(|e| e.path).collect();
+    assert!(paths.contains(&found), "{paths:?}");
+    assert!(paths.contains(&top), "{paths:?}");
+    for path in &guarded {
+        assert!(!paths.contains(path), "read inside a guarded folder: {path:?}");
+    }
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The guarded folders are acpmux's one list, read whole: a folder in it and one inside it are
+/// guarded, the home folder's other folders are not, and a name that only starts like one is not.
+#[test]
+fn guarded_folders_follow_the_one_protected_folder_list() {
+    let home = Path::new("/Users/someone");
+    for guarded in [
+        "Desktop",
+        "Documents/app",
+        "Downloads",
+        "Library/Mobile Documents",
+        "Library/Containers/x",
+    ] {
+        assert!(guarded_folder(home, &home.join(guarded)), "{guarded}");
+    }
+    for open in ["code", "Library", "Desktopper", "site/Documents"] {
+        assert!(!guarded_folder(home, &home.join(open)), "{open}");
+    }
+    assert!(!guarded_folder(home, Path::new("/elsewhere/Desktop")));
 }

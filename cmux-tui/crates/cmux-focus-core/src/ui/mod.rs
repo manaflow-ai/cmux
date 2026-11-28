@@ -8,9 +8,12 @@
 //! - [`hint_policy::ShortcutHintPolicy`]: when a held modifier shows the
 //!   shortcut hints.
 //! - [`pane_hints::chips`]: the pane navigation hint chip on each pane.
+//! - [`creation_hold::CreationHold`]: the keys typed while a tab, split or
+//!   workspace is still being made, and where each goes once it is.
 //! - [`guards`]: the keyboard guards over view and window facts (an unseen
 //!   responder, a system move off a typing target, a key from another window).
 
+pub mod creation_hold;
 pub mod guards;
 pub mod hint_policy;
 pub mod no_activate;

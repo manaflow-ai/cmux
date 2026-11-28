@@ -1,18 +1,9 @@
 import Foundation
 
-/// Passive grid hint for an unleased view.
-public struct ResizeSurfaceRequest: DaemonRequest {
+// ResizeSurfaceRequest is generated (bindings.json, family TerminalIO); its response stays here.
+extension ResizeSurfaceRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var accepted: Bool
-    }
-    public static let command = "resize-surface"
-    public var surface: SurfaceID
-    public var cols: Int
-    public var rows: Int
-    public init(surface: SurfaceID, cols: Int, rows: Int) {
-        self.surface = surface
-        self.cols = cols
-        self.rows = rows
     }
 }
 

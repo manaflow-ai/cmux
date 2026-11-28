@@ -33,8 +33,15 @@ concurrency:
   # which skips pr pipeline), cancelled the full run, so the iOS matrix never ran and the land stopped matrix_missing
   # (#54957 run 45875774607, cancelled by 45876000317). A push still starts the new head's run; the old head's full
   # run finishes or is cancelled by its callees' own per-ref groups.
-  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: true
+  # An added ready-to-land gets a group per head too, and both handoff groups queue instead of cancelling: a bot
+  # takes ready-to-land off and puts it back on the same head every few minutes, and each re-add cancelled the
+  # in-flight run with its 20-55 min nightly pr build compile (#47278 head 9b27d460: added 10:59:48, removed 11:12,
+  # re-added 11:30:15; runs 45986744639 -> 45991007377). Same-head cancels were 15.6 runner-h/day on the 24 h to
+  # 2026-11-27T10Z. The re-add now waits for the in-flight run, and the callees' input-keyed caches skip what passed.
+  # A newer push still cancels the old head's run (ci-pr-superseded-cancel.yml). CI_PR_ROUTER_HANDOFF_QUEUE=0 restores
+  # the shared group and cancel-in-progress for ready-to-land.
+  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'labeled' && github.event.label.name == 'ready-to-land' && format('{0}', vars.CI_PR_ROUTER_HANDOFF_QUEUE) != '0' && format('-land-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ !(github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('{0}', vars.CI_PR_ROUTER_HANDOFF_QUEUE) != '0') }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -45,15 +52,19 @@ jobs:
     name: pr router
     # A title or description edit routes only when a callee reads what changed: the size budget's
     # `size:` line, the classic API guard's `Classic API change:` line, the Swift logic ratchet's
-    # `Swift-growth:` line or the base (its diff moved).
+    # `Swift-growth:` line, the UI proof gate's `Visual: none (WHY)` or `Visible-UI:` line (the route posts
+    # cmux/ui-proof and its ui-proof-status job re-reads the body; before this an added `Visual: none` never
+    # re-ran it and the head stayed pending until a push) or the base (its diff moved).
     # Every other edit skips here with no runner. Each callee's own job `if:` still skips the edits it
     # does not read, so an edit routed for one callee starts no runner in another.
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:') || contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:') || contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:') || contains(github.event.pull_request.body, 'Visual:') || contains(github.event.changes.body.from, 'Visual:') || contains(github.event.pull_request.body, 'Visible-UI:') || contains(github.event.changes.body.from, 'Visible-UI:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       # head_tier.py reads the previous head's Actions runs (the green-head base merge rule).
       actions: read
+      # head_tier.py reads the head's check runs (the same-head land carry rule).
+      checks: read
       contents: read
       # The land tier's `cmux/land-tier` commit status (below).
       statuses: write
@@ -64,9 +75,19 @@ jobs:
       land_status_unposted: ${{ steps.land-status-post.outputs.unposted }}
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
+      # The steps those jobs run only (pr_router.py nightly_gate_table): a landing head of the affected tier runs just
+      # the steps the nightly also runs that its change routes. Empty: every routed step.
+      only: ${{ steps.route.outputs.only }}
       # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
       # ios-fast-status below, which posts the verdict's own result.
       ios_status: ${{ steps.route.outputs.ios_status }}
+      # The `cmux/ui-proof` commit status the route posted (pr_router.py ui_status); `pending` hands it to
+      # ui-proof-status below, which reads the proof record at the head.
+      ui_status: ${{ steps.route.outputs.ui_status }}
+      # `false` when no changed path is a web bundle input (pr_router.py preflight_web: the callee's own web-touched
+      # answer, compile_preflight.py router_web, which checks webviews/ out of this sparse checkout to read its
+      # imports); the compile preflight's web job then skips with no runner. Anything unread answers `true`.
+      preflight_web: ${{ steps.route.outputs.preflight_web }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
       machine_channel_build: ${{ steps.machine-channel.outputs.build }}
@@ -83,7 +104,7 @@ jobs:
           # A same-repo pull request's runner reads the git mirror, which serves whole blobs in about 10 s; a blob
           # filter skips the mirror and the sparse checkout then fetches each blob from GitHub (57 to 81 s a head,
           # note-559). A fork, or any other event, keeps blob:none.
-          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/pr_router.py
             scripts/ci/pr_router.json
@@ -102,7 +123,11 @@ jobs:
             scripts/ci/gh_http.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
+            scripts/ci/compile_preflight.py
+            scripts/cmux-next/web-bundle-key.py
             scripts/ci/ios_fast_verdict.py
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/cmux-next/cmux-tui-tree-inputs.txt
             ci/steps.toml
@@ -121,6 +146,13 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # The compile preflight's web job runs only when a changed file is a web bundle input, answered here by the
+          # job's own check (pr_router.py preflight_web, compile_preflight.py router_web); 0 runs it on every head
+          # the preflight starts and leaves the answer to the job's first step.
+          CI_ROUTER_WEB_EXACT: ${{ vars.CI_ROUTER_WEB_EXACT || '1' }}
+          # A landing head of the affected tier runs the step table's nightly-mirroring steps its change routes
+          # (pr_router.py NIGHTLY_GATE_JOBS); 0 turns that off.
+          CI_NIGHTLY_GATE_ON_LAND: ${{ vars.CI_NIGHTLY_GATE_ON_LAND || '1' }}
           # 1: a ready-to-land head runs the full tier again; unset or 0: it runs the affected tier and the full tier
           # runs hourly on feat-cmux-next (head_tier.py hourly full tier rule, cmux-next-hourly-full-tier.yml).
           CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
@@ -128,6 +160,8 @@ jobs:
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
           # Docs, plans, skills, copy or tests-only changes run the cheap tier (fast_track.py); 0 turns that off.
           CMUX_FAST_TRACK: ${{ vars.CMUX_FAST_TRACK || '1' }}
+          # The step table's pull request tier skips the steps marked `tier = "push"` (ci/steps.toml); `full` runs them.
+          CI_PR_PIPELINE_TIER: ${{ vars.CI_PR_PIPELINE_TIER || 'pr' }}
           # A ready head into feat-cmux-next runs the cheap tier until `ready-to-land` is added (head_tier.py's land
           # rule, cmuxterm-hq goals/ci-runner-min-per-day-50k.md); 0 turns that off.
           CI_LAND_TIER: ${{ vars.CI_LAND_TIER || '1' }}
@@ -139,6 +173,9 @@ jobs:
           # The machine channel PR head build skips a ready-to-land/full-ci label handoff and builds the merge train's
           # tip and land's update-branch head only (pr_router.py handoff_label_skip); 0 builds the label handoff too.
           CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}
+          CI_NIGHTLY_PR_BUILD_AT_LAND: ${{ vars.CI_NIGHTLY_PR_BUILD_AT_LAND || '1' }}
+          # nightly-pr-build.yml runs on the tip (pr_router.py per_pr_on); 1 starts it on pull requests too.
+          CI_NIGHTLY_PR_BUILD_PER_PR: ${{ vars.CI_NIGHTLY_PR_BUILD_PER_PR || '0' }}
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
@@ -153,8 +190,15 @@ jobs:
           # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
           # rule); 0 turns that off.
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          # ready-to-land added again to a head whose land tier and every check already passed there runs nothing
+          # and keeps cmux/land-tier success (head_tier.py's same-head land carry rule); 0 turns that off.
+          CI_SAME_HEAD_LAND_CARRY: ${{ vars.CI_SAME_HEAD_LAND_CARRY || '1' }}
           # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
+          # 0 turns the UI proof gate off (scripts/ci/ui_proof_verdict.py); cmux/ui-proof then posts success.
+          CI_UI_PROOF: ${{ vars.CI_UI_PROOF }}
+          # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
@@ -178,6 +222,8 @@ jobs:
           # No PR head build while the base took a commit in the last N minutes (its push run coalesces the merge);
           # 0 turns that off.
           MACHINE_CHANNEL_PR_HEAD_QUIET_MIN: ${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN || '30' }}
+          # Only the merge train's tip builds unless this is 1 (about 25k runner-min/day for ~27 takes).
+          MACHINE_CHANNEL_PR_HEAD_ALL: ${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_ALL || '0' }}
         run: scripts/ci/cmux-machine-channel-pr-plan.sh
       # The land tier's handoff: `pending` while this head runs the cheap tier (land-judge then adds `ready-to-land`
       # instead of landing it), `success` once it runs the full tier. Not a required check; a fork head gets none.
@@ -253,6 +299,14 @@ jobs:
                 exit 0
               fi
               cat "$err" >&2
+              # A token GitHub refuses for its permissions ("Resource not accessible by integration": a pool
+              # installation without statuses: write on this repo) never posts here; it does not count as tried, so
+              # it cannot keep the others' spent budgets from the wait below (job 140277453358, 2026-11-27 02:34Z:
+              # both pool tokens answered that while cmux-bot and the job token were rate limited).
+              if grep -qi "not accessible by integration" "$err" && ! grep -qi "rate limit" "$err"; then
+                tried=$((tried - 1))
+                continue
+              fi
               if grep -qi "rate limit" "$err"; then
                 limited=$((limited + 1))
                 r="$(GH_TOKEN="$token" gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || true)"
@@ -282,7 +336,12 @@ jobs:
           done
           last="$(tail -n 1 "$err" | cut -c1-200)"
           echo "unposted=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
+          # A spent budget names when a rerun can get through: rerun after the first reset, not sooner.
+          after=""
+          if [ "$tried" -gt 0 ] && [ "$limited" = "$tried" ] && [ -n "$reset" ]; then
+            after=" after $(date -u -d "@$reset" +%H:%M:%SZ)"
+          fi
+          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA (last: $last): its land waits on the last state posted there until a post gets through (rerun${after}: gh run rerun $GITHUB_RUN_ID --failed)"
           exit 1
       # `cmux/ios-fast` (pr_router.py ios_status): success at once on a head that touches nothing iOS builds, so a
       # ruleset can require it; pending on an iOS-affecting head until ios-fast-status posts its verdict. Leo,
@@ -299,18 +358,33 @@ jobs:
           STATE: ${{ steps.route.outputs.ios_status }}
           DESCRIPTION: ${{ steps.route.outputs.ios_status_description }}
         run: python3 -I scripts/ci/ios_fast_verdict.py status "$STATE" "$DESCRIPTION"
+      # `cmux/ui-proof` (pr_router.py ui_status): success at once on a head that changes nothing a desktop user sees;
+      # pending on a visual head until ui-proof-status reads a look at that head. Leo, 2026-11-27: "obviously for
+      # visuals we'll need to do better before getting them in but you know".
+      - name: Post the UI proof status
+        if: ${{ steps.route.outputs.ui_status != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATE: ${{ steps.route.outputs.ui_status }}
+          DESCRIPTION: ${{ steps.route.outputs.ui_status_description }}
+        run: python3 -I scripts/ci/ui_proof_verdict.py status "$STATE" "$DESCRIPTION"
 
   land-tier-status:
     # Runs only when the route job's post did not get through (spent budget, a refused description): when every
-    # token is rate-limited it waits for the first budget reset only if that is within a minute (read from
-    # GET /rate_limit), else fails at once instead of sleeping on a runner; one short retry covers 5xx; it fails red when it
+    # token is rate-limited it waits for the first budget reset only if that is within 10 minutes (read from
+    # GET /rate_limit), else fails at once instead of sleeping on a runner (the route job keeps #60544's 0 s: no wait); one short retry covers 5xx; it fails red when it
     # still cannot, so the PR shows a red check instead of a `pending` that nothing will move. `gh run rerun --failed`
     # posts it again. Same script as the route job's step (the land-tier-post anchor).
     name: land tier status post
     needs: [route]
     if: ${{ needs.route.outputs.land_status_unposted == 'true' }}
     runs-on: cmux-linux
-    timeout-minutes: 5
+    timeout-minutes: 14
     permissions:
       statuses: write
     steps:
@@ -327,7 +401,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-statuses: write
       - name: Post the land tier status
-        timeout-minutes: 4
+        timeout-minutes: 13
         env:
           APP_TOKEN: ${{ steps.land-status-token.outputs.token }}
           POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
@@ -338,7 +412,9 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           LAND_STATUS_RETRY_S: '15'
           LAND_STATUS_ROUNDS: '2'
-          LAND_STATUS_MAX_WAIT_S: '60'
+          # a near reset (the hourly cmux-bot refill) is worth 10 minutes of one runner: each one it
+          # waits out is a land tier false red that would need a manual rerun (ledger 11-26..11-27).
+          LAND_STATUS_MAX_WAIT_S: '600'
         run: *land-tier-post
 
   machine-channel-pr-head:
@@ -352,7 +428,7 @@ jobs:
     # machine channel only once it is handed to land (`ready-to-land` or `full-ci`), not on every push or base merge.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The merge train's tip
     # (lane/merge-train, never labeled) builds too: its last member squashes to the tip's tree.
-    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') && (github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'lane/merge-train' && github.event.pull_request.head.repo.full_name == github.repository) || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') && (github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'lane/merge-train' && github.event.pull_request.head.repo.full_name == github.repository) || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
     uses: ./.github/workflows/cmux-machine-channel.yml
     with:
       build: ${{ needs.route.outputs.machine_channel_build }}
@@ -370,17 +446,41 @@ jobs:
 
   size-budget:
     name: cmux-next size budget
-    needs: route
+    needs: [route, compile-preflight]
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml') }}
     uses: ./.github/workflows/cmux-next-size-budget.yml
+    with:
+      web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
+      web_bundle_transport: ${{ needs.compile-preflight.outputs.web_bundle_transport }}
+      web_bundle_artifact: ${{ needs.compile-preflight.outputs.web_bundle_artifact }}
     permissions:
       contents: read
+      id-token: write
 
   swift-logic-ratchet:
     name: Swift logic ratchet
     needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-logic-ratchet.yml') }}
-    uses: ./.github/workflows/swift-logic-ratchet.yml
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-acpmux-protocol.yml') }}
+    uses: ./.github/workflows/swift-acpmux-protocol.yml
+    with:
+      check: ratchet
+    permissions:
+      contents: read
+
+  motion-frames:
+    name: cmux-next motion frames
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-motion-frames.yml') }}
+    uses: ./.github/workflows/cmux-next-motion-frames.yml
+    permissions:
+      # dispatch starts cmux-next-frame-pacing.yml's `frames` suite on the pull request's branch.
+      actions: write
+
+  transcript-replay-perf-report:
+    name: transcript-replay perf report
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'transcript-replay-perf-report.yml') }}
+    uses: ./.github/workflows/transcript-replay-perf-report.yml
     permissions:
       contents: read
 
@@ -389,10 +489,21 @@ jobs:
     # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
     # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
     needs: [route, fast-gates]
-    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'screen-share-drop-gate.yml') }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'screen-share-drop-gate.yml') }}
     uses: ./.github/workflows/screen-share-drop-gate.yml
     permissions:
       contents: read
+
+  nightly-pr-build:
+    name: nightly pr build
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'nightly-pr-build.yml') }}
+    uses: ./.github/workflows/nightly-pr-build.yml
+    # actions: read is its coalesce job's (skipped on a pull request); GitHub checks the callee's permissions at startup.
+    permissions:
+      actions: read
+      contents: read
+      checks: read
 
   classic-api-guard:
     name: classic API guard
@@ -408,7 +519,7 @@ jobs:
     # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
     # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
     needs: [route, fast-gates]
-    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
     uses: ./.github/workflows/swift-linux-packages.yml
     # A called workflow may ask no more than its caller job grants; with none granted here, every run
     # ended startup_failure with 0 jobs (swift-linux-packages.yml asks contents: read).
@@ -420,7 +531,7 @@ jobs:
     # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
     # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
     needs: [route, fast-gates]
-    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
     uses: ./.github/workflows/ios-link-ffi-linux.yml
     permissions:
       contents: read
@@ -428,14 +539,23 @@ jobs:
   compile-preflight:
     # The build a change can break, on every tier (Leo, 2026-11-27: "surely we can just have legit build fail
     # preflight checks"). No tier rule and no `start` gate: the land tier's cheap and none tiers skip every other
-    # build, and cmux#57269 landed a web bundle build break through them. The callee's first step skips the build
-    # for a change that reaches no web bundle, so its check always reports a verdict, never "skipped".
+    # build, and cmux#57269 landed a web bundle build break through them. A change whose every path no web bundle
+    # reads (the route's preflight_web: Rust, Swift, Python, prose, other workflows) passes web: false and the
+    # callee's job skips before taking a runner (Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can
+    # reuse, we reuse."); any other change starts it, and its first step decides from the exact web bundle inputs,
+    # so a change that reaches a web bundle always gets a verdict, never "skipped".
     name: compile preflight
     needs: route
     if: ${{ !cancelled() && needs.route.result == 'success' }}
     uses: ./.github/workflows/cmux-next-compile-preflight.yml
+    with:
+      web: ${{ needs.route.outputs.preflight_web || 'true' }}
+      source_ref: ${{ github.sha }}
+      validate_live_base: true
+      force_web: ${{ contains(fromJSON(needs.route.outputs.table || '[]'), 'web-browser') }}
     permissions:
       contents: read
+      id-token: write
 
   fast-gates:
     # The cmux-next/fast-gates status (merge_hold, next-autoland). A head the router starts nothing for starts none of
@@ -444,6 +564,11 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-fast-gates.yml') }}
     uses: ./.github/workflows/cmux-next-fast-gates.yml
+    # Reusable workflows do not receive repository secrets implicitly (including status-post fallbacks).
+    secrets:
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+      CI_POOL_TOKEN_1: ${{ secrets.CI_POOL_TOKEN_1 }}
+      CI_POOL_TOKEN_2: ${{ secrets.CI_POOL_TOKEN_2 }}
     permissions:
       contents: read
       pull-requests: read
@@ -460,10 +585,35 @@ jobs:
     # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
     # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
     needs: [route, fast-gates]
-    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
     uses: ./.github/workflows/pr-pipeline.yml
     with:
+      defer_web_browser: true
       jobs: ${{ needs.route.outputs.table || '' }}
+      only: ${{ needs.route.outputs.only || '' }}
+    secrets:
+      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+    permissions:
+      contents: read
+      # The ios job's picker reads the queue and its runs (scripts/ci/ios_runner_pool.py).
+      actions: read
+      # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
+      id-token: write
+
+  web-pipeline:
+    name: pr web pipeline
+    # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
+    needs: [route, fast-gates, compile-preflight]
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && needs.compile-preflight.result == 'success' && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') && contains(fromJSON(needs.route.outputs.table || '[]'), 'web-browser') }}
+    uses: ./.github/workflows/pr-pipeline.yml
+    with:
+      jobs: '["web-browser"]'
+      web_browser_only: true
+      web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
+      web_bundle_transport: ${{ needs.compile-preflight.outputs.web_bundle_transport }}
+      web_bundle_artifact: ${{ needs.compile-preflight.outputs.web_bundle_artifact }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
@@ -475,23 +625,32 @@ jobs:
       id-token: write
 
   # The ios fast verdict's result as `cmux/ios-fast` at the head (the route posted `pending`): success, failure, or
-  # error when the verdict never ran (no Mac, the pipeline cancelled). A plan that builds nothing is success.
+  # error when the verdict never ran (no Mac, the pipeline cancelled, or skipped though the route started it: red
+  # fast gates). A plan that builds nothing is success. A pipeline the route never started leaves `pending` to the
+  # land handoff's run; one it started always gets a post, so its pending is never orphaned (cmux#57010).
   ios-fast-status:
     name: ios fast verdict status
     needs: [route, pipeline]
-    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && needs.pipeline.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ !cancelled() && needs.route.outputs.ios_status == 'pending' && (needs.pipeline.result != 'skipped' || contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml')) && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
       statuses: write
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
+          # Same as the route job's checkout: a same-repo head reads the runner's git mirror with whole blobs.
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/ios_fast_verdict.py
+            scripts/ci/proof_record.py
             scripts/ci/ci_steps.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             ci/steps.toml
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -501,27 +660,86 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PIPELINE: ${{ needs.pipeline.result }}
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
           SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
+          PROOF: ${{ needs.pipeline.outputs.ios_fast_proof }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          # The proof requirement: a passing `cmux ios verify` record at this head (scripts/ci/proof_record.py,
+          # ci/proof-record/README.md). vars.CI_IOS_VERIFY_PROOF=0 turns it off; ios_verify.py reruns this job
+          # when it posts a record, so a head proved after the pipeline still turns green.
+          NEED_PROOF: ${{ format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
         run: |
-          if [ "$RUN" = false ]; then
+          if [ "$PIPELINE" = skipped ]; then
+            state=error; desc="No verdict: the pr pipeline did not start on this head (fast gates red, or skipped); rerun it"
+          elif [ "$RUN" = false ]; then
             state=success; desc="The plan builds nothing on this head"
           elif [ "$VERDICT" = success ]; then
             state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
           elif [ "$VERDICT" = failure ]; then
             state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
           else
-            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
+            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled or skipped); rerun it"
+          fi
+          if [ "$state" = success ] && [ "$RUN" != false ] && [ "$PROOF" != false ] && [ "$NEED_PROOF" = true ]; then
+            # An unread record (gate exits 3) fails this job instead of posting `error` for a passed build: a
+            # passed job cannot be rerun, so that status would stay until a new head.
+            gated=$(python3 -I scripts/ci/proof_record.py gate --suite ios-flows) || { echo "::error::proof record not read; failing so this job can be rerun"; exit 1; }
+            IFS=$'\t' read -r pstate pdesc <<< "$gated"
+            if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
           fi
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
+
+  # `cmux/ui-proof` at a visual head (the route posted `pending`): the proof record a look at this head posted
+  # (scripts/cmux-next/hot-verify.py look --record, ci/proof-record/README.md), its screens diffed against NIGHTLY,
+  # and for new visible UI `Visible-UI: complete` and 3+ captures (scripts/ci/ui_proof_verdict.py). The look reruns
+  # this job when it posts the record; so does a body edit's `gh run rerun --job`. Needs only the route: no Mac.
+  ui-proof-status:
+    name: ui proof status
+    needs: route
+    if: ${{ !cancelled() && needs.route.outputs.ui_status == 'pending' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The merge commit and the base tip: the gate reads the paths the head adds (new visible UI); an added
+          # Swift file's text comes with `git show`; same-repo PRs borrow whole blobs from the runner mirror.
+          fetch-depth: 2
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
+          sparse-checkout: |
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Post the verdict
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+          CI_UI_PROOF: ${{ vars.CI_UI_PROOF }}
+        run: |
+          IFS=$'\t' read -r state desc < <(python3 -I scripts/ci/ui_proof_verdict.py gate)
+          python3 -I scripts/ci/ui_proof_verdict.py status "${state:-error}" "${desc:-UI proof not read}"
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
   # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
   pipeline-fail-fast:
     name: head fail-fast after pr pipeline
     needs: pipeline
-    if: ${{ (failure() && needs.pipeline.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (failure() && needs.pipeline.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: pr-router.yml
