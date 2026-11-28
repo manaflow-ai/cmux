@@ -11,11 +11,19 @@
 //! let go, on a blocking thread. A folder an open session's folder is inside stays, and the log
 //! says which. Processes are not scanned (cmux-next never scans processes): the ones acpmux holds
 //! end with the close.
+//!
+//! An open session's folder is kept under `session.tmpMaxMb` every `TRIM_EVERY`
+//! (`agent/session_tmp/trim.rs`): its oldest top-level entries untouched for
+//! `session.tmpIdleMinutes` that no process holds open go until it is under again.
 
 use super::*;
 
 /// How often closed sessions' folders still there are tried again.
 const SWEEP_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// How often open sessions' folders are measured against their cap.
+#[cfg(target_os = "linux")]
+const TRIM_EVERY: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// How long a pass waits for a session's `spawn_lock`.
 const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -37,8 +45,21 @@ impl Hub {
         });
     }
 
-    /// Every hour from now (the first pass at once), free the folders of closed sessions.
+    /// Every hour from now (the first pass at once), free the folders of closed sessions; every
+    /// `TRIM_EVERY`, keep open sessions' folders under their cap.
     pub(super) fn sweep_closed_tmps(self: &Arc<Self>) {
+        #[cfg(target_os = "linux")]
+        let weak = Arc::downgrade(self);
+        #[cfg(target_os = "linux")]
+        self.scope.spawn_until_cancelled("open-session-tmp-trim", async move {
+            let mut every = tokio::time::interval(TRIM_EVERY);
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                every.tick().await;
+                let Some(hub) = weak.upgrade() else { return };
+                hub.trim_open_tmps().await;
+            }
+        });
         let hub = Arc::downgrade(self);
         self.scope.spawn_until_cancelled("closed-session-tmp-sweep", async move {
             let mut every = tokio::time::interval(SWEEP_EVERY);
@@ -57,6 +78,40 @@ impl Hub {
                 }
             }
         });
+    }
+
+    /// Keep each open session's folder under `session.tmpMaxMb` (module docs), off the runtime.
+    /// What each folder the pass changed or left over the cap had, by session.
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn trim_open_tmps(&self) -> Vec<(String, crate::agent::session_tmp::Trimmed)> {
+        let session_cfg = self.config.read().await.session.clone();
+        use crate::agent::session_tmp::trim as t;
+        let Some(cap) = t::cap_bytes(&session_cfg) else { return Vec::new() };
+        let idle = t::idle(&session_cfg);
+        let open: Vec<String> = self
+            .session_handles()
+            .iter()
+            .filter(|s| {
+                s.status() != SessionStatus::Closed
+                    && !s.purged.load(Ordering::SeqCst)
+                    && !s.replaced.load(Ordering::SeqCst)
+            })
+            .map(|s| s.id.clone())
+            .collect();
+        let pass = tokio::task::spawn_blocking(move || {
+            open.into_iter()
+                .filter_map(|id| {
+                    let out = crate::agent::session_tmp::trim_session(&id, cap, idle)?;
+                    (out.evicted > 0 || out.after > cap).then_some((id, out))
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        for (id, out) in &pass {
+            tracing::info!(session = %id, cap, "open session's temporary folder trimmed: {out:?}");
+        }
+        pass
     }
 
     /// Free the temporary folder of each closed session of `sessions` that has one.
@@ -204,6 +259,44 @@ mod tests {
 
         hub.shutdown_all().await;
         for dir in [again, idle_dir] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn an_open_chats_folder_is_kept_under_its_cap_and_a_closed_ones_is_not_trimmed() {
+        let hub = hub();
+        let [open, closed] = std::array::from_fn(|_| uuid::Uuid::now_v7().to_string());
+        let base = crate::agent::session_tmp::per_user_base();
+        let home = crate::config::home();
+        let make = |id: &str| crate::agent::session_tmp::make(&base, &home, id).unwrap();
+        let (open_dir, closed_dir) = (make(&open), make(&closed));
+        for dir in [&open_dir, &closed_dir] {
+            std::fs::create_dir(dir.join("cmux-web-lint-1")).unwrap();
+            std::fs::write(dir.join("cmux-web-lint-1/blob"), vec![7u8; 2 << 20]).unwrap();
+        }
+        let sessions: Vec<_> = [&open, &closed].map(|id| chat(&hub, id, id)).into();
+        hub.edit_test_meta(&sessions[1], |m| m.status = SessionStatus::Closed);
+        {
+            let mut cfg = hub.config.write().await;
+            cfg.session.tmp_max_mb = Some(1);
+            cfg.session.tmp_idle_minutes = Some(0);
+        }
+        let pass = hub.trim_open_tmps().await;
+        assert_eq!(pass.len(), 1, "{pass:?}");
+        assert_eq!((pass[0].0.as_str(), pass[0].1.evicted), (open.as_str(), 1));
+        assert!(!open_dir.join("cmux-web-lint-1").exists());
+        assert!(
+            closed_dir.join("cmux-web-lint-1").exists(),
+            "a closed chat's folder is the close's"
+        );
+        // Off: nothing is measured.
+        hub.config.write().await.session.tmp_max_mb = Some(0);
+        assert!(hub.trim_open_tmps().await.is_empty());
+
+        hub.shutdown_all().await;
+        for dir in [open_dir, closed_dir] {
             let _ = std::fs::remove_dir_all(dir);
         }
     }

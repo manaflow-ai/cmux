@@ -312,6 +312,8 @@ mod tests {
                 lanes: Some(6),
                 disk_mb: Some(8192),
                 cpu_class: Some(crate::cpu_class::CpuClass::Normal),
+                tmp_max_mb: Some(512),
+                tmp_idle_minutes: Some(10),
             },
             SessionResourceConfig::default(),
         ] {

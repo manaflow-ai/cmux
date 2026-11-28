@@ -1338,6 +1338,11 @@ pub struct SessionResourceConfig {
     /// during measured contention.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
+    /// `tmpMaxMb` (default 2048, 0 off), `tmpIdleMinutes` (default 30): `session_tmp/trim.rs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmp_max_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmp_idle_minutes: Option<u64>,
 }
 
 impl SessionResourceConfig {

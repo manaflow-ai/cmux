@@ -25,12 +25,19 @@
 //! it (cmux-next never scans processes, plans/cmux-next/pty-holder.md 4):
 //! the processes acpmux holds end with the session's close, as at a purge. A
 //! reopened session gets a new, empty folder at its
-//! agent's start (`make`). Nothing goes by age (gcp-agent-lane-14,
+//! agent's start (`make`). A closed folder never goes by age (gcp-agent-lane-14,
 //! 2026-11-24: 12.4 GiB of test scratch in 106 folders, 104 of them of
-//! sessions acpmux still listed, most of them closed).
+//! sessions acpmux still listed, most of them closed). An open session's folder
+//! is kept under a size cap on Linux (`session_tmp/trim.rs`): its oldest
+//! untouched entries that no process holds open go.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+
+#[cfg(target_os = "linux")]
+pub(crate) mod trim;
+#[cfg(target_os = "linux")]
+pub(crate) use trim::{Trimmed, trim};
 
 /// The session's folder, in its env beside `TMPDIR`.
 pub(crate) const SESSION_TMPDIR_ENV: &str = "ACPMUX_SESSION_TMPDIR";
@@ -551,6 +558,24 @@ pub(crate) fn stale_for_daemon(
     let user_home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from);
     stale(&per_user_base(), &crate::config::home(), user_home.as_deref(), known, closed)
 }
+
+/// [`trim`] for open session `session_id`'s folder in this daemon's root, from its environment;
+/// None when it has none. Blocking.
+#[cfg(target_os = "linux")]
+pub(crate) fn trim_session(
+    session_id: &str,
+    cap: u64,
+    idle: std::time::Duration,
+) -> Option<Trimmed> {
+    let (base, home) = (per_user_base(), crate::config::home());
+    let root = own_root(&base, &home)?;
+    let dir = existing_session(&base, &home, session_id)?;
+    Some(trim(&dir, &root, cap, idle, std::time::SystemTime::now()))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "session_tmp/trim_tests.rs"]
+mod trim_tests;
 
 #[cfg(all(test, unix))]
 mod tests {
