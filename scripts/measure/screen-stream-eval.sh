@@ -443,6 +443,15 @@ for name in "${names[@]}"; do
   bash "$here/targets/$name.sh" caps 2>/dev/null | grep -qx viewer-grants && viewer_grants=1
 done
 [[ -n "$viewer_of" && "$viewer_grants" == 0 && -z "$stage_table" ]] && serve_viewer
+# A target whose `caps` prints no-host-grants (iphone-sim-linux: the viewer on this Mac's simulator,
+# the host and its marker on a remote Linux desktop) captures and injects nothing on this Mac, so it
+# needs no Screen Recording or Accessibility here. A run of only such targets skips the TCC preflight
+# and the launcher app; any other target (or stage-table=) keeps the gate.
+host_grants=0
+[[ -n "$stage_table" ]] && host_grants=1
+for name in "${names[@]}"; do
+  bash "$here/targets/$name.sh" caps 2>/dev/null | grep -qx no-host-grants || host_grants=1
+done
 
 echo "SCREEN-STREAM-EVAL-STAGE tools"
 if [[ -n "$prebuilt" ]]; then
@@ -458,7 +467,7 @@ else
   swiftc -O -o "$EVAL_BIN/cmux-rd-marker" "$root/cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift" ||
     { finish "could not build the marker"; exit 4; }
 fi
-granted() { grep -q '"accessibility":true' <<<"$1" && grep -q '"screen_recording":true' <<<"$1"; }
+granted() { [[ "$host_grants" == 0 ]] || { grep -q '"accessibility":true' <<<"$1" && grep -q '"screen_recording":true' <<<"$1"; }; }
 # follow_log LOG DONE: print LOG from its start as it grows, and end at its end once the file DONE exists, so the
 # caller waits for the follower itself to have printed every last line.
 follow_log() {
@@ -476,7 +485,11 @@ with open(log, "rb") as f:
         else:
             time.sleep(0.1)' "$1" "$2"
 }
-grants=$("$EVAL_BIN/screen-eval-preflight")
+if [[ "$host_grants" == 0 ]]; then
+  grants='{"skipped":"every target is caps no-host-grants: its host runs elsewhere, nothing here needs a TCC grant"}'
+else
+  grants=$("$EVAL_BIN/screen-eval-preflight")
+fi
 echo "SCREEN-STREAM-EVAL-GRANTS $grants"
 if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
   # The step's own processes hold no grants (a step's binaries change every commit). Run this whole
@@ -703,7 +716,9 @@ PY
   # the latency stage, and eval.py then judges it on its window rows alone. Every other target
   # answers `caps` with nothing or an error and runs both stages. latency-only (iphone-sim: its
   # viewer has no passive window yet) is the other way round: latency, and no window or OCR repeats.
-  window_only=0 latency_only=0
+  window_only=0 latency_only=0 remote_host=0
+  # no-host-grants: the target's host draws its own marker on its own desktop (latency-view starts it).
+  grep -qx no-host-grants <<<"$caps" && remote_host=1
   if grep -qx window-only <<<"$caps"; then
     window_only=1
     : >"$dir/window-only"
@@ -716,13 +731,16 @@ PY
   if [[ "$window_only" == 0 ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE $name latency"
   export EVAL_MARKER_LOG="$EVAL_STATE/marker.log"
-  "$EVAL_BIN/cmux-rd-marker" --verbose >"$EVAL_MARKER_LOG" 2>&1 &
-  marker=$!
-  pids+=("$marker")
-  for _ in $(seq 1 50); do
-    grep -q marker-origin "$EVAL_MARKER_LOG" && break
-    sleep 0.1 # bounded wait for the marker's geometry line (5 s)
-  done
+  marker=
+  if [[ "$remote_host" == 0 ]]; then
+    "$EVAL_BIN/cmux-rd-marker" --verbose >"$EVAL_MARKER_LOG" 2>&1 &
+    marker=$!
+    pids+=("$marker")
+    for _ in $(seq 1 50); do
+      grep -q marker-origin "$EVAL_MARKER_LOG" && break
+      sleep 0.1 # bounded wait for the marker's geometry line (5 s)
+    done
+  fi
   if why=$(host_start); then
     # Pointer first: its click gives the marker key focus for the key run.
     for input in pointer key; do
@@ -735,8 +753,10 @@ PY
     err "host did not start for latency: $why"
   fi
   bash "$script" host-stop
-  kill "$marker" 2>/dev/null || true
-  wait "$marker" 2>/dev/null || true
+  if [[ -n "$marker" ]]; then
+    kill "$marker" 2>/dev/null || true
+    wait "$marker" 2>/dev/null || true
+  fi
   fi
 
   # Window and OCR: the scene's fixed timeline under one passive viewer, $repeats times (a fresh host
