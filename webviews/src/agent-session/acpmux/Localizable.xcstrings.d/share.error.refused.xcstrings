@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "share.error.refused" : {
+      "comment" : "Agent pane: Share dialog error: the share server refused to open the share",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "رفض خادم المشاركة هذا الطلب. حاول لاحقًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Server za dijeljenje je ovo odbio. Pokušajte kasnije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Delingsserveren afviste det. Prøv igen senere."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Freigabeserver hat das abgelehnt. Versuch es später noch einmal."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The share server turned this down. Try again later."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El servidor para compartir lo rechazó. Inténtalo más tarde."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le serveur de partage a refusé. Réessayez plus tard."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il server di condivisione l'ha rifiutato. Riprova più tardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "共有サーバーに拒否されました。しばらくしてからお試しください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ាស៊ីនមេចែករំលែកបានបដិសេធ។ សូមព្យាយាមម្ដងទៀតពេលក្រោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "공유 서버가 거부했습니다. 나중에 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Delingsserveren avviste dette. Prøv igjen senere."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Serwer udostępniania odrzucił żądanie. Spróbuj później."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O servidor de compartilhamento recusou. Tente mais tarde."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сервер общего доступа отклонил запрос. Повторите позже."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เซิร์ฟเวอร์แชร์ปฏิเสธคำขอนี้ ลองอีกครั้งภายหลัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Paylaşım sunucusu bunu reddetti. Daha sonra yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сервер спільного доступу відхилив запит. Спробуйте пізніше."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máy chủ chia sẻ đã từ chối. Hãy thử lại sau."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "共享服务器拒绝了此请求。请稍后再试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "共享伺服器拒絕了此要求。請稍後再試。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

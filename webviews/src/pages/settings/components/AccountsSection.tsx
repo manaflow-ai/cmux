@@ -2,13 +2,13 @@
 // localized (`cmux.settings.accounts.state`, live through `cmux.settings.accounts.changed`) and
 // runs each gesture (`cmux.settings.accounts.run`); the page only draws and forwards. A pasted key
 // lives in this component's state until it is sent, never in the store, and is cleared after.
-import { useCallback, useEffect, useId, useState, memo, useMemo } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useKeptItems } from "../keptItems";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { SignInBackend } from "../../../ui/SignInButton";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { useStore, useSettingsSelector } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import type { SettingsState } from "../store";
 import { Select } from "../editors/Select";
 import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from "../ops";
@@ -18,6 +18,7 @@ import { AccountSignInSection } from "./AccountSignInSection";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
 import { SlackAccountsCard } from "./SlackAccountsCard";
 import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
+import { useSettingsSignIn } from "./useSettingsSignIn";
 
 const accountsOf = (state: SettingsState) => state.accounts;
 
@@ -57,6 +58,7 @@ function AccountsBody() {
   const store = useStore();
   // Only the accounts part: another part of the page's state changing does not draw the section.
   const accounts = useSettingsSelector(accountsOf)!;
+  const signIn = useSettingsSignIn();
   // The host sends the whole screen on every change: a provider's row that did not change keeps
   // its object, so its memo row skips the push.
   const rows = useKeptItems(
@@ -86,11 +88,11 @@ function AccountsBody() {
           </output>
         )}
       </section>
-      <AccountSignInSection />
+      <GitHubAccountsCard signIn={signIn} />
+      <AccountSignInSection signIn={signIn} />
       {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
-      <GitHubAccountsCard />
       <SlackAccountsCard />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>

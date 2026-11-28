@@ -112,3 +112,22 @@ fn a_linked_state_item_never_moves() {
     assert!(!state.join("next").exists());
     std::fs::remove_dir_all(&state).unwrap();
 }
+
+/// cmux NEXT's caches are its own on macOS (`Caches/cmux-next`), never cmux Classic's
+/// `~/.cache/cmux` (the zero-Classic-footprint probe found `mcp-upstreams` there); elsewhere
+/// `${XDG_CACHE_HOME:-~/.cache}/cmux`. A relative root is no root.
+#[test]
+fn cache_dir_is_next_own() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| OsString::from(v))
+    };
+    let home = env(&[("HOME", "/Users/me"), ("XDG_CACHE_HOME", "/xdg")]);
+    assert_eq!(
+        cache_dir_from(true, home),
+        Some(PathBuf::from("/Users/me/Library/Caches/cmux-next"))
+    );
+    assert_eq!(cache_dir_from(false, home), Some(PathBuf::from("/xdg/cmux")));
+    let bare = env(&[("HOME", "/home/me"), ("XDG_CACHE_HOME", "rel")]);
+    assert_eq!(cache_dir_from(false, bare), Some(PathBuf::from("/home/me/.cache/cmux")));
+    assert_eq!(cache_dir_from(true, env(&[("HOME", "rel")])), None);
+}

@@ -4,6 +4,23 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes feed.seen declares.
+    FeedSeenError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed.
     FeedSnoozeOp {
@@ -886,19 +903,4 @@ wire_op! {
         result: GroupMembersSetResult,
         error: GroupMembersSetError,
     }
-}
-
-wire_enum! {
-    GroupMembersSetParamsRole {
-        Owner = "owner",
-        Edit = "edit",
-        View = "view",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GroupMembersSetParams {
-    pub group: GroupId,
-    pub user: UserId,
-    pub role: GroupMembersSetParamsRole,
 }

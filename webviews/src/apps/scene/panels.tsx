@@ -61,12 +61,21 @@ export function useAppPanelSections(
   );
 }
 
+const noSlice = () => null;
+const noSliceStream = () => () => {};
+
 /** One mounted scene as the host's model draws it: nothing while loading, the scene once ready, and
  * the failure row (Reload, Copy Error, Details) or the disconnected line in its place. Reports its
- * drawn height to the host (`layout`) whenever it changes. */
+ * drawn height to the host (`layout`) whenever it changes. The host scrolls the panel outside the page,
+ * so the scene draws whole; a long LazyVStack windows against the host's visible slice once it sends one. */
 export function SceneMount({ mounted }: { mounted: MountedPanel }) {
-  const { store, dispatch, reload, layout, resolveAsset } = mounted;
+  const { store, dispatch, reload, layout, resolveAsset, visibleSlice } = mounted;
   const status = useSyncExternalStore(store.subscribeStatus, store.getStatus, store.getStatus);
+  const slice = useSyncExternalStore(
+    visibleSlice?.subscribe ?? noSliceStream,
+    visibleSlice?.get ?? noSlice,
+    visibleSlice?.get ?? noSlice,
+  );
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = box.current;
@@ -86,7 +95,13 @@ export function SceneMount({ mounted }: { mounted: MountedPanel }) {
         // retry-prompt-ok: Reload runs the app's script again, only from the person's click.
         <SceneFailure status={status} onReload={reload} />
       ) : (
-        <SceneRenderer store={store} dispatch={dispatch} resolveAsset={resolveAsset} />
+        <SceneRenderer
+          store={store}
+          dispatch={dispatch}
+          resolveAsset={resolveAsset}
+          hostScrolled
+          visibleSlice={slice}
+        />
       )}
     </div>
   );

@@ -12,6 +12,9 @@ use std::fmt;
 use indexmap::IndexMap;
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use serde_json::value::RawValue;
+
+use crate::ordered_json::Members;
 
 /// One JSON value whose objects keep their members in file order.
 #[derive(Clone, Debug, PartialEq)]
@@ -100,6 +103,43 @@ impl OJson {
         let mut text = serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into());
         text.push('\n');
         text
+    }
+
+    /// The text to write over `old`, a file this object was read from and then edited: each
+    /// top-level member the edit left equal keeps its original text (a compact array, an odd
+    /// spacing, a key cmux does not know), and only a changed member is written anew, two-space
+    /// pretty. So an off-then-on edit leaves the file byte for byte as it was. Falls back to
+    /// [`Self::to_pretty`] when `old` is not a JSON object or the edit reordered the members.
+    pub fn render_over(&self, old: &str) -> String {
+        self.splice_members(old).unwrap_or_else(|| self.to_pretty())
+    }
+
+    fn splice_members(&self, old: &str) -> Option<String> {
+        let new = self.as_object()?;
+        if old.trim().is_empty() {
+            return None;
+        }
+        let mut members = Members::parse(old).ok()?;
+        members.0.retain(|(key, _)| new.contains_key(key));
+        for (key, value) in new {
+            let unchanged = members
+                .get(key)
+                .and_then(|raw| Self::parse(raw.get()).ok())
+                .is_some_and(|before| before == *value);
+            if unchanged {
+                continue;
+            }
+            let text = serde_json::to_string_pretty(value).ok()?.replace('\n', "\n  ");
+            members.set(key, Some(RawValue::from_string(text).ok()?));
+        }
+        if !members.0.iter().map(|(key, _)| key).eq(new.keys()) {
+            return None;
+        }
+        let mut text = members.render(0);
+        if old.ends_with('\n') {
+            text.push('\n');
+        }
+        Some(text)
     }
 }
 

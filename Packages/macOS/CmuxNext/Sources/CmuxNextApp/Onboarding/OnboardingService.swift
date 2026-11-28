@@ -194,15 +194,15 @@ final class OnboardingService {
     private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },
                                                   skipsOnboarding: services.environment.launchSteps == .none)
 
-    /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
-    /// (the Agents window and the CLI toast count as shown), else the first-run windows
-    /// (``OnboardingWindowPresenter/showFirstRunSteps``), after which this Mac's first launch is finished
-    /// (``OnboardingWindowPresenter/historyShownKey``).
-    func showFirstRunSteps(isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun) else { return }
+    /// Before the migration, onboarding on: a first run's Set Up cmux card, whose cmux Classic row asks the import. Nil when off.
+    func firstRunRoute(isFirstRun: Bool) -> FirstRunSetup.Route? {
+        guard services.environment.launchSteps == .firstRun else { return nil }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
-        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        guard route == .windows else { return }
+        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }; return route
+    }
+    /// After it (``AppEnvironment/launchSteps``): for `.windows` the first-run windows, then this Mac's first launch is finished.
+    func showFirstRunSteps(_ route: FirstRunSetup.Route?, isFirstRun: Bool) async {
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun), route == .windows else { return }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) {
             UserDefaults.standard.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         }

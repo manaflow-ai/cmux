@@ -16,6 +16,7 @@ import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER 
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
 import { useLiveThoughtRow } from "../liveThought";
+import { useLiveLineRow } from "../liveCallLine";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
@@ -54,8 +55,9 @@ export const RowContent = React.memo(
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    // What moved on without the pane (a running command's output, a thought): this row alone draws it.
-    const row = useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools);
+    // What moved on without the pane (a running command's output, a thought, the live line's call):
+    // this row alone draws it.
+    const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
     return (
       <RowBoundary row={row}>
         <Component {...props} row={row} />
@@ -132,6 +134,7 @@ export const RowFrame = React.memo(function RowFrame({
   opensTurn,
   beforeFooter,
   beforeIndicator,
+  beforeOwnMessage,
   replyActions,
   status,
   lastFooter,
@@ -162,6 +165,7 @@ export const RowFrame = React.memo(function RowFrame({
   gapBelow,
   offscreen,
   placedHeight,
+  shelved,
   children,
 }: {
   row: AcpmuxRow;
@@ -175,6 +179,9 @@ export const RowFrame = React.memo(function RowFrame({
   /// The row's height as the transcript places it (measured, or the estimate): a skipped row's box
   /// is this high. Read at its first mount only, with `offscreen`.
   placedHeight: number;
+  /// The placed height of a row shelved far above a followed view (conversation/shelvedRows.ts): it
+  /// keeps that height and skips its contents. 0 draws it.
+  shelved: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -188,6 +195,9 @@ export const RowFrame = React.memo(function RowFrame({
   /// A prompt right over the live line (transcriptGrid.ts waiting rule): the gap under it is the block
   /// gap, not the turn gap, so its action row is laid centred in that (conversation.css).
   beforeIndicator: boolean;
+  /// A person's own message right over another of theirs (transcriptGrid.ts: the two stick together, the
+  /// footer gap apart): its action row sits beside its bubble, not in the gap (conversation.css).
+  beforeOwnMessage: boolean;
   /// Whether the row (a reply) keeps its action row's room (model.ts `keepsReplyRoom`): its height
   /// depends on it, so the frame redraws and measures again when it changes.
   replyActions: boolean;
@@ -438,7 +448,7 @@ export const RowFrame = React.memo(function RowFrame({
       data-row-card={row.ended ? "true" : undefined}
       data-opens-turn={opensTurn ? "true" : undefined}
       data-send-thinking={sendThinking ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${isRunPart(row) ? " acpmux-row--run-part" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${isRunPart(row) ? " acpmux-row--run-part" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${beforeOwnMessage ? " acpmux-row--before-own-message" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -454,6 +464,7 @@ export const RowFrame = React.memo(function RowFrame({
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
       // The unread line's row takes no height and draws its mark over the gap under it
       // (conversation/unread.css), so it reads the gap's length.
+      data-shelved={shelved > 0 ? "true" : undefined}
       style={
         row.kind === SINCE_DIVIDER
           ? ({
@@ -461,7 +472,9 @@ export const RowFrame = React.memo(function RowFrame({
               marginTop: placedTop - integralTop,
               "--cv-since-gap": `${gapBelow}px`,
             } as React.CSSProperties)
-          : { top: integralTop, marginTop: placedTop - integralTop }
+          : shelved > 0
+            ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
+            : { top: integralTop, marginTop: placedTop - integralTop }
       }
       onFocus={() => onFocus(row.id)}
     >

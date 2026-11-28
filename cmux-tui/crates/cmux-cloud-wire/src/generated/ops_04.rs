@@ -4,6 +4,22 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes cloud.surge.create declares.
+    CloudSurgeCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudSurgeCapacity = "cloud.surge.capacity",
+        CloudSurgeUnavailable = "cloud.surge.unavailable",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it.
     CloudSurgePreviewOp {
@@ -880,22 +896,4 @@ wire_op! {
         result: ConversationThreadResult,
         error: ConversationThreadError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationThreadParams {
-    pub conversation: ConversationId,
-    pub root: MessageId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after_seq: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationThreadResult {
-    pub root: HomeMessage,
-    pub replies: Vec<HomeMessage>,
-    pub has_more: bool,
-    pub thread: HomeThreadSummary,
 }

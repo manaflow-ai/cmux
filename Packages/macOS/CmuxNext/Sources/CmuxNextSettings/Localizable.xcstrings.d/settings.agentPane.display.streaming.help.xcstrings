@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.streaming.help" : {
+      "comment" : "Settings > Chat > Transcript > Reply Streaming: help",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How an agent's reply text appears as it arrives."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كيف يظهر نص رد الوكيل عند وصوله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kako se tekst odgovora agenta pojavljuje dok stiže."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvordan agentens svartekst vises, mens den ankommer."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie der Antworttext eines Agenten beim Eintreffen erscheint."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cómo aparece el texto de la respuesta de un agente a medida que llega."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Comment le texte de la réponse d'un agent apparaît à son arrivée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Come appare il testo della risposta di un agente mentre arriva."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントの返信テキストが届くときの表示方法。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "របៀបដែលអត្ថបទចម្លើយរបស់ភ្នាក់ងារបង្ហាញនៅពេលវាមកដល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트 답변 텍스트가 도착할 때 표시되는 방식입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvordan agentens svartekst vises når den kommer."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak pojawia się tekst odpowiedzi agenta, gdy napływa."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Como o texto da resposta de um agente aparece conforme chega."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Как появляется текст ответа агента по мере поступления."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ข้อความคำตอบของเอเจนต์ปรากฏอย่างไรขณะที่มาถึง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir ajanın yanıt metninin geldikçe nasıl göründüğü."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Як з'являється текст відповіді агента під час надходження."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cách văn bản câu trả lời của tác tử hiện ra khi đến."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "智能体回复文字到达时的显示方式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理回覆文字抵達時的顯示方式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -40,6 +40,8 @@ extension ScreenContentView {
         // frame's step, as `travelLeft` is for the panes (New Column moves only the camera).
         if MotionTrace.isEnabled { MotionTrace.sample("layout.camera", Double(abs(scroll.target - scroll.value))) }
         applyPresentation()
+        // A transition settling (a split's, a sidebar's) moved in this frame: its commit is the settle so far.
+        if moving { noteTimedMotion() }
         if moving, let window { drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: policy) }
         // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
         // resizes content live again unless another key press holds it.

@@ -4,6 +4,19 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes team.cloud.session.reassign declares.
+    TeamCloudSessionReassignError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudSessionAssigneeNotMember = "cloud_session.assignee_not_member",
+        CloudSessionNotFound = "cloud_session.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Take a closed Cloud workspace or chat off the team's list (its owner or assignee, or a team owner or admin). Its followers stop following it.
     TeamCloudSessionRemoveOp {
@@ -883,20 +896,5 @@ wire_errors! {
         TeamVmProviderRefused = "team_vm.provider_refused",
         TeamVmSlugConflict = "team_vm.slug_conflict",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
-    TeamVmJournalAppendOp {
-        name: "team_vm.journal.append",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamVmDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: TeamVmJournalAppendParams,
-        result: TeamVmJournalAppendResult,
-        error: TeamVmJournalAppendError,
     }
 }

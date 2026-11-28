@@ -2,7 +2,8 @@ use super::super::upstream::upstream_http::Http;
 use super::*;
 
 /// A DEV build's `cmux mcp serve` keeps its tool lists in the build's own caches
-/// (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, BuildStatePaths), never in `~/.cache/cmux`, which NIGHTLY shares.
+/// (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, BuildStatePaths); every other build in cmux NEXT's own caches,
+/// never cmux Classic's `~/.cache/cmux` on macOS.
 #[test]
 fn dev_build_own_mcp_upstreams_dir() {
     let env = |name: &str| match name {
@@ -10,15 +11,17 @@ fn dev_build_own_mcp_upstreams_dir() {
         "CMUX_NEXT_MCP_UPSTREAMS_DIR" => Some("/tmp/dev-build/mcp-upstreams".into()),
         _ => None,
     };
-    assert_eq!(dir_from(env), Some(PathBuf::from("/tmp/dev-build/mcp-upstreams")));
+    assert_eq!(dir_from(true, env), Some(PathBuf::from("/tmp/dev-build/mcp-upstreams")));
     let shared = |name: &str| (name == "HOME").then(|| "/Users/me".into());
-    assert_eq!(dir_from(shared), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
+    let mac = PathBuf::from("/Users/me/Library/Caches/cmux-next/mcp-upstreams");
+    assert_eq!(dir_from(true, shared), Some(mac.clone()));
+    assert_eq!(dir_from(false, shared), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
     let blank = |name: &str| match name {
         "HOME" => Some("/Users/me".into()),
         "CMUX_NEXT_MCP_UPSTREAMS_DIR" => Some("".into()),
         _ => None,
     };
-    assert_eq!(dir_from(blank), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
+    assert_eq!(dir_from(true, blank), Some(mac));
 }
 
 fn spec(command: &Path, token: &str) -> Spec {

@@ -131,9 +131,73 @@ def git_files(root, pathspecs):
     return sorted({os.fsdecode(p) for p in listed if p})
 
 
+SPEC_PATH = re.compile(r"""\.{1,2}/[^"'`)\s]+""")
+# SPECIFIER's lead-ins, each without the \s* that separates it from the path. The \b ones need a non-word character
+# (or the start) before them.
+LEADS = (("from", True), ("import", True), ("@import", False), ("@source", False), ("url(", True))
+
+
+def lead_before(text, end, floor):
+    """True when TEXT[:END] ends in one of SPECIFIER's lead-ins and its \\s* (and optional quote) starting at or
+    after FLOOR, the end of the previous match, as finditer would find it."""
+    if end > floor and text[end - 1] in "\"'`":
+        end -= 1
+    while end > floor and text[end - 1].isspace():
+        end -= 1
+    if end > floor and text[end - 1] == "(":
+        # import\s*\( : the paren, any space, then the word.
+        word_end = end - 1
+        while word_end > floor and text[word_end - 1].isspace():
+            word_end -= 1
+        if bounded_word_ends(text, word_end, "import", floor):
+            return True
+        # new\s+URL\( : URL right before the paren, at least one space, then new.
+        start = end - 1 - len("URL")
+        if start > floor and text.startswith("URL", start) and text[start - 1].isspace():
+            new_end = start - 1
+            while new_end > floor and text[new_end - 1].isspace():
+                new_end -= 1
+            if bounded_word_ends(text, new_end, "new", floor):
+                return True
+    for word, bounded in LEADS:
+        if bounded:
+            if bounded_word_ends(text, end, word, floor):
+                return True
+        elif end - len(word) >= floor and text.startswith(word, end - len(word)):
+            return True
+    return False
+
+
+def bounded_word_ends(text, end, word, floor):
+    """\\bWORD ends at END, starting at or after FLOOR (the \\b looks at the character before, as re's does)."""
+    start = end - len(word)
+    return start >= floor and text.startswith(word, start) and not (start and is_word(text[start - 1]))
+
+
+def is_word(char):
+    return char.isalnum() or char == "_"
+
+
+def relative_specifiers(text):
+    """SPECIFIER.finditer(TEXT)'s group 1, found from each "./" back to its lead-in rather than by trying every lead-in
+    at every character: the regex took 9.5 s on webviews/ (33 MB, direct.ts alone 1 MB) on Python 3.9, most of a
+    `cmux app try`'s plan (team-dev-build-swap's retry: plan 3.5 s of a 5 s budget). Same matches, in order, with
+    finditer's no-overlap rule (tests/test_web_bundle_key_specifiers.py holds it to the regex)."""
+    floor = 0
+    at = text.find("./")
+    while at != -1:
+        start = at - 1 if at and text[at - 1] == "." else at
+        path = SPEC_PATH.match(text, start)
+        if path and lead_before(text, start, floor):
+            yield path.group(0)
+            floor = path.end()
+            at = text.find("./", floor)
+        else:
+            at = text.find("./", at + 1)
+
+
 def specifiers(text):
-    for m in SPECIFIER.finditer(text):
-        yield m.group(1)
+    yield from relative_specifiers(text)
     for m in GLOB_CALL.finditer(text):
         for g in GLOB_STRING.finditer(m.group(1)):
             yield g.group(1)

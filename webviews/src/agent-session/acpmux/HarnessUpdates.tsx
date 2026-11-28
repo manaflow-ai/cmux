@@ -10,13 +10,51 @@
 // a1315 (Lawrence: "drastically simplify all parts of the UI"): one outdated agent is one row, no
 // heading; with more, each row's Update shows on the row's hover or focus (data-reveal) beside Update
 // all; a failed row is one red line, its mark's space left empty, its Try Again on hover.
-import type { KeyboardEvent, Ref } from "react";
+import type { ComponentProps, KeyboardEvent, Ref } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { WaitSpinner } from "./conversation/WaitSpinner";
 import { useT } from "./i18n";
 import { useOptionHeld } from "./useOptionHeld";
 import type { HarnessUpdateRow, HarnessUpdates } from "./harnessUpdateList";
 import "./harnessUpdates.css";
+
+export function HarnessUpdateButton({
+  row,
+  onOwnUpdate,
+  showAgent,
+  ...props
+}: Pick<ComponentProps<"button">, "ref" | "onKeyDown" | "title" | "className"> & {
+  row: HarnessUpdateRow;
+  onOwnUpdate?: () => void;
+  showAgent?: boolean;
+}) {
+  const t = useT();
+  return (
+    <button
+      {...props}
+      type="button"
+      className={`acpmux-harness-update-run ${props.className ?? ""}`}
+      disabled={row.phase === "updating"}
+      aria-busy={row.phase === "updating" || undefined}
+      aria-label={showAgent ? `${t("harness.update")} ${row.agent}` : undefined}
+      onClick={() => {
+        row.update();
+        if (row.skip) onOwnUpdate?.();
+      }}
+    >
+      {row.phase === "updating" ? (
+        <WaitSpinner size={12} loading />
+      ) : row.phase === "failed" ? (
+        // retry-prompt-ok: runs the agent's updater again (an install).
+        t("harness.tryAgain")
+      ) : showAgent ? (
+        `${t("harness.update")} ${row.agent}`
+      ) : (
+        t("harness.update")
+      )}
+    </button>
+  );
+}
 
 export function HarnessUpdatesSection({
   updates,
@@ -36,10 +74,6 @@ export function HarnessUpdatesSection({
   const title = t("harness.updatesAvailable");
   const all = updates.rows.length > 1;
   const detailed = useOptionHeld();
-  const run = (row: HarnessUpdateRow) => {
-    row.update();
-    if (row.skip) onOwnUpdate?.();
-  };
   return (
     <section className="acpmux-harness-updates" aria-label={title} data-harness-updates={updates.rows.length}>
       {all && (
@@ -90,24 +124,12 @@ export function HarnessUpdatesSection({
                 {t("harness.skipVersion")}
               </button>
             )}
-            <button
+            <HarnessUpdateButton
               {...(!all && index === 0 ? { ref: firstAction, onKeyDown: onFirstKeyDown } : {})}
-              type="button"
-              className="acpmux-harness-update-run"
               {...(!all ? { "data-default": "" } : row.phase === "updating" ? {} : { "data-reveal": "" })}
-              disabled={row.phase === "updating"}
-              aria-busy={row.phase === "updating" || undefined}
-              onClick={() => run(row)}
-            >
-              {row.phase === "updating" ? (
-                <WaitSpinner size={12} loading />
-              ) : row.phase === "failed" ? (
-                // retry-prompt-ok: runs the agent's updater again (an install).
-                t("harness.tryAgain")
-              ) : (
-                t("harness.update")
-              )}
-            </button>
+              row={row}
+              onOwnUpdate={onOwnUpdate}
+            />
           </li>
         ))}
       </ul>

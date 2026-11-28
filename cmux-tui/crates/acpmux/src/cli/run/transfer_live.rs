@@ -14,7 +14,11 @@
 //!    [`SMALL_ROUND`] or [`MAX_ROUNDS`] are done. Then the stage is finished (indexed) and the
 //!    freeze (`transfer_begin {prepareId, afterSeq}`) moves only what followed.
 //! 3. Pages to a target that lists `transfer-live-v1` go zstd-compressed (an event log is about
-//!    10x smaller), at [`PAGE`] bytes a request.
+//!    10x smaller), at [`PAGE`] bytes a request. Each page's level is picked from the event-log
+//!    curve and what the copy has measured so far: this machine's compressor and the link
+//!    (`cmux_bytes::serial::Climb`). A LAN keeps a fast level; a slow relay gets a stronger one
+//!    (level 12 at 96 KB/s, about 14 % fewer seconds than level 3 on the 2026-11-22 chat).
+//!    `ACPMUX_MOVE_ZSTD_LEVEL=N` pins one level.
 //! 4. Every few seconds the client tells the source where the move is (`transfer_progress`,
 //!    `session info`'s `move:` line) and prints it.
 //! 5. A copy whose estimate is past the move's bound (`Live::max_copy`, from `session move`'s
@@ -32,8 +36,19 @@ pub(super) const SMALL_ROUND: u64 = 8 << 20;
 pub(super) const MAX_ROUNDS: u32 = 6;
 /// The bytes a page asks the source for (its `MAX_PAGE`).
 pub(super) const PAGE: u64 = 4 << 20;
-/// zstd's level for pages: fast, and about 10x on an event log.
-const LEVEL: i32 = 3;
+/// zstd's level for the first page, before anything is measured: fast, and about 10x on an
+/// event log.
+const START_LEVEL: i32 = 3;
+
+/// A pinned page level (`ACPMUX_MOVE_ZSTD_LEVEL`, 1 to 19), for comparing levels by hand.
+fn pinned_level() -> Option<i32> {
+    std::env::var("ACPMUX_MOVE_ZSTD_LEVEL")
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+        .filter(|l| (1..=19).contains(l))
+}
 /// How often the source hears where the move is, and the console with it.
 const REPORT_EVERY: Duration = Duration::from_secs(3);
 /// The error code of a copy that would take longer than the move's bound.
@@ -65,6 +80,9 @@ pub(super) struct Pager {
     live: Live,
     /// The target takes zstd pages.
     zstd: bool,
+    /// Each page's zstd level, climbed on what the copy measures.
+    climb: cmux_bytes::serial::Climb,
+    pinned: Option<i32>,
     /// `pre-copy` or `freeze`.
     pub phase: &'static str,
     pub round: u32,
@@ -85,6 +103,8 @@ impl Pager {
             session: session.to_owned(),
             live,
             zstd,
+            climb: cmux_bytes::serial::Climb::new(cmux_bytes::serial::EVENT_LOG, START_LEVEL),
+            pinned: pinned_level(),
             phase: "pre-copy",
             round: 0,
             total: 0,
@@ -130,6 +150,12 @@ impl Pager {
         if let Some(eta) = self.eta() {
             r.set("etaSecs", json!(eta.round() as u64));
         }
+        if self.zstd {
+            r.set("zstdLevel", json!(self.level()));
+            if let Some(link) = self.climb.link() {
+                r.set("linkBytesPerSec", json!(link.round() as u64));
+            }
+        }
         r
     }
 
@@ -163,6 +189,11 @@ impl Pager {
             );
         }
         Ok(())
+    }
+
+    /// The zstd level the next page goes at.
+    pub(super) fn level(&self) -> i32 {
+        self.pinned.unwrap_or_else(|| self.climb.level())
     }
 
     /// The move is over: its report goes.
@@ -217,9 +248,12 @@ pub(super) async fn page_files(
                 .ok_or_else(|| anyhow!("transfer_read: no next"))?;
             let data = page.get("data").and_then(Value::as_str).unwrap_or_default();
             let mut write = json!({"receiveId": receive_id, "path": path, "offset": offset});
+            let mut measured = None;
             let wire = if pager.zstd && !data.is_empty() {
                 let raw = BASE64.decode(data).map_err(|e| anyhow!("transfer_read: data: {e}"))?;
-                let packed = zstd::bulk::compress(&raw, LEVEL)?;
+                let started = Instant::now();
+                let packed = zstd::bulk::compress(&raw, pager.level())?;
+                measured = Some((raw.len() as u64, started.elapsed().as_secs_f64()));
                 write.set("encoding", json!("zstd"));
                 let packed = BASE64.encode(packed);
                 let len = packed.len() as u64;
@@ -230,7 +264,12 @@ pub(super) async fn page_files(
                 data.len() as u64
             };
             let write = stamped(&mut write, epoch);
-            if let Err(e) = dst.call("_acpmux/transfer_write", write, Wait::Page, true).await {
+            let sending = Instant::now();
+            let sent = dst.call("_acpmux/transfer_write", write, Wait::Page, true).await;
+            if let (Ok(_), Some((raw, compress_secs))) = (&sent, measured) {
+                pager.climb.observe(raw, wire, compress_secs, sending.elapsed().as_secs_f64());
+            }
+            if let Err(e) = sent {
                 // A page the target took whose answer was lost (its daemon was swapped), or one
                 // it holds more of: go on from what it holds (`move_end.rs`).
                 match held_after(&e).filter(|held| *held <= size && *held != offset) {
@@ -337,6 +376,9 @@ pub(crate) fn progress_text(r: &Value) -> String {
     if let Some(rate) = r.get("bytesPerSec").and_then(Value::as_u64) {
         line.push_str(&format!(", {}/s", mb(rate)));
     }
+    if let Some(level) = r.get("zstdLevel").and_then(Value::as_u64) {
+        line.push_str(&format!(", zstd {level}"));
+    }
     line.push(')');
     if let Some(eta) = r.get("etaSecs").and_then(Value::as_u64) {
         line.push_str(&format!(", about {} left", duration_text(eta as f64)));
@@ -368,36 +410,5 @@ pub(crate) fn move_progress_line(info: &Value) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_undecided_move_reads_as_a_line_that_offers_the_chat_back_once_offered() {
-        assert_eq!(move_undecided_line(&json!({"moveUndecided": null}), 0), None);
-        let asking = json!({"sessionId": "s1",
-                            "moveUndecided": {"transferId": "t", "since": 1_000, "offeredAt": null}});
-        let line = move_undecided_line(&asking, 121_000).unwrap();
-        assert!(line.contains("still asking") && !line.contains("take-back"), "{line}");
-        let offered = json!({"sessionId": "s1",
-                             "moveUndecided": {"transferId": "t", "since": 1_000, "offeredAt": 600_000}});
-        let line = move_undecided_line(&offered, 601_000).unwrap();
-        assert!(line.contains("--abort --take-back s1"), "{line}");
-    }
-
-    #[test]
-    fn progress_reads_as_a_line() {
-        let r = json!({"phase": "pre-copy", "round": 1, "totalBytes": 6_800_000_000u64,
-                       "doneBytes": 120_300_000u64, "wireBytes": 12_100_000u64,
-                       "bytesPerSec": 1_000_000u64, "etaSecs": 6720u64,
-                       "target": "lane-vm-7"});
-        assert_eq!(
-            progress_text(&r),
-            "pre-copy round 1 to lane-vm-7: 120.3 MB of 6.80 GB (wire 12.1 MB, 1.0 MB/s), \
-             about 1h 52m left"
-        );
-        assert_eq!(move_progress_line(&json!({"moveProgress": null})), None);
-        assert!(move_progress_line(&json!({"moveProgress": r})).unwrap().starts_with("move:"));
-        assert_eq!(duration_text(9.0), "9s");
-        assert_eq!(duration_text(843.0), "14m 03s");
-    }
-}
+#[path = "transfer_live_tests.rs"]
+mod tests;

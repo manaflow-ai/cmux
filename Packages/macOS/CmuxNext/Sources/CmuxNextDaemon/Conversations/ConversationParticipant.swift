@@ -49,19 +49,3 @@ public struct ConversationParticipant: Codable, Sendable, Hashable {
         case leftAt = "left_at"
     }
 }
-
-/// One part of a root message that a reply points at.
-public struct ConversationPartRef: Codable, Sendable, Hashable {
-    public var messageID: String
-    public var partIndex: Int
-
-    public init(messageID: String, partIndex: Int) {
-        self.messageID = messageID
-        self.partIndex = partIndex
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case messageID = "message_id"
-        case partIndex = "part_index"
-    }
-}

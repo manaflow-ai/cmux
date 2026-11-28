@@ -57,7 +57,15 @@ for ((i = 1; i <= runs; i++)); do
   else
     echo "daemon-restart: run $i exit $code in $took s"
   fi
-  if ((code != 0)); then grep -E "panicked|exceeded|failed" "$out/run$i.log" | head -n 5 || true; fi
+  if ((code != 0)); then
+    grep -E "panicked|exceeded|failed|daemon exited by itself" "$out/run$i.log" | head -n 6 || true
+    # Why the daemon went away ("the daemon closed the socket"): the harness prints the daemon log's last 16 KB on a
+    # failure; keep its error, panic and signal lines and the last few lines, so the perf cron's tail says why.
+    awk '/^daemon log .* \(last [0-9]+ bytes\):/{keep=1; n=0} keep{buf[n++]=$0} END{
+      for (j = 0; j < n; j++) if (buf[j] ~ /ERROR|WARN|panic|signal|abort|killed|oom|exit/) print "daemon-restart: log: " substr(buf[j], 1, 300)
+      for (j = (n > 8 ? n - 8 : 0); j < n; j++) print "daemon-restart: log tail: " substr(buf[j], 1, 300)
+    }' "$out/run$i.log" | tail -n 20 || true
+  fi
 done
 python3 - "$out" <<'PY'
 import glob, json, os, statistics, sys

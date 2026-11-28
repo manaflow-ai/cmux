@@ -148,3 +148,50 @@ fn apple_dh_matches_swift_known_answer() {
     bad["serverPublicKey"] = json!(b64(&[0, 8]));
     assert_eq!(ask("vnc_apple_dh", bad), Value::Null);
 }
+
+#[test]
+fn the_demo_server_round_trips_its_connection() {
+    let config = json!({"width": 64, "height": 2, "name": "d"});
+    let challenge = STANDARD.encode([0u8; 16]);
+    let first = ask(
+        "vnc_demo_receive",
+        json!({"input": STANDARD.encode(b"RFB 003.008\n\x01\x01"), "config": config, "challenge": challenge}),
+    );
+    assert_eq!(first["consumed"], 14);
+    assert_eq!(first["failure"], Value::Null);
+    assert_eq!(first["connection"]["phase"], "normal");
+    let mut input = vec![2u8, 0, 0, 2];
+    input.extend(16i32.to_be_bytes());
+    input.extend((-239i32).to_be_bytes());
+    input.extend([3, 0, 0, 0, 0, 0, 0, 64, 0, 2, 4, 1, 0, 0, 0, 0, 0, 0x61]);
+    let second = ask(
+        "vnc_demo_receive",
+        json!({"connection": first["connection"], "input": STANDARD.encode(&input), "config": config, "challenge": challenge}),
+    );
+    assert_eq!(second["flush"], true);
+    assert_eq!(
+        second["events"],
+        json!([{"type": "fullUpdate"}, {"type": "key", "keysym": 0x61, "down": true, "shift": false}])
+    );
+    let flushed = ask(
+        "vnc_demo_flush",
+        json!({"connection": second["connection"], "damagePending": true, "damageCount": 1}),
+    );
+    assert_eq!(flushed["send"], true);
+    let head = STANDARD.decode(flushed["head"].as_str().unwrap()).unwrap();
+    assert_eq!(&head[..4], [0, 0, 0, 2], "the cursor and one rectangle");
+    assert_eq!(flushed["connection"]["cursorSent"], true);
+    let pixels: Vec<u8> = [0x30u8, 0x20, 0x10, 0].repeat(128);
+    let rect = ask(
+        "vnc_demo_rect",
+        json!({"connection": flushed["connection"], "x": 0, "y": 0, "width": 64, "height": 2, "pixels": STANDARD.encode(&pixels)}),
+    );
+    assert_eq!(rect["zrle"], true);
+    assert_eq!(STANDARD.decode(rect["payload"].as_str().unwrap()).unwrap(), [1, 0x30, 0x20, 0x10]);
+    let bad = ask(
+        "vnc_demo_receive",
+        json!({"connection": first["connection"], "input": STANDARD.encode([9u8]), "config": config, "challenge": challenge}),
+    );
+    let failure = STANDARD.decode(bad["failure"].as_str().unwrap()).unwrap();
+    assert_eq!(&failure[..4], [0, 0, 0, 1]);
+}

@@ -12,6 +12,20 @@ const chunk = (kind = "agent_message_chunk", text = "hello") => ({
 });
 
 describe("create to streamed first text", () => {
+  test("reset starts the clock again at the create that got room: a capacity refusal's wait is not in create_to_first_text_ms", () => {
+    let now = 0;
+    const t = new FirstTextTiming(() => now);
+    t.mark("create");
+    now = 45_000;
+    t.reset();
+    t.mark("create");
+    now = 46_000;
+    t.mark("created");
+    now = 50_000;
+    t.mark("first_text");
+    expect(t.fields()).toEqual({ create_marks_ms: { create: 0, created: 1_000, first_text: 5_000 }, create_to_first_text_ms: 5_000 });
+  });
+
   test("one monotonic clock, snapshots, and no create time for a reused machine", () => {
     let now = 100;
     const timing = new FirstTextTiming(() => now);

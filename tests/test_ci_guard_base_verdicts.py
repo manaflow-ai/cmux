@@ -76,6 +76,28 @@ class FindSourceTests(unittest.TestCase):
         self.assertGreater(len(changed), 400)
 
 
+    def test_cancelled_runs_are_never_compared(self) -> None:
+        # 98 of 100 completed push runs were cancelled (2026-11-26); each one compared was a shared-budget read.
+        runs = [{"id": 9, "head_sha": OTHER, "conclusion": "cancelled"},
+                {"id": 8, "head_sha": BASE, "conclusion": "skipped"},
+                {"id": 2, "head_sha": ANCESTOR, "conclusion": "failure"}]
+        compares = {ANCESTOR: {"status": "ahead", "ahead_by": 3, "behind_by": 0, "files": []}}
+        run, changed = gbv.find_source(REPO, BASE, "t", get=fake_get(runs, compares, {}))  # OTHER: KeyError if read
+        self.assertEqual(run["id"], 2)
+        self.assertEqual(changed, [])
+
+    def test_first_ancestor_stops_the_compares(self) -> None:
+        runs = [{"id": 3, "head_sha": ANCESTOR}, {"id": 2, "head_sha": OTHER}]
+        compares = {ANCESTOR: {"status": "ahead", "ahead_by": 2, "behind_by": 0, "files": []}}
+        run, _changed = gbv.find_source(REPO, BASE, "t", get=fake_get(runs, compares, {}))  # OTHER: KeyError if read
+        self.assertEqual(run["id"], 3)
+
+    def test_an_ancestor_past_reach_ends_the_search(self) -> None:
+        runs = [{"id": 3, "head_sha": ANCESTOR}, {"id": 2, "head_sha": OTHER}]
+        compares = {ANCESTOR: {"status": "ahead", "ahead_by": gbv.MAX_BEHIND + 1, "behind_by": 0, "files": []}}
+        self.assertEqual(list(gbv.sources(REPO, BASE, "t", get=fake_get(runs, compares, {}))), [])
+
+
 class DownloadTests(unittest.TestCase):
     def test_reads_results_and_failures(self) -> None:
         run = {"id": 7, "head_sha": BASE}
@@ -123,17 +145,28 @@ class MainTests(unittest.TestCase):
     def test_api_error_reruns_every_step(self) -> None:
         def broken(*_args, **_kwargs):
             raise OSError("network down")
-        left, body = self.run_main(["A", "B"], find_source=broken)
+        left, body = self.run_main(["A", "B"], sources=broken)
         self.assertEqual(left, ["A", "B"])
         self.assertEqual(body, {})
 
     def test_reused_results_are_incomplete(self) -> None:
         left, body = self.run_main(
             ["A", "C"],
-            find_source=lambda *_: ({"id": 1, "head_sha": BASE}, None),
+            sources=lambda *_: iter([({"id": 1, "head_sha": BASE}, None)]),
             download_results=lambda *_: ({"A": False, "_cmux_complete": True}, {}),
         )
         self.assertEqual(left, ["C"])
+        self.assertEqual(body, {"A": False, "_cmux_complete": False})
+
+
+    def test_a_run_with_no_artifact_falls_to_the_next(self) -> None:
+        older = {"id": 2, "head_sha": ANCESTOR}
+        left, body = self.run_main(
+            ["A"],
+            sources=lambda *_: iter([({"id": 3, "head_sha": OTHER}, ["docs/x.md"]), (older, None)]),
+            download_results=lambda _repo, run, _token: None if run["id"] == 3 else ({"A": False}, {}),
+        )
+        self.assertEqual(left, [])
         self.assertEqual(body, {"A": False, "_cmux_complete": False})
 
 

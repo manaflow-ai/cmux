@@ -3,7 +3,7 @@
 //! `docs/design/experiments-shelf.md`).
 //!
 //! The folder's own `scripts/cmux-next/build-web-bundles.sh --out-root`
-//! builds its web bundles; the three overlay surfaces become a layer folder
+//! builds its web bundles; the overlay surfaces become a layer folder
 //! named by their digest, with the same manifest (`abi`, `commit`) the app
 //! checks, and the entry `dir-NAME` goes on top of the library like any other
 //! code. A folder whose web ABI is not the app's is kept off with that line.
@@ -29,12 +29,13 @@ use super::render::Answer;
 
 const BUILD: &str = "scripts/cmux-next/build-web-bundles.sh";
 const ABI_SOURCE: &str = "webviews/src/web-abi.json";
-/// The builders of the three overlay surfaces, with their extra arguments; a
+/// The builders of the overlay surfaces, with their extra arguments; a
 /// watch rebuild runs them side by side, each into its surface's folder.
-const BUILDERS: [(&str, &[&str]); 3] = [
+const BUILDERS: [(&str, &[&str]); 4] = [
     ("scripts/cmux-next/build-agent-pane-web.sh", &[]),
     ("scripts/cmux-next/build-pages-web.sh", &[]),
     ("scripts/build-webviews-app.sh", &["--skip-checks"]),
+    ("scripts/cmux-next/build-agent-activity-web.sh", &[]),
 ];
 /// What a watch follows inside the folder.
 const WATCHED: [&str; 2] = ["webviews", "schemas"];
@@ -130,8 +131,8 @@ fn build_all(dir: &Path, out: &Path) -> Result<(), Failure> {
     run(dir, BUILD, &["--out-root", &out])
 }
 
-/// Builds the three overlay surfaces of `dir` into `out`, side by side: the
-/// three builders run at once, each writing its output to a log in `out`
+/// Builds the overlay surfaces of `dir` into `out`, side by side: the
+/// builders run at once, each writing its output to a log in `out`
 /// (a pipe each would stall a builder while another is waited on).
 fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
     std::fs::create_dir_all(out).map_err(|error| failure(format!("{}: {error}", out.display())))?;
@@ -179,7 +180,7 @@ fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
     first
 }
 
-/// Every file under the three surfaces of `out`, sorted, as paths relative
+/// Every file under the surfaces of `out`, sorted, as paths relative
 /// to `out`.
 fn files(out: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut found = Vec::new();

@@ -1,6 +1,11 @@
 //! Terminal exit state and waits: exit snapshots, output reads, exit replay, and exit waiter subscription and notification.
 
 use super::*;
+use crate::output_store::RecoveryRace;
+
+/// How long a terminal output read retries a race with a capture or an epoch
+/// change before it reports it (a request path: short).
+const RECOVERY_RACE_WAIT: Duration = Duration::from_secs(2);
 
 impl Mux {
     /// Capture once per recovery epoch. A failed or racing capture is an
@@ -16,11 +21,11 @@ impl Mux {
             .filter(|surface| surface.kind() == SurfaceKind::Pty)
         else {
             let read = self.terminal_output_read_raw(terminal_id, None, max_bytes)?;
-            anyhow::ensure!(
-                read.get("snapshot").and_then(Value::as_bool) == Some(true)
-                    && read.get("complete").and_then(Value::as_bool) == Some(true),
-                "terminal recovery surface unavailable; retry"
-            );
+            if read.get("snapshot").and_then(Value::as_bool) != Some(true)
+                || read.get("complete").and_then(Value::as_bool) != Some(true)
+            {
+                return Err(RecoveryRace("terminal recovery surface was unavailable").into());
+            }
             let text = read.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
             anyhow::ensure!(
                 text.len() as u64 <= max_bytes.min(4 * 1024 * 1024),
@@ -35,15 +40,18 @@ impl Mux {
             return self.output_store.make_recovery_cut(text, end);
         };
         let (text, end) = surface.try_with_terminal(|terminal| -> anyhow::Result<_> {
-            anyhow::ensure!(
-                surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0),
-                "terminal output capture is in progress; retry"
-            );
+            if surface.terminal_journal_capture_epoch().is_none_or(|epoch| epoch & 1 != 0) {
+                return Err(RecoveryRace("terminal output capture was still in progress").into());
+            }
             let (current, _, _, end) = self
                 .output_store
                 .recovery_state(terminal_id)
-                .ok_or_else(|| anyhow::anyhow!("terminal output recovery disappeared; retry"))?;
-            anyhow::ensure!(current.as_ref() == epoch, "terminal output recovery changed; retry");
+                .ok_or(RecoveryRace("terminal output recovery disappeared while it was read"))?;
+            if current.as_ref() != epoch {
+                return Err(
+                    RecoveryRace("terminal output recovery changed while it was read").into()
+                );
+            }
             let text = terminal
                 .recovery_text_bounded(usize::try_from(max_bytes.min(4 * 1024 * 1024))?)?
                 .ok_or_else(|| anyhow::anyhow!("terminal recovery snapshot exceeds max_bytes"))?;
@@ -69,7 +77,39 @@ impl Mux {
 
     /// Recovery is opt-in: the caller echoes the token only after applying its
     /// snapshot. No read consumes shared state on another reader's behalf.
+    ///
+    /// A read that raced a capture or an epoch change ([`RecoveryRace`])
+    /// passes on a later try, so it is tried again here, briefly, instead of
+    /// handing the caller an error that only says "retry".
     pub(crate) fn terminal_output_read_with_recovery(
+        &self,
+        terminal_id: &TerminalPublicId,
+        after: Option<u64>,
+        max_bytes: u64,
+        recovery: Option<&str>,
+    ) -> anyhow::Result<Value> {
+        use crate::retry::{Attempt, Patience};
+        Patience::new("terminal output recovery", RECOVERY_RACE_WAIT)
+            .quiet()
+            .spaced(Duration::from_millis(5), Duration::from_millis(100))
+            .run(|| {
+                self.terminal_output_read_with_recovery_once(
+                    terminal_id,
+                    after,
+                    max_bytes,
+                    recovery,
+                )
+                .map_err(|error| {
+                    if error.downcast_ref::<RecoveryRace>().is_some() {
+                        Attempt::Retry(error)
+                    } else {
+                        Attempt::Fail(error)
+                    }
+                })
+            })
+    }
+
+    fn terminal_output_read_with_recovery_once(
         &self,
         terminal_id: &TerminalPublicId,
         after: Option<u64>,
@@ -108,15 +148,16 @@ impl Mux {
             }
             anyhow::ensure!(
                 requested <= *end,
+                // retry-prompt-ok: a protocol step for the reading client (read again with a
+                // recovery token), which the client program does, not a person.
                 "terminal output cursor is beyond the current stream; retry recovery"
             );
         }
         let mut result = self.terminal_output_read_raw(terminal_id, after, max_bytes)?;
         let current = self.output_store.recovery_state(terminal_id);
-        anyhow::ensure!(
-            before.as_ref().map(|state| &state.0) == current.as_ref().map(|state| &state.0),
-            "terminal output recovery changed during read; retry"
-        );
+        if before.as_ref().map(|state| &state.0) != current.as_ref().map(|state| &state.0) {
+            return Err(RecoveryRace("terminal output recovery changed while it was read").into());
+        }
         if let Some((epoch, gap, _, _)) = current {
             let fields = result
                 .as_object_mut()

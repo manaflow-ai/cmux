@@ -515,6 +515,39 @@ fn a_snapshot_restore_counts_from_the_clock_offset_not_a_sync() {
     assert!(role::restored_between(Some(50 * second), 50 * second + 3 * 24 * 3600 * second));
 }
 
+/// A restored never-bound machine's first bind runs the step before the first bind itself
+/// unless the step already decided the build since the last stop (development read-back,
+/// 2026-11-26: the bind went first, its connect hold refused the step, and the guest served
+/// the image's build). A restore moves the clock offset or the pause count, or leaves the
+/// watch waking, and each makes the bind step again.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_first_bind_steps_again_after_any_stop_since_the_last_step() {
+    let second = 1_000_000_000_i128;
+    let seen = |pauses, last_look_ns| crate::agent::PauseSeen {
+        pauses,
+        last_look_ns,
+        pause_from_ns: i128::from(crate::agent::PAUSE_FROM_NONE),
+    };
+    let (offset, boot) = (50 * second, 100 * second);
+    // Never stepped in this process (or the bake's snapshot never did): step.
+    assert!(!role::stepped_since_restore(None, offset, seen(0, boot), boot));
+    // Stepped, no stop since: skip.
+    assert!(role::stepped_since_restore(Some((offset, 2)), offset, seen(2, boot), boot));
+    // A restore that moved `realtime - boottime` by the stopped time: step.
+    let restored = offset + 3 * 24 * 3600 * second;
+    assert!(!role::stepped_since_restore(Some((offset, 2)), restored, seen(2, boot), boot));
+    // A provider whose boot clock runs through: the pause watch counted it.
+    assert!(!role::stepped_since_restore(Some((offset, 2)), offset, seen(3, boot), boot));
+    // The watch has not looked since well before now: still waking, not counted yet.
+    assert!(!role::stepped_since_restore(
+        Some((offset, 2)),
+        offset,
+        seen(2, boot),
+        boot + 600 * second
+    ));
+}
+
 /// Attached carrier sessions hold an update, an unreadable list too, and only
 /// for [`carrier::CARRIER_MAX_HOLD`]: then the update goes at the next idle
 /// gap of the agent turns, and the bound is reported once. No sessions ends
@@ -2002,6 +2035,34 @@ fn the_updater_looks_again_within_20_s_idle_or_busy() {
     }
     let spread: BTreeSet<_> = (0..64u64).map(|i| role::next_look(&outcomes[1], i * 977)).collect();
     assert!(spread.len() > 8, "the jitter spreads the looks: {spread:?}");
+}
+
+/// An idle machine (no turn, no attached carrier session) stops reading the
+/// channel for longer than the provider's 300 s idle timeout, so the VM can
+/// pause; a busy machine, or a look that read nothing, keeps the 15 s look.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_idle_machine_goes_quiet_past_the_provider_idle_timeout() {
+    use std::time::Duration;
+    let reads = [
+        role::Outcome::Current("c".to_owned()),
+        role::Outcome::Older,
+        role::Outcome::RolledBackBefore,
+        role::Outcome::Failed("reading the channel: timeout".to_owned()),
+    ];
+    for outcome in &reads {
+        for draw in [0, 3_750, u64::MAX] {
+            let idle = role::next_look_when(outcome, true, draw);
+            assert!(idle > Duration::from_secs(300), "{outcome:?} idle: {idle:?}");
+            assert_eq!(role::next_look_when(outcome, false, draw), role::next_look(outcome, draw));
+        }
+    }
+    let busy = role::Outcome::Busy(vec!["1 carrier session(s) attached".to_owned()]);
+    let off = role::Outcome::Off("off".to_owned());
+    for outcome in [&busy, &off] {
+        assert!(!role::read_channel_look(outcome));
+        assert_eq!(role::next_look_when(outcome, true, 7), role::next_look(outcome, 7));
+    }
 }
 
 #[test]
