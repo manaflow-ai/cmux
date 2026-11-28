@@ -2,13 +2,13 @@
 // the composer sits at the foot of the page, and the empty space above it holds, centered, one card
 // that picks where the chat starts and, under it, one card of suggested actions. Rows are plain
 // text with an icon; only a hovered or focused row draws a wash, never a resting pill.
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Tooltip } from "../../../ui/Tooltip";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import { ProjectBadge } from "../ProjectBadge";
 import { ProjectChooser, type Project } from "../ProjectChooser";
-import { keepPlaces, projectRows } from "../projectRepos";
+import { inPlaces, projectRows, withPlaces } from "../projectRepos";
 import { isAgentHome } from "../sessionList";
 import type { ChatCard } from "./screenModel";
 import { NEW_TAB_ADOPT_EVENT } from "./adoption";
@@ -45,21 +45,20 @@ export function EnvironmentCard({
   // One row per repository: a lane's checkout or scratch folder is no project to offer here.
   // The rows keep the places this opening first drew them in (keepPlaces); a spare page adopted for a new tab
   // is a new opening, placed again.
-  const placed = useRef<string[]>([]);
+  const [placed, setPlaced] = useState<readonly string[]>([]);
   useEffect(() => {
-    const again = () => {
-      placed.current = [];
-    };
+    const again = () => setPlaced([]);
     window.addEventListener(NEW_TAB_ADOPT_EVENT, again);
     return () => window.removeEventListener(NEW_TAB_ADOPT_EVENT, again);
   }, []);
-  const local = keepPlaces(
-    projectRows(
-      projects.filter((project) => !project.peer && !isAgentHome(project.cwd)),
-      current,
-    ),
-    placed.current,
+  const rows = projectRows(
+    projects.filter((project) => !project.peer && !isAgentHome(project.cwd)),
+    current,
   );
+  const places = withPlaces(rows, placed);
+  // A new row's place is kept for the next render (React's state-from-props update: it renders again at once).
+  if (places !== placed) setPlaced(places);
+  const local = inPlaces(rows, places);
   const shown = current ? local.find((project) => project.cwd === current) : undefined;
   const others = local.filter((project) => project.cwd !== current).slice(0, OTHER_PROJECTS);
   const where = machineName ?? t("composer.thisMac");
