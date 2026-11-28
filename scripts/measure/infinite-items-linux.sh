@@ -22,6 +22,7 @@
 #     of N seconds (--free-idle-seconds N, FREEING lines, rows infinite_items.freeing_idle.*): the simulated day lasts
 #     seconds, so the tabs its workspace switches start (select-workspace wakes a parked tab) are still live at the
 #     sample, while in the product the timer (workspaces.freeing, on, a day idle) parks them again a day later.
+#     Like freed=1, not with before=ref:/own-exe/hosts (those passes end the script first).
 #   infinite-items-linux.sh alloc_ab=1 [alloc_budget=3000] [alloc_caps=64,off] ...: acpmux several ways from this head
 #     (glibc's malloc, the gnu build's own: arms system and glibc; mimalloc, the musl packages' allocator: feature
 #     mimalloc-gnu; mimalloc2: its v2 line; dhat-heap) and one cmux-tui, run in turn REPEAT times (ALLOC arm=A rI
