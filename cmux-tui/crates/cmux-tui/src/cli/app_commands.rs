@@ -368,6 +368,12 @@ pub(super) fn run_app_action_fallback(args: &[String]) -> Option<i32> {
         return None;
     }
     let (head, tail) = command_args.split_at_checked(words)?;
+    // `apps install REF` is `apps install --app REF` (the app takes arguments by name).
+    if let Some((name, mut flags)) = action_hint::positional_action(head) {
+        flags.extend(tail.iter().cloned());
+        return app::run_cli_action(&global, &name, &flags)
+            .or_else(|| action_hint::report(&name, global.output));
+    }
     let name = head.join(" ");
     // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
     let (name, rest) =

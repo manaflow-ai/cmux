@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn short_key_stays_on_utf8_boundaries() {
+    assert_eq!(short(""), "");
+    assert_eq!(short("anon"), "anon");
+    assert_eq!(short("0123456789abcdef"), "0123456789ab");
+    assert_eq!(short("01234567890é"), "01234567890");
+    assert_eq!(short("0123456789é"), "0123456789é");
+}
+
+#[test]
 fn grant_is_per_caller_tenant_repo_and_expires() {
     let cache = AuthCache::new(Duration::from_millis(50));
     let a = caller_key(Some(b"Basic YTpi"));

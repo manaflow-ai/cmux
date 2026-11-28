@@ -84,6 +84,58 @@ apply() {
   touch "$stamp"
 }
 
+# Keeps only the newest session directory (and its .lock) of each crate's incremental cache in FILES.
+# rustc loads the newest finalized session, s-<base36 time>-<random>-<svh>, and none older; the older
+# ones still sat in the target (the one apply copied, and one per build since), and the hard-link rule above
+# packed each whole. Machine channel run 46087046243 (2026-11-28, x86_64-unknown-linux-musl): of the
+# delta's 21333 MiB, 6585 MiB were such older sessions (acpmux alone kept two of 2773 MiB each), an
+# 8.17 GB archive that took 107 s to restore. A session still being written ends in -working and is
+# never the one the next build reads, so it is dropped too.
+drop_stale_sessions() { # <file list, one path per line, sorted>
+  awk '
+    # Only names in rustc'"'"'s shape (s-<time>-<random>-<svh|working>, s-<time>-<random>.lock) count;
+    # anything else passes through untouched.
+    function session_of(path,   rest, name) {
+      if (!match(path, /\/incremental\/[^\/]+\/s-[^\/]+/)) return ""
+      rest = substr(path, RSTART, RLENGTH)
+      name = rest; sub(/.*\//, "", name)
+      if (name !~ /^s-[0-9a-z]+-[0-9a-z]+(-[0-9a-z]+|\.lock)$/) return ""
+      return rest
+    }
+    {
+      line[NR] = $0
+      s = session_of($0)
+      if (s == "") next
+      crate = s; sub(/\/s-[^\/]*$/, "", crate)
+      prefix = substr($0, 1, index($0, s) - 1) crate
+      name = s; sub(/.*\/s-/, "s-", name)
+      if (name ~ /\.lock$/ || name ~ /-working$/) next
+      id = name; sub(/^s-/, "", id)
+      split(id, part, "-")
+      stamp = part[1]
+      key = prefix
+      if (!(key in newest) || length(stamp) > length(newest_stamp[key]) \
+          || (length(stamp) == length(newest_stamp[key]) && stamp > newest_stamp[key])) {
+        newest[key] = part[1] "-" part[2]
+        newest_stamp[key] = stamp
+      }
+    }
+    END {
+      for (i = 1; i <= NR; i++) {
+        p = line[i]
+        s = session_of(p)
+        if (s == "") { print p; continue }
+        crate = s; sub(/\/s-[^\/]*$/, "", crate)
+        key = substr(p, 1, index(p, s) - 1) crate
+        name = s; sub(/.*\/s-/, "", name); sub(/\.lock$/, "", name)
+        split(name, part, "-")
+        if ((key in newest) && part[1] "-" part[2] == newest[key] && name !~ /-working$/) print p
+      }
+    }
+  ' "$1" > "$1.kept"
+  mv -f "$1.kept" "$1"
+}
+
 pack() {
   if [[ ! -f "$stamp" ]]; then
     echo "cargo delta: no stamp $stamp (apply did not run); nothing packed"
@@ -106,6 +158,7 @@ pack() {
       [[ -n "$path" && ( -f "$target/$path" || -L "$target/$path" ) ]] && printf '%s\n' "$path"
     done < "$list"
   } | grep -v -x -e "$manifest_name" -e "$source_name" -e '.cmux-testbox-cpu' | sort -u > "$files" || true
+  drop_stale_sessions "$files"
   if [[ -s "$files" ]]; then
     (cd "$target" && tr '\n' '\0' < "$files" | xargs -0 -r cp -a --parents --link -t "$out" 2>/dev/null) \
       || (cd "$target" && tr '\n' '\0' < "$files" | xargs -0 -r cp -a --parents --remove-destination -t "$out")

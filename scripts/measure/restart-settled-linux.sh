@@ -85,7 +85,14 @@ if [[ "$only" != terminal ]]; then
   for link in "${each[@]}"; do
     LINK="$link" MODE=down ROUNDS="$rounds" TURNS="$turns" ACPMUX_DOWN_MS="$down" FIXTURE="$fixture" OPEN="$open" CPU="$cpu" LINK_ZLIB="$zlib" \
       bun bench/first-load-after-restart.bench.ts >"$out/chat-$link.log" 2>&1 ||
-      { status=1; echo "restart-settled: the chat bench failed on $link:"; grep -v BABEL "$out/chat-$link.log" | tail -n 20; }
+      {
+        status=1
+        echo "restart-settled: the chat bench failed on $link:"
+        # What a warm load that never settled said (the bench's `WARM` lines) comes before the tail: the tail alone
+        # is the stack of the timeout, never its cause.
+        grep -E "^WARM " "$out/chat-$link.log" | head -n 60 || true
+        grep -v BABEL "$out/chat-$link.log" | tail -n 20
+      }
     grep -E "^RESTART_SETTLED_JSON |^restart split" "$out/chat-$link.log" || true
     # PROFILE=1 or WIRE_TRACE=1 (the bench's knobs, passed through the environment): what they print, too.
     if [[ "${PROFILE:-}" == 1 || "${WIRE_TRACE:-}" == 1 ]]; then

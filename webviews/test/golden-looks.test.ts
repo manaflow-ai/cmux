@@ -68,6 +68,31 @@ test("a setup folder is a look: its theme file for the scheme it draws, its styl
   expect(look.setupDir).toBe(path.resolve(dir));
 });
 
+test("a setting a look keeps in a file of its folder is that file's document, as install puts it", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "golden-look-"));
+  mkdirSync(path.join(dir, "agent-pane"));
+  writeFileSync(
+    path.join(dir, "cmux-setup.json"),
+    JSON.stringify({
+      settings: {
+        "agentPane.display.thinking.glyph": { $file: "agent-pane/thinking-glyph.json" },
+        "agentPane.display.font.size": { $file: "../outside.json" },
+      },
+    }),
+  );
+  writeFileSync(
+    path.join(dir, "agent-pane/thinking-glyph.json"),
+    '// dots\n{ "$schema": "cmux.particles/1", "particle": { "size": 3 } }',
+  );
+  const look = lookFromSetup(dir);
+  expect(lookDisplay(look)["agentPane.display.thinking.glyph"]).toEqual({
+    $schema: "cmux.particles/1",
+    particle: { size: 3 },
+  });
+  // A path out of the folder stays the reference it was, as install refuses it.
+  expect(look.settings["agentPane.display.font.size"]).toEqual({ $file: "../outside.json" });
+});
+
 test("a look repo's preview stills go where the looks gallery reads them", () => {
   expect(previewPath("/src/my-look", "light")).toBe("/src/my-look/preview/golden-light.png");
   expect(previewPath("/src/my-look", "dark")).toBe("/src/my-look/preview/golden-dark.png");

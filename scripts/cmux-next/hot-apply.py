@@ -731,7 +731,7 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
     web_strings, swift_strings = web_catalogs(repo, sha, files.get("strings", []))
     shell = files.get("rebuild", []) + files.get("swift-live", []) + swift_strings
     daemon = files.get("daemon", [])
-    abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
+    abi = abi_needed(repo, sha)
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
             "web": set_digest(blobs, files.get("web-live", []) + web_strings),
@@ -942,12 +942,52 @@ def command_live_from(args) -> int:
     return 0
 
 
+WEB_ABI_PATH = "webviews/src/web-abi.json"
+# Waits between tries of a web-abi.json read that failed: a blob-less clone fetches the blob from GitHub, which
+# answers 503 at times ("RPC failed; HTTP 503").
+ABI_READ_RETRY_SECONDS = (2, 5)
+
+
+class AbiReadError(RuntimeError):
+    """COMMIT's web-abi.json is in its tree and could not be read: an infra failure (the blob fetch failed), not
+    "no ABI". A plan that took it for None compared None with the app's ABI and planned a build (PR 57082 at
+    6c31c0584c7d, abi 9 like its app: a 503 on the worker's blob fetch planned needs_build, a 40-minute look lost)."""
+
+
 def abi_at(repo: Path, commit: str) -> int | None:
-    """The web ABI of COMMIT's tree (--base: no app to read it from)."""
-    try:
-        return json.loads(git(repo, "show", f"{commit}:webviews/src/web-abi.json"))["abi"]
-    except (RuntimeError, ValueError, KeyError):
-        return None
+    """The web ABI of COMMIT's tree (--base: no app to read it from). None only when COMMIT's tree has no
+    web-abi.json, or one with no integer `abi`. A read that fails (the blob fetch of a blob-less clone, a missing
+    commit) is retried, then raises AbiReadError: it never comes back as None."""
+    failures = []
+    for wait in (*ABI_READ_RETRY_SECONDS, None):
+        listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-z", commit, "--", WEB_ABI_PATH],
+                                capture_output=True, text=True, errors="replace")
+        if listed.returncode == 0 and not listed.stdout.strip("\0"):
+            return None  # the tree has no web-abi.json
+        if listed.returncode == 0:
+            shown = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:{WEB_ABI_PATH}"],
+                                   capture_output=True, text=True, errors="replace")
+            if shown.returncode == 0:
+                try:
+                    abi = json.loads(shown.stdout)["abi"]
+                except (ValueError, KeyError, TypeError):
+                    return None
+                return abi if type(abi) is int else None
+            failures.append(f"git show: {shown.stderr.strip()[-300:]}")
+        else:
+            failures.append(f"git ls-tree: {listed.stderr.strip()[-300:]}")
+        if wait is not None:
+            time.sleep(wait)
+    raise AbiReadError(f"infra: could not read {commit}:{WEB_ABI_PATH} in {repo} after {len(failures)} tries "
+                       f"(not a missing ABI): {failures[-1]}")
+
+
+def abi_needed(repo: Path, commit: str) -> int:
+    """COMMIT's web ABI, where its tree must have one: AbiReadError on a read failure, RuntimeError when absent."""
+    abi = abi_at(repo, commit)
+    if abi is None:
+        raise RuntimeError(f"{commit} has no web ABI in {WEB_ABI_PATH}")
+    return abi
 
 
 def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None, unsigned: bool = False) -> dict:
@@ -989,7 +1029,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         # A branch's web is not published: try-pr.sh serves it from the branch (web-overlay.sh follow).
         out["left"]["web (not published for a branch)"] = web
     elif web:
-        want = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
+        want = abi_needed(repo, sha)
         have = abi_at(repo, base) if given_base else app_abi(app)
         if have == want:
             out["parts"].append("web")

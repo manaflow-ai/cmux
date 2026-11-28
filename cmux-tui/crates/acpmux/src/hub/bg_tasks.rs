@@ -253,11 +253,20 @@ impl Hub {
             bg_run::request_stop(&dir, &id, &spec.generation);
             return Err(RpcError::invalid_params("the chat stopped; its task was stopped"));
         }
-        let record = bg_run::read_record(&dir, &id)
-            .ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
-        // Every task is watched: its end reaches the process registry's clients, and with
-        // `notify` its chat (`bg_notify.rs`).
-        self.bg_watch(&dir, &record);
+        let record = bg_run::read_record(&dir, &id);
+        // Every task is watched, from its lock alone when its record cannot be read now (the
+        // runner runs it all the same): its end reaches the process registry's clients, and with
+        // `notify` its chat (`bg_notify.rs`). A listing gives such a task its row
+        // (`bg_registry.rs` `bg_reconcile`).
+        let watched = record.clone().unwrap_or_else(|| Record {
+            id: id.clone(),
+            session_id: session.id.clone(),
+            generation: spec.generation.clone(),
+            ..Record::default()
+        });
+        self.bg_watch(&dir, &watched);
+        let record =
+            record.ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
         self.bg_publish(session, &dir, &record);
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
@@ -281,9 +290,15 @@ impl Hub {
         };
         let profile = self.spawn_profile_for(meta, &profile, &defaults.env).await?;
         let at = Some((session.id.as_str(), meta.name.as_str()));
-        let cmd = crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
-            .await
-            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        let (cmd, scratch) =
+            crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
+                .await
+                .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        if scratch.is_some() {
+            return Err(RpcError::invalid_params(
+                "GitHub Copilot credentials require an agent launch",
+            ));
+        }
         Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }
 
@@ -304,9 +319,7 @@ impl Hub {
         self.bg_records(dir)
             .tasks
             .iter()
-            .filter(|t| {
-                t.record.ended_at.is_none() && want(&t.record) && !bg_gone(dir, &t.record.id)
-            })
+            .filter(|t| t.record.ended_at.is_none() && want(&t.record) && !t.gone(dir))
             .count()
     }
 
@@ -316,8 +329,19 @@ impl Hub {
         self.bg_records(&dir)
             .tasks
             .iter()
-            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .filter(|t| t.record.ended_at.is_none() && !t.gone(&dir))
             .map(|t| (t.record.id.clone(), t.record.cwd.clone()))
+            .collect()
+    }
+
+    /// The chat's running tasks' records, for what a move would interrupt (`move_interrupts.rs`).
+    pub(super) fn bg_running_records(&self, session: &Session) -> Vec<Record> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !t.gone(&dir))
+            .map(|t| t.record.clone())
             .collect()
     }
 
@@ -329,7 +353,7 @@ impl Hub {
         self.bg_records(&dir)
             .tasks
             .iter()
-            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .filter(|t| t.record.ended_at.is_none() && !t.gone(&dir))
             .filter_map(|t| {
                 let r = &t.record;
                 let mut row = crate::rearm::parse(&r.command, r.started_at)?.to_json();
@@ -349,7 +373,7 @@ impl Hub {
         let dir = self.bg_dir(session);
         let folder = self.bg_records(&dir);
         let t = folder.tasks.iter().find(|t| t.record.id == id)?;
-        if t.record.ended_at.is_some() || bg_gone(&dir, id) {
+        if t.record.ended_at.is_some() || t.gone(&dir) {
             return None;
         }
         crate::rearm::parse(&t.record.command, t.record.started_at)
@@ -379,9 +403,8 @@ impl Hub {
         self.bg_records(&dir)
             .tasks
             .iter()
-            .map(|t| &t.record)
-            .filter(|r| r.ended_at.is_none() && r.pid > 0 && !bg_gone(&dir, &r.id))
-            .map(|r| r.pid)
+            .filter(|t| t.record.ended_at.is_none() && t.record.pid > 0 && !t.gone(&dir))
+            .map(|t| t.record.pid)
             .collect()
     }
 
@@ -757,8 +780,9 @@ const STOP_WAIT: std::time::Duration =
 const STOP_LOOK: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Whether the task's runner is surely gone: its lock is free or missing. A lock that cannot be
-/// probed proves nothing, so it never counts.
-fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
+/// probed proves nothing, so it never counts. Counts and lists ask the folder's look instead
+/// (`BgTask::gone`, `bg_folder.rs`), which keeps the answer; a stop's wait and a sweep ask here.
+pub(super) fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
     #[cfg(unix)]
     {
         matches!(
@@ -834,8 +858,19 @@ pub(super) fn bg_view_at(
     tail: u64,
     segments: Option<&[u64]>,
 ) -> Value {
+    bg_view_with(dir, r, tail, segments, || bg_gone(dir, &r.id))
+}
+
+/// [`bg_view_at`], with `gone` saying whether the task's runner is surely gone.
+pub(super) fn bg_view_with(
+    dir: &std::path::Path,
+    r: &Record,
+    tail: u64,
+    segments: Option<&[u64]>,
+    gone: impl FnOnce() -> bool,
+) -> Value {
     // An exit the runner wrote is final; without one, only a free lock says the runner is gone.
-    let running = r.ended_at.is_none() && !bg_gone(dir, &r.id);
+    let running = r.ended_at.is_none() && !gone();
     let state = match (running, r.ended_at, r.stopped, r.signal) {
         (true, ..) => "running",
         (_, None, ..) => "lost",

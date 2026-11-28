@@ -331,6 +331,10 @@ Each line: `id`: title (where cmux offers it; the context facts it requires). Wi
 
 /// `motion`: the animation settings, then the default length of each chrome motion they turn
 /// off or scale (`schemas/motion-scale/motion-scale.json`, which the pages' tokens come from).
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn motion_surface(schema: &Schema) -> Surface {
     let mut text = String::from(
         "# motion (settings)\n\nAnimations in cmux's own chrome: the switches below turn a kind off, \

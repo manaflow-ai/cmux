@@ -271,7 +271,7 @@ impl Mux {
             else {
                 return false;
             };
-            let entity = crate::server::tree_entity_json(
+            let entity = crate::tree_wire::tree_entity_json(
                 &state,
                 &notifications,
                 TreeDeltaKind::ScreenRenamed,
@@ -323,7 +323,7 @@ impl Mux {
             (|| {
                 let pane = state.pane_of(target)?;
                 let (wi, si) = state.screen_of(pane)?;
-                let entity = crate::server::tree_entity_json(
+                let entity = crate::tree_wire::tree_entity_json(
                     &state,
                     &notifications,
                     TreeDeltaKind::TabRenamed,

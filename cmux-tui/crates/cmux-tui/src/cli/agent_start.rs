@@ -233,7 +233,9 @@ pub(in crate::cli) fn parse_options(words: &[&str], command: &str) -> Result<Opt
                 };
                 match name {
                     "--cmd" if value.trim().is_empty() => {
-                        return Err(UsageError("--cmd needs a launcher, like 'sr2 claude'".into()));
+                        return Err(UsageError(
+                            "--cmd needs a launcher, like 'claude --model opus'".into(),
+                        ));
                     }
                     "--cmd" => options.cmd = Some(value),
                     "--harness" => options.harness = Some(harness_name(&value)),

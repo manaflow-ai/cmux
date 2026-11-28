@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.gatewayStalled" : {
+      "comment" : "Agent pane: a failed turn's note when the model gateway timed out before calling the model (cmux#57823)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم تُجب بوابة {harness} خلال {time} ولم تتصل بالنموذج بعد. هذا عطل في البوابة وليس حدًّا للمعدل: حاول مجددًا أو بدّل النموذج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gateway za {harness} nije odgovorio za {time} i još nije pozvao model. Problem je u gatewayu, ne u ograničenju: pokušaj ponovo ili promijeni model."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gatewayen for {harness} svarede ikke inden for {time} og nåede aldrig at kalde modellen. Det er gatewayen, ikke en hastighedsgrænse: prøv igen, eller skift model."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Gateway von {harness} hat innerhalb von {time} nicht geantwortet und das Modell noch nicht aufgerufen. Das liegt am Gateway, nicht an einem Limit: Versuche es erneut oder wechsle das Modell."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness}'s gateway did not answer within {time} and never reached the model. This is the gateway, not a rate limit: try again, or switch model."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La pasarela de {harness} no respondió en {time} y no llegó a llamar al modelo. Es la pasarela, no un límite de uso: inténtalo de nuevo o cambia de modelo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La passerelle de {harness} n'a pas répondu en {time} et n'a pas appelé le modèle. C'est la passerelle, pas une limite : réessaie ou change de modèle."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il gateway di {harness} non ha risposto entro {time} e non ha chiamato il modello. È il gateway, non un limite: riprova o cambia modello."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} のゲートウェイが {time} 以内に応答せず、モデルを呼び出していません。レート制限ではなくゲートウェイの問題です。再試行するか、モデルを切り替えてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ច្រកផ្លូវរបស់ {harness} មិនបានឆ្លើយក្នុង {time} ហើយមិនបានហៅម៉ូដែលទេ។ នេះជាបញ្ហាច្រកផ្លូវ មិនមែនការកំណត់អត្រាទេ៖ សាកម្ដងទៀត ឬប្ដូរម៉ូដែល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness}의 게이트웨이가 {time} 안에 응답하지 않았고 모델을 호출하지도 않았습니다. 속도 제한이 아니라 게이트웨이 문제입니다. 다시 시도하거나 모델을 바꾸세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gatewayen for {harness} svarte ikke innen {time} og kalte aldri modellen. Det er gatewayen, ikke en hastighetsgrense: prøv igjen, eller bytt modell."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Brama {harness} nie odpowiedziała w ciągu {time} i nie wywołała modelu. To brama, nie limit: spróbuj ponownie albo zmień model."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O gateway de {harness} não respondeu em {time} e não chegou a chamar o modelo. É o gateway, não um limite de uso: tente de novo ou troque de modelo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Шлюз {harness} не ответил за {time} и так и не обратился к модели. Это сбой шлюза, а не лимит: повторите или смените модель."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เกตเวย์ของ {harness} ไม่ตอบภายใน {time} และยังไม่ได้เรียกโมเดล นี่คือปัญหาของเกตเวย์ ไม่ใช่การจำกัดอัตรา ลองอีกครั้งหรือเปลี่ยนโมเดล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ağ geçidi {time} içinde yanıt vermedi ve modele hiç ulaşmadı. Bu bir hız sınırı değil, ağ geçidi sorunu: tekrar dene ya da modeli değiştir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Шлюз {harness} не відповів за {time} і так і не звернувся до моделі. Це збій шлюзу, а не ліміт: спробуйте ще раз або змініть модель."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cổng của {harness} không phản hồi trong {time} và chưa gọi tới mô hình. Đây là lỗi cổng, không phải giới hạn: thử lại hoặc đổi mô hình."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 的网关在 {time} 内没有响应，也没有调用模型。这是网关问题，不是限流：请重试，或切换模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 的閘道在 {time} 內沒有回應，也沒有呼叫模型。這是閘道問題，不是限流：請重試，或切換模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

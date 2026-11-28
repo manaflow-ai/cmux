@@ -52,6 +52,8 @@ pub(in crate::hub) const HISTORY_FILE: &str = "events/history.cspb";
 
 #[path = "pack_as_it_grows.rs"]
 mod pack_as_it_grows;
+#[path = "pack_trust.rs"]
+mod pack_trust;
 /// Each chat's newest history-later prepare's pack ([`Hub::prepack_history`]): the seq it packs
 /// through, and its result once done.
 static PREPACKS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (u64, Arc<Prepack>)>>> =
@@ -106,6 +108,27 @@ struct Prepacked {
     ms: u64,
 }
 
+/// A log line's fields as `emit_lines` reads them, its message unparsed, in an
+/// `EventRecord`'s order. A line is copied as it is only when it is this written back (its
+/// fields exactly an `EventRecord`'s, in its order, no space): the bytes `serde_json` writes
+/// for the record, its message as `serde_json` wrote it (keys sorted: no `preserve_order`).
+#[derive(serde::Deserialize, serde::Serialize)]
+// A local log line, not a peer's: one with a field this build does not know is parsed whole.
+// skew: strict a line read here falls back to a whole parse, never refused
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoggedLine<'a> {
+    seq: u64,
+    at: u64,
+    #[serde(borrow)]
+    dir: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    kind: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    msg: &'a serde_json::value::RawValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_seq: Option<u64>,
+}
+
 /// The most records one scan of [`Hub::write_lines`] writes before it lets the store's
 /// fork-view lock go and scans on from the last one. Three in tests, so every export and pack
 /// test writes its lines in several passes and checks they are the bytes one pass wrote.
@@ -142,6 +165,23 @@ impl Drop for PrepackDone<'_> {
 
 /// The chat folder's note that its history through a seq has not arrived.
 const PENDING_FILE: &str = "transfer-history-pending.json";
+
+/// The muted notice kind a chat client draws as one line (`server/host_notice.rs`).
+const HOST_NOTICE: &str = crate::server::host_notice::KIND;
+
+/// The line a moved chat shows while its earlier history is on its way.
+pub(in crate::hub) const ARRIVING: &str =
+    "Moved here. Earlier messages are still arriving; you can keep going.";
+
+/// The line a moved chat shows once its earlier history is here.
+pub(in crate::hub) fn arrived_text(records: u64, waited_ms: Option<u64>) -> String {
+    match waited_ms {
+        Some(ms) => {
+            format!("Earlier messages arrived ({records} records, {:.1} s).", ms as f64 / 1000.0)
+        }
+        None => format!("Earlier messages arrived ({records} records)."),
+    }
+}
 
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
@@ -196,6 +236,8 @@ impl Hub {
         let store = self.pack_store(chat)?;
         // It writes the chat's manifest, as a pack does.
         let _turn = PackTurn::take(chat);
+        // Its segments are the bundle's, not ones a seal here checked against this log.
+        self.forget_pack_trust(chat);
         let mut input = std::io::BufReader::new(std::fs::File::open(&file)?);
         let manifest = pack::ship::unbundle(&store, &mut input, pack::ship::Lacking::Refuse)
             .map_err(pack_error)?
@@ -292,10 +334,24 @@ impl Hub {
             return;
         }
         let Some(note) = self.pending_note(&session.id) else { return };
-        let awaited = json!({"afterSeq": after, "digest": token_digest(field(&staged, "token"))});
+        let awaited = json!({"afterSeq": after, "digest": token_digest(field(&staged, "token")),
+                             "at": crate::store::now_ms()});
         if let Err(error) = crate::home_fs::write(&note, awaited.to_string()) {
             tracing::warn!(session = %session.id, "awaited history not noted: {error:#}");
+            return;
         }
+        // Playable before it is fully here (Leo, 11-25: "playable vs fully installed/downloaded
+        // ... or just go"): the chat takes prompts now, and says in one muted line that what came
+        // before is still arriving. No spinner, nothing waits on it.
+        self.append(session, "mux", HOST_NOTICE, json!({"text": ARRIVING, "source": "move"}));
+    }
+
+    /// The history a moved chat here still awaits, for Session Info (`historyFollowing`):
+    /// `{throughSeq, sinceMs}`, None once it arrived (or it never followed). One small file read.
+    pub(in crate::hub) fn history_following(&self, id: &str) -> Option<Value> {
+        let note = read_json(&self.pending_note(id)?)?;
+        let through = field(&note, "afterSeq").as_u64()?;
+        Some(json!({"throughSeq": through, "sinceMs": field(&note, "at").as_u64()}))
     }
 
     /// The history a chat here awaits: `(afterSeq, digest)`.
@@ -489,8 +545,7 @@ impl Hub {
             .take_while(|s| s.sealed && s.seq.is_some_and(|(_, hi)| hi <= through))
             .collect();
         let Some(last) = candidates.last().and_then(|s| s.seq) else { return Ok(None) };
-        let trusted = self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id)
-            == Some(&stamp);
+        let trusted = self.pack_trusted(&session.id, store, stamp);
         let keep = if trusted {
             candidates.len()
         } else {
@@ -533,13 +588,12 @@ impl Hub {
         });
         let _ = crate::home_fs::remove_file(&lines);
         let packed = packed?;
-        if packed.is_some() && self.store.log_stamp(&session.id)? == stamp {
+        if let Some((manifest, _, _)) = &packed
+            && self.store.log_stamp(&session.id)? == stamp
+        {
             // Every sealed segment the pack names now was checked against the log at `stamp`
             // (kept ones by hash or by the same trust, the rest encoded from it here).
-            self.pack_checked
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(session.id.clone(), stamp);
+            self.trust_pack(&session.id, store, stamp, manifest);
         }
         Ok(packed)
     }
@@ -578,21 +632,65 @@ impl Hub {
         // chat queues behind that waiting commit. A whole 30 MB log written in one scan, on the
         // pack worker's background-priority thread (`pack_as_it_grows.rs`) of a loaded host, held
         // it for minutes (the coordinator Mac, 2026-11-27: every acpmux delivery there timed out).
+        //
+        // Each pass reads the log's lines as they are (`Store::scan_raw`) and copies a line that
+        // reads the same written back (every record `display_logged` leaves as it is: the
+        // stored line is `serde_json`'s of the record, and so the bytes it writes) without
+        // parsing its message; only the last line (its digest) and the ones `display_logged` may
+        // change are parsed whole. Parsing every line into a `Value` was a whole core on a
+        // loaded host (cosmic-gray, 2026-11-28: the pack-grow thread, 1,079 of 1,846 samples in
+        // `scan_lines` and its allocations).
         loop {
             let (mut seen, mut ended) = (0usize, true);
             let from = last;
-            self.store.scan(&session.id, from, &mut |mut e: EventRecord| {
-                if e.seq > through {
+            let mut again = Vec::new();
+            self.store.scan_raw(&session.id, from, &mut |line: &[u8]| {
+                let head = match serde_json::from_slice::<LoggedLine>(line) {
+                    Ok(head) => Some(head),
+                    Err(_) => None,
+                };
+                let seq = match &head {
+                    Some(head) => head.seq,
+                    // A line the head does not read (a field it does not know): parsed whole
+                    // below, or skipped as `scan` skips one it cannot read.
+                    None => match serde_json::from_slice::<EventRecord>(line) {
+                        Ok(rec) => rec.seq,
+                        Err(_) => return true,
+                    },
+                };
+                if seq <= from {
+                    return true;
+                }
+                if seq > through {
                     return false;
                 }
-                let at_end = e.seq == through;
+                let at_end = seq == through;
                 let step = (|| -> anyhow::Result<()> {
-                    if at_end {
-                        digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                    last = seq;
+                    match &head {
+                        Some(head)
+                            if !at_end
+                                && !super::permissions::display_may_change(
+                                    &head.dir,
+                                    &head.kind,
+                                    head.msg.get(),
+                                )
+                                && {
+                                    again.clear();
+                                    serde_json::to_writer(&mut again, head).is_ok() && again == line
+                                } =>
+                        {
+                            out.write_all(line)?;
+                        }
+                        _ => {
+                            let mut e = serde_json::from_slice::<EventRecord>(line)?;
+                            if at_end {
+                                digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                            }
+                            self.display_logged(Some(session), &mut e);
+                            serde_json::to_writer(&mut *out, &e)?;
+                        }
                     }
-                    last = e.seq;
-                    self.display_logged(Some(session), &mut e);
-                    serde_json::to_writer(&mut *out, &e)?;
                     out.write_all(b"\n")?;
                     Ok(())
                 })();
@@ -743,6 +841,11 @@ impl Hub {
         let records = self
             .adopt_history(&session.id, &file)
             .map_err(|e| transfer_error("history", format!("{e:#}")))?;
+        let waited_ms = self
+            .pending_note(&session.id)
+            .and_then(|note| read_json(&note))
+            .and_then(|note| field(&note, "at").as_u64())
+            .map(|at| crate::store::now_ms().saturating_sub(at));
         if let Some(note) = self.pending_note(&session.id) {
             let _ = crate::home_fs::remove_file(&note);
         }
@@ -751,7 +854,14 @@ impl Hub {
             session,
             "mux",
             "history_arrived",
-            json!({"throughSeq": after, "records": records}),
+            json!({"throughSeq": after, "records": records, "waitedMs": waited_ms}),
+        );
+        // Fully here: the line that said it was arriving gets its answer.
+        self.append(
+            session,
+            "mux",
+            HOST_NOTICE,
+            json!({"text": arrived_text(records, waited_ms), "source": "move"}),
         );
         Ok(json!({"sessionId": session.id, "throughSeq": after, "records": records}))
     }
@@ -783,6 +893,9 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+#[path = "emit_lines_tests.rs"]
+mod emit_lines_tests;
 #[cfg(test)]
 #[path = "pack_through_kept_tests.rs"]
 mod kept_tests;
