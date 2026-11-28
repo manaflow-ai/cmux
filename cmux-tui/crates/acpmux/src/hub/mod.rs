@@ -301,8 +301,11 @@ mod permission_groups;
 pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
+pub(crate) mod reply_slot;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
+#[cfg(any(test, feature = "test-support"))]
+mod test_sessions;
 mod wait_edges;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
@@ -2522,6 +2525,7 @@ impl Hub {
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
+            reply_slot: Default::default(),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
@@ -2715,24 +2719,6 @@ impl Hub {
         self.child_tags.note(&session);
         // Its pull requests wait for a review verdict (`review_queue.rs`).
         self.note_session_prs(&session);
-        session
-    }
-
-    /// Changes a session's metadata in place, with no record or save (tests outside the hub).
-    #[cfg(test)]
-    pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
-        edit(&mut session.meta.lock_or_recover());
-        // A change no record carries, as any direct metadata write is (`list_order.rs`).
-        self.events.row_changed(session);
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
-        let id = meta.id.clone();
-        let session = self.make_session(meta);
-        self.sessions.lock_or_recover().insert(id, session.clone());
-        self.update_live_session_index(&session);
-        self.session_came(&session);
         session
     }
 
@@ -3417,6 +3403,8 @@ impl Hub {
                 m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
             }
         }
+        // Its last replies: O(1), once a read seeded them (`reply_slot.rs`).
+        reply_slot::observe(session, &record);
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
         // Its row's sequence numbers and date moved, sent or not: its cached closed row is stale.

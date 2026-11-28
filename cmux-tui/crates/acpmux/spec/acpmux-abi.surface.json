@@ -14998,6 +14998,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/last_replies": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/ledger": {
       "/*untyped*": {
         "ty": "json",
@@ -36647,6 +36653,12 @@
       }
     },
     "response:_acpmux/last": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/last_replies": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

@@ -26,6 +26,48 @@ const FIRST_PAGE: usize = 256;
 /// The most JSON a page of the daemon's log may hold (`_acpmux/events` `maxBytes`).
 const PAGE_BYTES: usize = 4 << 20;
 
+/// Advertised by a daemon that serves `_acpmux/last_replies` from its per-chat slot.
+pub(crate) const REPLY_SLOT_FEATURE: &str = "replySlot";
+
+/// The last `count` agent replies of a session from the daemon's per-chat slot (`_acpmux/last_replies`,
+/// `hub/reply_slot.rs`), oldest first: no read of the log once the slot is seeded. A daemon that
+/// does not advertise [`REPLY_SLOT_FEATURE`] answers from the log's tail ([`last_replies`]): an
+/// older daemon forwards an unknown session method to the harness, so it is never probed.
+pub(crate) async fn slot_replies(
+    client: &Arc<Client>,
+    id: &str,
+    count: usize,
+) -> Result<Vec<String>> {
+    if !client.daemon_lists(REPLY_SLOT_FEATURE) {
+        return last_replies(client, id, count).await;
+    }
+    let query = json!({"sessionId": id, "count": count.max(1)});
+    let reply = client.request(method::MUX_LAST_REPLIES, query).await?;
+    Ok(texts(&reply))
+}
+
+/// `acpmux session last-message`: the replies of [`slot_replies`], as JSON or as text with a
+/// `---` line between replies.
+pub(crate) async fn print_slot(
+    client: &Arc<Client>,
+    id: &str,
+    count: usize,
+    json_out: bool,
+) -> Result<()> {
+    let replies = slot_replies(client, id, count).await?;
+    if json_out {
+        crate::cli::output::print_json(&json!({"sessionId": id, "replies": replies}));
+        return Ok(());
+    }
+    for (i, r) in replies.iter().enumerate() {
+        if i > 0 {
+            println!("\n---\n");
+        }
+        println!("{r}");
+    }
+    Ok(())
+}
+
 /// Additive protocol support, advertised before the CLI sends the new session method.
 pub(crate) const LAST_REPLY_FEATURE: &str = "lastReplies";
 
@@ -146,7 +188,7 @@ impl Pages {
 /// reply before it in the whole log: that reply is "suspect". The first records read are
 /// suspect the same way, as nothing older is known. The replies are whole when there are
 /// `count` of them and none is suspect.
-fn replies(events: &[Value], count: usize) -> (Vec<String>, bool) {
+pub(crate) fn replies(events: &[Value], count: usize) -> (Vec<String>, bool) {
     let mut t = Transcript::default();
     // Whether the whole log's last item may be a reply while the records read end in another
     // item. The other way round never happens: an item added here is added there too.

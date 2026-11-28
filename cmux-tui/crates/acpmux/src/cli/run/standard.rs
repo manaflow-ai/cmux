@@ -35,6 +35,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Defaults { .. }
             | Command::Skill
             | Command::Last { .. }
+            | Command::LastMessage { .. }
             | Command::Pending
             | Command::Ls(..)
             | Command::New(..)
@@ -304,6 +305,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             Ok(())
+        }
+        Command::LastMessage { session, count } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            crate::cli::last_reply::print_slot(&client, &id, count, json_out).await
         }
         Command::Pending => {
             let client = connect(true).await?;

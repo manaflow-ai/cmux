@@ -260,6 +260,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Any(json!({"sessionId": "$S"}), "only the chat's own agent or the person reads it"),
         ),
         (method::MUX_SESSION_FILES, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_LAST_REPLIES, Run(json!({"sessionId": "$S", "count": 2}))),
         (method::MUX_CONTEXT, Run(json!({"sessionId": "$S"}))),
         // The test config has no file (`Config.path` is not read from JSON), so the save writes nothing.
         (

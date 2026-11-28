@@ -1269,7 +1269,7 @@ impl Hub {
 /// Extract and mask one turn's agent reply. `max_chars` is only applied to the
 /// normal session summary path; race callers pass `None` so a reviewer result
 /// remains valid JSON even when it is longer than the summary cap.
-fn masked_reply(
+pub(super) fn masked_reply(
     events: &[crate::store::EventRecord],
     upto: u64,
     max_chars: Option<usize>,
