@@ -52,7 +52,7 @@ GATEWAY_MAC = frozenset({
     "nightly-interaction-latency.yml#benches-fleet",
     "rivals-nightly.yml#record-rivals-fleet",
     # Already on the gateway by vars.CI_EVAL_STEP_GATEWAY; linux-pickers-gone (host pins) froze them to the label.
-    "cmux-next-ios-gestures.yml#gestures",
+    "cmux-next-ios-gestures.yml#gestures-fleet",
     "cmux-next-ios-try-ahead.yml#build-ahead",
     "ios-review-gate.yml#gate-products-fleet",
     # Took the gateway by vars.CI_EVAL_STEP_GATEWAY (its fallback cmux-linux has no route to the controller);
@@ -86,7 +86,6 @@ REUSABLE_GATEWAY_KNOWN = frozenset({"ci-macos.yml#swift-package-tests"})
 HOOK_NAMED = frozenset({
     "chief-evals.yml#fleet-ab",
     "cmux-next-ios-energy-nightly.yml#bench",
-    "cmux-next-ios-gestures.yml#gestures",
     "cmux-next-ios-keyboard-motion.yml#bench",
     "cmux-next-ios-try-ahead.yml#build-ahead",
     "cmux-next-iphone-clips.yml#record",

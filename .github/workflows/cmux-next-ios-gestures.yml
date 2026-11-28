@@ -56,7 +56,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  gestures:
+  gestures-fleet:
     name: Gesture conflicts on a fleet simulator
     # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-26: "de facto, im
     # asking for 99% fewer minutes of ci time, period."): on a pull request this runs only on the `labeled` event that
