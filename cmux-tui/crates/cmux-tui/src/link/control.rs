@@ -308,8 +308,14 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
             )
             .await;
             // Owner session refusals are security events: always log them.
-            if let Err(InboundRefused::Owner(why)) = served {
-                eprintln!("cmux link: owner session refused ({why:?}) for {address}");
+            match served {
+                Err(InboundRefused::Owner(why)) => {
+                    eprintln!("cmux link: owner session refused ({why:?}) for {address}");
+                }
+                Err(InboundRefused::PhoneCarrier(why)) => {
+                    eprintln!("cmux link: phone chat ended ({why}) for {address}");
+                }
+                _ => {}
             }
         });
     }
