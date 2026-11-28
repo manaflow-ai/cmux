@@ -407,7 +407,7 @@ def main():
     # The reconnect leg (flows.json reconnect-after-drop, cmux-next-ios-sim.sh's reconnect-drops=10,60): the Mac's
     # link drops for each of these seconds; the phone must reattach by itself.
     ap.add_argument("--reconnect-drops", default="")
-    # The screens leg (cmux-next-ios-sim.sh's `screens`, ask-02dd2cc9ee): with the Mac linked, Home, Workspaces,
+    # The screens leg (the commit's Pair-E2E-Screens: 1 trailer, ask-02dd2cc9ee): with the Mac linked, Home, Workspaces,
     # the terminal, Chief and Chief's settings, each screenshotted, and none may say the Mac is offline.
     ap.add_argument("--screens", action="store_true")
     a = ap.parse_args()
@@ -558,7 +558,8 @@ def main():
              f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
     reconnect_ok = not drops
-    # The commit's Pair-E2E-Screens: 1 trailer turns the leg on too (the controller's word allowlist is hq's).
+    # The commit's Pair-E2E-Screens: 1 trailer turns the leg on (cmux-next-ios-sim.sh and the controller's
+    # word allowlist are reviewed-only, so a trailer runs it with neither changed).
     a.screens = a.screens or commit_trailer("Pair-E2E-Screens") == "1"
     screens_ok = not a.screens
     keychain = RigKeychain(a.mac_app)
