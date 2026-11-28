@@ -54,6 +54,7 @@ const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { trayItems } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
+const { DECK_MARKS } = await import("../src/agent-session/acpmux/subagents/HatHeadDeck");
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
 type StartedSession = import("../src/agent-session/acpmux/started/startedSessions").StartedSession;
@@ -103,7 +104,8 @@ async function mount(arm: string, props: Record<string, unknown> = {}) {
   );
   const head = () => host.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
   const title = () => host.querySelector(".acpmux-running-tray__title")?.textContent ?? "";
-  const marks = () => [...host.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark")];
+  // A line's marks; `trail` also keeps empty slots (`data-blank`, #61105), which are no line's.
+  const marks = () => [...host.querySelectorAll<HTMLElement>(".acpmux-hat-deck__mark:not([data-blank])")];
   // React's enter and leave come from pointerover and pointerout with the node the pointer came from.
   const enter = async (node: Element, from: Element | null = null) =>
     act(async () => {
@@ -126,6 +128,8 @@ describe("the one-line hat's marks", () => {
     try {
       expect(marks().length).toBe(3);
       const deck = host.querySelector(".acpmux-hat-deck")!;
+      // After the words the deck keeps every slot, empty ones too, so the bar never re-lays out (#61105).
+      expect(deck.querySelectorAll(".acpmux-hat-deck__mark").length).toBe(DECK_MARKS);
       expect(deck.getAttribute("data-at")).toBe("trail");
       const title = host.querySelector(".acpmux-running-tray__title")!;
       expect(title.compareDocumentPosition(deck) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

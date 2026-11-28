@@ -5,9 +5,10 @@
 // instantly, and, like, disappear instantly"):
 // - a finished command is a done line with its time, a failed one says failed, and neither has Stop;
 // - the hat says when it is held (open, or the pointer on it), so App.tsx's linger expires nothing then;
-// - in the open hat a line that leaves keeps its node (`data-leaving`) and folds its height to 0 on
-//   the shared fold, unmounting when that ends; a line that joins grows from 0; with no motion both
-//   apply at once.
+// - in the open hat a line that leaves keeps its node (`data-leaving`) and fades its ink out on the
+//   shared fold, unmounting when that ends; a line that joins fades in; with no motion both apply at
+//   once. No fold animates height (#60630, transcript-motion-model "One disclosure": a body takes its
+//   new height in one frame).
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
@@ -196,7 +197,7 @@ describe("composer hat: finished lines", () => {
 });
 
 describe("composer hat: lines enter and leave", () => {
-  test("a leaving line keeps its node while its height folds to 0, then goes", async () => {
+  test("a leaving line keeps its node while its ink fades out, then goes", async () => {
     motion(true);
     rememberTrayOpen("chat-leave", true);
     const view = mount("chat-leave");
@@ -215,7 +216,8 @@ describe("composer hat: lines enter and leave", () => {
       expect(leaving?.hasAttribute("inert")).toBe(true);
       const fold = played.find((animation) => leaving!.contains(animation.node));
       expect(fold).toBeDefined();
-      expect(fold!.frames.at(-1)).toMatchObject({ height: "0px", opacity: 0 });
+      expect(fold!.frames.at(-1)).toMatchObject({ opacity: 0 });
+      expect(fold!.frames.some((frame) => "height" in frame)).toBe(false);
       await act(async () => fold!.onfinish?.());
       expect(view.rows().length).toBe(1);
       expect(view.rows()[0]!.textContent).toContain("Diagnose nightly lag");
@@ -224,7 +226,7 @@ describe("composer hat: lines enter and leave", () => {
     }
   });
 
-  test("a joining line grows from 0 height in the open hat", async () => {
+  test("a joining line fades in from no ink in the open hat", async () => {
     motion(true);
     rememberTrayOpen("chat-join", true);
     const view = mount("chat-join");
@@ -237,7 +239,8 @@ describe("composer hat: lines enter and leave", () => {
       const joined = view.rows().find((row) => row.textContent?.includes("Watch the build"));
       const grow = played.find((animation) => joined!.contains(animation.node));
       expect(grow).toBeDefined();
-      expect(grow!.frames[0]).toMatchObject({ height: "0px", opacity: 0 });
+      expect(grow!.frames[0]).toMatchObject({ opacity: 0 });
+      expect(grow!.frames.some((frame) => "height" in frame)).toBe(false);
     } finally {
       await view.done();
     }

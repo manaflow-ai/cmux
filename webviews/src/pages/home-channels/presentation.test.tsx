@@ -1,6 +1,7 @@
 // Home Channels' header control is the same four-level ladder as the agent chat's menu
 // (agent-session/acpmux/chatDetail.ts). The old Messages | Transcript choice still reads.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Strings } from "../shared/i18n";
@@ -16,7 +17,8 @@ beforeAll(() => {
   Object.assign(scope, { window: dom.window, localStorage: dom.window.localStorage });
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
