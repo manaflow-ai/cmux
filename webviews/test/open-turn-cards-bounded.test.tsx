@@ -453,7 +453,8 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
           // The rest's box is as tall as their rows, so the body's scroll takes its whole height at once.
           expect(under()?.style.height).toBe(`${(n - lines()) * ROW}px`);
           // Scrolled to the end, the body draws its last subagent, over a box as tall as the rows above.
-          body!.scrollTop = n * ROW - BODY;
+          // jsdom keeps an element's scrollTop at 0, so the body's scroll is set as its own value.
+          Object.defineProperty(body!, "scrollTop", { configurable: true, value: n * ROW - BODY });
           await act(async () => void body!.dispatchEvent(new dom.window.Event("scroll")));
           expect(await settle(() => !!host.textContent?.includes(`reviewer-${n - 1}`), 5_000)).toBe(true);
           expect(under()?.style.display).toBe("none");
