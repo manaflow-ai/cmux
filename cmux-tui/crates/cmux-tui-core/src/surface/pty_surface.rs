@@ -357,11 +357,13 @@ impl PtySurface {
         self.frame_requests.request(generation, false);
         self.mark_output_dirty();
         // `SurfaceOutput` is published once until a renderer takes the
-        // output; the held screen detector's watch needs every output.
-        if crate::mux::journal_plugin_demand_tapped()
-            && let Some(mux) = self.mux.upgrade()
-        {
-            mux.note_journal_plugin_demand_output(self.event_surface_id);
+        // output; the held screen detector's watch and the wake echo mark
+        // need every output.
+        if let Some(mux) = self.mux.upgrade() {
+            mux.note_terminal_output_for_echo(self.event_surface_id);
+            if crate::mux::journal_plugin_demand_tapped() {
+                mux.note_journal_plugin_demand_output(self.event_surface_id);
+            }
         }
     }
 

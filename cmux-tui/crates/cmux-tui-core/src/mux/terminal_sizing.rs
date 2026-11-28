@@ -57,7 +57,14 @@ impl Mux {
             self.arm_echo(surface);
             return;
         }
-        if self.note_terminal_activity_of(surface, client, None).is_some() {
+        // A client attached to this terminal is a person's even when it takes no part in the grid: one that
+        // attached with no size, or a passive view. Only an unattached one-shot `send` (automation) is not input.
+        // Without this, such a client's typing never reached the activity stream, so the Cloud agent timed no echo
+        // for it (wake-echo runs 46179135080, 46183663043: the probe attaches with no size; every wake block had
+        // no input) and its idle pause did not see the person typing.
+        if self.note_terminal_activity_of(surface, client, None).is_some()
+            || self.control_clients.is_attached_to(client, surface.id)
+        {
             self.activity.note_user_input();
             self.arm_echo(surface);
         }
