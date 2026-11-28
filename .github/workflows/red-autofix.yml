@@ -174,7 +174,9 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.triage.outputs.target }}
+          # Qualified: a bare branch name makes actions/checkout fetch every `<name>*` branch at this depth
+          # (feat-cmux-next* matched 1,891 branches, 3m49s in run 46145976706); refs/heads/ fetches one.
+          ref: refs/heads/${{ needs.triage.outputs.target }}
           path: fresh
           fetch-depth: 200
           persist-credentials: false
@@ -248,7 +250,9 @@ jobs:
           audience: ${{ vars.CLAUDE_POOL_TS_OIDC_AUDIENCE }}
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.triage.outputs.target }}
+          # Qualified: a bare branch name makes actions/checkout fetch every `<name>*` branch at this depth
+          # (feat-cmux-next* matched 1,891 branches, 3m49s in run 46145976706); refs/heads/ fetches one.
+          ref: refs/heads/${{ needs.triage.outputs.target }}
           path: target
           fetch-depth: 200
           persist-credentials: false
