@@ -55,7 +55,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: swift-linux-packages-${{ github.ref }}
+  group: swift-linux-packages-${{ github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # A push run finishes, so it can seed the cache; a newer PR head cancels the old one.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -105,7 +105,11 @@ jobs:
     # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
     # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 30
+    # `listed` on a push runs every row (LISTED_ROWS `*`) from a cold .build: Save .build skips a group that
+    # handed a package to the Mac, and on feat-cmux-next it hands CmuxAgentCursor, CmuxSpinner and CmuxNext every
+    # run. 35 suites took 28 min cold (run 46163879438) and 30 min cut two later base runs off mid-suite
+    # (46170277921, 46176651336), so it gets 45; every other group keeps 30.
+    timeout-minutes: ${{ matrix.group == 'listed' && 45 || 30 }}
     # A group the change cannot fail starts no container and skips every step (REACHED below).
     container: ${{ (needs.plan.result != 'success' || needs.plan.outputs.groups == '*' || contains(needs.plan.outputs.groups, format('"{0}"', matrix.group))) && 'public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197' || '' }}
     env:

@@ -220,6 +220,20 @@ export function isBackdropPicture(value: unknown, choices: readonly string[] = [
   return choices.includes(value) || /^(system|file):\/./.test(value) || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value);
 }
 
+/** Rust schema/backdrop.rs `RECENTS_CAP`: how many past backgrounds `appearance.backgroundRecents` keeps. */
+const BACKDROP_RECENTS_CAP = 8;
+
+/**
+ * A value `appearance.background` takes (Rust schema/backdrop.rs `is_selection`): a picture, a mode
+ * (`none`, `daily`, `appearance`, `schedule`) or a folder by absolute path.
+ */
+function isBackdropSelection(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return (
+    ["none", "daily", "appearance", "schedule"].includes(value) || /^folder:\/./.test(value) || isBackdropPicture(value)
+  );
+}
+
 /** A Time of Day time: `H:MM` / `HH:MM`, or a sun event with an optional `±Nm` (≤1440) / `±Nh` (≤24) offset. */
 export function isBackdropTime(key: string): boolean {
   const clock = /^(\d{1,2}):(\d{2})$/.exec(key);
@@ -237,9 +251,6 @@ export function isBackdropLocation(value: unknown): boolean {
   return Math.abs(Number(parts[0])) <= 90 && Math.abs(Number(parts[1])) <= 180;
 }
 
-/** Rust schema/backdrop.rs RECENTS_CAP (Swift BackdropSelectionSetting.recentsCap). */
-const BACKDROP_RECENTS_CAP = 8;
-
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
@@ -256,6 +267,21 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     return isBackdropPicture(value, choices)
       ? null
       : "expected desktop, a listed painting, system:<absolute path> or file:<absolute path>";
+  }
+  if (row.validation === "domain:backdrop_pictures") {
+    // Rust schema/accepts.rs `BackdropPictures`: a list of fixed pictures (`appearance.paneArt.*`).
+    return Array.isArray(value) && value.every((item) => isBackdropPicture(item))
+      ? null
+      : "expected a list of pictures: desktop, a listed painting, system:<absolute path> or file:<absolute path>";
+  }
+  if (row.validation === "domain:backdrop_recents") {
+    // Rust schema/backdrop.rs `is_recents`: at most RECENTS_CAP distinct background values, newest first.
+    return Array.isArray(value) &&
+      value.length <= BACKDROP_RECENTS_CAP &&
+      value.every(isBackdropSelection) &&
+      new Set(value).size === value.length
+      ? null
+      : `expected at most ${BACKDROP_RECENTS_CAP} distinct backgrounds`;
   }
   if (row.validation === "domain:backdrop_schedule") {
     const ok =
@@ -281,26 +307,6 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       !Array.isArray(value) &&
       Object.entries(value).every(([name, text]) => Object.hasOwn(member, name) && member[name]!(text));
     return ok ? null : 'expected {"rotate": daily | folder:<path>, "folder": folder:<path>, "off": none | picture}';
-  }
-  if (row.validation === "domain:backdrop_pictures") {
-    // appearance.paneArt.*: pictures only (Rust schema/backdrop.rs is_picture), no mode or folder.
-    return Array.isArray(value) && value.every((item) => isBackdropPicture(item, choices))
-      ? null
-      : "expected a list of pictures: a listed painting, system:<absolute path> or file:<absolute path>";
-  }
-  if (row.validation === "domain:backdrop_recents") {
-    // appearance.backgroundRecents: at most 8 distinct background values, newest first (Rust is_recents).
-    const selection = (item: unknown) =>
-      typeof item === "string" &&
-      (["none", "daily", "appearance", "schedule", "desktop"].includes(item) ||
-        /^folder:\/./.test(item) ||
-        isBackdropPicture(item, choices));
-    return Array.isArray(value) &&
-      value.length <= BACKDROP_RECENTS_CAP &&
-      new Set(value).size === value.length &&
-      value.every(selection)
-      ? null
-      : `expected at most ${BACKDROP_RECENTS_CAP} distinct backgrounds`;
   }
   if (row.validation === "domain:backdrop_location") {
     return isBackdropLocation(value) ? null : "expected LAT,LON such as 37.77,-122.42";

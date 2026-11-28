@@ -374,11 +374,10 @@ const channelValue = (state: SettingsState) => state.rows.get("updates.channel")
  * `#/settings/updates?focus=channels:N`, a new N each time, so a second open scrolls back to it. */
 export const CHANNELS_FOCUS = "channels";
 
-const revealsCard = (focus: string | null) => {
-  // The deep-link router hands a bare card name on as its canonical `card.channels` (#56227).
-  const named = focus?.startsWith("card.") ? focus.slice("card.".length) : focus;
-  return named === CHANNELS_FOCUS || (named?.startsWith(`${CHANNELS_FOCUS}:`) ?? false);
-};
+// A bare `channels` link resolves to the card's own focus, `card.channels` (settingsLinks.ts, #56227);
+// `channels:N` reaches the card as written.
+const revealsCard = (focus: string | null) =>
+  focus === CHANNELS_FOCUS || focus === `card.${CHANNELS_FOCUS}` || (focus?.startsWith(`${CHANNELS_FOCUS}:`) ?? false);
 
 export function ChannelsCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();

@@ -70,8 +70,7 @@ export const MOCK_AUTOCLOUD_TEMPLATES: AutocloudTemplate[] = [
   {
     id: "ci-fix",
     title: "When CI fails on a PR, start an agent to fix it and push to the PR",
-    summary:
-      "CI fails on a pull request: an agent fixes it and pushes.",
+    summary: "CI fails on a pull request: an agent fixes it and pushes.",
     spec: {
       name: "Fix CI on pull requests",
       trigger: { type: "github", events: ["ci_failure"], repository: "" },

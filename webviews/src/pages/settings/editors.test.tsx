@@ -3,6 +3,7 @@ import { mockManagedKey } from "./mockProvider";
 import { categories, homes } from "./categories";
 import { DENSITY_ROWS } from "./density";
 import { rowsByKey, type SchemaRow } from "./schema";
+import type { LooksRun } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -201,6 +202,12 @@ describe("editors", () => {
     expect(ops(page.provider, "cmux.settings.preview.end")).toEqual([{ key: "appearance.backgroundOpacity" }]);
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.backgroundOpacity", value: 0.7 }]);
     const order = page.provider.log
+      // Appearance's looks gallery reads its packs and their previews when the page opens (#52638):
+      // reads, no write. Its other verbs (install, on, off, order) stay in the order.
+      .filter(
+        (entry) =>
+          !(entry.op === "cmux.settings.looks" && ["gallery", "preview"].includes((entry.params as LooksRun).verb)),
+      )
       .map((entry) => entry.op)
       .filter(
         (op) =>

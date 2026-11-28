@@ -109,13 +109,11 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     if (!tile || revealedTile.current) return;
     revealedTile.current = true;
     tile.scrollIntoView?.({ block: "center" });
-    // The reveal's own focus previews nothing: the tile is the saved background already.
+    // The reveal's own focus previews nothing: the tile is the saved background already, and a
+    // preview here would race the person's first edit on the page (an opacity drag's preview).
     revealing.current = true;
-    try {
-      tile.focus({ preventScroll: true });
-    } finally {
-      revealing.current = false;
-    }
+    tile.focus({ preventScroll: true });
+    revealing.current = false;
   };
   const backdrops = host?.backdrops ?? [];
   const cancelDwell = () => {
