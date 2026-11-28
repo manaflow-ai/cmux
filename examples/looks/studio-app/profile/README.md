@@ -54,7 +54,7 @@ Shift-Command-F (find) are cmux's defaults already.
 | New thread keys (mod+N / mod+shift+O new, mod+shift+N local, mod+alt+N without project) | partial | Command-N and Shift-Command-O start a chat (`palette.newAgentChat`), and the sidebar has a New thread row. Gap: no key for a chat without a project. |
 | Every key rebindable, with when-clauses, in Settings > Keybindings | matched | `keybindings.json` takes `when` clauses (this profile scopes its keys with `agentPaneFocused`), and Settings > Keybindings rebinds any key. |
 | Focus next region with F6 | missing | Gap: no action cycles the sidebar, composer and panels; `focusSidebar` and `nextSurface` are the nearest. |
-| Thread sidebar: group by project, timestamps, PR badge, running indicator | matched | The look's project section and rows with project, branch, PR and status; `sidebar.showTimestamps`. |
+| Thread sidebar: group by project, timestamps, PR badge, running indicator | matched | `sidebar.groupBy` `folder` puts threads under their project's header (`sidebar.folderlessUngrouped` keeps folderless threads in the plain list); rows with branch, PR and status; `sidebar.showTimestamps`. The Project picker section sits in the sidebar's bottom band, not above the threads. |
 | Sidebar top nav rows (New thread, Search) | matched | `sidebar.nav`: New thread and Search. |
 | Gray selected thread row and styled sidebar menus | matched | `appearance.selection` `neutral` keeps the selected row gray under the violet accent; `sidebar.drawnMenus` draws the right-click and more menus so the look's menu style applies. |
 | Pin threads and reorder them by drag | partial | Shift-Command-P pins (`palette.toggleTabPin`); drag reorders. Gap: pinned threads do not float into a group of their own. |
@@ -86,13 +86,13 @@ Shift-Command-F (find) are cmux's defaults already.
 | Follow-up Queue vs Steer, edit queued messages, opposite action on mod+Enter | partial | Queue or steer a follow-up and edit queued messages. Gap: no default keys for steer-first, edit-queued or send-in-background. |
 | Prompt stash (mod+S) and recall | partial | Stashed drafts come back from their chip. Gap: no stash action to bind Command-S to. |
 | Edit an earlier prompt, quote a response, suggested next prompt | matched | Edit a prompt, quote a reply, suggested next prompt. |
-| Voice dictation (mod+shift+D) | matched | Shift-Command-D (`palette.toggleDictation`); `agentPane.showDictation`. |
+| Voice dictation (mod+shift+D) | matched | Shift-Command-D (`palette.toggleDictation`). `agentPane.showDictation` is off: the app's composer draws no mic button. |
 | Centered empty-thread composer (draft hero) | matched | `agentPane.emptyChatComposerPosition` `center`. |
 | Composer placeholder 'Ask anything, @tag files/folders, $use skills, or / for commands' | matched | `agentPane.composerPlaceholder` (the r29 parity capture read the reference app's box; the earlier 'Ask for changes, send follow-ups, or attach images' was not its text). |
 | Model picker with provider rail, keyboard nav, custom models | partial | Shift-Command-M; the look's `cmux.composer.model.picker/1` view adds model search; `agentPane.composerLook` `studio`. Gap: no left provider rail with arrow-key provider switching. |
-| Reasoning effort picker, plus bindable increase/decrease effort | partial | Shift-Command-E opens effort. Gap: no increase or decrease effort action. |
+| Reasoning effort picker, plus bindable increase/decrease effort | partial | Shift-Command-E opens effort; the model picker view's `reasoningMenu` `separate` keeps effort on its own chip, not a column inside the model list. Gap: no increase or decrease effort action. |
 | Change model or provider mid-thread (hand a Claude thread to Codex) | matched | Switch the harness or model inside a chat. |
-| Multiple accounts per provider and account switching | matched | Add and switch accounts per chat. |
+| Multiple accounts per provider and account switching | matched | Add and switch accounts per chat; `sidebar.profileMenu.style` `account` makes the profile button open the account menu, not the app menu. |
 | Breadth of agent providers | partial | Claude and Codex among others. Gap: not every provider the app lists is built in. |
 | Access modes: Supervised / Auto-accept edits / Auto / Full access, per thread | partial | Shift-Command-A opens the mode menu (`agentPane.composer.switchMode`). Gap: modes are the agent's own, not four normalized ones. |
 | Inline approval card with keys; subagent approvals in parent thread | matched | The permission card with Option-Command-1 to 4; subagent approvals show in the parent chat. |

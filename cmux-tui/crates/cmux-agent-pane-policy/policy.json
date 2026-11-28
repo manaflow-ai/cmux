@@ -69,6 +69,7 @@
     "_acpmux/bg/output", "_acpmux/bg/stop",
     "_acpmux/cold_archive",
     "_acpmux/prompt_coach",
+    "_acpmux/pull_request_action",
     "_acpmux/customize_run",
     "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript"
   ],
@@ -88,7 +89,7 @@
     "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-    "_acpmux/cold_archive", "_acpmux/prompt_coach",
+    "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/pull_request_action",
     "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
     "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel"
   ],
@@ -243,6 +244,7 @@
     "_acpmux/archive": {"params": ["sessionId", "archived"], "acpmux": []},
     "_acpmux/cold_archive": {"params": ["sessionId", "archived"], "acpmux": []},
     "_acpmux/prompt_coach": {"params": ["sessionId", "coachId"], "acpmux": []},
+    "_acpmux/pull_request_action": {"params": ["sessionId", "url", "headSha", "action"], "acpmux": []},
     "_acpmux/customize_run": {"params": ["run", "_meta"], "acpmux": []},
     "_acpmux/auto_session/set": {"params": ["sessionId", "auto", "keepInCloud"], "acpmux": []},
     "_acpmux/auto_session/leftover": {"params": ["sessionId", "action"], "acpmux": []},
@@ -378,6 +380,7 @@
       "_acpmux/bg/output": ["That run's output, and Stop (direct.ts bgOutput, bgStop): read one background task of a chat in the pane's scope, or stop it, as `_acpmux/process/tail` and `_acpmux/process/kill` do (acpmux server/bg_tasks.rs serves only the chat's own agent or the person). Stopping starts nothing, so no gesture."],
       "_acpmux/cold_archive": ["Compress Chat and Decompress Chat (direct.ts coldArchive; acpmux hub/cold_archive.rs): move a chat in the pane's scope's log to the cold archive or back, as `_acpmux/archive` hides it. Nothing runs and nothing is deleted, so no gesture."],
       "_acpmux/prompt_coach": ["The prompt coach card's rewrite (direct.ts askCoaches; acpmux server/prompt_coach.rs): one small-model call that rewrites a chat in the pane's scope's own prompt into a `coach` record. It sends the chat nothing and runs no turn, so no gesture."],
+      "_acpmux/pull_request_action": ["The PR chip's Fix checks and Address review (PullRequestActions.tsx; acpmux server/pull_request_actions.rs): Rust reads only the displayed chat's PR (failed check log tails, unresolved review threads) at the head the chip showed and returns the prompt; this endpoint performs no merge or send."],
       "_acpmux/customize_run": ["The wrap-up card's Try it on, Keep and Revert (direct.ts customizeRun; acpmux customize_run.rs): one of three typed `cmux customize` requests, checked against an allowlist and run without a shell. The person's click in the card sends it."],
       "_acpmux/auto_session/set": ["Auto (plans/cmux-next/auto-mode/DESIGN.md; direct.ts setAutoSession, autoLeftover): the chat menu's Auto and Keep in Cloud, and Show, Apply or Discard of the changes this Mac made after the chat moved to the Cloud. Only the chat in scope, and only on a gesture (``gestureRules``). Transcript reads the Cloud's events of the chat while the Cloud runs it: read only, no gesture."]
     },

@@ -230,7 +230,8 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
         "app": app,
         # Whether the gate needs an ios-flows proof: some path besides this check's own files changed. A head that
         # changes only SELF builds the kit to test this check, and no flow reads it, so `cmux ios verify` selects
-        # nothing and posts no record (a pass needs a run): requiring one held cmux#62950 pending with no way out.
+        # nothing: requiring one held cmux#62950 pending with no way out. A head whose paths route here but
+        # select no flow gets a no-flows pass from `cmux ios verify` (ios_verify.no_flows_run, cmux#58097).
         "proof": proof,
         # The first reasons only: the plan rides one $GITHUB_OUTPUT line.
         "why": why[:MAX_WHY] + ([f"... {len(why) - MAX_WHY} more"] if len(why) > MAX_WHY else []),
