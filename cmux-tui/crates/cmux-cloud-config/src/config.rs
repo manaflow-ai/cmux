@@ -113,6 +113,9 @@ pub struct LegacyStore {
 /// imports the item read-only, in memory: the session stays the writer's, so a sign-out in the
 /// importer leaves it alive on the server and leaves the item, as the NIGHTLY adoption does. A
 /// session of its own (its Keychain store, or its earlier namespaced store) always wins over it.
+///
+/// A launch with its own state root (`CMUX_NEXT_STATE_ROOT`, #50830) has none: it has its own
+/// state and sign-in, so it neither imports the item another build wrote (#46910) nor writes it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedSession {
@@ -124,7 +127,8 @@ pub struct SharedSession {
 
 /// The shared session of a build: a non-Debug build of a channel in [`SHARED_SESSION_BUNDLE_IDS`]
 /// on the production backend; none for every other (a development backend's accounts are its own,
-/// and a build without the profile has no access group).
+/// and a build without the profile has no access group). [`from_selection`] also gives none to a
+/// launch with its own state root (#50830): its sign-in is its own, never the item's (#46910).
 pub fn shared_session(
     bundle_id: &str,
     is_debug_build: bool,
@@ -162,7 +166,8 @@ pub struct Configuration {
     /// Still serialized because the pinned app's decoder requires the key; remove it once the app no
     /// longer reads it (docs/ci/app-ffi-release.md, step A of cmux#43648).
     pub adopts_nightly_session: bool,
-    /// The session Team-signed production builds share ([`shared_session`]).
+    /// The session Team-signed production builds share ([`shared_session`]); none for a launch
+    /// with its own state root (#50830).
     pub shared_session: Option<SharedSession>,
 }
 
@@ -201,15 +206,32 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         storage: storage_names(Some(&bundle_id), Some(selection)),
         namespaced_legacy_store: namespaced_legacy_store(&bundle_id, selection),
         adopts_nightly_session: false,
-        shared_session: shared_session(
-            &bundle_id,
-            inputs.is_debug_build,
-            production,
-            &selection.stack_project_id,
-        ),
+        // A launch with its own state root (#50830) starts signed out and stays apart: it neither
+        // imports nor writes the shared item (#46910), so another build's session never leaks in.
+        shared_session: if has_state_root(&inputs.process) {
+            None
+        } else {
+            shared_session(
+                &bundle_id,
+                inputs.is_debug_build,
+                production,
+                &selection.stack_project_id,
+            )
+        },
         bundle_id,
         is_debug_build: inputs.is_debug_build,
     }
+}
+
+/// The launch's state root variable (`cmux_cloud_environment::STATE_ROOT_ENV`, #50830).
+pub const STATE_ROOT_ENV: &str = "CMUX_NEXT_STATE_ROOT";
+
+/// Whether the launch runs with its own state root (#50830): [`STATE_ROOT_ENV`] holds an absolute
+/// path. The same test as `cmux_cloud_environment::state_root` (trimmed, a leading `/`), kept here
+/// so this pure crate does not link that one (its egress and socket crates) into the cmux vm CLI;
+/// `the_state_root_test_matches_the_environment_crate` holds the two together.
+pub fn has_state_root(process: &BTreeMap<String, String>) -> bool {
+    process.get(STATE_ROOT_ENV).is_some_and(|value| value.trim().starts_with('/'))
 }
 
 /// The namespace that keeps a build's tokens apart: the selection's storage namespace for a legacy
