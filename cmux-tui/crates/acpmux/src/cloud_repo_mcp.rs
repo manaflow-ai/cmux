@@ -143,7 +143,7 @@ fn result_text(result: &Value) -> String {
     }
     if let Some(repos) = result.get("repos").and_then(Value::as_array) {
         return if repos.is_empty() {
-            "No repositories match. Connect GitHub or use a local project and try again.".to_owned()
+            "No repositories match. Connect GitHub, or use a local project.".to_owned()
         } else {
             format!(
                 "Found {} {}.",
@@ -208,9 +208,10 @@ async fn run_cli_with(
     )
     .await
     .map_err(|_| {
-        "Repository action timed out; reconnect to the Cloud machine and retry.".to_owned()
+        "The Cloud machine did not finish the repository action in time; it is slow or unreachable."
+            .to_owned()
     })?
-    .map_err(|e| format!("Could not reach the Cloud machine; reconnect and retry ({e})."))?;
+    .map_err(|e| format!("Could not run cmux to reach the Cloud machine ({e})."))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{'))
         && let Ok(value) = serde_json::from_str::<Value>(line)
@@ -229,15 +230,15 @@ async fn run_cli_with(
         if value.get("error_code").is_some() {
             return Ok(json!({
                 "code": value.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
-                "message": value.get("error").and_then(Value::as_str).unwrap_or("Reconnect to the Cloud machine and retry.")
+                "message": value.get("error").and_then(Value::as_str).unwrap_or("The Cloud machine refused the repository action.")
             }));
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(if stderr.trim().is_empty() {
-        "The Cloud machine returned no repository result; reconnect and retry.".to_owned()
+        "The Cloud machine returned no repository result.".to_owned()
     } else {
-        format!("Repository action failed; reconnect and retry: {}", stderr.trim())
+        format!("Repository action failed: {}", stderr.trim())
     })
 }
 
@@ -266,7 +267,8 @@ where
 {
     if caller != Some(session) {
         return error_result(
-            "Repository tools could not verify this chat. Restart the chat session, then retry Add repository.".to_owned(),
+            "Repository tools could not verify this chat. Restart the chat session to use them."
+                .to_owned(),
         );
     }
     let args = match args_object(params) {
@@ -295,7 +297,26 @@ where
             {
                 req.set("query", json!(query));
             }
-            match run(REPO_LIST_ACTION, req).await {
+            // A list only reads: one the Cloud machine did not answer is asked again for a few
+            // seconds (a reconnect in progress), never handed to the agent as "retry".
+            let listed = cmux_tui_util::retry::Patience::new("the Cloud machine", LIST_PATIENCE)
+                .quiet()
+                .run_async(
+                    || "The Cloud machine did not return the repository list in time.".to_owned(),
+                    {
+                        let run = &run;
+                        move || {
+                            let req = req.clone();
+                            async move {
+                                run(REPO_LIST_ACTION, req)
+                                    .await
+                                    .map_err(cmux_tui_util::retry::Attempt::Retry)
+                            }
+                        }
+                    },
+                )
+                .await;
+            match listed {
                 Ok(result) => ok(result),
                 Err(e) => error_result(e),
             }
@@ -325,6 +346,9 @@ where
         }
     }
 }
+
+/// How long `list_repos` asks the Cloud machine again while it does not answer.
+const LIST_PATIENCE: Duration = Duration::from_secs(10);
 
 /// Keep retry information in the agent result even if an older daemon only
 /// returns the typed error. The UI uses this exact payload to retry silently.
@@ -425,6 +449,30 @@ mod tests {
         )
         .await;
         assert_eq!(result["isError"], false);
+    }
+
+    /// A list the Cloud machine did not answer is asked again, and the agent gets the list.
+    #[tokio::test]
+    async fn an_unanswered_list_is_asked_again() {
+        let tries = std::sync::atomic::AtomicU32::new(0);
+        let result = call_for_caller(
+            Some("own-chat"),
+            "own-chat",
+            &json!({"name":"list_repos","arguments":{}}),
+            |_, _| {
+                let n = tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    if n == 0 {
+                        Err("The Cloud machine returned no repository result.".to_owned())
+                    } else {
+                        Ok(json!({"repos": [{"name": "org/repo"}]}))
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[test]

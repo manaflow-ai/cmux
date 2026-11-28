@@ -53,7 +53,11 @@ public final class ChiefMascotPicks {
     /// Chiefs, the config file), or nil while it wears the default without one: the default Chief's is
     /// `home.chiefPetMascot` when `file` (the config file's root) sets it, another's its own pick.
     public func picked(_ chief: String?, in file: JSONValue?) -> String? {
-        let input = PicksInput(chief: chief, defaultChief: defaultChief, picks: picks, file: file)
+        // Only the default Chief reads the file, and only `home.chiefPetMascot`: the root whole is
+        // ~157 KB for some people and the sidebar asks this per Chief per row, which JSON-encoded it
+        // each time and blocked the main thread 2-6 s with ~1,100 workspaces (as `JSONValue.keeping`).
+        let read = isDefault(chief) ? file?.keeping([Array(HomeChiefPetSetting.mascotPath)]) : nil
+        let input = PicksInput(chief: chief, defaultChief: defaultChief, picks: picks, file: read)
         let reply: PickedReply = welcomeRule("welcome.mascotPicked", input, fallback: PickedReply(picked: nil))
         return reply.picked
     }

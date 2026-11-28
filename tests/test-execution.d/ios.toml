@@ -39,6 +39,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/ios_gate_screen_diff.py, the App Review gate report's warn-only screen diff against feat-cmux-next (identical, changed justified and unjustified, new, removed, no baseline, every PNG filter); run python3 tests/test_ios_gate_screen_diff.py yourself after changing it (under a second, no build, no Pillow)."
 
 [[test]]
+path = "tests/test_ios_internal_archive_mirror_fetch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_internal_builder.py"
 lane = "linux-guard"
 
@@ -57,6 +61,15 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ios_kit_bench_runs_after_red_step.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_kit_rust_test_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_kit_step_inputs_cover_its_scripts.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_kit_step_inputs_cover_its_scripts.py"
 
 [[test]]
 path = "tests/test_ios_link_ffi_cache_seed.py"
@@ -81,8 +94,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_mobile_core_linux_only.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_mobile_core_linux_only.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_placeholder_bounds.py"
@@ -99,6 +111,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_selected_test_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_sim_bundles.py"
 lane = "linux-guard"
 
 [[test]]

@@ -15,6 +15,11 @@
 #   frames=1            judge each update for transition frames (ask-ad4a68e740, scripts/measure/update_frames.py): a
 #                       window log every 8 ms (update-frames/watch.swift, no grant) and a display recording (CuaDriver,
 #                       when the Mac has it); prints UCF <side> <round> {...} and the medians gain the verdicts
+#   push=1              start each update with a simulated release push (run.py --push: a NIGHTLY's path) instead of
+#                       Check for Updates; it must stage with no click. Both sides need debug.updater push.
+#   delta=1             list a Sparkle delta v1 to v2 (run.py --delta) and fail unless the delta was what downloaded
+#   With push=1 delta=1 frames=1 and base=head, one round replays a nightly's push, its incremental background
+#   download and the restart's frames in minutes (Leo 2026-11-27: "we should be abel to just sim it/signal it").
 # Prints UCA <side> <round> {...} per update and UCA-MEDIAN <side> {...} (scripts/measure/update-click-ab.py), in ms:
 # click_to_relaunch (install_clicked to will_relaunch), click_to_v1_exit, prewarm_wait, prewarm_total (the pre-warm's
 # own "N ms in all", when it ended before the relaunch), v2_first_frame and
@@ -31,6 +36,7 @@ main() {
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/" \
     && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"  # run.py and idle_e2e.py import them from their parent folder
   local base="" head rounds=3 delay=3 stress=0 frames=0 arg rc=0 i side
+  local harness_args=()
   head="$(git rev-parse HEAD)"
   local checkout="$head"
   for arg in "$@"; do
@@ -41,6 +47,9 @@ main() {
       click_delay=*) delay="${arg#click_delay=}" ;;
       stress=*) stress="${arg#stress=}" ;;
       frames=*) frames="${arg#frames=}" ;;
+      push=1) harness_args+=(--push) ;;
+      delta=1) harness_args+=(--delta) ;;
+      push=0|delta=0) ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -64,7 +73,7 @@ main() {
       start_stress "$stress"
       GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$tools/update-harness/run.py" \
         --app "$out/$side/cmux DEV ucab.app" --tag ucab --out "$out/run-$side-$i" --click-at-stage --click-delay "$delay" \
-        2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
+        ${harness_args[@]+"${harness_args[@]}"} 2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
       [[ ${PIPESTATUS[0]} == 0 ]] || rc=1
       stop_stress
       [[ "$frames" == 1 ]] && stop_frames "$out/frames-$side-$i" "$out/run-$side-$i" "$tools" "$side" "$i"

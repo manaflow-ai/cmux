@@ -21,6 +21,32 @@ impl Drop for DaemonLock {
     }
 }
 
+#[cfg(unix)]
+impl DaemonLock {
+    /// The descriptor that holds the lock, for a restart that execs in place: the next image
+    /// takes the open, locked description over by its number (`daemon/handoff.rs`).
+    pub(super) fn raw_fd(&self) -> std::os::fd::RawFd {
+        std::os::fd::AsRawFd::as_raw_fd(&self.0)
+    }
+}
+
+/// The lock a restart's exec handed this image (`daemon/handoff.rs`), which checked `file` as
+/// this home's lock file: locked now (the description holds the lock already, so this takes it
+/// from nobody; a description that lost it takes it, or fails while another daemon holds it), and
+/// its pid recorded as [`acquire_lock`] records it.
+#[cfg(unix)]
+pub(super) fn adopt(file: std::fs::File) -> std::io::Result<DaemonLock> {
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => {
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        Err(std::fs::TryLockError::Error(e)) => return Err(e),
+    }
+    record_pid(&file);
+    Ok(DaemonLock(file))
+}
+
 /// Another daemon holds the lock: one that runs, or is stopping or starting. Any other failure
 /// to take the lock (permissions, a symlink, an I/O error) is a plain error. It names the
 /// holder's pid when the lock file records a live one, and the command that shows that daemon;

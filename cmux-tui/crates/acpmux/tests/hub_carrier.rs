@@ -1357,6 +1357,99 @@ async fn hub_carrier_a_closed_direct_port_falls_back_to_the_relay() {
     assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 0);
 }
 
+/// Both carriers on iroh with its relay off, bound to loopback: the iroh path is a direct one.
+fn loopback_iroh() -> acpmux::hub_carrier::iroh_path::IrohConfig {
+    acpmux::hub_carrier::iroh_path::IrohConfig {
+        secret: None,
+        relay: false,
+        bind: Some("127.0.0.1:0".parse().unwrap()),
+    }
+}
+
+/// Dial until A holds a kept iroh circuit to B (the upgrade runs beside the relay dial), bounded.
+async fn until_iroh_kept(fixture: &PipeFixture) {
+    let b = fixture.carrier_b.public_key();
+    for _ in 0..100 {
+        if fixture.carrier_a.kept_iroh_circuits(&b) == 1 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("A never held a kept iroh circuit to B");
+}
+
+/// Leo: "small, chatty calls stay on whichever machine holds the files, batched over one
+/// always-open connection, never a new connection per call." With `irohDirect` on both ends, the
+/// first pipe dial rides the relay (`via: hub`) while the iroh circuit opens beside it; once that
+/// circuit is Noise-confirmed and kept, the next dial is one stream on it (`via: iroh-direct`),
+/// and a stream echoes through it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_upgrades_a_pipe_off_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let _iroh_a = fixture.carrier_a.start_iroh(loopback_iroh()).await.unwrap();
+    let b = fixture.carrier_b.public_key();
+    fixture.carrier_a.set_iroh_route(&b, fixture.carrier_b.iroh_addr().unwrap());
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "hub", "the first dial takes the relay: {first}");
+    until_iroh_kept(&fixture).await;
+    let second = pipe_reply(&fixture).await;
+    assert_eq!(second["via"], "iroh-direct", "{second}");
+    assert_eq!(second["dial"]["circuit"], "kept", "{second}");
+    let third = pipe_reply(&fixture).await;
+    assert_eq!(third["via"], "iroh-direct", "{third}");
+    assert_eq!(fixture.carrier_a.kept_iroh_circuits(&b), 1, "one always-open connection");
+    // A stream through the iroh circuit reaches B's daemon and its answer comes back.
+    let (mut stream, report) = fixture
+        .carrier_a
+        .dial_service_reported(&b, CircuitService::CmuxTui { port: fixture.daemon.port() })
+        .await
+        .unwrap();
+    assert_eq!(report.via.name(), "iroh-direct");
+    stream.write_all(b"GET / HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n").await.unwrap();
+    let mut answer = vec![0u8; 12];
+    tokio::time::timeout(Duration::from_secs(10), stream.read_exact(&mut answer))
+        .await
+        .expect("B's daemon answered over iroh")
+        .unwrap();
+    assert!(answer.starts_with(b"HTTP/1."), "{:?}", String::from_utf8_lossy(&answer));
+}
+
+/// With no route set, A learns B's iroh address over the relay circuit it already holds
+/// (`acpmux-iroh-addr`), then upgrades the same way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_learns_the_address_over_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let _iroh_a = fixture.carrier_a.start_iroh(loopback_iroh()).await.unwrap();
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "hub", "{first}");
+    until_iroh_kept(&fixture).await;
+    let next = pipe_reply(&fixture).await;
+    assert_eq!(next["via"], "iroh-direct", "{next}");
+}
+
+/// With `irohDirect` off (the default) nothing changes: every dial rides the relay and no iroh
+/// circuit opens, even when B serves iroh.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_off_changes_nothing() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let b = fixture.carrier_b.public_key();
+    for _ in 0..3 {
+        let reply = pipe_reply(&fixture).await;
+        assert_eq!(reply["via"], "hub", "{reply}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(fixture.carrier_a.kept_iroh_circuits(&b), 0);
+}
+
 /// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new
 /// device the owner approves; without, `identity` as an enrolled device.
 async fn connect_through_pipe(
@@ -2304,6 +2397,136 @@ fn hub_carrier_a_joined_daemon_with_no_websocket_config_runs_it_on_loopback_and_
     });
     assert!(line.contains("hub carrier: on"), "the carrier is off: {line}");
     assert!(line.contains("127.0.0.1:"), "the carrier is not on the loopback listener: {line}");
+}
+
+/// The consent service end to end: machine B serves it with a consent authority that pinned the
+/// owner Mac's key. A machine B's hub book does not list is refused by name; once listed, A reads
+/// B's switches, a grant the pinned key signed turns Control and Screen on through the carrier,
+/// and the same grant again is refused as a replay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_consent_service_applies_a_pinned_grant_and_refuses_an_unlisted_machine() {
+    use acpmux::cli::consent_grant::{Target, grantor_id, message};
+    use acpmux::consent_grant_service::{ConfiguredConsentGate, ask};
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+
+    // The owner Mac's key, pinned on B for the account both are joined as.
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    let owner =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    let owner_key = owner.public_key().as_ref().to_vec();
+    let owner_id = grantor_id(&owner_key);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("os-account/.acpmux/machine-consent");
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).unwrap();
+    let pins = json!({"grantors": [{"id": owner_id, "publicKey": acpmux::hub::approvers::hex(&owner_key),
+        "name": "owner mac", "account": "user-1", "pinnedAt": 1}], "seq": {}});
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(root.join("grantors.json"))
+        .and_then(|mut file| std::io::Write::write_all(&mut file, pins.to_string().as_bytes()))
+        .unwrap();
+
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let hub_b = hub();
+    hub_b.hub_carrier.set(carrier_b.clone());
+    let target = Target {
+        account: Some("user-1".into()),
+        machine_id: Some("machine_b".into()),
+        node_key: None,
+        name: Some("mini-b".into()),
+        own_grantor: None,
+    };
+    carrier_b.set_consent_gate(Arc::new(ConfiguredConsentGate::at(&hub_b, root.clone(), target)));
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    let b = public(&key_b);
+    let wait = Duration::from_secs(10);
+
+    // B's book does not list A yet: refused by name, nothing read. B's registration may still be
+    // on its way, so the first ask goes again until B answers.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let answer = ask(&carrier_a, &b, &json!({"op": "status"}), wait).await;
+        assert_ne!(answer["ok"], true, "an unlisted machine read the consent: {answer}");
+        if answer["reason"] == "machine.unlisted" {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "B never answered: {answer}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    hub_b.set_mesh_book_machines(BTreeMap::from([(public(&key_a), "mbp-a".to_owned())]));
+    let status = ask(&carrier_a, &b, &json!({"op": "status", "grantor": owner_id}), wait).await;
+    assert_eq!(status["ok"], true, "{status}");
+    assert_eq!(status["machineId"], "machine_b");
+    assert_eq!(status["nodeKey"], json!(b), "the node key is the carrier's");
+    assert_eq!(status["control"], false);
+    assert_eq!(status["grantor"]["pinned"], true);
+
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    let (issued, expires) = (now - 1_000, now + 60_000);
+    let signed = message(&owner_id, "user-1", "machine_b", &b, "on", "on", issued, expires);
+    let signature = owner.sign(&rng, &signed).unwrap();
+    let grant = json!({"v": 1, "grantor": owner_id, "account": "user-1", "machineId": "machine_b",
+        "nodeKey": b, "control": "on", "screen": "on", "issuedAt": issued, "expiresAt": expires,
+        "signature": acpmux::hub::approvers::hex(signature.as_ref())});
+    let set = ask(&carrier_a, &b, &json!({"op": "set", "grant": grant}), wait).await;
+    assert_eq!(set["ok"], true, "{set}");
+    assert_eq!(set["control"], true);
+    assert_eq!(set["screen"], true);
+    assert_eq!(set["controlGrantedBy"]["grantor"], json!(owner_id));
+    let consent: Value =
+        serde_json::from_slice(&std::fs::read(root.join("consent.json")).unwrap()).unwrap();
+    assert_eq!(consent["control"], "granted");
+    let line = set["grantLog"].as_array().and_then(|log| log.last()).cloned().unwrap();
+    assert_eq!(line["from"], "mbp-a", "the log names the machine that carried it");
+
+    let replayed = ask(&carrier_a, &b, &json!({"op": "set", "grant": grant}), wait).await;
+    assert_eq!(replayed["ok"], false);
+    assert_eq!(replayed["reason"], "grant.replayed");
 }
 
 /// How long A takes from adding peer `b` to its link being connected, with `url` as b's
@@ -3345,6 +3568,31 @@ fn hub_carrier_held_machines_reads_a_list_once_each_and_nothing_by_default() {
     assert!(held_machines(None).is_empty());
     assert!(held_machines(Some("  , ")).is_empty());
     assert_eq!(held_machines(Some("a, b c,a\nd")), vec!["a", "b", "c", "d"]);
+}
+
+/// A held machine is named by its `daemonId` or its host: a host resolves through the address
+/// book to every key it lists for that host, each key once, and a name the book lacks is left out.
+#[test]
+fn hub_carrier_held_machines_resolve_host_names_through_the_address_book() {
+    use acpmux::hub_carrier::{is_daemon_id, resolve_held};
+    let key_a = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=".to_owned();
+    let key_b = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned();
+    let key_c = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=".to_owned();
+    assert!(is_daemon_id(&key_a));
+    assert!(!is_daemon_id("build-box"));
+    let book = vec![
+        (key_a.clone(), "build-box".to_owned()),
+        (key_b.clone(), "work-mac".to_owned()),
+        (key_c.clone(), "work-mac".to_owned()),
+    ];
+    let entries: Vec<String> =
+        ["build-box", "work-mac", "gone-host", &key_a].iter().map(|s| s.to_string()).collect();
+    let (keys, unlisted) = resolve_held(&entries, &book);
+    assert_eq!(keys, vec![key_a.clone(), key_b, key_c]);
+    assert_eq!(unlisted, vec!["gone-host".to_owned()]);
+    // A key the book does not list is still held: the book can lag a machine that just joined.
+    let (keys, unlisted) = resolve_held(&[key_a.clone()], &[]);
+    assert_eq!((keys, unlisted), (vec![key_a], Vec::<String>::new()));
 }
 
 /// RFD 0127 cut 3: health is link liveness plus a 1-RTT echo. With a kept circuit open, the link's
