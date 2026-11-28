@@ -149,7 +149,7 @@ final class MachineRegistry {
     /// The daemon whose tree holds workspace `id` (`WorkspaceModel.id`).
     func daemon(forWorkspace id: String) -> DaemonService? { workspace(id: id)?.1 }
     /// The daemon whose tree holds `workspace`, by identity: it reads no workspace list (F6).
-    func daemon(holding w: WorkspaceModel) -> DaemonService? { local.store.holds(w) ? local : remoteDaemons.first { $0.store.holds(w) } }
+    func daemon(holding w: WorkspaceModel) -> DaemonService? { local.store.holds(w) ? local : firstRemote { $0.store.holds(w) } }
 
     /// O(1) per daemon (`DaemonStore.workspace(id:)`).
     func workspace(id: String) -> (WorkspaceModel, DaemonService)? {
@@ -157,16 +157,15 @@ final class MachineRegistry {
         return remoteDaemons.lazy.compactMap { daemon in daemon.store.workspace(id: id).map { ($0, daemon) } }.first
     }
 
-    /// The daemon holding pane `pane` (by object identity).
-    func daemon(forPane pane: PaneModel) -> DaemonService {
-        for daemon in remoteDaemons where daemon.store.pane(pane.handle) === pane { return daemon }
-        return local
-    }
+    /// The daemon holding pane `pane` (by identity): this Mac's by one index lookup, else a remote's (``firstRemote(where:)``).
+    func daemon(forPane pane: PaneModel) -> DaemonService { local.store.pane(pane.handle) === pane ? local : firstRemote { $0.store.pane(pane.handle) === pane } ?? local }
 
-    /// The daemon holding `tab` (by object identity).
-    func daemon(forTab tab: TabModel) -> DaemonService {
-        for daemon in remoteDaemons where daemon.store.tab(surface: tab.surface) === tab { return daemon }
-        return local
+    /// The daemon holding `tab` (by identity), the same way; observation state closures ask per tab (field hang 08eb54bd9c).
+    func daemon(forTab tab: TabModel) -> DaemonService { local.store.tab(surface: tab.surface) === tab ? local : firstRemote { $0.store.tab(surface: tab.surface) === tab } ?? local }
+
+    /// The first remote daemon, in `remoteDaemons` order, that `holds` accepts; it builds no array.
+    func firstRemote(where holds: (DaemonService) -> Bool) -> DaemonService? {
+        cloud.lazy.map(\.daemon).first(where: holds) ?? ssh.lazy.map(\.daemon).first(where: holds) ?? servers.lazy.map(\.daemon).first(where: holds)
     }
 
     /// The daemon of agent tab `tab`, whose record names a host other than this Mac (its chat

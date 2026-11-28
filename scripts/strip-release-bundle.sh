@@ -76,9 +76,22 @@ for candidate in \
     break
   fi
 done
+# Xcode has already stripped the framework's Swift names while building it
+# (STRIP_SWIFT_SYMBOLS: `strip -D -S -T` after GenerateDSYMFile), so the map
+# takes its names from the dSYM beside the app (the same UUID; the writer
+# ignores another build's): nightly 4611085251001 mapped 388,720 functions,
+# none Swift, from the framework, and 1,047,237 (658,523 Swift) from its dSYM.
+# CMUX_APP_DSYM names another dSYM binary.
+APP_DSYM="${CMUX_APP_DSYM:-}"
+if [ -z "$APP_DSYM" ]; then
+  case "$APP_CODE" in
+    */CmuxNextApp.framework/*) APP_DSYM="$(dirname "$APP_PATH")/CmuxNextApp.framework.dSYM/Contents/Resources/DWARF/$(basename "$APP_CODE")" ;;
+    *) APP_DSYM="$APP_PATH.dSYM/Contents/Resources/DWARF/$(basename "$APP_CODE")" ;;
+  esac
+fi
 if [ -f "$APP_CODE" ]; then
   python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
-    "$APP_CODE" "$APP_PATH/Contents/Resources/cmux-symbols.bin"
+    --names-from "$APP_DSYM" "$APP_CODE" "$APP_PATH/Contents/Resources/cmux-symbols.bin"
 fi
 strip_executable "$APP_PATH/Contents/MacOS/cmux"
 # The framework keeps its global symbols (-S -x): its one export, and the
