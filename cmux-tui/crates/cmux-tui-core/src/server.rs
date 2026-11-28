@@ -3205,6 +3205,9 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+// Tests below `server` build trees through these; the daemon reaches them via `tree_wire`.
+#[cfg(test)]
+use tree_json::{tree_entity_json, workspaces_json};
 
 /// The live runtime of tab `id`. A parked terminal tab (`relaunch.on_show`:
 /// lazy start, `park-tabs`) starts here on its first need, and the request
