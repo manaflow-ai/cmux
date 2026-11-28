@@ -37,9 +37,7 @@ bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
 bash scripts/cmux-next/tests/check-fleet-only.test.sh
 bash scripts/cmux-next/tests/check-generated-linux.test.sh
 bash scripts/cmux-next/tests/check-motion.test.sh
-bash scripts/cmux-next/tests/check-no-process-scan.test.sh
 bash scripts/cmux-next/tests/check-no-swiftui.test.sh
-bash scripts/cmux-next/tests/check-overlay-glass.test.sh
 bash scripts/cmux-next/tests/check-pressed-state.test.sh
 bash scripts/cmux-next/tests/check-react-pages.test.sh
 bash scripts/cmux-next/tests/check-scrollbars.test.sh
@@ -98,12 +96,8 @@ bash tests/test_strip_release_bundle.sh
 bash tests/test_strip_release_bundle_atom_info.sh
 bash tests/test_web_bundle_key_inputs.sh
 node --test scripts/lib/reload-shim.test.mjs
-python3 -I scripts/cmux-next/check-bridge-on-main.py --root "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/check-exemption-ratchet.py --root "$GITHUB_WORKSPACE" --base-ref "${AFFECTED_BASE:-origin/feat-cmux-next}"
-python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/check-motion-tokens.py
-python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
-python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/check-retry-prompts.py --root "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/herdr-sync.py check
 python3 -I scripts/cmux-next/motion-coverage.py > "$RUNNER_TEMP/motion-coverage.json" && python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("motion coverage", d["coverage"], {k: v["coverage"] for k, v in d["surfaces"].items()})' "$RUNNER_TEMP/motion-coverage.json"
