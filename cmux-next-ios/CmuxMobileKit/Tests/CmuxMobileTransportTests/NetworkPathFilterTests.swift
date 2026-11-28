@@ -69,4 +69,15 @@ import Testing
         let vpn = NetworkPathFilter.signature(interfaces: ["utun4", "en0"], gateways: ["10.0.0.1:0"])
         #expect(filter.update(satisfied: true, signature: vpn) == .changed(vpn))
     }
+
+    @Test func secondaryCellularDoesNotTurnWifiIntoLte() {
+        // NWPath can report both interfaces as available. Only the preferred
+        // one carries the route and should drive Ultra Auto and telemetry.
+        #expect(NetworkPathFilter.networkKind(preferredCellular: false,
+                                              preferredWiFi: true,
+                                              preferredWired: false) == "wifi")
+        #expect(NetworkPathFilter.networkKind(preferredCellular: true,
+                                              preferredWiFi: false,
+                                              preferredWired: false) == "lte")
+    }
 }

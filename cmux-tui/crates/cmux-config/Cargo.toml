@@ -24,6 +24,9 @@ cmux-embed.workspace = true
 cmux-message-preview.workspace = true
 cmux-theme-tokens.workspace = true
 base64.workspace = true
+# The Time of Day schedule and shuffle periods in the person's time zone (src/backdrop_switch.rs).
+chrono.workspace = true
+chrono-tz.workspace = true
 notify.workspace = true
 plist = "1"
 # The app manifest schema's id pattern (tabs.newTabApp, schema/app_id.rs).

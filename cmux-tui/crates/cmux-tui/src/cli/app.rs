@@ -217,6 +217,11 @@ pub(super) enum AppCommand {
         params: Value,
         seconds: u64,
     },
+    /// `app chat perf --page-source`: `agent.chat.perf {"page_source": true}`, how the chat pages
+    /// made since launch got their page; no tab, no capture (app/chat_perf.rs).
+    ChatPageSource {
+        params: Value,
+    },
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -1126,6 +1131,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
+        AppCommand::ChatPageSource { params } => {
+            return Ran::Done(chat_perf::run_page_source(global, stream, params));
+        }
         AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
@@ -1324,7 +1332,7 @@ fn join_change(
 }
 
 /// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
-/// (`cloud open-machine`): a workspace on the machine is shown, so the window's new-terminal
+/// (`cloud new-terminal-on-machine`): a workspace on the machine is shown, so the window's new-terminal
 /// button opens there (Leo, 2026-11-06: "the terminal I open on the top right button works thru
 /// that machine"). A JSON or quiet run (a script, an agent) leaves the window as it was, and so
 /// does a machine still starting. A failed open is a note: the machine is made either way.
@@ -1343,11 +1351,13 @@ fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, va
     }
 }
 
-/// [`open_created`]'s `cloud open-machine` run. `--focus`: a CLI run changes the window only
-/// when it asks to (the app's `allowsViewChange`).
+/// [`open_created`]'s `cloud new-terminal-on-machine` run: a new machine has no workspace yet,
+/// so this opens its first one. Not `cloud open-machine`, which is the app's own (GUI-only, no
+/// CLI verb: the CLI's run of it failed with "No CLI command"). `--focus`: a CLI run changes
+/// the window only when it asks to (the app's `allowsViewChange`).
 fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
     let args = ["--target".to_owned(), target, "--focus".to_owned()];
-    run_action("cloud open-machine", &args, ActionName::Cli)
+    run_action("cloud new-terminal-on-machine", &args, ActionName::Cli)
 }
 
 /// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.

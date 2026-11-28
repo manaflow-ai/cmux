@@ -56,6 +56,18 @@ public struct NetworkPathFilter: Sendable {
     public static func signature(interfaces: [String], gateways: [String]) -> String {
         "\(interfaces.first ?? "") via \(gateways.sorted().joined(separator: ","))"
     }
+
+    /// Classify the interface carrying the route. A phone can keep a cellular
+    /// context available while Wi-Fi carries the route; treating that
+    /// secondary interface as cellular needlessly caps Ultra Auto's repair
+    /// budget and mislabels latency data.
+    public static func networkKind(preferredCellular: Bool, preferredWiFi: Bool,
+                                   preferredWired: Bool) -> String {
+        if preferredCellular { return "lte" }
+        if preferredWiFi { return "wifi" }
+        if preferredWired { return "wired" }
+        return "other"
+    }
 }
 
 #if canImport(Network)
@@ -70,13 +82,16 @@ public final class NetworkPathMonitor: @unchecked Sendable {
         // Updates arrive on this one serial queue, so the filter needs no lock.
         let state = FilterBox()
         monitor.pathUpdateHandler = { path in
+            let preferred = path.availableInterfaces.first
+            let kind = NetworkPathFilter.networkKind(
+                preferredCellular: preferred?.type == .cellular,
+                preferredWiFi: preferred?.type == .wifi,
+                preferredWired: preferred?.type == .wiredEthernet)
             #if canImport(CmuxMobileLinkFFI)
             // The next WireGuard dial picks its ultra mode with it (Rust `ultra_for_dial`).
-            setCellularPath(cellular: path.usesInterfaceType(.cellular))
+            setCellularPath(cellular: kind == "lte")
             // The key-to-paint histogram's network tag (Rust `key_paint`).
-            setNetworkKind(kind: path.usesInterfaceType(.cellular) ? "lte"
-                : path.usesInterfaceType(.wifi) ? "wifi"
-                : path.usesInterfaceType(.wiredEthernet) ? "wired" : "other")
+            setNetworkKind(kind: kind)
             #endif
             if let event = state.filter.update(satisfied: path.status == .satisfied, signature: Self.signature(path)) {
                 continuation.yield(event)

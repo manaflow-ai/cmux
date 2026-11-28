@@ -1901,6 +1901,90 @@ def downloads_dir(scratch: str) -> str:
     return os.path.join(scratch, "downloads")
 
 
+# A shipped bundle's (NIGHTLY, RC, release) defaults domain, set aside for this process's launches and put back at
+# exit (shipped_isolation). One per process: a --relaunch-restored run's second launch keeps the first one's.
+_shipped_aside = None
+
+
+def _fresh_smoke():
+    """scripts/ci/fresh_home_launch_smoke.py, the nightly publish gate's fresh-home launch: from beside this file
+    (perf-idle-ab.sh copies it into its harness folder) or from its place in the checkout."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for folder in (here, os.path.join(here, "..", "ci")):
+        if os.path.isfile(os.path.join(folder, "fresh_home_launch_smoke.py")):
+            if folder not in sys.path:
+                sys.path.insert(0, folder)
+            import fresh_home_launch_smoke  # noqa: PLC0415
+            return fresh_home_launch_smoke
+    raise SystemExit("bench-memory: a shipped bundle needs fresh_home_launch_smoke.py beside this file or in ../ci")
+
+
+def is_shipped(bundle: str) -> bool:
+    """A NIGHTLY, RC or release bundle (any bundle id but a DEV `com.cmuxterm.app.debug[.<tag>]`): its daemon
+    state, keychain and defaults are a person's unless the launch is given its own (shipped_isolation)."""
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            bundle_id = (plistlib.load(handle).get("CFBundleIdentifier") or "").strip()
+    except OSError:
+        return False
+    dev = "com.cmuxterm.app.debug"
+    return bool(bundle_id) and bundle_id != dev and not bundle_id.startswith(dev + ".")
+
+
+def shipped_isolation(bundle: str, env: dict, relaunch: bool) -> None:
+    """A shipped bundle launched as a first install, as the nightly publish gate launches one
+    (fresh_home_launch_smoke.py), so a measure of the published NIGHTLY never reads or joins a person's:
+      - CFFIXED_USER_HOME is the scratch HOME: the app finds its home through homeDirectoryForCurrentUser (not
+        HOME), so Application Support (cmux-tui daemon state, saved workspaces, acpmux home) starts empty;
+      - its own login keychain in that home (no Keychain dialog over the window);
+      - the updater off (CMUX_DISABLE_AUTO_UPDATE) and the control socket at a path of the run's own;
+      - the bundle id's defaults domain (the account's, whatever HOME says) set aside under the gate's per-bundle
+        lock, put back at exit;
+      - refused (exit 3) while another copy of the bundle id runs on this host: a person's NIGHTLY, or any copy
+        that is not a fresh-home smoke's."""
+    global _shipped_aside
+    from pathlib import Path  # noqa: PLC0415
+    smoke = _fresh_smoke()
+    with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+        bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
+    mine = {os.path.realpath(root) for root in bundle_roots(bundle)}
+    others = [copy for copy in smoke.live_copies(bundle_id) if os.path.realpath(copy["bundle"]) not in mine]
+    if others:
+        named = ", ".join(f"pid {copy['pid']} {copy['bundle']}" for copy in others[:5])
+        print(f"bench-memory: another copy of {bundle_id} runs on this host ({named}): not launching beside it",
+              file=sys.stderr, flush=True)
+        raise SystemExit(3)
+    home = env["HOME"]
+    env["CFFIXED_USER_HOME"] = home
+    env[smoke.UPDATER_OFF_VARIABLE] = "1"
+    # Short: a Unix socket path holds at most 104 bytes, and a step's TMPDIR is long. Named cmux*.sock in /tmp,
+    # where launch() looks.
+    env.setdefault("CMUX_NEXT_SOCKET_PATH", f"/tmp/cmux-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
+    for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
+        os.makedirs(os.path.join(home, sub), exist_ok=True)
+    try:
+        smoke.login_keychain(env)
+        if _shipped_aside is None and not relaunch:
+            aside = smoke.DefaultsAside(bundle_id, Path(home))
+            aside.__enter__()
+            _shipped_aside = aside
+            import atexit  # noqa: PLC0415
+            atexit.register(_put_back_shipped_defaults)
+    except smoke.CannotRun as error:
+        print(f"bench-memory: cannot launch {bundle_id} fresh: {error}", file=sys.stderr, flush=True)
+        raise SystemExit(3)
+
+
+def _put_back_shipped_defaults() -> None:
+    global _shipped_aside
+    aside, _shipped_aside = _shipped_aside, None
+    if aside is not None:
+        try:
+            aside.__exit__(None, None, None)
+        except Exception as error:  # the copy stays beside the lock; the next run puts it back first
+            print(f"bench-memory: {error}", file=sys.stderr, flush=True)
+
+
 def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None,
            scratch: str | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
@@ -1946,6 +2030,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     env.update(extra_env or {})
     # A None in `extra_env` drops that default (CMUX_NEXT_NO_ACTIVATE for a bench that needs the keyboard).
     env = {name: value for name, value in env.items() if value is not None}
+    if is_shipped(bundle):
+        shipped_isolation(bundle, env, relaunch)
     os.makedirs(env["TMPDIR"], exist_ok=True)
     os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
