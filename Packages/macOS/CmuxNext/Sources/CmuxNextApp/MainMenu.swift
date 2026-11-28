@@ -87,7 +87,7 @@ enum MainMenu {
         .server: ["server.addServer", "server.showPanel"],
         .window: [
             "newWindow", "newIncognitoWindow", "window.mergeAll", "space.new", "space.previous", "space.next", "toggleFullScreen", "commandPalette", "goToWorkspace",
-            "globalSearch", "showMainWindow",
+            "globalSearch", "showMainWindow", "agent.triage.next", "agent.triage.answer",
         ],
         .help: ["help.documentation", "palette.searchShortcuts", "updates.whatsNew", "sendFeedback", "help.showCrashLogs"],
     ]
