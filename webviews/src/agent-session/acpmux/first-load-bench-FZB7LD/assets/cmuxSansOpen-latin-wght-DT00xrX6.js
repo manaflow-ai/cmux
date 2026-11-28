@@ -1,0 +1,1 @@
+var e=`/assets/cmuxSansOpen-latin-wght-YhEPsuuK.woff2`;export{e as default};

@@ -1,0 +1,1 @@
+var e=`/assets/IBMPlexSans-latin-wght-IvpUvPa2.woff2`;export{e as default};

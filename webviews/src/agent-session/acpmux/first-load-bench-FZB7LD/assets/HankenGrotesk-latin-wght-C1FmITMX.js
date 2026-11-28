@@ -1,0 +1,1 @@
+var e=`/assets/HankenGrotesk-latin-wght-CaVRRdDk.woff2`;export{e as default};

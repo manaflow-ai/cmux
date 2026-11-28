@@ -1,0 +1,1 @@
+var e=`/assets/cmuxSansSquat-latin-wght-Uurt-xl5.woff2`;export{e as default};

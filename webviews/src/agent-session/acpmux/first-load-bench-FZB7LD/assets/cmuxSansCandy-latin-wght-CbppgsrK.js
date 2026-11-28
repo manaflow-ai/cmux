@@ -1,0 +1,1 @@
+var e=`/assets/cmuxSansCandy-latin-wght-OVShL0bu.woff2`;export{e as default};

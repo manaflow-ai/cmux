@@ -2199,7 +2199,6 @@ try {
     const pages = await Promise.all(Array.from({ length: PAGES }, () => context.newPage()));
     if (context === warmContext) for (const one of pages) await one.setViewportSize(RELAUNCH_VIEWPORT);
     const page = pages[0]!;
-    page.on("console", (m) => { if (m.text().startsWith("TVF")) console.log(m.text()); }); // TVFDEBUG
     const windowMs = recordMs(mode);
     try {
       for (const one of pages) {

@@ -1,0 +1,3 @@
+import{i as e,t}from"./react-vja1sq4q.js";import{c as n}from"./switches-CBU3KfKq.js";import{m as r}from"./scrollers-XHsVR6TM.js";import{r as i}from"./sideways-CXu7m7Yl.js";var a=n(),o=e(t(),1);function s(e,t=0,n=!1){let r=t>0,i=e>8||n;return{long:i,cut:i&&!r,all:r,lines:e,attribute:i?r?`all`:`cut`:void 0}}function c(e){let t=(0,a.c)(3),n,r;t[0]===e?(n=t[1],r=t[2]):(n=()=>{let t=e.current;return t?i(t):void 0},r=[e],t[0]=e,t[1]=n,t[2]=r),(0,o.useLayoutEffect)(n,r)}var l={[r]:``};function u(){let e=(0,o.useRef)(null);return c(e),e}var d=e=>e?e.split(`
+`).length-+!!e.endsWith(`
+`):0;export{u as a,c as i,d as n,s as r,l as t};

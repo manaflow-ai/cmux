@@ -1,0 +1,1 @@
+var e=`/assets/Geist-latin-wght-BgDaEnEv.woff2`;export{e as default};

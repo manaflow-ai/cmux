@@ -1,0 +1,1 @@
+function e(e,t){let n=Math.min(Math.max(t,0),e.length),r=e.charCodeAt(n-1),i=e.charCodeAt(n),a=r>=55296&&r<=56319&&i>=56320&&i<=57343;return e.slice(0,a?n-1:n)}function t(e,t){let n=Math.max(e.length-Math.max(t,0),0),r=e.charCodeAt(n),i=e.charCodeAt(n-1),a=r>=56320&&r<=57343&&i>=55296&&i<=56319;return e.slice(a?n+1:n)}export{t as n,e as t};

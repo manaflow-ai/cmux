@@ -1,0 +1,1 @@
+var e=`/assets/Inter-latin-wght-Dx4kXJAl.woff2`;export{e as default};

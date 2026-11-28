@@ -1,0 +1,1 @@
+var e=`/assets/Roboto-latin-wght-ccAYIvAh.woff2`;export{e as default};

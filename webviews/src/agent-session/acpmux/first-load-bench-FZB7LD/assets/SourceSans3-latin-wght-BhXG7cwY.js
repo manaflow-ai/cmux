@@ -1,0 +1,1 @@
+var e=`/assets/SourceSans3-latin-wght-Bo_j9asI.woff2`;export{e as default};

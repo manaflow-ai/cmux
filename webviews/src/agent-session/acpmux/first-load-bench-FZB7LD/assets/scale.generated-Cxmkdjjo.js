@@ -1,0 +1,1 @@
+var e={quick:80,micro:120,standard:180,large:240},t=`cubic-bezier(0, 0, 0.58, 1)`,n=`linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1)`,r=`large`,i=`cubic-bezier(0.16, 1, 0.3, 1)`,a=[.16,1,.3,1],o=`cubic-bezier(0.16, 1, 0.3, 1)`;export{o as a,a as i,i as n,n as o,e as r,r as s,t};

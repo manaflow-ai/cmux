@@ -1962,6 +1962,9 @@ export class AcpmuxDirectClient {
   /// Each session and machine the selected chat's row named while an attach of it ran, from its
   /// ask until it drew its page (one entry each): the page is of none of the others (`attach`).
   private attachWatch?: AttachWatch;
+  /// Reads that start once the chat's attach is out of the way (`afterAttach`): run when its watch
+  /// clears (the page drawn, or the attach failed or dropped).
+  private afterAttachRuns: Array<() => void> = [];
   /// The attach `open` asked with the chat list, until the open takes it or drops it (`askEarly`).
   private earlyAttach?: EarlyAttach;
   /// The chat's saved draft, asked with that attach (`askEarly`), until the composer's first read takes
@@ -6944,7 +6947,10 @@ export class AcpmuxDirectClient {
   /// that came before it, and any of a session since recreated is not this chat's. Its reads start
   /// over with that attach. `final`: the open ended, so nothing waits for them.
   private dropEarly(early: EarlyAttach, final = false): void {
-    if (this.attachWatch === early.watch) this.attachWatch = undefined;
+    if (this.attachWatch === early.watch) {
+      this.attachWatch = undefined;
+      this.runAfterAttach();
+    }
     const shown = early.sessionId === this.selectedSessionId && early.generation === this.selectionGeneration;
     if (!shown) early.sent.dropped = true;
     if (final || !shown) {
@@ -7005,8 +7011,40 @@ export class AcpmuxDirectClient {
         this.resetSessionState("attach strayed");
       throw error;
     } finally {
-      if (this.attachWatch === watch) this.attachWatch = undefined;
+      if (this.attachWatch === watch) {
+        this.attachWatch = undefined;
+        this.runAfterAttach();
+      }
     }
+  }
+
+  /// Runs `run` after the selected chat's attach has drawn its page and that page painted, or at
+  /// once (after a paint) when no attach of `sessionId` is out. Returns its cancel.
+  private afterAttach(sessionId: string, run: () => void): () => void {
+    let cancelPaint: (() => void) | undefined;
+    let done = false;
+    // Two paints: the page the attach returned renders in the caller's continuation, after this.
+    const start = () => {
+      if (done) return;
+      cancelPaint = afterPaint(() => {
+        cancelPaint = afterPaint(() => {
+          cancelPaint = undefined;
+          if (!done) run();
+        });
+      });
+    };
+    if (this.attachWatch?.sessionId === sessionId) this.afterAttachRuns.push(start);
+    else start();
+    return () => {
+      done = true;
+      cancelPaint?.();
+      const at = this.afterAttachRuns.indexOf(start);
+      if (at >= 0) this.afterAttachRuns.splice(at, 1);
+    };
+  }
+
+  private runAfterAttach(): void {
+    for (const run of this.afterAttachRuns.splice(0)) run();
   }
 
   private async attachWatched(
@@ -17371,8 +17409,9 @@ export class AcpmuxDirectClient {
     };
     // The first snapshot only needs the bounded tail; promptCount (the summary's turnCount) keeps
     // the rail's final geometry while its bounded prompt-index pages arrive. Do not let even a
-    // local daemon's immediate reply precede that paint.
-    const cancelPaint = afterPaint(() => {
+    // local daemon's immediate reply precede that paint. Nor the attach's: a long chat's index (every
+    // prompt, ~280 KB at 2000 turns) is read once the attach's page has painted, not beside it.
+    const cancelPaint = this.afterAttach(sessionId, () => {
       entry.cancel = undefined;
       if (this.closed || this.promptIndex !== entry || generation !== this.selectionGeneration) {
         settle(false);

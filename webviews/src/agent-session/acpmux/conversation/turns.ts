@@ -780,8 +780,6 @@ export function turnViewFrom(
   reuse = Math.min(reuse, reuseAtMost);
   // The first visible turn's line depends on `now`.
   if (reuse > 0 && !firstDateUnchanged(previous!, now)) reuse = 0;
-  // TVFDEBUG
-  console.log(`TVF ${performance.now().toFixed(0)} rows=${rows.length} prev=${previous?.source.length} kept=${previous ? (previous.source === rows ? "same" : keptPrefix(previous.source, rows)) : "-"} exp=${previous ? previous.expanded === expanded : "-"} fam=${previous ? previous.agentFamily === agentFamily : "-"} mb=${previous ? previous.messageBreaks === messageBreaks : "-"} co=${previous ? previous.clockOffset === clockOffset : "-"} reuse=${reuse}/${previous?.starts.length} rafm=${reuseAtMost}`);
   let reusedRows = 0;
   let index: number;
   let lead: number;

@@ -1,0 +1,1 @@
+var e=`/assets/AtkinsonHyperlegibleNext-latin-wght-BcXVPD7q.woff2`;export{e as default};
