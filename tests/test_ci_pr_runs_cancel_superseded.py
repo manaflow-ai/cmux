@@ -862,6 +862,9 @@ def event_types(trigger: Any) -> list[str]:
 # `leo-approved-port` label, so its READY_GROUP_SUFFIX ships in its own PR (cmux#62221 split it out).
 SAME_HEAD_PENDING = {
     "language-boundaries.yml": "edits to the language-boundaries check need Leo's leo-approved-port label",
+    # Scheduled: the prepush gate wants its jobs to match main's copy (a schedule runs main's), so its suffix
+    # lands with a Main-Twin PR against main.
+    "merge-freeze.yml": "scheduled workflow: the suffix needs a Main-Twin PR against main",
 }
 
 
