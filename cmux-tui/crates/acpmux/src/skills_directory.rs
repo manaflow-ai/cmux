@@ -661,11 +661,10 @@ mod tests {
         assert_eq!(fields, ["args", "command", "env"]);
 
         remove(&request, Some(root)).unwrap();
-        assert_eq!(
-            fs::read_to_string(root.join(".codex/config.toml"))
+        assert!(
+            !fs::read_to_string(root.join(".codex/config.toml"))
                 .unwrap()
-                .contains("filesystem-tools"),
-            false
+                .contains("filesystem-tools")
         );
         assert!(
             fs::read_to_string(root.join(".codex/config.toml"))
