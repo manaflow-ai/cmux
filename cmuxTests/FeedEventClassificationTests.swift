@@ -92,6 +92,29 @@ struct FeedEventClassificationTests {
         #expect(classify("claude", "PermissionRequest", tool: "AskUserQuestion").name == "AskUserQuestion")
     }
 
+    /// In modes where Claude never asks the user through this hook, nobody can
+    /// answer a Feed card, so the hook must answer at once and push nothing
+    /// (Claude's own PreToolUse hook already reports the call) (#40375).
+    @Test func claudePermissionRequestInUnpromptedModeIsSkipped() {
+        func skips(_ source: String, _ tool: String, _ mode: String?) -> Bool {
+            FeedEventClassifier.skipsUnpromptedPermissionRequest(
+                source: source, event: "PermissionRequest", toolName: tool, permissionMode: mode
+            )
+        }
+        for mode in ["auto", "dontAsk", "bypassPermissions"] {
+            #expect(skips("claude", "Bash", mode))
+            #expect(!skips("claude", "AskUserQuestion", mode))
+            #expect(!skips("claude", "ExitPlanMode", mode))
+            #expect(!skips("gemini", "Bash", mode))
+        }
+        for mode in ["default", "acceptEdits", "plan", "", nil] as [String?] {
+            #expect(!skips("claude", "Bash", mode))
+        }
+        #expect(!FeedEventClassifier.skipsUnpromptedPermissionRequest(
+            source: "claude", event: "PreToolUse", toolName: "Bash", permissionMode: "auto"
+        ))
+    }
+
     @Test func claudeLifecycleFeedEventsStayTelemetryAndPreserveNames() {
         for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
             let classification = classify("claude", event, tool: "Bash")
