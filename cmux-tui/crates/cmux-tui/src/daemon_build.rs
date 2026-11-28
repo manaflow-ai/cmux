@@ -9,7 +9,7 @@ pub(crate) fn install() {
     // dependency; a Windows daemon reports its package version until the
     // stamp is a cross-platform dependency.
     #[cfg(unix)]
-    let build_id = cmux_build_identity::BUILD_IDENTITY.to_owned();
+    let build_id = crate::build_identity::identity().to_owned();
     #[cfg(not(unix))]
     let build_id = env!("CARGO_PKG_VERSION").to_owned();
     // Test seam, debug builds only: a daemon that reports another build, so

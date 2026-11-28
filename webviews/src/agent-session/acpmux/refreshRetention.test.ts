@@ -89,8 +89,8 @@ test("same-chat refresh keeps the visible reply when the refresh hold expires be
     expect(duringFrames.length).toBeGreaterThan(0);
     for (const frame of duringFrames) expect(stillVisible(frame)).toBe(true);
 
-    // The attach whose chat drew a kept tail renders its reply after the next paint (direct.ts attachWatched,
-    // afterNextPaint: a task, 100ms at most; #49247), which fake timers never run. The hold's clock is checked.
+    // The fake clock was for the hold's expiry, which has passed; the rest of the switch (its attach
+    // answer and what follows) runs on real time, as a pending timer there would never fire.
     jest.useRealTimers();
     release!();
     await reopening;
