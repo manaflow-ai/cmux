@@ -70,6 +70,28 @@ jobs:
           permission-contents: write
           permission-workflows: write
 
+      # Reads and the fallback dispatch on cmux-bot's own installation budget, not the GITHUB_TOKEN every
+      # workflow in the repository shares (cmux-next-post-merge.yml does the same). 2026-11-28 00:25Z: re-pin
+      # jobs 140796642381 and 140800301756 both stopped on "API rate limit exceeded for installation" reading
+      # commits/7a8a55bf with GITHUB_TOKEN (reset 00:54:57Z, past the 600 s wait), and their fallback dispatch
+      # got the same 403 five times, so "Check the app FFI pin" stayed red on feat-cmux-next. Falls back to
+      # GITHUB_TOKEN when the mint fails.
+      - name: Mint the cmux-bot read and dispatch token
+        id: bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-statuses: read
+
       - name: Mint the release App token for the pull request
         id: pr-token
         continue-on-error: true
@@ -123,7 +145,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          READ_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ steps.bot-token.outputs.token || github.token }}
           BASE_TOKEN: ${{ steps.base-token.outputs.token }}
           BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
@@ -140,16 +162,11 @@ jobs:
       - name: Start the re-pin workflow when this re-pin failed
         if: (failure() || cancelled()) && github.event_name != 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
         # The run's installation token shares a rate limit with every other job: run 45792260236's
         # dispatch got "HTTP 403: API rate limit exceeded for installation" (2026-11-26 09:33Z) and the
-        # pin stayed behind until the next push. Retry on a bounded backoff (about 9 min) instead.
-        run: |
-          for wait in 0 60 120 180 180; do
-            sleep "$wait"
-            if gh workflow run app-ffi-repin.yml --ref feat-cmux-next; then exit 0; fi
-            echo "re-pin dispatch failed; retrying after backoff"
-          done
-          exit 1
+        # pin stayed behind until the next push. A fixed 9 min backoff then spent all five tries inside one spent
+        # hour (run 46086089622, 2026-11-28 00:25Z), so the script waits for the reset instead.
+        run: bash scripts/cmux-next/dispatch-app-ffi-repin.sh

@@ -113,13 +113,18 @@ pub(super) fn note_started() {
 /// Whether the transfers entry `name`, last changed at `changed`, is scratch no running daemon
 /// owns: a [`scratch_dir`] of a process that no longer runs, or one named before them that
 /// predates this daemon.
-fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+pub(in crate::hub) fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+    let before_start =
+        || STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started);
     if let Some(rest) = name.strip_prefix(SCRATCH) {
         let pid = rest.split('-').next().and_then(|p| p.parse::<u32>().ok());
-        return pid.is_some_and(|pid| pid != std::process::id() && !process_runs(pid));
+        if let Some(pid) = pid {
+            return pid != std::process::id() && !process_runs(pid);
+        }
+        // A chat pack's seal scratch named before pids, `work-<uuid>` (`pack_trust.rs`).
+        return rest.len() == 32 && rest.bytes().all(|b| b.is_ascii_hexdigit()) && before_start();
     }
-    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p))
-        && STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started)
+    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p)) && before_start()
 }
 
 #[cfg(unix)]
@@ -317,6 +322,25 @@ pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<S
 /// chat (`MOVED_AWAY`, `LOG_UNREADABLE`, `IMPORTING`).
 pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
+}
+
+/// The close of a chat's copy here once its move committed: reason `moved to HOST/NAME` (`to` is
+/// the commit's `movedTo`; NAME the chat's, which a move keeps), outcome `moved`, never
+/// `unfinished`: the work runs on at HOST. Before this, every source copy of a moved chat read
+/// `daemon`/`unrecorded`/`unfinished`, so a tool that revives unfinished chats started it again
+/// on the machine it had left.
+pub(super) fn moved_close_why(to: &Value, name: &str) -> crate::close_why::CloseWhy {
+    let host = to
+        .get("host")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .unwrap_or("another daemon");
+    let name = Some(name.trim())
+        .filter(|n| !n.is_empty())
+        .or_else(|| to.get("sessionId").and_then(Value::as_str))
+        .unwrap_or("?");
+    crate::close_why::CloseWhy::by("daemon", &format!("moved to {host}/{name}")).outcome("moved")
 }
 
 #[path = "compaction_outline.rs"]
@@ -625,6 +649,22 @@ impl Hub {
         // does again.
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
+        }
+        // An Auto chat changes machine only as a holder change in the Cloud store
+        // (`move_authority.rs`, RFD 0172): a bundle moved here would run it on another host
+        // while the store still names this machine its holder.
+        if let super::move_authority::Authority::Store { .. } = self.move_authority(session) {
+            let name = session.read_meta(|m| m.name.clone());
+            let to_cloud =
+                crate::chat_place::person_command(&name, crate::chat_place::Place::Cloud);
+            return Err(transfer_error(
+                "auto",
+                format!(
+                    "this is an Auto chat, so the Cloud store moves it, not a session move; \
+                     `{to_cloud}` sends it to the Cloud and `--on local` brings it home"
+                ),
+            )
+            .with_data(json!({"reason": "auto_chat"})));
         }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
@@ -1102,7 +1142,10 @@ impl Hub {
             moved.set("freeze", freeze);
         }
         self.append(session, "mux", "transferred", moved);
-        self.kill(session, false).await?;
+        // Its close says where it went, outcome `moved`: recorded `daemon`/`unrecorded`, a lane's
+        // old copy read `unfinished`, and lane-deaths restarted it on the machine it had left.
+        let why = moved_close_why(&to, &session.meta().name);
+        self.kill_why(session, false, why).await?;
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next fast gates: six checks, in fail mode, on a pull request merged with its base.
+"""cmux-next fast gates: cheap checks, in fail mode, on a pull request merged with its base.
 
 .github/workflows/cmux-next-fast-gates.yml runs this for every pull request into feat-cmux-next
 and on dispatch (`pr=N`, against the current tip). It posts `cmux-next/fast-gates` with
@@ -41,6 +41,8 @@ The gates, each the same invocation as its push-time job:
                   that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
   entry logs      scripts/ci/entry_logs.py check --base BASE --head MERGE: a frozen append-only log
                   (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
+  huge files      scripts/ci/check_huge_files.py check --base BASE --head MERGE: no Swift or Rust source file in NOW's
+                  code_shape scope newly over 100,000 bytes, and none already over it grows (`list` is the burn-down)
   settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE --base-rev BASE: a settings schema text key
                   missing from the catalog fails only when BASE does not already miss it (a base red is a note)
 
@@ -449,7 +451,8 @@ def crash_class_inputs_changed(repo: Path, base: str, merge: str) -> bool:
 
 
 # The gates a pull request's own run leaves to the push tier (the same gates run there as cmux-next-web-lint.yml,
-# cmux-next-crash-class.yml and ci-web.yml; a red there is fixed forward). `--tier full` (a dispatch, the `full-ci`
+# cmux-next-crash-class.yml and ci-web.yml; a red there is fixed forward). A cheap-tier landing head skips ci-web, so
+# the webviews checks run there as ci/steps.toml's webviews-checks, a land_gate step of pr-pipeline.yml (cmux#57668). `--tier full` (a dispatch, the `full-ci`
 # label, or vars.CI_FAST_GATES_PR_TIER=full) runs them on the pull request again. Slowest gate first on 2026-11-24:
 # crash-class rules 70.7 s, against 23.6 s for the prepush gate and 16.7 s for the crash ratchet.
 PR_TIER_DEFERRED = ("web lint", "crash-class rules", "webviews checks")
@@ -461,8 +464,7 @@ TIER_SKIPPED = "the pull request tier leaves it to the push tier (cmux-next-web-
 SKIPPED = {"web lint": "no web path changed",
            "crash-class rules": "no change under Packages, scripts/cmux-next, its own scripts or its workflow",
            "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
-           "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
-                              "for a webviews/ change on this merge"}
+           "webviews checks": "no change under webviews/, to a string catalog or to the protocol spec"}
 
 
 def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
@@ -485,6 +487,8 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
         # Every pull request, git objects only: a frozen append-only log grows only as files in its entry directory.
         ("entry logs", [py, "-I", "scripts/ci/entry_logs.py", "check", "--base", base, "--head", merge]),
+        # Every pull request, git objects only: no Swift or Rust source file newly over 100,000 bytes, none over it grows.
+        ("huge files", [py, "-I", "scripts/ci/check_huge_files.py", "check", "--base", base, "--head", merge]),
         # Every pull request, git objects only: a change adds no outbound site outside the egress gate, compared
         # with its own base, so a red base cannot excuse it (the guard group's egress step is skipped on most pull
         # requests and excuses a step the base fails too; ten sites reached feat-cmux-next that way, 11-24..26).
@@ -503,10 +507,13 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
     return table
 
 
-def gate_lanes(active: list[tuple[str, list[str]]]) -> list[list[tuple[str, list[str]]]]:
+def gate_lanes(active: list[tuple[str, list[str]]], shared_install: bool = False) -> list[list[tuple[str, list[str]]]]:
     """Group gates into lanes that run side by side; a lane's gates run one after another. Web lint and webviews
-    checks share a lane, since both may run bun install in webviews/; every other gate has its own."""
+    checks share a lane, since both may run bun install in webviews/ (a 220 s gate then a 280 s gate: the job's
+    critical path, 2026-11-28); SHARED_INSTALL says run() already installed webviews/ once, so each has its own."""
     bun = [entry for entry in active if entry[0] in {"web lint", "webviews checks"}]
+    if shared_install:
+        return [[entry] for entry in active]
     return [[entry] for entry in active if entry[0] not in {"web lint", "webviews checks"}] + ([bun] if bun else [])
 
 
@@ -678,6 +685,19 @@ def ensure_bun_tmpdir(env: dict) -> Path | None:
     return None
 
 
+def preinstall_webviews(repo: Path) -> bool:
+    """bun install --frozen-lockfile in webviews/ once, before web lint and webviews checks run side by side (each
+    would install there; web lint's own install then finds it current). False: not installed, they share a lane."""
+    if not (repo / "webviews").is_dir() or not shutil.which("bun"):
+        return False
+    started = time.monotonic()
+    code = subprocess.run(["bun", "install", "--frozen-lockfile", "--silent"], cwd=repo / "webviews",
+                          capture_output=True).returncode
+    print(f"fast-gates: webviews install {'ok' if code == 0 else f'failed ({code})'} in "
+          f"{time.monotonic() - started:.1f}s", flush=True)
+    return code == 0
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     if not SHA.match(args.base) or not rev(repo, args.base):
@@ -704,7 +724,11 @@ def run(args: argparse.Namespace) -> int:
         # when both run. Every other gate reads the merge and its exported base tree and starts at once: on
         # 2026-11-22 webviews checks (93 s) waited out crash-class rules (61 s) in a second batch, a 157 s step whose
         # critical gate was 93 s (job 137149366688), and fast gates' p90 sat at 4.0 min against its 3.0 min budget.
-        lanes = gate_lanes(active)
+        names = {name for name, _ in active}
+        shared_install = {"web lint", "webviews checks"} <= names and preinstall_webviews(repo)
+        if shared_install:
+            active = [(n, a + ["--no-install"] if n == "webviews checks" else a) for n, a in active]
+        lanes = gate_lanes(active, shared_install)
         max_parallel = len(lanes)
         active_results = run_gate_batch(lanes, repo, deadline, holder / "gate-logs")
 

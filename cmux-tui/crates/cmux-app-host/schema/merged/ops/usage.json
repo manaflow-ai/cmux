@@ -6,7 +6,7 @@
       "owner": "cloud:UsageMeterDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "be25a75c92a79c89"
+      "digest": "da03a542c1ff6b15"
     },
     "usage.summary": {
       "source": "cloud",

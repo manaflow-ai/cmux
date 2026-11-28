@@ -43,6 +43,8 @@ class PrPipelineLinuxBatch(unittest.TestCase):
                 # The router's nightly gate (pr-pipeline's inputs.only, a step list) is the pull request's alone: the
                 # batch's inputs.only names a job (a bisect probe's `linux`), so it runs every step instead.
                 w["env"].pop("ROUTER_ONLY", None)
+                # The pull request runs the pr tier (#55022); the batch, at the merged tip, the full tier.
+                w["env"]["TIER"] = "full"
                 w["run"] = re.sub(r"# The router's nightly gate.*?\nfi\n", "", w["run"], flags=re.S)
             self.assertEqual(w, g, w.get("name"))
 
