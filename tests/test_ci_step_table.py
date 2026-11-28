@@ -1669,7 +1669,7 @@ class PipelineTest(unittest.TestCase):
         # tooling-tests: on a feat-cmux-next pull request (not the fallback's call) the job keeps only the tt- steps the
         # linux job cannot run; tooling-tests-1..5 carry every other tt- step's command, each behind the job's selection.
         route = next(s for s in guards["tooling-tests"]["steps"] if s.get("id") == "setup-tooling-route")
-        staying = ("tt-remote-p10k", "tt-webviews-tests-per-file", "tt-web-lint-prepush", "tt-tailnet")
+        staying = ("tt-remote-p10k", "tt-cli-path-folder-access", "tt-webviews-tests-per-file", "tt-web-lint-prepush", "tt-tailnet")
         self.assertIn('[ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]',
                       route["run"])
         self.assertIn("for id in " + " ".join(staying) + "; do", route["run"])

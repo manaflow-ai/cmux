@@ -628,6 +628,16 @@ class NeverBoundTests(unittest.TestCase):
         for msg in ("cloud.create.submit", "cloud.start.submit", "cloud.start.trace"):
             self.assertIn(msg, logs.PLATFORM_MSGS)
 
+    def test_a_create_trace_keeps_why_it_ran_as_a_fixed_word(self):
+        """cmux-vm's create queue (3 slots, development and staging) refused 61 of 69 creates 2026-11-28 01:36-01:48Z;
+        cmux-platform#2507's create trace `kind` says who filled it. Only its fixed words are kept."""
+        for kind in ("spare", "restore", "person", "window", "refresh", "warm"):
+            row = logs.line(event({"msg": "cloud.create.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                                   "kind": kind, "total_ms": 31000}))
+            self.assertEqual(row["log"]["kind"], kind)
+        odd = logs.line(event({"msg": "cloud.create.trace", "machine": VM, "outcome": "ok", "kind": "spare_x"}))
+        self.assertNotIn("kind", odd["log"])
+
     def test_an_approved_run_keeps_its_delivery_split_and_steps(self):
         """Production 2026-11-27 02:15-03:15Z (hq#31342): 20 cloud.approval.run lines kept only msg, team, machine, op,
         outcome and path; cmux-platform#2295's queued/admit/delivery/run ms and the create's steps were dropped."""

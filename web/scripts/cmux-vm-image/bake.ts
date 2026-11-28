@@ -78,7 +78,7 @@ import {
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/workUser";
-import { NPM_CACHE_DIR, NPM_HOST_CACHE_PROFILE, npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { NPM_CACHE_DIR, NPM_HOST_CACHE_PROFILE, NPM_PREFILL_ATTEMPTS, npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
@@ -809,6 +809,19 @@ export async function installStoreProgram(L: Pick<StepLog, "step" | "log">, vm: 
   await stepAgain(L, vm, label, command, attempts, "the part it downloaded");
 }
 
+/** The npm cache prefill, run again when it fails; a run again keeps the tarballs already in the cache. */
+export async function prefillNpmCache(L: Pick<StepLog, "step" | "log">, vm: Vm, attempts = NPM_PREFILL_ATTEMPTS): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await L.step(vm, attempt === 1 ? "npm-cache-prefill" : `npm-cache-prefill-try-${attempt}`, npmCachePrefillCommand(attempt === 1), 290_000);
+      return;
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      L.log(`npm-cache-prefill failed (try ${attempt} of ${attempts}); running it again, keeping the tarballs it cached`);
+    }
+  }
+}
+
 async function stepAgain(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts: number, kept: string): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -1100,7 +1113,7 @@ async function installGraduated(ctx: Ctx): Promise<void> {
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
 async function prefillDepCaches(ctx: Ctx): Promise<void> {
-  await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
+  await prefillNpmCache(ctx.L, ctx.vm);
   if (ctx.options.labsNpmHostCache) {
     // Keep only the image's contents available to seed the tenant store, even after local npm installs.
     const seed = "/usr/local/share/cmux/npm-seed";
