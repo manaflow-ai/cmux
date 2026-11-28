@@ -190,8 +190,7 @@ const GROK_EVENTS: &[&str] = &[
 
 const KIRO_EVENTS: &[&str] =
     &["agentSpawn", "userPromptSubmit", "stop", "preToolUse", "postToolUse"];
-const ANTIGRAVITY_EVENTS: &[&str] =
-    &["SessionStart", "PreInvocation", "Stop", "turn-completion", "Notification", "SessionEnd"];
+const ANTIGRAVITY_EVENTS: &[&str] = &["SessionStart", "PreInvocation", "Stop"];
 const ROVODEV_EVENTS: &[&str] = &["on_complete", "on_error", "on_tool_permission"];
 const COPILOT_EVENTS: &[&str] =
     &["SessionStart", "Stop", "Notification", "SessionEnd", "PreToolUse"];
@@ -4165,6 +4164,31 @@ esac
         assert!(!text.contains("cmux-tui-agent-hook"));
         assert_eq!(text.matches(COMMAND_MARKER).count(), CURSOR_EVENTS.len());
         assert_eq!(provider_status(cursor, &config, false).unwrap().0, "installed");
+    }
+
+    // agy accepts only SessionStart, PreToolUse, PostToolUse, PreInvocation,
+    // PostInvocation and Stop, and stops loading hooks.json when it holds any
+    // other event. https://github.com/manaflow-ai/cmux/issues/57350
+    #[test]
+    fn antigravity_install_drops_events_agy_does_not_accept() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config = context.home.join(".gemini/config/hooks.json");
+        atomic_write(
+            &config,
+            br#"{"cmux":{"SessionStart":[{"type":"command","command":"old","timeout":10}],"Stop":[{"type":"command","command":"old","timeout":10}],"turn-completion":[{"type":"command","command":"old","timeout":10}],"Notification":[{"type":"command","command":"old","timeout":10}],"SessionEnd":[{"type":"command","command":"old","timeout":10}]},"mine":{"Stop":[{"type":"command","command":"custom-hook","timeout":5}]}}"#,
+            Some(0o600),
+        )
+        .unwrap();
+        let plan = Plan { action: Action::Install, providers: vec!["antigravity".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let root: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        let mut events: Vec<&str> =
+            root["cmux"].as_object().unwrap().keys().map(String::as_str).collect();
+        events.sort_unstable();
+        assert_eq!(events, ["PreInvocation", "SessionStart", "Stop"]);
+        assert_eq!(root["mine"]["Stop"][0]["command"], "custom-hook");
     }
 
     #[test]

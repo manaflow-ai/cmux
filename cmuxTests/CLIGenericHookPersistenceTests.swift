@@ -2163,10 +2163,71 @@ extension CLINotifyProcessIntegrationRegressionTests {
             stopCommand.contains("exit $cmux_hook_status"),
             "Antigravity queued admission must not propagate queue-admission failures to the agent, saw \(stopCommand)"
         )
-        XCTAssertNotNil(cmuxGroup["SessionStart"])
-        XCTAssertNotNil(cmuxGroup["SessionEnd"])
-        XCTAssertNotNil(cmuxGroup["turn-completion"])
-        XCTAssertNotNil(cmuxGroup["Notification"])
+        // agy accepts only SessionStart, PreToolUse, PostToolUse, PreInvocation,
+        // PostInvocation and Stop, and stops loading hooks.json when it holds
+        // any other event. https://github.com/manaflow-ai/cmux/issues/57350
+        XCTAssertEqual(Set(cmuxGroup.keys), ["SessionStart", "PreInvocation", "Stop"])
+    }
+
+    /// An install from an older cmux left `Notification`, `SessionEnd` and
+    /// `turn-completion` in the cmux group. Installing again has to drop them
+    /// and leave the user's own hook group alone.
+    /// https://github.com/manaflow-ai/cmux/issues/57350
+    func testAntigravityHookInstallDropsEventsAgyDoesNotAccept() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-hook-stale-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = root
+            .appendingPathComponent(".gemini", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let hookURL = configDirectory.appendingPathComponent("hooks.json", isDirectory: false)
+        func staleEntry(_ subcommand: String) -> [[String: Any]] {
+            [["type": "command", "command": ": cmux-antigravity-hook-v2; cmux hooks antigravity \(subcommand)", "timeout": 10]]
+        }
+        let userGroup: [String: Any] = [
+            "Stop": [["type": "command", "command": "~/bin/after-agy", "timeout": 5] as [String: Any]],
+        ]
+        let previousInstall: [String: Any] = [
+            "cmux": [
+                "SessionStart": staleEntry("session-start"),
+                "PreInvocation": staleEntry("prompt-submit"),
+                "Stop": staleEntry("stop"),
+                "turn-completion": staleEntry("stop"),
+                "Notification": staleEntry("notification"),
+                "SessionEnd": staleEntry("session-end"),
+            ],
+            "mine": userGroup,
+        ]
+        try JSONSerialization.data(withJSONObject: previousInstall, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hookURL, options: .atomic)
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "agy", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": makeSocketPath("agy-stale"),
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let cmuxGroup = try XCTUnwrap(json["cmux"] as? [String: Any])
+        XCTAssertEqual(Set(cmuxGroup.keys), ["SessionStart", "PreInvocation", "Stop"])
+        let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
+        XCTAssertEqual(stop.count, 1, "expected one Stop hook, saw \(stop)")
+        XCTAssertTrue(
+            (stop.first?["command"] as? String)?.contains("hooks enqueue antigravity stop") == true,
+            "the reinstalled Stop hook should be the queued one, saw \(stop)"
+        )
+        XCTAssertEqual(json["mine"] as? NSDictionary, userGroup as NSDictionary)
     }
 
     /// `agy` preserves the launch environment, so a hook must report to the cmux
