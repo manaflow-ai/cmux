@@ -114,7 +114,12 @@ async fn a_read_answers_while_more_than_thirty_two_deliveries_hang() {
         .await
         .expect("a read answers while 32 starts hang");
     let acks = fake.acks.lock().unwrap().clone();
-    assert_eq!(acks.len(), 1, "no hung start was acked");
+    assert_eq!(
+        acks.len(),
+        1,
+        "no hung start was acked: {:?}",
+        acks.iter().take(3).collect::<Vec<_>>()
+    );
     assert_eq!(acks[0].1.state, AckState::Delivered);
     // The hung starts free their slots at their bound, unacked: the lease brings them back.
     tokio::time::sleep(bound + Duration::from_secs(1)).await;
