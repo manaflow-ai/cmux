@@ -710,8 +710,15 @@ pub(super) enum NewRoute {
 const APP_CREATE_FLAGS: [&str; 1] = ["--repo"];
 
 /// Flags only the VM API's create takes (cmux-vm's `CreateArgs`).
-const VM_API_CREATE_FLAGS: [&str; 6] =
-    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout", "--label"];
+const VM_API_CREATE_FLAGS: [&str; 7] = [
+    "--snapshot",
+    "--image",
+    "--image-revision",
+    "--public-egress",
+    "--egress-allow",
+    "--idle-timeout",
+    "--label",
+];
 
 /// Where `vm new <tail>` (or its old spelling `machine new`) goes. A flag only one side takes
 /// picks that side; otherwise the app makes it when there is one (`app_present`), with its own
@@ -785,7 +792,9 @@ table on stderr.
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
 takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
---public-egress, --idle-timeout SECONDS, --label KEY=VALUE and --idempotency-key KEY.
+--public-egress, --egress-allow PRESET|HOST, --idle-timeout SECONDS, --label KEY=VALUE
+and --idempotency-key KEY. --egress-allow locks the VM to an allowlist: `--egress-allow npm`
+reaches the npm registry and the hosts every cmux VM needs, and nothing else.
 There --size, --persistent (--idle-timeout -1), --bootstrap lane --bootstrap-script
 FILE, --machine-config FILE and --wait [--timeout SECONDS] work as well, with
 no app: the script and the file go to the VM over the VM API, and --wait
@@ -839,8 +848,20 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     let title = result.get("title").and_then(Value::as_str).filter(|title| !title.is_empty());
     let status = result.get("status").and_then(Value::as_str).unwrap_or("created");
     let name = title.map_or_else(|| id.to_owned(), |title| format!("{title} ({id})"));
+    // A machine the server made before this request (a warm spare, a same-key replay) is not
+    // "Created": say what it is and when it was made (2026-11-25, a `vm new` that got a VM made
+    // 7 minutes earlier).
+    let made = if result.get("reused").and_then(Value::as_bool) == Some(true) {
+        let when = result.get("created_at").and_then(Value::as_str).unwrap_or("earlier");
+        format!(
+            "Got Cloud VM {name}: {status}. It was made at {when}, before this request \
+             (a ready spare, not a new boot)."
+        )
+    } else {
+        format!("Created Cloud VM {name}: {status}.")
+    };
     Some(format!(
-        "Created Cloud VM {name}: {status}.\n\n\
+        "{made}\n\n\
          Next:\n  \
          open a terminal:  {cmux} vm ssh {id}\n  \
          start an agent:   {cmux} chat --on {target} 'PROMPT'\n  \
@@ -1056,7 +1077,15 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if is_token_create(&plan) && !has_own_credential(&env) {
         return Some(mint_through_app(&global, &plan));
     }
-    Some(run_in_process(plan, scope, &env))
+    let code = run_in_process(plan, scope, &env);
+    if code == 0
+        && let [verb, vm_id, ..] = rest
+        && matches!(verb.as_str(), "resume" | "start")
+        && !vm_id.starts_with('-')
+    {
+        super::vm_tailnet::stand_down_if_moved(vm_id, &env);
+    }
+    Some(code)
 }
 
 /// `cmux vm pool …`: the CI runner pool's surge, idle pause and scheduler (crate cmux-vm-pool). It talks to

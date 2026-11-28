@@ -76,7 +76,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule' && vars.NIGHTLY_NEXT_HEALTH_GATE != 'off'
     permissions:
       actions: write # dispatch nightly-next-health.yml
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
@@ -92,7 +92,7 @@ jobs:
     permissions:
       contents: read
     # A literal ephemeral label: this job holds the feed's write token.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     outputs:
       action: ${{ steps.judge.outputs.action }}
@@ -101,13 +101,14 @@ jobs:
       why: ${{ steps.judge.outputs.why }}
       blind: ${{ steps.judge.outputs.blind }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/nightly_next_health.py
             scripts/ci/nightly-next-guard.py
             scripts/ci/upload-r2-object.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Read the feed
@@ -219,7 +220,7 @@ jobs:
     if: needs.judge.outputs.blind == 'true' && !inputs.drill
     permissions:
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
@@ -227,11 +228,12 @@ jobs:
       WHY: ${{ needs.judge.outputs.why }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/nightly_next_health.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Open one issue and end red

@@ -285,10 +285,15 @@ pub(super) fn file_allows_full_access() -> bool {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Missing => true,
         crate::user_settings::Settings::Unreadable(_) => false,
-        crate::user_settings::Settings::Parsed(doc) => !matches!(
-            crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
-            Some(Value::Bool(false))
-        ),
+        // `agents.sandbox.mode` `workspaceWrite` keeps every agent in its workspace: no mode
+        // that drops the sandbox runs (`agent_sandbox.rs`).
+        crate::user_settings::Settings::Parsed(doc) => {
+            !matches!(
+                crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
+                Some(Value::Bool(false))
+            ) && crate::agent_sandbox::Sandbox::from_doc(&doc).mode
+                != crate::agent_sandbox::Mode::WorkspaceWrite
+        }
     }
 }
 
@@ -311,11 +316,12 @@ pub(crate) fn requests_full_access(m: &str, params: &Value) -> bool {
     value.and_then(Value::as_str).is_some_and(is_full_access)
 }
 
-/// The refusal of a full-access mode while `sessions.allowFullAccess` is off.
+/// The refusal of a full-access mode while `sessions.allowFullAccess` is off or
+/// `agents.sandbox.mode` is `workspaceWrite`.
 pub(crate) fn full_access_off() -> RpcError {
     RpcError::new(
         -32000,
-        "full-access modes are turned off in cmux Settings (sessions.allowFullAccess)",
+        "full-access modes are turned off in cmux Settings (sessions.allowFullAccess, agents.sandbox.mode)",
     )
     .with_data(json!({"reason": "full_access_off"}))
 }
@@ -373,15 +379,26 @@ pub(crate) fn full_access_mode(available: &[String]) -> Option<String> {
     FULL_ACCESS_MODES.iter().find(|m| available.iter().any(|a| a == *m)).map(|m| (*m).to_owned())
 }
 
-/// The mode that asks before each change among `available`: the family's
-/// asking default (`web_modes::ASKING_MODES`), else a mode named `ask`.
-pub(super) fn asking_mode(family: &str, available: &[String]) -> Option<String> {
-    let row = crate::web_modes::ASKING_MODES
+/// Local harness modes that ask before changes. Remote eligibility remains in `web_modes`.
+fn local_asking_modes(family: &str) -> &'static [&'static str] {
+    // Gemini CLI, packages/cli/src/acp/acpUtils.ts buildAvailableModes:
+    // default prompts for approval, autoEdit approves edits, yolo approves everything.
+    // Do not infer remote eligibility from a local permission-mode mapping.
+    if family == "gemini" {
+        return &["default"];
+    }
+    crate::web_modes::ASKING_MODES
         .iter()
         .find(|(f, _)| *f == family)
         .map(|(_, modes)| *modes)
-        .unwrap_or(&[]);
-    row.iter()
+        .unwrap_or(&[])
+}
+
+/// The mode that asks before each change among `available`: the family's
+/// local asking default, else a mode named `ask`.
+pub(super) fn asking_mode(family: &str, available: &[String]) -> Option<String> {
+    local_asking_modes(family)
+        .iter()
         .chain(std::iter::once(&"ask"))
         .find(|m| available.iter().any(|a| a == *m))
         .map(|m| (*m).to_owned())
@@ -404,7 +421,7 @@ fn mode_for(access: DefaultMode, family: &str, available: &[String]) -> Option<S
 }
 
 /// Whether a profile chooses its permission mode in its own argv (Claude
-/// Code `--permission-mode` or a skip flag, Codex `--sandbox`, `-s`,
+/// Code `--permission-mode`, Gemini `--approval-mode` or a skip flag, Codex `--sandbox`, `-s`,
 /// `--ask-for-approval`, `-a`, a full-auto or bypass flag, or `-c
 /// approval_policy=` / `sandbox_mode=`). Then no start mode is set over it.
 pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
@@ -413,8 +430,9 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
 
 /// `profile_sets_mode` of an argv (a session's recorded `harness_argv`).
 pub(super) fn argv_sets_mode(argv: &[String]) -> bool {
-    const FLAGS: [&str; 9] = [
+    const FLAGS: [&str; 10] = [
         "--permission-mode",
+        "--approval-mode",
         "--dangerously-skip-permissions",
         "--dangerously-bypass-approvals-and-sandbox",
         "--yolo",
@@ -447,10 +465,7 @@ fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
     if FULL_ACCESS_MODES.contains(&mode) {
         return DefaultMode::FullAccess;
     }
-    let reviewed = crate::web_modes::ASKING_MODES
-        .iter()
-        .find(|(f, _)| *f == family)
-        .is_some_and(|(_, modes)| modes.contains(&mode));
+    let reviewed = local_asking_modes(family).contains(&mode);
     if reviewed || asking.iter().any(|m| m == mode) || NARROW_MODES.contains(&mode) {
         DefaultMode::Ask
     } else {
@@ -1124,7 +1139,20 @@ impl Hub {
         if modes.is_empty() && options.is_empty() {
             return None;
         }
-        Some(json!({"modes": modes, "configOptions": options}))
+        let mut reported = json!({"modes": modes, "configOptions": options});
+        // The mode the harness's own `session/new` starts a chat in when acpmux sets none (its
+        // startup probe sets nothing; a chat's current mode is that chat's): Antigravity's
+        // `default`, which a new chat's Mode chip names where acpmux has no start mode for it.
+        if let Some(own) = probed
+            .as_ref()
+            .and_then(|(modes, _)| {
+                modes.as_ref()?.get("currentModeId")?.as_str().map(str::to_owned)
+            })
+            .filter(|own| modes.iter().any(|m| m.get("id").and_then(Value::as_str) == Some(own)))
+        {
+            reported.set("startModeId", json!(own));
+        }
+        Some(reported)
     }
 
     /// Tells local watchers a new chat's start mode may have changed

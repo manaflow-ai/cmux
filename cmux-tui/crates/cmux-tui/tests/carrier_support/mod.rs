@@ -10,7 +10,7 @@ use std::io::BufRead;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Child;
-use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -415,6 +415,9 @@ pub struct World {
     pub parked: Arc<Parked>,
     /// The machine read's status and its count.
     pub machine: Arc<MachineStub>,
+    /// The bytes the dial sent toward the relay, every link together
+    /// ([`world_counted`]; zero in every other world).
+    pub sent: Arc<AtomicU64>,
     /// The daemon's registration (set late in [`world_parked`]).
     _registration: Registration,
     _runtime: tokio::runtime::Runtime,
@@ -472,7 +475,24 @@ pub fn world_signed(
     key: DaemonKey,
     vmk: Option<&'static str>,
 ) -> World {
-    world_with(status, asked, service, key, vmk, None)
+    world_with(status, asked, service, key, vmk, Front::Direct)
+}
+
+/// What stands between the dial and the relay.
+enum Front {
+    /// Nothing: the platform names the relay.
+    Direct,
+    /// [`parking_proxy`], whose daemon registers this long after the first
+    /// Connect.
+    Parked(Duration),
+    /// [`counting_proxy`]: every byte the dial sends is counted.
+    Counted,
+}
+
+/// [`world`] whose relay sits behind a proxy that counts every byte the dial
+/// sends toward it ([`World::sent`]): what would reach a paused machine.
+pub fn world_counted(asked: Arc<AtomicUsize>) -> World {
+    world_with(200, asked, "mux-control", DaemonKey::Real, None, Front::Counted)
 }
 
 /// A world whose relay parks a dial's Connect until the daemon registers,
@@ -487,7 +507,7 @@ pub fn world_parked(register_after: Duration) -> World {
         "mux-control",
         DaemonKey::Real,
         None,
-        Some(register_after),
+        Front::Parked(register_after),
     )
 }
 
@@ -497,7 +517,7 @@ fn world_with(
     service: &'static str,
     key: DaemonKey,
     vmk: Option<&'static str>,
-    park: Option<Duration>,
+    front: Front,
 ) -> World {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -509,6 +529,8 @@ fn world_with(
     let shared_status = Arc::new(AtomicU16::new(status));
     let answered = shared_status.clone();
     let parked = Arc::new(Parked::default());
+    let sent = Arc::new(AtomicU64::new(0));
+    let counted = sent.clone();
     let machine = Arc::new(MachineStub::default());
     let machine_read = machine.clone();
     let (platform, registration, relay, signer, daemon_key) = runtime.block_on(async {
@@ -548,13 +570,18 @@ fn world_with(
         };
         let registration = Registration::default();
         // The address the platform names: the relay, or the parking proxy.
-        let named_relay = match park {
-            None => {
+        let named_relay = match front {
+            Front::Direct => {
                 let registered = register().await.unwrap();
                 *registration.lock().unwrap() = Some(registered);
                 relay_address
             }
-            Some(after) => {
+            Front::Counted => {
+                let registered = register().await.unwrap();
+                *registration.lock().unwrap() = Some(registered);
+                counting_proxy(relay_address, counted).await
+            }
+            Front::Parked(after) => {
                 let (registered, open) = watch::channel(false);
                 let held = Arc::new(Notify::new());
                 let proxy = parking_proxy(relay_address, open, held.clone(), parked.clone()).await;
@@ -608,9 +635,43 @@ fn world_with(
         dir,
         parked,
         machine,
+        sent,
         _registration: registration,
         _runtime: runtime,
     }
+}
+
+/// A proxy to `relay` that passes every byte both ways and adds each byte a
+/// client sends to `sent`.
+async fn counting_proxy(relay: SocketAddr, sent: Arc<AtomicU64>) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((client, _)) = listener.accept().await else { return };
+            let sent = sent.clone();
+            tokio::spawn(async move {
+                let Ok(upstream) = TcpStream::connect(relay).await else { return };
+                let (mut client_read, mut client_write) = client.into_split();
+                let (mut upstream_read, mut upstream_write) = upstream.into_split();
+                tokio::spawn(async move {
+                    let _ = tokio::io::copy(&mut upstream_read, &mut client_write).await;
+                });
+                let mut chunk = [0_u8; 16_384];
+                loop {
+                    let read = match client_read.read(&mut chunk).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(read) => read,
+                    };
+                    sent.fetch_add(read as u64, Ordering::SeqCst);
+                    if upstream_write.write_all(&chunk[..read]).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    address
 }
 
 /// A proxy to `relay` that holds each connection's client bytes after its
@@ -752,6 +813,10 @@ pub struct SshWorld {
     /// While this file exists the fake ssh writes junk to its stderr and
     /// exits 255, as ssh does when it cannot connect.
     pub ssh_junk: std::path::PathBuf,
+    /// While this file exists the fake ssh waits the seconds it holds
+    /// before its forced command speaks, as a cold ssh through the team
+    /// tunnel does (the tunnel, sshd, the key's first use).
+    pub ssh_slow: std::path::PathBuf,
     /// Cuts every relay connection, and refuses new ones.
     pub cut: watch::Sender<bool>,
     /// In a [`world_ssh_via_hub`]: while set, the stand-in hub ends every
@@ -827,6 +892,7 @@ fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
     let fake_ssh = dir.path().join("fake-ssh");
     let ssh_cut = dir.path().join("ssh-cut");
     let ssh_junk = dir.path().join("ssh-junk");
+    let ssh_slow = dir.path().join("ssh-slow");
     // sshd runs the key's forced command whatever the client asks; this
     // stand-in does the same, without the network or the ProxyCommand. The
     // link ends when `ssh_cut` appears (by SIGKILL, so it ends whatever
@@ -841,6 +907,7 @@ fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
              [ -e '{cut}' ] && exit 255\n\
              if [ -e '{junk}' ]; then printf 'ssh: connect to host {SSH_HOST} port 22: \
              Connection refused\\r\\n{{\"ok\": \"junk\"}}\\n' >&2; exit 255; fi\n\
+             [ -e '{slow}' ] && sleep \"$(cat '{slow}')\"\n\
              exec 3<&0\n\
              '{BIN}' remote-link --stdio --session carrier-ssh --link-socket '{link}' <&3 &\n\
              child=$!\n\
@@ -852,6 +919,7 @@ fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
             args = ssh_args.display(),
             cut = ssh_cut.display(),
             junk = ssh_junk.display(),
+            slow = ssh_slow.display(),
             link = link.display(),
         )
     };
@@ -923,6 +991,7 @@ fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
         ssh_args,
         ssh_cut,
         ssh_junk,
+        ssh_slow,
         cut,
         hub_cut,
         hub_dialed,

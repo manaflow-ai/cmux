@@ -676,8 +676,8 @@ try {
       if (still) {
         await settledAt(page);
         [quiet] = await measureIdle([{ page, cdp }]);
-        // Then the chat left alone, past the 10 s a page beats before it rests (pageHealth.ts): with
-        // nothing changing, nothing should wake.
+        // Then the chat left alone, past the beat before a page rests (pageHealth.ts) and its slack
+        // jobs' windows (slackTimers.ts): with nothing changing, nothing should wake.
         await new Promise((resolve) => setTimeout(resolve, STEADY_AFTER_MS));
         [steady] = await measureIdle([{ page, cdp }], STEADY_MS);
       }
@@ -797,6 +797,7 @@ try {
       unit: "count",
       target: 0,
       floor: 0.5,
+      ...(quiet.sources.length ? { sources: quiet.sources } : {}),
     });
     if (quiet.cpuMs !== null)
       perfRow({
@@ -824,6 +825,7 @@ try {
         unit: "count",
         target: 0,
         floor: 0.5,
+        ...(steady.sources.length ? { sources: steady.sources } : {}),
       });
     }
   }

@@ -128,6 +128,46 @@ async fn a_turn_ending_after_a_shutdown_began_leaves_the_kept_agent_to_the_next_
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A restart left for the turn's end (a route switch, an update's `restart_harnesses`) waits
+/// while work runs below the chat: the turn's end keeps its agent, and the background subagents
+/// its exit would end, and marks it to restart once quiet (cosmic-gray, 2026-11-26: a
+/// coordinator lost about 15 background subagents at each of four NIGHTLY installs).
+#[tokio::test]
+async fn a_restart_left_for_the_turn_end_waits_while_work_runs_below() {
+    let dir = std::env::temp_dir().join(format!("acpmux-work-below-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.finish_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let turn = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await
+        })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    s.route_switch.store(true, Ordering::SeqCst);
+    *s.work_below_since.lock().unwrap() = 1;
+    let child = s.child.lock().await.clone().expect("the turn's agent");
+    let _ = release.send(());
+    let answer = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    let kept = s.child.lock().await.clone();
+    assert!(
+        kept.is_some_and(|c| Arc::ptr_eq(&c, &child)),
+        "the turn's end restarted an agent with work below it"
+    );
+    assert!(child.is_alive().await, "the turn's end ended an agent with work below it");
+    assert!(s.respawn_when_quiet.load(Ordering::SeqCst), "not marked to restart once quiet");
+    assert!(s.route_switch.load(Ordering::SeqCst), "a later quiet turn end no longer restarts it");
+    *s.work_below_since.lock().unwrap() = 0;
+    child.kill().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// What the old daemon writes once its shutdown is done can land after the next daemon read the
 /// log (it lets go of `daemon.lock` before its process exits; Sol review of #28503), so it
 /// writes nothing then: a turn whose answer came after is cut, and the next daemon continues it.

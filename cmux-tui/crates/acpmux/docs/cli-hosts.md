@@ -74,6 +74,11 @@ Its `host_pressure` carries the readings this machine's verdict uses beside the 
 (`cores`, `pressure`, `available_ram_fraction`, `swap_mb_per_min`): `cpus`, `pressureAgeMs` (the
 meter sample's age), `load` (the OS load averages; the verdict reads `load[0]`), `ram.totalBytes`
 and `swap.usedBytes`/`swap.totalBytes`, so a reader builds the same inputs placement does.
+The meter also reports CPU busy: `cpu_busy_pct` (all CPUs, since its last sample) and, once its own
+samples cover a minute, `cpu_p50_pct`, their time-weighted p50 over the last ten minutes, with
+`cpu_window_s`, the seconds behind it. Each machine's `_acpmux/host_health` `pressure` carries all
+three, so `acpmux machine status --json` shows them per peer and lane-place sizes a host's measured
+lane cap from the link; a host with no p50 yet is unknown there, not full.
 
 Screen and control consent, an allow, and turning Full access on are the person's: the daemon takes
 them only from the cmux app, never from a shell or an agent.

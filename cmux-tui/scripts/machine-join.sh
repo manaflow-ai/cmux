@@ -576,8 +576,10 @@ clr_download() { # TARGET NAME OUT
   clr_want="$(clr_get "$clr_p" "targets.$1.$2.sha256")"
   clr_size="$(clr_get "$clr_p" "targets.$1.$2.size")"
   [ -n "$clr_u" ] || { clr_refuse "the signed release file of $clr_commit has no $2 for $1" "pick another build, or report it at https://github.com/manaflow-ai/cmux/issues"; return 1; }
-  case "$clr_u" in
-    */"$2-$1") ;;
+  # A binary is the file NAME-TARGET; a package (deb, rpm) one cmux-*.deb or cmux-*.rpm.
+  case "$2:$clr_u" in
+    deb:*/cmux-*.deb | rpm:*/cmux-*.rpm | *:*/"$2-$1") ;;
+    deb:* | rpm:*) clr_refuse "the signed release file names $clr_u for the $2 of $1, not a cmux .$2" "report it at https://github.com/manaflow-ai/cmux/issues"; return 1 ;;
     *) clr_refuse "the signed release file names $clr_u for $2 $1, not a file called $2-$1" "report it at https://github.com/manaflow-ai/cmux/issues"; return 1 ;;
   esac
   case "$clr_want" in *[!0-9a-f]* | '') clr_want="" ;; esac
@@ -638,12 +640,25 @@ has_capability() {
   [ -x "$1" ] && "$1" capabilities 2>/dev/null | grep -qx "$join_capability"
 }
 
+# Whether the installed acpmux is kept current by something other than this
+# line: a Mac (its app), or a Linux box whose user manager has
+# acpmux-update.timer enabled (asked of systemd: a unit file it does not read
+# counts for nothing) or the owner's ~/.acpmux/no-auto-update marker (updates
+# turned off on purpose).
+updated_elsewhere() {
+  [ "$os" != "Linux" ] ||
+    [ -e "$HOME/.acpmux/no-auto-update" ] ||
+    systemctl --user is-enabled --quiet acpmux-update.timer >/dev/null 2>&1
+}
+
 # 3. acpmux from the channel, checked against its sha256 before it touches
 # ~/.local/bin. The join token only ever goes to a binary with the channel's
 # sha256: on a mismatch the channel's build replaces it (the old one stays as
 # acpmux.prev). A repair run with no token keeps a different binary that can
-# join (the update timer owns updates), and keeps the installed one when the
-# channel cannot be read.
+# join when something else updates it: on Linux, its acpmux-update.timer
+# (step 4 installs it) or the owner's no-auto-update marker; a Mac's app. A
+# Linux box with neither gets the channel's build, whose step 4 adds the
+# timer. The installed one stays when the channel cannot be read.
 channel="${CMUX_JOIN_CHANNEL:-feat-cmux-next}"
 case "$channel" in
   '' | *[!a-z0-9-]*) die 1 "refusing the channel $channel: lowercase letters, digits and - only" ;;
@@ -802,8 +817,8 @@ if [ -z "$want" ]; then
   say "cannot read the $channel channel; keeping the installed acpmux"
 elif [ -x "$acpmux" ] && [ "$(sha256 "$acpmux")" = "$want" ]; then
   :
-elif [ -z "$t" ] && has_capability "$acpmux"; then
-  say "keeping the installed acpmux (its update timer brings it to $channel)"
+elif [ -z "$t" ] && has_capability "$acpmux" && updated_elsewhere; then
+  say "keeping the installed acpmux (its updates bring it to $channel)"
 else
   if [ -n "$acpmux_signed" ]; then
     clr_download "$target" cmux-tui-acpmux "$tmp/acpmux" || die_clr
@@ -891,7 +906,9 @@ fi
 # systemd user unit or LaunchAgent `host setup` writes and says where it
 # stands (on a Mac no one is logged in to at the screen, it loads at the next
 # login there); an acpmux without it gets a daemon that runs until the next
-# reboot.
+# reboot. On Linux it also installs and starts acpmux-update.timer with the
+# script `host setup` runs (`acpmux machine self-update` every 15 minutes),
+# unless ~/.acpmux/no-auto-update says not to; a re-run keeps both as they are.
 if "$acpmux" daemon service --help >/dev/null 2>&1; then
   if [ "$os" = "Linux" ] && command -v loginctl >/dev/null 2>&1; then
     loginctl enable-linger "$(id -un)" >/dev/null 2>&1 ||

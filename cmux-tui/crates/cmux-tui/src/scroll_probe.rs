@@ -60,6 +60,8 @@ const DONE_MARK: &[u8] = b"SCROLLPROBE-DONE";
 /// the daemon both use (`DEFAULT_SCROLLBACK_LIMIT_BYTES`).
 const MIRROR_SCROLLBACK_BYTES: usize = 10_000_000;
 const STATUS_ROWS: u64 = 3;
+/// How long the probe waits for the daemon's snap after it types a key.
+const INPUT_SNAP_WAIT: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
 struct Options {
@@ -623,9 +625,14 @@ struct Probe<'s, 'e> {
     reattach: Vec<Value>,
     stall: Value,
     snap_on_input: Option<bool>,
+    /// How long after the typed key the daemon's snap `scroll-changed` came.
+    input_snap_ms: Option<u64>,
     mirror_after_input_moved: Option<bool>,
     unsolicited_scroll_changed: u64,
     resized: u64,
+    /// The probe's own last reattach or stall and when it began, so a
+    /// resync the daemon sends names how long after it came.
+    last_disturbance: Option<(&'static str, Instant)>,
     overflow: u64,
     max_scrollback_seen: u64,
     newest: u64,
@@ -657,9 +664,11 @@ impl<'s, 'e> Probe<'s, 'e> {
             reattach: Vec::new(),
             stall: Value::Null,
             snap_on_input: None,
+            input_snap_ms: None,
             mirror_after_input_moved: None,
             unsolicited_scroll_changed: 0,
             resized: 0,
+            last_disturbance: None,
             overflow: 0,
             max_scrollback_seen: 0,
             newest: 0,
@@ -943,11 +952,26 @@ impl<'s, 'e> Probe<'s, 'e> {
                     .as_mut()
                     .filter(|m| m.attach == n && m.was_back)
                     .and_then(Mirror::anchor);
+                let from = self
+                    .mirror
+                    .as_ref()
+                    .filter(|m| m.attach == n)
+                    .map(|m| format!("{}x{}", m.term.cols(), m.term.rows()));
                 match Mirror::from_replay(cols, rows, &replay, &decode("pending"), n) {
                     Ok(mut mirror) => {
                         if let Some(anchor) = resync_anchor {
                             self.m.jumps += 1;
-                            self.m.note(format!("mirror rebuilt by {event} while scrolled back"));
+                            let since = self.last_disturbance.map_or_else(
+                                || "no reattach or stall before it".to_string(),
+                                |(what, at)| {
+                                    format!("{} ms after the {what}", at.elapsed().as_millis())
+                                },
+                            );
+                            self.m.note(format!(
+                                "mirror rebuilt by {event} {} -> {cols}x{rows} while scrolled \
+                                 back, {since}",
+                                from.as_deref().unwrap_or("?")
+                            ));
                             mirror.restore_anchor(&anchor);
                         }
                         self.mirror = Some(mirror);
@@ -1001,6 +1025,12 @@ impl<'s, 'e> Probe<'s, 'e> {
                     self.snap_on_input = Some(true);
                     // The documented snap: not a jump even if its frame comes later.
                     self.daemon.was_back = false;
+                    self.daemon.offset = offset;
+                    self.daemon.at_bottom = at_bottom;
+                    // Frames that came before this event were held (see
+                    // `check_daemon`): judge the newest one now, at the bottom.
+                    self.check_daemon();
+                    return;
                 } else {
                     self.unsolicited_scroll_changed += 1;
                     self.d.note(format!(
@@ -1101,6 +1131,13 @@ impl<'s, 'e> Probe<'s, 'e> {
             return;
         }
         let at_bottom = self.daemon.at_bottom;
+        if self.daemon.expect_snap && !at_bottom {
+            // Input was sent and its snap's `scroll-changed` has not come:
+            // the daemon may already draw the bottom while its last position
+            // still reads scrolled back (it paces `scroll-changed`, and over a
+            // Cloud link the two arrive apart). Judged once the snap shows.
+            return;
+        }
         let (defects, top) = check_viewport(&rows, at_bottom, self.daemon.cols, &self.ordinals);
         self.d.samples += 1;
         if defects.blank + defects.missing > 0 {
@@ -1205,9 +1242,26 @@ impl<'s, 'e> Probe<'s, 'e> {
         let mirror_top = self.check_mirror(false);
         self.daemon.expect_snap = true;
         self.snap_on_input = Some(false);
+        let sent = Instant::now();
         self.request(Conn::Control, json!({"cmd": "send", "surface": self.surface, "text": "x"}))?;
-        self.pump_for(Duration::from_millis(200))?;
+        // Wait for the snap itself, not a fixed time: over a Cloud link its
+        // `scroll-changed` can come after 200 ms (a 200 ms wait counted one
+        // late snap as 1 blank, 4 missing and 3 jumps, cloud-journey-prod
+        // run 46136983311). Bounded: no snap in 3 s reads snap_on_input false.
+        while self.snap_on_input != Some(true) && sent.elapsed() < INPUT_SNAP_WAIT {
+            self.pump_for(Duration::from_millis(50))?;
+        }
+        if self.snap_on_input == Some(true) {
+            self.input_snap_ms = Some(sent.elapsed().as_millis() as u64);
+            self.pump_for(Duration::from_millis(100))?;
+        } else {
+            self.d.note(format!(
+                "input did not snap the daemon view in {} ms",
+                INPUT_SNAP_WAIT.as_millis()
+            ));
+        }
         self.daemon.expect_snap = false;
+        self.check_daemon();
         let after = self.check_mirror(false);
         self.mirror_after_input_moved = Some(after != mirror_top);
         if self.daemon.at_bottom {
@@ -1223,6 +1277,7 @@ impl<'s, 'e> Probe<'s, 'e> {
     fn detach_and_reattach(&mut self, why: &str, gap: Duration) -> Result<(), String> {
         let before_top = self.check_mirror(false);
         let anchor = self.mirror.as_mut().and_then(Mirror::anchor);
+        self.last_disturbance = Some(("reattach", Instant::now()));
         if let Some(link) = self.bytes.take() {
             let _ = link.writer.shutdown(std::net::Shutdown::Both);
         }
@@ -1256,6 +1311,7 @@ impl<'s, 'e> Probe<'s, 'e> {
     /// client reattach, as the app does; that reattach is checked as above.
     fn stall_bytes(&mut self, period: Duration) -> Result<(), String> {
         let bytes_before = self.output_bytes;
+        self.last_disturbance = Some(("stall", Instant::now()));
         if let Some(link) = self.bytes.as_ref() {
             link.paused.store(true, Ordering::Relaxed);
         }
@@ -1311,7 +1367,8 @@ impl<'s, 'e> Probe<'s, 'e> {
                 "pruned": mirror_total.is_some_and(|t| t < total_rows),
             },
             "events": {
-                "snap_on_input": self.snap_on_input, "mirror_moved_on_input": self.mirror_after_input_moved,
+                "snap_on_input": self.snap_on_input, "input_snap_ms": self.input_snap_ms,
+                "mirror_moved_on_input": self.mirror_after_input_moved,
                 "unsolicited_scroll_changed": self.unsolicited_scroll_changed, "resized": self.resized,
                 "overflow": self.overflow, "reattach": self.reattach, "stall": self.stall,
             },
@@ -1340,51 +1397,5 @@ fn memchr_find(haystack: &[u8], needle: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn opts() -> Options {
-        Options::parse(&["--socket".into(), "/x".into()]).unwrap()
-    }
-
-    /// A wrapped line's rows fill the width exactly, so each row starts with its own marker.
-    #[test]
-    fn every_row_of_a_wrapped_line_but_the_last_fills_the_width() {
-        let cols = 120;
-        for n in 1..400u64 {
-            let segs = segments(n);
-            for k in 0..segs {
-                let row = expected_row(n, k, cols);
-                assert!(row.len() as u64 <= cols, "{n}/{k}");
-                if k + 1 < segs {
-                    assert_eq!(row.len() as u64, cols, "{n}/{k}");
-                }
-                assert_eq!(parse_row(&row, cols), Row::Numbered { n, k, intact: true });
-            }
-        }
-    }
-
-    #[test]
-    fn a_blank_or_missing_row_inside_the_viewport_is_counted() {
-        let o = opts();
-        let ordinals = Ordinals::new(last_line(&o));
-        let cols = u64::from(o.cols);
-        let mut rows: Vec<String> = (0..20).map(|i| row_at(&ordinals, i, cols)).collect();
-        assert_eq!(check_viewport(&rows, false, cols, &ordinals).0.blank, 0);
-        rows[5] = String::new();
-        rows[9] = row_at(&ordinals, 30, cols);
-        let (defects, top) = check_viewport(&rows, false, cols, &ordinals);
-        assert_eq!((defects.blank, defects.missing, top), (1, 2, Some(0)));
-        // At the live bottom, blank rows below the last numbered row are the screen's own.
-        let mut bottom: Vec<String> = (0..10).map(|i| row_at(&ordinals, i, cols)).collect();
-        bottom.extend(["STATUS 1/3".to_string(), String::new()]);
-        assert_eq!(check_viewport(&bottom, true, cols, &ordinals).0.missing, 0);
-        assert_eq!(check_viewport(&bottom, false, cols, &ordinals).0.missing, 1);
-    }
-
-    fn row_at(ordinals: &Ordinals, index: u64, cols: u64) -> String {
-        let n = ordinals.0.iter().rposition(|start| *start <= index).unwrap() as u64;
-        let n = (1..=n).rev().find(|n| ordinals.of(*n, 0).unwrap() <= index).unwrap();
-        expected_row(n, index - ordinals.of(n, 0).unwrap(), cols)
-    }
-}
+#[path = "scroll_probe_tests.rs"]
+mod tests;

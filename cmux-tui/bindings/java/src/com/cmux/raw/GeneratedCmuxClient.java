@@ -966,6 +966,11 @@ public abstract class GeneratedCmuxClient {
         return NotifyResult.fromWire(result);
     }
 
+    public final PhoneLinkOfferResult offerLinkToPhone(OfferLinkToPhoneRequest request) throws CmuxException {
+        Object result = execute(Commands.OFFER_LINK_TO_PHONE, request.toWire());
+        return PhoneLinkOfferResult.fromWire(result);
+    }
+
     public final Object pageCredential(PageCredentialRequest request) throws CmuxException {
         Object result = execute(Commands.PAGE_CREDENTIAL, request.toWire());
         return Wire.immutableJson(result);

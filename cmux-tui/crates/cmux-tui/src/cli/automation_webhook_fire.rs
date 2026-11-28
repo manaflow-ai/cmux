@@ -104,6 +104,8 @@ pub(super) fn fire(args: &[String], out: &Out) -> Outcome {
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let delivery = format!("cli-{}", uuid::Uuid::new_v4().simple());
     let headers = signed_headers(&shot.secret, timestamp, &delivery, &shot.body);
+    // --platform or CMUX_PLATFORM_URL names the origin: a host the person named passes the gate.
+    cmux_egress::allow_named(&origin);
     let url = format!("{origin}{TRIGGERS_PATH}/{}/webhook", shot.trigger);
     match post(&url, &headers, shot.body) {
         Ok((status, answer)) => {
@@ -132,13 +134,13 @@ pub(super) fn fire(args: &[String], out: &Out) -> Outcome {
 }
 
 fn post(url: &str, headers: &[(&str, String)], body: Vec<u8>) -> Result<(u16, Value), String> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder()
+    // Through the egress gate (docs/privacy.md); it installs the TLS provider too.
+    let client = cmux_egress::client_builder("cmux_tui::cli::automation_webhook_fire")
         .default_headers(space)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
@@ -210,5 +212,25 @@ mod tests {
         assert!(queued.contains("dlv_1") && queued.contains("queued"), "{queued}");
         let skipped = answer_line(&json!({"accepted": false, "reason": "condition_unmet"}));
         assert!(skipped.contains("condition_unmet"), "{skipped}");
+    }
+
+    /// Seeded secrets on the wire (cmux_egress::capture): the webhook secret signs the delivery
+    /// and is never sent. tests/egress_seeded.json names this test for
+    /// `cmux_tui::cli::automation_webhook_fire`.
+    #[test]
+    fn the_seeded_secret_never_leaves_the_machine() {
+        cmux_egress::capture::install().unwrap();
+        let secret = "SEEDwebhookSecret-3f6e";
+        let args = words(&[ID, "--secret", secret, "--body", "{\"n\":1}"]);
+        let Ok(shot) = shot(&args, &|_| None) else { panic!("the shot parses") };
+        let headers = signed_headers(&shot.secret, 1_700_000_000, "cli-seeded", &shot.body);
+        let platform = cmux_cloud_environment::PRODUCTION_PLATFORM;
+        let url = format!("{platform}{TRIGGERS_PATH}/{}/webhook", shot.trigger);
+        post(&url, &headers, shot.body).unwrap();
+        let sent =
+            cmux_egress::capture::requests_to("cmux-platform-production.debussy.workers.dev");
+        assert!(sent.iter().any(|r| r.target.ends_with("/webhook")), "{sent:?}");
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(places.is_empty(), "{places:?}");
     }
 }

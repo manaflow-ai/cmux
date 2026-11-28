@@ -13,7 +13,9 @@ import { readingLook, readingLookValues } from "./readingLook.experiment";
 describe("reading layout experiment", () => {
   const previousOverrides = globalThis.cmuxExperiments;
   afterEach(() => {
-    globalThis.cmuxExperiments = previousOverrides;
+    // Put back exactly what was there: none means no global, not one set to undefined.
+    if (previousOverrides === undefined) delete globalThis.cmuxExperiments;
+    else globalThis.cmuxExperiments = previousOverrides;
     setChatDisplay({});
   });
   const saved = Object.freeze({

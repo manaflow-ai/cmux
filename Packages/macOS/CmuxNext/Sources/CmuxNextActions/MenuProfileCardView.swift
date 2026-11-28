@@ -9,8 +9,8 @@ public import AppKit
 /// the system's label colors, as AppKit draws the rows around it.
 public final class MenuProfileCardView: NSView {
     /// The rows' highlight inset (`MenuMetrics.highlightInset`, CmuxNextDesign), so the plate lines up with a row's
-    /// hover highlight.
-    static let inset: CGFloat = 5
+    /// hover highlight. MenuPaletteParityTests holds it to the grid (this module does not import CmuxNextDesign).
+    public static let inset: CGFloat = 5
     static let avatarSide: CGFloat = 44
     static let padding: CGFloat = 12
     static let gap: CGFloat = 8

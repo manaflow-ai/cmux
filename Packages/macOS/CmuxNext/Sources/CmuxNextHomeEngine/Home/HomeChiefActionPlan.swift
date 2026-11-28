@@ -49,28 +49,45 @@ package struct HomeChiefActionPlan {
 
     package let front: Front
     package let chiefs: [Chief]
-
     /// The Chief a Home in front shows wins, even when idle (Esc in its box never stops another
-    /// Chief); else the working Chief, this Mac's default first.
-    package var stop: Stop {
-        switch front {
-        case .chief(let isWorking): return isWorking ? .front : .nothingRuns
-        case .none:
-            let working = chiefs.filter(\.isWorking)
-            guard let chief = working.first(where: \.isDefault) ?? working.first else { return .nothingRuns }
-            return .chief(chief.conversation)
-        }
-    }
-
+    /// Chief); else the working Chief, this Mac's default first (`dock.chief_action_plan`).
+    package let stop: Stop
     /// The Home in front toggles; else this Mac's default Chief (or the first one) opens.
-    package var settings: Settings {
-        if case .chief = front { return .front }
-        guard let chief = chiefs.first(where: \.isDefault) ?? chiefs.first else { return .noChief }
-        return .open(chief.conversation)
-    }
+    package let settings: Settings
 
     package init(front: Front, chiefs: [Chief]) {
         self.front = front
         self.chiefs = chiefs
+        let wireFront: Request.WireFront = switch front {
+        case .none: Request.WireFront(type: "none", isWorking: nil)
+        case .chief(let isWorking): Request.WireFront(type: "chief", isWorking: isWorking)
+        }
+        let request = Request(front: wireFront, chiefs: chiefs.map {
+            Request.WireChief(conversation: $0.conversation.rawValue, isWorking: $0.isWorking, isDefault: $0.isDefault)
+        })
+        let plan: Plan = dockRule("dock.chief_action_plan", request,
+                                  fallback: Plan(stop: DockTagged(type: "nothingRuns", conversation: nil), settings: DockTagged(type: "noChief", conversation: nil)))
+        switch plan.stop.type {
+        case "front": stop = .front
+        case "chief": stop = plan.stop.conversation.map { .chief(ConversationID($0)) } ?? .nothingRuns
+        default: stop = .nothingRuns
+        }
+        switch plan.settings.type {
+        case "front": settings = .front
+        case "open": settings = plan.settings.conversation.map { .open(ConversationID($0)) } ?? .noChief
+        default: settings = .noChief
+        }
+    }
+
+    private nonisolated struct Request: Encodable {
+        nonisolated struct WireFront: Encodable { var type: String; var isWorking: Bool? }
+        nonisolated struct WireChief: Encodable { var conversation: String; var isWorking: Bool; var isDefault: Bool }
+        var front: WireFront
+        var chiefs: [WireChief]
+    }
+
+    private nonisolated struct Plan: Decodable {
+        var stop: DockTagged
+        var settings: DockTagged
     }
 }

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.relativeTimestamps.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عند تشغيل إظهار الأوقات، يظهر تغيير اليوم بعمره، مثل 5m أو 2h، لا بوقته."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uz uključeno Prikaži vremena, današnja promjena prikazuje se kao starost, npr. 5m ili 2h, a ne kao vrijeme."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Med Vis tidspunkter slået til vises en ændring i dag som dens alder, fx 5m eller 2h, ikke som klokkeslæt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bei aktivierten Zeitangaben zeigt eine Änderung von heute ihr Alter, etwa 5m oder 2h, statt der Uhrzeit."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Con Mostrar marcas de tiempo activado, un cambio de hoy muestra su antigüedad, como 5m o 2h, no su hora."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Avec Afficher les horodatages activé, un changement d’aujourd’hui affiche son âge, comme 5m ou 2h, et non son heure."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Con Mostra orari attivo, una modifica di oggi mostra da quanto è avvenuta, come 5m o 2h, non l’ora."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "タイムスタンプ表示がオンのとき、今日の変更は時刻ではなく 5m や 2h のような経過時間で表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលបើកបង្ហាញពេលវេលា ការផ្លាស់ប្ដូរថ្ងៃនេះបង្ហាញជារយៈពេល ដូចជា 5m ឬ 2h មិនមែនម៉ោងទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "타임스탬프 표시가 켜져 있으면 오늘의 변경은 시각 대신 5m, 2h처럼 경과 시간으로 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Med Vis tidspunkter på vises en endring i dag som alderen, for eksempel 5m eller 2h, ikke klokkeslettet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdy Pokaż znaczniki czasu jest włączone, dzisiejsza zmiana pokazuje swój wiek, np. 5m lub 2h, a nie godzinę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Com Mostrar horários ativado, uma mudança de hoje mostra há quanto tempo ocorreu, como 5m ou 2h, não o horário."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Когда показ времени включён, сегодняшнее изменение показывает давность, например 5m или 2h, а не время."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อเปิดแสดงเวลา การเปลี่ยนแปลงวันนี้จะแสดงเป็นระยะเวลาที่ผ่านมา เช่น 5m หรือ 2h แทนเวลา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zaman damgalarını göster açıkken bugünkü bir değişiklik saati yerine 5m veya 2h gibi geçen süreyi gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Коли показ часу ввімкнено, сьогоднішня зміна показує давність, наприклад 5m або 2h, а не час."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi bật Hiện thời gian, thay đổi hôm nay hiện thời gian đã trôi qua, như 5m hoặc 2h, thay vì giờ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "开启显示时间后，今天的更改显示为经过的时间，例如 5m 或 2h，而非具体时刻。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開啟顯示時間後，今天的變更顯示為經過的時間，例如 5m 或 2h，而非具體時刻。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

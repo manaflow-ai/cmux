@@ -5,10 +5,62 @@
 use super::*;
 use crate::Answering;
 
-/// Rows the card needs: borders, head, prompt, one per option, keys.
-pub(super) fn card_height(flow: &Answering) -> u16 {
-    let options = flow.active().and_then(|i| i["options"].as_array()).map_or(0, Vec::len);
-    5 + options.min(9) as u16
+/// A question or a command longer than this many lines stops there with an ellipsis, as the
+/// GUI's card stops at 8 before its Show more (cmux#49455).
+pub(super) const MAX_TEXT_LINES: usize = 8;
+
+/// `text` wrapped at word breaks to `width` columns, at most `MAX_TEXT_LINES` lines; a word
+/// wider than the line breaks inside it. The last line kept ends in "…" when more was cut.
+pub(super) fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(4);
+    let mut lines: Vec<String> = Vec::new();
+    for raw in text.trim().split('\n') {
+        let mut line = String::new();
+        for word in raw.split_whitespace() {
+            let need = if line.is_empty() { word.width() } else { line.width() + 1 + word.width() };
+            if need > width && !line.is_empty() {
+                lines.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            for ch in word.chars() {
+                let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                if line.width() + cw > width {
+                    lines.push(std::mem::take(&mut line));
+                }
+                line.push(ch);
+            }
+        }
+        lines.push(line);
+    }
+    while lines.len() > 1 && lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    if lines.len() > MAX_TEXT_LINES {
+        lines.truncate(MAX_TEXT_LINES);
+        if let Some(last) = lines.last_mut() {
+            while last.width() + 1 > width {
+                last.pop();
+            }
+            last.push('…');
+        }
+    }
+    lines
+}
+
+/// The inner width the card gives its text, for a card `card_w` columns wide.
+pub(super) fn text_width(card_w: u16) -> usize {
+    card_w.saturating_sub(4) as usize
+}
+
+/// Rows the card needs at `card_w` columns: borders, head, the whole prompt, one per option, keys.
+pub(super) fn card_height(flow: &Answering, card_w: u16) -> u16 {
+    let item = flow.active();
+    let options = item.and_then(|i| i["options"].as_array()).map_or(0, Vec::len);
+    let prompt = item.and_then(|i| i["prompt"].as_str()).unwrap_or("");
+    let prompt_rows = wrap_text(prompt, text_width(card_w)).len().max(1);
+    4 + prompt_rows as u16 + options.min(9) as u16
 }
 
 pub(super) fn draw_question_card(
@@ -30,7 +82,7 @@ pub(super) fn draw_question_card(
     let inner_w = area.width.saturating_sub(4) as usize;
     let x = area.x + 2;
     let total = acpmux::question_answer::items(&flow.question).len();
-    let agent = flow.question["agent"].as_str().unwrap_or("The agent");
+    let agent = flow.question.get("agent").and_then(|agent| agent.as_str()).unwrap_or("The agent");
     let header = item["header"].as_str().unwrap_or("");
     let mut head = format!("{agent} asks");
     if total > 1 {
@@ -41,13 +93,23 @@ pub(super) fn draw_question_card(
     }
     let bold = Style::default().fg(c.attention_fg).add_modifier(Modifier::BOLD);
     buf.set_stringn(x, area.y + 1, truncate(&head, inner_w), inner_w, bold);
-    let prompt = item["prompt"].as_str().unwrap_or("").trim();
-    buf.set_stringn(x, area.y + 2, truncate(prompt, inner_w), inner_w, Style::default());
-    let multi = item["multiSelect"].as_bool().unwrap_or(false);
+    // The whole question, wrapped at word breaks (cmux#49455), never cut to one line.
+    let prompt = item["prompt"].as_str().unwrap_or("");
     let last = area.y + area.height.saturating_sub(2);
+    let prompt_lines = wrap_text(prompt, inner_w);
+    let mut y = area.y + 2;
+    for line in &prompt_lines {
+        if y >= last {
+            break;
+        }
+        buf.set_stringn(x, y, line, inner_w, Style::default());
+        y += 1;
+    }
+    let first_option = area.y + 2 + prompt_lines.len().max(1) as u16;
+    let multi = item["multiSelect"].as_bool().unwrap_or(false);
     let options = item["options"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     for (i, option) in options.iter().enumerate().take(9) {
-        let y = area.y + 3 + i as u16;
+        let y = first_option + i as u16;
         if y >= last {
             break;
         }
@@ -89,4 +151,36 @@ pub(super) fn draw_question_card(
     };
     buf.set_stringn(x, last, truncate(keys, inner_w), inner_w, c.dim());
     app.dialog_rect = area;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_question_wraps_whole_at_word_breaks() {
+        let q = "Should I run the migration against the staging database now, or wait until the backup finishes?";
+        let lines = wrap_text(q, 30);
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|l| l.width() <= 30), "{lines:?}");
+        assert_eq!(lines.join(" "), q);
+    }
+
+    #[test]
+    fn a_very_long_one_stops_at_eight_lines() {
+        let q = "word ".repeat(200);
+        let lines = wrap_text(&q, 20);
+        assert_eq!(lines.len(), MAX_TEXT_LINES);
+        assert!(lines.last().unwrap().ends_with('…'));
+        assert!(lines.iter().all(|l| l.width() <= 20));
+    }
+
+    #[test]
+    fn a_command_wider_than_the_card_breaks_inside_it() {
+        let cmd = "rm -rf /tmp/a-very-long-generated-directory-name-that-has-no-spaces-at-all";
+        let lines = wrap_text(cmd, 24);
+        assert!(lines.iter().all(|l| l.width() <= 24), "{lines:?}");
+        assert_eq!(lines.concat().replace(' ', ""), cmd.replace(' ', ""));
+        assert_eq!(wrap_text("", 24), vec![String::new()]);
+    }
 }

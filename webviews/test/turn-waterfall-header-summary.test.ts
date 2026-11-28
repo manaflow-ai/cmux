@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("turn-waterfall-header-summary.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -19,10 +19,15 @@ await requireBrowserLane("turn-waterfall-header-summary.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
-  const engines: [string, BrowserType][] = [
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
     ["chromium", chromium],
     ["webkit", webkit],
-  ];
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("turn-waterfall-header-summary.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -32,7 +37,7 @@ await requireBrowserLane("turn-waterfall-header-summary.test.ts", async () => {
     });
     await vite.listen();
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
-    await warmGalleryFrame(vite, ENTRY, { browser: browsers.get("chromium"), params: { variant: "bars" } });
+    await warmGalleryFrame(vite, ENTRY, { browser: browsers.values().next().value, params: { variant: "bars" } });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();

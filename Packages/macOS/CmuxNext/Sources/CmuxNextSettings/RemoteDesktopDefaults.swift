@@ -4,12 +4,20 @@
 /// - `quality` (Auto by default): Auto, Sharp Text, Smooth Motion or Low Bandwidth.
 /// - `maxFps` (`"auto"` by default, or 1 to 240): a cap on the frame rate the offer asks for.
 /// - `maxBitrateMbps` (`"auto"` by default, or 0.5 to 80): the offer's bitrate cap.
+/// - `sharpLinuxText` (off by default): the viewer's hello offers cap `video.sharp_text`, so a Linux
+///   host whose encoder is OpenH264 codes the session in screen usage, not camera usage.
+/// - `clipboard` (`ownDevicesOnly` by default, `always` or `never`): whether a session syncs clipboard
+///   text (`RemoteClipboardPolicy`, cap `clipboard.text`).
 public nonisolated struct RemoteDesktopDefaults: Sendable, Equatable {
     public var quality = RemoteDesktopDefaults.qualityDefault
     /// nil: Auto (the quality's own rate, this Mac's display refresh).
     public var maxFps: Int?
     /// nil: Auto (the host's own cap).
     public var maxBitrateMbps: Double?
+    /// Settings > Customize "Sharper Text from Linux Machines": sharper text over a faster encode.
+    public var sharpLinuxText = RemoteDesktopDefaults.sharpLinuxTextDefault
+    /// `remoteDesktop.clipboard`: when a session syncs clipboard text.
+    public var clipboard = RemoteDesktopClipboard.ownDevicesOnly
 
     public init() {}
 
@@ -22,6 +30,8 @@ public nonisolated struct RemoteDesktopDefaults: Sendable, Equatable {
         if let value = reader.choice("quality", RemoteDesktopQuality.self) { settings.quality = value }
         settings.maxFps = Self.autoOrNumber(&reader, "maxFps", range: Self.maxFpsRange).map { Int($0.rounded()) }
         settings.maxBitrateMbps = Self.autoOrNumber(&reader, "maxBitrateMbps", range: Self.maxBitrateMbpsRange)
+        if let value = reader.bool("sharpLinuxText") { settings.sharpLinuxText = value }
+        if let value = reader.choice("clipboard", RemoteDesktopClipboard.self) { settings.clipboard = value }
         diagnostics = reader.diagnostics
         return settings
     }
@@ -32,4 +42,9 @@ public nonisolated struct RemoteDesktopDefaults: Sendable, Equatable {
         if value.stringValue == "auto" { return nil }
         return reader.number(key, range: range)
     }
+}
+
+/// `remoteDesktop.clipboard`: own devices only (the default), always, or never.
+public nonisolated enum RemoteDesktopClipboard: String, Sendable, Hashable, CaseIterable {
+    case ownDevicesOnly, always, never
 }

@@ -4,14 +4,21 @@
 //! own temporary directory holds, once a [`TICK`].
 //!
 //! - Use: per scope, the sum over its live processes of `/proc/<pid>/io` `write_bytes` less
-//!   `cancelled_write_bytes` (what it wrote and did not delete before writeback), or the size of
-//!   the session's `ACPMUX_SESSION_TMPDIR`, whichever is larger. A 20 GB file writer shows while
-//!   it writes; a build's many short compilers each count only while they run.
+//!   `cancelled_write_bytes` (what it wrote and did not delete before writeback) over the last
+//!   [`WINDOW`] ([`Known::recent`]), or the size of the session's `ACPMUX_SESSION_TMPDIR`,
+//!   whichever is larger. A 20 GB file writer shows while it writes; a build's many short
+//!   compilers each count only while they run. The counter never falls when a file is deleted,
+//!   so a lifetime sum told every long chat its harness's own churn was disk it kept: one
+//!   37-hour Claude chat read 10.7 GiB "written and kept" while it kept about 160 MB, and the
+//!   number stayed after it removed six worktrees. A scope's first [`WINDOW`] counts its whole
+//!   life, as before.
 //! - Bounded: at most [`MAX_SCOPES`] scopes and [`MAX_PIDS`] processes a tick, and at most
 //!   [`MAX_TMP_ENTRIES`] entries of a temporary directory (then its size is a floor, `partial`).
 //!   No worktree is walked. The cost is the processes acpmux scopes hold, which their `TasksMax`
 //!   caps, never the files on disk.
-//! - A scope over its budget is warned once in its chat. One over its budget while the home
+//! - A scope over its budget is warned once in its chat, and a chat once for all its scopes
+//!   (each background command is a scope of its own), again only when a scope's use doubles
+//!   the last one it was told about (`Watch::warned`). One over its budget while the home
 //!   filesystem's free space is under the host's floor (registry `lanes.free_gb_floor`, else
 //!   10 GB) has its top writer's process group stopped (SIGSTOP: throttled, not killed), unless
 //!   that group is one of the scope's own (`Known::protected`: the groups it held when the
@@ -29,6 +36,11 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::time::Duration;
+
+/// How far back a scope's writes count ([`Known::recent`]).
+pub(crate) const WINDOW: Duration = Duration::from_secs(6 * 3600);
+/// How often [`Known::recent`] keeps a mark: at most `WINDOW / MARK_EVERY + 2` per scope.
+pub(crate) const MARK_EVERY: Duration = Duration::from_secs(30 * 60);
 
 /// How often the watcher measures.
 pub(crate) const TICK: Duration = Duration::from_secs(15);
@@ -69,6 +81,33 @@ pub(crate) struct Known {
     /// its harness or task runner alone; one that was already running when the daemon started
     /// keeps every group it had, so it is only warned).
     pub protected: Vec<i32>,
+    /// The scope's lifetime write total at points in time, oldest first ([`Known::recent`]).
+    pub marks: std::collections::VecDeque<(std::time::Instant, u64)>,
+}
+
+impl Known {
+    /// Of the scope's lifetime write total `total` at `now`, what it wrote over the last
+    /// [`WINDOW`]: `total` less its total at the newest mark at or before the window's start.
+    /// The first mark is 0 at first sight, so a scope's first window counts its whole life. A
+    /// writer that exits lowers `total`; every older mark is lowered with it, so growth after
+    /// counts and the window never reads below 0.
+    pub(crate) fn recent(&mut self, now: std::time::Instant, total: u64) -> u64 {
+        if self.marks.is_empty() {
+            self.marks.push_back((now, 0));
+        }
+        for m in self.marks.iter_mut() {
+            m.1 = m.1.min(total);
+        }
+        if self.marks.back().is_some_and(|(t, _)| now.saturating_duration_since(*t) >= MARK_EVERY) {
+            self.marks.push_back((now, total));
+        }
+        while self.marks.len() > 1
+            && self.marks.get(1).is_some_and(|(t, _)| now.saturating_duration_since(*t) >= WINDOW)
+        {
+            self.marks.pop_front();
+        }
+        total.saturating_sub(self.marks.front().map_or(0, |m| m.1))
+    }
 }
 
 /// One scope's reading.
@@ -76,7 +115,9 @@ pub(crate) struct Known {
 pub(crate) struct Sample {
     pub scope: String,
     pub session: Option<String>,
+    /// What its live processes wrote and kept over the last [`WINDOW`], and over their lives.
     pub written: u64,
+    pub lifetime: u64,
     pub tmp: u64,
     pub tmp_partial: bool,
     /// The process group of the top writer, and the groups never stopped (`Known::protected`).
@@ -161,7 +202,14 @@ pub(crate) struct Watch {
     pub budget: u64,
     pub truncated: bool,
     pub ticks: u64,
+    /// Each chat's use at its last plain `Action::Warn`: a chat whose builds each run in a new
+    /// scope heard the same warning once a build (76 wakes in a day on one lane host, 40 in one
+    /// chat; 13 under this rule). Stops, resumes and low-disk warnings always go out.
+    pub warned: BTreeMap<String, u64>,
 }
+
+/// The most chats `Watch::warned` remembers; past it, it starts over.
+const WARNED_MAX: usize = 4096;
 
 impl Watch {
     /// Applies a tick's `samples`; the actions with each scope's sample. Scopes that went away
@@ -173,6 +221,17 @@ impl Watch {
             let prev = self.states.get(&s.scope).copied().unwrap_or_default();
             let (next, action) = decide(prev, s, self.budget, self.free, self.floor);
             states.insert(s.scope.clone(), next);
+            if action == Some(Action::Warn)
+                && let Some(id) = s.session.as_deref()
+            {
+                if self.warned.get(id).is_some_and(|told| s.used() < told.saturating_mul(2)) {
+                    continue;
+                }
+                if self.warned.len() >= WARNED_MAX {
+                    self.warned.clear();
+                }
+                self.warned.insert(id.to_owned(), s.used());
+            }
             if let Some(a) = action {
                 actions.push((s.clone(), a));
             }
@@ -202,7 +261,7 @@ impl Watch {
             .map(|(_, s)| {
                 json!({
                     "scope": s.scope, "sessionId": s.session, "diskBytes": s.used(),
-                    "writtenBytes": s.written, "tmpBytes": s.tmp, "tmpPartial": s.tmp_partial,
+                    "writtenBytes": s.written, "writtenLifetimeBytes": s.lifetime, "tmpBytes": s.tmp, "tmpPartial": s.tmp_partial,
                     "memoryBytes": s.memory, "tasks": s.tasks, "state": state_word(&s.scope),
                     "stoppedPgid": match self.states.get(&s.scope) {
                         Some(State::Stopped(g)) => json!(g), _ => Value::Null },
@@ -347,8 +406,10 @@ pub(crate) fn scan(manager: &str, known: &mut BTreeMap<String, Known>) -> (Vec<S
                         Some((get("ACPMUX_SESSION_ID"), get("ACPMUX_SESSION_TMPDIR")))
                     })
                     .unwrap_or((None, None));
-                Known { session, tmp, protected: groups.clone() }
+                Known { session, tmp, protected: groups.clone(), ..Known::default() }
             });
+            s.lifetime = s.written;
+            s.written = known.recent(std::time::Instant::now(), s.lifetime);
             s.protected = known.protected.clone();
             s.session = known.session.clone();
             if let Some(tmp) = &known.tmp {
@@ -402,15 +463,15 @@ pub(crate) fn read_ledger(home: &std::path::Path) -> Vec<StoppedGroup> {
 pub(crate) fn write_ledger(home: &std::path::Path, groups: &[StoppedGroup]) -> std::io::Result<()> {
     let path = home.join(LEDGER);
     if groups.is_empty() {
-        return match std::fs::remove_file(&path) {
+        return match crate::home_fs::remove_file(&path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         };
     }
-    std::fs::create_dir_all(home)?;
+    crate::home_fs::create_dirs(home)?;
     let tmp = home.join(format!("{LEDGER}.tmp"));
-    std::fs::write(&tmp, serde_json::to_vec(groups).map_err(std::io::Error::other)?)?;
-    std::fs::rename(&tmp, &path)
+    crate::home_fs::write(&tmp, serde_json::to_vec(groups).map_err(std::io::Error::other)?)?;
+    crate::home_fs::rename(&tmp, &path)
 }
 
 /// Whether a process of group `pgid` is still in `scope` under `manager` (`manager_dir`): a

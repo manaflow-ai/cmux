@@ -13,7 +13,12 @@ enum AgentPaneHarnessCard {
             return AgentPaneReply.failure(code: "harness.gesture_required", message: AgentPaneModel.shellGestureMessage)
         }
         guard let socket = transport.acpmuxSocket else { return AgentPaneReply.failure(code: "harness.unavailable", message: unavailableMessage) }
-        let first = await call(request, transport: transport, session: sessionId, socket: socket)
+        var first = await call(request, transport: transport, session: sessionId, socket: socket)
+        // Nothing answers on the socket (the agent service stopped, or an update is swapping it):
+        // the app starts it and asks once more, rather than telling the person to try again.
+        if first.unreachable, let host, (try? await host.prewarm()) != nil {
+            first = await call(request, transport: transport, session: sessionId, socket: socket)
+        }
         // An agent service from before this app's update lacks the request: the app restarts it on its
         // own build (its chats kept) and asks once more, rather than asking the person to quit cmux.
         guard first.outdated, let host, let restarted = await host.restartOutdatedAcpmux(sessionId: sessionId) else { return first.reply }
@@ -26,6 +31,8 @@ enum AgentPaneHarnessCard {
     private struct Outcome {
         var reply: [String: Any]
         var outdated = false
+        /// Nothing answered on the socket.
+        var unreachable = false
     }
 
     /// One try of `request` on the acpmux at `socket`.
@@ -67,9 +74,12 @@ enum AgentPaneHarnessCard {
         } catch let error as AcpmuxRPCError {
             // An agent service from before this app's update does not know the method yet.
             let message = error.isMethodMissing ? oldServiceMessage : error.isUnreachable ? unavailableMessage : error.message
-            return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: message), outdated: error.isMethodMissing)
+            return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: message), outdated: error.isMethodMissing,
+                           unreachable: error.isUnreachable)
         } catch is AgentPaneDeadlineExceeded {
             return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: slowMessage))
+        } catch AcpmuxStatusClient.Failure.unreachable {
+            return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: unavailableMessage), unreachable: true)
         } catch {
             return Outcome(reply: AgentPaneReply.failure(code: "harness.failed", message: unavailableMessage))
         }
@@ -77,6 +87,7 @@ enum AgentPaneHarnessCard {
 
     /// The agent service is still older than the app (it lacks the method) after the app's own restart.
     static var oldServiceMessage: String {
+        // retry-prompt-ok: updating the agent service replaces binaries and restarts it
         String(localized: "agentPane.harness.oldService",
                defaultValue: "cmux couldn't update its agent service. Quit and reopen cmux, then try again.", bundle: .localizedModule)
     }
@@ -87,8 +98,9 @@ enum AgentPaneHarnessCard {
                defaultValue: "This is taking longer than expected. It may still finish; check Settings > Agents.", bundle: .localizedModule)
     }
 
-    /// The update or restart could not reach this Mac's agent service.
+    /// The update or restart could not reach this Mac's agent service, after the app tried to start it.
     static var unavailableMessage: String {
-        String(localized: "agentPane.harness.unavailable", defaultValue: "The agent service is not running. Try again in a moment.", bundle: .localizedModule)
+        // retry-prompt-ok: updating or restarting the agent service replaces binaries and restarts it
+        String(localized: "agentPane.harness.unavailable", defaultValue: "cmux couldn't start its agent service to do this. Quit and reopen cmux, then try again.", bundle: .localizedModule)
     }
 }

@@ -83,7 +83,7 @@ def main():
     video = os.path.join(a.out, "multimac-feed.mp4")
     sim.record_start(video)
     try:
-        # 1. Choose the first Mac (the Workspaces filter links and focuses it), then show All Macs.
+        # 1. Choose the first Mac (the Workspaces filter links and focuses it), then show All Computers.
         j.back_to_list()
         sim.tap_q(ident="workspaces.filter", timeout=60)
         time.sleep(1.0)
@@ -91,7 +91,7 @@ def main():
         time.sleep(3.0)
         sim.tap_q(ident="workspaces.filter", timeout=20)
         time.sleep(1.0)
-        sim.tap_q(label="All Macs", timeout=20)
+        sim.tap_q(ident="workspaces.filter.all", timeout=20)
         time.sleep(2.0)
         sim.shot("01-workspaces-both-macs")
         value = (sim.wait(ident="workspaces.filter", timeout=10) or None)

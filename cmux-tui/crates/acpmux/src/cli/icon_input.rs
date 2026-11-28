@@ -43,6 +43,8 @@ async fn fetch(url: &str) -> Result<(&'static str, Vec<u8>)> {
     } else {
         parsed.join("/favicon.ico").context("the site's favicon URL")?
     };
+    // The person passed this icon URL on the command line.
+    cmux_egress::allow_named(target.as_str());
     let client = crate::happy_dial::http_client()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent("acpmux-icon")

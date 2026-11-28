@@ -2,9 +2,7 @@
 //! `giving`. One function per state, every event written out.
 
 use super::out::Out;
-use super::{
-    Answer, CopyState, Effect, Event, GiveStep, ImportReason, MoveTo, State, Stop, Verdict, give,
-};
+use super::{Answer, Effect, Event, GiveStep, ImportReason, MoveTo, State, Stop, Verdict, give};
 use crate::consts::SELF_STOP_MS;
 
 /// Another holder runs the chat: kill what ran here, keep what it wrote since the last
@@ -161,13 +159,10 @@ pub(super) fn registering(out: &mut Out, event: Event, now: u64) {
 pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
     match event {
         Event::AutoOff => out.push(Effect::Close),
-        // A copy that did not reach the store is sent again, at work or idle: a chat that
-        // waits for its next change with a failed copy would be taken over a turn behind.
+        // Replicate a running chat even when it emits nothing, and retry failed copies.
         Event::Tick => {
             if out.due(now) {
-                if out.chat.copy == CopyState::Failed && !out.chat.too_large {
-                    out.copy(now);
-                }
+                out.checkpoint(now);
                 out.renew(now);
             }
         }

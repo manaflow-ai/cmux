@@ -135,7 +135,9 @@ public final class AgentTurnStateFeed {
         // Lines decode on the socket queue; one main-actor batch at a time, never a Task per
         // line (MainActorLineBatch), and a chat's pushes while one waits are its newest alone
         // (`Message.key`). The main actor only sets the states that changed.
-        // A reconnect with a cursor follows it: the rows changed while the watch was down.
+        // A reconnect with a cursor follows it: the rows changed while the watch was down. The rows'
+        // positions were the last connection's (maybe another daemon run's): this one's replies place them.
+        listFollow.reconnected()
         resyncing = listFollow.canFollow
         connection.start(send: Self.watchRequest(listFollow.watchParams), key: Message.key, decode: Message.init(line:)) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }
@@ -227,6 +229,9 @@ public final class AgentTurnStateFeed {
         case peerState(peer: String, state: String)
         /// acpmux refused a list page (id 2 or 4): it paces list reads (`list.paced`).
         case pageRefused
+        /// acpmux answered a list page (id 2 or 4) with any other error (bad params, a cursor it no
+        /// longer knows): asking the same page again fails the same way, so the watch starts over.
+        case pageFailed
         /// The `initialize` result (id 1): whether acpmux follows a list cursor.
         case initialized(follows: Bool)
         /// A follow's reply (id 2, ``AgentWatchFollow``).
@@ -253,8 +258,9 @@ public final class AgentTurnStateFeed {
                 self = .follow(follow)
             } else if id == 2 || id == 4, let result = message["result"] as? [String: Any] {
                 self = .page(AgentWatchPage(result: result), continued: id == 4)
-            } else if id == 2 || id == 4, message["error"] != nil {
-                self = .pageRefused
+            } else if id == 2 || id == 4, let error = message["error"] {
+                let reason = ((error as? [String: Any])?["data"] as? [String: Any])?["reason"] as? String
+                self = reason == "list.paced" ? .pageRefused : .pageFailed
             } else if (message["id"] as? NSNumber)?.intValue == 3, let result = message["result"] as? [String: Any] {
                 let next = (result["nextCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 self = .usage(AgentChatDetail.details(result).filter(\.value.hasUsage), next: next)
@@ -409,6 +415,14 @@ public final class AgentTurnStateFeed {
             if !isMirror { peerStateChanged?(peer, state) }
         case .pageRefused:
             retryPage()
+        case .pageFailed:
+            // A fresh watch from the list's start: the cursor and list held may be what it refused.
+            guard let connection = subscription else { return }
+            logger.info("agent turn states: a list page failed; reconnecting")
+            listFollow = AgentListFollow()
+            held = nil
+            connection.cancel()
+            lost(connection)
         }
     }
 

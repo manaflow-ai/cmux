@@ -21,7 +21,9 @@
 //! machine's replica and journal and answers the hub's ACP file methods from them (M20, behind
 //! the same flag: `hub/paused_fs.rs`). The exec path's barrier is `Hub::wake_paused_machine`.
 
+pub mod browse;
 pub mod classify;
+pub mod diff;
 pub mod flush;
 #[cfg(unix)]
 pub(crate) mod nofollow;

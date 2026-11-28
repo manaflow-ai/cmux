@@ -33,15 +33,11 @@ export type SessionInfoSectionId =
   | "context"
   | "usage"
   | "connectors"
-  /// The instructions and memory that follow the person to this machine, and the notes other
-  /// machines propose to add (CarriedSection.tsx).
-  | "carried"
   | "changes"
   | "sources"
   | "servers"
   | "subagents"
   | "tasks"
-  | "alsoHere"
   | "outputs"
   /// Not a section: the panel's Show more line, an item of the order (sectionOrder.ts `MORE_LINE`).
   | "more"
@@ -63,13 +59,11 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
   context: false,
   usage: false,
   connectors: false,
-  carried: false,
   changes: true,
   sources: false,
   servers: true,
   subagents: true,
   tasks: true,
-  alsoHere: true,
   outputs: true,
 };
 

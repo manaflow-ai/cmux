@@ -15,7 +15,9 @@
 //!   must be an absolute path to an existing directory; the request goes on
 //!   with the canonical path (symlinks resolved, no `..`). A Web `session/new` folder must
 //!   also sit in a root; the owner's own daemon asking for itself may also use an existing
-//!   git checkout whose top is neither home nor above it (`peer_folder::owner_checkout`).
+//!   git checkout whose top is neither home nor above it (`peer_folder::owner_checkout`),
+//!   or an existing folder of its home that is not home, hidden or in `~/Library`
+//!   (`peer_folder::owner_home_folder`).
 //!   An `acp.trust.set`
 //!   for a peer's session names the peer's folder: it goes on to that peer
 //!   unchanged, and the peer's own guard checks the folder there.
@@ -90,6 +92,9 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 mod cancel_owner;
+mod chat_folder;
+pub(crate) use chat_folder::CHAT_FOLDER_REASON;
+use chat_folder::{ChatFolderFault, chat_folder_fault, repair_writable};
 pub(super) mod hint;
 mod peer_folder;
 pub(super) use hint::POLICY_REFUSED;
@@ -97,7 +102,7 @@ pub(super) use hint::check;
 use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
-    owner_checkout,
+    owner_checkout, owner_home_folder,
 };
 
 /// Whether a session method acpmux does not handle itself goes on to the
@@ -211,6 +216,11 @@ pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<Strin
     }
     if conn.auth == super::ConnAuth::Device {
         return conn.device.clone();
+    }
+    // The owner's own phone through this machine's cmux-tui (Cloud mobile or the Mac relay):
+    // only the unix socket, which controls every chat here already (`pairing::CLOUD_MOBILE_OWNER`).
+    if conn.origin == super::Origin::Local && conn.auth.authenticated() && cloud_mobile(params) {
+        return Some(crate::pairing::CLOUD_MOBILE_OWNER.to_owned());
     }
     let (device, ..) = vouched_claim(conn, params)?;
     Some(crate::pairing::vouched_phone_id(&conn.id, device))
@@ -731,10 +741,12 @@ async fn check_inner(
             };
             if let Some(canonical) = canonical {
                 // The owner's own daemon asking for itself (no Web client or paired device
-                // behind it) may also start in a git checkout outside the roots.
+                // behind it) may also start in a git checkout outside the roots, or in a
+                // folder of its home its chooser picked (`owner_home_folder`).
                 let owners_checkout = peer_new
                     && cancel_owner::owner(origin, auth, params)
-                    && owner_checkout(Path::new(&canonical)).await;
+                    && (owner_checkout(Path::new(&canonical)).await
+                        || owner_home_folder(Path::new(&canonical)).await);
                 if !inside(&canonical) && !owners_checkout {
                     return Err(outside_told(cwd, &told).await);
                 }
@@ -1456,11 +1468,7 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
     if !cloud_peer {
         let dir = dir.clone();
         let made = tokio::task::spawn_blocking(move || {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder.create(&dir)?;
+            crate::home_fs::create_dir_all(&dir, 0o700)?;
             mark_made_by_acpmux(&dir)
         })
         .await;
@@ -1487,26 +1495,19 @@ pub(crate) fn cloud_chat_folder_under(
 ) -> Result<PathBuf, RpcError> {
     let chats = home.join("chats");
     let dir = chats.join(name);
+    // A host-side fault, named as such (`CHAT_FOLDER_REASON`), so the machine that placed the
+    // start passes this host over for a while (`placement/reach.rs` `refused_start`).
     let failed = |why: String| {
         RpcError::invalid_params(format!("the Cloud chat folder could not be made: {why}"))
-    };
-    let safe_dir = |metadata: &std::fs::Metadata| {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt as _;
-            metadata.is_dir()
-                && metadata.uid() == unsafe { libc::geteuid() }
-                && metadata.mode() & 0o022 == 0
-        }
-        #[cfg(not(unix))]
-        {
-            metadata.is_dir()
-        }
+            .with_data(serde_json::json!({"reason": CHAT_FOLDER_REASON}))
     };
     for path in [&chats, &dir] {
         match std::fs::symlink_metadata(path) {
-            Ok(metadata) if safe_dir(&metadata) => {}
-            Ok(_) => return Err(failed(format!("{} is not a directory", path.display()))),
+            Ok(metadata) => match chat_folder_fault(&metadata) {
+                None => {}
+                Some(ChatFolderFault::Writable(_)) if repair_writable(path) => {}
+                Some(fault) => return Err(failed(fault.describe(path))),
+            },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let mut builder = std::fs::DirBuilder::new();
                 #[cfg(unix)]
@@ -1545,7 +1546,7 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
 /// agent-home is. A marker already there is kept; anything else in its place (a link, a folder)
 /// is no marker, so the folder is asked about as any other.
 fn mark_made_by_acpmux(dir: &std::path::Path) -> std::io::Result<()> {
-    match std::fs::OpenOptions::new()
+    match crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(dir.join(crate::trust::AGENT_HOME_MARKER))
@@ -1636,31 +1637,5 @@ async fn canonical_dir(path: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod cloud_chat_tests {
-    use super::*;
-
-    #[test]
-    fn cloud_peer_uses_a_durable_chat_folder() {
-        let home = std::env::temp_dir().join(format!("cmux-cloud-peer-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        // A Cloud machine's home folder exists; only `chats` and the chat's
-        // folder are made here.
-        std::fs::create_dir_all(&home).unwrap();
-        let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
-        assert_eq!(dir, home.join("chats/chat-1"));
-        assert!(dir.is_dir());
-        assert!(dir.join(crate::trust::AGENT_HOME_MARKER).is_file(), "marked as acpmux's");
-        // A retry reuses the folder and keeps its marker.
-        assert_eq!(cloud_chat_folder_under(&home, "chat-1").unwrap(), dir);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                std::fs::metadata(home.join("chats")).unwrap().permissions().mode() & 0o777,
-                0o700
-            );
-            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-        }
-        let _ = std::fs::remove_dir_all(home);
-    }
-}
+#[path = "remote_guard_cloud_chat_tests.rs"]
+mod cloud_chat_tests;

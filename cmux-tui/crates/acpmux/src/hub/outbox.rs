@@ -145,6 +145,18 @@ pub struct Delivery {
     /// well. Cleared when the hub refuses it outright (`server/outbox.rs` `relay_attempt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_post: Option<crate::mesh::OutMessage>,
+    /// No post of [`Self::relay_post`] can be at the hub: every one so far failed before it left
+    /// this daemon (`HubError::never_reached`), and it is saved false before any post that might
+    /// not. Only then may a copy go to its machine directly (`server/mesh_direct.rs`). False for a
+    /// record saved before the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relay_unreached: bool,
+    /// A direct copy may have reached its machine (`server/mesh_direct.rs`): saved before it goes,
+    /// and from then on only the direct path tries it again, under the same key, which the far
+    /// daemon runs once; the hub is never posted it. Cleared when the direct attempt provably
+    /// did not run it (no circuit, or the far daemon refused before it ran).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direct_maybe: bool,
     /// Delivered to a peer's session, and not yet seen in that peer's journal after a later
     /// link: the machine may have lost it with its disk (a session moved to a fresh machine,
     /// a VM back on an older snapshot). Every link of the peer that comes up gives back its
@@ -244,6 +256,13 @@ impl Delivery {
 
     pub fn projection_only(&self) -> bool {
         self.request.pointer("/_meta/acpmux/forwardProjection").is_some()
+    }
+
+    /// A message (not a projection intent, which keeps its own schedule) past [`RETRY_FOR_MS`]
+    /// since it was handed over: it is never sent again (`server/outbox.rs` `expired`), and a
+    /// failed one stays failed (`hub/watches.rs` `drain`).
+    pub fn past_retry_window(&self, now: u64) -> bool {
+        !self.projection_only() && now >= self.created_at.saturating_add(RETRY_FOR_MS)
     }
 
     /// Open on its peer past [`OPEN_ON_PEER_FOR_MS`].
@@ -421,12 +440,22 @@ pub struct OutboxState {
 /// The deliveries and the number of changes made to them.
 #[derive(Default)]
 struct Book {
+    /// Shared by all idle peer checks until the next change.
+    pending_targets: Option<Arc<PendingTargets>>,
     deliveries: BTreeMap<String, Delivery>,
     changes: u64,
     /// The deliveries changed since the last write: the next one journals them.
     dirty: BTreeSet<String>,
     /// The counters every change here moves (`outbox_stats.rs`).
     stats: super::outbox_stats::Counters,
+}
+
+/// Distinct destinations and pins of unfinished messages. Both keep a link alive when a
+/// previously pinned delivery's destination now resolves on another peer.
+#[derive(Default)]
+pub(super) struct PendingTargets {
+    pub(super) targets: HashSet<String>,
+    pub(super) pins: HashSet<String>,
 }
 
 /// What the files hold.
@@ -490,7 +519,14 @@ impl OutboxState {
             disk.snapshot_retry_at = 0;
         }
         let mut book = self.book();
+        book.pending_targets = None;
         book.deliveries.extend(saved.deliveries);
+        // A file over the bounds is rewritten within them now, not at the first change a day on.
+        let trimmed = book.cap_settled() > 0;
+        if trimmed {
+            // The cut goes to `outbox.json` itself, not a journal line (a drop is not a change a journal can say).
+            self.disk.lock().unwrap_or_else(|e| e.into_inner()).snapshot_next = true;
+        }
         book.stats = super::outbox_stats::read(path, crate::store::now_ms());
         // Attachments come back from beside the file; ones no waiting delivery names go.
         let dir = attachments_dir(path);
@@ -513,7 +549,7 @@ impl OutboxState {
         let pending = book.deliveries.values().filter(|d| !d.settled()).cloned().collect();
         // A journal left over is folded into the snapshot now, so the files read alone by an
         // older daemon hold everything.
-        if saved.journal_bytes > 0 {
+        if saved.journal_bytes > 0 || trimmed {
             let change = book.changed();
             drop(book);
             self.save(change);
@@ -640,6 +676,29 @@ impl OutboxState {
         })
     }
 
+    /// One snapshot per changed book, shared by every quiet link. While the writer holds the
+    /// book, keep the link until it can check again.
+    pub(super) fn pending_targets(&self) -> Option<Arc<PendingTargets>> {
+        let mut book = self.deliveries.try_lock()?;
+        if let Some(targets) = &book.pending_targets {
+            return Some(Arc::clone(targets));
+        }
+        let mut targets = PendingTargets::default();
+        for d in book
+            .deliveries
+            .values()
+            .filter(|d| !d.settled() && !d.projection_only() && !d.is_team_receipt())
+        {
+            targets.targets.insert(d.target.clone());
+            if let Some(pin) = &d.pin {
+                targets.pins.insert(pin.peer.clone());
+            }
+        }
+        let targets = Arc::new(targets);
+        book.pending_targets = Some(Arc::clone(&targets));
+        Some(targets)
+    }
+
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
     /// Never waits: `status` (every pane's connect, `ls`) reads it, and a writer can hold the
@@ -730,6 +789,8 @@ impl OutboxState {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -949,7 +1010,9 @@ impl OutboxState {
                 self.stall.lock().unwrap_or_else(|e| e.into_inner()).take()
             {
                 let _ = started.send(());
-                let _ = go_on.recv();
+                // A dropped sender lets the write go on, as before; a test that never lets it
+                // go on fails its own wait instead of hanging the worker.
+                let _ = go_on.recv_timeout(std::time::Duration::from_secs(30));
             }
             #[cfg(test)]
             if let Some(error) =
@@ -1044,6 +1107,7 @@ impl OutboxState {
             book.dirty.extend(dirty);
             if let Some(id) = added {
                 book.deliveries.remove(id);
+                book.pending_targets = None;
             }
             return Err(e);
         }
@@ -1183,6 +1247,7 @@ fn read_saved(path: &Path) -> Saved {
 impl Book {
     /// Counts a change and drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
+        self.pending_targets = None;
         let now = crate::store::now_ms();
         for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
             tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
@@ -1208,6 +1273,7 @@ impl Book {
             // Open on its peer is not settled for this: kept until it closes or lapses.
             !d.settled() || d.open_on_peer || now.saturating_sub(d.updated_at) < keep
         });
+        self.cap_settled();
         self.changes += 1;
         self.changes
     }
@@ -1311,6 +1377,10 @@ fn projected_message(d: &Delivery) -> Option<&Value> {
     d.request.pointer("/_meta/acpmux/forwardProjection/messageId")
 }
 
+#[path = "outbox_cap.rs"]
+mod cap;
+pub use cap::{MAX_SETTLED, MAX_SETTLED_RECEIPTS};
+
 #[cfg(test)]
 #[path = "outbox_model_tests.rs"]
 mod model_tests;
@@ -1319,7 +1389,7 @@ mod model_tests;
 mod tests {
     use super::*;
 
-    fn delivery(n: usize) -> Delivery {
+    pub(super) fn delivery(n: usize) -> Delivery {
         let now = crate::store::now_ms();
         Delivery {
             id: format!("d-{n}"),
@@ -1334,6 +1404,8 @@ mod tests {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -1948,6 +2020,8 @@ mod tests {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,

@@ -117,3 +117,37 @@ async fn register_refusals_are_visible_at_info_and_rate_limited() {
     assert_eq!(came.len(), 1, "no ticket line:\n{log}");
     assert!(came[0].contains(&format!("{} attempts", REFUSALS + 1)), "{log}");
 }
+
+#[test]
+fn ticket_renewal_log_keeps_the_operation_and_safe_reason() {
+    let lines = Lines::default();
+    let writer = lines.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .without_time()
+        .with_target(false)
+        .with_writer(move || writer.clone())
+        .finish();
+    let _logs = tracing::subscriber::set_default(subscriber);
+
+    log_ticket_renewal_failure("Register", "the hub answered 429 mesh.rate_limited");
+    log_ticket_renewal_failure("Connect", "the hub: error sending request");
+    log_ticket_renewal_failure("Register", "the hub answered 503");
+    log_ticket_renewal_failure("Connect", "the hub answered 403 secret-ticket");
+    log_ticket_renewal_failure("Register", "the hub answered secret-ticket");
+    log_ticket_renewal_failure("Connect", "Authorization: Bearer secret-ticket");
+
+    let log =
+        String::from_utf8_lossy(&lines.0.lock().unwrap_or_else(|e| e.into_inner())).into_owned();
+    assert!(log.contains("Register ticket renewal failed: the hub answered 429 mesh.rate_limited"));
+    assert!(log.contains("Connect ticket renewal failed: the hub: error sending request"));
+    assert!(log.contains("Register ticket renewal failed: the hub answered 503"));
+    assert!(
+        log.lines().any(|l| l.ends_with("Connect ticket renewal failed: the hub answered 403"))
+    );
+    assert!(
+        log.lines().any(|l| l.ends_with("Register ticket renewal failed: ticket source failed"))
+    );
+    assert!(!log.contains("secret-ticket"));
+    assert!(!log.contains("Authorization"));
+}

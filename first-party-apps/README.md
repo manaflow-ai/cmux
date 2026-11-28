@@ -15,6 +15,7 @@ Official cmux apps built on the app platform with only the public app API (the g
 | `agents/` | `cmux/agents` | agent CLIs (Claude Code, Codex, OpenCode, Pi, Chief, ...) on every machine: versions, updates, installs and sign-ins, run by cmux in a visible terminal |
 | `skills/` | `cmux/skills` | skills and MCP servers per agent, project or everywhere; every config change is a reviewed diff before it is written |
 | `memory/` | `cmux/memory` | agent memory files (CLAUDE.md, AGENTS.md, project memory) per machine and project; every edit shows a diff, deletes go to the Trash |
+| `worktree-cleanup/` | `cmux/worktree-cleanup` | Auto cleanup: the App Store switch for the `worktrees.autoCleanup` setting (manifest only, a `setting`-backed entry) |
 | `remote-desktop/` | `cmux/remote-desktop` | the native `remote_view` pane and the `rd.*` ops of the `cmux-rd` host engine (manifest v2 only, development only) |
 | `rfd-reader/` | `local/rfd-reader` | reads a repository's RFDs (`docs/rfd/NNNN-slug.md`) and reading notes (`docs/reading/YYYY-MM-DD-slug.md`) in a web pane, a tab each: lists by last update or read date with state and tag filters, full-text search, review comments beside their lines, hover previews both ways, Cmd-/ jump-to, a new RFD or reading note as a pull request |
 

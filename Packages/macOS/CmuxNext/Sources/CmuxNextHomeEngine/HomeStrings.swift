@@ -19,11 +19,12 @@ public nonisolated enum HomeStrings {
                defaultValue: "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done.",
                table: "Home", bundle: .localizedModule)
     }
-    /// Chief's third message on a fresh install: the background offer, with the picker's `link`.
-    static func chiefWelcomeBackground(link: String) -> String {
-        String(format: String(localized: "home.chief.welcomeBackground",
-                              defaultValue: "Want to make it yours? [Pick a background](%@) from the built-in art or one of your own pictures. Or skip it and just say hi.",
-                              table: "Home", bundle: .localizedModule), link)
+    /// Chief's third message on a fresh install: the background offer's localized format; `%@` is the
+    /// picker's link (``ChiefWelcome``).
+    static var chiefWelcomeBackgroundFormat: String {
+        String(localized: "home.chief.welcomeBackground",
+               defaultValue: "Want to make it yours? [Pick a background](%@) from the built-in art or one of your own pictures. Or skip it and just say hi.",
+               table: "Home", bundle: .localizedModule)
     }
     public static var unavailable: String {
         String(localized: "home.unavailable", defaultValue: "Conversations need a newer cmux daemon.", table: "Home", bundle: .localizedModule)
@@ -68,6 +69,7 @@ public nonisolated enum HomeStrings {
                table: "Home", bundle: .localizedModule)
     }
     public static var archiveFailed: String {
+        // retry-prompt-ok: archiving is a side-effecting change the person chose
         String(localized: "home.chief.archive.failed", defaultValue: "The Chief couldn’t be archived. Try again.", table: "Home",
                bundle: .localizedModule)
     }
@@ -76,6 +78,7 @@ public nonisolated enum HomeStrings {
                table: "Home", bundle: .localizedModule)
     }
     public static var deleteFailed: String {
+        // retry-prompt-ok: deleting is a destructive change the person chose
         String(localized: "home.chief.delete.failed", defaultValue: "The Chief couldn’t be deleted. Try again.", table: "Home",
                bundle: .localizedModule)
     }
@@ -97,17 +100,16 @@ public nonisolated enum HomeStrings {
                               defaultValue: "**Press `%@` to go anywhere.** It jumps to any open workspace, tab or agent, so it's the first shortcut to learn.",
                               table: "Home", bundle: .localizedModule), keys)
     }
-    /// A chord in the welcome's shortcut list, as Markdown: `` `⌘J` then `S` ``.
-    static func chiefWelcomeChord(_ first: String, _ second: String) -> String {
-        String(format: String(localized: "home.chief.welcome.chord", defaultValue: "`%1$@` then `%2$@`",
-                              table: "Home", bundle: .localizedModule), first, second)
+    /// A chord in the welcome's shortcut list, as a localized Markdown format: `` `⌘J` then `S` ``
+    /// (`%1$@` the first key, `%2$@` the second).
+    static var chiefWelcomeChordFormat: String {
+        String(localized: "home.chief.welcome.chord", defaultValue: "`%1$@` then `%2$@`", table: "Home", bundle: .localizedModule)
     }
-    /// The welcome's Start Agent from Any App line while its system-wide key is off, as Markdown: its
-    /// `keys` (already a code span), its `title`, and the `link` that turns the key on.
-    static func chiefWelcomeAnyApp(_ keys: String, _ title: String, link: String) -> String {
-        String(format: String(localized: "home.chief.welcome.anyApp",
-                              defaultValue: "%1$@ %2$@ (off until you [turn it on](%3$@))",
-                              table: "Home", bundle: .localizedModule), keys, title, link)
+    /// The welcome's Start Agent from Any App line while its system-wide key is off, as a localized
+    /// format: `%1$@` its keys (already a code span), `%2$@` its title, `%3$@` the link that turns it on.
+    static var chiefWelcomeAnyAppFormat: String {
+        String(localized: "home.chief.welcome.anyApp", defaultValue: "%1$@ %2$@ (off until you [turn it on](%3$@))",
+               table: "Home", bundle: .localizedModule)
     }
     /// The heading over the welcome's other shortcuts.
     static var chiefWelcomeShortcuts: String {

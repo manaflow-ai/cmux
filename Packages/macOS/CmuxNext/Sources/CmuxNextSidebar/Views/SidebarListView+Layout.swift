@@ -44,6 +44,7 @@ extension SidebarListViewComponents {
         // Without a drag the full layout is the model's under `options` (`displayLayout`): a one-row insert splices onto it.
         let plain = shownDrag == nil && external == nil
             ? spliced?.options ?? removed?.options ?? edited?.options ?? page?.options ?? options(includeGap: true) : nil
+        drawnBlockHeights = plain?.blockHeights // what an in-place block patch must keep (`patchBlocks`)
         let layout = spliced?.layout ?? removed?.layout ?? edited?.layout ?? page?.layout
             ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
         // A full layout reads every listed row; a splice or a kept page reads none here.
@@ -64,6 +65,7 @@ extension SidebarListViewComponents {
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
+        scheduleRelativeTimesTick()
     }
     /// The rows' caches (workspaces, groups and their subtrees, sections, listed items) from the sections the list draws.
     private func rebuildRowCaches() {
@@ -413,7 +415,9 @@ extension SidebarListViewComponents {
             // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
             let underCard = isUnderCard(view.frame, cards)
             if adopting, !suppressed.contains(key), !underCard {
-                // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
+                // A row the drop or the model took away fades where it is (its slot closes on the rows' spring),
+                // without the selection fill: that is on the new selected row already (no second one).
+                view.isSelected = false
                 leaving.append((view, view.frame))
             } else if suppressed.contains(key) || !animate || placeholder || replaced || underCard {
                 recycle(view)
@@ -656,6 +660,7 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
         defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
+        chatHistory.followScroll()
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]

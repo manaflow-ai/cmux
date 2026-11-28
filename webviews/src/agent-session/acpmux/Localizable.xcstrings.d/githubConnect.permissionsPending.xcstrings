@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "githubConnect.permissionsPending" : {
+      "comment" : "Agent pane: the Sign in with GitHub card under a turn whose GitHub call was refused because the cmux GitHub App's installation has not accepted its updated permissions yet (conversation/GitHubConnectCard.tsx): the card's line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub needs you to accept cmux's updated permissions"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يحتاج GitHub إلى موافقتك على أذونات cmux المحدّثة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub traži da prihvatite ažurirane dozvole za cmux"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub har brug for, at du accepterer cmux' opdaterede tilladelser"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub braucht deine Zustimmung zu den aktualisierten Berechtigungen von cmux"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub necesita que aceptes los permisos actualizados de cmux"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub a besoin que vous acceptiez les autorisations mises à jour de cmux"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub richiede che tu accetti le autorizzazioni aggiornate di cmux"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux の更新された権限を GitHub で承認する必要があります"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub ត្រូវការឱ្យអ្នកទទួលយកការអនុញ្ញាតដែលបានធ្វើបច្ចុប្បន្នភាពរបស់ cmux"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub에서 cmux의 업데이트된 권한을 승인해야 합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub trenger at du godtar cmux sine oppdaterte tillatelser"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub wymaga zaakceptowania zaktualizowanych uprawnień cmux"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O GitHub precisa que você aceite as permissões atualizadas do cmux"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub требует принять обновлённые разрешения cmux"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub ต้องการให้คุณยอมรับสิทธิ์ที่อัปเดตของ cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub, cmux'un güncellenmiş izinlerini kabul etmenizi istiyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub потребує, щоб ви прийняли оновлені дозволи cmux"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub cần bạn chấp nhận các quyền đã cập nhật của cmux"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 需要你接受 cmux 更新后的权限"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 需要你接受 cmux 更新後的權限"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

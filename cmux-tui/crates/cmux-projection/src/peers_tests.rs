@@ -1,7 +1,7 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 
 /// A network of fixed answers by URL, recording what was asked.
 struct Fake {
@@ -44,6 +44,166 @@ fn remote(tier: &'static str, base: &str) -> Remote {
 // `git hash-object` of "hello\n" and of "".
 const HELLO: &str = "ce013625030ba8dba906f756967f9e9ca394464a";
 const EMPTY: &str = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
+
+/// A real HTTP exchange with controlled framing, including dishonest/missing lengths. Bind
+/// before the client runs; join the single server thread so no listener survives the test.
+fn with_http_response<T>(response: &[u8], run: impl FnOnce(&str) -> T) -> T {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::scope(|scope| {
+        let server = scope.spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            stream.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = BufReader::new(stream.try_clone().unwrap());
+            let mut headers_complete = false;
+            for _ in 0..64 {
+                let mut line = String::new();
+                assert!(request.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    headers_complete = true;
+                    break;
+                }
+            }
+            assert!(headers_complete);
+            // Rejecting an advertised oversize may close before the server finishes writing.
+            let _ = stream.write_all(response);
+        });
+        let result = run(&base);
+        server.join().unwrap();
+        result
+    })
+}
+
+fn http_with_limit(limit: usize) -> Http {
+    let mut http = Http::new().unwrap();
+    // Keep loopback fixtures independent of the fleet's proxy environment.
+    http.client = reqwest::blocking::Client::builder().no_proxy().build().unwrap();
+    http.body_limit = limit;
+    http
+}
+
+#[test]
+fn http_body_rejects_advertised_oversize() {
+    let http = http_with_limit(6);
+    assert_eq!(Http::new().unwrap().body_limit, MAX_HTTP_BODY_BYTES);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhello\nx".as_slice(),
+        // No allocation proportional to an advertised size, even if no body ever arrives.
+        b"HTTP/1.1 200 OK\r\nContent-Length: 18446744073709551615\r\nConnection: close\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_rejects_streamed_oversize_without_returning_a_valid_prefix() {
+    let http = http_with_limit(6);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello\nx".as_slice(),
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n1\r\nx\r\n0\r\n\r\n",
+        // Transfer-Encoding wins over the deliberately understated Content-Length.
+        b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n1\r\nx\r\n0\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_accepts_the_exact_limit_with_each_framing() {
+    let http = http_with_limit(6);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\n".as_slice(),
+        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello\n",
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n2\r\nhe\r\n4\r\nllo\n\r\n0\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Found(b"hello\n".to_vec()));
+        });
+    }
+    with_http_response(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", |base| {
+        assert_eq!(
+            http_with_limit(0).get(base, None, Duration::from_secs(2)),
+            Answer::Found(vec![])
+        );
+    });
+}
+
+#[test]
+fn http_body_incomplete_framing_is_never_returned_as_a_complete_blob() {
+    let http = http_with_limit(8);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhello\n".as_slice(),
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_counts_across_multiple_read_buffers() {
+    let limit = 8192 + 6;
+    let http = http_with_limit(limit);
+    for length in [limit, limit + 1] {
+        let body = vec![b'x'; length];
+        let mut response = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+        response.extend_from_slice(&body);
+        with_http_response(&response, |base| {
+            let expected = if length == limit { Answer::Found(body) } else { Answer::Failed };
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), expected);
+        });
+    }
+}
+
+#[test]
+fn http_body_oversize_on_every_tier_leaves_the_full_blob_for_git() {
+    for tier in ["peer", "ssd", "r2"] {
+        let http = http_with_limit(5);
+        with_http_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\n",
+            |base| {
+                let chain = Chain::new(vec![remote(tier, base)], Box::new(http));
+                let writes = AtomicUsize::new(0);
+                let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| {
+                    writes.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                });
+                assert_eq!(writes.load(Ordering::Relaxed), 0);
+                assert_eq!(rest, vec![HELLO.to_owned()]);
+                assert_eq!(filled, Filled::default());
+            },
+        );
+    }
+}
+
+#[test]
+fn http_body_understated_length_cannot_install_the_wrong_object() {
+    let http = http_with_limit(6);
+    let oid = blob_id(b"hello\nx", 40);
+    with_http_response(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\nx",
+        |base| {
+            let chain = Chain::new(vec![remote("peer", base)], Box::new(http));
+            let writes = AtomicUsize::new(0);
+            let (rest, filled) = chain.fill(std::slice::from_ref(&oid), &|_, _| {
+                writes.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            });
+            assert_eq!(writes.load(Ordering::Relaxed), 0);
+            assert_eq!(rest, vec![oid]);
+            assert_eq!(filled.peer, 0);
+            // The one-shot server may answer the batch ask instead of the GET, so the short body
+            // is either rejected or never read; neither installs it.
+            assert!(filled.rejected <= 1);
+        },
+    );
+}
 
 #[test]
 fn blob_ids_match_git() {
@@ -243,6 +403,23 @@ fn the_bucket_holds_its_rate() {
 }
 
 #[test]
+fn rate_limited_chunks_never_reserve_more_than_five_seconds() {
+    let start = Instant::now();
+    for rate in [1, 2, 10, 1_000, 100_000_000] {
+        let mut bucket = Bucket::new(rate, start);
+        let chunk = rate_chunk_size(rate);
+        let mut now = start;
+        for _ in 0..8 {
+            let wait = bucket.take(chunk as u64, now);
+            assert!(wait <= MAX_CHUNK_DELAY, "rate {rate} reserved {wait:?}");
+            now += wait;
+        }
+    }
+    assert_eq!(rate_chunk_size(1), 5);
+    assert_eq!(rate_chunk_size(100_000_000), MAX_CHUNK_BYTES);
+}
+
+#[test]
 fn verified_blobs_become_loose_objects_git_reads() {
     let dir = tempfile::tempdir().unwrap();
     let git_dir = dir.path().join("m.git");
@@ -266,6 +443,48 @@ fn verified_blobs_become_loose_objects_git_reads() {
 }
 
 #[test]
+fn concurrent_writers_install_one_complete_object_without_temp_collisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let git_dir = dir.path().join("m.git");
+    let init =
+        std::process::Command::new("git").args(["init", "-q", "--bare"]).arg(&git_dir).status();
+    if !init.is_ok_and(|status| status.success()) {
+        return; // no git on this host
+    }
+    let writers = 16;
+    let ready = Arc::new(Barrier::new(writers));
+    let git_dir = git_dir.as_path();
+    std::thread::scope(|scope| {
+        let mut joins = Vec::with_capacity(writers);
+        for _ in 0..writers {
+            let ready = ready.clone();
+            joins.push(scope.spawn(move || {
+                ready.wait();
+                write_loose(git_dir, HELLO, b"hello\n")
+            }));
+        }
+        for join in joins {
+            join.join().unwrap().unwrap();
+        }
+    });
+    let out = std::process::Command::new("git")
+        .arg("--git-dir")
+        .arg(git_dir)
+        .args(["cat-file", "blob", HELLO])
+        .output()
+        .unwrap();
+    assert_eq!(out.stdout, b"hello\n");
+    let object_dir = git_dir.join("objects").join(&HELLO[..2]);
+    assert!(
+        std::fs::read_dir(object_dir).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("tmp_obj_"))
+    );
+}
+
+#[test]
 fn a_seed_serves_its_blobs_and_nothing_else() {
     let dir = tempfile::tempdir().unwrap();
     let git_dir = dir.path().join("m.git");
@@ -275,7 +494,6 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
         return;
     }
     write_loose(&git_dir, HELLO, b"hello\n").unwrap();
-    // Bound here and handed over, so the port is the seed's before the first request.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     std::thread::spawn(move || {
@@ -488,6 +706,50 @@ fn a_url_index_is_asked_once_a_minute() {
     assert_eq!(fake.asked.lock().unwrap().len(), 1);
 }
 
+/// Sets `file`'s modified time to `ago` before now.
+fn age_file(file: &Path, ago: Duration) {
+    let when = SystemTime::now() - ago;
+    std::fs::File::options().write(true).open(file).unwrap().set_modified(when).unwrap();
+}
+
+#[test]
+fn an_unreadable_index_falls_back_to_its_last_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("peer-index");
+    std::fs::write(&cache, "http://p0:7480\n").unwrap();
+    age_file(&cache, Duration::from_secs(120));
+    // `http://down*` fails, as a controller whose identity lookup stalls does.
+    let fake = Arc::new(Fake::new(&[]));
+    let peers = peers_in_cached(&fake, "http://down-controller/v1/seeds", Some(&cache));
+    assert_eq!(peers, vec![remote("peer", "http://p0:7480")]);
+    assert_eq!(fake.asked.lock().unwrap().len(), 1, "the index is still asked first");
+    // An index that answers nothing found (a 404) is unreadable too.
+    let absent = peers_in_cached(&fake, "http://controller/v1/seeds", Some(&cache));
+    assert_eq!(absent, peers);
+}
+
+#[test]
+fn an_index_answer_past_the_stale_bound_names_no_peers() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("peer-index");
+    std::fs::write(&cache, "http://p0:7480\n").unwrap();
+    age_file(&cache, INDEX_STALE_MAX + Duration::from_secs(60));
+    let fake = Arc::new(Fake::new(&[]));
+    assert!(peers_in_cached(&fake, "http://down-controller/v1/seeds", Some(&cache)).is_empty());
+}
+
+#[test]
+fn a_readable_index_replaces_a_stale_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("peer-index");
+    std::fs::write(&cache, "http://old:7480\n").unwrap();
+    age_file(&cache, Duration::from_secs(120));
+    let fake = Arc::new(Fake::new(&[("http://controller/v1/seeds", b"http://p1:7480\n")]));
+    let peers = peers_in_cached(&fake, "http://controller/v1/seeds", Some(&cache));
+    assert_eq!(peers, vec![remote("peer", "http://p1:7480")]);
+    assert_eq!(std::fs::read_to_string(&cache).unwrap(), "http://p1:7480\n");
+}
+
 #[test]
 fn a_heartbeat_names_the_packs_and_tips_it_holds() {
     let dir = tempfile::tempdir().unwrap();
@@ -697,4 +959,175 @@ fn retries_stop_when_the_next_beat_is_due() {
     assert!(result.is_err_and(|error| error.contains("503")));
     assert!(*seen.lock().unwrap() >= 3, "retried within the beat");
     assert!(start.elapsed() < policy.period + Duration::from_millis(500));
+}
+
+/// Fake's answers, with batches: a `http://busy*` seed answers a batch busy, a `http://down*` one
+/// fails it, and any other streams what Fake holds under `<base>/objects/<id>`.
+struct Batching(Arc<Fake>);
+
+impl Get for Batching {
+    fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer {
+        self.0.get(url, token, deadline)
+    }
+
+    fn batch(
+        &self,
+        base: &str,
+        ids: &[String],
+        _first_byte: Duration,
+        each: &mut dyn FnMut(&str, Vec<u8>) -> bool,
+    ) -> BatchAnswer {
+        self.0.asked.lock().unwrap().push(format!("{base}/objects"));
+        if base.starts_with("http://busy") {
+            return BatchAnswer::Busy;
+        }
+        if base.starts_with("http://down") {
+            return BatchAnswer::Failed;
+        }
+        for id in ids {
+            if let Some(bytes) = self.0.answers.get(&format!("{base}/objects/{id}"))
+                && !each(id, bytes.clone())
+            {
+                break;
+            }
+        }
+        BatchAnswer::Streamed
+    }
+}
+
+/// `count` distinct blobs, as (id, bytes).
+fn blobs(count: usize) -> Vec<(String, Vec<u8>)> {
+    (0..count)
+        .map(|at| {
+            let bytes = format!("blob {at}\n").into_bytes();
+            (blob_id(&bytes, 40), bytes)
+        })
+        .collect()
+}
+
+/// Two busy seeds then one that serves (a cloud lane VM sent all 63 043 blobs of a mount
+/// to git while its third seed answered in 4 ms): busy does not use up the peers a blob may ask,
+/// so the blob comes from peer 3, per blob and in a batch.
+#[test]
+fn two_busy_peers_then_a_serving_peer_serves_from_peer_three() {
+    let peers = || {
+        vec![
+            remote("peer", "http://busy-a"),
+            remote("peer", "http://busy-b"),
+            remote("peer", "http://p3"),
+        ]
+    };
+    let answer = [(format!("http://p3/objects/{HELLO}"), b"hello\n".as_slice())];
+    let answer: Vec<(&str, &[u8])> = answer.iter().map(|(url, b)| (url.as_str(), *b)).collect();
+
+    let fake = Arc::new(Fake::new(&answer));
+    let chain = Chain::new(peers(), Box::new(fake));
+    let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert!(rest.is_empty(), "per blob: left for git");
+    assert_eq!(filled.peer, 1);
+
+    let fake = Arc::new(Fake::new(&answer));
+    let chain = Chain::new(peers(), Box::new(Batching(fake.clone())));
+    let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert!(rest.is_empty(), "batch: left for git");
+    assert_eq!(filled.peer, 1);
+    assert_eq!(fake.asked.lock().unwrap().last().unwrap(), "http://p3/objects");
+}
+
+/// With every seed busy a blob still asks a bounded number of them, not the whole index.
+#[test]
+fn every_peer_busy_asks_a_bounded_number() {
+    let peers: Vec<Remote> =
+        (0..50).map(|at| remote("peer", &format!("http://busy-{at}"))).collect();
+    let fake = Arc::new(Fake::new(&[]));
+    let chain = Chain::new(peers.clone(), Box::new(fake.clone()));
+    let (rest, _) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert_eq!(rest, vec![HELLO.to_owned()]);
+    assert_eq!(fake.asked.lock().unwrap().len(), PEERS_ASKED_MAX);
+
+    let fake = Arc::new(Fake::new(&[]));
+    let chain = Chain::new(peers, Box::new(Batching(fake.clone())));
+    let _ = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert_eq!(fake.asked.lock().unwrap().len(), PEERS_ASKED_MAX);
+}
+
+/// A seed that just answered busy is asked after the others for a short while, so the next
+/// fault goes straight to the seed that serves.
+#[test]
+fn a_peer_that_just_answered_busy_is_asked_last() {
+    let fake = Arc::new(Fake::new(&[(&format!("http://p2/objects/{HELLO}"), b"hello\n")]));
+    let chain = Chain::new(
+        vec![remote("peer", "http://busy-a"), remote("peer", "http://p2")],
+        Box::new(fake.clone()),
+    );
+    let failures = chain.counters();
+    assert!(chain.blob(HELLO, &failures).is_some());
+    assert!(chain.blob(HELLO, &failures).is_some());
+    let asked = fake.asked.lock().unwrap().clone();
+    let busy = format!("http://busy-a/objects/{HELLO}");
+    let served = format!("http://p2/objects/{HELLO}");
+    assert_eq!(asked, vec![busy, served.clone(), served]);
+}
+
+/// Duress: 100 faults at once against 2 busy seeds and 1 serving seed, and a 100-blob fill of
+/// the same, per blob and batched. Every blob must come from the serving seed.
+#[test]
+fn duress_a_hundred_fetches_against_two_busy_and_one_serving_peer() {
+    let blobs = blobs(100);
+    let answers: Vec<(String, Vec<u8>)> = blobs
+        .iter()
+        .map(|(id, bytes)| (format!("http://p3/objects/{id}"), bytes.clone()))
+        .collect();
+    let answers: Vec<(&str, &[u8])> =
+        answers.iter().map(|(url, bytes)| (url.as_str(), bytes.as_slice())).collect();
+    let peers = || {
+        vec![
+            remote("peer", "http://busy-a"),
+            remote("peer", "http://busy-b"),
+            remote("peer", "http://p3"),
+        ]
+    };
+    let ids: Vec<String> = blobs.iter().map(|(id, _)| id.clone()).collect();
+
+    let fake = Arc::new(Fake::new(&answers));
+    let chain = Chain::new(peers(), Box::new(fake.clone()));
+    let failures = chain.counters();
+    let started = Instant::now();
+    let served = std::thread::scope(|scope| {
+        let handles: Vec<_> =
+            ids.iter().map(|id| scope.spawn(|| chain.blob(id, &failures).is_some())).collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join())
+            .filter(|got| matches!(got, Ok(true)))
+            .count()
+    });
+    let faults = (served, fake.asked.lock().unwrap().len(), started.elapsed());
+
+    let fake = Arc::new(Fake::new(&answers));
+    let chain = Chain::new(peers(), Box::new(fake.clone()));
+    let (rest, filled) = chain.fill(&ids, &|_, _| Ok(()));
+    let per_blob = (filled.peer, rest.len(), fake.asked.lock().unwrap().len());
+
+    let fake = Arc::new(Fake::new(&answers));
+    let chain = Chain::new(peers(), Box::new(Batching(fake.clone())));
+    let (rest, filled) = chain.fill(&ids, &|_, _| Ok(()));
+    let batched = (filled.peer, rest.len(), fake.asked.lock().unwrap().len());
+
+    eprintln!(
+        "duress: 100 concurrent faults: {} from peer, {} asks, {:?}; fill per blob: {} from peer, \
+         {} to git, {} asks; fill batched: {} from peer, {} to git, {} asks",
+        faults.0,
+        faults.1,
+        faults.2,
+        per_blob.0,
+        per_blob.1,
+        per_blob.2,
+        batched.0,
+        batched.1,
+        batched.2
+    );
+    assert_eq!(faults.0, 100);
+    assert_eq!((per_blob.0, per_blob.1), (100, 0));
+    assert_eq!((batched.0, batched.1), (100, 0));
 }

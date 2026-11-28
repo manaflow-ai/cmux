@@ -44,32 +44,54 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
     /// (`hostReplaced`), the launch mark (`markedPID`, `markedHome`), the app's acpmux home, whether
     /// the Chief home's own daemon may answer (its socket is there) and whether a named Chief of
     /// the home runs (it shares that daemon).
+    /// Rust `chief_home.acpmux_plan`; when the rules cannot run, nothing is restarted or ended.
     static func plan(hostPID: pid_t?, hostReplaced: Bool, markedPID: pid_t?, markedHome: String?, appHome: String,
                      ownDaemonPresent: Bool, namedChiefsRun: Bool) -> Plan {
-        var plan = Plan()
-        if let hostPID {
-            plan.restartHost = hostReplaced || markedPID != hostPID || markedHome != appHome
+        struct Request: Encodable {
+            let hostPID: Int32?
+            let hostReplaced: Bool
+            let markedPID: Int32?
+            let markedHome: String?
+            let appHome: String
+            let ownDaemonPresent: Bool
+            let namedChiefsRun: Bool
         }
-        plan.endOwnDaemon = ownDaemonPresent && !namedChiefsRun
-        return plan
+        struct Reply: Decodable { let restartHost: Bool; let endOwnDaemon: Bool }
+        let request = Request(hostPID: hostPID, hostReplaced: hostReplaced, markedPID: markedPID, markedHome: markedHome,
+                              appHome: appHome, ownDaemonPresent: ownDaemonPresent, namedChiefsRun: namedChiefsRun)
+        guard let reply: Reply = try? ChiefHomeRules().call("acpmux_plan", request) else { return Plan() }
+        return Plan(restartHost: reply.restartHost, endOwnDaemon: reply.endOwnDaemon)
     }
 
     var markFile: URL { Self.markFile(home) }
 
-    static func markFile(_ home: ChiefHome) -> URL { home.root.appendingPathComponent("state/host.acpmux") }
+    /// `state/host.acpmux` (Rust `chief_home.acpmux_mark_file`).
+    static func markFile(_ home: ChiefHome) -> URL {
+        struct Request: Encodable { let root: String }
+        struct Reply: Decodable { let path: String }
+        guard let reply: Reply = try? ChiefHomeRules().call("acpmux_mark_file", Request(root: home.root.path)) else {
+            return home.root.appendingPathComponent("state/host.acpmux")
+        }
+        return URL(fileURLWithPath: reply.path)
+    }
 
-    /// The launch mark's pid and acpmux home.
+    /// The launch mark's pid and acpmux home (the file read here, its lines by Rust `chief_home.acpmux_read_mark`).
     static func readMark(_ home: ChiefHome) -> (pid: pid_t?, home: String?) {
         // concurrency-allow: a small local file read, off the main actor in `HomeBrainHost.start`
-        let lines = ((try? String(contentsOf: markFile(home), encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
-        return (lines.first.flatMap { pid_t($0) }, lines.dropFirst().first)
+        let text = (try? String(contentsOf: markFile(home), encoding: .utf8)) ?? ""
+        struct Request: Encodable { let text: String }
+        struct Reply: Decodable { let pid: Int32?; let home: String? }
+        guard let reply: Reply = try? ChiefHomeRules().call("acpmux_read_mark", Request(text: text)) else { return (nil, nil) }
+        return (reply.pid, reply.home)
     }
 
     /// Whether running host `hostPID` is the one this app launched (`markedPID`) on an acpmux
-    /// other than the Chief home's own (`markedHome`, `ownHome`).
+    /// other than the Chief home's own (`markedHome`, `ownHome`; Rust `chief_home.acpmux_on_app`).
     static func onAppAcpmux(hostPID: pid_t?, markedPID: pid_t?, markedHome: String?, ownHome: String) -> Bool {
-        guard let hostPID, markedPID == hostPID, let markedHome else { return false }
-        return markedHome != ownHome
+        struct Request: Encodable { let hostPID: Int32?; let markedPID: Int32?; let markedHome: String?; let ownHome: String }
+        struct Reply: Decodable { let onAppAcpmux: Bool }
+        let request = Request(hostPID: hostPID, markedPID: markedPID, markedHome: markedHome, ownHome: ownHome)
+        return ((try? ChiefHomeRules().call("acpmux_on_app", request)) as Reply?)?.onAppAcpmux ?? false
     }
 
     /// With the kill switch (`CMUX_CHIEF_OWN_ACPMUX=1`), a running host this app launched on the
@@ -93,8 +115,12 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
 
     /// Records that this app launched host `pid` on the app's acpmux.
     func mark(pid: pid_t) {
+        struct Request: Encodable { let pid: Int32; let appHome: String }
+        struct Reply: Decodable { let text: String }
+        // No mark when the rules cannot run: the next start restarts the host, as for any unmarked one.
+        guard let reply: Reply = try? ChiefHomeRules().call("acpmux_mark_text", Request(pid: pid, appHome: app.home.path)) else { return }
         try? FileManager.default.createDirectory(at: markFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? "\(pid)\n\(app.home.path)\n".write(to: markFile, atomically: true, encoding: .utf8)
+        try? reply.text.write(to: markFile, atomically: true, encoding: .utf8)
     }
 
     /// Runs the plan. Returns false when the running host was asked to hand off when idle: it
@@ -133,8 +159,11 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
     /// stops no work. An unknown census (nil: the daemon did not answer in time, perhaps busy)
     /// is not idle: a later start ends it.
     static func idle(_ census: AcpmuxSessionCensus?) -> Bool {
-        guard let census else { return false }
-        return census.inTurn == 0 && !census.chiefInTurn
+        struct Census: Encodable { let inTurn: Int; let chiefInTurn: Bool }
+        struct Request: Encodable { let census: Census? }
+        struct Reply: Decodable { let idle: Bool }
+        let request = Request(census: census.map { Census(inTurn: $0.inTurn, chiefInTurn: $0.chiefInTurn) })
+        return ((try? ChiefHomeRules().call("acpmux_idle", request)) as Reply?)?.idle ?? false
     }
 
     /// Whether process `pid` runs an executable whose file is gone (an update replaced the bundle).

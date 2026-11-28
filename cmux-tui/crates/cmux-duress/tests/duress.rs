@@ -11,7 +11,10 @@ use cmux_duress::{Inputs, Knobs, generate, history::Rows, inputs, stream};
 use cmux_fault::Rng;
 use cmux_fault::shaper::LinkProfile;
 
+// affected-reads: cmux-tui/crates/cmux-agent-cli-render/tests/fixtures/claude-code-2.1.310/pty.jsonl webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
 fn repo() -> PathBuf {
+    // affected-reads: cmux-tui webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
+    // affected-reads: cmux-tui/crates/cmux-agent-cli-render/tests/fixtures/claude-code-2.1.310/pty.jsonl webviews/test/fixtures/chat-sim/replay-lane-session.ndjson cmux-tui/crates/cmux-duress/scenarios
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().unwrap()
 }
 

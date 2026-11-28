@@ -104,6 +104,13 @@ const WARM_QUEUED_BYTES: u64 = QUEUED_BYTES / 2;
 /// How long new records wait before their write, so a streaming turn writes every few seconds,
 /// not on every token.
 const FLUSH_AFTER: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 2000 });
+/// Bytes a second the store's timed writes may put on disk, all copies together: a copy is
+/// rewritten whole (`disk::write`), so with many chats streaming at once, each written every
+/// [`FLUSH_AFTER`], the rate was the sum of their sizes. On the owner's Mac that came to 14-23
+/// MB/s of renames for hours, fseventsd grew past 40 GB on the events, and the Mac panicked out
+/// of memory (2026-11-24 21:35). A write past this waits its turn (`Store::budget_at`); a flush
+/// or the last write at shutdown never does. 256 KB/s is at most about 22 GB a day.
+const WRITE_BYTES_PER_SEC: u64 = if cfg!(test) { 64 << 10 } else { 256 << 10 };
 const RETRY_FIRST: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 1000 });
 const RETRY_MAX: Duration = Duration::from_secs(60);
 /// The longest a read or a flush waits for the store's thread.
@@ -643,6 +650,10 @@ struct Kept {
     head: Head,
     /// Its records once read (`Store::load`); None while they are only on disk.
     records: Option<BTreeMap<u64, Value>>,
+    /// Its records' lines as its last write encoded them (`disk::encode_with`): only records
+    /// that came or changed since are serialized again. Never more than `records` holds, and
+    /// dropped with them, so not charged apart.
+    lines: disk::Lines,
     /// Bytes of `records`, and of its file on disk (0: none).
     memory: u64,
     disk: u64,
@@ -681,6 +692,7 @@ impl Kept {
         Self {
             head,
             records: None,
+            lines: disk::Lines::new(),
             memory,
             disk,
             own,
@@ -766,6 +778,11 @@ struct Store {
     /// When something is next due (a write, a retry, a scan); kept as a running minimum so taking
     /// a record costs no walk of the copies, and recomputed after the work it wakes for.
     wake: Option<Instant>,
+    /// Until when the timed writes wait: each write moves it on by its bytes at
+    /// [`WRITE_BYTES_PER_SEC`], so what the store writes stays within that rate.
+    budget_at: Option<Instant>,
+    /// Bytes on disk the writes put there this run (tests read it).
+    bytes_written: u64,
     /// Bytes of every loaded copy's records.
     memory: u64,
     /// Told the prompts a write put on disk ([`Written`]).
@@ -814,6 +831,8 @@ impl Store {
             dead: HashMap::new(),
             dead_retry: None,
             wake: None,
+            budget_at: None,
+            bytes_written: 0,
             memory: 0,
             own: 0,
             dropped,
@@ -1266,7 +1285,7 @@ impl Store {
         self.join_live(key, link, seq, vec![record]);
     }
 
-    /// A seq the link is not sent live (an agent request or answer, `server/mod.rs` `deliver`):
+    /// A seq the link is not sent live (an agent request or answer, `server::deliver`):
     /// the copy covers it as a page that leaves its kind out would, under the same rule as a
     /// record (next to what it covers, on the link a page joined), so a record the link lost is
     /// never passed over.
@@ -1320,8 +1339,12 @@ impl Store {
             let Some(seq) = seq_of(&r) else { continue };
             // One the copy holds as it is already came before (a page again): a write told it,
             // or will.
-            if crate::hub::open_delivery::of_a_prompt(&r) && held.get(&seq) != Some(&r) {
+            let same = held.get(&seq) == Some(&r);
+            if crate::hub::open_delivery::of_a_prompt(&r) && !same {
                 c.fresh.insert(seq);
+            }
+            if !same {
+                c.lines.remove(&seq);
             }
             let bytes = record_bytes(&r);
             if let Some(old) = held.insert(seq, r) {
@@ -1366,6 +1389,7 @@ impl Store {
         let mut opener_changed = false;
         while held.len() > events || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
+            c.lines.remove(&seq);
             let old_bytes = record_bytes(&old);
             c.memory -= old_bytes;
             *memory -= old_bytes;
@@ -1406,6 +1430,7 @@ impl Store {
                 if let Some(c) = self.copies.get_mut(&key) {
                     crate::gauges::peer_notices().snapshot_unloads.fetch_add(1, Ordering::Relaxed);
                     c.records = None;
+                    c.lines = disk::Lines::new();
                     self.memory -= std::mem::take(&mut c.memory);
                 }
                 continue;
@@ -1508,6 +1533,7 @@ impl Store {
                 if let Some(c) = self.copies.get_mut(key) {
                     c.head = head;
                     c.records = Some(records);
+                    c.lines = disk::Lines::new();
                     c.memory = bytes;
                 }
                 self.memory += bytes;
@@ -1616,10 +1642,11 @@ impl Store {
         let covered = self.copies.get(key).and_then(|c| c.head.generation);
         self.remove(key);
         let Some(covered) = covered else { return };
-        if self.evicted.len() >= EVICTED_KEYS && !self.evicted.contains_key(key) {
-            if let Some(old) = self.evicted.keys().next().cloned() {
-                self.evicted.remove(&old);
-            }
+        if self.evicted.len() >= EVICTED_KEYS
+            && !self.evicted.contains_key(key)
+            && let Some(old) = self.evicted.keys().next().cloned()
+        {
+            self.evicted.remove(&old);
         }
         self.evicted.insert(key.clone(), covered);
     }
@@ -1740,9 +1767,20 @@ impl Store {
                 .collect()
         };
         for key in due {
+            // A timed write past the rate waits its turn; a flush or the last write does not.
+            let wait = self.budget_at.filter(|at| when == When::Due && *at > now);
+            if let (Some(at), Some(c)) = (wait, self.copies.get_mut(&key)) {
+                c.due = Some(at);
+                continue;
+            }
+            let before = self.bytes_written;
             if let Err(e) = self.write_one(&key) {
                 self.failed(&key, &e);
             }
+            let cost = Duration::from_secs_f64(
+                (self.bytes_written - before) as f64 / WRITE_BYTES_PER_SEC as f64,
+            );
+            self.budget_at = Some(self.budget_at.map_or(now, |at| at.max(now)) + cost);
         }
         // Writes wait for the scan, so only its retry wakes the thread until then (never a spin
         // on writes that are due and cannot run).
@@ -1771,9 +1809,9 @@ impl Store {
         if stops_before_write(key) {
             anyhow::bail!("tests only: the daemon stopped before the copy's file was written");
         }
-        let Some(c) = self.copies.get(key) else { return Ok(()) };
+        let Some(c) = self.copies.get_mut(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
-        let bytes = disk::encode(&c.head, records);
+        let bytes = disk::encode_with(&c.head, records, &mut c.lines);
         let (hash, last) = (disk::content_hash(&c.head, &bytes), (c.written, c.disk));
         // Its head line as `encode` wrote it, not serialized again; an empty one did not serialize.
         let head = match bytes.iter().position(|b| *b == b'\n') {
@@ -1802,6 +1840,7 @@ impl Store {
             last.1
         } else {
             let written = disk::write(self.write, &self.root, key, &bytes)?;
+            self.bytes_written += written;
             if let Some(path) = path {
                 // The write took the place of a file whose removal was refused.
                 self.dead.remove(&path);

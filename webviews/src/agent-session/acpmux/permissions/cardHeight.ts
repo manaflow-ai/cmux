@@ -1,7 +1,7 @@
 // Initial geometry of PermissionCard and QuestionCard, before their ResizeObserver reports.
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
-import "../measureContext";
+import { ensureMeasureContext } from "../measureContext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
 import { chatDensityTextScale, drawnFontSize, chatDisplay, chatMetrics } from "../chatDisplay";
 import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
@@ -60,6 +60,7 @@ function textHeight(
   const room = Math.max(1, width);
   if (!mono && !typography?.preserveWhitespace) text = text.replace(/\s+/g, " ");
   try {
+    ensureMeasureContext();
     return layout(
       prepare(text, typography?.font ?? `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, {
         whiteSpace: "pre-wrap",
@@ -76,6 +77,7 @@ function textHeight(
 
 function textWidth(text: string, size: number, weight = 400, step?: string): number {
   try {
+    ensureMeasureContext();
     return (
       layoutWithLines(
         prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`, {
@@ -123,6 +125,9 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
 // siblings 8px apart; the body's lines 4px apart; the answers rows of 28px buttons, 8px apart.
 const EDGE = 16;
 const GAP = 8;
+/// The space between a question card's option rows and a next-step card's answers (questionCard.css
+/// .acpmux-question-rows, NextStepCard.css .acpmux-next-step__answers).
+const ROW_GAP = 4;
 const CONTROL_ROW = 28;
 /// The width of the chevron segment a plan's Approve plan is joined to (styles.css `.acpmux-plan-build-chevron`).
 const PLAN_BUILD_CHEVRON = 26;
@@ -251,12 +256,13 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     const flex = layout === "split" ? [220, 2, 280, 3] : layout === "even" ? [260, 1, 280, 1] : undefined;
     const beside = flex !== undefined && box >= flex[0]! + 8 + flex[2]!;
     const rowsWidth = beside ? flex[0]! + ((box - flex[0]! - 8 - flex[2]!) * flex[1]!) / (flex[1]! + flex[3]!) : box;
-    // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap.
+    // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap. Rows sit
+    // 4 px apart (questionCard.css .acpmux-question-rows).
     const rowRoom = Math.max(1, rowsWidth - 46);
     let rows = each.options.reduce(
       (sum, option, index) =>
         sum +
-        (index ? 2 : 0) +
+        (index ? ROW_GAP : 0) +
         Math.max(
           36,
           16 +
@@ -266,9 +272,9 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
       0,
     );
     if (preview) {
-      // Inline opens under its row, 2 px below it, past the mark; beside, the taller column sets the
+      // Inline opens under its row, a row gap below it, past the mark; beside, the taller column sets the
       // height; under the rows, 8 px below them, the body's width.
-      if (layout === "inline") rows += 2 + previewHeight(preview, rowsWidth - 38);
+      if (layout === "inline") rows += ROW_GAP + previewHeight(preview, rowsWidth - 38);
       else if (beside) rows = Math.max(rows, previewHeight(preview, box - rowsWidth - 8));
       else rows += 8 + previewHeight(preview, box);
     }
@@ -302,7 +308,7 @@ function previewHeight(option: QuestionOption, width: number): number {
 /// pane that cannot send draws the same rows read only and its reason in the typed answer's row.
 /// Waiting: the 8 px inset, the 28 px "Needs your input" line, a wrap-up's recap (2 px over it, 8 under),
 /// the question as a 14/20 title (8 lines at most) and its muted line (4 at most) in 8 px of side
-/// padding, Show more under them when either is cut, then each answer's row, 2 px apart: 36 px, or its
+/// padding, Show more under them when either is cut, then each answer's row, 4 px apart: 36 px, or its
 /// label's lines when it wraps beside the number and the arrow; then the last row's 36 px under its 8 px
 /// gap. Answered or superseded: 12 px over and under, the recap and 8 + 8 px under it, the question
 /// and, 2 px under it, the answer, in 16 px of side padding. A recap alone: its box, 12 px over and
@@ -346,7 +352,7 @@ export function nextStepCardHeight(
   const labelRoom = Math.max(1, width - (16 + 16 + 20 + 12 + 2 * 10));
   ask.options.forEach((option, index) => {
     const label = option.key ? translate(option.key) : plainText(option.label);
-    height += (index ? 2 : 0) + Math.max(36, 16 + textHeight(label, labelRoom, bodySize, bodyLine));
+    height += (index ? ROW_GAP : 0) + Math.max(36, 16 + textHeight(label, labelRoom, bodySize, bodyLine));
   });
   return height + (ask.options.length ? 8 + 36 : 0);
 }

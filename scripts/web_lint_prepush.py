@@ -156,6 +156,8 @@ MAX_SCRIPT_DEPTH = 8
 HEAVY_NICE = 10
 HEAVY_GOMEMLIMIT = "6GiB"
 HEAVY_NODE_HEAP_MB = 4096
+# One type-aware check's peak (the type-aware lint, above): heavy_slots() starts one per this much free memory.
+HEAVY_PEAK_GIB = 9.0
 # The type-aware tools: `vp lint` and `vp check` (tsgolint, #27177). Started together with the other vp checks on a
 # 4 vCPU CI runner, the web lint took 185 to 698 s over four fast-gates dispatches and once outgrew the job's 15 min;
 # with them sharing heavy_slots() it took 99.9 and 135.8 s (#39782). The runner was not short of memory or CPU then
@@ -1245,16 +1247,50 @@ def local_heavy_checks(mode: str = "web lint") -> bool:
     return free_memory_heavy(mode)
 
 
-def available_gib(meminfo: str = "/proc/meminfo") -> float | None:
-    """MemAvailable in GiB, or None where it cannot be read (macOS, no /proc)."""
+def cgroup_headroom_gib(proc_cgroup: str = "/proc/self/cgroup", root: str = "/sys/fs/cgroup") -> float | None:
+    """The least memory.max - memory.current over this process's cgroup v2 and its parents, in GiB; None when no
+    level sets a limit (or there is no cgroup v2). An acpmux session runs in a slice capped at 16 GiB on a 64 GiB
+    lane VM: MemAvailable said 56 GiB while the slice's OOM killer stopped tsgolint at 5.6 GiB (2026-11-28,
+    receipt 2fbf846289c: web lint red twice on a push with no web file)."""
+    try:
+        line = next((ln for ln in Path(proc_cgroup).read_text().splitlines() if ln.startswith("0::")), None)
+    except OSError:
+        return None
+    if line is None:
+        return None
+    best = None
+    top = Path(root)
+    level = top / line[3:].strip().lstrip("/")
+    while True:
+        try:
+            limit = (level / "memory.max").read_text().strip()
+            if limit != "max":
+                room = (int(limit) - int((level / "memory.current").read_text().strip())) / (1024 ** 3)
+                best = room if best is None else min(best, room)
+        except (OSError, ValueError):
+            pass
+        if level == top or top not in level.parents:
+            break
+        level = level.parent
+    return None if best is None else max(0.0, best)
+
+
+def available_gib(meminfo: str = "/proc/meminfo", cgroup: bool = True) -> float | None:
+    """MemAvailable in GiB, or the cgroup's headroom when that is less (cgroup_headroom_gib()); None where neither
+    can be read (macOS, no /proc)."""
+    free = None
     try:
         with open(meminfo) as handle:
             for line in handle:
                 if line.startswith("MemAvailable:"):
-                    return int(line.split()[1]) / (1024 * 1024)
+                    free = int(line.split()[1]) / (1024 * 1024)
+                    break
     except (OSError, ValueError, IndexError):
-        return None
-    return None
+        free = None
+    room = cgroup_headroom_gib() if cgroup else None
+    if room is None:
+        return free
+    return room if free is None else min(free, room)
 
 
 def free_memory_heavy(mode: str, meminfo: str = "/proc/meminfo") -> bool:
@@ -1738,11 +1774,18 @@ def weighty(piece: str, scripts: dict, seen: tuple[str, ...] = ()) -> bool:
     return False
 
 
-def heavy_slots() -> int:
+def heavy_slots(free_gib: float | None = None) -> int:
     """How many WEIGHTY checks (and ESLint runs) run at once, in CI or not: one per two cores this process may use,
-    at least one. nice lowers their priority, not the run queue: on a 2 vCPU lane VM with no bound the hook ran about
-    8 checks at once for 141 s at load 17.8 (2026-11-15). A busy machine makes the hook slower, never makes it fail."""
-    return max(1, usable_cores() // 2)
+    and one per HEAVY_PEAK_GIB of free memory (available_gib(), which a cgroup limit lowers), at least one. nice
+    lowers their priority, not the run queue: on a 2 vCPU lane VM with no bound the hook ran about 8 checks at once
+    for 141 s at load 17.8 (2026-11-15). On a 32 vCPU lane VM in a 16 GiB session slice the core bound alone let 16
+    type-aware checks start and the OOM killer stopped tsgolint (2026-11-28). A busy machine makes the hook slower,
+    never makes it fail."""
+    slots = max(1, usable_cores() // 2)
+    free = available_gib() if free_gib is None else free_gib
+    if free is not None:
+        slots = min(slots, max(1, int(free // HEAVY_PEAK_GIB)))
+    return slots
 
 
 def check_slots() -> int:
@@ -1925,15 +1968,93 @@ def sparse_refusal(plan: Plan, mode: str) -> str:
             "Lint a commit instead (`scripts/web-lint.sh --head HEAD`), which is written whole from git's objects.")
 
 
+HOLDER_PREFIX = "cmux-web-lint-"
+HOLDER_OWNER = ".owner-pid"
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # EPERM: another user's live process
+    return True
+
+
+def sweep_orphan_holders(repo: Path, grace_seconds: float = 600.0) -> int:
+    """Remove lint-tree holders (cmux-web-lint-*, ~1.9 GB each) in the temp folder whose owner process is gone: a
+    lint killed by SIGKILL, a timeout or a closed terminal never reached tree_of()'s finally, and acpmux keeps the
+    session TMPDIR they sit in (fs-agent-lane-40, 2026-11-27: +39 GB/day in /tmp/acpmux-*/t). A holder with no owner
+    file is judged by age (GRACE_SECONDS) so one still being made is kept. Returns how many were removed."""
+    root = Path(tempfile.gettempdir())
+    removed = 0
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(HOLDER_PREFIX) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / HOLDER_OWNER).read_text().strip())
+            dead = not pid_alive(owner)
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    if removed and has_work_tree(repo):
+        git(repo, "worktree", "prune", check=False)  # the removed holders' worktree registrations
+    return removed
+
+
+@contextlib.contextmanager
+def terminate_cleanly():
+    """SIGTERM/SIGHUP raise SystemExit while inside, so the `finally` that removes a lint tree runs (Python's default
+    action ends the process with no cleanup). Only from the main thread, and only over the default action."""
+    saved = {}
+    if threading.current_thread() is threading.main_thread():
+        def stop(signum, _frame):
+            raise SystemExit(128 + signum)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            if signal.getsignal(sig) == signal.SIG_DFL:
+                saved[sig] = signal.SIG_DFL
+                signal.signal(sig, stop)
+    try:
+        yield
+    finally:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
+
+
+def make_holder(repo: Path) -> Path:
+    sweep_orphan_holders(repo)
+    holder = Path(tempfile.mkdtemp(prefix=HOLDER_PREFIX))
+    (holder / HOLDER_OWNER).write_text(str(os.getpid()))
+    return holder
+
+
 @contextlib.contextmanager
 def tree_of(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
+    if sha is None or is_checked_out(repo, sha):
+        yield repo
+        return
+    with terminate_cleanly():
+        with tree_of_holder(repo, sha, directories, only) as tree:
+            yield tree
+
+
+@contextlib.contextmanager
+def tree_of_holder(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
     """A directory holding exactly commit `sha` (the checkout when it already is), or the checkout for None.
     Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..). Except with
     ONLY (piece_tree_paths(): a plan of lone source-check pieces): then just those files of the commit."""
     if sha is None or is_checked_out(repo, sha):
         yield repo
         return
-    holder = Path(tempfile.mkdtemp(prefix="cmux-web-lint-"))
+    holder = make_holder(repo)
     tree = holder / "tree"
     if only is not None:
         try:
@@ -2045,13 +2166,30 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
         return
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
+        # One install and one strings pass per package, then every rerun side by side with run_checks' slots: on
+        # 2026-11-26 a webviews pull request over a base red on 13 checks ran them here one at a time, each after its
+        # own `bun install`, 128 s of the fast gates' 290 s job (job 139919568161), when the head's 37 ran at once.
+        ready: dict[str, bool] = {}
+        reruns: list[Result] = []
         for result in failed:
-            whole = result.label not in plan.script_pieces  # a lone source-check piece needs no install
-            if whole and ensure_deps(base_tree, result.label):
-                continue  # no base to compare with: the red stays this change's
-            if whole:
-                compare.generate_strings(base_tree / result.label)
-            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
+            # A ratchet that lands with its own script and baseline: the base cannot run it, so every finding on
+            # the merge (base's own moves since the baseline was written included) would be charged here. The
+            # same rule as the webviews checks gate (NEW_CHECK_SCRIPTS); later PRs compare normally.
+            script = compare.NEW_CHECK_SCRIPTS.get(result.command.removeprefix("bun run ").strip())
+            if script and not (base_tree / result.label / script).is_file():
+                print(f"::warning title=web lint (new check)::{result.label}: {result.command} is new; the base "
+                      f"{base[:12]} has no {script}, so this transition is not charged", file=sys.stderr)
+                result.returncode = 0
+                continue
+            if result.label not in plan.script_pieces and result.label not in ready:  # a lone piece needs no install
+                ready[result.label] = ensure_deps(base_tree, result.label) is None
+                if ready[result.label]:
+                    compare.generate_strings(base_tree / result.label)
+            if ready.get(result.label, True):  # else no base to compare with: the red stays this change's
+                reruns.append(result)
+        agains = run_checks(base_tree, plan, [(r.label, r.command, base_tree / r.label,
+                                               package_env(base_tree, r.label)) for r in reruns])
+        for result, again in zip(reruns, agains):
             if again.returncode == 0:
                 continue
             new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))

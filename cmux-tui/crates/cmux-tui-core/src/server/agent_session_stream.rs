@@ -401,10 +401,9 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             }
         }
         // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
-        // Not to a teammate yet: the set names who else has the chat open.
-        "_acpmux/presence"
-            if same_session && attachment.author.is_none() && attachment.wants_presence() =>
-        {
+        // To a teammate only when its bind asked for presence (`labs.chatMultiplayer`): the set
+        // names who else has the chat open.
+        "_acpmux/presence" if same_session && attachment.hears_presence() => {
             let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
                 attachment.end_unsent();

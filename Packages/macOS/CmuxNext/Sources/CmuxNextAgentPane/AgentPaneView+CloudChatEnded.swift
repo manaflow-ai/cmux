@@ -33,7 +33,7 @@ extension AgentPaneView {
     static func cloudChatEndedDetail(promptBack: Bool) -> String {
         promptBack
             ? String(localized: "agentPane.cloudChatEnded.promptBack",
-                     defaultValue: "It ended soon after it started: its agent may be out of usage, or the machine stopped. Your message is back in the composer: send it again, or pick another agent or machine first.",
+                     defaultValue: "Ended right after starting: the agent may be out of usage, or the machine stopped. Your message is back; send it again or switch agents.",
                      bundle: .localizedModule)
             : String(localized: "agentPane.cloudChatEnded.detail",
                      defaultValue: "Its machine or its tab there went. Send a message to start a new chat here, or pick another agent or machine first.",

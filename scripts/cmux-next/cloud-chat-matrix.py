@@ -59,6 +59,23 @@ from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never s
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+
+
+# A shipped build refuses `cmux app call` (app.call_debug_only): its sign-in is read from `cloud list-machines`,
+# as cloud-chat-proof.py does (run 45882299909 waited 300 s on `auth.status` from NIGHTLY and failed).
+SHIPPED_APP_IDS = {"com.cmuxterm.app.nightly"}
+
+
+def shipped_app(app: str | None) -> bool:
+    """Whether --app is a shipped build (its bundle id), whose socket takes no `app call`."""
+    if not app:
+        return False
+    try:
+        import plistlib
+        with open(Path(app) / "Contents/Info.plist", "rb") as handle:
+            return plistlib.load(handle).get("CFBundleIdentifier") in SHIPPED_APP_IDS
+    except (OSError, ValueError):
+        return False
 from app_launch_env import launch_env  # noqa: E402
 
 AGENTS = ("claude", "codex")
@@ -561,9 +578,12 @@ def launch_argv(app: str, socket: str, credentials_file: str | None, backend: st
     does. The socket goes only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH marks another cmux, and the app
     then strips the CMUX_NEXT_* knobs, this socket included, so it never answered on it (CI run 42833136507).
     CMUX_NEXT_CONFIG_FILE keeps every setting the run reads or writes out of the shared
-    ~/.config/cmux/cmux-next.json that the person's other apps read."""
+    ~/.config/cmux-next/cmux-next.json that the person's other apps read."""
     argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}",
-            "--env", f"CMUX_NEXT_CONFIG_FILE={config}"]
+            "--env", f"CMUX_NEXT_CONFIG_FILE={config}",
+            # A NIGHTLY's SingleInstanceGuard otherwise hands off to the copy already running and exits
+            # before binding the socket (proof run 45821171663).
+            "--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"]
     if credentials_file:
         argv += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(credentials_file).resolve()}",
                  "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
@@ -577,7 +597,9 @@ def start_login(agent: str, login: str) -> list[str]:
     """A Claude cell's start-chat `--login` words: none unless `--login` names one. `none` copies nothing, so Claude runs
     on the machine's team mode (the SR2/CodeRouter gateway) and needs no consent. Codex never takes it: `none` would
     leave it signed out (its login is the Mac's broker)."""
-    return ["--login", login] if login and agent == "claude" else []
+    # `cmux cloud start-chat` has no --login any more (a machine's agents reach models through the Cloud model route;
+    # run 45643863592 died on `unexpected argument "--login"`), so no value is passed on.
+    return []
 
 
 def list_unread(message: str) -> bool:
@@ -685,6 +707,14 @@ class Matrix:
                 return value
         return {}
 
+    def list_why(self) -> str:
+        """Why the app's machine list never loaded: `cloud.machines`' own last error and link route (a tagged
+        build's `app call`). A bare `{"loaded": false}` after 300 s said nothing (run 45665771439, prod)."""
+        code, out, _ = self.cmux("app", "call", "cloud.machines", "--json", timeout=30)
+        value = self.parsed(out) if code == 0 else {}
+        facts = {k: value.get(k) for k in ("last_error", "link_route") if value.get(k)}
+        return f"; cloud.machines {clean(json.dumps(facts), 300)}" if facts else ""
+
     def launch(self) -> str:
         """Launch --app signed in (as cloud-chat-proof.py), or check --cli's app is signed in."""
         args = self.args
@@ -701,6 +731,7 @@ class Matrix:
             steps.append(("app identify", ("app", "identify", "--json"), 240,
                           lambda v: bool(v.get("pid")) and v.get("app_bundle_path") == app_path))
             origin = (args.expected_api_origin or "").rstrip("/")
+        if args.app and not shipped_app(args.app):
             steps.append(("auth.status", ("app", "call", "auth.status", "--json"), 300,
                           lambda v: v.get("signed_in") is True and v.get("cloud_environment") == args.cloud_backend
                           and str(v.get("backend", "")).rstrip("/") == origin))
@@ -713,11 +744,18 @@ class Matrix:
                 code, out, err = self.cmux(*words, timeout=30)
                 value = self.parsed(out) if code == 0 else {}
                 if code == 0 and ready(value):
-                    status = value if name == "auth.status" else status
+                    if name == "auth.status":
+                        status = value
+                    elif name == "cloud list-machines" and not status:
+                        # A shipped app's own sign-in ({signed_in, user_id, team_id}: CloudHandlers.listAccount)
+                        # names the user and team the login cache is scoped to, as `auth.status` does.
+                        status = value.get("account") if isinstance(value.get("account"), dict) else {}
                     break
                 last = clean(self.error(out, err).get("message") or err or json.dumps(
                     {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
                 if time.monotonic() >= deadline:
+                    if name == "cloud list-machines" and not shipped_app(args.app):
+                        last += self.list_why()
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
         if args.cache_claude_login:

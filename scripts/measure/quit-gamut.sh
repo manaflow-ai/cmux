@@ -47,6 +47,26 @@ echo "GAMUT host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" m
 # ab: build base and head, run the gamut on each, rounds times, interleaved; print each side's medians.
 ab() {
   local here want side i rc=0 sides=(base head)
+  # The failed measurement 02407e5c47eac74b234e6611 never reached the build marker.
+  # Name and bound fetches, preserving progress and a log instead of waiting silently for the controller.
+  fetch_commit() {
+    local sha="$1" rc depth=()
+    local log="$out/fetch-${sha:0:12}.log"
+    [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+    echo "GAMUT fetch $sha start"
+    GIT_TERMINAL_PROMPT=0 "$out/timeout.sh" --kill-after=15 "${GAMUT_FETCH_TIMEOUT_S:-300}" \
+      git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=20 fetch --no-tags --recurse-submodules=no \
+      ${depth[@]+"${depth[@]}"} --progress https://github.com/manaflow-ai/cmux.git "$sha" 2>&1 | tee "$log"
+    rc=${PIPESTATUS[0]}
+    echo "GAMUT fetch $sha finished rc=$rc"
+    return "$rc"
+  }
+  echo "GAMUT setup build helpers"
+  # Keep the carrier's timeout available while the builds check out historical commits.
+  cp scripts/ci/timeout.sh "$out/timeout.sh" || exit 3
+  # The bounded build starts a new shell after checkout: preserve the carrier's progress helper too.
+  cp scripts/measure/build-progress.sh "$out/build-progress.sh" || exit 3
+  export NFL_BUILD_PROGRESS="$out/build-progress.sh"
   # nightly-fresh-launch.sh's build_dmg, without running its main (as launch-ready.sh sources it).
   sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
   source "$out/nightly-fresh-launch-lib.sh"
@@ -58,15 +78,22 @@ ab() {
   [[ -n "$base" ]] || base="$here"
   [[ "$base" =~ ^[0-9a-f]{40}$ && "$headsha" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }
   for want in "$base" "$headsha"; do
-    git cat-file -e "$want^{commit}" 2>/dev/null \
-      || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" || { echo "GAMUT cannot fetch $want"; exit 3; }
+    git cat-file -e "$want^{commit}" 2>/dev/null || fetch_commit "$want" || {
+      echo "GAMUT cannot fetch $want" >&2
+      exit 3
+    }
   done
   # Each build checks its commit out and comes back here, so the check below is always this checkout's.
   for side in "${sides[@]}"; do
     want="$base"; [[ "$side" == head ]] && want="$headsha"
     echo "GAMUT build $side $want"
     git -c advice.detachedHead=false checkout --quiet --detach "$want" || exit 3
-    build_dmg "$out" "$side" release; rc=$?
+    "$out/timeout.sh" --kill-after=15 "${GAMUT_BUILD_TIMEOUT_S:-2400}" \
+      bash -c 'source "$1"; build_dmg "$2" "$3" "$4"' _ \
+      "$out/nightly-fresh-launch-lib.sh" "$out" "$side" release
+    rc=$?
+    echo "GAMUT build $side finished rc=$rc"
+    tail -n 20 "$out/build-$side.log" 2>/dev/null || true
     git -c advice.detachedHead=false checkout --quiet --detach "$here" || exit 3
     [[ $rc == 0 ]] || { echo "GAMUT build $side failed (build-$side.log)"; exit "$rc"; }
   done

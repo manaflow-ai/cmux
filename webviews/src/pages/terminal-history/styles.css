@@ -59,12 +59,10 @@
   outline: none;
 }
 
-.terminal-history-search kbd {
+.terminal-history-search .terminal-history-search-key {
   position: absolute;
   right: var(--ds-space-2);
   top: var(--ds-space-2);
-  color: var(--page-text-3);
-  font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing); font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .terminal-history-scroll {
@@ -79,6 +77,19 @@
   min-width: 0;
   margin: 0 auto var(--ds-space-6);
   scroll-margin-top: var(--ds-space-4);
+  /* A long transcript draws only the turns near the viewport: an offscreen turn skips its style,
+     layout and paint and holds its last drawn height (240px until it has one), so the scroll height
+     and the older-turns anchor stay put (https://web.dev/articles/content-visibility). Measured by
+     bench/terminal-history-offscreen.bench.ts. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+
+/* The highlight's outline and a focus ring draw outside the turn's box, which paint containment
+   would clip; the turn they are on is drawn whole, as before. */
+.terminal-history-turn.is-highlighted,
+.terminal-history-turn:focus-within {
+  content-visibility: visible;
 }
 
 .terminal-history-message {

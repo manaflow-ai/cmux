@@ -2,6 +2,7 @@
 // l10n-allow-file: design-review fixture labels, not shipped UI.
 import { useState, type CSSProperties, type ReactNode } from "react";
 import "./ChromeHeaderMenus.css";
+import { KeyHint } from "../../ui/KeyHint";
 
 export type ChromeMenuId = "title" | "pane" | "developer" | null;
 export type ChromePaneKind = "agent" | "browser" | "terminal";
@@ -381,7 +382,7 @@ export function ChromeHeaderMenus({
             >
               <GlyphIcon glyph={item.glyph} />
               <span>{item.label}</span>
-              {item.shortcut && <kbd>{item.shortcut}</kbd>}
+              {item.shortcut && <KeyHint keys={item.shortcut} />}
               {item.children && (
                 <span className="chrome-header-menu-arrow" aria-hidden>
                   ›
@@ -486,15 +487,3 @@ export function ChromeHeaderMenus({
     </div>
   );
 }
-
-// Owner registers these alongside A-D, in both density/theme modes and beside the browser pane.
-export const chromeHeaderMenuScenes = [
-  { id: "one-zen", props: { tabs: 1, visibility: "zen" } },
-  { id: "one-zen-hover", props: { tabs: 1, visibility: "zen", revealed: true } },
-  { id: "one-visible", props: { tabs: 1, visibility: "always" } },
-  { id: "three-zen", props: { tabs: 3, visibility: "zen" } },
-  { id: "one-always-strip", props: { tabs: 1, visibility: "zen", tabMode: "always" } },
-  { id: "one-title-menu", props: { tabs: 1, visibility: "zen", openMenu: "title" } },
-  { id: "three-pane-menu", props: { tabs: 3, visibility: "zen", openMenu: "pane" } },
-  { id: "three-developer-menu", props: { tabs: 3, visibility: "zen", openMenu: "developer" } },
-] as const;

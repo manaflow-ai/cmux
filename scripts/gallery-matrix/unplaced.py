@@ -21,8 +21,10 @@ import json
 import os
 import re
 import sys
+from functools import lru_cache
 
 
+@lru_cache(maxsize=256)
 def glob_regex(pattern: str) -> re.Pattern[str]:
     """A GitHub paths pattern (`**`, `*`) as a regular expression over one repo path."""
     out, index = "", 0

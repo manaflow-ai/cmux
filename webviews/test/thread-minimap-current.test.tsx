@@ -3,8 +3,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -44,6 +44,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
@@ -100,6 +101,7 @@ test("the minimap marks every prompt on screen as current, at the resting length
         <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
+    await railFrame();
     const ticks = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")];
     expect(ticks()).toHaveLength(TURNS);
     /// The current ticks, checked to be one run, every tick at the 6 px rest.

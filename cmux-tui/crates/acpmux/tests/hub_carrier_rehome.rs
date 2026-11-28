@@ -267,3 +267,139 @@ async fn hub_carrier_with_one_relay_named_nothing_moves() {
     );
     assert_eq!(p.b.serving_relay().as_deref(), Some(one.route().as_str()));
 }
+
+/// The platform's answers with one placed relay (RFD 0060 Weft move 4): `placed` carries that
+/// relay's own ticket for the same slot.
+struct PlacedTickets {
+    relay: String,
+    placed: String,
+    peers: Vec<String>,
+}
+
+#[async_trait::async_trait]
+impl Tickets for PlacedTickets {
+    async fn register(&self) -> Result<CarrierAnswer, String> {
+        Ok(serde_json::from_value(json!({
+            "relay": self.relay, "slot": "own-machine-slot-b", "ticket": "open-register",
+            "expires_at": 0, "peers": self.peers,
+            "placed": [{"relay": self.placed, "ticket": "placed-register"}],
+        }))
+        .unwrap())
+    }
+
+    async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String> {
+        if !self.peers.iter().any(|k| k == peer) {
+            return Err("machine.not_found".into());
+        }
+        Ok(serde_json::from_value(json!({
+            "relay": self.relay, "slot": "own-machine-slot-b", "ticket": "open-connect",
+            "expires_at": 0, "peer_key": peer,
+            "placed": [{"relay": self.placed, "ticket": "placed-connect"}],
+        }))
+        .unwrap())
+    }
+}
+
+/// A host registers on the nearest placed relay beside the platform's relay, and a dialer goes
+/// over the placed one once it has measured it: with the platform's relay dead and only one
+/// relay named (no re-homing), the echo still comes, over the placed relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_registers_on_and_dials_the_nearest_placed_relay() {
+    let _ = HERMETIC;
+    let (platform, placed) = (relay().await, relay().await);
+    let (key_a, key_b) = (random_key(), random_key());
+    let timings = Timings {
+        control: Duration::from_secs(3),
+        handshake: Duration::from_secs(3),
+        peer_join: Duration::from_secs(2),
+        ..Timings::default()
+    };
+    let tickets = |peer: &[u8; 32]| PlacedTickets {
+        relay: platform.route(),
+        placed: placed.route(),
+        peers: vec![public(peer)],
+    };
+    let b = HubCarrier::new(Arc::new(tickets(&key_a)), key_b, timings);
+    let _serving = b.serve(echo_server().await);
+    let a = HubCarrier::new(Arc::new(tickets(&key_b)), key_a, timings);
+    let b_key = public(&key_b);
+    until_serving(&b, &platform.route(), Duration::from_secs(15)).await;
+
+    // The first dial goes the platform's way while the placed relay is measured behind it (a
+    // probe of at most 1 s); A keeps that one circuit open, so later dials ride it.
+    echo_once(&a, &b_key, Duration::from_secs(10)).await.expect("first echo");
+    assert_eq!(a.relay_of(&b_key).as_deref(), Some(platform.route().as_str()));
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // The platform's relay dies, and A's kept circuit with it. B stays registered on it (one
+    // relay named, nothing re-homes); A's next circuit goes over the measured placed relay.
+    platform.kill();
+    let gap = first_echo(&a, &b_key, Duration::from_secs(15)).await;
+    let gap = gap.expect("no echo over the placed relay after the platform's relay died");
+    assert_eq!(a.relay_of(&b_key).as_deref(), Some(placed.route().as_str()));
+    eprintln!("placed relay: platform relay kill to first echo {} ms", gap.as_millis());
+    assert_eq!(b.stats().rehomes.load(Ordering::Relaxed), 0);
+}
+
+/// A relay at its WebSocket limit: it answers every upgrade `503` with `Retry-After`, and counts
+/// the asks.
+async fn full_relay(retry_after: &'static str) -> (String, Arc<std::sync::atomic::AtomicU64>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let asks = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let counted = asks.clone();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            counted.fetch_add(1, Ordering::SeqCst);
+            tokio::spawn(async move {
+                let mut head = [0u8; 2048];
+                let _ = socket.read(&mut head).await;
+                let reply = format!(
+                    "HTTP/1.1 503 Service Unavailable\r\nRetry-After: {retry_after}\r\n\
+                     Content-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _ = socket.write_all(reply.as_bytes()).await;
+            });
+        }
+    });
+    (format!("relay+ws://127.0.0.1:{port}"), asks)
+}
+
+/// The placed relay answers 503: the daemon registers on the next relay in its list at once
+/// (not after `rehome_after`) and asks the full one at most once per its Retry-After.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_full_relay_503_moves_the_host_to_the_next_relay_at_once() {
+    let _ = HERMETIC;
+    let (full, asks) = full_relay("1").await;
+    let two = relay().await;
+    let p = pair(&full, &[two.route()]).await;
+    let started = Instant::now();
+    until_serving(&p.b, &two.route(), Duration::from_secs(10)).await;
+    let moved = started.elapsed();
+    echo_once(&p.a, &p.b_key, Duration::from_secs(10)).await.expect("echo over relay 2");
+    assert!(moved < Duration::from_secs(2), "a 503 should rehome at once, not after {moved:?}");
+    // Left alone for a Retry-After, the full relay sees no storm: the first ask, and one more
+    // at most per second since.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let seen = asks.load(Ordering::SeqCst);
+    eprintln!(
+        "relay-503 after: {seen} asks to the full relay in {} ms",
+        started.elapsed().as_millis()
+    );
+    assert!(seen <= 4, "{seen} asks reached the full relay");
+}
+
+/// Both relays full: the carrier asks each one at most once per Retry-After, never a ring of
+/// asks at connection speed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_two_full_relays_are_asked_once_per_retry_after() {
+    let _ = HERMETIC;
+    let (one, asks_one) = full_relay("2").await;
+    let (two, asks_two) = full_relay("2").await;
+    let p = pair(&one, &[two.clone()]).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let (a, b) = (asks_one.load(Ordering::SeqCst), asks_two.load(Ordering::SeqCst));
+    eprintln!("relay-503 two full: {a} + {b} asks in 5 s");
+    assert!(a <= 4 && b <= 4, "{a} + {b} asks in 5 s with a Retry-After of 2 s");
+    assert_eq!(p.b.serving_relay(), None);
+}

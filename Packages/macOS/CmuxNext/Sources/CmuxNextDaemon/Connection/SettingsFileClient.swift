@@ -36,3 +36,43 @@ public struct SettingsFileClient: Sendable {
         }
     }
 }
+
+/// The owner's settings history (`settings-history-v1`, cmux-tui `cmux-config` history.rs): every
+/// published change of the file, and the writes that go back through it. The Settings page reaches
+/// these only through the app (page_access.rs gives a page no `settings.*` operation), which
+/// writes as origin `app`, the person, as ``SettingsFileClient/edit(_:file:idempotencyKey:)`` does.
+extension SettingsFileClient {
+    /// The capability the history operations need.
+    public static let historyCapability = "settings-history-v1"
+
+    /// The operations the app forwards for the Settings page.
+    public enum HistoryWrite: String, Sendable, CaseIterable {
+        case undo = "settings.undo"
+        case restore = "settings.restore"
+        case resetGroup = "settings.reset_group"
+    }
+
+    /// `settings.history`: `{entries}`, newest first.
+    public func history() async throws -> JSONValue {
+        try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "settings.history", params: [:])
+        }, as: JSONValue.self, requiring: Self.historyCapability)
+    }
+
+    /// One history write as `origin` (`app`, the person, by default): its keys and the revision of the change it
+    /// recorded (what `settings.restore` takes).
+    public func historyWrite(_ write: HistoryWrite, params: [String: JSONValue],
+                             idempotencyKey: String, origin: String = "app") async throws -> (keys: [String], revision: String?) {
+        var fields = params
+        fields["origin"] = .string(origin)
+        let sent = fields
+        let result = try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: write.rawValue, params: sent, idempotencyKey: idempotencyKey)
+        }, as: ResourceMutationResult<HistoryChange>.self, requiring: Self.historyCapability)
+        return (result.value.keys, result.revision)
+    }
+
+    private struct HistoryChange: Decodable, Sendable {
+        var keys: [String]
+    }
+}

@@ -30,7 +30,9 @@ const MARKS = new RegExp(
 );
 
 /// True when `text` holds a mark this reads (so plain text keeps its exact string).
-export const hasMarks = (text: string): boolean => new RegExp(MARKS.source, "u").test(text);
+// Built once: a non-global copy, so `test` keeps no `lastIndex` and a call builds no RegExp.
+const HAS_MARK = new RegExp(MARKS.source, "u");
+export const hasMarks = (text: string): boolean => HAS_MARK.test(text);
 
 /// `text` with its inline marks drawn; plain text comes back as the same string.
 export function inlineText(text: string): ReactNode {

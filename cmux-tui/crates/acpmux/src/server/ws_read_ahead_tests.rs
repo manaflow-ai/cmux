@@ -5,7 +5,7 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message as Frame;
 use tokio_tungstenite::tungstenite::protocol::Role;
 
-use super::{READ_AHEAD_FRAMES, read_ahead};
+use super::{READ_AHEAD_FRAMES, idle_bound, read_ahead};
 
 /// A dialer and the listener's side of one WebSocket.
 async fn pair()
@@ -97,4 +97,44 @@ async fn a_refused_frame_ends_the_read() {
             .await
             .expect("the read did not end when the connection refused a frame");
     assert!(ended.is_none());
+}
+
+/// Repro: acpmux daemons grew 580 to 790 MB an hour, each peer reconnect leaving a connection
+/// whose client had vanished; nothing ever ended it. N connections that go silent all end at the
+/// bound, so the live count returns to zero however many came and went; one that keeps sending
+/// frames (a pong counts) is not cut.
+#[tokio::test(start_paused = true)]
+async fn n_silent_connections_all_end_at_the_idle_bound_and_a_live_one_does_not() {
+    const N: usize = 200;
+    let bound = Duration::from_secs(10);
+    let live = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut silent = Vec::new();
+    for _ in 0..N {
+        let (client, server) = pair().await;
+        let (_sink, source) = server.split();
+        let live = live.clone();
+        live.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        silent.push((
+            client,
+            tokio::spawn(async move {
+                read_ahead(idle_bound(source, bound), |_| async { true }).await;
+                live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            }),
+        ));
+    }
+    let (mut talker, server) = pair().await;
+    let (_sink, source) = server.split();
+    let alive = tokio::spawn(async move {
+        read_ahead(idle_bound(source, bound), |_| async { true }).await;
+    });
+    for _ in 0..5 {
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        talker.send(Frame::Pong(Default::default())).await.unwrap();
+    }
+    for (_, task) in silent {
+        task.await.unwrap();
+    }
+    assert_eq!(live.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(!alive.is_finished(), "a client that keeps sending is not cut");
+    alive.abort();
 }

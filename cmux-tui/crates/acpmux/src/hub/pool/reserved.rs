@@ -132,10 +132,7 @@ fn make_private_dir(path: &Path) -> std::io::Result<()> {
     if private_dir(path) {
         return Ok(());
     }
-    let mut builder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder.create(path)
+    crate::home_fs::create_dir(path, 0o700)
 }
 
 /// The reserved folder under `home`, canonical, made if there is none unclaimed: the one a
@@ -157,13 +154,11 @@ pub(super) fn ensure_folder(home: &Path) -> Option<PathBuf> {
             let name = fresh_name();
             make_private_dir(&chats.join(&name)).ok()?;
             let tmp = chats.join(format!("{TICKET}.{name}"));
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            let mut options = crate::home_fs::OpenOptions::new();
+            options.write(true).create_new(true).mode(0o600);
             std::io::Write::write_all(&mut options.open(&tmp).ok()?, name.as_bytes()).ok()?;
             // Atomic: a reader sees the old ticket or the new one, never half of it.
-            std::fs::rename(&tmp, &ticket).ok()?;
+            crate::home_fs::rename(&tmp, &ticket).ok()?;
             name
         }
     };
@@ -263,10 +258,40 @@ impl Hub {
             .map(|(k, s)| json!({"harness": k.harness, "state": s}))
             .collect();
         let mut answer = json!({"accepted": true, "state": state, "cwd": key.cwd});
+        if state == "none" {
+            // Nothing in the pool holds the reserved key, so the first home chat starts cold.
+            // Say why, so a caller (the Cloud journey) records the cause, not only "none".
+            answer["why"] = Value::String(self.reserved_missing_why(&key));
+        }
         if !spares.is_empty() {
             answer["spares"] = Value::Array(spares);
         }
         Ok(answer)
+    }
+
+    /// Why no pool entry holds `key` right after it was wanted: the pool never holds a remote
+    /// key; an oversize key is never started again; another key in its slot (same folder,
+    /// harness and preset; a personal spare on another model, say) replaced it. Names fields,
+    /// never values (`PoolKey::differing`).
+    fn reserved_missing_why(&self, key: &PoolKey) -> String {
+        if key.origin == Origin::Remote {
+            return "the key is remote-origin, which the pool never holds".to_string();
+        }
+        if lock(&self.pool.oversize).contains(key) {
+            return "the key went over the pool's RSS cap once (oversize) and is not started again"
+                .to_string();
+        }
+        let views = lock(&self.pool.pool).view();
+        if let Some(v) = views.iter().find(|v| {
+            v.key.cwd == key.cwd && v.key.harness == key.harness && v.key.preset == key.preset
+        }) {
+            return format!(
+                "another key holds its slot ({}), differing in {}",
+                v.state,
+                v.key.differing(key).join(", ")
+            );
+        }
+        format!("no pool entry for it ({} entries in the pool)", views.len())
     }
 
     /// The state of the entry for `key`: `ready`, `warming`, `empty` or `none`.
@@ -276,77 +301,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn home(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("acpmux-reserved-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::canonicalize(dir).unwrap()
-    }
-
-    #[test]
-    fn a_reserved_folder_is_private_named_by_its_ticket_and_kept_until_taken() {
-        let home = home("ensure");
-        let first = ensure_folder(&home).expect("a folder");
-        let name = first.file_name().unwrap().to_str().unwrap().to_owned();
-        assert!(is_reserved_name(&name), "{name}");
-        assert!(!name.bytes().all(|b| b.is_ascii_digit()), "never a surface id");
-        assert!(private_dir(&home.join("chats")) && private_dir(&first));
-        assert_eq!(std::fs::read_to_string(home.join("chats/.reserved")).unwrap(), name);
-        // Asked again before a chat took it: the same folder, no second one.
-        assert_eq!(ensure_folder(&home), Some(first.clone()));
-        // A chat took the ticket: the next ask makes a new folder.
-        std::fs::rename(home.join("chats/.reserved"), home.join("chats/.claimed-7")).unwrap();
-        let second = ensure_folder(&home).expect("a new folder");
-        assert_ne!(second, first);
-        assert!(first.is_dir(), "the taken folder is the chat's");
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_link_in_place_of_the_chats_folder_is_never_followed() {
-        let home = home("link");
-        let elsewhere = home.join("elsewhere");
-        std::fs::create_dir_all(&elsewhere).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, home.join("chats")).unwrap();
-        assert_eq!(ensure_folder(&home), None);
-        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn shapes_are_a_short_list_of_harness_ids_with_optional_models() {
-        assert_eq!(parse_shapes(None).unwrap(), vec![]);
-        let v = json!([
-            {"harness": "codex", "model": "gpt-5.5"},
-            {"harness": "claude", "preset": "work", "model": "claude-opus-5-5[1m]"},
-            {"harness": "codex", "model": "gpt-5.5"}
-        ]);
-        let got = parse_shapes(Some(&v)).unwrap();
-        assert_eq!(got.len(), 2, "a repeated shape counts once");
-        assert_eq!(got[1].preset.as_deref(), Some("work"));
-        assert_eq!(got[1].model.as_deref(), Some("claude-opus-5-5[1m]"));
-        for bad in [
-            json!({"harness": "codex"}),
-            json!([{"model": "x"}]),
-            json!([{"harness": "../codex"}]),
-            json!([{"harness": "codex", "model": "a\nb"}]),
-            json!([{"harness": "a"}, {"harness": "b"}, {"harness": "c"}, {"harness": "d"}, {"harness": "e"}]),
-        ] {
-            assert!(parse_shapes(Some(&bad)).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn only_a_reserved_folder_in_home_chats_is_a_home_chat_folder() {
-        let home = Path::new("/home/p");
-        let name = "r0123456789abcdef0123456789abcdef";
-        assert!(is_home_chat_folder(home, &home.join("chats").join(name)));
-        assert!(!is_home_chat_folder(home, &home.join("chats/12345")), "a surface id folder");
-        assert!(!is_home_chat_folder(home, &home.join("src").join(name)));
-    }
-}
+#[path = "reserved_tests.rs"]
+mod tests;

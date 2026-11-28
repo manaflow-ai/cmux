@@ -1,103 +1,536 @@
-# docs/privacy.md's `connects` hosts: what the egress gate lets through. Generated: python3 tests/test_egress_gate.py --write
+# The egress gate's allowlist: the hosts cmux connects to for itself, and what it sends to each.
+# The one source: the Rust gate (cmux-egress) compiles this file in, the Swift gate (CmuxEgress/EgressHosts.swift)
+# is checked equal to it, and docs/privacy.md's "The app connects to" table is generated from it
+# (python3 scripts/privacy_hosts_from_gate.py). Each host has `# what the app sends there` directly above it;
+# `*` stands for one part of a name filled in at run time. tests/test_egress_gate.py keeps all of them equal.
+
+# a cmux developer's preview stack, only when the iPhone app's backend override names one
+# sends: the iPhone app's requests to that preview stack
+# when: only when the iPhone app's backend override names one
+# off: clear the backend override
 *.*.wdev.cmux.dev
+# the Jira integration: your company's Jira site, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 *.atlassian.net
+# a large chat attachment you upload or open in cmux Cloud: the file's bytes go to cmux's storage bucket through a presigned URL the cmux API made
+# sends: the attachment file's bytes
+# when: when you upload or open a large chat attachment in cmux Cloud
+# off: don't attach large files in Cloud chats
 *.r2.cloudflarestorage.com
+# the Google integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 accounts.google.com
+# cmux's chat relay API on staging, only when chosen
+# sends: your chatmux session's messages and your account token
+# when: only when you choose staging
+# off: release builds use production unless you choose staging
 api-staging.chatmux.dev
+# the API of a cmux developer's preview stack, only when the iPhone app's backend override names one
+# sends: the iPhone app's API requests and account token
+# when: only when the iPhone app's backend override names one
+# off: clear the backend override
 api.*.wdev.cmux.dev
+# the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude
+# sends: your prompts, the files and output the agent sends, and your Anthropic key
+# when: when an agent uses your Anthropic key or sign-in
+# off: remove the Anthropic key or sign-in
 api.anthropic.com
+# museum art for backgrounds, when you search for art
+# sends: your art search words, then image requests
+# when: when you search for background art
+# off: don't search for art (`appearance.background`)
 api.artic.edu
+# search suggestions as you type, when Bing is your search engine
+# sends: what you type in the address bar
+# when: as you type, when Bing is your search engine
+# off: `browser.omnibar.remoteSuggestions` off, or another `browser.searchEngine`
 api.bing.com
+# cmux's chat relay API, for chatmux sessions
+# sends: your chatmux session's messages and your account token
+# when: when you use chatmux sessions
+# off: don't start a chatmux session
 api.chatmux.dev
+# the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint`
+# sends: your Cloudflare token and the key requests you run
+# when: only `cmux keys connect cloudflare` or `cmux keys mint`
+# off: don't run those commands
 api.cloudflare.com
+# only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Freestyle key): lists, starts and pauses the pool's VMs; never run by the app
+# sends: the CI pool's own requests with cmux CI's credential
+# when: only `cmux vm pool`, run by cmux's own CI
+# off: the app never runs it
 api.freestyle.sh
+# the GitHub API, through the GitHub CLI or the app, for repos and PRs you open
+# sends: your GitHub token and the repo, PR and file requests you or an agent make
+# when: when you or an agent use git, gh or the app's GitHub views
+# off: sign out of GitHub (`gh auth logout`)
 api.github.com
+# GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls
+# sends: the agent's GitHub tool calls with your GitHub token
+# when: when an agent on a Cloud machine calls a GitHub tool
+# off: don't connect GitHub to Cloud machines
 api.githubcopilot.com
+# the clock and weather widget's forecast, only when you install it (a customize template)
+# sends: your city's coordinates
+# when: when the clock and weather widget refreshes
+# off: remove the widget (a customize template you installed)
 api.open-meteo.com
+# the OpenAI API: voice calls on iPhone, and when you use an OpenAI key
+# sends: your prompts and agent output with your OpenAI key; on iPhone, voice call audio
+# when: when an agent uses your OpenAI key, or you start a voice call on iPhone
+# off: remove the OpenAI key; don't start voice calls
 api.openai.com
+# the sign-in service
+# sends: your sign-in credentials and session token
+# when: when you sign in or the app refreshes your session
+# off: stay signed out
 api.stack-auth.com
+# the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine
+# sends: your Tailscale OAuth client ID and secret, and the request for a single-use auth key
+# when: only when you add a Cloud machine to your tailnet with an OAuth client
+# off: don't add Cloud machines to a tailnet with an OAuth client
+api.tailscale.com
+# the xAI API, when you give an agent an xAI API key
+# sends: your prompts, the files and output the agent sends, and your xAI key
+# when: when an agent uses your xAI key or sign-in
+# off: remove the xAI key or sign-in
 api.x.ai
+# the Notion integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 app.notion.com
+# the Slack integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 app.slack.com
+# images in GitHub pages and agent replies
+# sends: an image request (your IP address and the image's URL)
+# when: when a GitHub page or agent reply you open shows an image
+# off: not a setting: it follows what you open
 avatars.githubusercontent.com
+# the Google integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 calendar.google.com
+# images in GitHub pages and agent replies
+# sends: an image request (your IP address and the image's URL)
+# when: when a GitHub page or agent reply you open shows an image
+# off: not a setting: it follows what you open
 camo.githubusercontent.com
+# only for a cmux team account, after a Mac stayed unreachable for 30 s: the iPhone app checks Apple's captive portal page (as iOS does) to tell its own outage from a cmux one
+# sends: a plain page request, as iOS sends
+# when: only for a cmux team account, after a Mac stayed unreachable for 30 s
+# off: not a setting: team accounts only
 captive.apple.com
+# the public registry of ACP coding agents, read by the daemon
+# sends: a plain download request, no account data
+# when: when the daemon refreshes its catalog
+# off: no setting yet
 cdn.agentclientprotocol.com
+# scripts and styles an agent's rendered page may load
+# sends: a file request (your IP address and the file's URL)
+# when: when an agent's rendered page loads it
+# off: not a setting: it follows the page you open
 cdn.jsdelivr.net
+# scripts and styles an agent's rendered page may load
+# sends: a file request (your IP address and the file's URL)
+# when: when an agent's rendered page loads it
+# off: not a setting: it follows the page you open
 cdnjs.cloudflare.com
+# OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script
+# sends: your prompts and agent output with your ChatGPT sign-in; the installer download
+# when: when Codex runs with a ChatGPT sign-in, or you install it
+# off: sign Codex out of ChatGPT
 chatgpt.com
+# cmux's chat relay API, for chatmux sessions
+# sends: your chatmux session's messages and your account token
+# when: when you use chatmux sessions
+# off: don't start a chatmux session
 chatmux.dev
+# the OpenH264 video codec, downloaded once on Linux for screen sharing
+# sends: a codec download request
+# when: once on Linux, the first time you share a screen
+# off: don't share a screen on Linux
 ciscobinary.openh264.org
+# Claude sign-in and the Claude Code installer, when you install or sign in Claude Code
+# sends: your Claude sign-in; the installer download
+# when: when you install or sign in Claude Code
+# off: don't install or sign in Claude Code
 claude.ai
+# the Linear integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 client-api.linear.app
+# cmux Cloud API on staging, only in development builds or when chosen
+# sends: your cmux account token and the Cloud requests you make
+# when: only when you choose staging
+# off: release builds use production unless you choose staging
 cloud-api-staging.cmux.dev
+# cmux Cloud API: machines, accounts, sign-in (production)
+# sends: your cmux account token and the Cloud requests you make
+# when: when you use cmux Cloud
+# off: don't sign in to cmux Cloud
 cloud-api.cmux.dev
+# cmux API in development builds
+# sends: the app's cmux API requests and account token
+# when: development builds only, or when you choose that stack
+# off: release builds never connect unless you choose it
 cmux-api-development.debussy.workers.dev
+# cmux API of one pull request's preview, only when chosen
+# sends: the app's cmux API requests and account token
+# when: only when you choose that pull request's preview
+# off: release builds never connect unless you choose it
 cmux-api-preview-*.debussy.workers.dev
+# cmux API on staging, only when chosen
+# sends: the app's cmux API requests and account token
+# when: only when you choose staging
+# off: release builds use production unless you choose staging
 cmux-api-staging.debussy.workers.dev
+# the device hub in development builds
+# sends: device pairing and screen-share messages
+# when: development builds only, or when you choose that stack
+# off: release builds never connect unless you choose it
 cmux-device-hub-dev.debussy.workers.dev
+# the device hub: pairing and screen sharing between your devices (production)
+# sends: device pairing and screen-share messages with your account token
+# when: when you pair devices or share a screen
+# off: don't pair devices
 cmux-device-hub.debussy.workers.dev
-cmux-lawrences-mac-mini.tail137216.ts.net
+# the iPhone pairing API in development builds
+# sends: iPhone pairing requests
+# when: development builds only, or when you choose that stack
+# off: release builds never connect unless you choose it
 cmux-mobile-api-dev.debussy.workers.dev
+# cmux Cloud platform API in development builds
+# sends: your cmux account token and the Cloud requests you make
+# when: development builds only, or when you choose that stack
+# off: release builds never connect unless you choose it
 cmux-platform-development.debussy.workers.dev
+# cmux Cloud services on our hosting provider (production): platform API
+# sends: your cmux account token and the Cloud requests you make
+# when: when you use cmux Cloud
+# off: don't sign in to cmux Cloud
 cmux-platform-production.debussy.workers.dev
+# cmux Cloud platform API on staging, only when chosen
+# sends: your cmux account token and the Cloud requests you make
+# when: only when you choose staging
+# off: release builds use production unless you choose staging
 cmux-platform-staging.debussy.workers.dev
+# classic cmux Cloud's staging sign-in, only when staging is chosen
+# sends: your sign-in on staging
+# when: only when you choose staging
+# off: release builds use production unless you choose staging
 cmux-staging.vercel.app
+# screen sharing signaling between your devices
+# sends: connection setup messages between your devices, no screen content
+# when: when you share a screen between your devices
+# off: don't share a screen
 cmux-vnc-signal.debussy.workers.dev
+# cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links
+# sends: sign-in callbacks, billing and docs requests; hang reports only with telemetry on
+# when: when you sign in, open billing or docs; hang reports when they happen
+# off: `app.sendAnonymousTelemetry` off (the default) stops hang reports
 cmux.com
+# cmux Cloud host name check; machine and preview URLs under it
+# sends: your cmux account token and the Cloud requests you make
+# when: when you use cmux Cloud
+# off: don't sign in to cmux Cloud
 cmux.dev
+# a GitHub repository's archive at one commit, when you install an extension from it
+# sends: an archive download request
+# when: when you install an extension from a GitHub repository
+# off: don't install extensions from GitHub
 codeload.github.com
+# museum art for backgrounds, when you search for art
+# sends: your art search words, then image requests
+# when: when you search for background art
+# off: don't search for art (`appearance.background`)
 commons.wikimedia.org
+# only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): lists, resumes and suspends the pool's instances by name; never run by the app
+# sends: the CI pool's own requests with cmux CI's credential
+# when: only `cmux vm pool`, run by cmux's own CI
+# off: the app never runs it
 compute.googleapis.com
+# the Google integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 docs.google.com
+# the Google integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 drive.google.com
+# the Google integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 drive.usercontent.google.com
+# downloads for the nightly NEXT channel: appcast, release notes and the in-app browser's Chromium runtime
+# sends: your version and update channel; download requests
+# when: nightly NEXT update checks and the browser runtime download
+# off: `updates.checkAutomatically` off
 files-next.cmux.com
+# downloads: updates, release notes, art, the cmux CLI
+# sends: your version and update channel; download requests
+# when: update checks, and when you download art or the CLI
+# off: `updates.checkAutomatically` off
 files.cmux.com
+# fonts an agent's rendered page may load
+# sends: a file request (your IP address and the file's URL)
+# when: when an agent's rendered page loads it
+# off: not a setting: it follows the page you open
 fonts.googleapis.com
+# fonts an agent's rendered page may load
+# sends: a file request (your IP address and the file's URL)
+# when: when an agent's rendered page loads it
+# off: not a setting: it follows the page you open
 fonts.gstatic.com
+# checks for a newer cmux CLI when installed with Homebrew
+# sends: a version lookup for the cmux CLI
+# when: when a Homebrew-installed cmux CLI checks for a newer version
+# off: no setting yet
 formulae.brew.sh
+# the Google AI API, when you give an agent a Google AI API key
+# sends: your prompts, the files and output the agent sends, and your Google AI key
+# when: when an agent uses your Google AI key or sign-in
+# off: remove the Google AI key or sign-in
 generativelanguage.googleapis.com
+# the clock and weather widget's city search, only when you install it (a customize template)
+# sends: the city name you search
+# when: when you search a city in the clock and weather widget
+# off: remove the widget (a customize template you installed)
 geocoding-api.open-meteo.com
+# git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media
+# sends: your GitHub token and the repo, PR and file requests you or an agent make
+# when: when you or an agent use git, gh or the app's GitHub views
+# off: sign out of GitHub (`gh auth logout`)
 github.com
+# repositories you add from GitLab
+# sends: your git requests and credentials for that repository
+# when: when you add or sync a GitLab repository
+# off: don't add GitLab repositories
 gitlab.com
+# the agent-detection catalog, read by the daemon
+# sends: a plain download request, no account data
+# when: when the daemon refreshes its catalog
+# off: no setting yet
 herdr.dev
+# the Jira integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 home.atlassian.com
+# web search for an agent's search tool, when an agent searches
+# sends: the agent's search words
+# when: when an agent uses its web search tool
+# off: don't give agents the search tool
 html.duckduckgo.com
+# the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template)
+# sends: a stream request
+# when: when you press Play in the radio player
+# off: remove the widget (a customize template you installed)
 ice2.somafm.com
+# crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code
+# sends: the index file's name and its ETag
+# when: when a Cloud machine's crates cache needs an index file no peer has fresh
+# off: create `/etc/cmux/crates-cache.disabled` on the Cloud machine
+index.crates.io
+# images in agent replies
+# sends: an image request (your IP address and the image's URL)
+# when: when a GitHub page or agent reply you open shows an image
+# off: not a setting: it follows what you open
 lh3.googleusercontent.com
+# the Linear integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 linear.app
+# the Google integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 mail.google.com
+# the iPhone pairing API (production)
+# sends: iPhone pairing requests with your account token
+# when: when you pair an iPhone
+# off: don't pair an iPhone
 mobile-api.cmux.dev
+# the public model list the daemon's live model catalog reads (new models in the model picker)
+# sends: a plain download request, no account data
+# when: when the daemon refreshes its catalog
+# off: no setting yet
 models.dev
+# only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app
+# sends: the CI pool's own requests with cmux CI's credential
+# when: only `cmux vm pool`, run by cmux's own CI
+# off: the app never runs it
 monitoring.googleapis.com
+# crash and error reports, scrubbed (below), only when telemetry is on
+# sends: crash and error reports, scrubbed
+# when: only after you turn telemetry on
+# off: `app.sendAnonymousTelemetry` off (the default)
 o4507547940749312.ingest.us.sentry.io
+# the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here)
+# sends: a download request for the pinned cmux-rd release (no account data)
+# when: once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub
+# off: no setting yet; it never runs on a machine that is not joined
+objects.githubusercontent.com
+# museum art for backgrounds, when you search for art
+# sends: your art search words, then image requests
+# when: when you search for background art
+# off: don't search for art (`appearance.background`)
 openaccess-api.clevelandart.org
+# museum art for backgrounds, when you search for art
+# sends: your art search words, then image requests
+# when: when you search for background art
+# off: don't search for art (`appearance.background`)
 openaccess-cdn.clevelandart.org
+# OpenCode's config schema and installer, when you install OpenCode
+# sends: a download request for the schema and installer
+# when: when you install OpenCode
+# off: don't install OpenCode
 opencode.ai
+# update channel push: tells the app a new build is out
+# sends: an update-channel subscription, no account data
+# when: while the app runs, to learn a new build is out
+# off: no setting yet
 presence.cmux.dev
+# preview pages of a chatmux session
+# sends: a page request for the session's preview
+# when: when you open a chatmux session's preview
+# off: don't open previews
 preview.chatmux.dev
+# images in GitHub pages and agent replies
+# sends: an image request (your IP address and the image's URL)
+# when: when a GitHub page or agent reply you open shows an image
+# off: not a setting: it follows what you open
 private-user-images.githubusercontent.com
+# checks for a newer cmux CLI when installed with pip
+# sends: a version lookup for the cmux CLI
+# when: when a pip-installed cmux CLI checks for a newer version
+# off: no setting yet
 pypi.org
+# release media reels and raw files linked in agent replies
+# sends: an image request (your IP address and the image's URL)
+# when: when a GitHub page or agent reply you open shows an image
+# off: not a setting: it follows what you open
 raw.githubusercontent.com
+# checks for a newer cmux CLI when installed with npm; npm packages agents install
+# sends: version lookups; package downloads agents ask for
+# when: when an npm-installed cmux CLI checks for a newer version, or an agent installs a package
+# off: no setting yet
 registry.npmjs.org
+# the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here)
+# sends: a download request for the pinned cmux-rd release (no account data)
+# when: once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub
+# off: no setting yet; it never runs on a machine that is not joined
+release-assets.githubusercontent.com
+# shared workspace links in development builds
+# sends: the shared workspace link's contents
+# when: development builds only, or when you choose that stack
+# off: release builds never connect unless you choose it
 share-dev.cmux.dev
+# shared workspace links on staging, only when chosen
+# sends: the shared workspace link's contents
+# when: only when you choose staging
+# off: release builds use production unless you choose staging
 share-staging.cmux.dev
+# shared workspace links (production)
+# sends: the shared workspace link's contents
+# when: when you share a workspace or open a shared link
+# off: don't share or open shared links
 share.cmux.dev
+# the radio player's station list and the song each station plays, only when you install it (a customize template)
+# sends: a station list request
+# when: when the radio player widget shows stations
+# off: remove the widget (a customize template you installed)
 somafm.com
+# crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version
+# sends: the package name and version
+# when: when a Cloud machine's crates cache needs a `.crate` neither the machine nor a peer has
+# off: create `/etc/cmux/crates-cache.disabled` on the Cloud machine
+static.crates.io
+# a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic
+# sends: a STUN probe: only the device's public address
+# when: when a phone or remote-desktop link starts and names no STUN server
+# off: don't start a link
 stun.cloudflare.com
+# the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic
+# sends: a STUN probe: only the device's public address
+# when: when the remote-desktop link's first STUN server fails
+# off: don't start a remote-desktop link
 stun.l.google.com
+# search suggestions as you type, when Google is your search engine
+# sends: what you type in the address bar
+# when: as you type, when Google is your search engine
+# off: `browser.omnibar.remoteSuggestions` off, or another `browser.searchEngine`
 suggestqueries.google.com
+# museum art for backgrounds, when you search for art
+# sends: your art search words, then image requests
+# when: when you search for background art
+# off: don't search for art (`appearance.background`)
 thumb.wikimedia.org
+# the hosted UniiChat agent, only when you start it
+# sends: your messages to the hosted agent
+# when: only when you start the UniiChat agent
+# off: don't start it
 uniichat.com
+# scripts and styles an agent's rendered page may load
+# sends: a file request (your IP address and the file's URL)
+# when: when an agent's rendered page loads it
+# off: not a setting: it follows the page you open
 unpkg.com
+# museum art for backgrounds, when you search for art
+# sends: your art search words, then image requests
+# when: when you search for background art
+# off: don't search for art (`appearance.background`)
 upload.wikimedia.org
+# GitHub uploads, through the GitHub CLI
+# sends: your GitHub token and the repo, PR and file requests you or an agent make
+# when: when you or an agent use git, gh or the app's GitHub views
+# off: sign out of GitHub (`gh auth logout`)
 uploads.github.com
+# images in GitHub pages and agent replies
+# sends: an image request (your IP address and the image's URL)
+# when: when a GitHub page or agent reply you open shows an image
+# off: not a setting: it follows what you open
 user-images.githubusercontent.com
+# cmux Cloud machine API on staging, only when chosen
+# sends: your cmux account token and the Cloud requests you make
+# when: only when you choose staging
+# off: release builds use production unless you choose staging
 vm-staging.cmux.dev
+# cmux Cloud machine API (production)
+# sends: your cmux account token and the Cloud requests you make
+# when: when you use cmux Cloud
+# off: don't sign in to cmux Cloud
 vm.cmux.dev
+# museum art for backgrounds, when you search for art
+# sends: your art search words, then image requests
+# when: when you search for background art
+# off: don't search for art (`appearance.background`)
 www.artic.edu
+# the same site as cmux.com; deep links and sign-in
+# sends: sign-in callbacks and deep link requests
+# when: when you sign in or open a deep link
+# off: no setting yet
 www.cmux.com
+# the LinkedIn integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 www.linkedin.com
+# the Notion integration, only when an agent uses it in your signed-in browser
+# sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
+# when: only when an agent uses that integration in your signed-in browser
+# off: don't give an agent the integration, or sign out of the site in cmux's browser
 www.notion.so

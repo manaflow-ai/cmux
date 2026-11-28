@@ -240,7 +240,7 @@ fn screen(mux: &Mux) -> (Value, PaneId, PaneId) {
                 .unwrap()
         };
         (
-            crate::server::screen_layout_json(
+            crate::tree_wire::screen_layout_json(
                 &state.workspaces[0].screens[0],
                 &state.resource_indexes.split_ids,
             ),

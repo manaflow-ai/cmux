@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/workspace-list",
+  "name": { "en": "Workspace list" },
+  "version": "1.0.0",
+  "description": { "en": "The built-in workspace list, rebuilt on cmux-extension-sdk: every workspace in your order, the one you are in selected, and how many chats wait for you in each. Copy the folder and change it; name it in sidebar.workspaceListApp to draw it in place of the built-in list." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "sidebar.left" },
+  "categories": ["sidebar"],
+  "keywords": ["workspaces", "sidebar", "fork", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.sidebar/1": {
+      "export": "renderSidebar",
+      "title": { "en": "Workspaces" },
+      "symbol": "sidebar.left"
+    },
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": { "en": "Workspaces" },
+      "symbol": "sidebar.left",
+      "options": { "defaultRegion": "middle" }
+    }
+  },
+  "scopes": {
+    "workspace:read": "List your workspaces and hear when one changes.",
+    "workspace:write": "Show a workspace when you click its row.",
+    "agent_chat:read": "Count the chats waiting for your answer."
+  },
+  "activation": ["onInterface:cmux.sidebar/1", "onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}

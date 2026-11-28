@@ -66,6 +66,12 @@ public nonisolated struct CloudAccessCLI: Sendable {
         public var uploaded: [String] = []
         /// `upload`: each file's upload id, in the same order (``removeUploads(socket:remoteRoot:ids:)``).
         public var uploadIDs: [String] = []
+        /// `grant --attach`, `answer --attach`: the folder on the machine the chat now sees, and when
+        /// its agent sees it (acpmux `applied`: `now`, `afterTurn`, `nextStart` or `unchanged`).
+        public var attachedPath: String?
+        public var attachedApplied: String?
+        /// `answer --attach`: why a delivered answer's folder did not join the chat.
+        public var attachError: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, asks: [FileAsk] = [], secrets: [SecretAsk] = [],
                     failures: Int = 0, uploaded: [String] = [], uploadIDs: [String] = []) {
@@ -94,8 +100,15 @@ public nonisolated struct CloudAccessCLI: Sendable {
 
     /// `answer`: the person's answer to request `request` of chat `session`. A secret's value goes on
     /// stdin, never in the arguments, and no remote root goes with it (nothing is copied).
-    public func answer(socket: String, machine: String, session: String, request: String, remoteRoot: String, how: How) async throws -> Answer {
-        let chat = ["link", "access", "answer", "--socket", socket, "--machine", machine, "--session", session, "--request", request]
+    /// With `attach`, an allowed file's folder or an Always folder also joins the chat's folders
+    /// (`cloud.addFolderLive`).
+    public func answer(socket: String, machine: String, session: String, request: String, remoteRoot: String, how: How, attach: Bool = false) async throws -> Answer {
+        let attaching: Bool
+        switch how {
+        case .allow, .always: attaching = attach
+        case .shareSecret, .deny: attaching = false
+        }
+        let chat = ["link", "access", "answer", "--socket", socket, "--machine", machine, "--session", session, "--request", request] + (attaching ? ["--attach"] : [])
         switch how {
         case .allow(let path, let target): return try await run(chat + ["--remote-root", remoteRoot, "--allow", path, "--target", target])
         case .always(let path, let target, let folder):
@@ -164,6 +177,14 @@ public nonisolated struct CloudAccessCLI: Sendable {
         if !removedAll { throw CancellationError() }
     }
 
+    /// `grant --attach`: a read-only copy of this Mac's `folder` on the machine, under `remoteRoot`,
+    /// put among chat `session`'s folders there (Sources > Add Folder, `cloud.folder.add`). The CLI
+    /// refuses what may never go (outside the home folder, dot and credential folders, ~/Library).
+    public func grantAttached(socket: String, machine: String, session: String, remoteRoot: String, folder: String) async throws -> Answer {
+        try await run(["link", "access", "grant", "--socket", socket, "--machine", machine, "--session", session,
+                       "--remote-root", remoteRoot, "--mode", "read", "--attach", folder])
+    }
+
     /// `sync`: copies chat `session`'s granted folders on the machine again.
     public func sync(socket: String, machine: String, session: String) async throws -> Answer {
         try await run(["link", "access", "sync", "--socket", socket, "--machine", machine, "--session", session])
@@ -186,8 +207,14 @@ public nonisolated struct CloudAccessCLI: Sendable {
         let listed = object["ask"] as? [[String: Any]] ?? []
         let failedSyncs = (object["synced"] as? [[String: Any]] ?? []).filter { $0["ok"] as? Bool != true }.count
         let uploaded = (object["uploads"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
-        return Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String, asks: listed.compactMap(Self.fileAsk),
-                      secrets: listed.compactMap(Self.secretAsk), failures: (object["errors"] as? [Any] ?? []).count + failedSyncs, uploaded: uploaded)
+        var answer = Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String, asks: listed.compactMap(Self.fileAsk),
+                            secrets: listed.compactMap(Self.secretAsk), failures: (object["errors"] as? [Any] ?? []).count + failedSyncs, uploaded: uploaded)
+        if let attached = object["attached"] as? [String: Any], let path = attached["path"] as? String, path.hasPrefix("/") {
+            answer.attachedPath = path
+            answer.attachedApplied = attached["applied"] as? String
+        }
+        answer.attachError = (object["attach_error"] as? [String: Any])?["error"] as? String
+        return answer
     }
 
     /// A request id as the machine daemon mints them: 32 lowercase hex digits.

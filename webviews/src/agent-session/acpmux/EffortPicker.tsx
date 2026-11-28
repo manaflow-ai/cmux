@@ -3,7 +3,7 @@ import type { Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
-import { registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import type { ReasoningSliderStyle } from "./composerSettings";
@@ -81,7 +81,8 @@ export function EffortPicker({
   // The level the thumb shows: the picked one, else (the agent's own default) the recommended one.
   const shown = selectedVisible ?? recommended ?? visibleEfforts[0];
   // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, () => setOpen(true))), [label, parked]);
   // The slider focuses on mount in EffortTrack, so a delayed opening frame cannot take focus
   // back from a speed row reached by Down. For the list, Base UI initially focuses its popup; move
   // focus to the selected

@@ -17,7 +17,8 @@ A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
 file in the tour's work directory, so a tour can show a setting (background
 art, a theme) and `cmux settings set` writes there, never to the runner's own
-settings. `launch_args` are arguments the app launches with (`--showcase`). `customize: true` gives the launch its own empty customize folder
+settings. `launch_args` are arguments the app launches with (`--showcase`); first-run onboarding is skipped
+(`CMUX_NEXT_SKIP_ONBOARDING=1`) unless they include `--onboarding`. `customize: true` gives the launch its own empty customize folder
 (`CMUX_CUSTOMIZE_DIR`, `local/customize`'s folder, in the tour's work directory,
 which every terminal of the app has too), so a step can write a customize app
 there and the daemon installs and reloads it; every tour gets its own folder either
@@ -169,6 +170,9 @@ MAX_STEPS = 30
 # The CMUX_* knobs (not CMUX_NEXT_*) a tour's `env` may set: they reach the app's terminals too, so a
 # tour's own store is the one its shells and the app's pages read.
 FIXTURE_ENV = frozenset({"CMUX_AUTOMATIONS_DIR"})
+# The files a launch's app reads that a step's own CLI writes too (cmux-customize `Roots`): App.environment
+# hands the CLI the launch's values, so both name one place.
+APP_FILE_ENV = frozenset({"CMUX_CUSTOMIZE_DIR", "CMUX_AUTOMATIONS_DIR"})
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
     "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
@@ -711,6 +715,9 @@ class Recorder(threading.Thread):
         self.step = 0
         self.frames: list[dict[str, Any]] = []
         self.error: str | None = None
+        # The window's frames stopped for good while the tour ran (the app quit or closed its window):
+        # {"step", "time", "reason"} of the first failed capture after the last frame, None while frames come.
+        self.ended: dict[str, Any] | None = None
         self.stopping = threading.Event()
         self.lock = threading.Lock()
         self.interval = frame_interval(screen.mode)
@@ -735,7 +742,10 @@ class Recorder(threading.Thread):
                     break
                 if problem:
                     self.error = problem
+                    if self.frames and self.ended is None:
+                        self.ended = {"step": self.step, "time": round(started - self.started, 3), "reason": problem}
                 else:
+                    self.ended = None
                     self.frames.append({"file": f"frames/{path.name}", "step": self.step,
                                         "time": started - self.started})
             self.stopping.wait(max(0.0, self.interval - (time.monotonic() - started)))
@@ -790,7 +800,15 @@ class App:
         self.identity: dict[str, Any] = {}
 
     def environment(self) -> dict[str, str]:
+        """The steps' and the bundled CLI's environment: the caller's, scrubbed, with the files this launch's
+        app reads (its settings file, customize folder, automations store), so a command that writes them
+        itself (`cmux theme install`, `cmux customize ...`) writes what the app shows, never the runner's own
+        ~/.config/cmux-next. Media run 45937441993's theme-flourishes installed its theme there while the tagged
+        DEV app read its own files, and all 367 frames of its clip were one unthemed window."""
         env = {key: value for key, value in os.environ.items() if key not in SCRUBBED_ENV}
+        env.update({key: value for key, value in self.launch_env.items() if key in APP_FILE_ENV})
+        if self.settings_path:
+            env["CMUX_NEXT_CONFIG_FILE"] = str(self.settings_path)
         return env
 
     def clear_leftovers(self) -> None:
@@ -863,6 +881,10 @@ class App:
                  f"CMUX_CAPTURE_SHELL_HOME={self.write_shell_home()}"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
+        # A fresh profile shows first-run onboarding (Chief's "Meet Chief" sheet) over the window, which hid
+        # every tour's subject; a tour that shows onboarding itself launches with `--onboarding`.
+        if "--onboarding" not in self.launch_args and "CMUX_NEXT_ONBOARDING" not in self.launch_env:
+            knobs.append("CMUX_NEXT_SKIP_ONBOARDING=1")
         knobs += [f"{key}={value}" for key, value in sorted(self.launch_env.items())]
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES",
                                       *self.launch_args]
@@ -1205,6 +1227,11 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         if done.returncode != 0:
             result["status"] = "unavailable" if step.get("optional") else "failed"
             result["detail"] = f"exited {done.returncode}"
+            # The command's own last line ("no terminal is ...", "... can't be split") goes in the
+            # job log too, so a failed step reads without downloading the run's artifact.
+            last = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "")
+            if last:
+                result["detail"] += f" ({last[:200]})"
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
     rpc = step.get("rpc")
@@ -1399,6 +1426,9 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         app.stop()
         if recorder.error and not manifest["frames"]:
             manifest.setdefault("frames_error", recorder.error)
+        if recorder.ended and manifest["frames"]:
+            # whats-new-clips.py shows a clip whose window went away (a before whose ⌘Q quits) ending on it.
+            manifest["frames_ended"] = recorder.ended
         manifest["capture_rect"] = screen.rect
         if not screen.app:
             manifest["capture_window"] = screen.window_id

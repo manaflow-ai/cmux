@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Behavioral tests for scripts/ci/persisted_formats.py (cmux-tui/persisted-formats/formats.toml)."""
+"""Behavioral tests for scripts/ci/persisted_formats.py: cmux-tui/persisted-formats/formats.toml, the app's
+persisted-formats/formats.toml (Swift and webviews versions, webviews storage keys) and the settings key record."""
 from __future__ import annotations
 
 import subprocess
@@ -42,6 +43,19 @@ file = "crates/host/src/state.rs"
 const = "STATE_VERSION"
 name = "host-state"
 policy = "unreviewed"
+"""
+
+SWIFT = "Packages/Shared/Kit/Sources/Kit/Store.swift"
+WEB = "webviews/src/pane/width.ts"
+APP_REGISTRY = """
+[[format]]
+file = "Packages/Shared/Kit/Sources/Kit/Store.swift"
+const = "recordVersion"
+name = "kit-store"
+policy = "unreviewed"
+
+[[storage_key]]
+key = "cmux.pane.width.v1"
 """
 
 TEST_SOURCE = "#[test]\nfn cmux_next_persisted_host_record_loads() {}\n"
@@ -155,6 +169,86 @@ class PersistedFormatsTest(unittest.TestCase):
                              capture_output=True, text=True, env=self.env)
         self.assertEqual(bad.returncode, 1)
         self.assertIn("edited", bad.stderr)
+
+    def test_swift_version_raise_needs_a_policy_and_migrate_finds_its_package_test(self) -> None:
+        self.write_app()
+        self.base = self.commit()
+        self.assertEqual(self.errors(), [])
+        self.write(SWIFT, "struct Store {\n    private static let recordVersion = 3\n}\n")
+        self.assert_error("recordVersion changed from 2 to 3 while the format is unreviewed")
+        self.write("persisted-formats/formats.toml", APP_REGISTRY.replace(
+            'policy = "unreviewed"\n', 'policy = "migrate"\nfloor = 2\nfixtures = "store"\ntest = "testLoadsEveryStore"\n', 1))
+        self.assert_error("no fixture of version 3 in persisted-formats/store")
+        self.assert_error("no test `testLoadsEveryStore*` in Packages/Shared/Kit/Tests")
+        self.write("persisted-formats/store/v3.json", "{}\n")
+        self.write("Packages/Shared/Kit/Tests/KitTests/StoreTests.swift", "func testLoadsEveryStoreFixture() {}\n")
+        self.assertEqual(self.errors(), [])
+
+    def test_unregistered_swift_and_webviews_versions_fail(self) -> None:
+        self.write_app()
+        self.write("Packages/macOS/App/Sources/App/Snapshot.swift", "enum S {\n    static let snapshotVersion = 1\n}\n")
+        self.write("Packages/macOS/App/Sources/App/Wire.swift", "enum W {\n    static let protocolVersion = 1\n}\n")
+        self.write("webviews/src/pane/state.ts", "export const PANE_VERSION = 2;\nconst DIFF_PROTOCOL_VERSION = 1;\n")
+        self.write("webviews/src/pane/state.test.ts", "const TEST_VERSION = 1;\n")
+        errors = self.errors()
+        self.assertEqual(len(errors), 2, errors)
+        self.assertTrue(any("snapshotVersion" in e for e in errors), errors)
+        self.assertTrue(any("PANE_VERSION" in e for e in errors), errors)
+
+    def test_webviews_key_rename_needs_a_migration_or_a_retirement(self) -> None:
+        self.write_app()
+        self.base = self.commit()
+        self.write(WEB, 'const STORAGE_KEY = "cmux.pane.width.v2";\nlocalStorage.getItem(STORAGE_KEY);\n')
+        self.assert_error("storage key 'cmux.pane.width.v1': webviews/src no longer names it")
+        self.assert_error("storage key 'cmux.pane.width.v2' is not in persisted-formats/formats.toml")
+        # The migration: read the old key once and move it.
+        self.write(WEB, 'const STORAGE_KEY = "cmux.pane.width.v2";\nconst LEGACY_KEY = "cmux.pane.width.v1";\n')
+        self.write("persisted-formats/formats.toml", APP_REGISTRY + '\n[[storage_key]]\nkey = "cmux.pane.width.v2"\n')
+        self.assertEqual(self.errors(), [])
+        # Or the retirement.
+        self.write(WEB, 'const STORAGE_KEY = "cmux.pane.width.v2";\n')
+        self.write("persisted-formats/formats.toml", APP_REGISTRY.replace(
+            'key = "cmux.pane.width.v1"\n', 'key = "cmux.pane.width.v1"\nretired = "a width, re-measured"\n')
+            + '\n[[storage_key]]\nkey = "cmux.pane.width.v2"\n')
+        self.assertEqual(self.errors(), [])
+
+    def test_storage_key_entries_are_never_deleted_or_reused(self) -> None:
+        self.write_app()
+        self.base = self.commit()
+        self.write("persisted-formats/formats.toml", APP_REGISTRY.replace(
+            'key = "cmux.pane.width.v1"\n', 'key = "cmux.pane.width.v1"\nretired = "gone"\n'))
+        self.assert_error("retired, and webviews/src names it again")
+        self.write(WEB, "// nothing stored\n")
+        self.write("persisted-formats/formats.toml", APP_REGISTRY.split("[[storage_key]]")[0])
+        self.assert_error("entry deleted; entries are never deleted")
+
+    def test_settings_record_only_grows(self) -> None:
+        self.write("schemas/settings/published-keys.txt", "# header\na.one\na.two\n")
+        self.write("schemas/settings/retired-keys.json", '{"retired": [{"key": "a.old", "reason": "r"}]}\n')
+        self.base = self.commit()
+        self.assertEqual(self.errors(), [])
+        self.write("schemas/settings/published-keys.txt", "# header\na.one\n")
+        self.write("schemas/settings/retired-keys.json", '{"retired": []}\n')
+        self.assert_error("published-keys.txt: a.two removed")
+        self.assert_error("retired-keys.json: a.old removed")
+
+    def test_settings_schema_rows_are_published_or_retired(self) -> None:
+        self.write("schemas/settings/published-keys.txt", "# header\na.one\na.two\n")
+        self.write("schemas/settings/retired-keys.json", '{"retired": [{"key": "a.old", "reason": "r"}]}\n')
+        self.write("schemas/settings/settings-schema.json", '{"rows": [{"key": "a.one"}, {"key": "a.two"}]}\n')
+        self.base = self.commit()
+
+        self.write("schemas/settings/settings-schema.json", '{"rows": [{"key": "a.one"}]}\n')
+        self.assert_error("settings-schema.json: a.two removed without a retired-keys.json entry")
+
+        self.write("schemas/settings/settings-schema.json",
+                   '{"rows": [{"key": "a.one"}, {"key": "a.two"}, {"key": "a.new"}]}\n')
+        self.assert_error("settings-schema.json: a.new is not in schemas/settings/published-keys.txt")
+
+    def write_app(self) -> None:
+        self.write("persisted-formats/formats.toml", APP_REGISTRY)
+        self.write(SWIFT, "struct Store {\n    private static let recordVersion = 2\n}\n")
+        self.write(WEB, 'const STORAGE_KEY = "cmux.pane.width.v1";\nlocalStorage.getItem(STORAGE_KEY);\n')
 
     def test_repo_registry_is_clean(self) -> None:
         self.assertEqual(persisted_formats.check(ROOT, None), [])

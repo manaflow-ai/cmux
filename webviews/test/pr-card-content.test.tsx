@@ -132,17 +132,10 @@ async function card(answer: Record<string, unknown>, url = PR_URL, known = KNOWN
   return { element, body: element.querySelector<HTMLElement>(".acpmux-pr-card__body")!, calls, act };
 }
 
-/** The card's text as it shows: no svg titles and no screen-reader-only words. */
-function shownText(element: Element): string {
-  const copy = element.cloneNode(true) as Element;
-  for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
-  return copy.textContent ?? "";
-}
-
-test("the card prioritizes the title, state and checks, then author and diff context", async () => {
+test("the card prioritizes the title, state glyph and byline, checks, diff, and provenance", async () => {
   const { body } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   const text = body.textContent ?? "";
-  expect(body.querySelector(".acpmux-pr-card__state")?.textContent).toBe("Open");
+  expect(body.querySelector(".acpmux-pr-card__state")).toBeNull();
   expect(body.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe("Open");
   expect(body.querySelector(".acpmux-pr-card__glyph")?.getAttribute("data-state")).toBe("open");
   expect(body.querySelector(".acpmux-pr-card__conflicts")?.textContent).toBe("Has conflicts");
@@ -213,7 +206,7 @@ test("the diff breakdown stays inline without a nested card", async () => {
   expect(body.querySelector(".acpmux-pr-card__kinds")).toBeNull();
   expect(body.querySelector(".acpmux-pr-card__lines")?.tagName).toBe("SPAN");
   expect(body.querySelector(".acpmux-pr-card__breakdown")?.textContent).toContain(
-    "Code+200−40Tests+150Mocks+12−3Docs+9−2Generated+1,000−20",
+    "Code240Tests150Mocks15Docs11Generated1,020",
   );
   // One bar split by kind (Leo 2026-11-07), each part as wide as its kind's changed lines.
   const parts = [...body.querySelectorAll<HTMLElement>(".acpmux-pr-card__barPart")];
@@ -221,19 +214,15 @@ test("the diff breakdown stays inline without a nested card", async () => {
   expect(Number(parts[4]!.style.flexGrow)).toBeGreaterThan(Number(parts[0]!.style.flexGrow));
 });
 
-test("code changed with no test gets a warning; a change with a test does not", async () => {
+test("one file counts as singular and code-only changes do not show a no-tests pill", async () => {
   const code = [{ path: "webviews/src/agent-session/acpmux/Composer.tsx", additions: 41, deletions: 9 }];
-  const warned = await card({
+  const oneFile = await card({
     pullRequest: pullRequest({ files: code, changedFiles: 1, additions: 41, deletions: 9 }),
     fetchedAt: Date.now() / 1000 - 5,
   });
-  expect(warned.body.querySelector(".acpmux-pr-card__warning")?.textContent).toBe("no tests");
+  expect(oneFile.body.querySelector(".acpmux-pr-card__warning")).toBeNull();
   // One file counts as one, not "1 files".
-  expect(warned.body.querySelector(".acpmux-pr-card__files")?.textContent).toBe("1 file");
-  await teardown?.();
-  teardown = undefined;
-  const tested = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
-  expect(tested.body.querySelector(".acpmux-pr-card__warning")).toBeNull();
+  expect(oneFile.body.querySelector(".acpmux-pr-card__files")?.textContent).toBe("1 file");
 });
 
 test("a truncated file read says the inline breakdown is partial", async () => {
@@ -253,12 +242,24 @@ test("a truncated file read says the inline breakdown is partial", async () => {
 test("an answer cmux read a while ago says its age instead of looking current", async () => {
   const fresh = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   expect(fresh.body.querySelector(".acpmux-pr-card__age")).toBeNull();
-  await teardown?.();
-  teardown = undefined;
+  await unmount();
   const stale = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 23 * 60 });
-  expect(stale.body.querySelector(".acpmux-pr-card__age")?.textContent).toBe("read 23 minutes ago");
+  expect(stale.body.querySelector(".acpmux-pr-card__age")?.textContent).toBe("synced 23 minutes ago");
   // And nothing in the card is a GitHub call: it asked the app once and drew what it had.
   expect(stale.calls).toEqual(["pr.inspect"]);
+  await unmount();
+  // A merged or closed PR stays fresh for an hour on the host, so a 23-minute cache stays quiet.
+  const settledFresh = await card({
+    pullRequest: pullRequest({ state: "merged" }),
+    fetchedAt: Date.now() / 1000 - 23 * 60,
+  });
+  expect(settledFresh.body.querySelector(".acpmux-pr-card__age")).toBeNull();
+  await unmount();
+  const settledStale = await card({
+    pullRequest: pullRequest({ state: "merged" }),
+    fetchedAt: Date.now() / 1000 - 2 * 3600,
+  });
+  expect(settledStale.body.querySelector(".acpmux-pr-card__age")?.textContent).toBe("synced 2 hours ago");
 });
 
 test("a date the card cannot read costs it that one line, not the whole card", async () => {
@@ -297,7 +298,7 @@ test("no answer yet: the card says it is reading and keeps asking the app, not G
 
 // Leo 2026-10-21, on a #22826 card: the state is carried by the glyph and a quiet status label,
 // with merged using the theme purple, as GitHub draws it.
-test("the glyph follows state and the card names that state in its status row", async () => {
+test("the glyph follows state with accessible labels and state colours", async () => {
   for (const [state, label] of [
     ["open", "Open"],
     ["merged", "Merged"],
@@ -309,8 +310,7 @@ test("the glyph follows state and the card names that state in its status row", 
     expect(glyph.getAttribute("data-state")).toBe(state);
     expect(glyph.querySelector("svg")?.getAttribute("aria-label")).toBe(label);
     expect(glyph.querySelector("svg")).not.toBeNull();
-    expect(body.querySelector(".acpmux-pr-card__state")?.textContent).toBe(label);
-    expect(shownText(body)).toContain(label);
+    expect(body.querySelector(".acpmux-pr-card__state")).toBeNull();
     await unmount();
   }
   const { readFileSync } = await import("node:fs");
@@ -321,7 +321,6 @@ test("the glyph follows state and the card names that state in its status row", 
   expect(colour("open")).toContain("--agent-status-success");
   expect(colour("merged")).toContain("--agent-status-merged");
   expect(colour("closed")).toContain("--agent-status-failure");
-  expect(styles).toContain(".acpmux-pr-card__state");
 });
 
 test("an open pull request's checks are counts in words; a merged or closed one's are gone", async () => {
@@ -499,9 +498,10 @@ test("labels wear GitHub's colour, else a stable tone, and risk:high stands out"
   expect(again.body.querySelector<HTMLElement>(".acpmux-pr-card__label")!.dataset.tone).toBe(labels[1]!.dataset.tone);
 });
 
-// Leo 2026-11-07: "Is that the tests or what? As in, like the CI?" The row names itself and each count.
-test("checks read as CI checks in words: passed, failed and running", async () => {
-  const { body } = await card({
+// Leo 2026-11-07: "Is that the tests or what? As in, like the CI?" The row names itself and each count,
+// and clicking the failed toggle opens an inline drawer listing the failing and running check names.
+test("checks read as CI checks in words and expand inline to show check names", async () => {
+  const { body, act } = await card({
     pullRequest: pullRequest({
       checks: { state: "failing", passed: 11, total: 13 },
       checkList: [
@@ -512,16 +512,26 @@ test("checks read as CI checks in words: passed, failed and running", async () =
     fetchedAt: Date.now() / 1000 - 5,
   });
   const row = body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
-  const visible = [...row.querySelectorAll(":scope > [aria-hidden=true]")].map((part) => part.textContent);
-  expect(visible).toEqual(["Checks", "11 passed", "1 failed", "1 running"]);
-  // It has names to list, so a keyboard can reach it as a pointer can.
-  expect(row.tabIndex).toBe(0);
+  expect(row.querySelector(".acpmux-pr-card__checksName")?.textContent).toBe("Checks");
+  expect(row.querySelector(".acpmux-pr-card__passed")?.textContent).toBe("11 passed");
+  expect(row.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("1 failed");
+  expect(row.querySelector(".acpmux-pr-card__pending")?.textContent).toBe("1 running");
+  const toggle = row.querySelector<HTMLButtonElement>(".acpmux-pr-card__checksToggle")!;
+  expect(toggle).not.toBeNull();
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(body.querySelector(".acpmux-pr-card__checksDrawer")).toBeNull();
+  await act(async () => toggle.click());
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect([...body.querySelectorAll(".acpmux-pr-card__checkName")].map((el) => el.textContent)).toEqual([
+    "cmux-next / daemon tests",
+    "cmux-next / fast tier",
+  ]);
 });
 
 // Leo 2026-11-08, of a private repo's issue whose card showed only its link: an issue reads as one,
 // in GitHub's colours (open green, closed purple, not planned grey), with its author and labels and
 // none of a pull request's checks, files or branches.
-test("an issue's card draws the issue glyph, its state, author and labels", async () => {
+test("an issue's card draws the issue glyph, author and labels", async () => {
   const url = "https://github.com/manaflow-ai/cmuxterm-hq/issues/7707";
   for (const [state, label, glyph] of [
     ["open", "Open", "git.issue"],
@@ -548,13 +558,9 @@ test("an issue's card draws the issue glyph, its state, author and labels", asyn
       url,
       { repo: "manaflow-ai/cmuxterm-hq", number: 7707 },
     );
-    const shown = body.querySelector(".acpmux-pr-card__state")!;
-    expect({ state, text: shown.textContent, kind: shown.getAttribute("data-kind") }).toEqual({
-      state,
-      text: label,
-      kind: "issue",
-    });
     expect(body.querySelector(".acpmux-pr-card__glyph")?.getAttribute("data-kind")).toBe("issue");
+    expect(body.querySelector(".acpmux-pr-card__glyph")?.getAttribute("data-state")).toBe(state);
+    expect(body.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe(label);
     expect(body.querySelector(".acpmux-pr-card__glyph [data-icon]")?.getAttribute("data-icon")).toBe(glyph);
     expect(body.querySelector(".acpmux-pr-card__author")?.textContent).toBe("octocat");
     expect(body.querySelector(".acpmux-pr-card__label")?.textContent).toBe("bug");
@@ -572,5 +578,5 @@ test("while an issue is read, its card holds an issue's rows: no files and no br
     number: 7707,
   });
   const rows = [...body.querySelectorAll<HTMLElement>("[data-placeholder]")].map((row) => row.dataset.placeholder);
-  expect(rows).toEqual(["status", "who", "labels"]);
+  expect(rows).toEqual(["who", "labels"]);
 });

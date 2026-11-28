@@ -129,3 +129,23 @@ test("the One arm: one material for every hover surface, and only it runs one ho
   expect(oneHoverSurface(doc)).toBe(false);
   stopOne();
 });
+
+test("every arm defines the vars the shared ring and shadow read, so no arm's box-shadow goes invalid", () => {
+  // An arm that left --hover-look-ring, -lit or -card-shadow unset made the shared rule's
+  // box-shadow invalid at computed time: the One arm's hover card drew no ring and no shadow, and
+  // white glass over a light wallpaper vanished (the #59205 readback).
+  const css = hoverCss();
+  const all = css.match(/:root\[data-hover-look\]\s*\{([^}]*)\}/);
+  expect(all).not.toBeNull();
+  for (const name of [
+    "--hover-look-ring",
+    "--hover-look-lit",
+    "--hover-look-tooltip-shadow",
+    "--hover-look-card-shadow",
+  ]) {
+    expect(all?.[1]).toContain(`${name}:`);
+  }
+  // One's restored edge is light-only: dark keeps One's shipped look.
+  const one = css.match(/:root\[data-hover-look\]\[data-hover-look="one"\]\s*\{([^}]*)\}/)?.[1] ?? "";
+  expect(one).toMatch(/--hover-look-ring:\s*light-dark\([^;]*,\s*transparent\)/);
+});

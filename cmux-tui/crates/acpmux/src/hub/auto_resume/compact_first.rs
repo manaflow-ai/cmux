@@ -19,6 +19,10 @@
 //! compaction that fails (its turn failed, or the harness reported a `compaction` that `failed`)
 //! records `auto_resume_exhausted` and nothing more: a chat compacting cannot help is never asked
 //! again. A continuation that outgrows the window again is exhausted the same way (one attempt).
+//!
+//! While context surgery is on (`surgery.rs`), step 1 tries it first: when masking old tool output
+//! takes the chat under the compaction line it applies, no `/compact` turn runs, and step 2 goes
+//! at once; anything else sends `/compact` as above.
 
 use super::{Control, CutTurn, Hub, Mark, PendingGuard, PromptOptions, Session, SessionStatus};
 use super::{TurnInfo, Wake};
@@ -91,6 +95,7 @@ impl Hub {
         session: &Arc<Session>,
         cut: CutTurn<'_>,
         attempt: usize,
+        gate: Option<(Arc<Notify>, crate::protocol::session::RetryReason)>,
     ) {
         let cause = super::super::turn_errors::resume_cause(cut.error, cut.error);
         let rate = (cause == Some("rate_limit")).then(|| cut.turn_id.to_owned());
@@ -103,7 +108,7 @@ impl Hub {
         {
             self.compact_first(session, cut, attempt).await;
         } else {
-            self.auto_resume(session, cut, attempt).await;
+            self.auto_resume(session, cut, attempt, gate).await;
         }
         // Whatever the attempt did, the hold it was due for is over: a fold or a continuation
         // ended it, a skip did not. A compaction's continuation that still waits ends it itself.
@@ -175,7 +180,7 @@ impl Hub {
                         not_before: None,
                         slash: None,
                     };
-                    hub.auto_resume(&session, cut, step.attempt).await;
+                    hub.auto_resume(&session, cut, step.attempt, None).await;
                 });
             }
             // Stop or close came while it compacted: they settled the turn.
@@ -198,6 +203,22 @@ impl Hub {
         attempt: usize,
     ) {
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || self.shutting_down() {
+            return;
+        }
+        // Surgery first (`surgery.rs`, RFD 0149): masking old tool output with no model call that
+        // takes the chat under the compaction line stands in for the `/compact` turn, and the
+        // continuation goes straight away. `/compact` when it says no or fails (counted in
+        // `harnessMagic.surgery.fallbacks`). It refuses a chat mid-turn and takes the turn's lock.
+        if self.can_compact(session).await
+            && self
+                .surgery_before_compact(
+                    session,
+                    super::super::rate_hold::COMPACT_BEFORE_TOKENS,
+                    "auto_resume",
+                )
+                .await
+        {
+            self.auto_resume(session, cut, attempt, None).await;
             return;
         }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);

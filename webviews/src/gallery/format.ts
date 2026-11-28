@@ -47,9 +47,10 @@ import type {
   ModelsState,
   LibraryListing,
   HubState,
-  AutocloudState,
   DoctorReport,
+  AutocloudState,
   ConnectionsState,
+  DeveloperTokensState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -84,6 +85,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Developer fixture state; default the mock's (two personal tokens). */
+  tokens?: DeveloperTokensState;
   /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
   autocloud?: AutocloudState;
   /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
@@ -94,6 +97,10 @@ export type SettingsPageVariant = VariantBase & {
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
   models?: ModelsState | null;
+  /** Hold the connection list in flight while the Cloud page draws its loading rows. */
+  modelsLoading?: boolean;
+  /** Hold a provider check while its form draws the checking state. */
+  modelAccessChecking?: boolean;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
@@ -328,6 +335,8 @@ export type MarkdownPageVariant = VariantBase & {
   files?: Record<string, string>;
   /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
   find?: string;
+  /** The link to cmux stays down: every config read fails as the bridge does. */
+  disconnected?: boolean;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
@@ -426,6 +435,10 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The plan's hours and spend limit (RFD 0081); set, the variant turns the default-off switch on. */
+  pool?: import("../pages/cloud/pool").PoolStanding;
+  /** The spend limit's setter is refused: the caller is not a team admin. */
+  spendLimitForbidden?: boolean;
   /** The latest surge the list's last page reports (the surge card on Machines). */
   surge?: import("../pages/cloud/ops").CloudSurge;
   /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
@@ -510,6 +523,9 @@ export type KeybindingsPageVariant = VariantBase & {
 /** A React component with props, for components no page host draws on its own. */
 export type ComponentVariant<P> = VariantBase & {
   props: P;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  component loads: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
   /** Gallery-only answers for the component's reply chip/preview host calls. */
   chipHost?: ChipHostFixture;
 };

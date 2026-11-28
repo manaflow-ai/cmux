@@ -33,10 +33,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var progressBarHeight: CGFloat = 8
     /// Below a status block, above the row's bottom edge.
     public var statusBottomPadding: CGFloat = 4
-    /// One subagent's line under a chat row (`WorkspaceRowContent.subagents`, rows mode): a row's own height.
-    public var subagentLineHeight: CGFloat = 24
-    /// The stacked subagents line under a chat row (stack mode): a detail line's height.
-    public var subagentStackHeight: CGFloat = 18
 
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
@@ -73,14 +69,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     func height(for content: WorkspaceRowContent) -> CGFloat {
         let lines = (content.detail == nil ? 0 : 1) + (content.meta == nil ? 0 : 1)
         return max(rowStep, rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight)) + statusHeight(content)
-            + subagentsHeight(content)
-    }
-
-    /// The chat's subagents under the row (`WorkspaceRowContent.subagents`): a line per listed subagent and
-    /// "N more", or the one stacked line; 0 without any. The row view lays them out with the same numbers.
-    public func subagentsHeight(_ content: WorkspaceRowContent) -> CGFloat {
-        guard let strip = content.subagents else { return 0 }
-        return strip.mode == .stack ? subagentStackHeight : CGFloat(strip.lineCount) * subagentLineHeight
     }
 
     /// The status block under the title lines: its text lines, the bar's
@@ -160,7 +148,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
+    /// With `relativeTimes`, the current minute instead.
     public var now = Date(timeIntervalSince1970: 0)
+    /// `sidebar.relativeTimestamps` (with `showsTimestamps`): a change today reads as its age
+    /// (`5m`, `2h`) counted from `now`, not its time.
+    public var relativeTimes = false
     /// Age labels this pass made, shared by its rows (a label per row was most of a 10k group's layout).
     var ages = AgeTextCache()
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
@@ -171,8 +163,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
     /// carry their pull requests and keycaps. Nil (off) draws the list as before.
     public var sessionTree: SidebarSessionTreeState?
-    /// How a chat row shows its subagents (Debug `sidebar.subagents.look`, `SidebarSubagentStrip`).
-    public var subagentLook = SidebarSubagentLook.both
     /// Each row's pull request badge, drawn with the tree off too.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
@@ -188,9 +178,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
     /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
     public var settled: Set<WorkspaceID> = []
-    /// Automatic sessions (`sidebar.showAutomaticSessions` off, the default; `SidebarAutomaticPlanner`): these rows fold
-    /// into an "Automatic (N)" row at the end of their list, before the Settled row. Empty draws every row in place.
-    public var automatic: Set<WorkspaceID> = []
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
@@ -224,17 +211,9 @@ nonisolated extension SidebarLayoutOptions {
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
         if let sessionTree { content.keycap = keycaps[ws.id] }
         if let parent = parentTitles[ws.id], WorkspaceRowContent.sameTitle(ws.title, parent) { content.subagentOf = parent }
-        // The chat's subagents under its name (Claude desktop's Code tab): rows while open in the session tree; folded or
-        // with the tree off no line, only the failed ones on the title line's failed mark. A parent of subagents only gets the tree's chevron too;
-        // the layout's tree pass keeps a chevron of its own (a parent of sessions) over this one.
-        if !workspacesAsTabs, let subagents = ws.subagents {
-            let folded = sessionTree?.collapsed.contains(ws.id) == true && filterMatches == nil
-            content.subagents = SidebarSubagentStrip.make(subagents, tree: sessionTree != nil, folded: folded, look: subagentLook)
-            if content.subagents == nil { content.subagentsFailed = SidebarSubagentStrip.failedCount(subagents) }
-            if sessionTree != nil, !subagents.items.isEmpty, subagentLook != .stack {
-                content.treeFold = folded ? .collapsed : .expanded
-            }
-        }
+        // A chat's subagents draw no lines under its row (Leo 2026-11-25: "idk who asked for those in the sidebar"):
+        // the failed ones count on the title line's failed mark, the rest show in the hover card and the chat.
+        if !workspacesAsTabs, let subagents = ws.subagents { content.subagentsFailed = subagents.failedCount }
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,
         // off by default. The hover card keeps the pull request.
@@ -265,7 +244,7 @@ nonisolated extension SidebarLayoutOptions {
     private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
         if workspacesAsTabs {
-            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages)
+            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages, relative: relativeTimes)
             (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
             return content
         }
@@ -275,9 +254,9 @@ nonisolated extension SidebarLayoutOptions {
         if expanded {
             let shown = workspaceRow.resolved(for: ws.rowKind)
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine, showsNotification: shown.shows(.notification),
-                                       showsPullRequest: shown.shows(.pullRequest), ages: ages)
+                                       showsPullRequest: shown.shows(.pullRequest), ages: ages, relative: relativeTimes)
         }
-        return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages)
+        return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages, relative: relativeTimes)
     }
 }
 

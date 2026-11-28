@@ -107,7 +107,7 @@ fn forms(secret: &str) -> Vec<Vec<u8>> {
         }
         for alphabet in [STANDARD, URL_SAFE] {
             let encoded = base64_unpadded(&bytes, alphabet);
-            let core = encoded[first..end].to_vec();
+            let Some(core) = encoded.get(first..end).map(<[u8]>::to_vec) else { continue };
             if !forms.contains(&core) {
                 forms.push(core);
             }
@@ -120,11 +120,13 @@ fn forms(secret: &str) -> Vec<Vec<u8>> {
 fn base64_unpadded(bytes: &[u8], alphabet: &[u8; 64]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let word = (u32::from(chunk[0]) << 16)
+        let word = (u32::from(chunk.first().copied().unwrap_or(0)) << 16)
             | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
             | u32::from(chunk.get(2).copied().unwrap_or(0));
         for i in 0..=chunk.len() {
-            out.push(alphabet[((word >> (18 - 6 * i)) & 63) as usize]);
+            if let Some(&letter) = alphabet.get(((word >> (18 - 6 * i)) & 63) as usize) {
+                out.push(letter);
+            }
         }
     }
     out
@@ -142,10 +144,10 @@ fn percent_decoded(text: &str, plus_is_space: bool) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
-    while i < bytes.len() {
+    while let Some(&byte) = bytes.get(i) {
         let pair =
             (bytes.get(i + 1).copied().and_then(hex), bytes.get(i + 2).copied().and_then(hex));
-        match (bytes[i], pair) {
+        match (byte, pair) {
             (b'%', (Some(high), Some(low))) => {
                 out.push(high * 16 + low);
                 i += 3;
@@ -207,9 +209,28 @@ pub fn leaks(secret: &str) -> Vec<String> {
 pub(crate) fn redirect(host: &str) -> Option<SocketAddr> {
     let installed = INSTALLED.get()?;
     match crate::verdict(host) {
-        crate::Verdict::Listed | crate::Verdict::Named => Some(installed.addr),
+        crate::Verdict::Listed | crate::Verdict::Named | crate::Verdict::Session => {
+            Some(installed.addr)
+        }
         crate::Verdict::Local | crate::Verdict::Unlisted => None,
     }
+}
+
+/// Where a gated WebSocket connect to `host` goes instead, and the TLS
+/// config that trusts the capture CA, when capture is on.
+pub(crate) fn ws_redirect(host: &str) -> Option<(SocketAddr, Arc<rustls::ClientConfig>)> {
+    let addr = redirect(host)?;
+    let installed = INSTALLED.get()?;
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(installed.ca.clone()).ok()?;
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .ok()?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    Some((addr, Arc::new(config)))
 }
 
 /// The CA gated clients trust too, when capture is on.

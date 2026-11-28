@@ -667,3 +667,52 @@ fn openh264_names_the_cause_of_every_idr_it_was_not_asked_for() {
     }
     assert_eq!(causes.last(), Some(&"usage_switch"), "the move back to screen: {causes:?}");
 }
+
+/// Measures the first frame after deterministic 1% loss at the encoder. The
+/// fallback profile is the feat-cmux-next behavior (an IDR for every loss);
+/// the LTR profile is the new acknowledged-reference path. This is kept as a
+/// fleet-only test because VideoToolbox is the subject under measurement.
+#[cfg(target_os = "macos")]
+#[test]
+fn videotoolbox_loss_recovery_bench_idr_vs_ltr() {
+    use cmux_encode::videotoolbox::VideoToolbox;
+    use cmux_encode::{H264Encoder, VideoEncoder};
+
+    fn run(use_ltr: bool) -> (usize, usize) {
+        let mut enc =
+            VideoToolbox::with_ltr(256, 128, 30, 2_000, false, use_ltr).expect("hardware encoder");
+        let pic = I420::new(256, 128);
+        let mut out = Vec::new();
+        let mut token = None;
+        let mut recovery_idrs = 0;
+        let mut recovery_bytes = 0;
+        for frame in 0..120u64 {
+            let loss = frame > 0 && frame % 100 == 0;
+            if use_ltr && loss {
+                enc.set_acknowledged_ltr_tokens(&[token.expect("LTR token before loss")]);
+            } else {
+                enc.set_acknowledged_ltr_tokens(&[]);
+            }
+            let idr = enc
+                .encode(&pic, !use_ltr && loss || frame == 0, frame as i64 * 33_333, &mut out)
+                .expect("encode");
+            if let Some(next) = enc.ltr_token() {
+                token = Some(next);
+            }
+            if loss {
+                recovery_idrs += usize::from(idr);
+                recovery_bytes += out.len();
+            }
+        }
+        assert!(token.is_some(), "VideoToolbox emitted no LTR acknowledgement token");
+        (recovery_idrs, recovery_bytes)
+    }
+
+    let (base_idrs, base_bytes) = run(false);
+    let (head_idrs, head_bytes) = run(true);
+    eprintln!(
+        "ltr-loss-bench loss=1% events=1 base_idrs={base_idrs} base_first_loss_bytes={base_bytes} head_idrs={head_idrs} head_first_loss_bytes={head_bytes}"
+    );
+    assert!(base_idrs > head_idrs, "LTR should avoid the fallback IDRs");
+    assert!(base_bytes > head_bytes, "LTR recovery should be smaller than an IDR");
+}

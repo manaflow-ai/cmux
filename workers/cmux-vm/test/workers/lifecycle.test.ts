@@ -4,6 +4,7 @@
  * rate limits, idempotency and the audit log.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { withRequestConnection } from "../../src/db/sql.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 
@@ -172,6 +173,36 @@ describe("createVm", () => {
     expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", retryAfterSeconds: expect.any(Number), budget: "rate" });
     expect((await createVm(t, keyB)).status).toBe(201);
   });
+
+  it("reports provider infrastructure overload as unavailable without exposing its response", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    t.upstream.fail("create", 429, 1, { message: "infrastructure overloaded: VM start capacity queue wait expired" });
+
+    const response = await createVm(t, key);
+
+    expect(response.status).toBe(503);
+    const body = await json(response);
+    expect(body).toMatchObject({ _tag: "ServiceUnavailable" });
+    expect(JSON.stringify(body)).not.toContain("infrastructure overloaded");
+    expect(JSON.stringify(body)).not.toContain("capacity queue wait expired");
+  });
+
+  it("answers a VM call past the rate limit 429 before 404, though both are read at once", async () => {
+    const t = await harness({ ratePerMinute: { write: 2 } });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const keyB = await t.addKey(TENANT_B, ["vm:write"]);
+    const start = () => t.request(`/v1/vms/${vmId}/start`, bearer(keyB), { method: "POST" });
+
+    // Another tenant's VM is 404 while the caller is under its limit, and is never started.
+    expect((await start()).status).toBe(404);
+    expect((await start()).status).toBe(404);
+    // Past the limit it is 429: the limit is judged before ownership, as when they were read in turn.
+    const limited = await start();
+    expect(limited.status).toBe(429);
+    expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", budget: "rate" });
+    expect(t.upstream.callsTo("POST", /\/start$/)).toHaveLength(0);
+  });
 });
 
 describe("idempotency keys on create", () => {
@@ -263,6 +294,42 @@ describe("listVms", () => {
     expect(body).toMatchObject({ items: [{ id: kept.vmId }] });
   });
 
+  it("forgets a long-committed VM the provider no longer has, so the next list reads only live ones", async () => {
+    const t = await harness();
+    const old = new Date(Date.now() - 2 * 3600_000);
+    const gone = t.addVm(TENANT_A, "running", {}, { createdAt: old });
+    const fresh = t.addVm(TENANT_A, "running", {}, { createdAt: new Date(Date.now() - 60_000) });
+    const pending = t.addVm(TENANT_A, "running", {}, { createdAt: old, committed: false });
+    const kept = t.addVm(TENANT_A);
+    for (const vm of [gone, fresh, pending]) t.dropUpstreamVm(vm.upstreamId);
+    const key = await t.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const reads = (vmUpstreamId: string) =>
+      t.upstreamRequests.filter((call) => call.method === "GET" && call.path.endsWith(`/${vmUpstreamId}`)).length;
+
+    expect(await json(await t.request("/v1/vms", bearer(key)))).toMatchObject({ items: [{ id: kept.vmId }] });
+    expect(await json(await t.request("/v1/vms", bearer(key)))).toMatchObject({ items: [{ id: kept.vmId }] });
+
+    // The long-committed gone VM was read once and then forgotten (its tombstone answers a repeated delete with 204);
+    // a fresh row and an uncommitted one may be creations the provider has not made yet, and are read every time.
+    expect(reads(gone.upstreamId)).toBe(1);
+    expect(reads(fresh.upstreamId)).toBe(2);
+    expect(reads(pending.upstreamId)).toBe(2);
+    expect((await t.request(`/v1/vms/${gone.vmId}`, bearer(key))).status).toBe(404);
+  });
+
+  it("leaves gone rows alone for a read-only key, which may not delete", async () => {
+    const t = await harness();
+    const gone = t.addVm(TENANT_A, "running", {}, { createdAt: new Date(Date.now() - 2 * 3600_000) });
+    t.dropUpstreamVm(gone.upstreamId);
+    const key = await t.addKey(TENANT_A, ["vm:read"]);
+    const reads = () => t.upstreamRequests.filter((call) => call.method === "GET" && call.path.endsWith(`/${gone.upstreamId}`)).length;
+
+    await t.request("/v1/vms", bearer(key));
+    await t.request("/v1/vms", bearer(key));
+
+    expect(reads()).toBe(2);
+  });
+
   it("rejects a cursor from another tenant", async () => {
     const t = await harness();
     const keyA = await t.addKey(TENANT_A, ["vm:read", "vm:write"]);
@@ -291,7 +358,73 @@ describe("start, stop, pause, resume", () => {
     expect(t.upstreamRequests.map((call) => `${call.method} ${call.path}`)).toEqual([`POST /v5/vms/${upstreamId}/start`]);
     expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
     // The provider's share of the request, for the caller's own trace (cmuxterm-hq goals/cloud-resume-gap.md).
-    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call"$/);
+    // cmux-vm's own gate (scope, rate limit, ownership) is named beside it, so the trace splits ours too; its two
+    // concurrent halves (the rate spend and the ownership read) are named after it, so the slower one is readable.
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call", own;dur=\d+, rate;dur=\d+, read;dur=\d+$/);
+  });
+
+  it("writes the start's audit row after the answer when the Worker can keep the request alive", async () => {
+    const deferred: Array<Promise<unknown>> = [];
+    const t = await harness({ perRequest: withRequestConnection, defer: (work) => deferred.push(work) });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    const response = await action(t, key, vmId, "start");
+
+    expect(response.status).toBe(200);
+    // The row is handed to waitUntil, not written before the response (cmuxterm-hq goals/cloud-resume-gap.md).
+    expect(deferred).toHaveLength(1);
+    await Promise.all(deferred);
+    expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
+  });
+
+  it("names the start's slot wait and gives the slot back without holding the answer", async () => {
+    const deferred: Array<Promise<unknown>> = [];
+    const calls: Array<string> = [];
+    let open = (): void => {};
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    const createAdmission = {
+      admit: async (holder: string) => { calls.push(`admit ${holder.split(":")[0]}`); return { admitted: true as const, waitedMs: 0, inFlight: 1, queued: 0 }; },
+      // A release that never finishes until the gate opens: the answer must not wait on it.
+      release: async (holder: string) => { await gate; calls.push(`release ${holder.split(":")[0]}`); },
+    };
+    const t = await harness({ perRequest: withRequestConnection, defer: (work) => deferred.push(work), createAdmission });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    const response = await action(t, key, vmId, "start");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call", own;dur=\d+, rate;dur=\d+, read;dur=\d+, admit;dur=\d+$/);
+    // The release was a second round trip to the queue object on the answer's path; it now runs on waitUntil.
+    expect(calls).toEqual(["admit start"]);
+    expect(deferred).toHaveLength(1);
+    open();
+    await Promise.all(deferred);
+    expect(calls).toEqual(["admit start", "release start"]);
+  });
+
+  it("gives the start's slot back before the answer when nothing can keep the request alive", async () => {
+    const calls: Array<string> = [];
+    const createAdmission = {
+      admit: async () => { calls.push("admit"); return { admitted: true as const, waitedMs: 0, inFlight: 1, queued: 0 }; },
+      release: async () => { calls.push("release"); },
+    };
+    const t = await harness({ perRequest: withRequestConnection, createAdmission });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    expect((await action(t, key, vmId, "start")).status).toBe(200);
+    expect(calls).toEqual(["admit", "release"]);
+  });
+
+  it("writes the audit row before the answer when nothing can keep the request alive", async () => {
+    const t = await harness({ perRequest: withRequestConnection });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    expect((await action(t, key, vmId, "start")).status).toBe(200);
+    expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
   });
 
   it("names no upstream time on an answer that made no upstream call", async () => {
@@ -315,7 +448,7 @@ describe("start, stop, pause, resume", () => {
     expect(await json(response)).toMatchObject({ state: "running" });
     expect(t.upstream.callsTo("POST", new RegExp(`^/v5/vms/${upstreamId}/start$`))).toHaveLength(1);
     // The state read and the start: both the provider's.
-    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="2 calls"$/);
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="2 calls", own;dur=\d+, rate;dur=\d+, read;dur=\d+$/);
   });
 
   it("resume refuses a VM that is not paused", async () => {

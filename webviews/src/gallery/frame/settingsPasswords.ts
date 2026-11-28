@@ -118,6 +118,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.keys) mock.provider.keys = structuredClone(state.keys);
   if (state.keys) mock.provider.keys = structuredClone(state.keys);
   if (state.hub) mock.provider.hub = structuredClone(state.hub);
+  if (state.tokens) mock.provider.tokens = structuredClone(state.tokens);
   if (state.autocloud) mock.provider.autocloud = structuredClone(state.autocloud);
   if (state.connections) mock.provider.connections = structuredClone(state.connections);
   if (state.activeTeam && mock.provider.accounts.teams) {
@@ -129,6 +130,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   }
   if (state.tailnet !== undefined) mock.provider.tailnet = structuredClone(state.tailnet);
   if (state.models !== undefined) mock.provider.models = structuredClone(state.models);
+  if (state.modelsLoading) mock.provider.modelsReadHold = new Promise(() => {});
+  if (state.modelAccessChecking) mock.provider.holdModelAccess = new Promise(() => {});
   if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
   if (state.endpoint)
     mock.provider.agents.endpoint = { ...mock.provider.agents.endpoint, ...structuredClone(state.endpoint) };

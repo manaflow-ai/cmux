@@ -215,6 +215,30 @@ test("a resume keeps its spinner's slot from the first frame and fills it only p
   expect(slot!.querySelector(".cv-spinner")).not.toBeNull();
 });
 
+test("an offline chat reads the machines and the chat list again on its own, with no Reconnect button", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  let asks = 0;
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => asks++}
+        noteDelayMs={0}
+      />,
+    );
+  });
+  expect(container.querySelector('[data-action="reconnect"]')).toBeNull();
+  await act(async () => void jest.advanceTimersByTime(1_000));
+  expect(asks).toBe(1);
+  await act(async () => void jest.advanceTimersByTime(2_000));
+  expect(asks).toBe(2);
+});
+
 test("a resume past the slow bound says it is taking longer and enables Resume machine again", async () => {
   const container = installDom();
   let clicks = 0;
@@ -247,4 +271,28 @@ test("a resume past the slow bound says it is taking longer and enables Resume m
   expect(container.querySelector(".acpmux-unavailable-progress .cv-spinner")).not.toBeNull();
   await act(async () => button().click());
   expect(clicks).toBe(1);
+});
+
+test("the loading area marks its pane with data-connecting while up, not through a :has() over the pane", async () => {
+  const container = installDom();
+  container.className = "acpmux-main";
+  const stage = container.ownerDocument.createElement("div");
+  container.append(stage);
+  root = createRoot(stage);
+  const render = (reason: "connecting" | "deleted") =>
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason, machine: "remote" } as never}
+        session="session-id"
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        onResume={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+  await act(async () => render("connecting"));
+  expect(container.hasAttribute("data-connecting")).toBe(true);
+  await act(async () => render("deleted"));
+  expect(container.hasAttribute("data-connecting")).toBe(false);
 });

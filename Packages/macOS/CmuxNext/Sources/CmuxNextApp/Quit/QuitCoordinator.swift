@@ -146,18 +146,19 @@ final class QuitCoordinator {
         let origin = origins.consume(appleEventReason: NSAppleEventManager.shared().quitReason)
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
+        let reply = QuitReplyWatchdog.started { sender.reply(toApplicationShouldTerminate: $0) } // replies if the Task below cannot
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
             services.windows.recordSaver.layoutCache.flushNow() // the layout as seen, before anything leaves the screen
             let choice = QuitPolicy.decide(origin, behavior: behavior)
             // Unsaved documents (R96 quit hook) are the only question a quit can ask.
-            guard await resolveUnsaved(origin) else {
+            guard await reply.holding({ await resolveUnsaved(origin) }) else { // the person may be asked
                 isQuitting = false
-                sender.reply(toApplicationShouldTerminate: false)
+                reply.send(false)
                 quitRefused()
                 return
             }
-            await complete(choice, sender)
+            await complete(choice, reply)
         }
         return .terminateLater
     }
@@ -176,27 +177,26 @@ final class QuitCoordinator {
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
-    private func complete(_ choice: QuitSessionsChoice, _ sender: NSApplication) async {
+    private func complete(_ choice: QuitSessionsChoice, _ reply: QuitReplyWatchdog) async {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
         // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
-        // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
+        // (then cancelled now), once the rollback keep ends (bounded); its relaunch is a hand-off.
         await services.updater.prepareForQuitAfterKeep()
-        // A keep quit ends within `keepQuitLimit` from here, whatever any step
-        // below does (slow quit, 2026-10-20). An End quit arms its deadline
-        // once its sessions ended (the end steps show their failures).
-        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }
-        // From here the quit is decided: an end before AppKit's reply (a
-        // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
-        // a quit the user asked for, not a crash.
-        // Awaited (bounded, 500 ms) so `quitting` is on disk before the quit
-        // can end the process; the write itself runs off the main thread.
+        // A keep quit ends within `keepQuitLimit` from here, whatever any step below does (slow quit,
+        // 2026-10-20); an End quit arms it once its sessions ended. An update's relaunch is expected.
+        if !choice.ends {
+            deadline.arm(after: QuitDeadline.keepQuitLimit)
+            if services.updater.relaunchingForUpdate { QuitAgents.environment(services)?.expectRelaunch() }
+        } else { reply.hold() } // End's failure alert waits on the person
+        // The quit is decided: an end before AppKit's reply (a bounded wait's SIGKILL, a slow Chromium shutdown) is still
+        // a quit the user asked for, not a crash. Awaited (500 ms bound) so `quitting` is on disk first; written off main.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
         await quitSteps(choice).run(ends: choice.ends)
         DebugTimings.markLaunch("quit.replied")
-        sender.reply(toApplicationShouldTerminate: true)
+        reply.send(true)
     }
 
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).
@@ -238,7 +238,7 @@ final class QuitCoordinator {
                 await services.home.brain.stop()
                 let acpmux = QuitAgents.environment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
-                if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                if acpmux?.isAttached(to: services.home.chief.home.acpmuxHome) != true {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                          bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 }

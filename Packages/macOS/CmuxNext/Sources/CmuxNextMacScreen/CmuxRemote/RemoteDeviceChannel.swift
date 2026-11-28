@@ -79,6 +79,9 @@ nonisolated final class RemoteDeviceChannel: Sendable {
                     done?(.success(line))
                 } else if object["event"] as? String == "push", let text = object["text"] as? String {
                     deliver(text)
+                } else if object["event"] as? String == "online" {
+                    // The acpmux daemon's `device.watch` channel: the event line itself.
+                    deliver(String(decoding: line, as: UTF8.self))
                 }
             }
         }
@@ -116,15 +119,12 @@ nonisolated final class RemoteDeviceChannel: Sendable {
         }
     }
 
-    /// An answer line's `result`, or its error.
+    /// An answer line's `result`, or its error (service.answerResult).
     static func result(_ line: Data) throws -> [String: Any] {
-        guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
-            throw DeviceHubError.transport("cmux Remote's answer is not JSON")
-        }
-        guard object["ok"] as? Bool == true else {
-            throw DeviceHubError.identity((object["error"] as? [String: Any])?["message"] as? String ?? "refused")
-        }
-        return object["result"] as? [String: Any] ?? [:]
+        let answer = RdUI.call("service.answerResult", ["line": String(data: line, encoding: .utf8) ?? NSNull()]) as? [String: Any] ?? [:]
+        if let result = answer["result"] as? [String: Any] { return result }
+        let message = answer["message"] as? String ?? "cmux Remote's answer is not JSON"
+        throw answer["error"] as? String == "identity" ? DeviceHubError.identity(message) : DeviceHubError.transport(message)
     }
 
     static func encode(_ params: [String: Any]) -> Data {

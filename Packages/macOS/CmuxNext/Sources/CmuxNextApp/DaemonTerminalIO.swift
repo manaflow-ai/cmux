@@ -231,34 +231,28 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Hidden views release canonical geometry so another client (or the
     /// next visible view) owns it; shown views claim it again.
-    @MainActor func setVisible(_ visible: Bool) {
-        driver.setVisible(visible)
-    }
+    @MainActor func setVisible(_ visible: Bool) { driver.setVisible(visible) }
 
     /// The terminal or the daemon connection is back: a disconnected view
     /// re-attaches (one attempt; nothing happens otherwise).
-    @MainActor func reconnect() {
-        driver.reconnect()
-    }
+    @MainActor func reconnect() { driver.reconnect() }
 
     /// The daemon reports the terminal's process ended: show the last screen
     /// with "Process exited" and never re-attach.
-    @MainActor func processExited() {
-        driver.processExited()
-    }
+    @MainActor func processExited() { driver.processExited() }
 
     /// The daemon reports the terminal running again after a dead report:
     /// an exited view re-attaches.
-    @MainActor func processRevived() {
-        driver.processRevived()
-    }
+    @MainActor func processRevived() { driver.processRevived() }
 
-    /// Ends the attachment (or cancels the attach in flight). The terminal
-    /// keeps running in the daemon.
-    @MainActor func close() {
-        driver.close()
-        resizes.cancel(self)
+    /// Ends the attachment (or cancels the attach in flight). The terminal keeps running in the daemon.
+    /// `handingOffInput`: hands back the keys queued while it attached, for the view replacing it (``carry(_:)``).
+    @MainActor @discardableResult func close(handingOffInput: Bool = false) -> [Data] {
+        defer { resizes.cancel(self) }
+        if handingOffInput { return driver.closeHandingOffInput() } else { driver.close(); return [] }
     }
+    /// A replaced view's keys: queued here in order, ahead of anything typed next, sent right after this view's replay.
+    @MainActor func carry(_ input: [Data]) { input.forEach(driver.input) }
 
     /// Attachment state for diagnostics and tests.
     var attachPhase: TerminalAttachDriver<TerminalAttachment>.Machine.Phase { driver.machine.phase }

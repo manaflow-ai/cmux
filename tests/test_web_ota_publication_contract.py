@@ -139,6 +139,22 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         signing = [s.get("name") for s in jobs["publish"]["steps"] if "CMUX_WEB_OTA_SIGNING_KEY" in json.dumps(s)]
         self.assertEqual(signing, ["Sign and upload the pointer"])
 
+    def test_the_cas_job_holds_no_secret_and_never_holds_the_pointer_back(self):
+        # cas/1 (RFD 0166) builds this checkout's Rust: no secret there, and its failure leaves
+        # the archive and the pointer as they were.
+        import yaml
+
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertNotIn("secrets.", json.dumps(jobs["cas"]))
+        self.assertIs(jobs["cas"]["continue-on-error"], True)
+        self.assertIn("!cancelled()", jobs["publish"]["if"])
+        self.assertIn("needs.build.result == 'success'", jobs["publish"]["if"])
+        upload = next(s for s in jobs["publish"]["steps"] if s.get("name") == "Upload the cas/1 objects to R2")
+        self.assertIs(upload["continue-on-error"], True)
+        # The objects first, cas.json (which the pointer step reads) last.
+        self.assertTrue(upload["run"].rstrip().splitlines()[-2].lstrip().startswith('up "$dir/cas.json"'))
+        self.assertIn('--cas "$dir/cas.json"', pointer_step())
+
     def test_a_rate_limited_pr_api_falls_back_to_git_and_keeps_the_fork_rule(self):
         workflow = WORKFLOW.read_text()
         step = workflow.split("      - name: Apply the pull request or ref onto its base\n", 1)[1].split("\n      - ", 1)[0]

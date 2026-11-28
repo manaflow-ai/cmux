@@ -8,6 +8,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import table from "../src/pages/home-channels/generated/strings.json";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -66,12 +67,12 @@ afterAll(async () => {
   }
 });
 
-const { Palette } = await import("../src/pages/home-channels/Palette");
-const { clipUtf8, fixtureRank } = await import("../src/pages/home-channels/paletteRank");
-const { MockHomeProvider } = await import("../src/pages/home-channels/mockProvider");
-const { HomeOps } = await import("../src/pages/home-channels/types");
-const { DaemonHomeClient } = await import("../src/pages/home-channels/daemonHome");
-const { createStrings } = await import("../src/pages/shared/i18n");
+const { Palette } = await importWithDom(() => import("../src/pages/home-channels/Palette"));
+const { clipUtf8, fixtureRank } = await importWithDom(() => import("../src/pages/home-channels/paletteRank"));
+const { MockHomeProvider } = await importWithDom(() => import("../src/pages/home-channels/mockProvider"));
+const { HomeOps } = await importWithDom(() => import("../src/pages/home-channels/types"));
+const { DaemonHomeClient } = await importWithDom(() => import("../src/pages/home-channels/daemonHome"));
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 const strings = createStrings(table, ["en"]);
 type Request = import("../src/pages/home-channels/paletteRank").PaletteRankRequest;
 type Reply = import("../src/pages/home-channels/paletteRank").PaletteRankReply;

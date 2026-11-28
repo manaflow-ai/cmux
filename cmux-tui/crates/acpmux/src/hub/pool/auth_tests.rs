@@ -47,6 +47,34 @@ fn pool_auth_claude_saved_api_key_rotation_and_removal_change_the_key() {
 }
 
 #[test]
+fn pool_auth_claude_settings_endpoint_and_key_change_the_key_not_the_account() {
+    let files = LoginFiles::new("claude-settings");
+    let cache = AuthCache::default();
+    files.write(".claude.json", json!({"oauthAccount": {"accountUuid": "fixture-account"}}));
+    files.write(".claude/settings.json", json!({"model": "sonnet"}));
+    let first = files.fingerprint(&cache, "claude");
+    files.write(".claude/settings.json", json!({"model": "opus"}));
+    let model = files.fingerprint(&cache, "claude");
+    assert_eq!(first, model, "a model pick in settings.json must keep the warm session");
+    files.write(
+        ".claude/settings.json",
+        json!({"model": "opus", "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:18080"}}),
+    );
+    let gateway = files.fingerprint(&cache, "claude");
+    assert_ne!(model.0, gateway.0, "a session warmed before the endpoint moved must not match");
+    assert_eq!(model.1, gateway.1, "the endpoint is not the account");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:18080", "ANTHROPIC_API_KEY": "fixture-key"}}),
+    );
+    assert_ne!(
+        gateway.0,
+        files.fingerprint(&cache, "claude").0,
+        "a key set in settings.json must not match"
+    );
+}
+
+#[test]
 fn pool_auth_codex_api_key_rotation_changes_the_key() {
     let home = LoginFiles::new("codex-env-key");
     let cache = AuthCache::default();
@@ -269,4 +297,178 @@ fn pool_auth_grok_account_switch_changes_the_key_but_refresh_does_not() {
     assert_ne!(before, switched, "another grok account");
     std::fs::remove_file(files.0.join(at)).unwrap();
     assert_ne!(switched, files.fingerprint(&cache, "grok"), "a logout");
+}
+
+/// The cloud journey's stub chat (run 45768950539): a pooled Claude warmed before
+/// `settings.json` pointed it at the stub kept the endpoint it started with, so the chat never
+/// got the stub's reply. A new endpoint, credential helper or provider switch there must not match.
+#[test]
+fn pool_auth_claude_settings_endpoint_change_changes_the_key() {
+    let files = LoginFiles::new("claude-settings");
+    let cache = AuthCache::default();
+    let none = files.fingerprint(&cache, "claude");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:1"}}),
+    );
+    let stub = files.fingerprint(&cache, "claude");
+    assert_ne!(none, stub, "a session warmed before settings.json set an endpoint must not match");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:2"}}),
+    );
+    let moved = files.fingerprint(&cache, "claude");
+    assert_ne!(stub, moved, "a session warmed for the old endpoint must not match");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:2"}, "apiKeyHelper": "/bin/key"}),
+    );
+    assert_ne!(
+        moved,
+        files.fingerprint(&cache, "claude"),
+        "a new credential helper must not match"
+    );
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:2"}, "apiKeyHelper": "/bin/key", "theme": "dark"}),
+    );
+    let themed = files.fingerprint(&cache, "claude");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:2"}, "apiKeyHelper": "/bin/key", "theme": "light"}),
+    );
+    assert_eq!(
+        themed,
+        files.fingerprint(&cache, "claude"),
+        "a setting that moves no endpoint or credential keeps the pooled session"
+    );
+}
+
+#[test]
+fn pool_auth_claude_settings_follow_claude_config_dir() {
+    let files = LoginFiles::new("claude-settings-dir");
+    let cache = AuthCache::default();
+    let dir = files.0.join("cfg").to_string_lossy().into_owned();
+    let env = move |k: &str| (k == "CLAUDE_CONFIG_DIR").then(|| dir.clone());
+    let before = cache.fingerprint_with("claude", &env, &files.0);
+    files.write("cfg/settings.json", json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:1"}}));
+    assert_ne!(before, cache.fingerprint_with("claude", &env, &files.0));
+}
+
+/// The own-or-team choice file (`CHOICE_DIR`) decides own or team at spawn (`hub/spawn.rs`): a session
+/// warmed under the other choice must not match, for every family that has a choice.
+#[test]
+fn pool_auth_own_or_team_choice_changes_the_key() {
+    for family in ["claude", "codex", "gemini", "grok"] {
+        let files = LoginFiles::new(&format!("choice-{family}"));
+        let cache = AuthCache::default();
+        let unchosen = files.fingerprint(&cache, family);
+        let choice = files.0.join(crate::codex_cloud_auth::CHOICE_DIR).join(family);
+        std::fs::create_dir_all(choice.parent().unwrap()).unwrap();
+        std::fs::write(&choice, "own\n").unwrap();
+        let own = files.fingerprint(&cache, family);
+        assert_ne!(unchosen, own, "{family}: choosing own must not keep a team-mode session");
+        std::fs::write(&choice, "team\n").unwrap();
+        let team = files.fingerprint(&cache, family);
+        assert_ne!(own, team, "{family}: choosing team must not keep an own-mode session");
+        std::fs::write(&choice, "team").unwrap();
+        assert_eq!(
+            team,
+            files.fingerprint(&cache, family),
+            "{family}: whitespace is no new choice"
+        );
+        assert_eq!(own.1, unchosen.1, "{family}: a choice names no account");
+    }
+}
+
+#[test]
+fn pool_auth_endpoint_env_and_pins_change_the_key() {
+    let home = LoginFiles::new("endpoint-env");
+    let cache = AuthCache::default();
+    for (family, name) in [
+        ("claude", "ANTHROPIC_BASE_URL"),
+        ("claude", "CMUX_CLAUDE_AUTH"),
+        ("codex", "OPENAI_BASE_URL"),
+        ("codex", "CMUX_CODEX_AUTH"),
+        ("gemini", "GOOGLE_GEMINI_BASE_URL"),
+        ("grok", "GROK_MODELS_BASE_URL"),
+    ] {
+        let set = move |k: &str| (k == name).then(|| "own".to_owned());
+        assert_ne!(
+            cache.fingerprint_with(family, &|_| None, &home.0),
+            cache.fingerprint_with(family, &set, &home.0),
+            "{family}: {name} must count"
+        );
+    }
+}
+
+/// The image launcher runs an agent on the team's route unless `/etc/cmux/vm-kind` reads `owner`,
+/// and a cloned machine boots with `team` there until the sync says `owner`: a session warmed
+/// before the flip must not serve a chat after it (run 45952559474's stub chat got the team
+/// route's "No cmux inference gateway is online").
+#[test]
+fn pool_auth_machine_kind_changes_the_key() {
+    for family in ["claude", "codex", "gemini", "grok"] {
+        let files = LoginFiles::new(&format!("kind-{family}"));
+        let root = files.0.join("root");
+        let kind = root.join(KIND_FILE);
+        std::fs::create_dir_all(kind.parent().unwrap()).unwrap();
+        let cache = AuthCache::default();
+        let at = |cache: &AuthCache| cache.fingerprint_in(family, &|_| None, &files.0, &root);
+        let unread = at(&cache);
+        std::fs::write(&kind, "team\n").unwrap();
+        let team = at(&cache);
+        assert_ne!(unread, team, "{family}: a kind appearing must count");
+        std::fs::write(&kind, "owner\n").unwrap();
+        let owner = at(&cache);
+        assert_ne!(
+            team, owner,
+            "{family}: a session warmed on a team machine must not match owner"
+        );
+        std::fs::write(&kind, "owner").unwrap();
+        assert_eq!(owner, at(&cache), "{family}: whitespace is no new kind");
+        assert_eq!(owner.1, team.1, "{family}: a kind names no account");
+    }
+}
+
+/// cloud-journey-prod's Codex stub leg (run 45907662413): a pooled Codex warmed on the image's
+/// `cmux` provider was served after `config.toml` pointed Codex at the stub, and its turn failed on
+/// "Missing environment variable: `OPENAI_API_KEY`.". A provider switch must not match; a model
+/// pick or an unrelated setting keeps the session.
+#[test]
+fn pool_auth_codex_config_provider_change_changes_the_key_not_the_account() {
+    let files = LoginFiles::new("codex-config");
+    let cache = AuthCache::default();
+    let write = |text: &str| {
+        let path = files.0.join(".codex/config.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    files.write(".codex/auth.json", json!({"tokens": {"account_id": "acct-a"}}));
+    write(
+        "model_provider = \"cmux\"\n[model_providers.cmux]\nbase_url = \"https://edge/v1\"\nenv_key = \"OPENAI_API_KEY\"\n",
+    );
+    let team = files.fingerprint(&cache, "codex");
+    write(
+        "model = \"gpt-5\"\nmodel_provider = \"cmux\"\n[model_providers.cmux]\nbase_url = \"https://edge/v1\"\nenv_key = \"OPENAI_API_KEY\"\n[history]\npersistence = \"none\"\n",
+    );
+    assert_eq!(team, files.fingerprint(&cache, "codex"), "a model pick keeps the pooled session");
+    write(
+        "model_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:1/v1\"\nrequires_openai_auth = true\n",
+    );
+    let stub = files.fingerprint(&cache, "codex");
+    assert_ne!(team.0, stub.0, "a Codex warmed on another provider must not match");
+    assert_eq!(team.1, stub.1, "the provider is a route, not the account");
+    write(
+        "model_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:2/v1\"\nrequires_openai_auth = true\n",
+    );
+    assert_ne!(
+        stub,
+        files.fingerprint(&cache, "codex"),
+        "a moved provider endpoint must not match"
+    );
+    write(
+        "profile = \"p\"\nmodel_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:2/v1\"\nrequires_openai_auth = true\n[profiles.p]\nmodel_provider = \"openai\"\n",
+    );
+    assert_ne!(stub, files.fingerprint(&cache, "codex"), "a profile's provider must not match");
 }

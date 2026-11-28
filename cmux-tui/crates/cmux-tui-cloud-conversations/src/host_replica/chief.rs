@@ -27,9 +27,18 @@ impl Driver {
             );
             return Ok(());
         }
-        self.chief_seq += 1;
+        let seq = self.chief_seq + 1;
+        // Sealed before the seq moves: a state that does not seal is not sent.
+        let state = match self.at_rest(stream, seq, state) {
+            Ok(state) => state,
+            Err(why) => {
+                self.inner.set_phase(Phase::Online, Some(why));
+                return Ok(());
+            }
+        };
+        self.chief_seq = seq;
         let frame = json!({ "t": "publish", "stream": stream, "snapshot": {
-            "t": "snapshot", "stream": stream, "seq": self.chief_seq, "state": state, "decided": [] } });
+            "t": "snapshot", "stream": stream, "seq": seq, "state": state, "decided": [] } });
         wire.send(&frame.to_string()).map_err(|error| error.0)?;
         self.chief_last = Some(text);
         Ok(())
@@ -79,6 +88,13 @@ impl Driver {
                 self.chief_last.as_deref().and_then(|t| serde_json::from_str::<Value>(t).ok())
             else {
                 return Ok(());
+            };
+            let state = match self.at_rest(stream, self.chief_seq, state) {
+                Ok(state) => state,
+                Err(why) => {
+                    self.inner.set_phase(Phase::Online, Some(why));
+                    return Ok(());
+                }
             };
             let answer = json!({ "t": "snapshot", "to": to, "stream": stream, "seq": self.chief_seq,
                         "state": state, "decided": decided });
