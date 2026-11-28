@@ -222,9 +222,12 @@ export function useLostSharedPart(
 /// updates in place). A spare prepared with the tab's context (NewTabSparePool) gets such an adopt.
 export function sameNewTabScreen(a: NewTabHost | undefined, b: NewTabHost): boolean {
   if (!a) return false;
-  // The start folder is the chat's, not the screen's: an adopt applies it in place (App adoptNewTab).
-  const { inputToken: _a1, omnibar: _a2, start: _a3, ...left } = a;
-  const { inputToken: _b1, omnibar: _b2, start: _b3, ...right } = b;
+  // The start folder is the chat's, not the screen's: an adopt applies it in place (App adoptNewTab). So is a
+  // split's Open Tabs list (NewTabPage.split): a prop of the mounted screen (PaneBody `openTabs`), so the spare a
+  // split adopts, prepared with the Cmd-T context and no list, keeps its screen and draws the list in the adopt's
+  // render. A remount there drew the spare's old screen until the new one painted, frames after the split.
+  const { inputToken: _a1, omnibar: _a2, start: _a3, openTabs: _a4, ...left } = a;
+  const { inputToken: _b1, omnibar: _b2, start: _b3, openTabs: _b4, ...right } = b;
   return sameValue(left, right);
 }
 
