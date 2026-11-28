@@ -235,13 +235,13 @@ jobs:
           export PATH="$bin:$PATH"
           rc=0
           python3 -I scripts/ci/ios_verify.py --pr "$PR" --repo "$REPO" --no-merge-base \
-            --queue-timeout "${QUEUE_TIMEOUT:-600}" \
-            --scripts-at "$RUNNER_TEMP/ios-verify-head" --out "$RUNNER_TEMP/ios-verify-record.json" 2> >(tee "$RUNNER_TEMP/ios-verify.err" >&2) || rc=$?
+            --queue-timeout "${QUEUE_TIMEOUT:-600}" --queued-out "$RUNNER_TEMP/ios-verify-queued" \
+            --scripts-at "$RUNNER_TEMP/ios-verify-head" --out "$RUNNER_TEMP/ios-verify-record.json" || rc=$?
           # 75: a simulator step was still in the fleet queue at --queue-timeout. It keeps its place; the next step
           # saves the parked key, and requeue-fleet dispatches this head again once the step has run.
           if [[ "$rc" == 75 ]]; then
-            ids=$(grep -oE 'still in the fleet queue|step [0-9a-f]{8,} still in the fleet queue' "$RUNNER_TEMP/ios-verify.err" \
-              | grep -oE '[0-9a-f]{8,}' | sort -u | paste -sd. -)
+            ids=$(tr -cd '0-9a-f.' < "$RUNNER_TEMP/ios-verify-queued" 2>/dev/null || true)
+            : > "$RUNNER_TEMP/ios-verify-parked"
             echo "parked=ios-verify-parked-$PR-$SHA-${ids:-none}" >> "$GITHUB_OUTPUT"
             echo "### cmux ios verify #$PR at ${SHA:0:12}: parked in the fleet queue (${ids:-no step id}); requeue-fleet posts it once the steps ran" >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -256,3 +256,46 @@ jobs:
           [[ "$rc" -le 1 ]] || { echo "::error title=cmux ios verify (auto)::ios_verify.py exited $rc"; exit "$rc"; }
           [[ "$rc" == 0 && ! -s "$RUNNER_TEMP/ios-verify-record.json" ]] && echo "not iOS-affecting at the plan: no record needed" >> "$GITHUB_STEP_SUMMARY"
           exit 0
+      # The parked key: an empty file under a key requeue-fleet lists. Nothing reads its contents.
+      - name: Park the head for requeue-fleet
+        if: ${{ steps.verify.outputs.parked != '' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ios-verify-parked
+          key: ${{ steps.verify.outputs.parked }}
+
+  # Every 20 min: dispatch the verify run again for a parked head whose simulator steps have ended
+  # (scripts/ci/ios_verify_requeue.py). On the gateway because `cmux-ci status` needs the tailnet-only controller.
+  requeue-fleet:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
+    name: cmux ios verify requeue
+    if: ${{ github.event_name == 'schedule' && github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/fleet-client
+            scripts/ci/ios_verify_requeue.py
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+      - name: Dispatch parked heads whose steps ran
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          # ios_verify_requeue.py calls `cmux-ci` by name: the checked client from the controller.
+          bin="$RUNNER_TEMP/ios-verify-bin"
+          mkdir -p "$bin"
+          ln -sf "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" "$bin/cmux-ci"
+          export PATH="$bin:$PATH"
+          python3 -I scripts/ci/ios_verify_requeue.py --repo "$REPO"

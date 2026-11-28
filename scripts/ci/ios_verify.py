@@ -706,6 +706,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--queue-timeout", type=int, default=int(os.environ.get("CMUX_IOS_VERIFY_QUEUE_TIMEOUT", "0")),
                     metavar="S", help="stop waiting for a step still queued after S seconds; it keeps its place, "
                     f"nothing is posted, exit {QUEUED_EXIT} (default 0: wait without limit)")
+    ap.add_argument("--queued-out", metavar="PATH", help=f"on exit {QUEUED_EXIT}, write the queued step ids here, "
+                    "joined by '.' (the workflow's parked key)")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
@@ -784,6 +786,8 @@ def main(argv: list[str] | None = None) -> int:
                       f"{queue_timeout} s; it keeps its place", file=sys.stderr, flush=True)
             print(f"ios verify: nothing posted at {head[:10]}; the same command at this head attaches to the same "
                   "steps and posts once they ran", file=sys.stderr, flush=True)
+            if a.queued_out:
+                Path(a.queued_out).write_text(".".join(sorted({str(r["step"]) for r in queued if r.get("step")})))
             return QUEUED_EXIT
         runs += delegated(selection)
         shots, video = [], None
