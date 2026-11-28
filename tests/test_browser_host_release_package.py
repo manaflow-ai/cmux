@@ -2,7 +2,7 @@
 """scripts/cmux-next/browser-host-release.py: what a cmux-browser-host release ships.
 
 Every archive must carry, beside bin/cmux-browser-host, the GPL-3.0-or-later
-LICENSE of the repository and the committed third-party notices of the Linux
+LICENSE of the repository and the generated third-party notices of the Linux
 binary; the release notes must link the exact source commit.
 """
 
@@ -114,7 +114,10 @@ class ReleaseVersionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "cmux-browser-host"
             binary.write_bytes(b"\x7fELF")
-            archives = [str(release.package(str(binary), "1.0.0-r1", target, tmp)) for target in release.TARGETS]
+            notices = Path(tmp) / "notices.md"
+            notices.write_bytes(NOTICES)
+            archives = [str(release.package(str(binary), "1.0.0-r1", target, tmp, str(notices)))
+                        for target in release.TARGETS]
             self.assertTrue(archives[0].endswith("cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz"))
             entries = release.entries("https://example.test/r", "1.0.0-r1", archives)
             self.assertEqual({e["version"] for e in entries["packages"]}, {"1.0.0-r1"})
