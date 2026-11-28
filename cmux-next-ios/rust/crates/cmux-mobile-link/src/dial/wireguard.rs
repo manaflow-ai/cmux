@@ -3918,7 +3918,7 @@ mod tests {
         let reliable = super::super::reliable_agreed(&on, &lanes);
         assert!(reliable);
         assert!(!tunnel_input_lane(&on, &lanes, reliable));
-        let plain = DialOptions { reliable: false, ..on.clone() };
+        let plain = DialOptions { reliable: false, ..on };
         let reliable = super::super::reliable_agreed(&plain, &lanes);
         assert!(tunnel_input_lane(&plain, &lanes, reliable), "a plain link keeps its lane");
     }
@@ -4125,6 +4125,7 @@ mod tests {
             endpoints: vec![cell_new.to_string(), relayed_new.to_string()],
             relayed: vec![relayed_new.to_string()],
             relayed_tls: vec![],
+            hop: None,
         });
         let stale = |route: Option<Route>| route.is_some_and(|r| r.addr == cell_old || r.addr == wifi_old);
         assert!(!underlay.learned.contains(&cell_old), "the old socket's learned address is gone");
@@ -4170,6 +4171,7 @@ mod tests {
             endpoints: vec![relayed.to_string(), "198.51.100.30:9".to_string()],
             relayed: vec![relayed.to_string()],
             relayed_tls: vec![],
+            hop: None,
         });
         assert!(underlay.learned.contains(&mapped), "an unmoved peer's learned address stays");
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: mapped }));
