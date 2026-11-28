@@ -181,15 +181,14 @@ notes = "The work account"
         .ok("_acpmux/connections/claude_token.add", json!({"secret": "keychain:fixture-token"}))
         .await;
     let managed = routes.join("claude-token.toml");
-    let before = std::fs::read_to_string(&managed).unwrap();
-    let before = before.lines().next().unwrap();
-    assert!(before.starts_with("# cmux-credential-instance: "));
+    let stored_instance =
+        || acpmux::routes::find(Some(&routes), "claude-token").unwrap().file.credential_instance;
+    let before = stored_instance().expect("the managed route has a persisted credential identity");
     let renamed =
         local.ok("_acpmux/route/edit", json!({"id": "claude-token", "name": "Renamed"})).await;
     assert_eq!(renamed["name"], "Renamed");
     assert_eq!(renamed["secret"], "keychain:fixture-token");
-    let after = std::fs::read_to_string(&managed).unwrap();
-    assert_eq!(Some(before), after.lines().next());
+    assert_eq!(stored_instance().as_deref(), Some(before.as_str()));
     local
         .err("_acpmux/route/edit", json!({"id": "claude-token", "secret": "keychain:different"}))
         .await;
@@ -214,11 +213,10 @@ notes = "The work account"
     local
         .ok("_acpmux/connections/claude_token.add", json!({"secret": "keychain:replacement-token"}))
         .await;
-    let stale_instance = before.strip_prefix("# cmux-credential-instance: ").unwrap();
     let stale = local
         .err(
             "_acpmux/account/set",
-            json!({"id": "claude-token", "name": "Stale name", "instance": stale_instance}),
+            json!({"id": "claude-token", "name": "Stale name", "instance": before}),
         )
         .await;
     assert_eq!(stale["message"], "the connection changed while it was open");
@@ -229,7 +227,7 @@ notes = "The work account"
         .iter()
         .find(|row| row["id"] == "claude-token")
         .unwrap();
-    assert_ne!(replacement["credential_instance"], stale_instance);
+    assert_ne!(replacement["credential_instance"], before);
     assert_eq!(replacement["label"], "Claude Code token");
     let renamed = local.ok("_acpmux/account/set", json!({
         "id": "claude-token", "name": "Current name", "instance": replacement["credential_instance"],
@@ -321,6 +319,11 @@ notes = "The work account"
     assert_eq!(info["agentSessionId"], agent_session, "the same agent session resumed: {info}");
     let active = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
     assert_eq!(active["active"], json!({"routeId": "proxy-b", "scope": "chat"}), "{active}");
+    assert_eq!(
+        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
+        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/b",
+        "the original chat keeps its active route after the unavailable switch",
+    );
 
     // A remote device or a peer never picks a chat's route: the chat keeps its own.
     for origin in [Origin::Web, Origin::Peer] {
@@ -389,35 +392,51 @@ notes = "The work account"
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
-    // An overload with no status code is the route's failure too (it also retries in place).
-    let overloaded =
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "overloaded: now"}]});
+    // An overload with no status code is the route's failure too. Keep this
+    // probe on a fresh chat because the limit fixture above intentionally
+    // leaves the original chat rate-held.
+    let overload_session =
+        local.ok("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let overload_id = overload_session["sessionId"].as_str().unwrap().to_owned();
+    local
+        .ok("_acpmux/chat/route.set", json!({"sessionId": overload_id, "routeId": "proxy-b"}))
+        .await;
+    let overloaded = json!({
+        "sessionId": overload_id,
+        "prompt": [{"type": "text", "text": "overloaded: now"}]
+    });
     let (failed, _) = local.call_text("session/prompt", overloaded).await;
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
-    assert_eq!(
-        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
-        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/b"
-    );
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "autoFallback": true})).await;
-    let (failed, _) = local.call_text("session/prompt", auth_error).await;
+    // Use a fresh chat for the prompt-time regression: the preceding limit
+    // fixture intentionally leaves the original chat rate-held. The fresh
+    // chat exercises the same automatic fallback without inheriting that hold.
+    let fresh =
+        local.ok("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let fresh_id = fresh["sessionId"].as_str().unwrap().to_owned();
+    local.ok("_acpmux/chat/route.set", json!({"sessionId": fresh_id, "routeId": "proxy-b"})).await;
+    let fresh_overload =
+        json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "overloaded: fresh"}]});
+    let (failed, _) = local.call_text("session/prompt", fresh_overload).await;
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
+    // With automatic continuations disabled, the retry mark from the failed
+    // turn must not strand the next ordinary prompt behind the quiet restart.
     assert_eq!(
-        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
-        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"
+        local.env_of(&fresh_id, "ANTHROPIC_BASE_URL").await,
+        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a",
+        "the first prompt after fallback must run on the replacement child",
     );
 
     // A route that cannot start (the local CodeRouter is not running) is
-    // refused before the binding changes: the chat stays on proxy A.
+    // refused before the binding changes: the original chat stays on proxy B.
     local.ok("_acpmux/route/add", json!({"id": "local", "kind": "local-coderouter"})).await;
     let down =
         local.err("_acpmux/chat/route.set", json!({"sessionId": id, "routeId": "local"})).await;
     assert_eq!(reason(&down), "route.unavailable", "{down}");
-    assert_eq!(
-        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
-        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"
-    );
+    let active = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
+    assert_eq!(active["active"], json!({"routeId": "proxy-b", "scope": "chat"}), "{active}");
 
     // The probe names the failure instead of a sign-in banner.
     let probe = local.ok("_acpmux/route/test", json!({"id": "proxy-a"})).await;
