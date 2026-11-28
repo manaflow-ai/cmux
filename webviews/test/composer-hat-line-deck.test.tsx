@@ -119,16 +119,14 @@ async function mount(arm: string, props: Record<string, unknown> = {}) {
     act(async () => {
       node.dispatchEvent(new dom.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: to }));
     });
-  return { host, head, title, marks, blanks, enter, leave, done: async () => act(async () => root.unmount()) };
+  return { host, head, title, marks, enter, leave, done: async () => act(async () => root.unmount()) };
 }
 
 describe("the one-line hat's marks", () => {
   test("trail draws the marks after the sentence, and no hide eye: the top-edge tab hides it", async () => {
-    const { host, marks, blanks, done } = await mount("trail", { onTuck: () => {} });
+    const { host, marks, done } = await mount("trail", { onTuck: () => {} });
     try {
       expect(marks().length).toBe(3);
-      // The deck keeps every slot, so "+N more" sits in one place however many lines run (#61105).
-      expect(marks().length + blanks().length).toBe(DECK_MARKS);
       const deck = host.querySelector(".acpmux-hat-deck")!;
       // After the words the deck keeps every slot, empty ones too, so the bar never re-lays out (#61105).
       expect(deck.querySelectorAll(".acpmux-hat-deck__mark").length).toBe(DECK_MARKS);

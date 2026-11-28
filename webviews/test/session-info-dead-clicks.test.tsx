@@ -293,7 +293,7 @@ test("every line of the tray, and its header, does something", async () => {
       items,
       working: true,
       // The faces are the `kinds` header's: the default became one plain line (#56287, kept by #61105).
-      foldHeadLook: "kinds",
+      foldHeadLook: "kinds" as const,
       waiting: new Set<string>(),
       onOpen: () => undefined,
       onOpenCommand: () => undefined,
