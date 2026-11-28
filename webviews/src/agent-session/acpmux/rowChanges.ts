@@ -18,15 +18,32 @@ function serialOf(rows: readonly AcpmuxRow[]): number {
   return found;
 }
 
+/// The newest changes by the number of the snapshot they made (`CHAIN` of them, numbers only): a
+/// record the pane drew late (pane/paneSnapshot.ts `replayOwed`) is told from the snapshot the pane
+/// drew, a few snapshots back, and a run of changes to one row is still one change from there.
+const bySerial = new Map<number, { readonly from: number; readonly index: number }>();
+const CHAIN = 64;
+
 /// `rows` differ from `from`, the rows published before them, only at `index`.
 export function markOneRowChange(rows: readonly AcpmuxRow[], from: readonly AcpmuxRow[], index: number): void {
-  oneRowChanges.set(rows, { from: serialOf(from), index });
+  const change = { from: serialOf(from), index };
+  oneRowChanges.set(rows, change);
+  bySerial.set(serialOf(rows), change);
+  if (bySerial.size > CHAIN) bySerial.delete(bySerial.keys().next().value!);
 }
 
-/// The one row `next` changed in place from `previous`, when the client said so.
+/// The one row `next` changed in place from `previous`, when the client said so: directly, or
+/// through snapshots between them that each changed that same row.
 export function oneRowChangeFrom(next: readonly AcpmuxRow[], previous: readonly AcpmuxRow[]): number | undefined {
   const change = oneRowChanges.get(next);
-  return change && serials.get(previous) === change.from ? change.index : undefined;
+  const want = serials.get(previous);
+  if (!change || want === undefined) return undefined;
+  let step: { readonly from: number; readonly index: number } | undefined = change;
+  for (let hops = 0; step && step.index === change.index && hops < CHAIN; hops += 1) {
+    if (step.from === want) return change.index;
+    step = bySerial.get(step.from);
+  }
+  return undefined;
 }
 
 /// What the client recorded of `rows`' change (tests: it holds no earlier snapshot).

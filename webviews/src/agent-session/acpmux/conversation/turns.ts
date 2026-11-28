@@ -2363,6 +2363,8 @@ function shapeTurn(
   // their places, so the end swaps nothing in under the reader (Leo, 2026-11-22: "STOP ADDING
   // FUCKING DINGLEBERRIES OF TOOL CALLS AND BULLSHIT THAT SHIFTS POORLY").
   concluding = false,
+  // The pass is already noted as the running turn's shape (`notedLiveShape`): note no other.
+  noted = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   if (end < 0) {
@@ -2370,51 +2372,90 @@ function shapeTurn(
     if (final) {
       // The final answer starts the folded presentation before turn_result. Reuse the settled
       // projection, remove its internal footer, and retain the real live status below the answer.
-      const provisional: AcpmuxRow = {
-        id: `concluding-${user.id}`,
-        version: 1,
-        at: final.at,
-        kind: "turnSummary",
-        status: "completed",
-        // The running header's start, as it read it (`turnClock`): the turn's own, else its rows'.
-        ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
-        durationMs: Math.max(0, final.at - (turnStartedAtMs ?? user.at)),
+      const concluding = (rows: AcpmuxRow[]): AcpmuxRow[] => {
+        const answer = rows.find(isFinalAnswer) ?? final;
+        const provisional: AcpmuxRow = {
+          id: `concluding-${user.id}`,
+          version: 1,
+          at: answer.at,
+          kind: "turnSummary",
+          status: "completed",
+          // The running header's start, as it read it (`turnClock`): the turn's own, else its rows'.
+          ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
+          durationMs: Math.max(0, answer.at - (turnStartedAtMs ?? user.at)),
+        };
+        const body = shapeTurn(
+          user,
+          [...rows, provisional],
+          expanded,
+          foldOpen,
+          true,
+          last,
+          false,
+          false,
+          clockOffset,
+          agentFamily,
+          trayAgents,
+          endedBackground,
+          turnStartedAtMs,
+          true,
+        ).filter((row) => row.id !== provisional.id);
+        if (!live) return body;
+        const line = liveTurn(user, rows, clockOffset, trayAgents, turnStartedAtMs).at(-1);
+        return line ? [...body, line] : body;
       };
-      const body = shapeTurn(
-        user,
-        [...turn, provisional],
-        expanded,
-        foldOpen,
-        true,
-        last,
-        false,
-        false,
-        clockOffset,
-        agentFamily,
-        trayAgents,
-        endedBackground,
-        turnStartedAtMs,
-        true,
-      ).filter((row) => row.id !== provisional.id);
-      if (!live) return body;
-      const line = liveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs).at(-1);
-      return line ? [...body, line] : body;
+      // The pane's bypass compares what it drew with this pass's shape (`notedLiveShape`).
+      return live ? notedLiveShape(user, turn, concluding, drawnTurn(expanded, live)) : concluding(turn);
     }
   }
   // A turn still running shows its work as it happens, under its live status; one without a
   // summary that is no longer running draws as it came.
   if (end < 0)
     return live
-      ? shapedLiveTurn(user, turn, [
-          clockOffset,
-          trayAgents,
-          turnStartedAtMs,
-          turnFoldStyle(agentFamily).conclusion && isAgentPrompt(user),
-          expanded.has(`${WORKED}-${user.id}`),
-        ])
+      ? shapedLiveTurn(
+          user,
+          turn,
+          [
+            clockOffset,
+            trayAgents,
+            turnStartedAtMs,
+            turnFoldStyle(agentFamily).conclusion && isAgentPrompt(user),
+            expanded.has(`${WORKED}-${user.id}`),
+          ],
+          drawnTurn(expanded, live),
+        )
       : last
         ? turn.flatMap(withoutDrafts)
         : settledWithoutSummary(turn);
+  // A live pass of an ended turn draws what the agent runs on its own after it (its tail, `liveTurn`
+  // below), and the pane's bypass compares what it drew with this pass's shape. Before, it noted none,
+  // so the shape compared was the prompt's turn as it ran ("Working for" where the pane drew "Worked
+  // for"), and each call of the turn after it redrew the pane: 109 of 2161 records a replay window
+  // under load (replay-under-load RENDERS=1, `drewShaped/differs:worked`).
+  if (live && !concluding && !noted)
+    return notedLiveShape(
+      user,
+      turn,
+      (rows) =>
+        shapeTurn(
+          user,
+          rows,
+          expanded,
+          foldOpen,
+          live,
+          last,
+          retryable,
+          retryTarget,
+          clockOffset,
+          agentFamily,
+          trayAgents,
+          endedBackground,
+          turnStartedAtMs,
+          false,
+          true,
+        ),
+      drawnTurn(expanded, live),
+    );
   const summary = turn[end]!;
   // The agent's own wrap-up call (wrapUp.ts) is the card, not a row of its work.
   const worked = turn.slice(0, end);
@@ -3684,7 +3725,9 @@ type LiveTurnArgs = readonly [
 export type LiveTurnShape = {
   readonly user: AcpmuxRow;
   readonly turn: readonly AcpmuxRow[];
-  readonly args: LiveTurnArgs;
+  /// The pass that shaped `shaped`, for another `turn`: the running turn's (`liveTurn`), or once its
+  /// final answer came, the concluding one (`shapeTurn` under a provisional summary, the line below).
+  readonly shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[];
   readonly shaped: readonly AcpmuxRow[];
   readonly stamp: number;
 };
@@ -3693,9 +3736,51 @@ let liveShape: LiveTurnShape | undefined;
 let liveStamp = 0;
 
 /// `liveTurn` for the running turn's own pass, noted as `liveTurnShapes.last()`.
-function shapedLiveTurn(user: AcpmuxRow, turn: AcpmuxRow[], args: LiveTurnArgs): AcpmuxRow[] {
-  const shaped = liveTurn(user, turn, ...args);
-  liveShape = { user, turn: turn.slice(), args, shaped, stamp: liveStamp };
+function shapedLiveTurn(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  args: LiveTurnArgs,
+  drawnOf: (shaped: AcpmuxRow[]) => AcpmuxRow[],
+): AcpmuxRow[] {
+  return notedLiveShape(user, turn, (rows) => liveTurn(user, rows, ...args), drawnOf);
+}
+
+/// The running turn's pass as the transcript draws it: its caller folds its runs of messages and of
+/// background ends (`foldMessageRuns`, `foldBackgroundRuns`), then cuts a long run into its parts
+/// (`cutLongRuns`, as `shapedTurn` does) before it draws. Before, the noted shape held the whole run
+/// where the pane drew its first part (the run's id, a part's version and calls), and each call of a
+/// run past a part's size redrew the pane: about 70 records a replay window under load
+/// (replay-under-load RENDERS=1, `drewShaped/differs:activity`, v=-25:355, n=12:16).
+const drawnTurn =
+  (expanded: Folds, live: boolean) =>
+  (shaped: AcpmuxRow[]): AcpmuxRow[] =>
+    cutLongRuns(foldBackgroundRuns(foldMessageRuns(shaped, expanded, live), expanded));
+
+/// `shapeOf(turn)`, noted as the running turn's newest shape. Each pass that draws the running turn
+/// notes its own: before, the concluding pass (a final answer before `turn_result`) noted none, so
+/// the shape the pane's bypass compared was the running one before it ("Working for" where the pane
+/// drew "Worked for"), and each call after the answer redrew the pane: 60 of 2167 records a replay
+/// window under load (replay-under-load RENDERS=1, `drewShaped/differs:worked`).
+///
+/// `drawnOf` is what the turn's caller does to the pass before the transcript draws it (`drawnTurn`:
+/// its runs of messages and of background ends fold under one line each), so the noted shape holds
+/// the rows the pane draws. Before, a tail that ended two subagents noted their two ends where the
+/// pane drew the one run line, and each call after it redrew the pane: 154 of 2278 records a replay
+/// window under load (replay-under-load RENDERS=1, `drewShaped/absent:subagentDone`).
+function notedLiveShape(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[],
+  drawnOf: (shaped: AcpmuxRow[]) => AcpmuxRow[],
+): AcpmuxRow[] {
+  const shaped = shapeOf(turn);
+  liveShape = {
+    user,
+    turn: turn.slice(),
+    shapeOf: (rows) => drawnOf(shapeOf(rows)),
+    shaped: drawnOf(shaped),
+    stamp: liveStamp,
+  };
   return shaped;
 }
 
@@ -3707,8 +3792,7 @@ export const liveTurnShapes = {
     liveStamp = stamp;
   },
   /// `shape`'s turn shaped again from `turn`, with the same arguments. Notes nothing.
-  reshape: (shape: LiveTurnShape, turn: readonly AcpmuxRow[]): AcpmuxRow[] =>
-    liveTurn(shape.user, turn as AcpmuxRow[], ...shape.args),
+  reshape: (shape: LiveTurnShape, turn: readonly AcpmuxRow[]): AcpmuxRow[] => shape.shapeOf(turn as AcpmuxRow[]),
   /// Forgets the newest shape (tests).
   reset(): void {
     liveShape = undefined;
@@ -3731,7 +3815,10 @@ export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[], clock
   const timedFromPrompt = line.doing === undefined && line.liveState === undefined && !line.turnTotal;
   const next: AcpmuxRow = {
     ...line,
-    ...(retryRow.retry && { retry: retryRow.retry, retryAt: retryRow.at + clockOffset }),
+    ...(retryRow.retry && {
+      retry: retryRow.retry,
+      retryAt: retryRow.at + clockOffset,
+    }),
     ...(!retryRow.retry && retryRow.retriedMs && timedFromPrompt && { at: line.at + retryRow.retriedMs }),
   };
   return [...shaped.slice(0, at), next];
@@ -3847,12 +3934,22 @@ function liveWrapUp(rows: readonly AcpmuxRow[]): LiveWrapUp | undefined {
     if (!ask) return undefined;
     // A script that did more than the wrap-up keeps its row, as `withoutWrapUp` keeps it.
     const drop = exec?.only === false ? undefined : { id: tool.id };
-    return { ask, at: row.at, version: callVersion(tool.id, row.version), drop };
+    return {
+      ask,
+      at: row.at,
+      version: callVersion(tool.id, row.version),
+      drop,
+    };
   }
   return undefined;
 }
 
-type LiveWrapUp = { ask: NextStepAsk; at: number; version: number; drop?: { id: string } };
+type LiveWrapUp = {
+  ask: NextStepAsk;
+  at: number;
+  version: number;
+  drop?: { id: string };
+};
 
 /// The live turn's rows without the one call its card draws: that call's row loses the item, and
 /// goes when it held nothing else. No other call is read again, so a record into a long turn parses
@@ -4084,7 +4181,11 @@ export function turnClock(
     start === opened && timed ? summary.durationMs! : Math.max(0, wallSpan(undefined, summary.at, work).end - start);
   // The Timeline's axis is the harness's whole turn: it bounds the line only when the line counts
   // that same turn. A stretch a notice started (`continuationStart`) counts from the notice.
-  return { start, durationMs: start === opened ? Math.max(own, panelMs) : own, answered: false };
+  return {
+    start,
+    durationMs: start === opened ? Math.max(own, panelMs) : own,
+    answered: false,
+  };
 }
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
