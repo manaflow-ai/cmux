@@ -7,7 +7,12 @@
 // viewport each side; a hover, a changed row and a scroll step draw only the rows they touch. Main
 // thread milliseconds are printed, never asserted. Neither menu has a filter field, so there is no
 // typing step.
+//
+// A changed row is also counted by support/commitRenders.ts, rows by their selector: every component
+// that did work, and every host element given new props, is charged to the row its DOM sits in, so a
+// row redrawn by ui/Menu's MenuItem or Base UI's item, not only by its named row component, counts.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { installRowRenderCounter, type RowRenderCount, type RowRenderCounter } from "./support/commitRenders";
 import { startVisibleLists, type VisibleListsServer } from "./support/visibleLists";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -34,7 +39,41 @@ await requireBrowserLane("visible-lists-composer-pickers.browser.test.ts", async
     });
   }
 
+  /** Each case's rows (composer-*.case.tsx). */
+  const rowSelectors: Record<string, string> = {
+    "composer-plus": '[role="menuitem"]',
+    "composer-mode": '[role="menuitemradio"]',
+  };
+
   for (const name of ["composer-plus", "composer-mode"]) {
+    test(`${name}: one changed row draws that row and no other (rows by selector)`, async () => {
+      for (const n of [1000, 10000]) {
+        const open = await server.open(name, n);
+        // react-dom keeps the commit hook object it found and calls its onCommitFiberRoot on each
+        // commit, so the counter wraps it in place once the case is open.
+        await open.page.evaluate(installRowRenderCounter);
+        for (let step = 0; step < 4; step++) {
+          const count = await open.page.evaluate(async (rows): Promise<RowRenderCount> => {
+            const scope = window as unknown as {
+              __cmuxRowRenders: RowRenderCounter;
+              __visibleListControls: { list(): HTMLElement; changeOne(): void };
+            };
+            scope.__cmuxRowRenders.begin(scope.__visibleListControls.list(), rows);
+            scope.__visibleListControls.changeOne();
+            await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+            return scope.__cmuxRowRenders.end();
+          }, rowSelectors[name]!);
+          console.log(
+            `${name} N=${n} changeOne by selector: ${count.rerendered} rows rendered (${count.wasted} for nothing), ${count.added} added`,
+          );
+          // The changed row, and only it.
+          expect(count.rerendered).toBe(1);
+          expect(count.wasted).toBe(0);
+        }
+        await open.close();
+      }
+    }, 120_000);
+
     test(`${name}: mounted rows do not grow with N, and a step draws only its rows`, async () => {
       const mounted: Record<number, number> = {};
       for (const n of [1000, 10000]) {

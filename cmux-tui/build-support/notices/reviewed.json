@@ -261,6 +261,16 @@
         }
       ]
     },
+    "jpeg-encoder 0.6.1": {
+      "reason": "the .crate's top-level texts are MIT and Apache-2.0 only; its manifest also declares IJG because src/fdct.rs is ported from the Independent JPEG Group's code via mozjpeg, and that file's header is the only IJG text the crate ships. The stored file is that header (lines 1-53 of src/fdct.rs at the commit .cargo_vcs_info.json records, plus a closing comment marker), so the notices carry the IJG acknowledgement the license requires.",
+      "files": [
+        {
+          "file": "texts/vstroebel-jpeg-encoder-d85bc4c329b1/IJG-NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/vstroebel/jpeg-encoder/d85bc4c329b1d9060e1c87ac8fff79a48cc4c734/src/fdct.rs",
+          "sha256": "8cc5718e9b02008b8e621b89c27734ddbf3a481a83c1d6449e92fb5ac0636c6c"
+        }
+      ]
+    },
     "netwatch 0.19.1": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
       "files": [

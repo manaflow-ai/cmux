@@ -19,6 +19,28 @@ fn an_idle_app_waits_for_an_event_with_no_timeout() {
 }
 
 #[test]
+fn exhausted_machine_reconnect_failure_has_one_bounded_notice_wakeup() {
+    let mut app = idle_app("quiet-reconnect-notice-deadline");
+    let machine = MachineKey(9);
+    app.machine_presented = Some(machine);
+    app.begin_machine_recovery();
+    assert_eq!(app.idle_wait(Instant::now()), None, "recovery alone needs no notice timer");
+    app.report_machine_action_failure(
+        Some(&MachineRequest::Switch(machine)),
+        None,
+        "temporary outage".into(),
+    );
+    let deadline = app.machine_recovery_notice_deadline().unwrap();
+    assert_eq!(app.idle_wait(deadline - Duration::from_secs(5)), Some(Duration::from_secs(5)));
+    assert_eq!(app.show_machine_recovery_failure(deadline), RenderAction::Draw);
+    assert_eq!(app.idle_wait(deadline), None, "the notice must not leave an idle timer running");
+    app.begin_machine_recovery();
+    assert!(app.machine_has_recovery_frame(machine), "retry keeps the cached presentation");
+    assert!(app.machine_recovery_notice_deadline().is_none());
+    assert!(app.status_message.is_none());
+}
+
+#[test]
 fn the_idle_wait_ends_at_the_earliest_timed_work() {
     let mut app = idle_app("idle-wait-deadline-test");
     let now = Instant::now();

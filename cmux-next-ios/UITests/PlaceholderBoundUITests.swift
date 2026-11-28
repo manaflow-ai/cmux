@@ -121,26 +121,34 @@ final class PlaceholderBoundUITests: XCTestCase {
 
     /// The layout-shift count since launch (CmuxMobileDesign/LayoutShift.swift, the web's CLS idea):
     /// frames after first paint in which a drawn workspace row, tab card or chat row moved or
-    /// resized. Zero is the bound. A flow in `PlaceholderKnownOverBound.layoutShiftFlows` (its item
-    /// and pull request are on the way) passes with shifts and fails once it reaches zero, so the
-    /// list only shrinks. Leo, 2026-11-24: "the loading has layout shifts and placeholder states".
+    /// resized. Zero is the bound. A flow in `PlaceholderKnownOverBound.layoutShiftFlows` is a
+    /// ratchet, not a fix: it fails past its ceiling (the count measured when it was listed) and
+    /// names the lower ceiling, or the entry to drop, when a run comes in under it, so the count
+    /// can only fall while its issue fixes the cause. Leo, 2026-11-24: "the loading has layout
+    /// shifts and placeholder states"; "stop layout shifting".
     @MainActor
     private func layoutShifts(_ app: XCUIApplication, flow: String) {
         let probe = app.descendants(matching: .any)["debug.layout-shift"]
         let text = probe.waitForExistence(timeout: 2) ? probe.label : "{}"
         let counts = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
         let shifts = counts["shiftFrames"] as? Int ?? -1
-        print("LAYOUT_SHIFTS flow=\(flow) shift_frames=\(shifts) shifted_rows=\(counts["shiftedRows"] ?? -1) frames=\(counts["frames"] ?? 0) rows=\(counts["rows"] ?? 0) last=\(counts["lastMoved"] ?? "")")
+        let line = "LAYOUT_SHIFTS flow=\(flow) shift_frames=\(shifts) shifted_rows=\(counts["shiftedRows"] ?? -1) frames=\(counts["frames"] ?? 0) rows=\(counts["rows"] ?? 0) last=\(counts["lastMoved"] ?? "")"
+        print(line)
+        // Also an attachment: the simulator step exports attachments (ui-attachments/) but keeps no
+        // test console, and the counts are what a ceiling is lowered from.
+        let record = XCTAttachment(string: line + "\n" + text)
+        record.name = "\(flow)-layout-shifts"
+        record.lifetime = .keepAlways
+        add(record)
+        let ceiling = PlaceholderKnownOverBound.layoutShiftFlows[flow]
         if shifts < 0 {
             XCTFail("\(flow): no layout-shift count (debug.layout-shift missing or no marked row drawn)")
-        } else if let fix = PlaceholderKnownOverBound.layoutShiftFlows[flow] {
-            if shifts == 0 {
-                XCTFail("\(flow): listed in known_layout_shifts but shifted 0 frames: drop it from cmux-next-ios/design/placeholders.json")
-            } else {
-                print("LAYOUT_SHIFTS_KNOWN flow=\(flow) fix=\(fix)")
-            }
-        } else if shifts > 0 {
-            XCTFail("\(flow): \(shifts) frame(s) after first paint moved or resized a drawn row (last: \(counts["lastMoved"] ?? ""))")
+        } else if shifts > (ceiling?.maxShiftFrames ?? 0) {
+            let bound = ceiling.map { "its ceiling of \($0.maxShiftFrames) in known_layout_shifts (\($0.issue))" } ?? "zero"
+            XCTFail("\(flow): \(shifts) frame(s) after first paint moved or resized a drawn row, past \(bound) (last: \(counts["lastMoved"] ?? ""))")
+        } else if let ceiling, shifts < ceiling.maxShiftFrames {
+            let next = shifts == 0 ? "drop its known_layout_shifts entry" : "lower its max_shift_frames to \(shifts)"
+            print("LAYOUT_SHIFTS_RATCHET flow=\(flow) shift_frames=\(shifts) ceiling=\(ceiling.maxShiftFrames) issue=\(ceiling.issue): \(next) in cmux-next-ios/design/placeholders.json")
         }
     }
 

@@ -290,10 +290,15 @@ impl WorkTree<'_> {
 
 /// The changed and untracked files, with HEAD: one run reads the index once
 /// for all of them. Renames stay a delete and an add, which names the same
-/// work tree; a submodule counts by its commit only, as in `git.diff`.
+/// work tree; a submodule counts by its commit only, as in `git.diff`. The
+/// home folder's repository has no untracked file here, as in `git.diff`
+/// (`cmux_git::home`).
 fn listing(repository: &Repository, scope: Scope) -> Result<run::GitOutput, ResourceError> {
-    let untracked =
-        if scope.reads_work_tree() { "--untracked-files=all" } else { "--untracked-files=no" };
+    let untracked = if scope.reads_work_tree() && repository.lists_untracked() {
+        "--untracked-files=all"
+    } else {
+        "--untracked-files=no"
+    };
     let arguments = [
         "status",
         "--porcelain=v2",

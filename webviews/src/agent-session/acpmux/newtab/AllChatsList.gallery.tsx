@@ -33,8 +33,9 @@ const baseProps = {
   onOpenInTerminal: () => undefined,
 };
 
-const waitForRetry = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-retry") !== null);
+// The stage's zero grace (lasting.ts setLastingGrace) shows the quiet line at once.
+const waitForStillLoading = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-all-item.nt-chats-failed") !== null);
 };
 
 const pageLoad =
@@ -123,12 +124,12 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
   anchors: [{ selector: ".nt-all" }],
   variants: {
     "page-failed": {
-      note: "When an older history page fails, the cursor stays in place and the loader becomes an inline Try again action.",
+      note: "When an older history page keeps failing, the cursor stays in place and the list asks again on its own; past the deadline the loader becomes one quiet line, with no button.",
       props: { ...baseProps, load: pageLoad(true) },
-      play: waitForRetry,
+      play: waitForStillLoading,
     },
     "page-recovered": {
-      note: "Retrying the same older page appends its chats and removes the recovery row.",
+      note: "An older page that answers (as an ask again does once the daemon is back) appends its chats with no recovery row.",
       props: { ...baseProps, load: pageLoad(false) },
     },
     "long-values": {

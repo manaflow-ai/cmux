@@ -1,8 +1,10 @@
 import CmuxNextDaemon
+import CmuxNextHomeModel
 import Foundation
 
 /// One `turn.end` of the trace: a line of this Mac's trace file, or a turn the brain summarized
 /// (`chief.engine.get` `recent`). Fields an older trace or brain does not write stay nil.
+/// The parsing and the derived numbers are `chief_brain.engine_turn_*` in cmux-home-rules.
 nonisolated struct HomeEngineTurn: Equatable, Sendable {
     var harness: String
     var model: String?
@@ -26,60 +28,93 @@ nonisolated struct HomeEngineTurn: Equatable, Sendable {
     var error: String?
 
     init?(line: String) {
-        guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["ev"] as? String == "turn.end" else { return nil }
-        harness = object["harness"] as? String ?? "?"
-        model = object["model"] as? String
-        effort = object["effort"] as? String
-        status = object["status"] as? String
-        ended = (object["ts"] as? Double).map(Self.date)
-        seconds = (object["ms"] as? Double ?? 0) / 1000
-        tools = object["tools"] as? Int ?? 0
-        toolErrors = object["tool_errors"] as? Int ?? 0
-        cost = object["cost_usd"] as? Double
-        reply = (object["reply"] as? [String: Any])?["prefix"] as? String
-        error = (object["error"] as? [String: Any])?["prefix"] as? String
-        let counts = object["usage"] as? [String: Any]
-        let usage = Self.usage(read: counts?["cache_read"] as? Double, written: counts?["cache_write"] as? Double,
-                               input: counts?["input"] as? Double, output: counts?["output"] as? Double, present: counts != nil)
-        hitRate = usage.hitRate
-        tokens = usage.tokens
+        guard let reply: LineReply = try? HomeRules.chiefBrain("engine_turn_from_line", ["line": line]),
+              let turn = reply.turn else { return nil }
+        self.init(turn)
     }
 
-    /// A turn end the brain summarized (`chief.engine.get` `recent`).
+    /// A turn end the brain summarized (`chief.engine.get` `recent`). A failed rules call keeps
+    /// the fields the summary names as they are, with nothing derived from them.
     init(report turn: ChiefEngineReport.Turn) {
-        harness = turn.harness ?? "?"
+        let usage = turn.usage.map {
+            ReportTurn.Usage(cacheRead: $0.cacheRead, cacheWrite: $0.cacheWrite, input: $0.input, output: $0.output)
+        }
+        let request = ReportRequest(turns: [ReportTurn(
+            harness: turn.harness, model: turn.model, effort: turn.effort, status: turn.status, ts: turn.ts, ms: turn.ms,
+            tools: turn.tools, toolErrors: turn.toolErrors, costUSD: turn.costUSD, usage: usage, reply: turn.reply,
+            error: turn.error)])
+        let derived = (try? HomeRules.chiefBrain("engine_turns_from_report", request) as ReportReply)?.turns.first
+        self.init(derived ?? Wire(
+            harness: turn.harness ?? "?", model: turn.model, effort: turn.effort, status: turn.status, endedSecs: nil,
+            seconds: 0, tools: turn.tools ?? 0, toolErrors: turn.toolErrors ?? 0, hitRate: nil, cost: turn.costUSD,
+            tokens: nil, reply: turn.reply, error: turn.error))
+    }
+
+    private init(_ turn: Wire) {
+        harness = turn.harness
         model = turn.model
         effort = turn.effort
         status = turn.status
-        ended = turn.ts.map(Self.date)
-        seconds = (turn.ms ?? 0) / 1000
-        tools = turn.tools ?? 0
-        toolErrors = turn.toolErrors ?? 0
-        cost = turn.costUSD
+        ended = turn.endedSecs.map(Date.init(timeIntervalSince1970:))
+        seconds = turn.seconds
+        tools = turn.tools
+        toolErrors = turn.toolErrors
+        hitRate = turn.hitRate
+        cost = turn.cost
+        tokens = turn.tokens
         reply = turn.reply
         error = turn.error
-        let counts = turn.usage
-        let usage = Self.usage(read: counts?.cacheRead, written: counts?.cacheWrite, input: counts?.input,
-                               output: counts?.output, present: counts != nil)
-        hitRate = usage.hitRate
-        tokens = usage.tokens
     }
 
-    /// The cache hit rate and the token total of a turn's usage (nil, nil with no usage; a nil
-    /// rate when nothing was read or written, which says nothing about the cache).
-    static func usage(read: Double?, written: Double?, input: Double?, output: Double?,
-                      present: Bool) -> (hitRate: Double?, tokens: Double?) {
-        guard present else { return (nil, nil) }
-        let read = read ?? 0
-        let prompt = read + (written ?? 0) + (input ?? 0)
-        let total = prompt + (output ?? 0)
-        return (prompt > 0 ? read / prompt : nil, total > 0 ? total : nil)
+    /// `chief_brain::turn::EngineTurn`.
+    private nonisolated struct Wire: Decodable {
+        var harness: String
+        var model: String?
+        var effort: String?
+        var status: String?
+        var endedSecs: Double?
+        var seconds: Double
+        var tools: Int
+        var toolErrors: Int
+        var hitRate: Double?
+        var cost: Double?
+        var tokens: Double?
+        var reply: String?
+        var error: String?
     }
 
-    /// A trace time (milliseconds since 1970) as a date.
-    static func date(_ milliseconds: Double) -> Date {
-        Date(timeIntervalSince1970: milliseconds / 1000)
+    private nonisolated struct LineReply: Decodable {
+        var turn: Wire?
+    }
+
+    /// `chief_brain::turn::ReportTurn` (it takes these camelCase keys as aliases).
+    private nonisolated struct ReportTurn: Encodable {
+        nonisolated struct Usage: Encodable {
+            var cacheRead: Double?
+            var cacheWrite: Double?
+            var input: Double?
+            var output: Double?
+        }
+
+        var harness: String?
+        var model: String?
+        var effort: String?
+        var status: String?
+        var ts: Double?
+        var ms: Double?
+        var tools: Int?
+        var toolErrors: Int?
+        var costUSD: Double?
+        var usage: Usage?
+        var reply: String?
+        var error: String?
+    }
+
+    private nonisolated struct ReportRequest: Encodable {
+        var turns: [ReportTurn]
+    }
+
+    private nonisolated struct ReportReply: Decodable {
+        var turns: [Wire]
     }
 }

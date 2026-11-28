@@ -45,8 +45,12 @@ await requireBrowserLane("chat-sim-browser.test.ts", async () => {
   const broken = (result: SimResult, prefix: string) =>
     result.violations.filter((violation) => violation.rule.startsWith(prefix)).map((v) => `${v.rowId}: ${v.detail}`);
 
-  // `CHAT_SIM_DUMP=scenario:step`: prints the drawn rows' boxes at that step (where each gap lives).
-  const dumpAt = process.env.CHAT_SIM_DUMP?.split(":");
+  // `CHAT_SIM_DUMP=scenario:step`: prints the drawn rows' boxes at that step (where each gap lives). The step is
+  // after the last colon, so a `file:PATH` scenario works too.
+  const dumpSpec = process.env.CHAT_SIM_DUMP;
+  const dumpAt = dumpSpec
+    ? [dumpSpec.slice(0, dumpSpec.lastIndexOf(":")), dumpSpec.slice(dumpSpec.lastIndexOf(":") + 1)]
+    : undefined;
   if (dumpAt)
     test(`chat simulator in Chrome: the drawn rows of ${dumpAt[0]} at step ${dumpAt[1]}`, async () => {
       const rows = await page!.evaluate(

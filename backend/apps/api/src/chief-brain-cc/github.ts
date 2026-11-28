@@ -382,7 +382,10 @@ export const GITHUB_CLIENT = `#!/bin/sh
 set -eu
 usage() { echo "usage: chief-github status | login | wait [SECONDS] | pat FILE|- | mac | app APP_ID INSTALLATION_ID KEY.pem | logout" >&2; exit 2; }
 call() {
-  out=$(curl -sS -m 60 -w '\\n%{http_code}' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4018/vm) || { echo "chief-github: no turn is running on this machine (127.0.0.1:4018 does not answer)" >&2; exit 1; }
+  # A request that could not be built (a missing file, bad JSON) arrives empty: send nothing, as the step above said.
+  req=$(cat)
+  [ -n "$req" ] || { echo "chief-github: nothing was sent" >&2; exit 2; }
+  out=$(printf '%s' "$req" | curl -sS -m 60 -w '\\n%{http_code}' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4018/vm) || { echo "chief-github: no turn is running on this machine (127.0.0.1:4018 does not answer)" >&2; exit 1; }
   code=$(printf '%s' "$out" | tail -n 1)
   body=$(printf '%s' "$out" | sed '$d')
   [ "$code" = 200 ] || { echo "chief-github: $(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).error??s)}catch{console.log(s)}})')" >&2; exit 1; }

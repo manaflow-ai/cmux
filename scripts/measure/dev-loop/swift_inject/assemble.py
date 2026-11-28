@@ -32,6 +32,9 @@ def rounds_from(work, shell_log, watch_log, n):
     shell = read(shell_log)
     applied = [(int(ms), float(at)) for ms, at in re.findall(r"applied \S+ functions=\d+ load_ms=(\d+) at=([\d.]+)", shell)]
     functions = [int(x) for x in re.findall(r"applied \S+ functions=(\d+)", shell)]
+    # The shell's split of each load_ms (LiveCode.swift: open, find, check, match, interpose, rebind), after at=.
+    load_phases = [{k: float(v) for k, v in re.findall(r"(\w+)_ms=([\d.]+)", rest)}
+                   for rest in re.findall(r"applied \S+ functions=\d+ load_ms=\d+ at=[\d.]+(.*)", shell)]
     redrawn = {int(g): float(at) for g, at in re.findall(r"redrawn generation=(\d+) at=([\d.]+)", shell)}
     widths = {int(g): int(w) for g, w in re.findall(r"generation-(\d+)\.png width=(\d+)", shell)}
     stamps = []
@@ -50,14 +53,20 @@ def rounds_from(work, shell_log, watch_log, n):
         # inject.sh's compile: its patch_compile.py (the patch's own frontend jobs, from the kept driver plan), the
         # driver plan it writes on a miss, or the whole-module compile it falls back to; first start to last end.
         compile_ = [s for s in mine if (s[2] == "xcrun" and "-c" in s[3] and "-emit-library" not in s[3])
-                    or (s[2] == "python3" and any(a.endswith("patch_compile.py") for a in s[3]))]
-        link = [s for s in mine if s[2] == "xcrun" and "-emit-library" in s[3]]
+                    or (s[2] == "python3" and any(a.endswith("patch_compile.py") for a in s[3]) and "--link-plan" not in s[3])]
         sign = [s for s in mine if s[2] == "codesign"]
         moves = [s for s in mine if s[2] == "mv"]
-        if not (compile_ and link and sign and moves):
-            problems.append(f"round {k}: inject.sh's compile, link, codesign or mv has no stamp")
+        if not (compile_ and sign and moves):
+            problems.append(f"round {k}: inject.sh's compile, codesign or mv has no stamp")
             break
-        c, l, g, m = (min(s[0] for s in compile_), max(s[1] for s in compile_)), link[0], sign[0], moves[-1]
+        c, g, m = (min(s[0] for s in compile_), max(s[1] for s in compile_)), sign[0], moves[-1]
+        # inject.sh's link: its kept linker job runs straight from bash (an absolute path, which no shim on PATH
+        # sees), or `xcrun swiftc -emit-library` on a miss or a fallback. Either way it is everything from the
+        # compile's end to codesign's start, so nothing between them escapes into unattributed.
+        l = (c[1], g[0])
+        drivers = [s for s in mine if s[2] == "xcrun" and "-emit-library" in s[3]]
+        linked_by = ("driver" if any("-###" not in s[3] for s in drivers)
+                     else "kept plan, planned this round" if drivers else "kept plan")
         t_load = t_applied - load_ms / 1000
         ms = lambda a, b: round((b - a) * 1000, 3)
         stages = {
@@ -71,11 +80,10 @@ def rounds_from(work, shell_log, watch_log, n):
         }
         e2e = ms(t_write, t_drawn)
         stages["unattributed"] = round(e2e - sum(stages.values()), 3)
-        rounds.append({"end_to_end_ms": e2e, "stages_ms": stages})
+        rounds.append({"end_to_end_ms": e2e, "stages_ms": stages, "linked_by": linked_by,
+                       "load_phases_ms": load_phases[k - 1] if k <= len(load_phases) else {}})
         gaps.append({
             "heard_to_compile": ms(t_heard, c[0]),  # watcher spawns inject.sh: bash, mktemp, python3 for `started`
-            "compile_to_link": ms(c[1], l[0]),  # the -nt loop over the module's files
-            "link_to_sign": ms(l[1], g[0]),
             "sign_to_moved": ms(g[1], m[1]),  # mkdir, the two mv
         })
         if widths.get(k) is None or widths.get(k) == widths.get(k - 1):
@@ -130,7 +138,8 @@ def main():
         "Stages: fs_event = write to the watcher's callback. compile = inject.sh's patch_compile.py, which runs only the "
         "frontend jobs of the files it links from the driver plan it keeps per toolchain, flags and file list (python3 start "
         "included; on a plan miss also the `xcrun swiftc -c ... -###` that writes it, and on a fallback the whole-module "
-        "`xcrun swiftc -c`). link = its `xcrun swiftc -emit-library` of Badge.o. sign = its "
+        "`xcrun swiftc -c`). link = its compile's end to its codesign's start: the linker job of the plan it keeps per "
+        "toolchain, flags and file set, run from bash (or `xcrun swiftc -emit-library` on a miss). sign = its "
         "codesign. pickup = the patch renamed into the live folder to the shell starting the load (its DispatchSource on the "
         "folder, then a directory scan on the main queue). load = the shell's own load_ms (dlopen, layout check, interpose, "
         "rebind). paint = applied to redrawn: a main-queue hop, ImageRenderer of the badge, PNG encode and write. "
@@ -157,6 +166,10 @@ def main():
         notes.append(f"compile floor primaries: {commands.get('compile_primaries')}; frontend jobs inject.sh's compile plans: "
                      f"{commands.get('inject_frontend_jobs')} (one per file of the module)")
         notes.append(f"link floor command: {commands.get('link')}")
+    phase_names = [n for r in rounds[:1] for n in r["load_phases_ms"]]
+    if phase_names:
+        notes.append("load, split by the shell (p50 ms): " + json.dumps(
+            {n: p50([r["load_phases_ms"].get(n, 0.0) for r in rounds]) for n in phase_names}))
     if gap_p50:
         notes.append("unattributed, split at inject.sh's tool boundaries (p50 ms): " + json.dumps(gap_p50))
     if functions:

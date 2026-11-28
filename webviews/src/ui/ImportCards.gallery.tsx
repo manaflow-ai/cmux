@@ -133,6 +133,7 @@ const failed: ImportCardData = {
   benefit: "Sites you're signed into in Firefox stay signed in here, and your history fills the address bar.",
   state: "failed",
   status: "Stopped: access wasn't allowed.",
+  // retry-prompt-ok: importing again asks for the browser's data access, which the person grants.
   primary: { action: "retry", title: "Try Again" },
   secondary: [{ action: "hide", title: "Not Now" }],
 };

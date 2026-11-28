@@ -194,10 +194,10 @@ pub(super) async fn wait(
         })
         .cloned()
         .collect();
-    let _lane_wait = hub.lane_report_wait(
-        if completion && !keys.is_empty() { caller } else { None },
-        &completion_ids,
-    );
+    let named = if completion && !keys.is_empty() { caller } else { None };
+    let _lane_wait = hub.lane_report_wait(named, &completion_ids);
+    // While it waits, what it waits on runs at its class (`hub/wait_edges.rs`, RFD 0182 B9).
+    let _wait_edge = hub.wait_edge(named, &ids);
     // Counted from its subscription until it answers or its request ends.
     let _open = OpenWait::new(&hub.open_waits);
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);

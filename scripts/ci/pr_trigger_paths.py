@@ -103,7 +103,10 @@ def triggers(text: str) -> dict[str, dict[str, list[str] | None] | None]:
             continue
         if key is not None and (match := re.match(r'^      - +(.*?)\s*$', line)):
             value = match.group(1)
-            if not value.startswith(("'", '"')):
+            if quoted := re.match(r"""^(['"])(.*?)\1(?:\s+#.*)?$""", value):
+                # A quoted item with a trailing comment: the quotes end the scalar, the comment is not part of it.
+                value = quoted.group(2)
+            else:
                 value = value.split(" #", 1)[0].strip()
             found[event][key].append(value.strip("'\""))  # type: ignore[index, union-attr]
     return found

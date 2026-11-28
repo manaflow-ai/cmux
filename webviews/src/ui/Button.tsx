@@ -20,6 +20,10 @@ export interface ButtonProps extends Omit<ComponentProps<typeof BaseButton>, "cl
   icon?: boolean;
   /** A destructive action: the danger role for its text (ghost, subtle) or fill (solid). */
   danger?: boolean;
+  /** No look of its own: only the caller's `className`, none of the button classes or their data
+   * attributes, for a host that draws its buttons with its own sheet (a customize scene's). Keeps
+   * Base UI's button behavior; `variant`, `size`, `icon` and `danger` do nothing with it. */
+  bare?: boolean;
 }
 
 export function Button({
@@ -27,10 +31,12 @@ export function Button({
   size = "md",
   icon = false,
   danger = false,
+  bare = false,
   className,
   type = "button",
   ...rest
 }: ButtonProps) {
+  if (bare) return <BaseButton type={type} className={className} {...rest} />;
   return (
     <BaseButton
       type={type}

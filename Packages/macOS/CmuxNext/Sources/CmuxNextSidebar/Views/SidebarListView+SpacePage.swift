@@ -45,8 +45,7 @@ struct SidebarSpacePage {
     /// collapsed group or a fold hides, and a row of a group that leaves for the Archive are drawn only while active.
     private func keepsRows(selecting id: WorkspaceID?, _ o: SidebarLayoutOptions) -> Bool {
         guard let id, let ws = workspaces[id] else { return true }
-        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done), !o.settled.contains(id),
-              !o.automatic.contains(id) else { return false }
+        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done), !o.settled.contains(id) else { return false }
         guard let row = layout.row(for: .workspace(id)) else { return false }
         var group = row.group
         var seen: Set<GroupID> = []
@@ -170,8 +169,7 @@ extension SidebarListViewComponents {
             for change in changes {
                 guard model.listedPaths(of: change.new.id).count == 1,
                       !SidebarModel.movesRows(from: change.old, to: change.new, groupsByFolder: model.groupsByFolder,
-                                              settles: model.settlesFinished,
-                                              automates: !model.showsAutomaticSessions),
+                                              settles: model.settlesFinished),
                       change.old.title == change.new.title || !page.isSoleMember(change) else { return nil }
             }
         }

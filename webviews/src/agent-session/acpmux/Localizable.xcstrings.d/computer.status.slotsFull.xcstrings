@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "computer.status.slotsFull" : {
+      "comment" : "Agent chat: status line when AUTO kept the chat on this Mac because every Cloud slot is busy.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "البقاء على هذا الـ Mac: جميع خانات Cloud مشغولة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ostaje na Ovaj Mac: svi vaši Cloud slotovi su zauzeti"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bliver på Denne Mac: alle dine Cloud-pladser er optaget"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bleibt auf Dieser Mac: Alle deine Cloud-Slots sind belegt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staying on This Mac: all your Cloud slots are busy"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se queda en Este Mac: todos tus espacios de Cloud están ocupados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reste sur Ce Mac : tous vos emplacements Cloud sont occupés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resta su Questo Mac: tutti i tuoi slot Cloud sono occupati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac に留まります: Cloud のスロットがすべて使用中です"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្នាក់នៅលើ Mac នេះ៖ ទីតាំង Cloud ទាំងអស់របស់អ្នកកំពុងរវល់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac에 유지: Cloud 슬롯이 모두 사용 중입니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blir på Denne Mac-en: alle Cloud-plassene dine er opptatt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pozostaje na Ten Mac: wszystkie Twoje sloty Cloud są zajęte"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ficando em Este Mac: todos os seus slots do Cloud estão ocupados"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остаётся на Этот Mac: все ваши слоты Cloud заняты"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "อยู่บน Mac เครื่องนี้ต่อ: ช่อง Cloud ทั้งหมดของคุณไม่ว่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac üzerinde kalıyor: tüm Cloud yuvalarınız dolu"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Залишається на Цей Mac: усі ваші слоти Cloud зайняті"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ở lại Mac này: tất cả khe Cloud của bạn đang bận"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留在这台 Mac：你的 Cloud 名额已全部占用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留在這部 Mac：你的 Cloud 名額已全部佔用"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

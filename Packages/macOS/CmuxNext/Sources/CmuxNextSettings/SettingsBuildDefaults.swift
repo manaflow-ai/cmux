@@ -79,7 +79,7 @@ extension SettingsController {
         guard let stored = descriptor.storedValue(in: fileRoot) else { return false }
         // A value kept over the active theme file is the person's even at the default: Reset returns
         // to the file's value (#44894).
-        if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }
+        if setsInThemeFile(descriptor.id), ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id) { return true }
         // Resetting an explicit group style returns ownership to the sidebar look.
         if descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath, layerBelowFileSets(descriptor.id) { return true }
         return stored != defaultValue(of: descriptor)

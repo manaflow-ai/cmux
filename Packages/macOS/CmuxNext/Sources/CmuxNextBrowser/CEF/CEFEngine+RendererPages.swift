@@ -30,6 +30,9 @@ public nonisolated struct CEFRendererPage: Sendable, Equatable {
 }
 
 extension CEFEngine {
+    /// The most cmux pages the fork puts in one renderer (``CEFSwitches/pagesPerRenderer``).
+    public static var cmuxPagesPerRenderer: Int { CEFSwitches.pagesPerRenderer }
+
     /// Every live Chromium page, by browser id, so a bench can name each renderer process's role
     /// (scripts/cmux-next/bench_power.py, scenario `loaded`). Read on request only: one shim call
     /// per page, no observation and no timer.
@@ -54,9 +57,10 @@ extension CEFEngine {
 
     /// Runs DevTools `method` on the live page `browserID` (`debug.cef_page_devtools`: the idle
     /// bench's page metrics and CPU profile). Nil when no live page has that id.
-    public func devTools(browserID: Int32, method: String, params: [String: any Sendable]) async throws -> String? {
+    public func devTools(browserID: Int32, method: String, params: [String: any Sendable],
+                         timeout: Duration = .seconds(5)) async throws -> String? {
         guard let tab = CEFRuntime.shared.tabsByBrowser[browserID] else { return nil }
-        return try await tab.devTools(method: method, params: params)
+        return try await tab.devTools(method: method, params: params, timeout: timeout)
     }
 
     /// The browser id of the live page whose content view is `view` (a cmux page's Chromium view,

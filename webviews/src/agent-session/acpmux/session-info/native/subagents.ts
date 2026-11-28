@@ -4,15 +4,14 @@
 // subagents and started chats (a nested subagent under its parent), past five a "Show more" row, then
 // the ended ones' row ("94 done · 1 failed"), which opens into their lines. The lists, their order and
 // their words come from the page's own helpers, so both panels say the same thing.
-import { formatDuration } from "../../conversation/turns";
 import type { PaneLanguage, Translate } from "../../i18n";
 import { isRepeatedAgentKind } from "../../subagents/agentIdentityModel";
 import { agentTone } from "../../subagents/agentTones";
 import { nestAgents } from "../../subagents/agentsPillModel";
-import { elapsed } from "../../subagents/subagentGroupModel";
+import { subagentTime } from "../../subagents/subagentGroupModel";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { namedAction } from "../../subagents/trayDetail";
-import { retrying } from "../../subagents/retryState";
+import { retrying, type RetryQuiet } from "../../subagents/retryState";
 import { canResume, subsessionResumeRow, type ResumeRun } from "../../subagents/resumeState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "../childSessionRowsModel";
@@ -53,6 +52,9 @@ export type SubagentsSectionInput = {
   onOpenSession?: (sessionId: string) => void;
   /// The clock the elapsed times read (the page's `useNow`).
   now: number;
+  /// Whether a row's retry has waited out the shared bound (the page's `useConnectionQuietKeys`,
+  /// retryState.ts ``retryWords``): until then its line reads running.
+  connectionQuiet: RetryQuiet;
   /// Every running line shows, not only the first five; `onShowAll` flips it.
   showAll?: boolean;
   onShowAll?: (showAll: boolean) => void;
@@ -129,8 +131,8 @@ export function subagentsSection(
       name: agent.name,
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, now),
-      time: formatDuration(elapsed(agent, input.now)),
+      state: subagentStateText(t, agent, waiting, input.connectionQuiet, now),
+      time: subagentTime(agent, input.now),
       progress: subagentProgress(t, input.language ?? "en", agent, { usage: false }).join(" · ") || undefined,
       task: agent.task && agent.task !== agent.name ? agent.task : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
@@ -142,7 +144,7 @@ export function subagentsSection(
     };
   };
   const sessionLine = (child: StartedSession): SubagentLine => {
-    const state = sessionStateText(t, child);
+    const state = sessionStateText(t, child, input.connectionQuiet);
     return {
       key: `session:${child.sessionId}`,
       identity: child.sessionId,

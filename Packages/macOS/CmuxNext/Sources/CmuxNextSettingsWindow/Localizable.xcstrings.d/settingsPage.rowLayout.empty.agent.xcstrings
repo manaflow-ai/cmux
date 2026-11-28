@@ -7,128 +7,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "لا يوجد وكيل له تخطيط خاص. أضف وكيلًا لتمنح صفوفه أسطرًا خاصة."
+            "state" : "translated",
+            "value" : "لا يوجد وكيل بتخطيط خاص. أضف وكيلًا."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nijedan agent nema vlastiti raspored. Dodajte agenta da njegovi redovi dobiju svoje redove."
+            "state" : "translated",
+            "value" : "Nijedan agent nema svoj raspored. Dodaj agenta."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ingen agent har sit eget layout. Tilføj en agent for at give dens rækker egne linjer."
+            "state" : "translated",
+            "value" : "Ingen agent har sit eget layout. Tilføj en agent."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kein Agent hat ein eigenes Layout. Füge einen Agenten hinzu, um seinen Zeilen eigene Zeilen zu geben."
+            "state" : "translated",
+            "value" : "Kein Agent hat ein eigenes Layout. Füge einen Agenten hinzu."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No agent has a layout of its own. Add an agent to give its rows their own lines."
+            "value" : "No agent has its own layout. Add an agent."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ningún agente tiene diseño propio. Añade un agente para dar a sus filas sus propias líneas."
+            "state" : "translated",
+            "value" : "Ningún agente tiene su propio diseño. Añade un agente."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Aucun agent n’a sa propre disposition. Ajoutez un agent pour donner ses propres lignes à ses rangées."
+            "state" : "translated",
+            "value" : "Aucun agent n’a sa propre disposition. Ajoutez un agent."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nessun agente ha un layout proprio. Aggiungi un agente per dare alle sue righe linee proprie."
+            "state" : "translated",
+            "value" : "Nessun agente ha un layout proprio. Aggiungi un agente."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "独自のレイアウトを持つエージェントはありません。エージェントを追加すると、その行に専用の行構成を設定できます。"
+            "state" : "translated",
+            "value" : "独自のレイアウトを持つエージェントはありません。エージェントを追加してください。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "គ្មានភ្នាក់ងារណាមានប្លង់ផ្ទាល់ខ្លួនទេ។ បន្ថែមភ្នាក់ងារ ដើម្បីឱ្យជួររបស់វាមានបន្ទាត់ផ្ទាល់ខ្លួន។"
+            "state" : "translated",
+            "value" : "គ្មានភ្នាក់ងារណាមានប្លង់ផ្ទាល់ខ្លួនទេ។ បន្ថែមភ្នាក់ងារ។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "자체 레이아웃이 있는 에이전트가 없습니다. 에이전트를 추가하면 그 행에 별도의 줄을 지정할 수 있습니다."
+            "state" : "translated",
+            "value" : "자체 레이아웃이 있는 에이전트가 없습니다. 에이전트를 추가하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ingen agent har eget oppsett. Legg til en agent for å gi radene dens egne linjer."
+            "state" : "translated",
+            "value" : "Ingen agent har sitt eget oppsett. Legg til en agent."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Żaden agent nie ma własnego układu. Dodaj agenta, aby jego wiersze miały własne linie."
+            "state" : "translated",
+            "value" : "Żaden agent nie ma własnego układu. Dodaj agenta."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nenhum agente tem layout próprio. Adicione um agente para dar às linhas dele suas próprias linhas."
+            "state" : "translated",
+            "value" : "Nenhum agente tem layout próprio. Adicione um agente."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ни у одного агента нет своего макета. Добавьте агента, чтобы задать его строкам свои линии."
+            "state" : "translated",
+            "value" : "Ни у одного агента нет своего макета. Добавьте агента."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ยังไม่มีเอเจนต์ที่มีเลย์เอาต์ของตัวเอง เพิ่มเอเจนต์เพื่อให้แถวของมันมีบรรทัดของตัวเอง"
+            "state" : "translated",
+            "value" : "ยังไม่มีเอเจนต์ที่มีเลย์เอาต์ของตัวเอง เพิ่มเอเจนต์"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Hiçbir ajanın kendi düzeni yok. Satırlarına kendi satırlarını vermek için bir ajan ekleyin."
+            "state" : "translated",
+            "value" : "Hiçbir ajanın kendi düzeni yok. Bir ajan ekleyin."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Жоден агент не має власного макета. Додайте агента, щоб його рядки мали власні лінії."
+            "state" : "translated",
+            "value" : "Жоден агент не має власного макета. Додайте агента."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Chưa tác tử nào có bố cục riêng. Thêm một tác tử để các hàng của nó có dòng riêng."
+            "state" : "translated",
+            "value" : "Chưa tác tử nào có bố cục riêng. Hãy thêm một tác tử."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "还没有代理拥有自己的布局。添加代理即可为其行设置专属的行内容。"
+            "state" : "translated",
+            "value" : "还没有代理拥有自己的布局。添加一个代理。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "還沒有代理擁有自己的版面配置。加入代理即可為其列設定專屬的行內容。"
+            "state" : "translated",
+            "value" : "還沒有代理擁有自己的版面配置。新增一個代理。"
           }
         }
       }

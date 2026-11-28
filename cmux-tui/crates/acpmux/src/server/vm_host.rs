@@ -1,6 +1,6 @@
 //! `_acpmux/vm_host {name?, on?}`: read or set whether a machine is a
 //! dedicated agent VM (`hub/vm_host.rs`). Without `name` it is this machine;
-//! with `name`, that connected peer, asked over its link (where it arrives as
+//! with `name`, that configured peer, asked over its link (where it arrives as
 //! the owner's peer daemon). Without `on` it only reads. Part of the request
 //! handler (`requests.rs`).
 //!
@@ -52,12 +52,12 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
     if conn.origin == Origin::Peer {
         return Err(RpcError::invalid_params("a peer's request is not relayed to another peer"));
     }
-    let Some(peer) = hub.connected_peers().into_iter().find(|p| p.name == name) else {
+    let Some(peer) = hub.peer_by_name(name) else {
         return Err(RpcError::invalid_params(format!(
-            "no connected peer named {name:?}: `acpmux machine ls` lists the peers"
+            "no peer named {name:?}: `acpmux machine ls` lists the peers"
         )));
     };
-    let mut reply = peer.request(METHOD, json!({"on": on})).await?;
+    let mut reply = super::peer_targeted::request(&peer, METHOD, json!({"on": on})).await?;
     reply.set("name", json!(name));
     Ok(reply)
 }

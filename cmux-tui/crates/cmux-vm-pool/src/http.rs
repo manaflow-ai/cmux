@@ -77,3 +77,7 @@ pub async fn call_within(
     }
     serde_json::from_str(&text).map_err(|e| CallError(format!("{method} {url}: not JSON: {e}")))
 }
+
+#[cfg(test)]
+#[path = "http_seeded_tests.rs"]
+mod seeded_tests;
