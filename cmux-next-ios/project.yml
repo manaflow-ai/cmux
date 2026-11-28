@@ -244,6 +244,13 @@ targets:
       - target: CmuxMobileNotificationContent
       # Opens sealed pushes (verify/notifications-trust.md).
       - target: CmuxMobileNotificationService
+      # AuthenticationServices, SafariServices, StoreKit, PhotosUI and QuickLook,
+      # loaded on first use by CmuxMobileSystemUIBridge (SystemUI.provider). Embedded
+      # but not linked: linked, each of those system frameworks adds about 1.55 s
+      # before main on a cold launch (2.1 s together).
+      - target: CmuxMobileSystemUI
+        link: false
+        embed: true
     # UI tests run with `xcodebuild test -scheme CmuxMobileApp` on one simulator (verify/parity/pq_tabs.py).
     scheme:
       testTargets:
@@ -538,6 +545,48 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+  # The app's AuthenticationServices, SafariServices, StoreKit, PhotosUI and
+  # QuickLook code (SystemUI/Sources), a framework the app embeds and does not
+  # link, so none of those system frameworks loads before main.
+  # CmuxMobileSystemUIBridge loads it on first use and creates its principal
+  # class (SystemUI/Info.plist NSPrincipalClass). It compiles the bridge's
+  # SystemUIContract.swift (the @objc protocols both images agree on) and links
+  # no package.
+  CmuxMobileSystemUI:
+    type: framework
+    platform: iOS
+    sources:
+      - path: SystemUI/Sources
+      - path: ../Packages/iOS/CmuxMobileSystemUIBridge/Sources/CmuxMobileSystemUIBridge/SystemUIContract.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CMUX_MOBILE_APP_BUNDLE_ID).systemui
+        PRODUCT_NAME: CmuxMobileSystemUI
+        INFOPLIST_FILE: SystemUI/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_VERSION: "5"
+        TARGETED_DEVICE_FAMILY: "1"
+        DEVELOPMENT_TEAM: 7WLXT3NR37
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+      configs:
+        # Debug also runs on an iPad mini simulator (as the app).
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
+        # A framework needs no profile: the distribution identity alone.
+        TestFlight:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: ""
+        TestFlightStaging:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: ""
+        AppStore:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: ""
   # XCUITest: real touches on a simulator (a long press then a drag reorders grid cards,
   # which simulated HID drags could not do). Runs against mock data, or the paired Mac
   # when TEST_RUNNER_CMUX_MOBILE_UI_WORKSPACE names a live workspace.

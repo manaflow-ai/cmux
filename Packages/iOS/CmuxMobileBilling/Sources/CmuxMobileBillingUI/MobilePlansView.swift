@@ -1,9 +1,11 @@
 #if os(iOS)
 import CmuxMobileBilling
 import CmuxMobileSupport
+// StoreKit's sheets through CmuxMobileSystemUI.framework: linked, StoreKit
+// costs the app about 1.55 s before `main` on a cold launch.
+import CmuxMobileSystemUIBridge
 import CmuxSpinner
 import SwiftUI
-import StoreKit
 
 /// The plans screen: current plan, App Store offers with StoreKit prices,
 /// Restore Purchases, Manage Subscription, and the auto-renewal disclosure
@@ -29,6 +31,7 @@ import StoreKit
 public struct MobilePlansView: View {
     @Environment(BillingModel.self) private var billing
     @Environment(\.openURL) private var openURL
+    /// The App Store's subscription sheet is up.
     @State private var showingManageSubscriptions = false
     /// The subscription the open refund sheet is for, fixed at the tap so a
     /// reload while the sheet is up cannot change or drop it.
@@ -68,7 +71,6 @@ public struct MobilePlansView: View {
             await billing.refresh()
         }
         .refreshable { await billing.refresh() }
-        .manageSubscriptionsSheet(isPresented: $showingManageSubscriptions)
         // StoreKit's refund sheet keeps the transaction ID it was first built
         // with, so a sheet built before the tap asked Apple about transaction 0
         // and failed (Sandbox run on a Mac, 2026-11-17). The host is created
@@ -259,7 +261,7 @@ public struct MobilePlansView: View {
                     Button(L10n.string("mobile.billing.manage", defaultValue: "Manage Subscription")) {
                         switch BillingManageSubscriptionsRoute.route(isiOSAppOnMac: ProcessInfo.processInfo.isiOSAppOnMac) {
                         case .storeKitSheet:
-                            showingManageSubscriptions = true
+                            showManageSubscriptions()
                         case .appStorePage(let url):
                             openURL(url) { accepted in
                                 // No App Store handler took the link: the web page still works.
@@ -278,6 +280,20 @@ public struct MobilePlansView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// `AppStore.showManageSubscriptions(in:)`; Apple's web subscriptions
+    /// page when the framework did not load or no window scene is in front.
+    private func showManageSubscriptions() {
+        guard !showingManageSubscriptions else { return }
+        guard let provider = SystemUI.provider, let scene = SystemUI.foregroundScene else {
+            openURL(BillingManageSubscriptionsRoute.webSubscriptionsURL)
+            return
+        }
+        showingManageSubscriptions = true
+        provider.showManageSubscriptions(in: scene) { _ in
+            showingManageSubscriptions = false
         }
     }
 
@@ -385,25 +401,34 @@ private struct RefundTarget: Hashable {
     let attempt = UUID()
 }
 
-/// Presents StoreKit's refund sheet for one transaction, built only after the
-/// person asked for it so the sheet never sees a placeholder ID.
+/// Presents StoreKit's refund sheet (`Transaction.beginRefundRequest(for:in:)`)
+/// for one transaction, started only after the person asked for it so the
+/// sheet never sees a placeholder ID. Reports `error` when the framework did
+/// not load or no window scene is in front.
 private struct RefundRequestHost: View {
     let target: RefundTarget
     let finished: (String) -> Void
-    @State private var presented = false
+    @State private var started = false
 
     var body: some View {
         Color.clear
-            .refundRequestSheet(for: target.transactionID, isPresented: $presented) { result in
-                let outcome: String
-                switch result {
-                case .success(.success): outcome = "success"
-                case .success(.userCancelled): outcome = "userCancelled"
-                default: outcome = "error"
+            .onAppear {
+                guard !started else { return }
+                started = true
+                guard let provider = SystemUI.provider, let scene = SystemUI.foregroundScene else {
+                    finished("error")
+                    return
                 }
-                finished(outcome)
+                provider.beginRefundRequest(transactionID: target.transactionID, in: scene) { result in
+                    let outcome: String
+                    switch result {
+                    case .success: outcome = "success"
+                    case .userCancelled: outcome = "userCancelled"
+                    case .error: outcome = "error"
+                    }
+                    finished(outcome)
+                }
             }
-            .onAppear { presented = true }
     }
 }
 #endif

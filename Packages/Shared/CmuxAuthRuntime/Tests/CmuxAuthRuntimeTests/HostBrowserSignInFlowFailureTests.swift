@@ -2,7 +2,7 @@ import CMUXAuthCore
 import Foundation
 import StackAuth
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 @MainActor
 @Suite struct HostBrowserSignInFlowFailureTests {

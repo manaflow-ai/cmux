@@ -54,20 +54,18 @@ enum ChatShareOpener {
 }
 
 #if os(iOS)
-import SafariServices
+import CmuxMobileSystemUIBridge
 import SwiftUI
 
 /// A share page in a Safari view: Safari itself (the person's passkeys, AutoFill and cookies),
 /// so the page's sign-in and its guest socket work as they do in Safari. Done closes it.
-struct ChatShareSafariView: UIViewControllerRepresentable {
+/// The Safari view comes from CmuxMobileSystemUI.framework, loaded on first use; without it
+/// the page opens in Safari and the sheet closes.
+struct ChatShareSafariView: View {
     let url: URL
 
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        let configuration = SFSafariViewController.Configuration()
-        configuration.entersReaderIfAvailable = false
-        return SFSafariViewController(url: url, configuration: configuration)
+    var body: some View {
+        SystemSafariView(url: url, entersReaderIfAvailable: false)
     }
-
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 #endif

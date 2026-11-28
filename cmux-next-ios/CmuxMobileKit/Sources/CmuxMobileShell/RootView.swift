@@ -244,7 +244,15 @@ public struct RootView: View {
                 // Screenshot rig (BillingDemo): the real plans screen over an in-memory server.
                 if let demo = BillingDemo() { billing = demo.makeModel(bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile") }
                 #endif
-                billing?.start()
+                // Past the first frame: with the account already known this runs
+                // in the first body update, and start() loads
+                // CmuxMobileSystemUI.framework, which links StoreKit (about 1.55 s
+                // on a cold launch). A main-queue hop can still run before the
+                // frame commits; the listener has no latency need, so wait a second.
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    billing?.start()
+                }
             }
         }
         // Settings → Require Face ID (audit B11).

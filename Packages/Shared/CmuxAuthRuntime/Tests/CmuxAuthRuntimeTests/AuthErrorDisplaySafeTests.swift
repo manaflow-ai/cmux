@@ -1,7 +1,7 @@
 import Foundation
 import StackAuth
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 @Suite struct AuthErrorDisplaySafeTests {
     @Test func preservesRenderableStackCodes() {

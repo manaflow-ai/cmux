@@ -27,6 +27,9 @@ let package = Package(
         .package(path: "../CmuxVNC"),
         .package(path: "../CmuxVNCWebRTC"),
         .package(path: "../CmuxSpinner"),
+        // The screenshot sheet's photo picker through CmuxMobileSystemUI.framework (iOS), so
+        // PhotosUI loads on first use instead of at the app's launch.
+        .package(path: "../../iOS/CmuxMobileSystemUIBridge"),
     ],
     targets: [
         .target(
@@ -38,7 +41,15 @@ let package = Package(
             ],
             swiftSettings: swiftSettings
         ),
-        .target(name: "CmuxScreenKitUI", dependencies: ["CmuxScreenKit", .product(name: "CmuxSpinner", package: "CmuxSpinner")], swiftSettings: swiftSettings),
+        .target(
+            name: "CmuxScreenKitUI",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxScreenKit",
+                .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
+                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
+            ],
+            swiftSettings: swiftSettings
+        ),
         .testTarget(name: "CmuxScreenKitTests", dependencies: ["CmuxScreenKit"], swiftSettings: swiftSettings),
     ]
 )

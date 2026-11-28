@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 @Suite struct CaptureFencedTokenStoreTests {
     @Test func freezeJoinsMigrationReadBeforeRejectingLateWriter() async {

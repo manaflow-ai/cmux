@@ -182,8 +182,11 @@ public struct StackAuthClient: AuthClient {
     }
 
     public func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {
-#if canImport(AuthenticationServices)
-        try await stack.signInWithOAuth(provider: provider, presentationContextProvider: anchor)
+#if canImport(Darwin) && !os(watchOS)
+        guard let authenticator = anchor.interactiveAuthenticator else {
+            throw AuthClientError.unsupported
+        }
+        try await stack.signInWithOAuth(provider: provider, authenticator: authenticator)
 #else
         throw AuthClientError.unsupported
 #endif

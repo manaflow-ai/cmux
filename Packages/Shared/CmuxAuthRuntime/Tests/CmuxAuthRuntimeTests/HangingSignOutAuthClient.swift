@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// An ``AuthClient`` whose server-side session revocation suspends forever,
 /// like the Stack `/auth/sessions/current` DELETE on a device with no
