@@ -9,6 +9,9 @@
 //! that the schema refuses (the app reads that key as its default), see
 //! [`introduced`].
 
+mod scene_colors;
+pub(crate) use scene_colors::scene_color_warnings;
+
 use std::collections::BTreeMap;
 
 use cmux_app_manifest::hidden;

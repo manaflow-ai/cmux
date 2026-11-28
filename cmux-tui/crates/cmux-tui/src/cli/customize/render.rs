@@ -417,6 +417,9 @@ fn status_lines(out: &mut String, status: &Status, now_ms: u64) {
             out.push_str(&format!("  {}\n", problem.line()));
         }
     }
+    for warning in &status.warnings {
+        out.push_str(&format!("  warning: {}\n", warning.line()));
+    }
     for skipped in &status.skipped {
         out.push_str(&format!("  not tracked: {} ({})\n", skipped.path, skipped.reason));
     }
