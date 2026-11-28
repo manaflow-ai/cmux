@@ -681,15 +681,6 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
     let mut moves_followed = 0u32;
     // When it first found its chat mid-move (`Next::Moving`).
     let mut moving_since: Option<std::time::Instant> = None;
-    // The last wait ended on the hub's gate opening (`Gate::opened`): the next one sleeps its own
-    // back-off. A hub that takes one post and fails the next opens and shuts its gate every few
-    // seconds (any answer that is not a passing failure opens it: a 4xx for one name too), and
-    // each opening woke every queued delivery it carries for another try at once: one control host,
-    // 2026-11-28, hub at 503 mesh.unavailable since ~19:00Z, acpmux-outbox 250-280 requests a
-    // minute (141 session/prompt) and the daemon at 154% CPU. One wake per back-off step still
-    // drains the outbox the moment the hub is back (RFD 0086 item 2); a flapping hub costs each
-    // delivery its own schedule, not one try per flap.
-    let mut woke_on_open = false;
     loop {
         let Ok(permit) = hub.outbox_attempts.acquire().await else { return };
         let Some(delivery) = hub.outbox.get(id) else { return };
@@ -1044,17 +1035,40 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     .outbox
                     .get(id)
                     .is_some_and(|d| d.error.as_deref().is_some_and(|e| e.contains(UNLISTED)));
-                let on_open = !delivery.projection_only()
-                    && (by_hub || behind_gate)
-                    && !unlisted
-                    && !woke_on_open;
-                woke_on_open = false;
+                let on_open = !delivery.projection_only() && (by_hub || behind_gate) && !unlisted;
+                // A wake for the gate (its reopening, or its opening) tries only as the gate's
+                // probe (`Gate::claim_ahead`); the rest of the queue waits again with no attempt.
+                // A hub that fails most posts and answers something else between them (a 4xx
+                // for one name opens the gate too) opens and shuts it every few seconds, and
+                // each wake was an attempt by every delivery it carries, all but one kept by the
+                // gate: 2026-11-28, a hub at 503 mesh.unavailable for hours, acpmux-outbox at
+                // 250-280 requests a minute and the daemon at 150% CPU on six machines.
+                let own_at = sleep.deadline() + own.saturating_sub(wait);
+                let gate_next = || match hub.mesh.gate().reopens_at() {
+                    Some(at) => own_at.min(at + GATE_JITTER.mul_f64(crate::peer_link::jitter())),
+                    None => own_at,
+                };
                 loop {
                     tokio::select! {
-                        () = &mut sleep => break,
+                        () = &mut sleep => {
+                            if tokio::time::Instant::now() >= own_at
+                                || hub.mesh.gate().claim_ahead()
+                            {
+                                break;
+                            }
+                            sleep.as_mut().reset(gate_next());
+                        }
                         () = &mut opened, if on_open => {
-                            woke_on_open = true;
-                            break;
+                            opened.set(hub.mesh.gate().opened.notified());
+                            opened.as_mut().enable();
+                            // Spread, so the first post the hub fails shuts the gate before the
+                            // rest of the queue asks it.
+                            tokio::time::sleep(GATE_JITTER.mul_f64(crate::peer_link::jitter()))
+                                .await;
+                            if hub.mesh.gate().claim_ahead() {
+                                break;
+                            }
+                            sleep.as_mut().reset(gate_next());
                         }
                         () = &mut ready, if on_ready => {
                             // `peer_ready` is one signal for every peer. Another peer's link

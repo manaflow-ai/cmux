@@ -642,8 +642,10 @@ async fn a_flapping_hub_gate_wakes_each_delivery_once_per_back_off_not_per_flap(
         "FLAP sends={SENDS} flaps={flaps} attempts_in_{}s={attempts} hub_posts={posts}",
         SPAN.as_secs()
     );
-    // Back-off 2, 5, 10, 30, 60, 120, 300 s: about seven steps in ten minutes, at most two
-    // attempts a step (its own timer, one gate wake). A wake per flap is SENDS * flaps = 10000.
-    assert!(attempts as usize <= SENDS * 16, "{attempts} attempts in ten minutes for {SENDS}");
+    // Each delivery's own back-off (2, 5, 10, 30, 60, 120, 300 s: about eight in ten minutes),
+    // and a probe or two per flap for the whole queue. Before: every delivery tried on every
+    // flap and every reopening, 20000 attempts.
+    let bound = SENDS * 8 + flaps as usize * 4;
+    assert!(attempts as usize <= bound, "{attempts} attempts in ten minutes (bound {bound})");
     assert!(ids.iter().all(|id| !hub.outbox.get(id).unwrap().settled()), "all still kept");
 }

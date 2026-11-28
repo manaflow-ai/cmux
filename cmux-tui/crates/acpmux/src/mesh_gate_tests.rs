@@ -70,3 +70,18 @@ fn the_hubs_retry_after_is_kept_up_to_the_cap() {
     gate.failed_at(at(0), Some(Duration::from_secs(3_600)));
     assert!(gate.may_try_at(at(ms(MAX_WINDOW))));
 }
+
+/// One of a queue woken for a shut gate claims its probe slot and the rest are told no; that
+/// delivery's post then goes in the slot it claimed rather than being refused by its own claim.
+#[tokio::test(start_paused = true)]
+async fn a_claim_ahead_is_one_per_window_and_its_post_goes() {
+    let gate = Gate::default();
+    gate.failed(None);
+    tokio::time::advance(FIRST_WINDOW).await;
+    let claims = (0..50).filter(|_| gate.claim_ahead()).count();
+    assert_eq!(claims, 1, "one of the queue probes");
+    assert!(gate.may_try(), "the probe's post takes the claimed slot");
+    assert!(!gate.may_try(), "and nothing else goes in that window");
+    gate.answered();
+    assert!((0..50).all(|_| gate.claim_ahead()), "an open gate lets every delivery try");
+}

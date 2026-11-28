@@ -27,6 +27,9 @@ pub struct Gate {
     failures: AtomicU32,
     /// Until when no post may go; a probe moves it on as it claims its slot.
     until: Mutex<Option<Instant>>,
+    /// The window whose probe slot a queued delivery claimed ahead of its attempt
+    /// ([`Gate::claim_ahead`]): the next [`Gate::may_try`] in it takes it.
+    ahead: Mutex<Option<Instant>>,
     /// Woken when a shut gate opens: the outbox's hub deliveries end their retry wait on it.
     pub opened: tokio::sync::Notify,
 }
@@ -43,11 +46,32 @@ impl Gate {
         if failures == 0 {
             return true;
         }
+        if self.ahead.lock_or_recover().take().is_some_and(|end| now < end) {
+            return true;
+        }
         let mut until = self.until.lock_or_recover();
         if until.is_some_and(|u| now < u) {
             return false;
         }
         *until = Some(now + window(failures));
+        true
+    }
+
+    /// Whether a queued delivery woken for the gate (its reopening, or [`Gate::opened`]) is the
+    /// one to try now: an open gate says yes; a shut one claims its probe slot for that delivery,
+    /// whose attempt then posts in it ([`Gate::may_try`] takes the claim), and says no to the
+    /// rest. A delivery told no waits again without an attempt: each attempt is a store write and
+    /// a request built before the gate keeps its post, and a queue of them woken on every flap of
+    /// a failing hub was an acpmux at 150% CPU for an hour (2026-11-28).
+    pub fn claim_ahead(&self) -> bool {
+        let now = Instant::now();
+        if self.failures.load(SeqCst) == 0 {
+            return true;
+        }
+        if !self.may_try_at(now) {
+            return false;
+        }
+        *self.ahead.lock_or_recover() = *self.until.lock_or_recover();
         true
     }
 
