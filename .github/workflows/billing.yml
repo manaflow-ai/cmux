@@ -446,6 +446,36 @@ jobs:
           printf '  %s\n' "${files[@]}"
           bun test --isolate "${files[@]}"
 
+      # The service container can vanish mid-job on a shared Linux host: run
+      # 46132702035 (hetzner-1-8) had it healthy at 09:55Z and gone ("No such
+      # container" at teardown) when the migrations got ECONNREFUSED at 10:01Z.
+      # So the database steps check it first: when it is down, the step logs
+      # what docker knows of it (for the cause) and starts a job-owned postgres,
+      # same image and port, removed by the last step.
+      - name: Postgres still up
+        if: ${{ !cancelled() && steps.route.outputs.web == 'true' }}
+        env:
+          SERVICE_ID: ${{ job.services.postgres.id }}
+          PG_IMAGE: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        run: |
+          set -uo pipefail
+          up() { timeout 3 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null; }
+          if up; then echo "postgres is up"; exit 0; fi
+          echo "::warning::the postgres service container ${SERVICE_ID:0:12} is unreachable; starting a job-owned one (docker state below)"
+          docker ps -a --no-trunc --filter "id=$SERVICE_ID" --format '{{.ID}} {{.Status}}' || true
+          docker events --since 40m --until "$(date -u +%s)" --filter "container=$SERVICE_ID" || true
+          name="cmux-billing-pg-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker run -d --rm --name "$name" -p 5432:5432 \
+            -e POSTGRES_DB=cmux_test -e POSTGRES_PASSWORD=cmux -e POSTGRES_USER=cmux "$PG_IMAGE"
+          for _ in $(seq 1 60); do
+            if docker exec "$name" pg_isready -U cmux -d cmux_test >/dev/null 2>&1 && up; then
+              echo "job-owned postgres $name is up"; exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$name" 2>&1 | tail -40
+          exit 1
+
       # The second pass proves every migration is idempotent, as in ci-web.yml.
       # The database URL is set only on the database steps: with it, the unit
       # tests above would query an empty database instead of their fakes.
@@ -525,6 +555,10 @@ jobs:
               done < /rt/billing-linux-rows.txt
               chown -R "$OWNER" /w/Packages
               exit "$status"'
+
+      - name: Remove the job-owned postgres
+        if: ${{ always() && steps.route.outputs.web == 'true' }}
+        run: docker rm -f "cmux-billing-pg-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >/dev/null 2>&1 || true
 
   ios-billing:
     name: ios-billing
