@@ -69,8 +69,9 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        # Ten since #57000 moved post-feed deltas into their own signing job.
-        self.assertEqual(len(JOBS), 10)
+        # Ten since #57000 moved post-feed deltas into their own signing job; nine since #62030 moved
+        # keep-published-dsyms off the signer to the one-job JIT VM.
+        self.assertEqual(len(JOBS), 9)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
