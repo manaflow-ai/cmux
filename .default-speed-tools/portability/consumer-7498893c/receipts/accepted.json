@@ -1,0 +1,57 @@
+{
+  "fresh": true,
+  "unchanged_native_hashes": true,
+  "unchanged_retained_dependency_hashes": true,
+  "first_build": {
+    "name": "first-consumer-build",
+    "argv": [
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/cargo",
+      "build",
+      "--locked",
+      "--profile",
+      "dev",
+      "-p",
+      "ghostty-vt",
+      "--features",
+      "phone-speed",
+      "--example",
+      "phone_default_speed",
+      "-vv",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui",
+    "timeout_seconds": 60,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 2.068187671999908,
+    "user_seconds": 4.952914,
+    "system_seconds": 0.23699199999999987,
+    "cpu_complete": true
+  },
+  "source_preparation": {
+    "name": "prepare-consumer-sources",
+    "argv": [
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/cargo",
+      "fetch",
+      "--locked",
+      "--target",
+      "x86_64-unknown-linux-gnu"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui",
+    "timeout_seconds": 300,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 3.7218875230000776,
+    "user_seconds": 1.6190369999999996,
+    "system_seconds": 0.7949550000000001,
+    "cpu_complete": true
+  },
+  "cold_registry_support": false,
+  "source_cache_prerequisite": "Cargo Git and registry sources populated before timed offline build"
+}

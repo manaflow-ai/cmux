@@ -1,0 +1,14 @@
+[
+  {
+    "path": ".default-speed-tools/portability/producer-e2e5d197/artifact.tgz",
+    "bytes": 56077563,
+    "sha256": "ccb455c26e90e0810cf3839cb51a866803eb866bf032d97a333b12bbade1ebb8",
+    "reason": "Superseded task-owned producer archive; manifests and logs retained; corrected producer uses new source and separate inputs."
+  },
+  {
+    "path": ".default-speed-tools/portability/producer-e2e5d197/receipts/cache.000",
+    "bytes": 56062450,
+    "sha256": "31f337651b40bae3ab177be3cb477ca41a6e394a906afbecd6cd23eb3010fa82",
+    "reason": "Superseded task-owned producer archive; manifests and logs retained; corrected producer uses new source and separate inputs."
+  }
+]

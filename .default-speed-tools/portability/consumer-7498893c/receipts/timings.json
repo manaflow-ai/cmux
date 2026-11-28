@@ -1,0 +1,382 @@
+[
+  {
+    "name": "git-init",
+    "argv": [
+      "git",
+      "init",
+      "-q",
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.01587245799998982,
+    "user_seconds": 0.0,
+    "system_seconds": 0.0022429999999999998,
+    "cpu_complete": true
+  },
+  {
+    "name": "source-index",
+    "argv": [
+      "bash",
+      "-o",
+      "pipefail",
+      "-c",
+      "cat /srv/cmux-ci/work/jobs/cdb7df4c2d52289bf3200a41/inputs/src.000 | git index-pack --stdin"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 1.5169353219999948,
+    "user_seconds": 1.467266,
+    "system_seconds": 0.16461,
+    "cpu_complete": true
+  },
+  {
+    "name": "git-config-core.repositoryformatversion",
+    "argv": [
+      "git",
+      "config",
+      "core.repositoryformatversion",
+      "1"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.001483064000012746,
+    "user_seconds": 0.001190999999999942,
+    "system_seconds": 0.0,
+    "cpu_complete": true
+  },
+  {
+    "name": "git-config-extensions.partialClone",
+    "argv": [
+      "git",
+      "config",
+      "extensions.partialClone",
+      "origin"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.0014687730000559895,
+    "user_seconds": 0.0,
+    "system_seconds": 0.0010899999999999799,
+    "cpu_complete": true
+  },
+  {
+    "name": "git-config-remote.origin.url",
+    "argv": [
+      "git",
+      "config",
+      "remote.origin.url",
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/no-promisor-remote"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.001381462000040301,
+    "user_seconds": 0.0,
+    "system_seconds": 0.0009149999999999991,
+    "cpu_complete": true
+  },
+  {
+    "name": "git-config-remote.origin.promisor",
+    "argv": [
+      "git",
+      "config",
+      "remote.origin.promisor",
+      "true"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.0013077410000050804,
+    "user_seconds": 0.0008070000000000022,
+    "system_seconds": 0.0,
+    "cpu_complete": true
+  },
+  {
+    "name": "sparse",
+    "argv": [
+      "git",
+      "sparse-checkout",
+      "set",
+      "--no-cone",
+      "--",
+      "/*",
+      "!/*/",
+      "/ghostty",
+      "/ghostty-next",
+      "/ci/",
+      "/cmux-tui/",
+      "/scripts/",
+      "/workers/cmux-vm/cli/"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.001298457999951097,
+    "user_seconds": 0.0,
+    "system_seconds": 0.0009240000000000081,
+    "cpu_complete": true
+  },
+  {
+    "name": "checkout",
+    "argv": [
+      "git",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "checkout",
+      "-q",
+      "--detach",
+      "7498893c03c60b057c33bc59c1ae79be69ad374d"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 1.2662589010000147,
+    "user_seconds": 0.960899,
+    "system_seconds": 0.245463,
+    "cpu_complete": true
+  },
+  {
+    "name": "ghostty",
+    "argv": [
+      "git",
+      "submodule",
+      "update",
+      "--init",
+      "--depth=1",
+      "ghostty-next"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 4.172085275999962,
+    "user_seconds": 0.7868580000000001,
+    "system_seconds": 0.20110499999999998,
+    "cpu_complete": true
+  },
+  {
+    "name": "ghostty-head",
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD:ghostty-next"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.0014734200000248165,
+    "user_seconds": 0.0010970000000001257,
+    "system_seconds": 0.0,
+    "cpu_complete": true
+  },
+  {
+    "name": "ghostty-checkout",
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/ghostty-next",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.0012921279999318358,
+    "user_seconds": 0.0006089999999998597,
+    "system_seconds": 0.0,
+    "cpu_complete": true
+  },
+  {
+    "name": "setup-zig",
+    "argv": [
+      "bash",
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/scripts/install-zig-ci.sh"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 7.028229069000076,
+    "user_seconds": 2.768036,
+    "system_seconds": 0.429284,
+    "cpu_complete": true
+  },
+  {
+    "name": "libc-version",
+    "argv": [
+      "ldd",
+      "--version"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.002574140999968222,
+    "user_seconds": 0.0012340000000001794,
+    "system_seconds": 0.0,
+    "cpu_complete": true
+  },
+  {
+    "name": "zig-version",
+    "argv": [
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/zig",
+      "version"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.003374591000010696,
+    "user_seconds": 0.0,
+    "system_seconds": 0.002817999999999987,
+    "cpu_complete": true
+  },
+  {
+    "name": "prepare-consumer-sources",
+    "argv": [
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/cargo",
+      "fetch",
+      "--locked",
+      "--target",
+      "x86_64-unknown-linux-gnu"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui",
+    "timeout_seconds": 300,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 3.7218875230000776,
+    "user_seconds": 1.6190369999999996,
+    "system_seconds": 0.7949550000000001,
+    "cpu_complete": true
+  },
+  {
+    "name": "unpack",
+    "argv": [
+      "bash",
+      "-o",
+      "pipefail",
+      "-c",
+      "zstd -dc /tmp/cmux-cache-portability-7498893c-phone-default-speed-01/target.tar.zst | tar -xf - -C /tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01",
+    "timeout_seconds": 900,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 0.21461231699993277,
+    "user_seconds": 0.1481710000000005,
+    "system_seconds": 0.09904599999999997,
+    "cpu_complete": true
+  },
+  {
+    "name": "restore-mtimes",
+    "argv": [
+      "python3",
+      "-I",
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/scripts/blacksmith-testbox-source-mtimes.py",
+      "restore",
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/.cmux-testbox-source-mtimes.tsv"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01",
+    "timeout_seconds": 600,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 1.0169857849999744,
+    "user_seconds": 0.743423,
+    "system_seconds": 0.24880600000000008,
+    "cpu_complete": true
+  },
+  {
+    "name": "first-consumer-build",
+    "argv": [
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/cargo",
+      "build",
+      "--locked",
+      "--profile",
+      "dev",
+      "-p",
+      "ghostty-vt",
+      "--features",
+      "phone-speed",
+      "--example",
+      "phone_default_speed",
+      "-vv",
+      "--offline"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui",
+    "timeout_seconds": 60,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 2.068187671999908,
+    "user_seconds": 4.952914,
+    "system_seconds": 0.23699199999999987,
+    "cpu_complete": true
+  }
+]

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import ast
 from contextlib import redirect_stdout
 import io
 import json
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock
 
 import runner
 import worker
@@ -118,6 +120,60 @@ time.sleep(60)
         self.assertNotIn('--offline', producer)
         self.assertEqual(consumer, producer + ['--offline'])
         self.assertEqual(producer[0:3], [str(tools/'cargo'), 'build', '--locked'])
+
+    def test_source_preparation_is_bounded_fetch_without_compilation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            src = Path(directory)
+            (src/'cmux-tui').mkdir()
+            (src/'cmux-tui/Cargo.lock').write_text('locked sources')
+            target, tools = src/'cmux-tui/target', src/'tools'
+            run = Mock()
+            worker.prepare_consumer_sources(run, tools, src, target)
+            run.assert_called_once_with('prepare-consumer-sources',
+                [str(tools/'cargo'), 'fetch', '--locked', '--target', 'x86_64-unknown-linux-gnu'],
+                cwd=src/'cmux-tui', timeout=300)
+            self.assertFalse(target.exists())
+            run.reset_mock()
+            target.mkdir()
+            with self.assertRaisesRegex(RuntimeError, 'target exists before source preparation'):
+                worker.prepare_consumer_sources(run, tools, src, target)
+            run.assert_not_called()
+
+    def test_source_preparation_rejects_target_and_lock_mutation(self):
+        for mutation in ('target', 'lock'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                src = Path(directory)
+                (src/'cmux-tui').mkdir()
+                lock = src/'cmux-tui/Cargo.lock'
+                lock.write_text('original')
+                target = src/'cmux-tui/target'
+                def fake_run(*_args, **_kwargs):
+                    if mutation == 'target':
+                        target.mkdir()
+                    else:
+                        lock.write_text('changed')
+                with self.assertRaisesRegex(RuntimeError, 'changed target or Cargo.lock'):
+                    worker.prepare_consumer_sources(fake_run, src/'tools', src, target)
+
+    def test_source_preparation_is_consumer_only_before_restore_and_first_build(self):
+        # Check the orchestration without generating or dispatching a real consumer.
+        tree = ast.parse(Path(worker.__file__).read_text())
+        branch = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                      and ast.unparse(n.test) == "config['mode'] == 'producer'")
+        def calls(nodes):
+            return sorted((n for root in nodes for n in ast.walk(root) if isinstance(n, ast.Call)),
+                          key=lambda n: n.lineno)
+        producer = calls(branch.body)
+        consumer = calls(branch.orelse)
+        self.assertFalse(any(ast.unparse(n.func) == 'prepare_consumer_sources' for n in producer))
+        prep = next(n for n in consumer if ast.unparse(n.func) == 'prepare_consumer_sources')
+        unpack = next(n for n in consumer if ast.unparse(n.func) == 'run'
+                      and ast.literal_eval(n.args[0]) == 'unpack')
+        build = next(n for n in consumer if ast.unparse(n.func) == 'run'
+                     and ast.literal_eval(n.args[0]) == 'first-consumer-build')
+        self.assertLess(prep.lineno, unpack.lineno)
+        self.assertLess(unpack.lineno, build.lineno)
+        self.assertEqual(next(ast.literal_eval(k.value) for k in build.keywords if k.arg == 'timeout'), 60)
 
     def test_source_metadata(self):
         config = runner.source_config(status(), SHA, '/tmp/cmux-cache-portability-test')

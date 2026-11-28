@@ -1,0 +1,607 @@
+warning: /tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/cmux-tui/Cargo.toml: file `/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/cmux-tui/src/main.rs` found to be present in multiple build targets:
+  * `lib` target `cmux_tui`
+  * `bin` target `cmux-tui-hotpatch`
+   0.194436394s  INFO prepare_target{force=false package_id=ghostty-vt v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt) target="phone_default_speed"}: cargo::core::compiler::fingerprint: fingerprint error for ghostty-vt v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt)/Build/TargetInner { kind: "example", name: "phone_default_speed", required_features: Some(["phone-speed"]), tested: false, benched: false, ..: with_path("/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt/examples/phone_default_speed.rs", Edition2024) }
+   0.194457836s  INFO prepare_target{force=false package_id=ghostty-vt v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt) target="phone_default_speed"}: cargo::core::compiler::fingerprint:     err: failed to read `/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/.fingerprint/ghostty-vt-2831160f78f12568/example-phone_default_speed`
+
+Caused by:
+    No such file or directory (os error 2)
+   0.194938257s  INFO prepare_target{force=false package_id=ghostty-vt v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt) target="ghostty_vt"}: cargo::core::compiler::fingerprint: fingerprint error for ghostty-vt v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt)/Build/TargetInner { name_inferred: true, ..: lib_target("ghostty_vt", ["lib"], "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt/src/lib.rs", Edition2024) }
+   0.194945788s  INFO prepare_target{force=false package_id=ghostty-vt v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt) target="ghostty_vt"}: cargo::core::compiler::fingerprint:     err: failed to read `/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/.fingerprint/ghostty-vt-8385ab6fc63fe2d7/lib-ghostty_vt`
+
+Caused by:
+    No such file or directory (os error 2)
+       Fresh cfg-if v1.0.5
+       Fresh glob v0.3.4
+       Fresh unicode-ident v1.0.27
+       Fresh proc-macro2 v1.0.107
+warning: unused import: `std::path::Path`
+  --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build.rs:18:5
+   |
+18 | use std::path::Path;
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+       Fresh regex-syntax v0.8.11
+       Fresh minimal-lexical v0.2.1
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/minimal-lexical-0.2.1/src/bigint.rs:127:17
+    |
+127 | pub fn rview(x: &[Limb]) -> ReverseView<Limb> {
+    |                 ^^^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                 |
+    |                 the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+127 | pub fn rview(x: &[Limb]) -> ReverseView<'_, Limb> {
+    |                                         +++
+
+       Fresh libloading v0.8.9
+       Fresh simd-adler32 v0.3.10
+warning: unused import: `hash::*`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/simd-adler32-0.3.10/src/lib.rs:102:9
+    |
+102 | pub use hash::*;
+    |         ^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+       Fresh either v1.19.0
+       Fresh find-msvc-tools v0.1.15
+       Fresh bitflags v2.13.2
+       Fresh adler2 v2.0.1
+       Fresh rustc-hash v2.1.3
+       Fresh shlex v1.3.0
+warning: unexpected `cfg` condition name: `manual_codegen_check`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-1.3.0/src/bytes.rs:353:12
+    |
+353 | #[cfg_attr(manual_codegen_check, inline(never))]
+    |            ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: expected names are: `docsrs`, `feature`, and `test` and 31 more
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(manual_codegen_check)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(manual_codegen_check)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-1.3.0/src/lib.rs:228:22
+    |
+228 | pub fn quote(in_str: &str) -> Cow<str> {
+    |                      ^^^^     ^^^^^^^^ the same lifetime is hidden here
+    |                      |
+    |                      the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+228 | pub fn quote(in_str: &str) -> Cow<'_, str> {
+    |                                   +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-1.3.0/src/lib.rs:241:26
+    |
+241 | pub fn try_quote(in_str: &str) -> Result<Cow<str>, QuoteError> {
+    |                          ^^^^            ^^^^^^^^ the same lifetime is hidden here
+    |                          |
+    |                          the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+241 | pub fn try_quote(in_str: &str) -> Result<Cow<'_, str>, QuoteError> {
+    |                                              +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-1.3.0/src/bytes.rs:484:24
+    |
+484 | pub fn quote(in_bytes: &[u8]) -> Cow<[u8]> {
+    |                        ^^^^^     ^^^^^^^^^ the same lifetime is hidden here
+    |                        |
+    |                        the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+484 | pub fn quote(in_bytes: &[u8]) -> Cow<'_, [u8]> {
+    |                                      +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-1.3.0/src/bytes.rs:497:28
+    |
+497 | pub fn try_quote(in_bytes: &[u8]) -> Result<Cow<[u8]>, QuoteError> {
+    |                            ^^^^^            ^^^^^^^^^ the same lifetime is hidden here
+    |                            |
+    |                            the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+497 | pub fn try_quote(in_bytes: &[u8]) -> Result<Cow<'_, [u8]>, QuoteError> {
+    |                                                 +++
+
+       Fresh shlex v2.0.1
+       Fresh log v0.4.35
+       Fresh pkg-config v0.3.34
+       Fresh cmux-transport-rewrite v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/cmux-transport-rewrite)
+       Fresh bitflags v1.3.2
+       Fresh memchr v2.8.3
+       Fresh simdutf8 v0.1.5
+       Fresh base64 v0.22.1
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/base64-0.22.1/src/lib.rs:223:13
+    |
+223 | #![cfg_attr(feature = "cargo-clippy", allow(clippy::cast_lossless))]
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `alloc`, `default`, and `std`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/base64-0.22.1/src/chunked_encoder.rs:57:26
+   |
+57 |     pub(crate) fn new(s: &mut String) -> StringSink {
+   |                          ^^^^^^^^^^^     ^^^^^^^^^^ the same lifetime is hidden here
+   |                          |
+   |                          the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+57 |     pub(crate) fn new(s: &mut String) -> StringSink<'_> {
+   |                                                    ++++
+
+warning: `clang-sys` (build script) generated 1 warning
+warning: `minimal-lexical` (lib) generated 1 warning
+warning: `simd-adler32` (lib) generated 1 warning
+warning: `shlex` (lib) generated 5 warnings
+warning: `base64` (lib) generated 2 warnings
+       Fresh quote v1.0.47
+       Fresh regex-automata v0.4.18
+       Fresh nom v7.1.3
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/lib.rs:375:13
+    |
+375 | #![cfg_attr(feature = "cargo-clippy", allow(clippy::doc_markdown))]
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `alloc`, `default`, `docsrs`, and `std`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/lib.rs:379:12
+    |
+379 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+    |            ^^^^^^^
+    |
+    = help: expected names are: `docsrs`, `feature`, and `test` and 31 more
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/lib.rs:391:12
+    |
+391 | #[cfg_attr(nightly, allow(rustdoc::missing_doc_code_examples))]
+    |            ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/lib.rs:418:14
+    |
+418 |   #[cfg_attr(nightly, allow(rustdoc::missing_doc_code_examples))]
+    |              ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+  --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/internal.rs:49:12
+   |
+49 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+   |            ^^^^^^^
+   |
+   = help: consider using a Cargo feature instead
+   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+            [lints.rust]
+            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+  --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/internal.rs:96:12
+   |
+96 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+   |            ^^^^^^^
+   |
+   = help: consider using a Cargo feature instead
+   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+            [lints.rust]
+            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/internal.rs:340:12
+    |
+340 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+    |            ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/internal.rs:357:12
+    |
+357 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+    |            ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/internal.rs:374:12
+    |
+374 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+    |            ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/internal.rs:392:12
+    |
+392 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+    |            ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/internal.rs:409:12
+    |
+409 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+    |            ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition name: `nightly`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/internal.rs:430:12
+    |
+430 | #[cfg_attr(nightly, warn(rustdoc::missing_doc_code_examples))]
+    |            ^^^^^^^
+    |
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nightly)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(nightly)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unused import: `self::str::*`
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nom-7.1.3/src/lib.rs:439:9
+    |
+439 | pub use self::str::*;
+    |         ^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+       Fresh itertools v0.13.0
+warning: hiding a lifetime that's elided elsewhere is confusing
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itertools-0.13.0/src/lib.rs:1491:30
+     |
+1491 |     fn peeking_take_while<F>(&mut self, accept: F) -> PeekingTakeWhile<Self, F>
+     |                              ^^^^^^^^^                ^^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+     |                              |
+     |                              the lifetime is elided here
+     |
+     = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+     = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+     |
+1491 |     fn peeking_take_while<F>(&mut self, accept: F) -> PeekingTakeWhile<'_, Self, F>
+     |                                                                        +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itertools-0.13.0/src/lib.rs:1517:26
+     |
+1517 |     fn take_while_ref<F>(&mut self, accept: F) -> TakeWhileRef<Self, F>
+     |                          ^^^^^^^^^                ^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+     |                          |
+     |                          the lifetime is elided here
+     |
+     = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+     |
+1517 |     fn take_while_ref<F>(&mut self, accept: F) -> TakeWhileRef<'_, Self, F>
+     |                                                                +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itertools-0.13.0/src/lib.rs:2331:26
+     |
+2331 |     fn format(self, sep: &str) -> Format<Self>
+     |                          ^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+     |                          |
+     |                          the lifetime is elided here
+     |
+     = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+     |
+2331 |     fn format(self, sep: &str) -> Format<'_, Self>
+     |                                          +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itertools-0.13.0/src/lib.rs:2370:34
+     |
+2370 |     fn format_with<F>(self, sep: &str, format: F) -> FormatWith<Self, F>
+     |                                  ^^^^                ^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+     |                                  |
+     |                                  the lifetime is elided here
+     |
+     = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+     |
+2370 |     fn format_with<F>(self, sep: &str, format: F) -> FormatWith<'_, Self, F>
+     |                                                                 +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itertools-0.13.0/src/adaptors/mod.rs:526:35
+    |
+526 | pub fn take_while_ref<I, F>(iter: &mut I, f: F) -> TakeWhileRef<I, F>
+    |                                   ^^^^^^           ^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                                   |
+    |                                   the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+526 | pub fn take_while_ref<I, F>(iter: &mut I, f: F) -> TakeWhileRef<'_, I, F>
+    |                                                                 +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itertools-0.13.0/src/peeking_take_while.rs:129:39
+    |
+129 | pub fn peeking_take_while<I, F>(iter: &mut I, f: F) -> PeekingTakeWhile<I, F>
+    |                                       ^^^^^^           ^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                                       |
+    |                                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+129 | pub fn peeking_take_while<I, F>(iter: &mut I, f: F) -> PeekingTakeWhile<'_, I, F>
+    |                                                                         +++
+
+       Fresh cc v1.11.0
+       Fresh miniz_oxide v0.9.1
+       Fresh fdeflate v0.3.7
+       Fresh miniz_oxide v0.8.9
+warning: `nom` (lib) generated 13 warnings
+warning: `itertools` (lib) generated 6 warnings
+       Fresh syn v2.0.119
+       Fresh libc v0.2.191
+       Fresh cexpr v0.6.0
+       Fresh regex v1.13.1
+       Fresh object v0.39.1
+       Fresh rustversion v1.0.23
+       Fresh crc32fast v1.5.4
+       Fresh clang-sys v1.9.1
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/lib.rs:23:13
+   |
+23 | #![cfg_attr(feature = "cargo-clippy", allow(clippy::unreadable_literal))]
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `clang_10_0`, `clang_11_0`, `clang_12_0`, `clang_13_0`, `clang_14_0`, `clang_15_0`, `clang_16_0`, `clang_17_0`, `clang_18_0`, `clang_19_0`, `clang_20_0`, `clang_3_5`, `clang_3_6`, `clang_3_7`, `clang_3_8`, `clang_3_9`, `clang_4_0`, `clang_5_0`, `clang_6_0`, `clang_7_0`, `clang_8_0`, `clang_9_0`, `libcpp`, `libloading`, `runtime`, and `static`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/link.rs:173:24
+     |
+ 173 |               #[cfg_attr(feature="cargo-clippy", allow(clippy::missing_safety_doc))]
+     |                          ^^^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/lib.rs:1944:1
+     |
+1944 | / link!(
+1945 | |     pub fn clang_CXCursorSet_contains(set: CXCursorSet, cursor: CXCursor) -> c_uint;
+1946 | |     pub fn clang_CXCursorSet_insert(set: CXCursorSet, cursor: CXCursor) -> c_uint;
+1947 | |     pub fn clang_CXIndex_getGlobalOptions(index: CXIndex) -> CXGlobalOptFlags;
+...    |
+2879 | |     pub fn clang_VerbatimLineComment_getText(comment: CXComment) -> CXString;
+2880 | | );
+     | |_- in this macro invocation
+     |
+     = note: expected values for `feature` are: `clang_10_0`, `clang_11_0`, `clang_12_0`, `clang_13_0`, `clang_14_0`, `clang_15_0`, `clang_16_0`, `clang_17_0`, `clang_18_0`, `clang_19_0`, `clang_20_0`, `clang_3_5`, `clang_3_6`, `clang_3_7`, `clang_3_8`, `clang_3_9`, `clang_4_0`, `clang_5_0`, `clang_6_0`, `clang_7_0`, `clang_8_0`, `clang_9_0`, `libcpp`, `libloading`, `runtime`, and `static`
+     = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+     = note: this warning originates in the macro `link` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/link.rs:174:24
+     |
+ 174 |               #[cfg_attr(feature="cargo-clippy", allow(clippy::too_many_arguments))]
+     |                          ^^^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/lib.rs:1944:1
+     |
+1944 | / link!(
+1945 | |     pub fn clang_CXCursorSet_contains(set: CXCursorSet, cursor: CXCursor) -> c_uint;
+1946 | |     pub fn clang_CXCursorSet_insert(set: CXCursorSet, cursor: CXCursor) -> c_uint;
+1947 | |     pub fn clang_CXIndex_getGlobalOptions(index: CXIndex) -> CXGlobalOptFlags;
+...    |
+2879 | |     pub fn clang_VerbatimLineComment_getText(comment: CXComment) -> CXString;
+2880 | | );
+     | |_- in this macro invocation
+     |
+     = note: expected values for `feature` are: `clang_10_0`, `clang_11_0`, `clang_12_0`, `clang_13_0`, `clang_14_0`, `clang_15_0`, `clang_16_0`, `clang_17_0`, `clang_18_0`, `clang_19_0`, `clang_20_0`, `clang_3_5`, `clang_3_6`, `clang_3_7`, `clang_3_8`, `clang_3_9`, `clang_4_0`, `clang_5_0`, `clang_6_0`, `clang_7_0`, `clang_8_0`, `clang_9_0`, `libcpp`, `libloading`, `runtime`, and `static`
+     = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+     = note: this warning originates in the macro `link` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `extern` declarations without an explicit ABI are deprecated
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/link.rs:96:42
+     |
+  96 |                   pub $name: Option<unsafe extern fn($($pname: $pty), *) $(-> $ret)*>,
+     |                                            ^^^^^^ help: explicitly specify the "C" ABI: `extern "C"`
+     |
+    ::: /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/lib.rs:1944:1
+     |
+1944 | / link!(
+1945 | |     pub fn clang_CXCursorSet_contains(set: CXCursorSet, cursor: CXCursor) -> c_uint;
+1946 | |     pub fn clang_CXCursorSet_insert(set: CXCursorSet, cursor: CXCursor) -> c_uint;
+1947 | |     pub fn clang_CXIndex_getGlobalOptions(index: CXIndex) -> CXGlobalOptFlags;
+...    |
+2879 | |     pub fn clang_VerbatimLineComment_getText(comment: CXComment) -> CXString;
+2880 | | );
+     | |_- in this macro invocation
+     |
+     = note: `#[warn(missing_abi)]` on by default
+     = note: this warning originates in the macro `link` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `extern` declarations without an explicit ABI are deprecated
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/link.rs:128:54
+     |
+ 128 |                           if self.library.get::<unsafe extern fn()>($fn).is_ok() {
+     |                                                        ^^^^^^ help: explicitly specify the "C" ABI: `extern "C"`
+     |
+    ::: /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/src/lib.rs:1944:1
+     |
+1944 | / link!(
+1945 | |     pub fn clang_CXCursorSet_contains(set: CXCursorSet, cursor: CXCursor) -> c_uint;
+1946 | |     pub fn clang_CXCursorSet_insert(set: CXCursorSet, cursor: CXCursor) -> c_uint;
+1947 | |     pub fn clang_CXIndex_getGlobalOptions(index: CXIndex) -> CXGlobalOptFlags;
+...    |
+2879 | |     pub fn clang_VerbatimLineComment_getText(comment: CXComment) -> CXString;
+2880 | | );
+     | |_- in this macro invocation
+     |
+     = note: this warning originates in the macro `check` which comes from the expansion of the macro `link` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+       Fresh prettyplease v0.2.37
+       Fresh flate2 v1.1.10
+warning: `clang-sys` (lib) generated 19 warnings (14 duplicates)
+       Fresh bindgen v0.72.1
+       Fresh png v0.17.16
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/png-0.17.16/src/decoder/mod.rs:478:21
+    |
+478 |     pub fn next_row(&mut self) -> Result<Option<Row>, DecodingError> {
+    |                     ^^^^^^^^^                   ^^^ the same lifetime is hidden here
+    |                     |
+    |                     the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+478 |     pub fn next_row(&mut self) -> Result<Option<Row<'_>>, DecodingError> {
+    |                                                    ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/png-0.17.16/src/decoder/mod.rs:484:32
+    |
+484 |     pub fn next_interlaced_row(&mut self) -> Result<Option<InterlacedRow>, DecodingError> {
+    |                                ^^^^^^^^^                   ^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                                |
+    |                                the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+484 |     pub fn next_interlaced_row(&mut self) -> Result<Option<InterlacedRow<'_>>, DecodingError> {
+    |                                                                         ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/png-0.17.16/src/encoder.rs:1001:26
+     |
+1001 |     pub fn stream_writer(&mut self) -> Result<StreamWriter<W>> {
+     |                          ^^^^^^^^^            ^^^^^^^^^^^^^^^ the same lifetime is hidden here
+     |                          |
+     |                          the lifetime is elided here
+     |
+     = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+     |
+1001 |     pub fn stream_writer(&mut self) -> Result<StreamWriter<'_, W>> {
+     |                                                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+    --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/png-0.17.16/src/encoder.rs:1010:36
+     |
+1010 |     pub fn stream_writer_with_size(&mut self, size: usize) -> Result<StreamWriter<W>> {
+     |                                    ^^^^^^^^^                         ^^^^^^^^^^^^^^^ the same lifetime is hidden here
+     |                                    |
+     |                                    the lifetime is elided here
+     |
+     = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+     |
+1010 |     pub fn stream_writer_with_size(&mut self, size: usize) -> Result<StreamWriter<'_, W>> {
+     |                                                                                   +++
+
+warning: crabgrind@0.6.0: Valgrind headers were not found during the build.
+warning: crabgrind@0.6.0: This typically means Valgrind headers ain't found on the standard include paths:
+warning: crabgrind@0.6.0: 	<sysroot>/usr/include
+warning: crabgrind@0.6.0: 	<sysroot>/usr/local/include
+warning: crabgrind@0.6.0: 	...
+warning: crabgrind@0.6.0: 	nor via 'pkg-config' probe.
+warning: crabgrind@0.6.0: You might try 'VALGRIND_INCLUDE=<path to valgrind/include>' as a quick workaround.
+warning: crabgrind@0.6.0: Without the headers, executing Valgrind client requests will panic at runtime.
+warning: crabgrind@0.6.0: Build configuration doc: https://docs.rs/crabgrind#build-configuration
+warning: `png` (lib) generated 4 warnings
+       Fresh crabgrind v0.6.0
+       Fresh ghostty-vt-sys v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt-sys)
+   Compiling ghostty-vt v0.1.0 (/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt)
+     Running `CARGO=/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/cargo CARGO_CRATE_NAME=ghostty_vt CARGO_MANIFEST_DIR=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt CARGO_MANIFEST_PATH=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='Safe Rust wrapper around libghostty-vt' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE=GPL-3.0-or-later CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=ghostty-vt CARGO_PKG_README='' CARGO_PKG_REPOSITORY='' CARGO_PKG_RUST_VERSION=1.91 CARGO_PKG_VERSION=0.1.0 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=1 CARGO_PKG_VERSION_PATCH=0 CARGO_PKG_VERSION_PRE='' CARGO_PRIMARY_PACKAGE=1 LD_LIBRARY_PATH=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps /home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustc --crate-name ghostty_vt --edition=2024 crates/ghostty-vt/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C opt-level=1 -C lto=off -C embed-bitcode=no -C debuginfo=line-tables-only --warn=unused_qualifications --deny=unsafe_op_in_unsafe_fn '--warn=clippy::uninlined_format_args' --warn=unexpected_cfgs '--warn=clippy::semicolon_if_nothing_returned' '--warn=clippy::redundant_clone' '--deny=clippy::await_holding_refcell_ref' '--deny=clippy::await_holding_lock' --check-cfg 'cfg(kani)' -C debug-assertions=on --cfg 'feature="phone-speed"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("phone-speed"))' -C metadata=fbab1e23b97ced20 -C extra-filename=-8385ab6fc63fe2d7 --out-dir /tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps -L dependency=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps --extern base64=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libbase64-2451414fcd9a5848.rmeta --extern crabgrind=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libcrabgrind-367e752bbbecdfea.rmeta --extern ghostty_vt_sys=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libghostty_vt_sys-47cf199dae8bfc34.rmeta --extern memchr=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libmemchr-fee3c473073d2a33.rmeta --extern png=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libpng-ce0e11eea3c4b261.rmeta --extern simdutf8=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libsimdutf8-3eca8565aa2b036e.rmeta -L native=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/build/crabgrind-c9812228ff28848d/out -L native=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib`
+     Running `CARGO=/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/cargo CARGO_BIN_NAME=phone_default_speed CARGO_CRATE_NAME=phone_default_speed CARGO_MANIFEST_DIR=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt CARGO_MANIFEST_PATH=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/crates/ghostty-vt/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='Safe Rust wrapper around libghostty-vt' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE=GPL-3.0-or-later CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=ghostty-vt CARGO_PKG_README='' CARGO_PKG_REPOSITORY='' CARGO_PKG_RUST_VERSION=1.91 CARGO_PKG_VERSION=0.1.0 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=1 CARGO_PKG_VERSION_PATCH=0 CARGO_PKG_VERSION_PRE='' CARGO_PRIMARY_PACKAGE=1 LD_LIBRARY_PATH=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps /home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustc --crate-name phone_default_speed --edition=2024 crates/ghostty-vt/examples/phone_default_speed.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C opt-level=1 -C lto=off -C embed-bitcode=no -C debuginfo=line-tables-only --warn=unused_qualifications --deny=unsafe_op_in_unsafe_fn '--warn=clippy::uninlined_format_args' --warn=unexpected_cfgs '--warn=clippy::semicolon_if_nothing_returned' '--warn=clippy::redundant_clone' '--deny=clippy::await_holding_refcell_ref' '--deny=clippy::await_holding_lock' --check-cfg 'cfg(kani)' -C debug-assertions=on --cfg 'feature="phone-speed"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("phone-speed"))' -C metadata=2466fb40b4a19611 -C extra-filename=-2831160f78f12568 --out-dir /tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/examples -L dependency=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps --extern base64=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libbase64-2451414fcd9a5848.rlib --extern crabgrind=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libcrabgrind-367e752bbbecdfea.rlib --extern ghostty_vt=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libghostty_vt-8385ab6fc63fe2d7.rlib --extern ghostty_vt_sys=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libghostty_vt_sys-47cf199dae8bfc34.rlib --extern memchr=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libmemchr-fee3c473073d2a33.rlib --extern png=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libpng-ce0e11eea3c4b261.rlib --extern simdutf8=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/deps/libsimdutf8-3eca8565aa2b036e.rlib -L native=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/build/crabgrind-c9812228ff28848d/out -L native=/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target/debug/build/ghostty-vt-sys-b7893dea806ab77a/out/ghostty-vt/lib`
+    Finished `dev` profile [optimized + debuginfo] target(s) in 2.02s

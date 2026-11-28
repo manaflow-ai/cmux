@@ -169,6 +169,18 @@ def cargo_command(tools, mode):
     return args
 
 
+def prepare_consumer_sources(run, tools, src, target):
+    """Populate Cargo's source cache separately; never seed compiled output."""
+    if target.exists():
+        raise RuntimeError('consumer target exists before source preparation')
+    lock = src/'cmux-tui/Cargo.lock'
+    before = digest(lock)
+    run('prepare-consumer-sources', [str(tools/'cargo'), 'fetch', '--locked',
+        '--target', 'x86_64-unknown-linux-gnu'], cwd=src/'cmux-tui', timeout=300)
+    if target.exists() or digest(lock) != before:
+        raise RuntimeError('source preparation changed target or Cargo.lock')
+
+
 def run_step(name, args, out, env, timings, cwd, timeout=600, stdin=None):
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     start = time.monotonic()
@@ -379,6 +391,11 @@ def main(config):
             receipt = config['cache_manifest']
             if identity != receipt['identity']:
                 raise RuntimeError('producer/consumer path, tool or environment mismatch')
+            prepare_consumer_sources(run, tools, src, target)
+            source_preparation = dict(timings[-1])
+            (out/'source-preparation.json').write_text(json.dumps({
+                'prerequisite': 'Cargo Git and registry sources populated before offline build; target-only archive does not provide them',
+                'cold_registry_support': False, 'step': source_preparation}, indent=2)+'\n')
             env['CARGO_LOG'] = 'cargo::core::compiler::fingerprint=info'
             if target.exists():
                 raise RuntimeError('consumer target exists before restore')
@@ -408,7 +425,9 @@ def main(config):
             if retained_dependency_hashes(target) != receipt['retained_dependency_hashes']:
                 raise RuntimeError('first consumer changed retained build dependency output')
             (out/'accepted.json').write_text(json.dumps({'fresh': True, 'unchanged_native_hashes': True,
-                'unchanged_retained_dependency_hashes': True, 'first_build': timings[-1]}, indent=2)+'\n')
+                'unchanged_retained_dependency_hashes': True, 'first_build': timings[-1],
+                'source_preparation': source_preparation, 'cold_registry_support': False,
+                'source_cache_prerequisite': 'Cargo Git and registry sources populated before timed offline build'}, indent=2)+'\n')
         code = 0
     except RunFailure as error:
         code = error.code

@@ -1,7 +1,7 @@
 # Default-grid Ghostty instruction detector
 
-> Native study passed. Reuse of the target artifact across jobs remains unverified;
-> same-job `Fresh` output does not prove artifact reuse.
+> Native study and target-artifact reuse across two managed Linux jobs passed.
+> Production cache publication and physical-device calibration remain unverified.
 
 Leo: “these feel extremely mockable to be de facto enough”.
 
@@ -53,9 +53,10 @@ dev/test profile (Ghostty itself remains ReleaseFast). PRs restore the existing
 workspace target cache. Its producer seeds this exact detector after its final
 daemon build, then preserves the native output and its `cmux-transport-rewrite`
 build dependency when pruning. The v2 cache namespace distinguishes these
-archives from older saves. Cross-job reuse remains unverified until a separate
-consumer reports `Fresh ghostty-vt-sys` on its first build with unchanged native
-hashes; a successful archive restore alone does not establish that.
+archives from older saves. A separate managed consumer reported
+`Fresh ghostty-vt-sys` on its first build with unchanged native and build-dependency
+hashes; see the portability receipt below. Cargo Git and registry sources must
+be populated separately; the target archive does not provide them.
 A second build must report `Fresh ghostty-vt-sys`;
 a native rebuild on that warm invocation fails. Initial setup cost is recorded
 separately and must be judged from the managed receipt.
@@ -88,7 +89,8 @@ tool setup and external cache daemons. The warm build reported `Fresh ghostty-vt
 Repeated checks and the restored original passed. Extra render work exceeded all
 four budgets and exited 1; no-op primary and alternate updates failed final-frame
 assertions and exited 101. These results establish the detector's native behavior;
-target-artifact portability across jobs and physical-device calibration remain pending.
+target-artifact portability is covered by the separate receipt below.
+Physical-device calibration remains pending.
 
 Read the job with `cmux-ci status 2978cff4b2873d8e3b2af071`. To smoke-test the real
 receipt importer without writing to the ledger:
@@ -98,3 +100,29 @@ scripts/bench/cmux-bench phone-default-speed \
   --import scripts/bench/tests/fixtures/phone-default-speed/check.log \
   --build e2e5d1978520074bd0d568ac1751ffd2a92590a0 --no-ledger --json
 ```
+
+## Cross-job target reuse receipt
+
+[portability-receipt.json](portability-receipt.json) records producer
+`93aa307772bd630b08cbe116` and consumer `cdb7df4c2d52289bf3200a41` at
+[`7498893c03c60b057c33bc59c1ae79be69ad374d`](https://github.com/manaflow-ai/cmux/commit/7498893c03c60b057c33bc59c1ae79be69ad374d).
+They ran on separate managed Linux workers with identical paths, compiler and
+environment. The producer used the production metadata-aware pruning command
+and source-mtime manifest. Its 56,096,664-byte target archive restored all 65
+native-output and seven retained build-dependency hashes unchanged.
+
+| Command | Wall seconds | CPU seconds |
+| --- | ---: | ---: |
+| Producer cold build | 188.476 | 411.332 |
+| Consumer source-only fetch | 3.722 | 2.414 |
+| Consumer first offline build | 2.068 | 5.190 |
+
+The consumer populated Cargo sources with `cargo fetch --locked --target
+x86_64-unknown-linux-gnu` before restoring the target; this preparation did not
+create a target or change Cargo.lock. Its first build used `--offline`, reported
+`Fresh ghostty-vt-sys` and `Fresh cmux-transport-rewrite`, and preserved both hash
+sets. The whole consumer worker took 22.389 seconds, excluding queue and input
+transfer. This proves target reuse with the stated source-cache prerequisite;
+it does not establish cold-registry behavior or production R2 cache publication.
+Retrieve either job's artifact with `cmux-ci artifact JOB OUTPUT` to inspect the
+full logs and hash manifests.
