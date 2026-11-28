@@ -28,8 +28,7 @@ import Testing
                                             style: .chrome, metrics: metrics)
         let halfBar = TabLayoutEngine.layout(items: items, availableWidth: paneWidth - cap, style: .chrome, metrics: metrics)
         for (tab, squeezed) in zip(fitted.slots, halfBar.slots) {
-            #expect(tab.width <= metrics.maxTabWidth, "a tab never exceeds its max width")
-            #expect(tab.width > squeezed.width || tab.width == metrics.maxTabWidth, "\(tab.width) vs \(squeezed.width)")
+            #expect(tab.width > squeezed.width, "\(tab.width) vs \(squeezed.width)")
         }
     }
 
@@ -39,5 +38,16 @@ import Testing
         view.show([], zoomed: true, reserving: 3)
         #expect(view.paneWidth(in: 600, sharing: false) == view.intrinsicContentSize.width)
         #expect(view.intrinsicContentSize.width > view.tabRowWidth)
+    }
+}
+
+@Suite struct TabRowFillsStripTests {
+    /// Lawrence and Leo, 2026-11-28: a roomy row leaves no blank space past the last tab.
+    @Test func roomyRowFillsTheStrip() {
+        let metrics = TabStripMetrics.standard
+        let items = (0..<3).map { TabLayoutItem(id: TabID("t\($0)")) }
+        let width = metrics.maxTabWidth * 6
+        let result = TabLayoutEngine.layout(items: items, availableWidth: width, style: .chrome, metrics: metrics)
+        #expect(abs(result.contentWidth - width) < 1, "\(result.contentWidth) vs \(width)")
     }
 }

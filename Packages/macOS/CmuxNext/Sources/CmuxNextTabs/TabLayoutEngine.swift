@@ -143,7 +143,8 @@ public struct TabLayoutEngine {
         guard count > 0 else { return .none }
         if style == .compact { return .each(metrics.compactTabWidth) }
         let ideal = available / CGFloat(count)
-        if ideal >= metrics.maxTabWidth { return .each(metrics.maxTabWidth) }
+        // Tabs stretch to fill the row (no max-width cap): a capped row left the strip's right side blank
+        // past the + (Lawrence and Leo 2026-11-28, "so much dead space on the right").
         // Crowded: every tab shrinks evenly down to the inactive minimum, then the strip scrolls.
         // The selected tab gets no larger share (Chrome's active minimum): a selection never
         // moves or resizes a tab (Lawrence 2026-10-19). A narrow selected tab shows its x and
