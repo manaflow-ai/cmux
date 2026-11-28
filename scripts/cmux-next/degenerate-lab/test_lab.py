@@ -124,6 +124,21 @@ class Jobs(unittest.TestCase):
         self.assertIn("LAB-FAIL daemon x0.1 idle: god attach p95 over budget", fails)
         self.assertTrue(all(len(line) <= lab.LOG_LINE for line in fails))
 
+    def test_a_killed_compiler_names_its_signal(self):
+        """Runs 46145570589, 46148652685: rustc was SIGKILLed and the job log showed only warnings."""
+        died = ("  process didn't exit successfully: `/home/runner/.rustup/toolchains/x/bin/rustc --crate-name acpmux "
+                + "--extern a=b " * 400 + "` (signal: 9, SIGKILL: kill)")
+        log = "\n".join(["warning: unused"] * 40 + ["error: could not compile `acpmux` (lib test)", "", "Caused by:", died])
+        lines = lab.failure_lines(101, log)
+        self.assertEqual(lines[1], "process didn't exit successfully: rustc (signal: 9, SIGKILL: kill)")
+        out = lab.result_lines({"part": "chat", "scale": 0.02, "load": "idle", "exit": 101, "failure": lines})
+        self.assertIn("LAB-FAIL chat x0.02 idle: process didn't exit successfully: rustc (signal: 9, SIGKILL: kill)", out)
+
+    def test_the_lab_build_fits_a_pool_slot(self):
+        env = lab.cargo_env(lab.argparse.Namespace(target_dir=None, out=tempfile.mkdtemp()))
+        self.assertEqual(env["CARGO_PROFILE_RELEASE_LTO"], "off")
+        self.assertEqual(env["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"], "16")
+
     def test_the_plan_is_one_job_per_part_scale_and_load(self):
         jobs = lab.plan(lab.PRESETS["nightly"])
         names = [j["name"] for j in jobs]
