@@ -158,8 +158,7 @@ impl OAuth {
         if let Some(client) = self.http.get() {
             return Ok(client);
         }
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = Client::builder()
+        let client = cmux_egress::client_builder("acpmux::subscriptions::oauth")
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(20))
             .build()
