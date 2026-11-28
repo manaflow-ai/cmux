@@ -1291,7 +1291,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "github.allowWorkflows" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "github.allowWorkflows" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "cloud.providers" | "cloud.regions" | "cloud.egress" | "agents.harnesses" | "agents.models" | "projection.folders" | "projection.readOnly" | "projection.syncBack" | "sandbox.local" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -1541,6 +1541,12 @@ export type TeamDomain = {
   readonly check_failures?: number
 }
 
+export type TeamEgress = {
+  readonly mode: "full" | "allowlist" | "none"
+  readonly presets?: ReadonlyArray<"anthropic" | "openai" | "openrouter" | "opencode" | "github" | "npm" | "pypi" | "rust">
+  readonly domains?: ReadonlyArray<string>
+}
+
 /** A team; a personal account is a team of one. */
 export type TeamId = string
 
@@ -1647,6 +1653,42 @@ export type TeamPolicyValues = {
   }
   readonly "cloud.idlePause"?: {
     readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.providers"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.regions"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.egress"?: {
+    readonly value: TeamEgress
+    readonly mode: PolicyMode
+  }
+  readonly "agents.harnesses"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "agents.models"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "projection.folders"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "projection.readOnly"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "projection.syncBack"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "sandbox.local"?: {
+    readonly value: "on" | "required"
     readonly mode: PolicyMode
   }
   readonly "telemetry.level"?: {
