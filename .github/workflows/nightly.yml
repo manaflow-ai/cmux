@@ -156,7 +156,7 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.event.schedule != '17 */6 * * *' && 'nightly-main-tick-decide' || format('nightly-decide-{0}', github.run_id) }}
       cancel-in-progress: false
-    # Main's decide is a keyless metadata job, so it runs on a Linux JIT
+    # Main's decide is a metadata job (a read-only App token at most), so it runs on a Linux JIT
     # runner, never a nightly mini: queued there behind a build, every push's
     # decide waited for the mini and the runs drained in a burst when it freed
     # (2026-11-25: nothing for hours, then four within three minutes).
@@ -223,10 +223,38 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
+      # decide's reads on a second budget. GITHUB_TOKEN draws on the repository's Actions
+      # installation, which every cmux workflow shares; on 2026-11-28 it ran dry minutes into
+      # each hour, so the :19 and :35 ticks' decides waited for the :55 reset (run 46134617044,
+      # `git/ref was refused for the API rate limit; waiting 2139s`), held the one decide slot
+      # 20-47 min, and the next tick cancelled the pending decide behind them (runs 46139321151,
+      # 46140598068): no main build started between 10:57Z and 11:55Z. The glaeda-route App is
+      # another installation with its own hourly budget; a dry route App falls back to
+      # GITHUB_TOKEN as the spare. The same read token promote-nightly-next mints, and
+      # feat-cmux-next's decide has had since #48365. Read-only; only on main's first attempt,
+      # whose decide runs on the App-key JIT label (one-job VM); without it decide waits as before.
+      - name: Mint the quota-isolated read token
+        id: read-token
+        if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Decide whether a nightly build is needed
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          # The other budget: GITHUB_TOKEN when the route App reads (gh_budget_wait.cjs `spare`).
+          SPARE_READ_TOKEN: ${{ steps.read-token.outputs.token && github.token || '' }}
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
           FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'true' || 'false' }}
           BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
@@ -243,8 +271,9 @@ jobs:
           # `0` turns the cap off.
           MAX_IN_FLIGHT: ${{ vars.NIGHTLY_MAIN_MAX_IN_FLIGHT || '3' }}
         with:
+          github-token: ${{ steps.read-token.outputs.token || github.token }}
           script: |
-            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.SPARE_READ_TOKEN ? getOctokit(process.env.SPARE_READ_TOKEN) : undefined });
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
             // A build-only run measures the unsigned arm64 app build (cold
