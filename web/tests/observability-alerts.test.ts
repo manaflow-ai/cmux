@@ -30,8 +30,6 @@ function fakeAlertDb(): ReturnType<typeof cloudDb> {
             limit: async () => [],
           });
         },
-        // The latest guest health snapshot (recentHungEvidence): none, so no VM counts as hung.
-        orderBy: () => ({ limit: async () => [] }),
       }),
     }),
   } as unknown as ReturnType<typeof cloudDb>;
