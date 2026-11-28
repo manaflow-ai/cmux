@@ -382,7 +382,8 @@ mod seeded_tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         cmux_egress::capture::install().unwrap();
         let token = "SEEDvmdHostToken-8e3c";
-        let vmd = VmdProvider::new("https://vmd.seeded.example", token).unwrap();
+        // Not a reserved name (`.example` is local to the gate, so capture would not see it).
+        let vmd = VmdProvider::new("https://vmd.seeded-host.dev", token).unwrap();
         let machine = MachineHandle("m-seeded".into());
         let _ = vmd.pause(&machine).await;
         let _ = vmd.delete(&machine).await;
@@ -391,8 +392,8 @@ mod seeded_tests {
         assert_eq!(
             places,
             [
-                "vmd.seeded.example DELETE /v1/machines/m-seeded: header authorization",
-                "vmd.seeded.example POST /v1/machines/m-seeded/pause: header authorization",
+                "vmd.seeded-host.dev DELETE /v1/machines/m-seeded: header authorization",
+                "vmd.seeded-host.dev POST /v1/machines/m-seeded/pause: header authorization",
             ]
         );
     }
