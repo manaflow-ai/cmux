@@ -100,7 +100,7 @@ permissions:
 # successor waited for them. Not while the preview broker is on: its jobs write the shared development branch and
 # the PR's preview, and a cancel must not cut one short. Pushes keep the shared `-push` group above (never cancelled).
 concurrency:
-  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && (github.event.action == 'closed' && 'closed' || 'run') || github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && (github.event.action == 'closed' && 'closed' || 'run') || github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # A pull request's newer push supersedes its running tests (CI cut 2026-11-24: 12 api-workerd shards kept running for
   # every superseded head); pushes to the base branches each finish. A label that runs nothing gets its own group.
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' && vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED != '1' }}
@@ -1223,6 +1223,14 @@ jobs:
         with:
           path: cmux-tui/target/debug/cmux-tui
           key: ${{ steps.headless-key.outputs.key }}
+      # The target dir's key is the toolchain and the UTC day, not Cargo.lock: feat-cmux-next changed cmux-tui/Cargo.lock
+      # 24 times in the 24 h to 2026-11-28 02:30Z, and each change saved another 1.75 GB entry into the repository's
+      # 10 GB GitHub cache, evicting the rest (every pull request's 18 MB web-bundle entry within ~25 min). One save
+      # a day; a later lock restores the day's entry and cargo rebuilds only what changed.
+      - name: Day of the target-dir cache
+        id: rust-day
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
       - name: Cache the cmux-tui target dir
         id: headless-target
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
@@ -1233,7 +1241,7 @@ jobs:
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}
           cache-workspace-crates: "true"
           # cmux-tui-headless-debug.yml owns this key; read-only here.
           save-if: false
@@ -1263,7 +1271,7 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ steps.headless-target-paths.outputs.paths }}
-          key: v0-rust-cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}-${{ runner.os }}-x64
+          key: v0-rust-cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}-${{ runner.os }}-x64
           restore-keys: |
             v0-rust-cmux-tui-headless-debug-
       - name: Build Linux cmux-tui for the headless journey
@@ -1285,6 +1293,9 @@ jobs:
             binary="target/debug/cmux-tui"
             echo "restored the headless debug cmux-tui for this tree; no build"
           else
+            # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
+            CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+            if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
             cargo build -p cmux-tui --bin cmux-tui --locked
           fi
           test -x "$binary"

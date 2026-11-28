@@ -457,6 +457,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudVmProvisionApi
         | Op::CloudVmPublicationApiKeys
         | Op::CloudVmRevokePublicationApiKey
+        | Op::CloudVmAgentKeyCreate
         | Op::CloudRunsCreate
         | Op::CloudRunsStart
         | Op::CloudRunsWait
@@ -485,6 +486,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudPreviewsRefresh
         | Op::CloudPreviewsCreateLink
         | Op::CloudPreviewsRevokeLink
+        | Op::CloudArtifactsRead
         | Op::CloudMachineChatAccess
         | Op::CloudMachineShareChat
         | Op::CloudMachineChiefStart

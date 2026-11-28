@@ -3,8 +3,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
-import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
-import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -46,6 +44,8 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { RUNNING_TRAY_LINE } = await import("../src/agent-session/acpmux/subagents/subagentSelectors");
+const { SESSION_INFO } = await import("../src/agent-session/acpmux/session-info/sessionInfoSelectors");
 (dom.window as unknown as { matchMedia: unknown }).matchMedia = replacements.matchMedia;
 // jsdom has no layout. A tall viewport mounts every row of this small chat.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });

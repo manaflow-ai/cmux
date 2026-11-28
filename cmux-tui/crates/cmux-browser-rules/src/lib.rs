@@ -10,12 +10,17 @@
 //!   over http (`HTTPSUpgradeFallback`).
 //! - [`calculator`]: the omnibox calculator row's arithmetic and its answer text
 //!   (`OmniboxCalculator`).
+//! - [`input`]: the browser automation's input rules: a driver key's AppKit key event
+//!   (`KeyStroke`, `DOMKeyCodes`) and a driver mouse call's event type (`MouseEventPlan`).
 //! - [`load_waits`], [`cookie_backups`], [`cookies`], [`tab_watcher`]: the browser automation's
 //!   rules (`LoadWaits`, `CookieBackups`, the cookie calls of `WebKitDriver`, `TabWatcher`), ops in
 //!   [`automation_ops`].
 //! - [`driver`], [`frames`]: a driver call's params and deadline, where its new tab opens and a
 //!   tab's frame tree (`DriverParams`, `CallDeadline`, `AutomationTabPlace`, `FrameTree`), ops in
 //!   [`automation_ops`].
+//! - [`page_events`]: a driven tab's console and pageerror events, its JavaScript dialogs, and the
+//!   cookie backup key's Keychain answers (`PageConsole`, `DialogBroker`, `CookieBackupKeys`), ops
+//!   in [`automation_ops`].
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
@@ -29,9 +34,11 @@ pub mod cookie_backups;
 pub mod cookies;
 pub mod driver;
 pub mod frames;
+pub mod input;
 pub mod links;
 pub mod load_waits;
 pub mod ops;
+pub mod page_events;
 pub mod tab_state;
 pub mod tab_watcher;
 
@@ -50,9 +57,13 @@ mod driver_tests;
 #[cfg(test)]
 mod frames_tests;
 #[cfg(test)]
+mod input_tests;
+#[cfg(test)]
 mod links_tests;
 #[cfg(test)]
 mod load_waits_tests;
+#[cfg(test)]
+mod page_events_tests;
 #[cfg(test)]
 mod tab_state_tests;
 #[cfg(test)]

@@ -51,7 +51,7 @@
     },
     {
       "title": "Escape closes the card and returns to the footer",
-      "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "page"}},
+      "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "page", "pane": "{pane}"}},
       "record": true,
       "readback": {"at": "window_kind", "contains": ["chromium_page"]},
       "wait": 1

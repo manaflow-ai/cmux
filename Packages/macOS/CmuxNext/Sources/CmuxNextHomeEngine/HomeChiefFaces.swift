@@ -20,8 +20,16 @@ extension HomeChiefAvatars {
     public static func face(of chief: String, rows: [InboxRow], extra: Set<String>, own: [String: HomeChiefAvatar],
                             picture: (String) -> URL?) -> HomeChiefAvatar? {
         if let face = own[chief] { return face }
-        let listed = chief == defaultChief || extra.contains(chief)
-            || rows.contains { $0.summary.participants.contains { $0.isChief && $0.id.rawValue == chief } }
+        let listed = rows.contains { $0.summary.participants.contains { $0.isChief && $0.id.rawValue == chief } }
+        return face(of: chief, chiefs: listed ? [chief] : [], extra: extra, own: own, picture: picture)
+    }
+
+    /// `face(of:rows:...)` with the listed Chiefs already collected (`HomeStore.chiefIDs`, once per rows
+    /// change): what the sidebar calls per row, so a row costs a set lookup, not a walk of every row.
+    public static func face(of chief: String, chiefs: Set<String>, extra: Set<String>, own: [String: HomeChiefAvatar],
+                            picture: (String) -> URL?) -> HomeChiefAvatar? {
+        if let face = own[chief] { return face }
+        let listed = chief == defaultChief || extra.contains(chief) || chiefs.contains(chief)
         return listed ? picture(chief).map { .picture($0) } : nil
     }
 }

@@ -89,6 +89,44 @@ def test_the_wait_reads_the_publishers_jobs_and_bounds_a_stall() -> None:
         "the runner stall bound must end the wait well before its limit")
 
 
+def test_the_signer_bundle_step_bounds_an_unreadable_runs_list() -> None:
+    # The bundle step runs inside nightly-next-one on the one signing Mac; with a fallback tree in
+    # hand an unreadable runs list must not hold that Mac for the whole bound (2026-11-28, NIGHTLY
+    # 46105117438 held it 1568 s on five "could not all be read" checks).
+    bundle = (ROOT / "scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh").read_text()
+    fallback = bundle.split('tree_used=fallback', 1)[0].rsplit("CMUX_TUI_TREE_CLIENT_FALLBACK", 1)[1]
+    assert 'CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks"' in fallback, (
+        "the fallback-capable wait must set an unreadable-checks limit")
+    limit = re.search(r'CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-(\d+)', bundle)
+    assert limit and 0 < int(limit.group(1)) <= 2, "the signer step's unreadable-checks limit must be 1 or 2"
+    wait = AWAIT.read_text()
+    assert "unreadable_checks >= unreadable_limit" in wait, "the wait must count unreadable checks in a row"
+
+
+def test_the_signer_bundle_step_does_not_wait_out_a_macos_rebuild() -> None:
+    # A publisher rebuilding its failed primary macOS leg lands the tree about 30 min late; with a
+    # fallback tree in hand the signer step must not hold the one signing Mac for it (2026-11-28,
+    # NIGHTLY 46123570780 held it 1869 s, then bundled the fallback tree anyway).
+    bundle = (ROOT / "scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh").read_text()
+    fallback = bundle.split('tree_used=fallback', 1)[0].rsplit("CMUX_TUI_TREE_CLIENT_FALLBACK", 1)[1]
+    assert 'CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends"' in fallback, (
+        "the fallback-capable wait must end on a rebuilding publisher")
+    assert re.search(r'CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-1\}', bundle), "the signer step must default it on"
+    wait = AWAIT.read_text()
+    assert '"$rebuilding" == true && "$rebuild_ends" == 1' in wait, "the wait must end on a rebuild when asked"
+
+
+def test_the_signer_bundle_step_does_not_look_twice_at_a_failed_publisher() -> None:
+    # NIGHTLY 46146914237 (2026-11-28) read "failed build-linux" twice, 254 s apart, on the signing Mac,
+    # then bundled the fallback tree anyway.
+    bundle = (ROOT / "scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh").read_text()
+    fallback = bundle.split('tree_used=fallback', 1)[0].rsplit("CMUX_TUI_TREE_CLIENT_FALLBACK", 1)[1]
+    assert 'CMUX_TUI_TREE_CLIENT_FAILED_ENDS="$failed_ends"' in fallback, (
+        "the fallback-capable wait must end on a failed publisher")
+    assert re.search(r'CMUX_TUI_TREE_CLIENT_FAILED_ENDS:-1\}', bundle), "the signer step must default it on"
+    assert '"$failed_ends" == 1 && "$stuck" == *" is failed "*' in AWAIT.read_text()
+
+
 def test_the_wait_cases_pass_against_fake_runs() -> None:
     missing = [tool for tool in ("bash", "git", "sha256sum") if shutil.which(tool) is None]
     if missing:
@@ -101,7 +139,11 @@ def test_the_wait_cases_pass_against_fake_runs() -> None:
                  "the fallback rebuilds it) keeps the wait", "holds no tree back keeps the wait",
                  "failed owner is passed over", "a preflight with no runner past the stall bound fails fast",
                  "a terminal preflight failure fails fast", "a preflight failure with active retry grace",
-                 "a preflight queued under the stall bound keeps the wait"):
+                 "a preflight queued under the stall bound keeps the wait",
+                 "unreadable runs keep waiting when no limit is set", "unreadable runs end the wait at the set limit",
+                 "a malformed unreadable-checks limit is a usage error",
+                 "a failed publisher ends the wait at its first check", "a failed publisher takes two checks without",
+                 "a malformed failed-ends switch is a usage error"):
         assert any(line.startswith("ok   ") and case in line for line in result.stdout.splitlines()), (case, result.stdout)
 
 

@@ -1,0 +1,12 @@
+{
+  "schema": "acpmux.session.v1",
+  "id": "compacted-short",
+  "name": "compacted-short",
+  "harness": "claude",
+  "family": "claude",
+  "cwd": "/fixture",
+  "status": "idle",
+  "createdAt": 1700000000000,
+  "updatedAt": 1700004589750,
+  "lastSeq": 547
+}

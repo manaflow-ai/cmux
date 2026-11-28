@@ -8,8 +8,10 @@
 // Before: Claude Code names a Write as its block starts, before any input, and the row read the
 // bare "Write" until the call finished; then it read "Edited x.ts" with no counts.
 import { afterEach, expect, test } from "bun:test";
-import { FOLDER, setupText, toolCall, useDom } from "./support/unknownWrite";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
+import { importWithDom } from "./support/importWithDom";
+
+const { FOLDER, setupText, toolCall, useDom } = await importWithDom(() => import("./support/unknownWrite"));
 
 const dom = useDom();
 const PATH = `${FOLDER}/x.ts`;

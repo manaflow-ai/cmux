@@ -751,7 +751,10 @@ function installHost({
   refuseUntilMs,
   bridge,
   rows,
+  trace,
 }: {
+  /// WIRE_TRACE=1: every call the page makes to its host and the answer's first 200 characters, to the console.
+  trace: boolean;
   tail: unknown;
   readyDelayMs: number;
   refuseUntilMs: number;
@@ -814,13 +817,22 @@ function installHost({
         if (!handler || (readyDelayMs <= 0 && refuseUntilMs <= 0 && !bridge && !rows)) continue;
         const post = handler.postMessage.bind(handler);
         const envelope = name === "cmuxPage";
-        handler.postMessage = async (request: {
+        type HostRequest = {
           t?: string;
           id?: unknown;
           method?: string;
           op?: string;
           params?: Record<string, unknown>;
-        }) => {
+        };
+        handler.postMessage = async (request: HostRequest) => {
+          const reply = await answerHost(request);
+          if (trace && !(request.method ?? request.op ?? "").endsWith("transport.send"))
+            console.log(
+              `benchhost ${performance.now().toFixed(0)} ms ${name} ${request.t ?? ""} ${request.method ?? request.op ?? ""} ${JSON.stringify(request.params ?? {}).slice(0, 120)} -> ${String(JSON.stringify(reply)).slice(0, 200)}`,
+            );
+          return reply;
+        };
+        const answerHost = async (request: HostRequest) => {
           if (envelope && request.t !== "call") return post(request);
           const method = (request.method ?? request.op ?? "").replace(/^cmux\.agent\./, "");
           const own = rowsCall(method, request.params) ?? transport(method, request.params);
@@ -1776,20 +1788,6 @@ try {
   releases.push(["browser", () => browser.close()]);
   /// The reopen modes' warm renderer: one context with another chat page open in it for the whole run.
   let warmContext: Awaited<ReturnType<Browser["newContext"]>> | undefined;
-  if (MODES.some(isReopen)) {
-    warmContext = await browser.newContext({ viewport: VIEWPORT });
-    const other = await warmContext.newPage();
-    await other.goto(url);
-    // A chat whose last turn never ended (ROWS_ENDED) streams its last message on this page, which has no
-    // host of the bench's, so it may never draw it whole: a drawn row is enough to keep the renderer warm.
-    await other.waitForFunction(
-      ({ text, anyRow }) =>
-        (document.body.textContent?.includes(text) ?? false) ||
-        (anyRow && document.querySelector(".acpmux-row[data-row-id]") !== null),
-      { text: LATEST, anyRow: !!ROWS_ENDED },
-      { timeout: 120_000, polling: 200 },
-    );
-  }
 
   /// The app host's side of the bridge (Swift AgentPaneTransport) for `page`: `transport.open` opens a
   /// socket to the stand-in from this process and answers once it is open, or `transport.connect_failed`
@@ -1892,6 +1890,7 @@ try {
       readyDelayMs,
       refuseUntilMs,
       bridge: BRIDGE,
+      trace: WIRE_TRACE,
       rows: ROWS_WINDOW
         ? { window: ROWS_WINDOW, delayMs: LINK.rttMs, ended: ends ? ROWS_ENDED : null, endedMs: ROWS_ENDED_MS }
         : null,
@@ -1900,6 +1899,25 @@ try {
     await page.addInitScript({ content: hostScript });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
+
+  // After `prepare`: the warm page is a chat page like the others, with the bench's host. Since the bundle
+  // loads main as the app does (#60624), the host is the init script's only, and a page without it never
+  // opens its socket to the stand-in: it drew the composer alone and every reopen mode waited out 120 s.
+  if (MODES.some(isReopen)) {
+    warmContext = await browser.newContext({ viewport: VIEWPORT });
+    const other = await warmContext.newPage();
+    await prepare(other, null, 600_000);
+    await other.goto(url);
+    // A chat whose last turn never ended (ROWS_ENDED) streams its last message on this page, so it may
+    // never draw it whole: a drawn row is enough to keep the renderer warm.
+    await other.waitForFunction(
+      ({ text, anyRow }) =>
+        (document.body.textContent?.includes(text) ?? false) ||
+        (anyRow && document.querySelector(".acpmux-row[data-row-id]") !== null),
+      { text: LATEST, anyRow: !!ROWS_ENDED },
+      { timeout: 120_000, polling: 200 },
+    );
+  }
 
   /// TRACE=1: the boxes in the page's bottom band (from the composer's top down), by class, so a composer
   /// that sits elsewhere in the copy than on the live page names what stands under or over it.
@@ -1927,17 +1945,53 @@ try {
     try {
       const page = await context.newPage();
       await prepare(page, null, 120_000);
-      await page.goto(url);
-      await page.waitForFunction(
-        (quietMs) => {
-          const recording = (window as unknown as BenchWindow).__firstLoad;
-          return (
-            recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
-          );
-        },
-        SETTLE_QUIET_MS,
-        { timeout: 120_000, polling: 100 },
+      // What the page said while it loaded, printed only when the load never settles: a timeout alone
+      // names no cause.
+      const said: string[] = [];
+      page.on("pageerror", (error) => said.push(`pageerror ${error.message}`));
+      page.on("console", (message) => {
+        if (message.type() === "error" || message.type() === "warning" || message.text().startsWith("benchhost "))
+          said.push(`${message.type()} ${message.text()}`);
+      });
+      page.on("requestfailed", (request) =>
+        said.push(`requestfailed ${request.url()} ${request.failure()?.errorText ?? ""}`),
       );
+      await page.goto(url);
+      await page
+        .waitForFunction(
+          (quietMs) => {
+            const recording = (window as unknown as BenchWindow).__firstLoad;
+            return (
+              recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
+            );
+          },
+          SETTLE_QUIET_MS,
+          { timeout: Number(process.env.WARM_TIMEOUT_MS ?? 120_000), polling: 100 },
+        )
+        .catch(async (error: unknown) => {
+          const state = await page
+            .evaluate(() => {
+              const recording = (window as unknown as BenchWindow).__firstLoad;
+              const root = document.querySelector<HTMLElement>("#root");
+              return {
+                latestAt: recording?.latestAt ?? null,
+                changedAt: recording?.changedAt ?? null,
+                now: performance.now(),
+                rows: document.querySelectorAll(".acpmux-row[data-row-id]").length,
+                root: root ? `${root.childElementCount} children, hidden=${root.hidden}` : "no #root",
+                text: (document.body.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 400),
+                hash: location.hash.slice(0, 200),
+                launch:
+                  (
+                    window as unknown as { cmuxAcpmuxDebug?: { perfStats(): { launch: unknown } } }
+                  ).cmuxAcpmuxDebug?.perfStats().launch ?? null,
+              };
+            })
+            .catch((failed: unknown) => `page state unreadable: ${String(failed)}`);
+          console.log(`WARM never settled: ${JSON.stringify(state)}`);
+          for (const line of said.slice(0, 200)) console.log(`WARM page ${line.slice(0, 600)}`);
+          throw error;
+        });
       await page.addScriptTag({ content: captureScript });
       const written = await page.evaluate((theme) => {
         const w = window as unknown as BenchWindow;

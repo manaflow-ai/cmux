@@ -2131,3 +2131,132 @@ async fn diagnose_per_read_memory() {
     }
     eprintln!("RSS_GROWTH_KIB over {N}: {report:?}");
 }
+
+/// cmuxterm-hq#15806: `acpmux last HOST/NAME` read the turn back page by page, each page at most
+/// 40 KiB through the hub and its own round trip, so a coordinator's long turn ran past the 50 s
+/// a read waits. `_acpmux/last` builds the replies where the log is: one round trip, the same
+/// reply as the pages give.
+#[tokio::test]
+async fn last_reads_a_long_turns_reply_through_the_hub_in_one_round_trip() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "long-turn"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    // One reply of 3000 chunks: the pages read back to its start to know it is whole.
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "chunks: 3000"}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let loopback = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let mesh: Arc<dyn MeshHub> = loopback.clone();
+    let _ = a.mesh.set(mesh);
+    let asks = || loopback.asks.load(std::sync::atomic::Ordering::SeqCst);
+    let key = format!("machine-b/{session}");
+
+    // Before: the pages `acpmux last` read from a daemon without `_acpmux/last`.
+    let mut pages = crate::cli::last_reply::Pages::new(1);
+    while let Some(query) = pages.next_query(&key) {
+        pages.take(&call(&a, method::MUX_EVENTS, query).await);
+    }
+    let paged = pages.replies();
+    let paged_asks = asks();
+    assert_eq!(paged.len(), 1);
+    assert!(paged[0].starts_with("w0 "), "{:?}", paged[0].get(..40));
+    assert!(paged[0].trim_end().ends_with("w2999"), "the paged reply is whole");
+
+    // After: one `_acpmux/last`.
+    let last = call(&a, method::MUX_LAST, json!({"sessionId": key, "count": 1})).await;
+    let last_asks = asks() - paged_asks;
+    eprintln!("hub round trips for last: paged {paged_asks}, _acpmux/last {last_asks}");
+    assert_eq!(last_asks, 1, "_acpmux/last took {last_asks} round trips");
+    assert!(paged_asks > 3, "the long turn paged in {paged_asks} round trips");
+    assert_eq!(last["replies"], json!(paged), "{last}");
+    assert_eq!(last["truncated"], json!(false));
+    assert_eq!((last["peer"].as_str(), last["via"].as_str()), (Some("machine-b"), Some("hub")));
+}
+
+/// An `_acpmux/last` answer fits one hub message whatever its replies hold: the newest reply
+/// keeps the most, each older one at least its start.
+#[test]
+fn last_replies_fit_one_hub_message() {
+    use crate::server::requests::last_fit_for_test as fit;
+    let replies = vec!["a".repeat(30_000), "b".repeat(30_000), "c".repeat(60_000)];
+    let (kept, truncated) = fit(replies, 48 * 1024);
+    assert!(truncated);
+    let total: usize = kept.iter().map(String::len).sum();
+    assert!(total <= 48 * 1024 + 2 * 3, "{total}");
+    assert!(kept[0].len() >= 1022 && kept[1].len() >= 1022, "older replies keep their start");
+    assert!(kept[2].starts_with("ccc") && kept[2].ends_with('…'));
+    let (whole, cut) = fit(vec!["short".into(), "reply".into()], 48 * 1024);
+    assert_eq!((whole, cut), (vec!["short".to_owned(), "reply".to_owned()], false));
+}
+
+#[test]
+fn last_replies_fit_escaped_text_and_fifty_previews() {
+    use crate::server::requests::last_fit_for_test as fit;
+    let controls: String = (0..32).filter_map(char::from_u32).collect();
+    for text in [controls, "\"\\\n\ré🦀".into(), "a".into()] {
+        for count in [1, 3, 50] {
+            let (kept, truncated) = fit(vec![text.repeat(60_000); count], 48 * 1024);
+            assert!(truncated);
+            assert_eq!(kept.len(), count);
+            assert!(kept.iter().all(|reply| reply.ends_with('…')));
+            let bytes = serde_json::to_vec(&kept).unwrap().len();
+            assert!(bytes <= 48 * 1024, "{count} replies serialized to {bytes} bytes");
+        }
+    }
+}
+
+/// The issue's duress shape: 50,000 transcript records and a 400 KB detail. An escaped
+/// answer used to grow beyond the text-only cap and take seven additional hub asks.
+#[tokio::test]
+async fn last_and_info_stay_two_asks_with_fifty_thousand_records() {
+    let b = machine_b();
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": "last-duress"}}}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap();
+    let remote = b.resolve(session).unwrap();
+    for i in 0..50_000 {
+        b.append(&remote, "mux", "user_message", json!({"text": format!("old prompt {i}")}));
+    }
+    let commands: Vec<Value> = (0..3000)
+        .map(|i| json!({"name": format!("command-{i}"), "description": "d".repeat(110)}))
+        .collect();
+    remote.set_available_commands_for_test(json!(commands));
+    let escaped = "\u{0}".repeat(48 * 1024);
+    b.append(
+        &remote,
+        "in",
+        "session_update",
+        json!({"method": "session/update", "params": {"sessionId": session,
+            "update": {"sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": escaped}}}}),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    let info = read(&hub, "machine-b", session, method::MUX_INFO, &json!({})).await.unwrap();
+    let last =
+        read(&hub, "machine-b", session, method::MUX_LAST, &json!({"count": 1})).await.unwrap();
+    assert_eq!(info["sessionId"], session);
+    assert_eq!(last["truncated"], true);
+    let reply = last["replies"][0].as_str().unwrap();
+    assert!(reply.starts_with('\u{0}') && reply.ends_with('…'));
+    assert!(serde_json::to_vec(&last).unwrap().len() <= MAX_READ_RESULT_BYTES);
+    let asks = hub.asks.load(std::sync::atomic::Ordering::SeqCst);
+    eprintln!("last/info duress: 50000 transcript records, 400 KB detail, {asks} hub asks");
+    assert_eq!(asks, 2);
+}

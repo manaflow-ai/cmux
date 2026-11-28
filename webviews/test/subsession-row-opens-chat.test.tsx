@@ -12,12 +12,20 @@ import { readFileSync } from "node:fs";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setPaneLanguage, translatorFor } from "../src/agent-session/acpmux/i18n";
-import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
-import { TaskLines } from "../src/agent-session/acpmux/conversation/TaskLine";
-import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
-import { AgentCard } from "../src/agent-session/acpmux/subagents/AgentCard";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import { importWithDom } from "./support/importWithDom";
+
+const { setPaneLanguage, translatorFor } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { SubsessionCallCard } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/SubsessionCallCard"),
+);
+const { TaskLines } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/TaskLine"));
+const { SubsessionContext, SubsessionStore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subsessions"),
+);
+const { AgentCard } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/AgentCard"));
+const { resetTranscriptDisclosure } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel"),
+);
 
 const t = translatorFor("en");
 const scope = globalThis as Record<string, unknown>;

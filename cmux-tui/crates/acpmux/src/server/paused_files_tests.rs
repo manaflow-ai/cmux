@@ -23,7 +23,9 @@ fn parse_checks_op_machine_and_absolute_paths() {
         json!({"op": "list", "path": "/w"}),
         json!({"op": "list", "machine": "vm", "path": "w"}),
         json!({"op": "search", "machine": "vm", "root": "/w"}),
-        json!({"op": "read", "machine": "vm", "path": "/w"}),
+        json!({"op": "read", "machine": "vm", "path": "w"}),
+        json!({"op": "diff", "machine": "vm"}),
+        json!({"op": "chmod", "machine": "vm", "path": "/w"}),
     ] {
         assert!(parse(&bad).is_err(), "{bad}");
     }
@@ -74,5 +76,57 @@ fn paused_reads_id_is_listed_by_a_new_daemon_and_absent_from_an_old_one() {
             .as_str()
             .unwrap(),
         "acpmux and the cmux protocol name the surface the same"
+    );
+}
+
+#[test]
+fn parse_takes_read_and_diff() {
+    assert_eq!(
+        parse(&json!({"op": "read", "machine": "vm", "path": "/w/a.rs"})).unwrap(),
+        Ask::Read { machine: "vm".into(), path: "/w/a.rs".into() }
+    );
+    assert_eq!(
+        parse(&json!({"op": "diff", "machine": "vm", "root": "/w"})).unwrap(),
+        Ask::Diff { machine: "vm".into(), root: "/w".into() }
+    );
+}
+
+#[test]
+fn read_and_diff_replies_say_whether_they_answered() {
+    assert_eq!(read_reply(Routed::NotPaused)["reason"], json!("notPaused"));
+    assert_eq!(
+        read_reply(Routed::Answered(ReadOutcome::Text("hi".into()))),
+        json!({"answered": true, "found": true, "text": "hi"})
+    );
+    assert_eq!(
+        read_reply(Routed::Answered(ReadOutcome::NotFound)),
+        json!({"answered": true, "found": false})
+    );
+    assert_eq!(read_reply(Routed::NeedsMachine(NeedsMachine::NotText))["reason"], json!("notText"));
+    let captured = diff_reply(Routed::Answered(DiffOutcome::Diff {
+        at_pause: PauseDiff::Captured {
+            text: "--- a/x\n".into(),
+            untracked: vec!["n.txt".into()],
+            untracked_truncated: false,
+        },
+        since_pause: String::new(),
+        changed: vec![],
+        truncated: false,
+    }));
+    assert_eq!(captured["answered"], json!(true));
+    assert_eq!(captured["atPause"], json!("--- a/x\n"));
+    assert_eq!(captured["untrackedAtPause"], json!(["n.txt"]));
+    let missing = diff_reply(Routed::Answered(DiffOutcome::Diff {
+        at_pause: PauseDiff::Missing("notGit"),
+        since_pause: "p".into(),
+        changed: vec!["a".into()],
+        truncated: false,
+    }));
+    assert_eq!(missing["atPauseMissing"], json!("notGit"));
+    assert!(missing.get("atPause").is_none());
+    assert_eq!(missing["changedSincePause"], json!(["a"]));
+    assert_eq!(
+        diff_reply(Routed::Answered(DiffOutcome::NeedsMachine(NeedsMachine::Stale)))["reason"],
+        json!("stale")
     );
 }
