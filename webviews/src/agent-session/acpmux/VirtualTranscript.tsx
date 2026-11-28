@@ -3014,7 +3014,12 @@ function TranscriptView({
             // A flowing drag's rows rewrap every frame at a width they were not placed at: their
             // heights are read once, when the width holds (`endFlow`).
             if (liveResize.current.flow !== undefined || renderedFlowing.current) return;
-            const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
+            // A chat switched away from keeps its rows hidden until the page is idle (`leavingThread`): their
+            // sizes going to none are no report.
+            const targets = (entries ?? [])
+              .map((entry) => entry.target as HTMLElement)
+              .filter((target) => !target.closest(".acpmux-thread-leaving"));
+            if (targets.length === 0) return;
             const measure = () => {
               for (const target of targets) reportRow(target);
             };
@@ -7887,6 +7892,28 @@ function TranscriptView({
     rowRepositories,
     scopeAt,
   });
+  // The chat switched away from keeps its rows, hidden, until the page is idle: their unmount (hook
+  // cleanups, removeChild) left the switch's task, where it held the new chat's first paint.
+  const shownFrames = useRef<{ key: string; frames: React.ReactNode } | undefined>(undefined);
+  const leavingThread = useRef<{ key: string; frames: React.ReactNode } | undefined>(undefined);
+  if (shownFrames.current && shownFrames.current.key !== sessionKey) leavingThread.current = shownFrames.current;
+  shownFrames.current = { key: sessionKey, frames: rowFrames };
+  if (leavingThread.current?.key === sessionKey) leavingThread.current = undefined;
+  const [, dropLeaving] = useState(0);
+  const leavingKey = leavingThread.current?.key;
+  useEffect(() => {
+    if (leavingKey === undefined) return;
+    const drop = () => {
+      leavingThread.current = undefined;
+      dropLeaving((n) => n + 1);
+    };
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(drop, { timeout: 500 });
+      return () => cancelIdleCallback(id);
+    }
+    const id = setTimeout(drop, 100);
+    return () => clearTimeout(id);
+  }, [leavingKey]);
   /// Only a changed length sweeps the mounted rows. A streamed token leaves the length alone, so it
   /// reads no mounted row: a pass over the thread's rows is what `test/transcript-fold-anchor.test.tsx`
   /// counts, and a token during a fold must run none. `[data-row-id]` keeps the write off a fold's
@@ -7964,6 +7991,8 @@ function TranscriptView({
     standIns,
     frameKey,
     thread,
+    threadKey: sessionKey,
+    leavingThread: leavingThread.current,
     pointAt,
     rowFrames,
     afterLatest,

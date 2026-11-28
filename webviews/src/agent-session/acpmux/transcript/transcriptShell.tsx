@@ -141,6 +141,10 @@ export type TranscriptShellDeps = {
   standIns: Parameters<typeof standInElements>[1];
   frameKey: Parameters<typeof standInElements>[3];
   thread: React.RefObject<HTMLDivElement | null>;
+  /** The shown chat: its thread is its own element, so the one switched away from stays mounted beside it. */
+  threadKey: string;
+  /** The chat switched away from, hidden until the page is idle (VirtualTranscript `leavingThread`). */
+  leavingThread: { key: string; frames: React.ReactNode } | undefined;
   pointAt: (target: EventTarget | null) => void;
   rowFrames: React.ReactNode;
   afterLatest: React.ReactNode;
@@ -214,6 +218,8 @@ export function drawTranscriptShell({
   standIns,
   frameKey,
   thread,
+  threadKey,
+  leavingThread,
   pointAt,
   rowFrames,
   afterLatest,
@@ -363,6 +369,7 @@ export function drawTranscriptShell({
                   {standInElements(rows, standIns, layout.geometry, frameKey)}
                 </div>
                 <div
+                  key={`thread:${threadKey}`}
                   ref={thread}
                   className="acpmux-thread"
                   style={{ top: lift + topInset }}
@@ -371,6 +378,11 @@ export function drawTranscriptShell({
                 >
                   {rowFrames}
                 </div>
+                {leavingThread && (
+                  <div key={`thread:${leavingThread.key}`} className="acpmux-thread-leaving" hidden aria-hidden>
+                    {leavingThread.frames}
+                  </div>
+                )}
               </div>
             </TranscriptContext>
           </div>
