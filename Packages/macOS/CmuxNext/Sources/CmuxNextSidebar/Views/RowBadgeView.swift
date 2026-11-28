@@ -71,6 +71,34 @@ final class RowBadgeView: NSView {
         didSet { chips.forEach { $0.backgroundColor = chipColor } }
     }
 
+    /// What the badges say to VoiceOver (`WorkspaceRowView.badgeSummary`), as of the last configure: the words are
+    /// built when an assistive app reads them. A working row's progress tick (4 a second) configures its badge, and
+    /// each configure built the summary's localized, number-formatted parts whether anything read them or not.
+    struct SpokenBadges {
+        var badges: WorkspaceRowBadges
+        /// The stack, which says what it left out; a corner badge shows one glyph and lists every state.
+        var stacked: Bool
+    }
+    /// Set on each configure; nil says nothing (the trailing style, a placeholder row). Each set drops the built words
+    /// (a configure may follow a language change the inputs do not show); the next read builds them once.
+    var spokenBadges: SpokenBadges? {
+        didSet { spokenHelp = nil }
+    }
+    /// The words built for the current inputs: an assistive app that reads the rows over and over builds them once
+    /// per configure, never once per read.
+    private var spokenHelp: String??
+    /// How many times the words were built since launch; tests count them.
+    private(set) var spokenHelpBuilds = 0
+
+    override func accessibilityHelp() -> String? {
+        guard let spokenBadges else { return nil }
+        if let spokenHelp { return spokenHelp }
+        spokenHelpBuilds &+= 1
+        let built = WorkspaceRowView.badgeSummary(spokenBadges.badges, stacked: spokenBadges.stacked)
+        spokenHelp = .some(built)
+        return built
+    }
+
     nonisolated override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
