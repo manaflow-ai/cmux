@@ -567,6 +567,13 @@ final class ShellModel {
             NativeBrowserTabs.shared.macForwardsPrivateHost = { [store] macID in
                 macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.privateHostForwardCapability) ?? false
             }
+            // Open on iPhone's sign-in hand-off, when the Mac's person turned it on.
+            NativeBrowserTabs.shared.siteData = { macID, tab, url in
+                await StreamedBrowserDirectory.shared.siteData(macID: macID, tab: tab, url: url)
+            }
+            NativeBrowserTabs.shared.macHandsSiteData = { [store] macID in
+                macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.siteDataCapability) ?? false
+            }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil

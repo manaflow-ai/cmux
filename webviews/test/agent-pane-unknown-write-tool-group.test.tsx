@@ -6,7 +6,11 @@
 // Before: the line added the Write's whole text, "+10 -1" beside a one-line Edit, and "+18 -0" for
 // two such Writes.
 import { expect, test } from "bun:test";
-import { CARGO, NOTES, PLAN, SETUP, editWithDiff, translatorWrite, useDom } from "./support/unknownWrite";
+import { importWithDom } from "./support/importWithDom";
+
+const { CARGO, NOTES, PLAN, SETUP, editWithDiff, translatorWrite, useDom } = await importWithDom(
+  () => import("./support/unknownWrite"),
+);
 
 const dom = useDom();
 

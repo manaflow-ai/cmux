@@ -319,6 +319,23 @@ def check_lease():
                                         REF="refs/heads/nightly-next", EVENT_NAME=event)
             _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out,
                    f"a nightly-next {event} takes over a key a live {branch} run owns, inside its lease ({out.strip()!r})")
+    # 2026-11-25: nightly-next run 45640205782 could not read owner 45636236995 (a failed feat-cmux-next dispatch),
+    # deferred, and ended green with tree 29e859d3 unpublished. An unread owner is no reason to defer.
+    for event in ("push", "workflow_dispatch"):
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS="fail", REF="refs/heads/nightly-next", EVENT_NAME=event)
+        _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out
+               and "could not be read" in result.stdout and "claim" not in log,
+               f"a nightly-next {event} builds a key whose owner it cannot read ({out.strip()!r}, {result.stdout.strip()[-300:]!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_STATUS="fail", FAKE_BUILDERS="fail", REF="refs/heads/nightly-next")
+    _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out,
+           f"a nightly-next run builds when neither its owner nor the key's builders can be read ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_STATUS="queued", FAKE_OWNER_MINUTES="9", FAKE_BUILDERS="fail",
+                                REF="refs/heads/nightly-next")
+    _check(result.returncode == 0 and "takeover=true" in out and "builder list of tree" in result.stdout,
+           f"a nightly-next run builds when the key's builder list cannot be read ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_STATUS="fail")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out and "claim" in log,
+           f"a feat-cmux-next push with an unread owner still asks the claim, which names a live owner ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_MINUTES="10", FAKE_OWNER_BRANCH="nightly-next", REF="refs/heads/nightly-next")
     _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out,
            f"a nightly-next run still defers to a nightly-next owner inside its lease ({out.strip()!r})")

@@ -121,7 +121,7 @@ public struct UpdateFeedResolver: Sendable {
     /// - Parameter infoFeedURL: The `SUFeedURL` value from the app's `Info.plist`, if any.
     /// - Returns: The resolved URL plus its channel and whether the fallback was used.
     public func resolve(infoFeedURL: String?) -> Resolution {
-        guard let infoFeedURL, !infoFeedURL.isEmpty else {
+        guard let infoFeedURL, Self.isUsableFeedURL(infoFeedURL) else {
             return Resolution(url: fallbackFeedURL, channel: .stable, usedFallback: true)
         }
         let channel = Channel.classify(feedURL: infoFeedURL)
@@ -129,6 +129,16 @@ public struct UpdateFeedResolver: Sendable {
             ? Self.architectureSpecificFeedURL(infoFeedURL, architecture: hostArchitecture)
             : infoFeedURL
         return Resolution(url: url, channel: channel, usedFallback: false)
+    }
+
+    /// Sparkle cannot fetch a feed without an absolute HTTP(S) URL. Treat malformed build-time
+    /// metadata like a missing value so one bad bundle does not permanently lose automatic updates.
+    private static func isUsableFeedURL(_ value: String) -> Bool {
+        guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              url.host != nil else { return false }
+        return true
     }
 
     /// Rewrites a nightly or RC feed URL whose file name is the legacy `appcast.xml` or

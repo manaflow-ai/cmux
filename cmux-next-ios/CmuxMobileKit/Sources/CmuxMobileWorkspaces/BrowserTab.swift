@@ -20,8 +20,19 @@ public final class BrowserTabModel: BrowserTabState {
     public private(set) var title: String = ""
     /// The web view's own history; a problem card is a step of its own (Back clears it).
     private var historyBack = false
-    public var canGoBack: Bool { historyBack || problem != nil }
-    public private(set) var canGoForward = false
+    public var canGoBack: Bool { (pageHistory.isEmpty ? historyBack : historyIndex > 0) || problem != nil }
+    private var historyForward = false
+    public var canGoForward: Bool { pageHistory.isEmpty ? historyForward : historyIndex + 1 < pageHistory.count }
+    private struct PageHistoryEntry {
+        let view: WKWebView
+        let item: WKBackForwardListItem
+    }
+    private var pageHistory: [PageHistoryEntry] = []
+    private var historyIndex = -1
+    @ObservationIgnored private var historySync: Task<Void, Never>?
+    @ObservationIgnored private var awaitingViewCommit = false
+    @ObservationIgnored private var pendingHistoryItem: WKBackForwardListItem?
+    @ObservationIgnored private var nativeHistoryItems: Set<ObjectIdentifier> = []
     public private(set) var isLoading = false
     public private(set) var progress: Double = 1
     public private(set) var snapshot: UIImage?
@@ -30,7 +41,10 @@ public final class BrowserTabModel: BrowserTabState {
     /// Why the phone's page shows no page (a tab opened on the iPhone from the Mac):
     /// an address only the Mac can open, or a host this iPhone could not reach.
     public private(set) var problem: Problem?
-    @ObservationIgnored public let webView: WKWebView
+    public private(set) var webView: WKWebView
+    @ObservationIgnored private let ordinaryWebView: WKWebView
+    @ObservationIgnored private var proxyWebView: WKWebView?
+    @ObservationIgnored private let proxyStoreIdentifier: UUID
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     /// The page's address changed (a tab opened on the iPhone remembers where it is).
     @ObservationIgnored var urlChanged: (@MainActor (URL) -> Void)?
@@ -59,10 +73,23 @@ public final class BrowserTabModel: BrowserTabState {
     @ObservationIgnored private(set) var macFile: URL?
     @ObservationIgnored private var macFileRead: Task<Void, Never>?
     @ObservationIgnored private var forwardingLoad: Task<Void, Never>?
+    @ObservationIgnored private var navigationGeneration: UInt = 0
+
+    /// Invalidates pending policy decisions when another navigation or mirroring wins.
+    @discardableResult
+    func beginNavigation(preservingHistory: Bool = false) -> UInt {
+        if !preservingHistory, pendingHistoryItem != nil {
+            pendingHistoryItem = nil
+            awaitingViewCommit = false
+        }
+        navigationGeneration &+= 1
+        return navigationGeneration
+    }
+
+    func isCurrentNavigation(_ generation: UInt) -> Bool { navigationGeneration == generation }
     /// Opened on the iPhone from a Mac's page: the Mac's own addresses (`localhost`)
     /// are not loaded here, and an unreachable host says so.
     @ObservationIgnored private var guardian: MacAddressGuard?
-    @ObservationIgnored private let websiteDataStore: WKWebsiteDataStore
     @ObservationIgnored private var privateProxyRoutes: [LocalhostForwarder.Target: LocalhostForwarder.ProxyRoute] = [:]
 
     public struct Problem: Equatable {
@@ -87,16 +114,10 @@ public final class BrowserTabModel: BrowserTabState {
     }
 
     public init(url: URL?, guardsMacAddresses: Bool = false, storeIdentifier: UUID? = nil) {
-        let configuration = WKWebViewConfiguration()
-        let store = storeIdentifier.map(WKWebsiteDataStore.init(forIdentifier:)) ?? .default()
-        configuration.websiteDataStore = store
-        configuration.allowsInlineMediaPlayback = true
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 402, height: 874), configuration: configuration)
-        websiteDataStore = store
-        webView.allowsBackForwardNavigationGestures = true
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
-        webView.isOpaque = false
-        webView.backgroundColor = .systemBackground
+        let ordinary = Self.makeWebView(store: .default())
+        ordinaryWebView = ordinary
+        webView = ordinary
+        proxyStoreIdentifier = storeIdentifier ?? UUID()
         self.url = url
         if guardsMacAddresses {
             let guardian = MacAddressGuard(model: self)
@@ -107,9 +128,41 @@ public final class BrowserTabModel: BrowserTabState {
         if let url { load(url) }
     }
 
+    private static func makeWebView(store: WKWebsiteDataStore) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = store
+        configuration.allowsInlineMediaPlayback = true
+        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 402, height: 874), configuration: configuration)
+        view.allowsBackForwardNavigationGestures = true
+        view.scrollView.contentInsetAdjustmentBehavior = .never
+        view.isOpaque = false
+        view.backgroundColor = .systemBackground
+        return view
+    }
+
+    /// A proxy configuration belongs to its data store. Ordinary pages retain the
+    /// shared store and history; private pages never install routes in that store.
+    private func activate(_ view: WKWebView) {
+        guard webView !== view else { return }
+        webView.stopLoading()
+        webView.pauseAllMediaPlayback()
+        observations.removeAll()
+        // The retained view initially still points at its old page. Do not move
+        // the bridge cursor there while a new navigation is replacing it.
+        awaitingViewCommit = true
+        webView = view
+        view.navigationDelegate = guardian
+        snapshot = nil
+        observe()
+    }
+
+    func activateOrdinaryPage() { activate(ordinaryWebView) }
+
     /// Loads an address; on a page opened from the Mac, one only the Mac can open
     /// shows why instead.
     public func load(_ target: URL) {
+        let generation = beginNavigation()
+        ownLoad = nil
         let reach = PhoneReach(target)
         forwardingLoad?.cancel()
         forwardingLoad = nil
@@ -120,6 +173,7 @@ public final class BrowserTabModel: BrowserTabState {
             return
         }
         macFile = nil
+        if reach != .privateNetwork { activateOrdinaryPage() }
         if guardian != nil, reach == .macOnly {
             refuse(target)
             return
@@ -137,8 +191,9 @@ public final class BrowserTabModel: BrowserTabState {
             url = target
             urlChanged?(target)
             forwardingLoad = Task { @MainActor [weak self] in
-                guard let self, await self.preparePrivateHostRoute(target), !Task.isCancelled else {
-                    if let self, !Task.isCancelled { self.refuse(target) }
+                guard let self, self.isCurrentNavigation(generation), await self.preparePrivateHostRoute(target), !Task.isCancelled,
+                      self.isCurrentNavigation(generation) else {
+                    if let self, !Task.isCancelled, self.isCurrentNavigation(generation) { self.refuse(target) }
                     return
                 }
                 self.webView.load(URLRequest(url: target))
@@ -155,6 +210,7 @@ public final class BrowserTabModel: BrowserTabState {
     /// An HTML file on the Mac: its bytes come over the link and load here as a page
     /// (relative images and scripts beside it stay on the Mac; a self-contained report shows whole).
     private func loadMacFile(_ target: URL, read: @escaping @MainActor (URL) async throws -> String) {
+        activateOrdinaryPage()
         problem = nil
         macFile = target
         url = target
@@ -199,17 +255,34 @@ public final class BrowserTabModel: BrowserTabState {
 
     /// Installs a named-host route while leaving the original URL request intact.
     func preparePrivateHostRoute(_ target: URL) async -> Bool {
-        guard let preparePrivateHost, let route = await preparePrivateHost(target), !Task.isCancelled else { return false }
+        let generation = navigationGeneration
+        guard let preparePrivateHost, let route = await preparePrivateHost(target), !Task.isCancelled,
+              isCurrentNavigation(generation) else { return false }
+        if proxyWebView == nil {
+            proxyWebView = Self.makeWebView(store: WKWebsiteDataStore(forIdentifier: proxyStoreIdentifier))
+        }
+        guard let proxyWebView else { return false }
         privateProxyRoutes[route.target] = route
-        websiteDataStore.proxyConfigurations = privateProxyRoutes.values.map(\.configuration)
+        // A host shares one CONNECT endpoint across its allowed destination ports.
+        let hosts = Dictionary(grouping: privateProxyRoutes.values, by: { $0.target.host })
+        proxyWebView.configuration.websiteDataStore.proxyConfigurations = hosts.values.compactMap { $0.first?.configuration }
+        activate(proxyWebView)
         return true
     }
 
     /// Stops loading and media behind the mirror (the page stays for the next visit).
     func pause() {
+        beginNavigation()
+        ownLoad = nil
         webView.stopLoading()
         webView.pauseAllMediaPlayback()
         forwardingLoad?.cancel()
+        privateProxyRoutes.removeAll()
+        proxyWebView?.configuration.websiteDataStore.proxyConfigurations = []
+    }
+
+    func hasPrivateRoute(_ target: URL) -> Bool {
+        PhoneReach.forwardingTarget(target).map { privateProxyRoutes[$0] != nil } ?? false
     }
 
     private func observe() {
@@ -217,12 +290,13 @@ public final class BrowserTabModel: BrowserTabState {
             observations.append(webView.observe(path, options: [.initial, .new]) { [weak self] web, _ in
                 let value = web[keyPath: path]
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    guard let self, self.webView === web else { return }
                     apply(self, value)
                 }
             })
         }
         watch(\.url) { model, value in
+            model.scheduleHistorySync()
             // A card keeps the address that failed in the bar (as Safari does); WebKit
             // puts its own back on the last page that loaded.
             guard let value, model.problem == nil else { return }
@@ -235,8 +309,14 @@ public final class BrowserTabModel: BrowserTabState {
             model.urlChanged?(value)
         }
         watch(\.title) { model, value in model.title = value ?? "" }
-        watch(\.canGoBack) { model, value in model.historyBack = value }
-        watch(\.canGoForward) { model, value in model.canGoForward = value }
+        watch(\.canGoBack) { model, value in
+            model.historyBack = value
+            model.scheduleHistorySync()
+        }
+        watch(\.canGoForward) { model, value in
+            model.historyForward = value
+            model.scheduleHistorySync()
+        }
         watch(\.isLoading) { model, value in model.isLoading = value }
         watch(\.estimatedProgress) { model, value in model.progress = value }
     }
@@ -253,12 +333,104 @@ public final class BrowserTabModel: BrowserTabState {
             return
         }
         personNavigated?()
-        _ = webView.goBack()
+        if !awaitingViewCommit { reconcileHistory() }
+        if pageHistory.isEmpty { _ = webView.goBack() }
+        else { visitHistory(at: historyIndex - 1) }
     }
 
     public func goForward() {
         personNavigated?()
-        _ = webView.goForward()
+        if !awaitingViewCommit { reconcileHistory() }
+        if pageHistory.isEmpty { _ = webView.goForward() }
+        else { visitHistory(at: historyIndex + 1) }
+    }
+
+    /// WebKit owns history. Only live back/current/forward items belong in the
+    /// bridge: its size stays bounded by the two views' native history lists.
+    func pageCommitted(in view: WKWebView) {
+        guard view === webView else { return }
+        awaitingViewCommit = false
+        pendingHistoryItem = nil
+        reconcileHistory()
+    }
+
+    /// pushState, replaceState and fragment navigation need no didCommit callback.
+    /// Coalesce WebKit's URL/back/forward KVO, after it updates the native lists.
+    private func scheduleHistorySync() {
+        guard historySync == nil else { return }
+        // task-owner: one coalesced history read for this tab, no polling
+        historySync = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.historySync = nil
+            if let target = self.pendingHistoryItem, self.webView.backForwardList.currentItem === target {
+                self.pendingHistoryItem = nil
+                self.awaitingViewCommit = false
+            }
+            if !self.awaitingViewCommit { self.reconcileHistory() }
+        }
+    }
+
+    private func reconcileHistory() {
+        let selected = pageHistory.indices.contains(historyIndex) ? pageHistory[historyIndex] : nil
+        var live = Set<ObjectIdentifier>()
+        for view in [ordinaryWebView, proxyWebView].compactMap({ $0 }) {
+            let list = view.backForwardList
+            for item in list.backList + [list.currentItem].compactMap({ $0 }) + list.forwardList {
+                live.insert(ObjectIdentifier(item))
+            }
+        }
+        let previouslyNative = nativeHistoryItems
+        nativeHistoryItems = live
+        pageHistory.removeAll { !live.contains(ObjectIdentifier($0.item)) }
+        historyIndex = selected.flatMap { selected in
+            pageHistory.firstIndex { $0.view === selected.view && $0.item === selected.item }
+        } ?? min(historyIndex, pageHistory.count - 1)
+        guard let item = webView.backForwardList.currentItem else { return }
+        if let index = pageHistory.firstIndex(where: { $0.view === webView && $0.item === item }) {
+            historyIndex = index
+            return
+        }
+        // A new item discards global Forward, just as a new native navigation
+        // does. Include any same-document items batched into this KVO delivery.
+        pageHistory = Array(pageHistory.prefix(historyIndex + 1))
+        let known = Set(pageHistory.map { ObjectIdentifier($0.item) })
+        for entry in webView.backForwardList.backList + [item] {
+            let identity = ObjectIdentifier(entry)
+            // An old native entry may have been discarded from global Forward
+            // while its inactive view retained it. Never resurrect that branch.
+            guard !known.contains(identity), entry === item || !previouslyNative.contains(identity) else { continue }
+            pageHistory.append(PageHistoryEntry(view: webView, item: entry))
+        }
+        historyIndex = pageHistory.count - 1
+    }
+
+    private func visitHistory(at index: Int) {
+        guard pageHistory.indices.contains(index) else { return }
+        let entry = pageHistory[index]
+        let generation = beginNavigation()
+        forwardingLoad?.cancel()
+        // task-owner: a history traversal, cancelled by the next load or traversal
+        forwardingLoad = Task { @MainActor [weak self] in
+            guard let self, self.isCurrentNavigation(generation) else { return }
+            if entry.view === self.proxyWebView {
+                guard await self.preparePrivateHostRoute(entry.item.url), !Task.isCancelled else { return }
+            }
+            guard !Task.isCancelled, self.isCurrentNavigation(generation) else { return }
+            self.historyIndex = index
+            self.activate(entry.view)
+            if entry.view.backForwardList.currentItem !== entry.item {
+                self.awaitingViewCommit = true
+                self.pendingHistoryItem = entry.item
+                self.ownLoad = entry.item.url
+                entry.view.go(to: entry.item)
+            } else {
+                self.awaitingViewCommit = false
+                self.ownLoad = nil
+                self.url = entry.item.url
+                self.urlChanged?(entry.item.url)
+            }
+        }
     }
     public func reloadOrStop() {
         if isLoading {
@@ -325,7 +497,7 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
     /// Same scheme, host and port.
     static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
         a.scheme?.lowercased() == b.scheme?.lowercased() && a.host()?.lowercased() == b.host()?.lowercased()
-            && PhoneReach.port(a) == PhoneReach.port(b)
+            && PhoneReach.portForAddress(a) == PhoneReach.portForAddress(b)
     }
 
     /// What a page loads itself; anything else belongs to another app.
@@ -337,21 +509,42 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             decisionHandler(.allow)
             return
         }
+        guard let model, model.webView === webView else {
+            decisionHandler(.cancel)
+            return
+        }
+        let generation = model.beginNavigation(preservingHistory: action.navigationType == .backForward)
         // A tap or Back/Forward; a form a page submits by itself (a sign-in step) is not the person's.
-        if [.linkActivated, .backForward].contains(action.navigationType) { model?.personNavigated?() }
+        if [.linkActivated, .backForward].contains(action.navigationType) { model.personNavigated?() }
         let reach = PhoneReach(target)
-        if reach == .privateNetwork, let model, model.preparePrivateHost != nil {
+        if reach == .privateNetwork, model.preparePrivateHost != nil {
+            let own = model.ownLoad.map { Self.sameOrigin($0, target) } ?? false
+            model.ownLoad = nil
+            let source = (action.sourceFrame as WKFrameInfo?)?.request.url
+            guard Self.admitsPrivateNavigation(target: target, own: own, source: source,
+                                              isOpen: model.hasPrivateRoute(target), type: action.navigationType) else {
+                model.refuse(target, detail: String(localized: "A page tried to open \(WorkspaceTabsSource.addressLabel(target)). Type it in the address bar to open it on this iPhone, or mirror it from the Mac."))
+                decisionHandler(.cancel)
+                return
+            }
             Task { @MainActor in
-                guard await model.preparePrivateHostRoute(target) else {
-                    model.refuse(target, detail: String(localized: "This private host could not be reached through the Mac."))
+                guard model.isCurrentNavigation(generation), await model.preparePrivateHostRoute(target),
+                      model.isCurrentNavigation(generation) else {
+                    if model.isCurrentNavigation(generation) { model.refuse(target, detail: String(localized: "This private host could not be reached through the Mac.")) }
                     decisionHandler(.cancel)
                     return
                 }
-                decisionHandler(.allow)
+                if model.webView !== webView {
+                    decisionHandler(.cancel)
+                    model.ownLoad = target
+                    model.webView.load(action.request)
+                } else {
+                    decisionHandler(.allow)
+                }
             }
             return
         }
-        if reach == .macLoopback, let model, let policy = model.loopbackPolicy, let forward = model.forwardLoopback {
+        if reach == .macLoopback, let policy = model.loopbackPolicy, let forward = model.forwardLoopback {
             if case .macOnly(let detail) = policy(target) {
                 model.refuse(target, detail: detail)
                 decisionHandler(.cancel)
@@ -375,9 +568,19 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             // The Mac's dev server: this iPhone's listener on the port must be up first.
             // task-owner: one navigation's decision; WebKit waits for it
             Task { @MainActor in
-                switch await forward(target) {
+                guard model.isCurrentNavigation(generation) else { decisionHandler(.cancel); return }
+                let result = await forward(target)
+                guard model.isCurrentNavigation(generation) else { decisionHandler(.cancel); return }
+                switch result {
                 case .forwarded:
-                    decisionHandler(.allow)
+                    model.activateOrdinaryPage()
+                    if model.webView !== webView {
+                        decisionHandler(.cancel)
+                        model.ownLoad = target
+                        model.webView.load(action.request)
+                    } else {
+                        decisionHandler(.allow)
+                    }
                 case .macOnly(let detail):
                     model.refuse(target, detail: detail)
                     decisionHandler(.cancel)
@@ -386,14 +589,14 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             return
         }
         // A link to another HTML file on the Mac: read over the link like the first one.
-        if reach == .macOnly, BrowserPagePlacement.isMacHTMLFile(target), let model, model.readMacHTML != nil {
+        if reach == .macOnly, BrowserPagePlacement.isMacHTMLFile(target), model.readMacHTML != nil {
             decisionHandler(.cancel)
             model.personNavigated?()
             model.load(target)
             return
         }
         if reach == .macOnly || reach == .macLoopback {
-            model?.refuse(target)
+            model.refuse(target)
             decisionHandler(.cancel)
             return
         }
@@ -404,7 +607,21 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             if action.navigationType == .linkActivated { UIApplication.shared.open(target) }
             return
         }
+        if ["http", "https"].contains(scheme) {
+            model.activateOrdinaryPage()
+            if model.webView !== webView {
+                decisionHandler(.cancel)
+                model.webView.load(action.request)
+                return
+            }
+        }
         decisionHandler(.allow)
+    }
+
+    static func admitsPrivateNavigation(target: URL, own: Bool, source: URL?, isOpen: Bool,
+                                        type: WKNavigationType) -> Bool {
+        own || isOpen || source.map { sameOrigin($0, target) } == true
+            || [.linkActivated, .backForward].contains(type)
     }
 
     /// A Mac dev server on `https://localhost:<port>` with its own certificate (self-signed,
@@ -432,18 +649,24 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
         return isForwarded(url)
     }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        model?.pageCommitted(in: webView)
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        // A navigation this guard let through (Back from a refused address too): the page shows again.
-        model?.clearProblem()
+        // Inactive retained views must not change the active page's state.
+        guard let model, model.webView === webView else { return }
+        model.clearProblem()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        guard let model, model.webView === webView else { return }
         let error = error as NSError
         // A navigation replaced by the next one, or one this guard cancelled.
         guard error.domain != NSURLErrorDomain || error.code != NSURLErrorCancelled,
               !(error.domain == "WebKitErrorDomain" && error.code == 102) else { return }
         let failed = (error.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ?? webView.url
-        if let failed { model?.unreachable(failed, error) }
+        if let failed { model.unreachable(failed, error) }
     }
 }
 
@@ -465,12 +688,25 @@ struct BrowserPage: UIViewRepresentable {
         web.frame = container.bounds
         web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.addSubview(web)
+        context.coordinator.installedWebView = web
         context.coordinator.attach(web.scrollView)
         return container
     }
 
     func updateUIView(_ container: UIView, context: Context) {
-        let scroll = model.webView.scrollView
+        let web = model.webView
+        if web.superview !== container {
+            if let previous = context.coordinator.installedWebView, previous.superview === container {
+                previous.removeFromSuperview()
+            }
+            web.removeFromSuperview()
+            web.frame = container.bounds
+            web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            container.addSubview(web)
+            context.coordinator.installedWebView = web
+            context.coordinator.attach(web.scrollView)
+        }
+        let scroll = web.scrollView
         let inset = UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0)
         if scroll.contentInset != inset {
             let atTop = scroll.contentOffset.y <= -scroll.contentInset.top + 1
@@ -484,6 +720,7 @@ struct BrowserPage: UIViewRepresentable {
 
     @MainActor
     final class Coordinator {
+        weak var installedWebView: WKWebView?
         var report: (@MainActor (CGFloat) -> Void)?
         private var observation: NSKeyValueObservation?
         private var last: CGFloat = 0

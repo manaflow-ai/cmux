@@ -26,8 +26,8 @@ public final class LocalhostForwarder {
     public struct ProxyRoute: Hashable, Sendable {
         public let target: Target
         public let localPort: UInt16
-        fileprivate let username: String
-        fileprivate let password: String
+        let username: String
+        let password: String
 
         /// The Network proxy configuration WebKit installs for this route.
         public var configuration: ProxyConfiguration {
@@ -101,17 +101,22 @@ public final class LocalhostForwarder {
     }
 
     private final class ProxyForward {
-        let target: Target
+        let host: String
+        var ports: Set<UInt16>
         let macID: String?
         let username: String
         let password: String
+        // WebKit retains this endpoint across suspend/resume.
+        var localPort: UInt16?
         var listener: NWListener?
         var binding: Task<Result<UInt16, Failure>, Never>?
         var bindingID: UInt = 0
         var connections: [ObjectIdentifier: NWConnection] = [:]
+        var connectionPorts: [ObjectIdentifier: UInt16] = [:]
 
-        init(target: Target, macID: String?) {
-            self.target = target
+        init(host: String, port: UInt16, macID: String?) {
+            self.host = host
+            self.ports = [port]
             self.macID = macID
             username = UUID().uuidString
             password = UUID().uuidString
@@ -157,7 +162,7 @@ public final class LocalhostForwarder {
     }
 
     private struct ProxyKey: Hashable {
-        let target: Target
+        let host: String
         let macID: String?
     }
 
@@ -212,8 +217,20 @@ public final class LocalhostForwarder {
 
     /// Stops named-host proxy routes no tab uses any longer.
     public func retain(proxies keep: Set<ProxyTarget>) {
-        for key in Array(proxies.keys) where !keep.contains(.init(target: key.target, macID: key.macID)) {
-            stopProxy(key)
+        var retained: [ProxyKey: Set<UInt16>] = [:]
+        for item in keep {
+            guard let host = item.target.host else { continue }
+            retained[ProxyKey(host: host, macID: item.macID), default: []].insert(item.target.port)
+        }
+        for (key, route) in proxies {
+            route.ports.formIntersection(retained[key] ?? [])
+            if route.ports.isEmpty {
+                stopProxy(key)
+            } else {
+                for (id, port) in route.connectionPorts where !route.ports.contains(port) {
+                    route.connections.removeValue(forKey: id)?.cancel()
+                }
+            }
         }
     }
 
@@ -223,26 +240,31 @@ public final class LocalhostForwarder {
     public func proxy(host: String, port: UInt16, macID: String?) async throws(Failure) -> ProxyRoute {
         guard let normalized = Target.normalize(host), port != 0 else { throw .unavailable("bad private host") }
         let target = Target(host: normalized, port: port)
-        let key = ProxyKey(target: target, macID: macID)
+        // WebKit matches domains, not ports: one endpoint serves each host/Mac.
+        let key = ProxyKey(host: normalized, macID: macID)
         let route: ProxyForward
         if let existing = proxies[key] {
             route = existing
+            route.ports.insert(port)
         } else {
-            route = ProxyForward(target: target, macID: macID)
+            route = ProxyForward(host: normalized, port: port, macID: macID)
             proxies[key] = route
         }
         guard !suspended else { throw .unavailable("not connected") }
         let localPort: UInt16
-        if let listener = route.listener, listener.state == .ready, let port = listener.port?.rawValue {
-            localPort = port
-        } else if let binding = route.binding {
+        // Readiness can precede bindProxy committing the stable endpoint. Every
+        // caller must await that commit before handing an address to WebKit.
+        if let binding = route.binding {
             localPort = try await binding.value.get()
+        } else if let listener = route.listener, listener.state == .ready, let port = route.localPort {
+            localPort = port
         } else {
             let (task, bindingID) = startProxyBinding(route, key: key)
             let result = await task.value
             if route.bindingID == bindingID { route.binding = nil }
             localPort = try result.get()
         }
+        guard proxies[key] === route, !suspended, route.ports.contains(port) else { throw .superseded }
         return ProxyRoute(target: target, localPort: localPort, username: route.username, password: route.password)
     }
 
@@ -270,8 +292,12 @@ public final class LocalhostForwarder {
     }
 
     private func bindProxy(_ route: ProxyForward, key: ProxyKey) async throws(Failure) -> UInt16 {
+        if let port = route.localPort { await closedEarlier(port) }
+        guard proxies[key] === route, !suspended, !Task.isCancelled else { throw .superseded }
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        parameters.allowLocalEndpointReuse = route.localPort != nil
+        parameters.requiredLocalEndpoint = .hostPort(
+            host: .ipv4(.loopback), port: route.localPort.flatMap(NWEndpoint.Port.init(rawValue:)) ?? .any)
         let listener: NWListener
         do { listener = try NWListener(using: parameters) }
         catch { throw .unavailable(String(describing: error)) }
@@ -281,12 +307,14 @@ public final class LocalhostForwarder {
                 await self.serveProxy(connection, key: key)
             }
         }
+        // Register before awaiting readiness so suspend/stop cancels a bind in flight.
+        route.listener = listener
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<UInt16, Failure>, Never>) in
             let once = OnceFlag()
-            listener.stateUpdateHandler = { state in
+            listener.stateUpdateHandler = { [weak listener] state in
                 switch state {
                 case .ready where once.take():
-                    continuation.resume(returning: .success(listener.port?.rawValue ?? 0))
+                    continuation.resume(returning: .success(listener?.port?.rawValue ?? 0))
                 case .failed(let error) where once.take():
                     continuation.resume(returning: .failure(Self.failure(error)))
                 case .cancelled where once.take():
@@ -296,13 +324,19 @@ public final class LocalhostForwarder {
             }
             listener.start(queue: Self.queue)
         }
-        let port = try result.get()
+        let port: UInt16
+        do { port = try result.get() }
+        catch {
+            listener.cancel()
+            if route.listener === listener { route.listener = nil }
+            throw error
+        }
         guard port != 0, proxies[key] === route, !suspended, !Task.isCancelled else {
             listener.cancel()
             throw .superseded
         }
-        route.listener = listener
-        log.notice("private host proxy \(route.target.host ?? "?", privacy: .public):\(route.target.port, privacy: .public) on \(port, privacy: .public)")
+        route.localPort = port
+        log.notice("private host proxy \(route.host, privacy: .public) on \(port, privacy: .public)")
         return port
     }
 
@@ -363,9 +397,24 @@ public final class LocalhostForwarder {
         for (port, forward) in forwards where forward.isUp { held[port] = .now }
         for (port, forward) in forwards { close(forward.take(), port: port) }
         for route in proxies.values {
+            let binding = route.binding
             route.binding?.cancel()
             route.binding = nil
-            route.listener?.cancel()
+            if let listener = route.listener {
+                if let port = route.localPort, binding == nil {
+                    close([listener], port: port)
+                } else {
+                    listener.cancel()
+                    if let port = route.localPort {
+                        let before = closing[port]
+                        closing[port] = Task {
+                            await before?.value
+                            _ = await binding?.value
+                            await Self.closed(listener)
+                        }
+                    }
+                }
+            }
             route.listener = nil
             for connection in route.connections.values { connection.cancel() }
             route.connections.removeAll()
@@ -501,6 +550,7 @@ public final class LocalhostForwarder {
         route.connections[connectionID] = connection
         defer {
             route.connections.removeValue(forKey: connectionID)
+            route.connectionPorts.removeValue(forKey: connectionID)
             connection.cancel()
         }
         connection.start(queue: Self.queue)
@@ -512,7 +562,11 @@ public final class LocalhostForwarder {
             _ = await Self.send(connection, Data("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
             return
         }
-        guard request.authority.lowercased() == Self.authority(host: route.target.host!, port: route.target.port).lowercased() else {
+        guard proxies[key] === route, !suspended,
+              let separator = request.authority.lastIndex(of: ":"),
+              let port = UInt16(request.authority[request.authority.index(after: separator)...]),
+              route.ports.contains(port),
+              request.authority.lowercased() == Self.authority(host: route.host, port: port).lowercased() else {
             _ = await Self.send(connection, Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
             return
         }
@@ -520,10 +574,12 @@ public final class LocalhostForwarder {
             _ = await Self.send(connection, Data("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"cmux\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
             return
         }
+        let target = Target(host: route.host, port: port)
+        route.connectionPorts[connectionID] = port
         let channel: any LinkChannel
         do {
-            await MainActor.run { self.counts.opened += 1 }
-            channel = try await openHost(route.macID, route.target.host, route.target.port)
+            counts.opened += 1
+            channel = try await openHost(route.macID, route.host, port)
         } catch {
             let linkError = error as? LinkError
             let status = linkError?.code == "forbidden" ? "403 Forbidden" : "502 Bad Gateway"
@@ -531,16 +587,22 @@ public final class LocalhostForwarder {
             let response = "HTTP/1.1 \(status)\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
             _ = await Self.send(connection, Data(response.utf8))
             if let linkError, Self.refusalCodes.contains(linkError.code) {
-                await MainActor.run { self.targetRefusals[route.target] = linkError.message }
+                await MainActor.run { self.targetRefusals[target] = linkError.message }
             }
             return
         }
-        guard proxies[key] === route, !suspended else {
+        guard proxies[key] === route, !suspended, route.ports.contains(port),
+              route.connections[connectionID] === connection else {
             await channel.close(code: "superseded", reason: "")
             return
         }
         guard await Self.send(connection, Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8)) else {
             await channel.close(code: "eof", reason: "")
+            return
+        }
+        guard proxies[key] === route, !suspended, route.ports.contains(port),
+              route.connections[connectionID] === connection else {
+            await channel.close(code: "superseded", reason: "")
             return
         }
         await Self.pumpRaw(connection, channel: channel, initial: remainder)

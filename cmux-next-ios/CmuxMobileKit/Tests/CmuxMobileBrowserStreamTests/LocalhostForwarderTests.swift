@@ -10,15 +10,21 @@ final class FakeLoopbackChannel: LinkChannel, @unchecked Sendable {
     let id: UInt32 = 1
     private let lock = NSLock()
     private var request = Data()
+    private var sentBytes = 0
+    private var closes = 0
+    var sentByteCount: Int { lock.withLock { sentBytes } }
+    var closeCount: Int { lock.withLock { closes } }
     private var replies: AsyncStream<Data>.Continuation
     private let stream: AsyncStream<Data>
     private var iterator: AsyncStream<Data>.Iterator?
     private let body: String?
     private let refusal: LinkError?
+    private let onClose: (@Sendable () -> Void)?
 
     /// `body`: what each request gets; nil with `refusal`: the Mac refused the connection.
-    init(body: String?, refusal: LinkError? = nil) {
+    init(body: String?, refusal: LinkError? = nil, onClose: (@Sendable () -> Void)? = nil) {
         self.body = body
+        self.onClose = onClose
         self.refusal = refusal
         (stream, replies) = AsyncStream<Data>.makeStream()
         iterator = stream.makeAsyncIterator()
@@ -28,6 +34,7 @@ final class FakeLoopbackChannel: LinkChannel, @unchecked Sendable {
     func send(_ data: Data) async throws {
         guard let body else { throw LinkError(code: "closed", message: "closed") }
         let answers: Int = lock.withLock {
+            sentBytes += data.count
             request.append(data)
             var count = 0
             while let end = request.range(of: Data("\r\n\r\n".utf8)) {
@@ -48,7 +55,11 @@ final class FakeLoopbackChannel: LinkChannel, @unchecked Sendable {
         return data
     }
 
-    func close(code: String, reason: String) async { replies.finish() }
+    func close(code: String, reason: String) async {
+        lock.withLock { closes += 1 }
+        replies.finish()
+        onClose?()
+    }
 
     var closedBy: LinkError? { refusal }
 }
@@ -71,6 +82,157 @@ final class OpenLog: @unchecked Sendable {
 /// A native browser tab's `localhost:<port>` reaches the Mac's loopback through
 /// this iPhone's own listener: the request goes over the link, the reply comes back.
 @MainActor @Suite(.serialized) struct LocalhostForwarderTests {
+    @Test(arguments: [0, 1, 2])
+    func anOpenerWithoutForwardingRefusesEverySpelling(form: Int) async {
+        let opener: any BrowserStreamOpening = FakeOpener()
+        do {
+            switch form {
+            case 0: _ = try await opener.openLocalhost(port: 8080)
+            case 1: _ = try await opener.openLocalhost(port: 8080, host: nil)
+            default: _ = try await opener.openLocalhost(port: 8080, host: "dev.internal")
+            }
+            Issue.record("an unsupported opener must refuse forwarding")
+        } catch {
+            #expect((error as? LinkError)?.code == "unknown_service")
+        }
+    }
+
+    @Test func privateProxyKeepsItsCachedEndpointAcrossResume() async throws {
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in FakeLoopbackChannel(body: "private") })
+        defer { forwarder.retain(proxies: []) }
+        let original = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+        for _ in 0..<3 {
+            forwarder.suspend()
+            forwarder.resume()
+            let resumed = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+            #expect(resumed == original, "WebKit's cached endpoint and credentials must remain valid")
+            // A real request reaches the rebound listener; GET is not a CONNECT tunnel.
+            #expect(await fetch(original.localPort)?.status == 400)
+        }
+    }
+
+    @Test(arguments: 0..<8)
+    func privateProxyConcurrentCallersKeepPublishedEndpointAcrossResume(iteration: Int) async throws {
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in FakeLoopbackChannel(body: "private") })
+        defer { forwarder.retain(proxies: []) }
+        let first = Task { try? await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a") }
+        let second = Task {
+            let route = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+            forwarder.suspend()
+            return route
+        }
+        let published = try await second.value
+        _ = await first.value
+        forwarder.resume()
+        let resumed = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+        #expect(resumed == published, "a returned endpoint survives an immediate suspension (iteration \(iteration))")
+        #expect(await fetch(published.localPort)?.status == 400)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func privateProxyRevokedWhileOpeningDoesNotForwardBufferedBytes() async throws {
+        let (closed, signalClosed) = AsyncStream<Void>.makeStream()
+        let channel = FakeLoopbackChannel(body: "private", onClose: { signalClosed.yield(()) })
+        let (opening, signalOpening) = AsyncStream<Void>.makeStream()
+        let (release, releaseOpen) = AsyncStream<Void>.makeStream()
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in
+            signalOpening.yield(())
+            for await _ in release { break }
+            return channel
+        })
+        defer {
+            releaseOpen.finish()
+            signalOpening.finish()
+            signalClosed.finish()
+            forwarder.retain(proxies: [])
+        }
+        let route = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+        let retained = try await forwarder.proxy(host: "dev.internal", port: 9443, macID: "mac-a")
+        let connection = NWConnection(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: route.localPort)!, using: .tcp)
+        connection.start(queue: LocalhostForwarder.queue)
+        defer { connection.cancel() }
+        let auth = Data("\(route.username):\(route.password)".utf8).base64EncodedString()
+        let request = "CONNECT dev.internal:8443 HTTP/1.1\r\nProxy-Authorization: Basic \(auth)\r\n\r\nGET / HTTP/1.1\r\nHost: dev.internal\r\n\r\n"
+        #expect(await LocalhostForwarder.send(connection, Data(request.utf8)))
+        for await _ in opening { break }
+        forwarder.retain(proxies: [.init(target: retained.target, macID: "mac-a")])
+        releaseOpen.yield(())
+        let response = await LocalhostForwarder.receive(connection)
+        #expect(response == nil || response?.isEmpty == true)
+        // Waiting on the channel-close event avoids assuming socket cancellation
+        // means the asynchronous host opener has already returned.
+        for await _ in closed { break }
+        #expect(channel.closeCount > 0)
+        #expect(channel.sentByteCount == 0)
+    }
+
+    @Test func privateProxiesForDifferentMacsHaveDifferentEndpoints() async throws {
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in FakeLoopbackChannel(body: "private") })
+        defer { forwarder.retain(proxies: []) }
+        let first = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+        let second = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-b")
+        #expect(first.localPort != second.localPort)
+        #expect(try await forwarder.proxy(host: "DEV.INTERNAL", port: 8443, macID: "mac-a") == first)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func privateProxyAuthenticatesAndTunnelsOnlyRetainedHostPorts() async throws {
+        let log = OpenLog()
+        let forwarder = LocalhostForwarder(openHost: { macID, host, port in
+            #expect(host == "dev.internal")
+            log.note(macID, port)
+            return FakeLoopbackChannel(body: "private-reply")
+        })
+        defer { forwarder.retain(proxies: []) }
+        let route = try await forwarder.proxy(host: "dev.internal", port: 8443, macID: "mac-a")
+        let auth = Data("\(route.username):\(route.password)".utf8).base64EncodedString()
+
+        func request(_ authority: String, credentials: String?, payload: String = "") async -> String {
+            let connection = NWConnection(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: route.localPort)!, using: .tcp)
+            connection.start(queue: LocalhostForwarder.queue)
+            defer { connection.cancel() }
+            let header = credentials.map { "Proxy-Authorization: Basic \($0)\r\n" } ?? ""
+            let sent = await LocalhostForwarder.send(connection, Data("CONNECT \(authority) HTTP/1.1\r\n\(header)\r\n\(payload)".utf8))
+            guard sent else { return "send failed" }
+            var response = ""
+            while let data = await LocalhostForwarder.receive(connection) {
+                response += String(decoding: data, as: UTF8.self)
+                if payload.isEmpty ? response.contains("\r\n\r\n") : response.contains("private-reply") { break }
+            }
+            return response
+        }
+
+        #expect(await request("other.internal:8443", credentials: auth).hasPrefix("HTTP/1.1 403"))
+        #expect(await request("dev.internal:8443", credentials: nil).hasPrefix("HTTP/1.1 407"))
+        #expect(await request("dev.internal:8443", credentials: "wrong").hasPrefix("HTTP/1.1 407"))
+        #expect(log.all.isEmpty, "rejected requests never open a Mac channel")
+        let tunneled = await request("dev.internal:8443", credentials: auth,
+                                    payload: "GET / HTTP/1.1\r\nHost: dev.internal\r\n\r\n")
+        #expect(tunneled.hasPrefix("HTTP/1.1 200 Connection Established"))
+        #expect(tunneled.contains("private-reply"))
+        #expect(log.all.count == 1)
+        #expect(log.all.first?.macID == "mac-a")
+        #expect(log.all.first?.port == 8443)
+
+        let second = try await forwarder.proxy(host: "DEV.INTERNAL", port: 9443, macID: "mac-a")
+        #expect(second.localPort == route.localPort, "domain-only WebKit matching needs one endpoint for both ports")
+        #expect(second.username == route.username && second.password == route.password)
+        #expect(second.target.port == 9443)
+        let secondReply = await request("dev.internal:9443", credentials: auth,
+                                        payload: "GET / HTTP/1.1\r\nHost: dev.internal\r\n\r\n")
+        #expect(secondReply.contains("private-reply"))
+        #expect(log.all.last?.port == 9443)
+        #expect(log.all.count == 2)
+
+        forwarder.retain(proxies: [.init(target: second.target, macID: "mac-a")])
+        #expect(await request("dev.internal:8443", credentials: auth).hasPrefix("HTTP/1.1 403"))
+        #expect(await request("dev.internal:10443", credentials: auth).hasPrefix("HTTP/1.1 403"))
+        #expect(log.all.count == 2, "removed and never-admitted ports do not open channels")
+        let retainedReply = await request("dev.internal:9443", credentials: auth,
+                                          payload: "GET / HTTP/1.1\r\nHost: dev.internal\r\n\r\n")
+        #expect(retainedReply.contains("private-reply"))
+        #expect(log.all.count == 3)
+        #expect(log.all.last?.port == 9443)
+    }
+
     func fetch(_ port: UInt16, path: String = "/", origin: String? = nil) async -> (status: Int, body: String)? {
         let session = URLSession(configuration: .ephemeral)
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
