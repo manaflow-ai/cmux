@@ -216,7 +216,10 @@ fn a_started_task_forgets_its_key_and_a_failed_one_lets_the_repeat_run() {
 #[test]
 fn the_read_call_follows_the_chats_route() {
     assert_eq!(read_call(Some(&Route::Direct), "t1"), r#"mcp__cmux-agent__bg_output {"id":"t1"}"#);
-    assert_eq!(read_call(Some(&Route::DirectLegacy), "t1"), r#"mcp__acpmux__bg_output {"id":"t1"}"#);
+    assert_eq!(
+        read_call(Some(&Route::DirectLegacy), "t1"),
+        r#"mcp__acpmux__bg_output {"id":"t1"}"#
+    );
     assert_eq!(read_call(Some(&Route::Listed), "t1"), r#"mcp__cmux__acpmux_bg_output {"id":"t1"}"#);
     assert!(read_call(Some(&Route::CodeMode), "t1").contains("cmux.acpmux_bg_output("));
     for route in [Route::Direct, Route::DirectLegacy, Route::Listed, Route::CodeMode] {
@@ -230,15 +233,18 @@ fn the_read_call_follows_the_chats_route() {
 fn the_route_comes_from_the_chats_mcp_config() {
     let direct = json!({"mcpServers": {"cmux-agent": {"command": "acpmux"}}});
     assert_eq!(route(&direct), Some(Route::Direct));
+    // Under its name before the rename, which a person's own entry kept.
     let legacy = json!({"mcpServers": {"acpmux": {"command": "acpmux"}}});
     assert_eq!(route(&legacy), Some(Route::DirectLegacy));
     let ups = json!([{"name": "cmux-agent"}]).to_string();
+    let old_ups = json!([{"name": "acpmux"}]).to_string();
+    let serve_old = json!({"mcpServers": {"cmux": {"args": ["mcp", "serve"],
+        "env": {UPSTREAMS_ENV: old_ups}}}});
+    assert_eq!(route(&serve_old), Some(Route::CodeMode));
     let cmux =
         |args: Value, env: Value| json!({"mcpServers": {"cmux": {"args": args, "env": env}}});
     let serve = json!(["mcp", "serve"]);
     assert_eq!(route(&cmux(serve.clone(), json!({UPSTREAMS_ENV: ups}))), Some(Route::CodeMode));
-    let legacy_ups = json!([{"name": "acpmux"}]).to_string();
-    assert_eq!(route(&cmux(serve.clone(), json!({UPSTREAMS_ENV: legacy_ups}))), Some(Route::CodeMode));
     let all = json!(["mcp", "serve", "--all-tools"]);
     assert_eq!(route(&cmux(all, json!({UPSTREAMS_ENV: ups}))), Some(Route::Listed));
     let allowed =
