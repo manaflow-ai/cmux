@@ -551,11 +551,11 @@ class LandAffectedRouteTest(unittest.TestCase):
     def test_unknown_files_start_the_verdict(self) -> None:
         self.assertIn("pr-pipeline.yml", self.route(None)[0])
 
-    def test_a_landing_head_off_ios_starts_no_verdict(self) -> None:
-        # pr-pipeline.yml may still start for its land-gate steps (ci/steps.toml `land_gate`), never the verdict.
+    def test_a_landing_head_off_ios_starts_no_ios_verdict(self) -> None:
+        self.assertNotIn("pr-pipeline.yml", self.route(["docs/a.md"])[0])
+        # A web head starts pr-pipeline.yml for the nightly gate's web typecheck alone, never the ios fast verdict.
         start, why = self.route(["web/app/page.tsx"])
         self.assertNotIn("ios fast verdict", why.get("pr-pipeline.yml", ""))
-        self.assertEqual(self.router.ios_status(self.event(), ["web/app/page.tsx"], start, "")[0], "success")
 
     def test_a_cheap_head_not_landing_still_waits(self) -> None:
         start, why = self.route([KIT + "Package.swift"], decided=("cheap", "ready head before ready-to-land"))
@@ -706,6 +706,14 @@ class WorkflowTest(unittest.TestCase):
 
     def test_the_runner_script_parses(self) -> None:
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)
+
+    def test_the_kit_tests_are_bounded(self) -> None:
+        # Run 46154061623: a hung kit test held the verdict 1962 s, to near the job's 40 min ceiling.
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        self.assertIn("hung_test_watchdog.py", run)
+        self.assertIn('--timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}"', run)
+        self.assertLess(run.index("hung_test_watchdog.py"), run.index("xcodebuild test"))
 
 
 if __name__ == "__main__":
