@@ -62,6 +62,63 @@ fn ids(modes: &[&str]) -> Vec<String> {
 }
 
 #[test]
+fn gemini_permission_modes_keep_local_policy_and_explicit_launch_choices() {
+    let offered = ids(&["default", "autoEdit", "yolo", "plan"]);
+    for policy in
+        [PermissionPolicy::Ask, PermissionPolicy::ApproveReads, PermissionPolicy::ApproveEdits]
+    {
+        assert_eq!(policy_mode(policy, "gemini", &offered).as_deref(), Some("default"));
+    }
+    assert!(super::super::start_mode::asks("default", "gemini"));
+    for mode in ["autoEdit", "yolo", "plan"] {
+        assert!(!super::super::start_mode::asks(mode, "gemini"));
+    }
+    assert_eq!(policy_mode(PermissionPolicy::Ask, "gemini", &ids(&["yolo"])), None);
+    assert_eq!(policy_mode(PermissionPolicy::Ask, "unknown", &offered), None);
+    assert!(!crate::web_modes::ASKING_MODES.iter().any(|(family, _)| *family == "gemini"));
+    for argv in [
+        ids(&["gemini", "--experimental-acp", "--approval-mode", "default"]),
+        ids(&["gemini", "--acp", "--approval-mode=auto_edit"]),
+    ] {
+        assert!(super::super::start_mode::argv_sets_mode(&argv));
+    }
+    assert!(!super::super::start_mode::argv_sets_mode(&ids(&["gemini", "--acp"])));
+}
+
+#[tokio::test]
+async fn gemini_permission_modes_settle_and_switch_through_the_harness() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"gemini": {
+            "argv": ["python3", fake], "family": "gemini",
+            "env": {"FAKE_GEMINI_MODES": "1", "FAKE_ASK_CLAIM": "0"}
+        }},
+        "defaultHarness": "gemini"
+    }))
+    .unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let session = hub
+        .new_session(NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            policy: Some(PermissionPolicy::Ask),
+            ..NewRequest::default()
+        })
+        .await
+        .expect("Gemini can keep a local asking policy in its default mode");
+    assert_eq!(crate::web_modes::mode_of(&session.meta()).as_deref(), Some("default"));
+    let refused = hub.set_mode(&session, "yolo").await.unwrap_err();
+    assert!(refused.message.contains("permission policy"), "{refused:?}");
+    hub.set_policy(&session, PermissionPolicy::ApproveAll).await;
+    hub.set_mode(&session, "yolo").await.unwrap();
+    assert_eq!(crate::web_modes::mode_of(&session.meta()).as_deref(), Some("yolo"));
+    hub.set_policy(&session, PermissionPolicy::Ask).await;
+    assert_eq!(crate::web_modes::mode_of(&session.meta()).as_deref(), Some("default"));
+    hub.shutdown_all().await;
+}
+
+#[test]
 fn each_policy_maps_onto_a_codex_mode_that_keeps_it() {
     let codex = ids(&["ask", "read-only", "agent", "agent-full-access"]);
     for (policy, mode) in [

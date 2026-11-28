@@ -529,6 +529,28 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     assert_runs_on_pooled_host(&daemon, &third, &pooled_fake);
 }
 
+/// A create's answer says how it got its agent (`_meta.acpmux.startPool`): `cold` when nothing
+/// was pooled for its shape, `warm` when it took the pooled agent, so a Cloud start's
+/// `session_new` phase tells an agent boot from a warm take (goal `cloud-instant-start`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_answer_says_whether_its_agent_came_warm() {
+    let daemon = Daemon::new("startpool", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let create = |harness: &str| json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
+    let cold = rpc.call("session/new", create("fake")).await;
+    assert_eq!(cold["_meta"]["acpmux"]["startPool"], "cold", "{cold}");
+
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let warm = rpc.call("session/new", create("fakeb")).await;
+    let id = warm["sessionId"].as_str().expect("session id");
+    assert!(taken(&daemon, id), "{warm}");
+    assert_eq!(warm["_meta"]["acpmux"]["startPool"], "warm", "{warm}");
+}
+
 /// The one pooled host's record, once an ended entry's record is gone (a read of the pool's
 /// folder lists them in no order).
 async fn one_pool_record(daemon: &Daemon) -> Value {
@@ -875,6 +897,42 @@ async fn a_pooled_claude_pinned_to_manual_is_taken_in_manual() {
     assert!(taken(&daemon, &claimed), "the session came from the pool");
     let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
     assert_eq!(info["modes"]["currentModeId"], "default", "{info}");
+}
+
+/// A pooled Claude Code is warmed before a chat takes it (`claude_stdio::WARM`): one
+/// `side_question` reaches the idle process while it waits, so the person's first prompt does not
+/// pay for its first API call's setup, and the chat that takes it still starts in the pool.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_claude_is_warmed_with_one_side_question_before_it_is_taken() {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let tag = "claudewarm";
+    let log = std::env::temp_dir().join(format!("asp-{tag}-control-{}.log", std::process::id()));
+    let _ = std::fs::remove_file(&log);
+    let fakeb = json!({
+        "kind": "claude-stdio",
+        "family": "claude",
+        "argv": ["python3", fake_claude],
+        "env": {"FAKE_CLAUDE_CONTROL_LOG": log.display().to_string()},
+    });
+    let daemon = Daemon::with_fakeb_proven(tag, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    rpc.prove().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let sides = || {
+        std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| *l == "side_question")
+            .count()
+    };
+    assert_eq!(sides(), 1, "a ready pooled Claude Code was warmed once");
+    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &claimed), "the warmed session came from the pool");
+    let _ = std::fs::remove_file(&log);
 }
 
 /// A Claude Code chat a script makes never takes a pooled Claude Code: the pool started it for

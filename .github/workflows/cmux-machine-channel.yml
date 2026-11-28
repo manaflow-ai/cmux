@@ -95,7 +95,7 @@ permissions:
 concurrency:
   # A pull request's newer head supersedes its build (pr-router.yml cancels its run too). A push is never held
   # as a whole run: its stages wait in the job-level groups below, so a run's journey never holds the next build.
-  group: cmux-machine-channel-${{ github.event_name == 'push' && format('run-{0}', github.run_id) || github.ref }}
+  group: cmux-machine-channel-${{ github.event_name == 'push' && format('run-{0}', github.run_id) || github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -331,6 +331,41 @@ jobs:
           run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$TWIN_RUN" --target x86_64-unknown-linux-musl)" || run=""
           echo "from_run=$run" >> "$GITHUB_OUTPUT"
 
+  # POINT_AT_UPLOAD (scripts/ci/cmux_machine_channel_twin.py): this run's own x86_64 artifact, so point-x86_64 starts
+  # at the upload, not at the end of the build job, whose workspace delta pack and save took 266-356 s more
+  # (4 builds, 09:00-10:18Z 2026-11-28). The wait covers the lane's queue too: 0.5-24.5 min, 12 runs.
+  self-x86_64:
+    name: wait for this run's x86_64 build
+    needs: plan
+    if: ${{ github.event_name == 'push' && needs.plan.outputs.build == 'true' && needs.plan.outputs.from_run == '' && needs.plan.outputs.twin_run == '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      from_run: ${{ steps.wait.outputs.from_run }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Mint the wait's App token
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+      - name: Wait for this run's artifact
+        id: wait
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$GITHUB_RUN_ID" --target x86_64-unknown-linux-musl --wait 3300)" || run=""
+          echo "from_run=$run" >> "$GITHUB_OUTPUT"
+
   # TWIN_BUILD: both Linux artifacts for point-linux, as twin-x86_64.
   twin-linux:
     name: wait for the earlier push's Linux builds
@@ -374,14 +409,18 @@ jobs:
       name: artifacts
       deployment: false
     name: point the Cloud machine channel at this commit's x86_64 Linux build
-    needs: [plan, build-x86_64, twin-x86_64]
+    needs: [plan, twin-x86_64, self-x86_64]
     # One channel writer of this workflow at a time on a push (both points share it); a pull request's run is already one group of its own.
     concurrency:
       group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
-    # This run's build, or the merged PR head's (PR_HEAD_FAST_LANE); a pull request run points nothing.
-    if: ${{ !cancelled() && github.event_name == 'push' && (needs.build-x86_64.result == 'success' || needs.plan.outputs.from_run != '' || needs.twin-x86_64.outputs.from_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # This run's build at its upload (self-x86_64, POINT_AT_UPLOAD), the merged PR head's (PR_HEAD_FAST_LANE) or the twin's; a pull request run points nothing.
+    if: ${{ !cancelled() && github.event_name == 'push' && (needs.self-x86_64.outputs.from_run != '' || needs.plan.outputs.from_run != '' || needs.twin-x86_64.outputs.from_run != '') }}
+    # A pool runner, never Freestyle: `cmux-has-netem` is on every pool VM and on no fsr-* VM (docs/ci/cmux-next-workflow-notes.md
+    # note-206). Run 46098698250 (139abf15, 2026-11-28): on fsr-1795834231-bc4fc1 this job took 7 min of the merge's 25,
+    # checkout 103 s (77,525 files) and the 315 MB artifact 202 s (about 1.5 MB/s); point-linux on cmux-runner-pool-e4a-0261-2
+    # checked out in 13 s and downloaded both 315 MB and 321 MB artifacts in 7 s.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON('["cmux-linux","cmux-has-netem"]') }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -421,7 +460,7 @@ jobs:
           path: assets/cmux-tui
           merge-multiple: true
           # PR_HEAD_FAST_LANE: the merged PR head's pr-router run when the plan found one; else this run.
-          run-id: ${{ needs.plan.outputs.from_run || needs.twin-x86_64.outputs.from_run || github.run_id }}
+          run-id: ${{ needs.plan.outputs.from_run || needs.twin-x86_64.outputs.from_run || needs.self-x86_64.outputs.from_run || github.run_id }}
           # A token only for another run's artifacts: with one, download-artifact lists them through the
           # REST API, here on the App's budget above: on the shared GITHUB_TOKEN quota, run 45730730942 (c0374e0b,
           # 01:29Z 2026-11-26) failed both points on "API rate limit exceeded for installation". Empty, it reads
@@ -464,7 +503,7 @@ jobs:
       group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
     if: ${{ !cancelled() && github.event_name == 'push' && ((needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success') || needs.plan.outputs.from_run != '' || needs.twin-linux.outputs.from_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON('["cmux-linux","cmux-has-netem"]') }}  # a pool runner, as point-x86_64
     timeout-minutes: 10
     permissions:
       contents: read
@@ -532,6 +571,60 @@ jobs:
             --download-dir "$dir/binaries" --out "$dir/payload.json"
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+
+  # MACHINE_CHANNEL_ROLL: a feat-cmux-next build the channel now names asks for the Cloud VM image roll, so the
+  # image follows the machine build and not only cmux-tui-artifacts.yml's publish (its one roll request). On
+  # 2026-11-28 the artifacts channel sat at 02b3b98c (11-27 23:02Z) while every window run coalesced or was
+  # cancelled; no roll was requested after 09:00Z (a6ee5dc9), and production's image fell 245 min behind main
+  # (bound 180) though this workflow had pointed the channel at e066eab5 by 11:32Z. The roll pins such a commit
+  # from its machine/ files (images/cmux-vm/pin-cmux-tui.ts MACHINE_BUILD), drops a request whose binaries match
+  # the pin, and keeps one pending roll (a newer request replaces it), so a request per point costs nothing extra.
+  request-image-roll:
+    name: request the Cloud VM image roll for this machine build
+    needs: [point-linux]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.point-linux.result == 'success' }}
+    runs-on: cmux-linux
+    # 65: the dispatch waits for the hourly reset only when every pool below has refused it (an hour at most).
+    timeout-minutes: 65
+    # No actions: write here: pr-router.yml calls this workflow with actions: read, and GitHub rejects a callee
+    # that asks for more (scripts/ci/check_reusable_workflow_permissions.py). The dispatch rides the cmux-bot App.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Repair a reused self-hosted checkout
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
+          fi
+
+      # The job's own token cannot dispatch (contents: read only), so the App token is the dispatch's.
+      - name: Mint the dispatch's App token
+        id: cmux-bot-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
+      - name: Dispatch the image roll
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          # Run 46154030719 (2026-11-28 14:47Z) lost its roll: the cmux-bot installation's hourly budget was
+          # spent by other jobs, and a 180 s wait cannot outlast an hourly reset. A refusal now moves the
+          # dispatch to the CI pool tokens (each its own limit, gh_budget_wait.sh GH_TOKEN_SPARES), and only
+          # when every one has refused does it wait, up to the reset, instead of dropping the build's roll.
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 3600
+        run: bash scripts/ci/gh_budget_wait.sh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
 
   # The Cloud machine channel's journey verdict, minutes after point-x86_64 moves it, and its rollback to the
   # last proven build: .github/workflows/cloud-machine-channel-journey.yml (a baseline while this commit builds,

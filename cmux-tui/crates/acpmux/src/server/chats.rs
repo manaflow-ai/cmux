@@ -222,6 +222,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = super::parked_waits::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
     if let Some(reply) = heap(|| super::run_elsewhere::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
@@ -251,6 +254,10 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::prompt_coach::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::pull_request_actions::dispatch(hub, conn, m, &params)).await
+    {
+        return reply;
+    }
     if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
@@ -271,7 +278,17 @@ pub(super) async fn route(
         if params.get(crate::agent_credentials::FIELD).is_some() {
             crate::agent_credentials::admit(true, conn.caller())?;
         }
-        return heap(|| hub.transfer_request(m, &params)).await;
+        let reply = heap(|| hub.transfer_request(m, &params)).await;
+        // The move this connection began ends soon after the connection does, unless its
+        // client came back (`transfer_watch.rs`, `watch_move_client`).
+        if m == "_acpmux/transfer_begin"
+            && let Ok(begun) = &reply
+            && let (Some(session), Some(transfer)) =
+                (begun["sessionId"].as_str(), begun["transferId"].as_str())
+        {
+            hub.watch_move_client(session, transfer, conn.ended.subscribe());
+        }
+        return reply;
     }
     // An incognito workspace's chats, ended and deleted (`workspace_purge.rs`): local only.
     if m == workspace_purge::METHOD {

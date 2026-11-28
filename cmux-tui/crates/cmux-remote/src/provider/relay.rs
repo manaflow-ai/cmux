@@ -43,6 +43,7 @@ mod credential_read;
 #[path = "relay_liveness.rs"]
 mod liveness;
 use credential_read::*;
+use liveness::retry_after_of;
 
 /// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
 /// wrote to stderr, read while it runs so a full pipe never stalls it. The
@@ -464,8 +465,9 @@ impl RelayTls {
         self.outer.snapshot()
     }
 
-    fn connector(&self) -> Option<Connector> {
-        self.client_config.clone().map(Connector::Rustls)
+    pub(crate) fn connector(&self) -> Option<Connector> {
+        // No roots of its own: the platform's, read once (`websocket::native_tls`).
+        self.client_config.clone().map(Connector::Rustls).or_else(super::websocket::native_tls)
     }
 }
 
@@ -1470,13 +1472,14 @@ async fn read_until_allocation(
             {
                 return Ok(Allocation::Inline(circuit));
             }
-            RelayControl::Error { code, retryable, .. } => {
+            RelayControl::Error { code, message, retryable } => {
                 return Err(if relay_authentication_error(&code) {
                     AllocationError::Authentication(relay_rejection())
                 } else if retryable {
-                    AllocationError::Reconnect(relay_unavailable(
+                    AllocationError::Reconnect(relay_unavailable_detail(
                         "relay allocation is temporarily unavailable",
                         &code,
+                        &message,
                     ))
                 } else {
                     AllocationError::Terminal(relay_rejection())
@@ -2042,7 +2045,12 @@ async fn authenticate_daemon_control(
             },
             DAEMON_REGISTER_STAGGER,
             DAEMON_REGISTER_ATTEMPTS,
-            |error| matches!(error, RelaySocketConnectError::Authentication),
+            |error| {
+                matches!(
+                    error,
+                    RelaySocketConnectError::Authentication | RelaySocketConnectError::Busy { .. }
+                )
+            },
         )
         .await
         {
@@ -2115,6 +2123,11 @@ async fn connect_provider_control(
 
 enum RelaySocketConnectError {
     Authentication,
+    /// 503 or 429 on the upgrade: a wait, by its `Retry-After`.
+    Busy {
+        status: u16,
+        retry_after: Option<Duration>,
+    },
     Provider(ProviderError),
 }
 
@@ -2124,6 +2137,7 @@ impl RelaySocketConnectError {
             Self::Authentication => {
                 ProviderError::Transport("relay WebSocket authentication was rejected".into())
             }
+            Self::Busy { status, retry_after } => ProviderError::RelayBusy { status, retry_after },
             Self::Provider(error) => error,
         }
     }
@@ -2196,6 +2210,17 @@ async fn open_relay_socket(
             if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>
         {
             Err(RelaySocketConnectError::Authentication)
+        }
+        Err(tokio_tungstenite::tungstenite::Error::Http(response))
+            if matches!(
+                response.status(),
+                StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS
+            ) =>
+        {
+            Err(RelaySocketConnectError::Busy {
+                status: response.status().as_u16(),
+                retry_after: retry_after_of(response.headers()),
+            })
         }
         Err(error) => Err(RelaySocketConnectError::Provider(relay_connect_error(error))),
     }
@@ -2306,6 +2331,27 @@ fn relay_unavailable(message: &str, code: &str) -> ProviderError {
         ));
     }
     relay_carrier_error(format!("{message} (relay code {})", sanitize_relay_code(code)))
+}
+
+/// `relay_unavailable` with the relay's own message after the code, so a refusal says which limit it hit (a
+/// `slot-circuit-capacity` refusal names the live or rate limit and its counts). The message is shown only when
+/// it is short printable ASCII; the code stays in its `(relay code ...)` parenthetical for parsers.
+fn relay_unavailable_detail(message: &str, code: &str, detail: &str) -> ProviderError {
+    let error = relay_unavailable(message, code);
+    match (error, sanitize_relay_detail(detail)) {
+        (ProviderError::Link(LinkError::Transport(text)), Some(detail)) => {
+            relay_carrier_error(format!("{text}: {detail}"))
+        }
+        (error, _) => error,
+    }
+}
+
+fn sanitize_relay_detail(detail: &str) -> Option<&str> {
+    let detail = detail.trim();
+    (!detail.is_empty()
+        && detail.len() <= 200
+        && detail.bytes().all(|b| b.is_ascii_graphic() || b == b' '))
+    .then_some(detail)
 }
 
 /// A relay's error code as shown: a short word as is, anything else `other`.

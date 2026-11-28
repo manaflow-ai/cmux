@@ -17,7 +17,7 @@ import { PoolPanel } from "./PoolPanel";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
 import { clockTime, usd } from "./spendCap";
-import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, testMode, type UsageMeter, ratePrice } from "./usage";
+import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, ratePrice, testMode, type UsageMeter } from "./usage";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 import { intl } from "../../ui/intl";

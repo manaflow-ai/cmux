@@ -199,8 +199,12 @@ def test_daemon_tests_never_take_a_mac() -> None:
             label = route(runs_on, context)
             where = (context["github.repository_owner"], context["github.event_name"],
                      context["github.ref"], context["github.run_attempt"], owned)
+            nightly = context["github.event_name"] == "workflow_dispatch" or context["github.ref"] in (
+                "refs/heads/nightly-next", "refs/heads/feat-cmux-next")
             if context["github.repository_owner"] != "manaflow-ai":
                 assert label == "ubuntu-24.04", where
+            elif nightly:  # a whole one-job VM: the acpmux lib test compile outgrew a 14 GiB pool slot
+                assert label == "cmux-gcp-nightly-jit-x64", (where, label)
             else:
                 assert label == "cmux-linux", (where, label)
 

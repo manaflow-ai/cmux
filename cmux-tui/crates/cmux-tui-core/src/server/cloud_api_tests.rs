@@ -325,6 +325,71 @@ fn share_with_me_puts_the_grant_through_the_platform_client() {
 }
 
 #[test]
+fn an_artifacts_read_goes_through_the_daemon_with_the_bearer_only_to_the_platform() {
+    let (origin, seen) = fake(|_| (200, r#"{"entries":[]}"#.into()));
+    let daemon = Daemon::start("artifacts");
+    let result = daemon
+        .send(
+            "cloud.artifacts.read",
+            params(&origin, "worker", json!({"route": "tree", "ref": "main", "path": "a b"})),
+            None,
+        )
+        .unwrap();
+    let answer = if result.get("value").is_some() { &result["value"] } else { &result };
+    assert_eq!(answer["status"], 200);
+    assert_eq!(answer["content_type"], "application/json");
+    let body = base64::engine::general_purpose::STANDARD
+        .decode(answer["body_base64"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(body, br#"{"entries":[]}"#);
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert!(
+            seen[0].line.starts_with("GET /v1/artifacts/tree?ref=main&path=a+b "),
+            "{}",
+            seen[0].line
+        );
+        assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
+        assert_eq!(seen[0].header("x-stack-refresh-token"), None);
+        assert_eq!(seen[0].header("cookie"), None);
+    }
+
+    // Bad params are the caller's (400 artifacts.invalid_params), not a transport failure.
+    let (code, _, details) = daemon
+        .send(
+            "cloud.artifacts.read",
+            params(&origin, "worker", json!({"route": "history", "limit": 0})),
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(code, "operation.failed");
+    let failure = &details["extra"]["failure"];
+    assert_eq!(failure["kind"], "http");
+    assert_eq!(failure["status"], 400);
+    assert_eq!(failure["code"], "artifacts.invalid_params");
+
+    // Stack auth (classic Cloud) has no artifacts: 501, nothing sent.
+    let (_, _, details) = daemon
+        .send("cloud.artifacts.read", params(&origin, "stack", json!({"route": "tree"})), None)
+        .unwrap_err();
+    assert_eq!(details["extra"]["failure"]["status"], 501);
+
+    // A plain-http origin that is not loopback never gets the bearer.
+    let refused = daemon
+        .send(
+            "cloud.artifacts.read",
+            params("http://example.com", "worker", json!({"route": "tree"})),
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(refused.0, "operation.failed");
+    let text = format!("{} {}", refused.1, refused.2);
+    assert!(!text.contains("secret-access"), "{text}");
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn a_classic_machine_exec_is_refused_before_any_request() {
     let (origin, seen) = fake(|_| (200, r#"{"exitCode":0,"stdout":"ok","stderr":""}"#.into()));
     let daemon = Daemon::start("machine");
