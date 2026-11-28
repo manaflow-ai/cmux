@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// One keystroke from cmux.json, independent of the action registry's types
 /// so parsing can run off the main actor. `key` uses NSMenuItem
@@ -58,190 +58,86 @@ extension ShortcutBinding {
 /// `"cmd+shift+p"`, `["ctrl+b", "c"]`, the unbind tokens, and the Settings
 /// recorder's object form `{ "first": { "key": "p", "command": true, ... } }`;
 /// plus next's alternates, `{"any": [...]}` with one of those keys or chords
-/// per item (`{"any": ["ctrl+tab", "cmd+]", ["ctrl+b", "n"]]}`).
+/// per item (`{"any": ["ctrl+tab", "cmd+]", ["ctrl+b", "n"]]}`). The parse,
+/// the key names and the canonical form are Rust's (`shortcut.*` ops,
+/// cmux-config app_ops/shortcut.rs); this keeps the AppKit-facing enum.
 public struct ShortcutBindingFormat {
     public init() {}
-    static let unboundTokens: Set<String> = ["", "none", "clear", "unbound", "disabled"]
 
     /// Parses one binding value. Nil when the value is not a valid binding.
     public static func parse(_ value: JSONValue) -> ShortcutBinding? {
-        switch value {
-        case .null:
-            return .unbound
-        case .string(let text):
-            if unboundTokens.contains(text.trimmingCharacters(in: .whitespaces).lowercased()) { return .unbound }
-            return parseStroke(text).map(ShortcutBinding.stroke)
-        case .array(let items):
-            let strokes = items.compactMap { $0.stringValue.flatMap(parseStroke) }
-            guard strokes.count == items.count else { return nil }
-            switch strokes.count {
-            case 0: return .unbound
-            case 1: return .stroke(strokes[0])
-            case 2: return .chord(strokes[0], strokes[1])
-            default: return nil
-            }
-        case .object(let members) where members["any"] != nil:
-            return parseAlternates(members)
-        case .object(let members):
-            guard let first = members["first"].flatMap(parseStrokeObject) else { return nil }
-            if first.key.isEmpty { return .unbound }
-            if let secondValue = members["second"], !secondValue.isNull {
-                guard let second = parseStrokeObject(secondValue) else { return nil }
-                return .chord(first, second)
-            }
-            return .stroke(first)
-        default:
-            return nil
-        }
+        SettingsRust.answer("shortcut.parse", .object(["value": value]))["binding"].flatMap(binding(wire:))
     }
 
-    /// `{"any": [...]}`: every item a key or a chord (not an unbind token);
-    /// a repeated item counts once. No items unbinds; one is that binding.
-    private static func parseAlternates(_ members: [String: JSONValue]) -> ShortcutBinding? {
-        guard members.count == 1, case .array(let items)? = members["any"] else { return nil }
-        var bindings: [ShortcutBinding] = []
-        for item in items {
-            switch parse(item) {
-            case let binding? where binding.isKey:
-                if !bindings.contains(binding) { bindings.append(binding) }
-            default:
-                return nil
-            }
-        }
-        switch bindings.count {
-        case 0: return .unbound
-        case 1: return bindings[0]
-        default: return .alternates(bindings)
-        }
+    /// ``parse(_:)`` for many values in one call, in order.
+    public static func parseMany(_ values: [JSONValue]) -> [ShortcutBinding?] {
+        let reply = SettingsRust.answer("shortcut.parse_many", .object(["values": .array(values)]))
+        let bindings = reply["bindings"]?.arrayValue ?? []
+        guard bindings.count == values.count else { return values.map { _ in nil } }
+        return bindings.map(binding(wire:))
     }
 
     /// The cmux.json value for `binding`, in the forms ``parse(_:)`` reads:
     /// `"cmd+]"`, `["ctrl+b", "c"]`, `{"any": [...]}`, or null.
     public static func configValue(_ binding: ShortcutBinding) -> JSONValue {
-        switch binding {
-        case .unbound: .null
-        case .stroke(let stroke): .string(configString(stroke))
-        case .chord(let first, let second): .array([.string(configString(first)), .string(configString(second))])
-        case .alternates(let bindings): .object(["any": .array(bindings.map(configValue))])
-        }
+        SettingsRust.answer("shortcut.config_value", .object(["binding": wire(binding)]))["value"] ?? .null
     }
 
     /// Parses `cmd+shift+p`, `⌘⇧P`-style modifier tokens joined by `+`.
     public static func parseStroke(_ text: String) -> ShortcutStrokeSpec? {
-        let rawParts = text.split(separator: "+", omittingEmptySubsequences: false).map(String.init)
-        guard let lastRaw = rawParts.last else { return nil }
-        // `cmd++` means the plus key.
-        var parts = rawParts
-        var keyToken = lastRaw
-        if lastRaw.isEmpty, rawParts.count >= 2, rawParts[rawParts.count - 2].isEmpty {
-            parts.removeLast()
-            keyToken = "+"
-        }
-        var stroke = ShortcutStrokeSpec(key: "")
-        for modifier in parts.dropLast() {
-            switch modifier.trimmingCharacters(in: .whitespaces).lowercased() {
-            case "cmd", "command", "⌘": stroke.command = true
-            case "shift", "⇧": stroke.shift = true
-            case "opt", "option", "alt", "⌥": stroke.option = true
-            case "ctrl", "control", "ctl", "⌃": stroke.control = true
-            case "": continue
-            default: return nil
-            }
-        }
-        guard let key = keyEquivalent(forToken: keyToken) else { return nil }
-        stroke.key = key
-        return stroke
-    }
-
-    private static func parseStrokeObject(_ value: JSONValue) -> ShortcutStrokeSpec? {
-        guard case .object(let members) = value, let rawKey = members["key"]?.stringValue else { return nil }
-        let key = rawKey.isEmpty ? "" : (keyEquivalent(forToken: rawKey) ?? rawKey.lowercased())
-        return ShortcutStrokeSpec(
-            key: key,
-            command: members["command"]?.boolValue ?? false,
-            shift: members["shift"]?.boolValue ?? false,
-            option: members["option"]?.boolValue ?? false,
-            control: members["control"]?.boolValue ?? false
-        )
+        SettingsRust.answer("shortcut.parse_stroke", .object(["text": .string(text)]))["stroke"].flatMap(stroke(wire:))
     }
 
     /// Maps a config key token to a key-equivalent character.
     static func keyEquivalent(forToken rawToken: String) -> String? {
-        let trimmed = rawToken.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return rawToken == " " ? " " : nil }
-        switch trimmed.lowercased() {
-        case "left", "arrowleft", "leftarrow", "←": return functionKey(NSLeftArrowFunctionKey)
-        case "right", "arrowright", "rightarrow", "→": return functionKey(NSRightArrowFunctionKey)
-        case "up", "arrowup", "uparrow", "↑": return functionKey(NSUpArrowFunctionKey)
-        case "down", "arrowdown", "downarrow", "↓": return functionKey(NSDownArrowFunctionKey)
-        case "tab", "⇥": return "\t"
-        case "return", "enter", "↩": return "\r"
-        case "escape", "esc", "⎋": return "\u{1B}"
-        case "delete", "backspace", "⌫": return "\u{8}"
-        case "space", "spacebar", "<space>": return " "
-        case "comma": return ","
-        case "period", "dot": return "."
-        case "slash": return "/"
-        case "backslash": return "\\"
-        case "semicolon": return ";"
-        case "quote", "apostrophe": return "'"
-        case "backtick", "grave": return "`"
-        case "minus", "hyphen": return "-"
-        case "plus", "equals": return "="
-        case "leftbracket", "openbracket": return "["
-        case "rightbracket", "closebracket": return "]"
-        case "home": return functionKey(NSHomeFunctionKey)
-        case "end": return functionKey(NSEndFunctionKey)
-        case "pageup": return functionKey(NSPageUpFunctionKey)
-        case "pagedown": return functionKey(NSPageDownFunctionKey)
-        case let lowered:
-            if lowered.hasPrefix("f"), let number = Int(lowered.dropFirst()), (1...20).contains(number) {
-                return functionKey(NSF1FunctionKey + number - 1)
-            }
-            guard lowered.count == 1 else { return nil }
-            return lowered
-        }
+        SettingsRust.answer("shortcut.key_equivalent", .object(["token": .string(rawToken)]))["key"]?.stringValue
     }
 
     /// The config string for a stroke (`cmd+shift+p`), as the Settings
     /// writer stores it.
     public static func configString(_ stroke: ShortcutStrokeSpec) -> String {
-        var parts: [String] = []
-        if stroke.command { parts.append("cmd") }
-        if stroke.shift { parts.append("shift") }
-        if stroke.option { parts.append("opt") }
-        if stroke.control { parts.append("ctrl") }
-        parts.append(configToken(forKey: stroke.key))
-        return parts.joined(separator: "+")
+        SettingsRust.answer("shortcut.config_string", .object(["stroke": wire(stroke)]))["text"]?.stringValue ?? ""
     }
 
     static func configToken(forKey key: String) -> String {
-        switch key {
-        case functionKey(NSLeftArrowFunctionKey): return "left"
-        case functionKey(NSRightArrowFunctionKey): return "right"
-        case functionKey(NSUpArrowFunctionKey): return "up"
-        case functionKey(NSDownArrowFunctionKey): return "down"
-        case functionKey(NSHomeFunctionKey): return "home"
-        case functionKey(NSEndFunctionKey): return "end"
-        case functionKey(NSPageUpFunctionKey): return "pageup"
-        case functionKey(NSPageDownFunctionKey): return "pagedown"
-        case "\t": return "tab"
-        case "\r": return "return"
-        case "\u{1B}": return "escape"
-        case "\u{8}", "\u{7F}": return "delete"
-        case " ": return "space"
-        case "+": return "plus"
-        default:
-            if let scalar = key.unicodeScalars.first, key.unicodeScalars.count == 1,
-               (NSF1FunctionKey...NSF1FunctionKey + 19).contains(Int(scalar.value)) {
-                return "f\(Int(scalar.value) - NSF1FunctionKey + 1)"
-            }
-            return key
+        SettingsRust.answer("shortcut.config_token", .object(["key": .string(key)]))["token"]?.stringValue ?? key
+    }
+
+    // MARK: The ops' wire shapes
+
+    /// `{key, command, shift, option, control}`.
+    static func wire(_ stroke: ShortcutStrokeSpec) -> JSONValue {
+        .object(["key": .string(stroke.key), "command": .bool(stroke.command), "shift": .bool(stroke.shift),
+                 "option": .bool(stroke.option), "control": .bool(stroke.control)])
+    }
+
+    /// `{"unbound": true}`, `{"stroke": S}`, `{"chord": [S, S]}` or `{"any": [B, ...]}`.
+    static func wire(_ binding: ShortcutBinding) -> JSONValue {
+        switch binding {
+        case .unbound: .object(["unbound": .bool(true)])
+        case .stroke(let stroke): .object(["stroke": wire(stroke)])
+        case .chord(let first, let second): .object(["chord": .array([wire(first), wire(second)])])
+        case .alternates(let bindings): .object(["any": .array(bindings.map(wire))])
         }
     }
 
-    private static func functionKey(_ code: Int) -> String {
-        // Function-key codes are valid private-use scalars; NUL stands in otherwise (no trap).
-        String(Character(UnicodeScalar(UInt32(code)) ?? UnicodeScalar(0)))
+    static func stroke(wire value: JSONValue) -> ShortcutStrokeSpec? {
+        guard let key = value["key"]?.stringValue else { return nil }
+        return ShortcutStrokeSpec(key: key, command: value["command"]?.boolValue ?? false,
+                                  shift: value["shift"]?.boolValue ?? false,
+                                  option: value["option"]?.boolValue ?? false,
+                                  control: value["control"]?.boolValue ?? false)
+    }
+
+    static func binding(wire value: JSONValue) -> ShortcutBinding? {
+        if value["unbound"]?.boolValue == true { return .unbound }
+        if let stroke = value["stroke"] { return Self.stroke(wire: stroke).map(ShortcutBinding.stroke) }
+        if let chord = value["chord"]?.arrayValue {
+            guard chord.count == 2, let first = stroke(wire: chord[0]), let second = stroke(wire: chord[1]) else { return nil }
+            return .chord(first, second)
+        }
+        guard let any = value["any"]?.arrayValue else { return nil }
+        let bindings = any.compactMap(binding(wire:))
+        return bindings.count == any.count ? .alternates(bindings) : nil
     }
 }
