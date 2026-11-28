@@ -511,7 +511,7 @@ pub(super) const WAIT_BOUND: Duration = Duration::from_millis(1500 + 750);
 pub(super) const HAND_BACK_HOLD: Duration = Duration::from_millis(2000);
 
 /// The refusal when a scope stayed open on the app.
-pub(super) const PRIMED_KEYS_REFUSAL: &str = "another Computer Use call is making a menu item of this app available right now; no input is sent to the app meanwhile, so nothing was sent. Try again";
+pub(super) const PRIMED_KEYS_REFUSAL: &str = "another Computer Use call kept making a menu item of this app available for over 2 s; no input is sent to the app meanwhile, so nothing was sent";
 
 pub(super) fn registry() -> &'static Registry {
     static R: OnceLock<Registry> = OnceLock::new();

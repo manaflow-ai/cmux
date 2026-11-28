@@ -599,7 +599,7 @@ impl Supervisor {
         };
         let limit = p.limit.map_or(DEFAULT_LIMIT, |l| l as usize).clamp(1, MAX_LIMIT);
         let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let rows: Vec<&Package> = inner
             .catalog
             .packages
@@ -640,7 +640,7 @@ impl Supervisor {
 
     fn catalog_get(&self, p: CatalogGetParams) -> Result<AppDetail, ApiError> {
         let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let package = inner
             .catalog
             .packages
@@ -677,10 +677,10 @@ impl Supervisor {
     }
 
     fn installed_list(&self) -> InstalledListResult {
-        let switches = self.setting_switches();
         // A file read and the community lock: before the supervisor lock.
         let updates = self.community_updates_cached();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let switches = self.setting_switches();
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let apps = inner
             .mirror
             .apps
@@ -705,7 +705,7 @@ impl Supervisor {
     /// answer it.
     pub(super) fn set_result(&self, app: &str) -> Result<Value, ApiError> {
         let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
         let mut row = installed_app(app, record, inner.catalog.packages.get(app));
@@ -764,9 +764,9 @@ impl Supervisor {
             sandboxed: p.sandboxed,
             ..SetOp::default()
         };
-        self.set(client, op)?;
-        if let Some((key, on)) = setting {
-            self.router.setting_set(&key, Value::Bool(on))?;
+        let setting_backed = setting.is_some();
+        self.set_with_setting(client, op, setting)?;
+        if setting_backed {
             // The record may not have changed (the setting was edited elsewhere): every page
             // reads the entry again.
             let revision =
@@ -858,46 +858,9 @@ impl Supervisor {
 }
 
 #[cfg(test)]
-mod new_tab_tests {
-    use serde_json::json;
-
-    /// The store offers Use as New Tab only for an app whose manifest implements `cmux.newtab/1`.
-    #[test]
-    fn only_a_newtab_implementation_draws_new_tab() {
-        let drawn = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
-        assert!(super::draws_new_tab(&drawn));
-        let other = json!({ "implements": { "cmux.section/1": { "export": "render" } } });
-        assert!(!super::draws_new_tab(&other));
-        assert!(!super::draws_new_tab(&json!({})));
-    }
-}
+#[path = "store_new_tab_tests.rs"]
+mod new_tab_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn kinds(widget: Value) -> Vec<(&'static str, String)> {
-        widget_contributions(&widget, "Clock")
-            .into_iter()
-            .map(|row| (row.kind, row.title))
-            .collect()
-    }
-
-    /// A widget shows up once per place it names, in both places when it
-    /// names none; a place cmux does not know is skipped, not an error.
-    #[test]
-    fn a_widget_shows_up_once_per_place() {
-        let clock = |kind| (kind, "Clock".to_string());
-        let sidebar = json!({ "options": { "places": ["sidebar"], "sizes": ["small"] } });
-        assert_eq!(kinds(sidebar), [clock("sidebarWidget")]);
-        assert_eq!(kinds(json!({})), [clock("newTab"), clock("sidebarWidget")]);
-        let titled = json!({
-            "title": { "en": "World Clock", "ja": "世界時計" },
-            "options": { "places": ["newtab", "sidebar", "newtab", "dock"] },
-        });
-        let world = |kind| (kind, "World Clock".to_string());
-        assert_eq!(kinds(titled), [world("newTab"), world("sidebarWidget")]);
-        assert!(kinds(Value::Null).is_empty());
-    }
-}
+#[path = "store_tests.rs"]
+mod tests;
