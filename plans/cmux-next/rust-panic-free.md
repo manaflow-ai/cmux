@@ -346,3 +346,24 @@ and 0 to 2; cmux-cloud-api, cmux-cloud-handlers, cmux-mobile-core and
 cmux-rd-engine 0 to 1 each. Next step for them is the same as above. Use
 `v.set` for JSON writes and `get`/`split_at_checked` for slices, then lower
 these counts with `--update-baseline`.
+
+Re-baseline 2026-11-27 (recorded from the base, and the base lint skipped for
+drift). Run 45929462416 (PR #57497 on base 0a1088f4, which has #50882) still
+linted its base a second time: 20 of the 158 crates it checked were over a deny
+row, every one in files the PR never touched. Blame puts all but 14 of those
+hits before #50882. They were never recorded because `--update-baseline` only
+lowers rows, and gives a crate with no row 0 for every deny lint. So a crate
+that merged with hits (acpmux-tui, cmux-cas, cmux-no-checkout and 10 more) or
+that got its row from #50882 at 0 (acpmux-book, cmux-apps, cmux-vnc and 4 more)
+stayed over its row on every base. The arithmetic and cast counts in that log
+only warn, so they never trigger the base lint.
+
+Two changes. `--record-base` writes each checked crate's row from a
+whole-workspace run of the same command cmux-tui.yml runs, both up and down.
+On tip b70ad072 that run said 25 crates over a deny row (121 in any lint)
+before, 0 after. Then `cmux-tui-clippy-changed.py --compare-base` asks the
+ratchet `--untouched-is-base --diff-base BASE` before it lints the base. A deny
+count over its row is the base's when none of its hits is in a file the change
+touched, the same rule a base run that did not finish already uses. Only a
+count with a hit in a touched file still needs the base lint. So drift that
+merges after this record costs no base lint either.

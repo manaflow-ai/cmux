@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { LastKnown } from "./lastKnown";
 import { createPortal } from "react-dom";
-import { useScrollEdges } from "./ui/scrollEdges";
+import { VirtualList } from "./ui/VirtualList";
 import "./ui/popupSurface.css";
 import { onInterfaceScaleChange } from "./ui/interfaceScale";
 import { computePopoverStyle, type PopoverStyle } from "./branchBasePopover";
@@ -97,6 +97,9 @@ type FlatRow = {
   moreCount: number;
 };
 
+/** A drawn row and its 1-based place among every row the groups and query hold, drawn or capped. */
+type ListedRow = FlatRow & { place: number };
+
 // Per-group render cap when the filter is empty: huge ref lists (thousands of
 // remotes) would jank the popover if every row became DOM. The data is fetched
 // once; this only limits rendered rows. Suggested/Worktrees are usually small,
@@ -144,7 +147,6 @@ export function BranchBasePicker({
   transport?: DiffTransport | null;
 }) {
   const [open, setOpen] = useState(false);
-  const listEdges = useScrollEdges();
   const [query, setQuery] = useState("");
   const [groups, setGroups] = useState<BranchPickerGroup[] | null>(() => lastKnownRefs(picker));
   /** This mount listed the refs once already: a last-known list is read again on the first open only. */
@@ -174,11 +176,16 @@ export function BranchBasePicker({
     node?.focus();
   };
 
-  const flat = buildFlatRows(groups, query, label);
+  // `total` counts the matches the caps leave out too: it is each option's aria-setsize.
+  const { rows: flat, total } = buildFlatRows(groups, query, label);
   const clampedHighlight = flat.length === 0 ? 0 : Math.min(highlight, flat.length - 1);
   /** What is highlighted now, read when a quiet refresh swaps the rows under it. */
   const shownRows = useRef({ flat, highlight: clampedHighlight, query });
-  shownRows.current = { flat, highlight: clampedHighlight, query };
+  // Kept after each commit, not during render: a ref written in render keeps the React Compiler off
+  // this component, and then every row gets new props on every render (a hover redrew them all).
+  useLayoutEffect(() => {
+    shownRows.current = { flat, highlight: clampedHighlight, query };
+  });
 
   const openPopover = () => {
     setOpen(true);
@@ -206,7 +213,7 @@ export function BranchBasePicker({
           // Keep the highlight on the same ref: the refreshed rows can sit at other indexes.
           const shown = shownRows.current;
           const was = shown.flat[shown.highlight];
-          const next = buildFlatRows(response.groups, shown.query, label);
+          const next = buildFlatRows(response.groups, shown.query, label).rows;
           const same = (entry: FlatRow) => !!was && entry.raw === was.raw && entry.row.ref === was.row.ref;
           const inGroup = next.findIndex((entry) => same(entry) && entry.groupId === was?.groupId);
           const index = inGroup >= 0 ? inGroup : next.findIndex(same);
@@ -323,7 +330,10 @@ export function BranchBasePicker({
       if (!button) {
         return;
       }
-      setPopoverStyle(computePopoverStyle(button.getBoundingClientRect()));
+      // Scrolling the list inside the popover reaches this capture listener too: the same place
+      // keeps the same style object, so the popover and its rows do not render again for it.
+      const next = computePopoverStyle(button.getBoundingClientRect());
+      setPopoverStyle((previous) => (previous && samePopoverStyle(previous, next) ? previous : next));
     };
     reposition();
     window.addEventListener("resize", reposition);
@@ -431,41 +441,65 @@ export function BranchBasePicker({
                 </output>
               ) : null}
               {/* Searchable command-palette listbox; a native select/datalist cannot
-              render grouped rows with secondaries, pills, and matched bolding. */}
-              <div
-                ref={listEdges}
-                id={listboxId}
-                className="base-picker-list ui-scroll-edge-fade"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="listbox"
-                aria-label={label("branchPickerOpen")}
-              >
-                {loadState === "error" ? (
-                  <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
-                ) : null}
-                {loadState === "loading" ? (
-                  <div className="base-picker-status">{label("branchPickerLoading")}</div>
-                ) : loadState === "error" && flat.length === 0 ? null : flat.length === 0 ? (
-                  <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
-                ) : (
-                  flat.map((entry, index) => (
-                    <BranchPickerRowView
-                      // Stable identity key: groupId + ref. A ref is unique within a
-                      // group, and the groupId prefix disambiguates the same ref
-                      // appearing in two groups (e.g. Suggested vs Worktrees), so the
-                      // key survives filter rebuilds (no array-index key).
-                      key={`${entry.groupId}:${entry.row.ref}`}
-                      domId={rowDomId(listboxId, index)}
-                      current={entry.row.current === true || entry.row.ref === picker.currentRef}
-                      entry={entry}
-                      label={label}
-                      selected={index === clampedHighlight}
-                      onHover={() => setHighlight(index)}
-                      onSelect={() => selectRef(entry.row.ref)}
-                    />
-                  ))
-                )}
-              </div>
+              render grouped rows with secondaries, pills, and matched bolding. Only the
+              rows near the viewport are in the DOM, plus the highlighted one. */}
+              {loadState !== "loading" && flat.length > 0 ? (
+                <>
+                  {loadState === "error" ? (
+                    <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
+                  ) : null}
+                  <VirtualList
+                    id={listboxId}
+                    className="base-picker-list"
+                    label={label("branchPickerOpen")}
+                    fade
+                    measureRows
+                    count={flat.length}
+                    estimateSize={estimateRowSize}
+                    activeIndex={clampedHighlight}
+                    renderRow={(index, style, measure) => {
+                      const entry = flat[index]!;
+                      return (
+                        <BranchPickerListRow
+                          // Stable identity key: groupId + ref. A ref is unique within a
+                          // group, and the groupId prefix disambiguates the same ref
+                          // appearing in two groups (e.g. Suggested vs Worktrees), so the
+                          // key survives filter rebuilds (no array-index key).
+                          key={`${entry.groupId}:${entry.row.ref}`}
+                          index={index}
+                          count={total}
+                          listboxId={listboxId}
+                          current={entry.row.current === true || entry.row.ref === picker.currentRef}
+                          entry={entry}
+                          label={label}
+                          selected={index === clampedHighlight}
+                          onHover={setHighlight}
+                          onSelect={selectRef}
+                          style={style}
+                          measure={measure}
+                        />
+                      );
+                    }}
+                  />
+                </>
+              ) : (
+                <div
+                  id={listboxId}
+                  className="base-picker-list"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="listbox"
+                  aria-label={label("branchPickerOpen")}
+                >
+                  {loadState === "error" ? (
+                    <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
+                  ) : null}
+                  {loadState === "loading" ? (
+                    <div className="base-picker-status">{label("branchPickerLoading")}</div>
+                  ) : loadState === "error" ? null : (
+                    <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
+                  )}
+                </div>
+              )}
             </div>,
             document.body,
           )
@@ -508,6 +542,61 @@ function BranchBaseButtonLabel({ picker }: { picker: BranchPickerPayload }) {
   );
 }
 
+/** A row's height before it is measured: one 28 px option, plus a header or a "more" footer. */
+function estimateRowSize(): number {
+  return 28;
+}
+
+function samePopoverStyle(a: PopoverStyle, b: PopoverStyle): boolean {
+  return a.top === b.top && a.bottom === b.bottom && a.left === b.left && a.maxHeight === b.maxHeight;
+}
+
+/** One windowed row: it takes the row's index and handlers that take the index or ref, so a row
+    renders again only when its own entry, highlight or place changes. */
+const BranchPickerListRow = memo(function BranchPickerListRow({
+  count,
+  current,
+  entry,
+  index,
+  label,
+  listboxId,
+  measure,
+  onHover,
+  onSelect,
+  selected,
+  style,
+}: {
+  /** Every row the groups and query hold, past the caps: the options' aria-setsize. */
+  count: number;
+  current: boolean;
+  entry: ListedRow;
+  index: number;
+  label: DiffViewerLabelResolver;
+  listboxId: string;
+  measure?: (element: Element | null) => void;
+  onHover: (index: number) => void;
+  onSelect: (ref: string) => void;
+  selected: boolean;
+  style: CSSProperties;
+}) {
+  return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the group header, option and footer of one entry.
+    <div ref={measure} data-index={index} style={style} role="presentation">
+      <BranchPickerRowView
+        current={current}
+        domId={rowDomId(listboxId, index)}
+        entry={entry}
+        label={label}
+        posInSet={entry.place}
+        setSize={count}
+        onHover={() => onHover(index)}
+        onSelect={() => onSelect(entry.row.ref)}
+        selected={selected}
+      />
+    </div>
+  );
+});
+
 export function BranchPickerRowView({
   current,
   domId,
@@ -515,7 +604,9 @@ export function BranchPickerRowView({
   label,
   onHover,
   onSelect,
+  posInSet,
   selected,
+  setSize,
 }: {
   /** The active base: marked with a check, as the reference picker does. */
   current: boolean;
@@ -524,7 +615,10 @@ export function BranchPickerRowView({
   label: DiffViewerLabelResolver;
   onHover: () => void;
   onSelect: () => void;
+  /** The option's place among all entries, when the list draws only some of them. */
+  posInSet?: number;
   selected: boolean;
+  setSize?: number;
 }) {
   const { row } = entry;
   // Prefer the backend's localized `secondary` (e.g. the localized reason label
@@ -552,6 +646,8 @@ export function BranchPickerRowView({
         role="option"
         tabIndex={-1}
         aria-selected={selected}
+        aria-posinset={posInSet}
+        aria-setsize={setSize}
         aria-current={current || undefined}
         className={selected ? "base-picker-row base-picker-row-selected" : "base-picker-row"}
         onMouseMove={onHover}
@@ -600,15 +696,17 @@ function renderMatched(text: string, match: [number, number] | null) {
 // Flatten groups into a render list. While filtering, fuzzy-match each row's
 // primary label across all groups, drop non-matches, and compute the matched
 // span for bolding. A synthetic raw row is prepended when the query matches no
-// row. Empty groups are omitted (no header) per LOCKED DECISIONS.
+// row. Empty groups are omitted (no header) per LOCKED DECISIONS. `total` is every row the groups
+// and query hold, the ones the caps leave out too, and each row's `place` is among them: a screen
+// reader hears the whole set's size (aria-setsize), not the capped rows'.
 export function buildFlatRows(
   groups: BranchPickerGroup[] | null,
   query: string,
   label: DiffViewerLabelResolver,
-): FlatRow[] {
+): { rows: ListedRow[]; total: number } {
   const trimmed = query.trim();
-  const result: FlatRow[] = [];
-  let anyMatch = false;
+  const result: ListedRow[] = [];
+  let total = 0;
 
   if (groups && trimmed === "") {
     // Empty filter: render each group up to its cap, then a "... N more" footer
@@ -627,27 +725,27 @@ export function buildFlatRows(
           match: null,
           raw: false,
           moreCount: index === visible.length - 1 ? hidden : 0,
+          place: total + index + 1,
         });
       });
+      total += group.rows.length;
     }
   } else if (groups) {
     // Filtering: match across ALL rows of every group, then cap the total
     // rendered set so a query that matches thousands of rows stays cheap.
+    // Matching goes on past the cap only to count the matches.
     for (const group of groups) {
-      if (result.length >= FILTERED_TOTAL_CAP) {
-        break;
-      }
       const groupLabel = resolveGroupLabel(group, label);
       let firstInGroup = true;
       for (const row of group.rows) {
-        if (result.length >= FILTERED_TOTAL_CAP) {
-          break;
-        }
         const match = fuzzyMatchSpan(row.label, trimmed);
         if (match == null) {
           continue;
         }
-        anyMatch = true;
+        total += 1;
+        if (result.length >= FILTERED_TOTAL_CAP) {
+          continue;
+        }
         result.push({
           row,
           groupId: group.id,
@@ -656,6 +754,7 @@ export function buildFlatRows(
           match,
           raw: false,
           moreCount: 0,
+          place: total,
         });
         firstInGroup = false;
       }
@@ -664,7 +763,8 @@ export function buildFlatRows(
 
   // Raw ref escape hatch: when a non-empty query matches nothing, offer it as a
   // top synthetic row that selects the typed value verbatim.
-  if (trimmed !== "" && !anyMatch) {
+  if (trimmed !== "" && total === 0) {
+    total = 1;
     result.unshift({
       row: { ref: trimmed, label: trimmed },
       groupId: "__raw",
@@ -673,9 +773,10 @@ export function buildFlatRows(
       match: null,
       raw: true,
       moreCount: 0,
+      place: 1,
     });
   }
-  return result;
+  return { rows: result, total };
 }
 
 function resolveGroupLabel(group: BranchPickerGroup, label: DiffViewerLabelResolver): string {

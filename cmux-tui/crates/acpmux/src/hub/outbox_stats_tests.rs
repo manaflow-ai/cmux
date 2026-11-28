@@ -85,7 +85,7 @@ fn ls_shows_one_compact_line() {
         ls_line(&c.status(1, Some(65_000))).as_deref(),
         Some(
             "sends: 2 queued, 1 delivered, 0 failed, 0 held, 0 retries, p50 ≤64 ms, \
-                 p95 ≤64 ms, oldest waiting 65 s"
+                 p95 ≤64 ms, 1 waiting now, oldest waiting 65 s"
         )
     );
 }

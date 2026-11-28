@@ -480,6 +480,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         self.chrome = chrome
         super.init(nibName: nil, bundle: nil)
         model.controller = self
+        navigationTransition = { [weak self] in self?.uikitNavigationTransition() }
     }
 
     @available(*, unavailable)
@@ -927,8 +928,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // 2026-11-14: "all I did was navigate away and then it showed
             // this, but I didn't type anything"). A scroll's wheel reports, a
             // tap's click report, a key release and Ghostty's replies to
-            // terminal queries go only while attached and never make the
-            // "Keys typed while your Mac was unreachable" notice.
+            // terminal queries go only while attached and are never held for a reattach.
             if surface.isEncodingUserInput {
                 model.session.send(data)
                 // The launch marks' key: one the session took (not refused, not held for a
@@ -1012,6 +1012,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if TerminalFlickerTrace.isRequested {
             flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
         }
+        if TerminalPaintOverlay.enabled { installPaintOverlay() }
         #endif
     }
 
@@ -1429,7 +1430,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let held = tuiGridHold.heldRows
         let shown = appliedHostRows ?? model.session.remoteRows
         let pending = resizeSettle.pending?.rows == tuiRows || (claimedTUIRows == tuiRows && shown != tuiRows)
-        tuiGridHold.replayed(rows: shown, page: tuiRows, claimPending: model.isTUI && pending)
+        tuiGridHold.replayed(rows: shown, page: tuiRows, claimPending: model.isTUI && !model.session.preservesHostGrid && pending)
         if tuiGridHold.heldRows == nil {
             tuiGridHoldExpiry?.cancel()
             tuiGridHoldExpiry = nil
@@ -1525,6 +1526,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
+        if model.session.preservesHostGrid {
+            // Remember the viewport without expecting a Mac resize or its replay.
+            // An equal grid is still the Mac's, including after rotation.
+            model.session.resize(columns: size.columns, rows: size.rows)
+            return
+        }
         #if DEBUG
         // Counted so a typing test can show a keystroke sends the Mac no resize (ComposerTypingLagUITests).
         InputLatencyTrace.shared?.sample("terminal_resize_sent", ms: 0)
@@ -1718,6 +1725,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // A swipe back or Back: the dock rides the page as it is drawn now.
+        holdsForNavigation(nil)
         #if DEBUG
         frameLog.stop()
         #endif
@@ -1762,8 +1771,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         composerHost.view.isHidden = !dock.showsComposer
         updateBottomBacking()
         view.setNeedsLayout()
+        // Out of a window (viewDidLoad, a warm tab behind another): nothing shows, so no layout
+        // is forced now. The first layout in a window applies the dock (`viewDidLayoutSubviews`
+        // places the rows). Forcing it here laid the whole page out once more on every terminal
+        // open: 9% of row tap to terminal ready (LaunchProfile, run 46108643638).
+        guard view.window != nil else {
+            keyBarClip.alpha = 1
+            return
+        }
         // motion: allow UIKit dock reflow, one bounded 0.25 s pass like classic's band; Reduce Motion applies it at once.
-        let animate = view.window != nil && !UIAccessibility.isReduceMotionEnabled
+        let animate = !UIAccessibility.isReduceMotionEnabled
         if animate {
             dockReflow += 1
             let reflow = dockReflow
@@ -1826,6 +1843,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if model.demoFinalColumns != nil { startSettleProbe() }
             #endif
         }
+    }
+
+    /// The page's saved copy came after its first layout (``TerminalModel/takesLateSeed``): fed
+    /// now, so the surface shows it live (scrolls, takes keys) instead of a cover. The Mac's
+    /// replay, a full reset first, replaces it on attach.
+    func seedIfStillBlank() {
+        guard started, surface.surface != nil, model.takesLateSeed, let seed = model.takeSeed() else { return }
+        surface.feed(seed)
     }
 
     #if DEBUG
@@ -2092,6 +2117,43 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Session bytes Ghostty parsed so far, and as of the last present.
     private var paintParsed = 0
     private var paintParsedAtPresent = 0
+
+    #if DEBUG
+    /// The DEBUG paint-latency overlay (``TerminalPaintOverlay``): hostd's join of each report.
+    private var paintOverlay: UILabel?
+
+    private func installPaintOverlay() {
+        let label = UILabel()
+        label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        label.textColor = .white
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        label.layer.cornerRadius = 4
+        label.layer.masksToBounds = true
+        label.isUserInteractionEnabled = false
+        label.accessibilityIdentifier = "terminal.paintLatencyOverlay"
+        label.numberOfLines = 2
+        label.text = TerminalPaintSummary().overlayText
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
+        ])
+        paintOverlay = label
+        // Report each second, not each 5 s, so the number is live.
+        paintTally.reportIntervalMs = TerminalPaintOverlay.reportEveryMs
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(paintSummaryArrived(_:)),
+            name: TerminalPaintSummary.didArrive, object: model.session.underlyingSession
+        )
+    }
+
+    @objc private func paintSummaryArrived(_ note: Notification) {
+        guard let summary = note.userInfo?["summary"] as? TerminalPaintSummary else { return }
+        paintOverlay?.text = summary.overlayText
+        paintOverlay?.accessibilityValue = summary.overlayText
+    }
+    #endif
 
     /// A present showed every byte parsed before it: the stamped redraws among them were painted.
     private func paintPresented() {
@@ -3098,7 +3160,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // insets; never the soft keyboard) is held: a new width (a rotation)
         // shows the page's grid, letterboxed or shifted to the cursor as it
         // is, until the Mac redraws.
-        if newTUIRows != tuiRows, model.isTUI, tuiRows > 0, columns == gridColumns {
+        if newTUIRows != tuiRows, model.isTUI, !model.session.preservesHostGrid, tuiRows > 0, columns == gridColumns {
             tuiGridHold.rowsChanged(from: tuiRows, to: newTUIRows, shownRows: appliedHostRows ?? model.session.remoteRows)
             armGridHoldExpiry()
         }
@@ -4809,7 +4871,86 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.window?.endEditing(true)
     }
 
+    // MARK: Held through a navigation transition
+
+    /// A swipe back (or Back, or a push) this page is part of: the page moves as one, so the
+    /// dock keeps its place and its key row while the page slides, whatever the keyboard
+    /// reports meanwhile (Leo, 2026-11-25: "weird looking zones esp near composer bar ... it all
+    /// doesn't move properly"). A cancelled swipe catches up with the keyboard's last word.
+    private var navigationHold: NSLayoutConstraint?
+    /// The newest keyboard notification held back, replayed when a cancelled swipe lets go.
+    private var heldKeyboardNotes: [Notification] = []
+
+    /// Replaying held notes: they go through.
+    private var replayingHeldNotes = false
+
+    /// Whether the keyboard notification is held back by a navigation transition (nil: the
+    /// transition's start, from the appearance callbacks).
+    @discardableResult
+    private func holdsForNavigation(_ note: Notification?) -> Bool {
+        guard !SwipeBackWholePage.legacy, !replayingHeldNotes, chrome == .embedded,
+              let register = navigationTransition() else { return false }
+        if navigationHold != nil {
+            if let note { heldKeyboardNotes.append(note) }
+            return true
+        }
+        // The stack stays where it is drawn now, above whatever the guide does.
+        view.layoutIfNeeded()
+        let hold = bottomStack.bottomAnchor.constraint(equalTo: view.bottomAnchor,
+                                                       constant: bottomStack.frame.maxY - view.bounds.maxY)
+        hold.priority = .required - 1
+        // Only a transition that will report its end holds the page: a coordinator that declines
+        // (it has already finished) would leave the dock pinned and every later keyboard note
+        // held, so this note goes through as if there were no transition (#56696 review, F2).
+        let accepted = register { [weak self] cancelled in
+            self?.endNavigationHold(cancelled: cancelled)
+        }
+        guard accepted else { return false }
+        hold.isActive = true
+        navigationHold = hold
+        if let note { heldKeyboardNotes.append(note) }
+        return true
+    }
+
+    /// The animated transition this page is part of, as the call that registers for its end
+    /// (true: it will call back, with whether it was cancelled; false: it declined). Nil: none.
+    /// Tests stand in for UIKit's coordinator.
+    var navigationTransition: () -> ((@escaping (_ cancelled: Bool) -> Void) -> Bool)? = { nil }
+
+    /// Whether the dock is held where the page drew it, for tests.
+    var holdsDockForNavigation: Bool { navigationHold != nil }
+
+    private func uikitNavigationTransition() -> ((@escaping (_ cancelled: Bool) -> Void) -> Bool)? {
+        guard let coordinator = transitionCoordinator, coordinator.isAnimated else { return nil }
+        return { done in
+            coordinator.animate(alongsideTransition: nil) { context in done(context.isCancelled) }
+        }
+    }
+
+    private func endNavigationHold(cancelled: Bool) {
+        navigationHold?.isActive = false
+        navigationHold = nil
+        let notes = heldKeyboardNotes
+        heldKeyboardNotes = []
+        guard cancelled else { return }
+        // Back on screen: the keyboard's last state, as if it had just been reported.
+        keyboardDock.refresh()
+        replayingHeldNotes = true
+        defer { replayingHeldNotes = false }
+        for note in notes {
+            switch note.name {
+            case UIResponder.keyboardWillShowNotification: keyboardWillShow(note)
+            case UIResponder.keyboardWillHideNotification: keyboardWillHide(note)
+            case UIResponder.keyboardDidShowNotification: keyboardDidShow(note)
+            case UIResponder.keyboardDidHideNotification: keyboardDidHide(note)
+            default: break
+            }
+        }
+        view.setNeedsLayout()
+    }
+
     @objc private func keyboardWillShow(_ note: Notification) {
+        if holdsForNavigation(note) { return }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willShow t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         startKeyboardProbe(showing: true)
@@ -4826,6 +4967,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
+        if holdsForNavigation(note) { return }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         startKeyboardProbe(showing: false)
@@ -4838,6 +4980,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardDidHide(_ note: Notification) {
+        if holdsForNavigation(note) { return }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd didHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         #endif
@@ -4853,6 +4996,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardDidShow(_ note: Notification) {
+        if holdsForNavigation(note) { return }
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
         #if DEBUG
@@ -5353,6 +5497,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
 
     /// The Mac's grid is the phone's own, as sent or still on its way.
     var hostGridIsPhonesOwn: Bool {
+        guard !model.session.preservesHostGrid else { return false }
         guard let columns = appliedHostColumns ?? model.session.remoteColumns, let rows = feedHostRows else { return true }
         let grid = TerminalResizeSettle.Size(columns: columns, rows: rows)
         // The grid before the last send is the phone's only while no other

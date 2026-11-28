@@ -38,6 +38,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH.
+. "$ROOT/scripts/lib/bun-options.sh"
 # The app's settings file, whose folder holds web-dev.json: a DEV build's own (its CMUX_NEXT_CONFIG_FILE,
 # which `cmux live` passes on), else NEXT's ~/.config/cmux-next since #53567 (BuildStatePaths.configDirectory).
 # Writing web-dev.json into the Classic config folder pointed no release or nightly app anywhere (#56156).

@@ -177,3 +177,26 @@ fn later_lines_carry_the_excluded_windows() {
     let stop: Later = serde_json::from_str(r#"{"stop":true}"#).unwrap();
     assert_eq!(stop.exclude_windows, None);
 }
+
+#[test]
+fn the_capturing_line_names_the_pick_the_source_and_the_applied_mode() {
+    let setup: Setup = serde_json::from_str(
+        r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"view","display":"2","max_width":480}"#,
+    )
+    .expect("setup");
+    let line = capturing_line(&setup, Some([960, 0, 960, 1080]), (480, 540), Mode::View);
+    assert_eq!(
+        line.to_json(),
+        r#"{"capturing":{"source":"display","display":"2","window":null,"rect":[960,0,960,1080],"width":480,"height":540,"max_width":480,"mode":"view","scope":"view"}}"#
+    );
+    let window: Setup = serde_json::from_str(
+        r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","window":4194305}"#,
+    )
+    .expect("setup");
+    let line = capturing_line(&window, None, (800, 600), Mode::Control);
+    let got = line.capturing.expect("capturing");
+    assert_eq!(
+        (got.source.as_str(), got.window, got.mode.as_str()),
+        ("window", Some(4194305), "control")
+    );
+}

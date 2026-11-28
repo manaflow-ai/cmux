@@ -53,7 +53,7 @@ fn run() -> Result<(), String> {
             "--floor-dir" => floor_dir = Some(PathBuf::from(val()?)),
             "--out" => out = Some(PathBuf::from(val()?)),
             "--timeout-ms" => {
-                timeout = val()?.parse().map_err(|_| "--timeout-ms needs a number")?
+                timeout = val()?.parse().map_err(|_| "--timeout-ms needs a number")?;
             }
             _ => return Err(format!("unknown option {a}")),
         }

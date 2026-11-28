@@ -111,38 +111,9 @@ extension FrontendBrowserHistory.Entry {
     var byteCount: Int { url.utf8.count + (title?.utf8.count ?? 0) + 48 }
 }
 
-/// Stores (or with nil, clears) a frontend browser tab's session history.
-public struct SetFrontendBrowserHistoryRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "set-frontend-browser-history"
-    public static let requiredCapability: String? = DaemonCapability.frontendBrowserHistory.rawValue
-    public var surface: SurfaceID
-    public var history: FrontendBrowserHistory?
-
-    public init(surface: SurfaceID, history: FrontendBrowserHistory?) {
-        self.surface = surface
-        self.history = history
-    }
-
-    enum CodingKeys: String, CodingKey { case surface, history }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(surface, forKey: .surface)
-        // An explicit null clears it.
-        try c.encode(history, forKey: .history)
-    }
-}
-
 /// A frontend browser tab's stored session history, nil when none.
-public struct GetFrontendBrowserHistoryRequest: DaemonRequest {
+extension GetFrontendBrowserHistoryRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var history: FrontendBrowserHistory?
-    }
-    public static let command = "get-frontend-browser-history"
-    public static let requiredCapability: String? = DaemonCapability.frontendBrowserHistory.rawValue
-    public var surface: SurfaceID
-
-    public init(surface: SurfaceID) {
-        self.surface = surface
     }
 }

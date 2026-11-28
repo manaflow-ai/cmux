@@ -11,14 +11,54 @@
 # Prints "BENCH-AT <sha>" then `BENCH baseline|duress n=… p50=…ns p99=…ns p999=…ns max=…ns` per SHA, and the load average.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+root=$PWD
+source scripts/measure/fetch-commit.sh
 pkg=Packages/macOS/CmuxNext
 src=$pkg/Sources/CmuxNextHangReports/HangReportCollector.swift
-bench=$pkg/Tests/CmuxNextHangReportsTests/NoteStallBench.swift
 [ $# -ge 1 ] || { echo "usage: $0 SHA..." >&2; exit 2; }
-[ ! -e "$bench" ] || { echo "refusing to overwrite $bench" >&2; exit 2; }
-git diff --quiet -- "$src" || { echo "refusing to overwrite modified $src" >&2; exit 2; }
-cleanup() { git checkout -q HEAD -- "$src"; rm -f "$bench"; }
+# The bench builds in a throwaway package of its own: CmuxNextCompat, CmuxNextHangReports (the --ref's sources, with
+# HangReportCollector.swift from each SHA) and one test target, NoteStallBench. A `swift test` in the CmuxNext package
+# compiles every test target there, so an unrelated broken test at the --ref stopped the bench before it measured:
+# three exclusive runs died that way on 2026-11-27/28 (launchRun in CloudStartSessionRequest.swift, a compiler crash
+# at AgentPaneVideoInfoTests.swift:640), after 3-4 h each in the queue. Same compiler flags and same pinned
+# swift-atomics, so the measured code is the same as in the full package.
+work=$(mktemp -d "${TMPDIR:-/tmp}/note-stall-bench.XXXXXX")
+cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
+mkdir -p "$work/Sources" "$work/Tests/NoteStallBenchTests"
+cp -R "$pkg/Sources/CmuxNextCompat" "$pkg/Sources/CmuxNextHangReports" "$work/Sources/"
+# swift-atomics at the CmuxNext package's pin (its Package.resolved lists every package there; only this one is needed).
+atomics=$(awk '/"identity" : "swift-atomics"/ { f = 1 } f && /"version"/ { gsub(/[",]/, ""); print $3; exit }' "$pkg/Package.resolved")
+[ -n "$atomics" ] || { echo "no swift-atomics pin in $pkg/Package.resolved" >&2; exit 1; }
+cat > "$work/Package.swift" <<SWIFT
+// swift-tools-version: 6.2
+import PackageDescription
+let settings: [SwiftSetting] = [ // = daemonSwiftSettings in $pkg/Package.swift
+    .swiftLanguageMode(.v6),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("ExistentialAny"),
+    .enableUpcomingFeature("InternalImportsByDefault"),
+]
+let package = Package(
+    name: "NoteStallBench",
+    platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(path: "$root/Packages/Shared/CmuxEgress"),
+        .package(url: "https://github.com/apple/swift-atomics.git", exact: "$atomics"),
+    ],
+    targets: [
+        .target(name: "CmuxNextCompat", dependencies: [.product(name: "Atomics", package: "swift-atomics")],
+                swiftSettings: settings),
+        .target(name: "CmuxNextHangReports",
+                dependencies: ["CmuxNextCompat", .product(name: "CmuxEgress", package: "CmuxEgress")],
+                swiftSettings: settings),
+        .testTarget(name: "NoteStallBenchTests", dependencies: ["CmuxNextCompat", "CmuxNextHangReports"],
+                    swiftSettings: settings),
+    ]
+)
+SWIFT
+bench=$work/Tests/NoteStallBenchTests/NoteStallBench.swift
 cat > "$bench" <<'SWIFT'
 import Foundation
 import CmuxNextCompat
@@ -52,6 +92,9 @@ struct NoteStallBench {
         return "BENCH \(label) n=\(iterations) p50=\(p(0.5))ns p99=\(p(0.99))ns p999=\(p(0.999))ns max=\(times.last!)ns"
     }
 
+    /// The spinners' join, synchronous: `DispatchGroup.wait` is unavailable in an async function (Swift 6).
+    static func joined(_ group: DispatchGroup) -> Bool { group.wait(timeout: .now() + 10) == .success }
+
     @Test func noteStallMainThreadCost() async throws {
         guard ProcessInfo.processInfo.environment["NOTE_STALL_BENCH"] == "1" else { return }
         _ = await Self.run("warmup", iterations: 500)
@@ -68,7 +111,7 @@ struct NoteStallBench {
         }
         defer {
             stop.value.store(true, ordering: .releasing)
-            #expect(group.wait(timeout: .now() + 10) == .success)
+            #expect(Self.joined(group))
         }
         try await Task.sleep(for: .milliseconds(200))
         print(await Self.run("duress", iterations: 6000))
@@ -82,9 +125,13 @@ SWIFT
 ncpu=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 echo "host: $(uname -sm) ncpu=$ncpu"
 for sha in "$@"; do
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch -q origin "$sha"
-  git show "$sha:$src" > "$src" || { echo "no $src at $sha" >&2; exit 1; }
+  measure_fetch_commit . "$sha" || exit 1
+  git show "$sha:$src" > "$work/Sources/CmuxNextHangReports/HangReportCollector.swift" || { echo "no $src at $sha" >&2; exit 1; }
   echo "BENCH-AT $(git rev-parse --short "$sha")"
-  (cd "$pkg" && NOTE_STALL_BENCH=1 swift test -c release --filter NoteStallBench)
+  # package-test-lane.sh's release suite build: @testable needs -enable-testing, DEBUG stays defined as it was in the
+  # full-package runs, and the Xcode 26.6 optimizer's CopyPropagation crash is avoided. CmuxNextHangReports has no #if,
+  # so the measured code is the same.
+  (cd "$work" && NOTE_STALL_BENCH=1 swift test -c release -Xswiftc -enable-testing -Xswiftc -DDEBUG \
+    -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation --filter NoteStallBench)
   echo "load: $(uptime | sed 's/.*load average[s]*: //')"
 done

@@ -295,6 +295,7 @@ impl LinkGroup for SshLinkGroup {
                 kind: TransportPathKind::Direct,
                 remote: Some(self.description.clone()),
                 rtt_micros: None,
+                outer: None,
             }),
         }
     }

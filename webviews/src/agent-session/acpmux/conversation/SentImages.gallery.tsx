@@ -45,7 +45,11 @@ type Props = {
   held?: boolean;
   /// A prompt sent as words, the first image, more words, then a file, each where it was put in
   /// the text; the image's bytes arrive `lateMs` after the row draws, as acpmux's read does.
-  mixed?: { lateMs: number };
+  mixed?: { lateMs: number; view?: "inline" | "strip" };
+  /// Leo's 2026-11-27 prompt as acpmux recorded it (words, a pasted screenshot placed between them
+  /// with its original's link, more words), above a prompt a strip-view composer sent (its
+  /// screenshot after the words, unplaced) and an old one with no recorded parts, in `oneRule`'s view.
+  oneRule?: "inline" | "strip";
 };
 
 const paint = (shot: Shot) => paintShot(shot);
@@ -104,8 +108,10 @@ function GallerySentImages({
   column,
   held,
   mixed,
+  oneRule,
 }: Props) {
-  if (mixed) return <GalleryMixedPrompt images={images} lateMs={mixed.lateMs} />;
+  if (mixed) return <GalleryMixedPrompt images={images} lateMs={mixed.lateMs} view={mixed.view ?? "inline"} />;
+  if (oneRule) return <GalleryOneRule images={images} view={oneRule} />;
   if (primedLate) return <GalleryPrimedLate images={images} />;
   if (placedIn !== undefined)
     return <GalleryPlacedImages images={images} text={placedIn} before={placedBefore} column={column} held={held} />;
@@ -218,10 +224,19 @@ const placedHolds = attachmentsHoldTheirBoxes({ inBubble: true });
 /// Text, an image, more text, then a file, each where the composer put it (Leo, 2026-11-22: "there
 /// should be no problem doing so for inline attachments after send"). acpmux's read of the image
 /// lands `lateMs` after the row draws; its slot already has the image's shape, so nothing moves.
-function GalleryMixedPrompt({ images, lateMs }: { images: Props["images"]; lateMs: number }) {
+function GalleryMixedPrompt({
+  images,
+  lateMs,
+  view,
+}: {
+  images: Props["images"];
+  lateMs: number;
+  view: "inline" | "strip";
+}) {
   const [actions] = useState<TurnActions>(() => {
     const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
     return {
+      // gallery-capture: the image read answers `lateMs` after the row draws; its slot already has the image's shape, and the variants' plays wait for the image.
       promptImage: (id: string) =>
         new Promise<string | undefined>((resolve) => setTimeout(() => resolve(urls.get(id)), lateMs)),
     };
@@ -249,7 +264,7 @@ function GalleryMixedPrompt({ images, lateMs }: { images: Props["images"]; lateM
     text: parts.map((part) => (part.kind === "text" ? part.text : "")).join(""),
     inlineParts: parts,
   };
-  if (!useAttachmentView("inline")) return null;
+  if (!useAttachmentView(view)) return null;
   return (
     <ImageViewerContext.Provider value={() => {}}>
       <TurnActionsContext.Provider value={actions}>
@@ -260,6 +275,88 @@ function GalleryMixedPrompt({ images, lateMs }: { images: Props["images"]; lateM
     </ImageViewerContext.Provider>
   );
 }
+
+/// Each attachment in one place per view (Leo, 2026-11-27: inline was showing "inline + top bar",
+/// and "pure inline isn't giving pure inline"): Leo's own prompt as acpmux recorded it, one a
+/// strip-view composer sent (no recorded place), and an old one with no recorded parts.
+function GalleryOneRule({ images, view }: { images: Props["images"]; view: "inline" | "strip" }) {
+  const [actions] = useState<TurnActions>(() => {
+    const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
+    return { promptImage: (id: string) => Promise.resolve(urls.get(id)) };
+  });
+  const [leo, strip, old] = images.map((image) => ({
+    ...image,
+    ...(image.shot && { width: image.shot.width, height: image.shot.height }),
+  }));
+  const before = "the inline attachments are bugging out right now like ";
+  const after = "the inline gives inline + top bar, and pure inline isn't giving pure inline";
+  const uri = "file:///Users/sample/Chat%20Uploads/image.png";
+  const rows: AcpmuxRow[] = [
+    {
+      id: "leo",
+      version: 1,
+      kind: "user",
+      at: 1,
+      text: `${before}\n${after}`,
+      images: [leo!],
+      inlineParts: [
+        { kind: "text", text: before },
+        { kind: "image", ...leo!, blockIndex: 1, placed: true },
+        { kind: "file", name: "image.png", uri, companionOf: 1, placed: true },
+        { kind: "text", text: after },
+      ],
+    },
+    {
+      id: "strip-sent",
+      version: 1,
+      kind: "user",
+      at: 1,
+      text: "Sent from a composer in Attachments at Top: the screenshot went after the words.",
+      images: [strip!],
+      inlineParts: [
+        { kind: "text", text: "Sent from a composer in Attachments at Top: the screenshot went after the words." },
+        { kind: "image", ...strip!, blockIndex: 1 },
+      ],
+    },
+    {
+      id: "old",
+      version: 1,
+      kind: "user",
+      at: 1,
+      text: "An older prompt, its picture recorded apart.",
+      images: [old!],
+    },
+  ];
+  if (!useAttachmentView(view)) return null;
+  return (
+    <ImageViewerContext.Provider value={() => {}}>
+      <TurnActionsContext.Provider value={actions}>
+        {rows.map((row) => (
+          <div key={row.id} className="cv-user" data-gallery-row={row.id} style={{ padding: 16 }}>
+            <UserBubble row={row} text={row.text!} />
+          </div>
+        ))}
+      </TurnActionsContext.Provider>
+    </ImageViewerContext.Provider>
+  );
+}
+
+/// The one-place check: in `view`, every row draws its one image once, in the bubble (inline) or
+/// over it (strip), never both.
+const oneRulePlay =
+  (view: "inline" | "strip"): Play =>
+  async ({ waitFor, document }) => {
+    const rows = () => [...document.querySelectorAll<HTMLElement>("[data-gallery-row]")];
+    await waitFor(() => rows().length === 3 && rows().every((row) => row.querySelector("img.cv-user__image")));
+    for (const row of rows()) {
+      const images = [...row.querySelectorAll(".cv-user__image, .cv-user__image-placeholder")];
+      const inBubble = images.filter((node) => node.closest(".cv-user__bubble")).length;
+      const name = row.dataset.galleryRow;
+      if (images.length !== 1) throw new Error(`${name} draws its image ${images.length} times`);
+      if (view === "inline" && inBubble !== 1) throw new Error(`${name} draws its image over its words in Inline`);
+      if (view === "strip" && inBubble !== 0) throw new Error(`${name} draws its image in its words at Top`);
+    }
+  };
 
 /// The mixed prompt's check: each attachment sits in the bubble's text in the order it was sent,
 /// and from the first frame to the image's arrival no box in the row moves or resizes, the image's
@@ -531,6 +628,79 @@ export default componentEntry<Props>({
         mixed: { lateMs: 600 },
       },
       play: placedInOrderNoShift,
+    },
+    "placed-mixed-top": {
+      note: 'The same prompt in Attachments at Top (agentPane.attachmentView strip, the default since #55723): its screenshot and log in one row over the words. A sent prompt\'s right-click switches it to Attachments Inline (Leo, 2026-11-27: "it should be toggleable one or the other").',
+      height: 360,
+      props: {
+        images: [
+          {
+            id: "mixed-shot-top",
+            mimeType: "image/png",
+            name: "image.png",
+            width: 1440,
+            height: 900,
+            shot: { width: 1440, height: 900, hue: 200 },
+          },
+        ],
+        mixed: { lateMs: 0, view: "strip" },
+      },
+      play: async ({ waitFor, document }) => {
+        await waitFor(() => document.querySelector("[data-inline-attachment-strip]") !== null);
+        if (document.querySelector(".cv-user__bubble [data-inline-content] .cv-user__inline-image"))
+          throw new Error("Attachments at Top still draws the screenshot inside the text");
+      },
+    },
+    "one-rule-inline": {
+      note: 'Attachments Inline (Leo, 2026-11-27: inline was showing "inline + top bar", and "pure inline isn\'t giving pure inline"): his own prompt as recorded, its screenshot between his words; a prompt a composer at Top sent, its screenshot at the end of its words; an older prompt, its picture at the end too. None over the bubble.',
+      height: 760,
+      props: {
+        images: [
+          { id: "one-rule-leo", mimeType: "image/png", name: "image.png", shot: { width: 142, height: 120, hue: 250 } },
+          {
+            id: "one-rule-strip",
+            mimeType: "image/png",
+            name: "image.png",
+            shot: { width: 1440, height: 900, hue: 200 },
+          },
+          {
+            id: "one-rule-old",
+            mimeType: "image/png",
+            name: "image.png",
+            shot: { width: 1550, height: 300, hue: 230 },
+          },
+        ],
+        oneRule: "inline",
+      },
+      play: oneRulePlay("inline"),
+    },
+    "one-rule-top": {
+      note: "The same three prompts at Top: each picture once, in the row over its words, none in them.",
+      height: 760,
+      props: {
+        images: [
+          {
+            id: "one-rule-leo-top",
+            mimeType: "image/png",
+            name: "image.png",
+            shot: { width: 142, height: 120, hue: 250 },
+          },
+          {
+            id: "one-rule-strip-top",
+            mimeType: "image/png",
+            name: "image.png",
+            shot: { width: 1440, height: 900, hue: 200 },
+          },
+          {
+            id: "one-rule-old-top",
+            mimeType: "image/png",
+            name: "image.png",
+            shot: { width: 1550, height: 300, hue: 230 },
+          },
+        ],
+        oneRule: "strip",
+      },
+      play: oneRulePlay("strip"),
     },
     failed: {
       note: "An image acpmux answers but the engine cannot draw: its slot says Couldn't load image.",

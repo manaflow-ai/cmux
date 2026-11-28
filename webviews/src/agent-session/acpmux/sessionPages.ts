@@ -139,8 +139,9 @@ function shared(value: unknown): unknown {
 
 /** `session` with its `modes` and `configOptions` the page's shared copies (`shared`). */
 export function withSharedShapes<S extends Summary>(session: S): S {
-  if (session.modes !== undefined) session.modes = shared(session.modes);
-  if (session.configOptions !== undefined) session.configOptions = shared(session.configOptions);
+  const row: Summary = session;
+  if (row.modes !== undefined) row.modes = shared(row.modes);
+  if (row.configOptions !== undefined) row.configOptions = shared(row.configOptions);
   return session;
 }
 

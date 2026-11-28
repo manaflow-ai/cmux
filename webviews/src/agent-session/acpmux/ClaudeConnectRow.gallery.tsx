@@ -79,6 +79,7 @@ export default componentEntry<Props>({
       const [phase, setPhase] = useState<"starting" | "signing_in" | "saving" | null>(null);
       const begin = async () => {
         setPhase("starting");
+        // gallery-capture: these steps run only inside the `connect` play, which waits for the saving card and then the Connected row.
         const step = (next: typeof phase, ms: number) =>
           new Promise((done) => setTimeout(() => done(setPhase(next)), ms));
         await step("signing_in", 500);
@@ -136,12 +137,13 @@ export default componentEntry<Props>({
 
 /// The inline card's three looks (`card` ships: the progress line sits under the one button, where
 /// the eye already is; `row` is the compact one-line form; `steps` adds the Step n of 3 caption),
-/// each idle, signing in, failed and done, and Codex's card in the shipped look.
+/// each idle, signing in, failed and done, and Codex's card in the shipped look. Variant names are
+/// lower kebab case (gallery/format.ts), so `signingIn` names its variants `signing-in`.
 function cardVariants() {
   const states: CardState[] = ["idle", "signingIn", "error", "done"];
   const out: Record<string, { props: Props }> = {};
-  // Variant names are lower kebab case (gallery/format.ts VARIANT_NAME): `signingIn` names `signing-in`.
-  const name = (card: CardState) => (card === "signingIn" ? "signing-in" : card);
+  // Variant names are lower kebab case (gallery/format.ts VARIANT_NAME): `card-signing-in`.
+  const name = (card: CardState) => card.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
   for (const look of ["card", "row", "steps"] as const)
     for (const card of states) out[`${look}-${name(card)}`] = { props: { state: "card", look, card } };
   for (const card of states)

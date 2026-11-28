@@ -1,0 +1,172 @@
+/* RFD 0080: the status line, the popover rows and the create card (auto/). Flat tonal fills, no
+   borders, the pane's tokens, the same sizes as the Cloud hint. Nothing animates. */
+.acpmux-computer-status {
+  --acpmux-computer-fill: var(--ds-surface-card);
+  --acpmux-computer-fill-strong: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  --acpmux-computer-fill-hover: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+}
+.acpmux-computer-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-computer-status[data-phase="paused_spend_cap"] .acpmux-computer-status-text,
+.acpmux-computer-status[data-phase="paused_pool_spent"] .acpmux-computer-status-text,
+.acpmux-computer-status[data-phase="move_failed"] .acpmux-computer-status-text {
+  color: var(--agent-text);
+}
+.acpmux-computer-status-action,
+.acpmux-computer-choice,
+.acpmux-computer-button {
+  flex: none;
+  box-sizing: border-box;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: var(--acpmux-computer-fill-strong, color-mix(in srgb, var(--agent-text) 9%, transparent));
+  color: var(--agent-text);
+  font: inherit;
+  font-weight: normal;
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-computer-status-action:hover,
+.acpmux-computer-choice:hover,
+.acpmux-computer-button:hover {
+  background: var(--acpmux-computer-fill-hover, color-mix(in srgb, var(--agent-text) 13%, transparent));
+}
+.acpmux-computer-status button:focus-visible,
+.acpmux-computer-rows button:focus-visible,
+.acpmux-create-card button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* A row above the composer: the Cloud hint's strip. */
+.acpmux-computer-status[data-look="row"] {
+  display: flex;
+  width: 100%;
+  max-width: 760px;
+  box-sizing: border-box;
+  margin: 0 auto var(--ds-space-2, 8px);
+  padding: var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-3, 12px);
+  border-radius: calc(var(--ds-radius-control, 8px) + var(--ds-space-1, 4px));
+  background: var(--ds-surface-card);
+}
+.acpmux-computer-status[data-look="row"] .acpmux-computer-status-text { flex: 1; }
+
+/* A compact chip: one pill. */
+.acpmux-computer-status[data-look="chip"] {
+  padding: var(--grid-half-step) var(--ds-space-2, 8px);
+  border-radius: 999px;
+  background: var(--ds-surface-card);
+}
+
+/* The popover's rows. */
+.acpmux-computer-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  color: var(--agent-text);
+}
+.acpmux-computer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--ds-space-2, 8px);
+  row-gap: var(--ds-space-1, 4px);
+  min-height: 24px;
+}
+.acpmux-computer-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 52px;
+  color: var(--agent-muted);
+}
+.acpmux-computer-row-choices {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+}
+.acpmux-computer-row-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--agent-muted);
+}
+.acpmux-computer-row-label + .acpmux-computer-row-note { flex: 1 1 0; color: var(--agent-text); }
+.acpmux-computer-choice[data-on="true"] {
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.acpmux-computer-choice-label { color: var(--agent-muted); padding-inline: var(--grid-half-step); }
+.acpmux-computer-pin { flex: none; color: var(--agent-muted); }
+.acpmux-computer-buttons { display: flex; gap: var(--ds-space-2, 8px); padding-top: var(--ds-space-1, 4px); }
+
+/* The create card. */
+.acpmux-create-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  padding: var(--ds-space-3, 12px);
+  border-radius: calc(var(--ds-radius-control, 8px) + var(--ds-space-2, 8px));
+  background: var(--ds-surface-card);
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+}
+.acpmux-create-prompt { display: flex; flex-direction: column; gap: var(--ds-space-1, 4px); }
+.acpmux-create-label { color: var(--agent-muted); }
+.acpmux-create-task {
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  padding: var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+}
+.acpmux-create-task:focus-visible { outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent); }
+.acpmux-create-foot { display: flex; align-items: center; gap: var(--ds-space-2, 8px); flex-wrap: wrap; }
+.acpmux-create-spacer { flex: 1; }
+.acpmux-create-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-create-field-label { color: var(--agent-muted); }
+.acpmux-create-start {
+  min-height: 24px;
+  padding: 0 var(--ds-space-3, 12px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, #fff);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-create-start:disabled { opacity: 0.4; }

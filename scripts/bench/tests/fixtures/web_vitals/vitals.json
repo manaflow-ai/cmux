@@ -1,0 +1,11 @@
+{
+  "meta": {"harness": "vitals.mjs", "throttle": "cpu4x,10mbps,40ms", "viewport": "412x915@2", "runs": 2, "at": "2026-11-19T05:12:00.000Z"},
+  "results": [
+    {"url": "https://cmux.com/docs", "runs": 2, "ttfbMs": 15, "lcpMs": 2432, "inpMs": 56, "jsWireKB": 1239, "jsDecodedKB": 4566, "jsFiles": 36,
+     "samples": [
+       {"ttfb": 14, "lcp": 2410, "inp": 56, "jsWireKB": 1239, "jsDecodedKB": 4566, "jsFiles": 36, "wallMs": 9100},
+       {"ttfb": 16, "lcp": 2454, "inp": null, "jsWireKB": 1239, "jsDecodedKB": 4566, "jsFiles": 36, "wallMs": 9300}
+     ]},
+    {"url": "https://cmux.com/blog", "runs": 0, "ttfbMs": null, "lcpMs": null, "inpMs": null, "jsWireKB": null, "jsDecodedKB": null, "jsFiles": null, "samples": []}
+  ]
+}

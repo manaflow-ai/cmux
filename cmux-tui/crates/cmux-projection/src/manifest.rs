@@ -12,7 +12,7 @@
 //! `git status` there sees it unchanged, not deleted, and no byte of it ever leaves the Mac (RFD
 //! 0007, "Tracked files the skip rules keep home").
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Read as _;
 
 use serde::{Deserialize, Serialize};
@@ -22,8 +22,12 @@ pub const ROOT: u32 = 0;
 
 /// The most entries a manifest holds (a decode refuses more).
 pub const MAX_ENTRIES: usize = 20_000_000;
-/// The most bytes a manifest decodes to (a decode refuses more).
-const MAX_DECODED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// The most serialized bytes a manifest decodes to (a decode refuses more).
+///
+/// This is deliberately far below the 512 MiB wire limit: deserializing the bincode value also
+/// allocates its vectors and strings, so allowing multi-gigabyte expansion would let a compressed
+/// manifest exhaust the daemon before the entry limit is checked.
+const MAX_DECODED_BYTES: u64 = 256 * 1024 * 1024;
 /// The longest name the manifest takes (Linux's own limit).
 const MAX_NAME_BYTES: usize = 255;
 /// The longest reason a file kept on the Mac carries.
@@ -320,9 +324,15 @@ impl Manifest {
     /// A manifest from [`Manifest::encode`]'s bytes, checked: every parent and child range is in
     /// bounds and agrees, every name is one component, and a folder's children are sorted.
     pub fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
+        Self::decode_with_limit(bytes, MAX_DECODED_BYTES)
+    }
+
+    fn decode_with_limit(bytes: &[u8], max_decoded_bytes: u64) -> anyhow::Result<Self> {
         let mut raw = Vec::new();
-        zstd::Decoder::new(bytes)?.take(MAX_DECODED_BYTES + 1).read_to_end(&mut raw)?;
-        anyhow::ensure!(raw.len() as u64 <= MAX_DECODED_BYTES, "the manifest is too large");
+        zstd::Decoder::new(bytes)?
+            .take(max_decoded_bytes.saturating_add(1))
+            .read_to_end(&mut raw)?;
+        anyhow::ensure!(raw.len() as u64 <= max_decoded_bytes, "the manifest is too large");
         // A Mac from before [`Manifest::keep_home`] sends the entries alone.
         // A Mac from before [`Manifest::set_hash`] sends the entries and the kept files.
         let manifest: Self = match bincode::deserialize(&raw) {
@@ -380,6 +390,7 @@ impl Manifest {
                 .ok_or_else(|| anyhow::anyhow!("entry {index}'s children are out of range"))?;
             anyhow::ensure!(entry.children == 0 || start > index, "entry {index} loops");
             let mut before: Option<&Entry> = None;
+            let mut folded_names = BTreeSet::new();
             for ((child, seen), node) in seen
                 .iter_mut()
                 .enumerate()
@@ -396,6 +407,10 @@ impl Manifest {
                         "entry {index}'s children are not sorted"
                     );
                 }
+                anyhow::ensure!(
+                    folded_names.insert(node.name.to_lowercase()),
+                    "entry {index} has case-insensitive sibling collisions"
+                );
                 before = Some(node);
             }
         }

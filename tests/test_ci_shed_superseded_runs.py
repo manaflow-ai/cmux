@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import io
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -292,6 +295,56 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(mint["with"]["permission-contents"], "read")
         cancel = next(step for step in self.job["steps"] if step.get("name") == "Cancel queued runs nobody will read")
         self.assertEqual(cancel["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+
+
+class SweepTests(unittest.TestCase):
+    """main() over a fake GitHub: what the sweep cancels after its read right before each cancel."""
+
+    def sweep(self, queued, jobs):
+        cancelled: list[int] = []
+
+        class FakeGitHub:
+            calls = 0
+
+            def __init__(self, repo, token):
+                pass
+
+            def branch_tips(self):
+                return dict(TIPS)
+
+            def queued_runs(self, since, until, status="queued"):
+                return ([r for r in queued if r["status"] == status], 0)
+
+            def run_jobs(self, run_id):
+                return jobs.get(run_id)
+
+            def cancel(self, run_id):
+                cancelled.append(run_id)
+
+        real, env = shed.GitHub, dict(os.environ)
+        shed.GitHub = FakeGitHub
+        os.environ.update({"GH_REPO": REPO, "GH_TOKEN": "x"})
+        os.environ.pop("GITHUB_STEP_SUMMARY", None)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                shed.main(["--spacing", "0"])
+        finally:
+            shed.GitHub = real
+            os.environ.clear()
+            os.environ.update(env)
+        return cancelled, out.getvalue()
+
+    def test_a_run_listed_queued_with_a_job_running_is_never_cancelled(self):
+        # cmux run 45904512885 (cloud-move-kill.yml, PR #51760), 2026-11-26 22:58Z: listed queued on a superseded
+        # head while its cut and pause-src drills ran mid-move on runners; the sweep cancelled it.
+        drill, idle, unread = run(), run(), run()
+        jobs = {drill["id"]: [{"name": "build", "status": "completed", "runner_name": "pool-1"},
+                              {"name": "drill (cut)", "status": "in_progress", "runner_name": "pool-2"}],
+                idle["id"]: [{"name": "build", "status": "queued", "runner_id": 0, "runner_name": None, "steps": []}],
+                unread["id"]: None}
+        cancelled, out = self.sweep([drill, idle, unread], jobs)
+        self.assertEqual(cancelled, [idle["id"]])
+        self.assertEqual(out.count("kept: a job started since the first read"), 2)
 
 
 if __name__ == "__main__":

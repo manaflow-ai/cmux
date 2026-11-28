@@ -58,6 +58,15 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
     ".cv-lane-batch__toggle",
   ];
 
+  /** Another agent's message in a finished turn folds into its "Worked for" like work (turns.ts
+   * `isOwnSteer`, #37710/#41597), so the "Received N messages" row draws once that is open. The
+   * level-1 and level-2 plays open it themselves; the collapsed variant leaves it closed. */
+  const openWorked = async (page: Page) => {
+    const closed = page.locator(".cv-worked[aria-expanded='false']");
+    if (await closed.count()) await closed.first().click();
+    await page.locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle").first().waitFor();
+  };
+
   const open = async (entry: string, variant: string) => {
     const page = await browser.newPage({ viewport: { width: 760, height: 1400 } });
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -69,6 +78,7 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
     await page.evaluate(() => document.fonts.ready);
     // Each state is read as it settles: no transition is mid-way when it is read.
     await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
+    if (entry === "agent-pane.received-messages") await openWorked(page);
     return page;
   };
 

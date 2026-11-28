@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use super::encoding::{Encoding, inflate};
+use super::encoding::{Encoding, decode};
 use super::entry::{Entry, EntryKind, Meta, StatResult, check_name, mode_display};
 use super::error::FsError;
 use super::listing::{Filter, Listings, MAX_BATCH, Sort, sort_entries};
@@ -328,10 +328,11 @@ impl FsService {
                 .map_err(|_| FsError::ParamsInvalid("bytes_base64 is not base64".into()))?,
             _ => return Err(FsError::ParamsInvalid("exactly one of text and bytes_base64".into())),
         };
-        let data = match Encoding::parse(params.encoding.as_deref(), params.decoded_size)? {
-            Encoding::Identity => data,
-            Encoding::Deflate { decoded_size } => inflate(&data, decoded_size, MAX_WRITE_BYTES)?,
-        };
+        let data =
+            match Encoding::parse(params.encoding.as_deref(), params.decoded_size)?.compressed() {
+                None => data,
+                Some((codec, decoded_size)) => decode(&data, codec, decoded_size, MAX_WRITE_BYTES)?,
+            };
         if data.len() > MAX_WRITE_BYTES {
             return Err(FsError::TooLarge { total: Some(data.len() as u64) });
         }

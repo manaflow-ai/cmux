@@ -25,10 +25,16 @@
 //!
 //! [`Mode::Enforce`] refuses the rest; [`Mode::Log`] only reports it. The mode
 //! is `CMUX_EGRESS` (`enforce`, `log` or `off`) when set, else enforce in a
-//! debug build and log in a release build; the app sets `CMUX_EGRESS=enforce`
-//! for nightly. Every refusal (or would-be refusal) prints one
+//! debug build and in a binary inside a NIGHTLY, DEV or staging app bundle
+//! ([`bundle_mode`]), else log; the app also sets `CMUX_EGRESS=enforce` for
+//! the children it starts in those builds. Every refusal (or would-be refusal) prints one
 //! `egress.unlisted host=H site=S mode=M` line to stderr and is kept in
 //! [`unlisted`] for diagnostics.
+//!
+//! The audit trail: every connection the gate sees, allowed or refused, is
+//! kept once per (host, site, verdict) in [`audit`]; when `CMUX_EGRESS_AUDIT`
+//! names a file, each new entry is also appended to it as one JSON line
+//! (`{"ts":…,"host":…,"site":…,"verdict":…,"mode":…,"refused":…}`).
 //!
 //! tests/test_egress_gate.py finds every client the code makes by hand
 //! instead; tests/egress_ungated.json lists those not moved here yet.
@@ -53,6 +59,9 @@ const HOSTS_TXT: &str = include_str!("../hosts.txt");
 
 /// The environment variable that picks the mode.
 pub const MODE_ENV: &str = "CMUX_EGRESS";
+
+/// The environment variable naming the audit file (JSON lines, appended).
+pub const AUDIT_ENV: &str = "CMUX_EGRESS_AUDIT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -91,7 +100,44 @@ impl Mode {
     }
 }
 
-const DEFAULT_MODE: Mode = if cfg!(debug_assertions) { Mode::Enforce } else { Mode::Log };
+/// The mode when nothing set one: enforce in a debug build; in a release build, the mode of the
+/// app bundle this binary sits in ([`bundle_mode`] of [`bundle_id_of_exe`]), else log. A NIGHTLY's
+/// bundled `cmux` started from a shell outside cmux (no `CMUX_EGRESS` inherited) still enforces.
+fn default_mode() -> Mode {
+    if cfg!(debug_assertions) {
+        return Mode::Enforce;
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| bundle_id_of_exe(&exe))
+        .and_then(|id| bundle_mode(&id))
+        .unwrap_or(Mode::Log)
+}
+
+/// The mode a macOS app's bundle id names, by the app's build kinds (BuildIdentity.Kind):
+/// NIGHTLY (`com.cmuxterm.app.nightly[.x]`), DEV (`com.cmuxterm.app.debug[.tag]` or any other
+/// `com.cmuxterm.app.x`) and staging (`com.cmuxterm.app.staging[.tag]`) enforce; stable
+/// (`com.cmuxterm.app`), rc (`com.cmuxterm.app.rc[.x]`) and any other bundle keep the default (None).
+pub fn bundle_mode(bundle_id: &str) -> Option<Mode> {
+    let id = bundle_id.trim();
+    let rest = id.strip_prefix("com.cmuxterm.app.")?;
+    if rest.is_empty() || rest == "rc" || rest.starts_with("rc.") {
+        return None;
+    }
+    Some(Mode::Enforce)
+}
+
+/// The `CFBundleIdentifier` of the nearest `*.app` bundle holding `exe` (symlinks resolved, so
+/// `/usr/local/bin/cmux` names the app it points into), from its XML `Contents/Info.plist`.
+/// None outside a bundle or for a plist that is not XML.
+pub fn bundle_id_of_exe(exe: &std::path::Path) -> Option<String> {
+    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let app = exe.ancestors().find(|dir| dir.extension().is_some_and(|ext| ext == "app"))?;
+    let plist = std::fs::read_to_string(app.join("Contents/Info.plist")).ok()?;
+    let after = plist.split_once("<key>CFBundleIdentifier</key>")?.1.trim_start();
+    let value = after.strip_prefix("<string>")?.split_once("</string>")?.0.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
 
 static MODE: AtomicU8 = AtomicU8::new(0);
 
@@ -106,7 +152,7 @@ pub fn mode() -> Mode {
                 .ok()
                 .as_deref()
                 .and_then(Mode::parse)
-                .unwrap_or(DEFAULT_MODE);
+                .unwrap_or_else(default_mode);
             MODE.store(mode.code(), Ordering::Relaxed);
             mode
         }
@@ -119,7 +165,7 @@ pub fn set_mode(mode: Mode) {
 }
 
 /// Why a host may be reached.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Verdict {
     /// docs/privacy.md lists it.
     Listed,
@@ -148,6 +194,91 @@ fn listed() -> &'static [Vec<String>] {
 fn named() -> &'static Mutex<BTreeSet<String>> {
     static NAMED: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
     NAMED.get_or_init(Mutex::default)
+}
+
+impl Verdict {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Verdict::Listed => "listed",
+            Verdict::Named => "named",
+            Verdict::Session => "session",
+            Verdict::Local => "local",
+            Verdict::Unlisted => "unlisted",
+        }
+    }
+}
+
+/// One connection the gate saw, kept once per process.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AuditEntry {
+    pub host: String,
+    pub site: &'static str,
+    pub verdict: Verdict,
+    /// The gate refused it ([`Mode::Enforce`] and [`Verdict::Unlisted`]).
+    pub refused: bool,
+}
+
+fn audit_log() -> &'static Mutex<BTreeSet<AuditEntry>> {
+    static AUDIT: OnceLock<Mutex<BTreeSet<AuditEntry>>> = OnceLock::new();
+    AUDIT.get_or_init(Mutex::default)
+}
+
+fn audit_path() -> Option<&'static std::path::Path> {
+    static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    PATH.get_or_init(|| std::env::var_os(AUDIT_ENV).filter(|p| !p.is_empty()).map(Into::into))
+        .as_deref()
+}
+
+/// Every connection the gate saw in this process, allowed and refused, once
+/// per (host, site, verdict).
+pub fn audit() -> Vec<AuditEntry> {
+    audit_log().lock().map(|seen| seen.iter().cloned().collect()).unwrap_or_default()
+}
+
+fn json_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn audit_line(entry: &AuditEntry, mode: Mode, ts: u64) -> String {
+    format!(
+        "{{\"ts\":{ts},\"host\":{},\"site\":{},\"verdict\":\"{}\",\"mode\":\"{}\",\"refused\":{}}}\n",
+        json_string(&entry.host),
+        json_string(entry.site),
+        entry.verdict.as_str(),
+        mode.as_str(),
+        entry.refused,
+    )
+}
+
+fn record(entry: AuditEntry, mode: Mode) {
+    let first = audit_log().lock().is_ok_and(|mut seen| seen.insert(entry.clone()));
+    if !first {
+        return;
+    }
+    let Some(path) = audit_path() else { return };
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    let line = audit_line(&entry, mode, ts);
+    let written = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+    if let Err(error) = written {
+        eprintln!("egress.audit could not append to {}: {error}", path.display());
+    }
 }
 
 fn session() -> &'static Mutex<BTreeMap<String, usize>> {
@@ -319,10 +450,16 @@ impl Error for Refused {}
 /// caller, as `crate::module`). Err only in [`Mode::Enforce`].
 pub fn check(host_or_url: &str, site: &'static str) -> Result<(), Refused> {
     let mode = mode();
-    if mode == Mode::Off || verdict(host_or_url) != Verdict::Unlisted {
+    if mode == Mode::Off {
         return Ok(());
     }
+    let verdict = verdict(host_or_url);
     let host = host_of(host_or_url);
+    let refused = verdict == Verdict::Unlisted && mode == Mode::Enforce;
+    record(AuditEntry { host: host.clone(), site, verdict, refused }, mode);
+    if verdict != Verdict::Unlisted {
+        return Ok(());
+    }
     let first = unlisted_log().lock().is_ok_and(|mut seen| seen.insert((host.clone(), site)));
     if first {
         eprintln!("egress.unlisted host={host} site={site} mode={}", mode.as_str());

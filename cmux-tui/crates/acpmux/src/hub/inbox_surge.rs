@@ -3,7 +3,7 @@
 use super::*;
 
 /// The last journaled snapshot powers the single chat row even when older posts leave memory.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct Counts {
     pub(super) seq: u64,
     held: u64,
@@ -179,7 +179,11 @@ impl Hub {
         mark_read: bool,
     ) -> Result<Value, RpcError> {
         let mut reply = self.inbox_thread(session, thread, mark_read);
-        if !session.inbox().held_evicted.contains(thread) {
+        let (evicted, archived) = {
+            let inbox = session.inbox();
+            (inbox.held_evicted.contains(thread), inbox.archived_threads.contains(thread))
+        };
+        if !evicted && !archived {
             return Ok(reply);
         }
         let mut messages = match reply.get_mut("messages").map(Value::take) {
@@ -188,27 +192,14 @@ impl Hub {
         };
         let shown: std::collections::HashSet<String> =
             messages.iter().filter_map(|m| m["promptId"].as_str().map(str::to_owned)).collect();
-        self.scan_for_rebuild(session, &["inbox"], &mut |record| {
-            let msg = &record.msg;
-            let id = msg["promptId"].as_str().unwrap_or_default();
-            if msg["surgeHeld"].as_bool() == Some(true)
-                && msg["threadId"].as_str() == Some(thread)
-                && !shown.contains(id)
-            {
-                let from = msg["from"].as_str().unwrap_or_default();
-                let sender = &msg["sender"];
-                messages.push(json!({
-                    "promptId": id, "from": display_sender(sender, from),
-                    "fromName": shown_sender(sender, from), "fromSession": msg["fromSession"],
-                    "sender": sender, "class": msg["class"], "kind": msg["kind"],
-                    "at": record.at, "text": msg["text"], "read": false,
-                    "details": msg.pointer("/_meta/provenance/details").cloned(),
-                    "notice": Value::Null, "surgeHeld": true,
-                }));
+        // What left memory is in the chat's small archive file, not found by a scan of its
+        // journal (gigabytes for a coordinator, 26 s a read). A held thread an older daemon let
+        // go reads the journal once, and the archive keeps what it found.
+        for line in self.archived_inbox_thread(session, thread, evicted) {
+            if !line.get("promptId").and_then(Value::as_str).is_some_and(|id| shown.contains(id)) {
+                messages.push(line);
             }
-            true
-        })
-        .map_err(|e| RpcError::internal(format!("read held inbox: {e}")))?;
+        }
         // Newest first, as the thread reads in memory.
         messages.sort_by_key(|m| std::cmp::Reverse(m["at"].as_u64().unwrap_or(0)));
         reply["messages"] = Value::Array(messages);
@@ -318,6 +309,7 @@ impl Hub {
             report: is_report(provenance),
             // A surge hold is the inbox's own pacing: it stands whether or not the message waited.
             waited: false,
+            gather: false,
             at: now,
             within: None,
             text,
@@ -341,49 +333,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn surge_starts_and_recovers_at_the_receivers_measured_rate() {
-        let mut fast = SurgeRate::default();
-        let mut slow = SurgeRate::default();
-        assert!(!fast.arrival(100, Some(10)));
-        assert!(!slow.arrival(100, Some(100)));
-        assert!(!fast.arrival(150, Some(10)));
-        assert!(slow.arrival(150, Some(100)));
-        assert!(slow.arrival(249, Some(100)));
-        assert!(!slow.arrival(349, Some(100)));
-        slow.restore(500);
-        assert!(slow.arrival(520, Some(100)));
-    }
-
-    #[test]
-    fn surge_bypasses_people_questions_blocks_and_fire() {
-        let blocks = [json!({"type":"text","text":"ordinary report"})];
-        let mut opts = PromptOptions { agent: Some("lane".into()), ..Default::default() };
-        assert!(eligible(&opts, &blocks).is_some());
-        opts.human_authenticated = true;
-        assert!(eligible(&opts, &blocks).is_none());
-        opts.human_authenticated = false;
-        let (_reader, receiver) = tokio::sync::watch::channel(false);
-        opts.reply_reader = Some(receiver);
-        assert!(eligible(&opts, &blocks).is_none());
-        opts.reply_reader = None;
-        for urgent in [PromptClass::Question, PromptClass::Block] {
-            opts.class = Some(urgent);
-            assert!(eligible(&opts, &blocks).is_none());
-        }
-        opts.class = Some(PromptClass::Fyi);
-        opts.agent = None;
-        opts.provenance = Some(crate::prompt_provenance::notice(
-            &json!({"sender":"watcher","severity":"warn"}),
-            "receiver",
-        ));
-        assert_eq!(eligible(&opts, &blocks).as_deref(), Some("watcher"));
-        opts.provenance = Some(crate::prompt_provenance::notice(
-            &json!({"sender":"watcher","severity":"fire"}),
-            "receiver",
-        ));
-        assert!(eligible(&opts, &blocks).is_none());
-    }
-}
+#[path = "inbox_surge_tests.rs"]
+mod tests;

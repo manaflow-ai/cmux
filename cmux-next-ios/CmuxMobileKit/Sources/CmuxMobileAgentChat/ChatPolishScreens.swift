@@ -608,6 +608,13 @@ final class ReplaySource: AgentSessionSource {
         return stream
     }
 
+    /// What has played so far is held whole: the store has it before the replay's first frame.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        continuations.append(continuation)
+        return (played.isEmpty ? [] : [.batch(played)], stream)
+    }
+
     func play(_ events: [AgentSessionEvent]) {
         guard !events.isEmpty else { return }
         played += events

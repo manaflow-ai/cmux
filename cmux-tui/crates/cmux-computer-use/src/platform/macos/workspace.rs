@@ -417,6 +417,16 @@ pub fn app_names_ready() -> bool {
     names_index().current().is_some()
 }
 
+/// How long a menu call waits for the app-name index before it says the
+/// names are loading (it is built once, in the background, after start).
+pub const NAMES_WAIT: Duration = Duration::from_secs(2);
+
+/// [`app_names_ready`], waiting up to [`NAMES_WAIT`] for the index: a call
+/// made right after start finds it built instead of refusing.
+pub fn app_names_ready_soon() -> bool {
+    super::menus::wait_for(NAMES_WAIT, app_names_ready)
+}
+
 /// AppKit's titles, in every language it ships, of the submenus whose items
 /// launch, open or hand data to other apps: Services, Quick Actions, Share,
 /// Open With, Recent Items. Read once from AppKit's string tables, so an
@@ -1037,7 +1047,29 @@ pub fn keyboard_layout() -> super::roles::Layout {
     // from U.S. to German after launch is seen.
     Cf::synchronize_preferences("com.apple.HIToolbox");
     let id = Cf::preference("AppleCurrentKeyboardLayoutInputSourceID", "com.apple.HIToolbox")
-        .and_then(|v| v.as_string());
+        .and_then(|v| v.as_string())
+        .or_else(|| {
+            // Never switched: the selected (or only enabled) layout says it.
+            let entries = |key: &str| {
+                Cf::preference(key, "com.apple.HIToolbox")
+                    .map(|list| {
+                        list.items()
+                            .iter()
+                            .map(|e| super::roles::InputSourceEntry {
+                                kind: e.get("InputSourceKind").and_then(|v| v.as_string()),
+                                layout_name: e
+                                    .get("KeyboardLayout Name")
+                                    .and_then(|v| v.as_string()),
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            };
+            super::roles::layout_id_from_sources(
+                &entries("AppleSelectedInputSources"),
+                &entries("AppleEnabledInputSources"),
+            )
+        });
     // CFPreferences gives no read error: a missing key and a failed read are
     // both NULL. Nothing recorded counts as a default (U.S.) install only
     // when HIToolbox has no preferences file at all; one that exists but

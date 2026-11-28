@@ -35,6 +35,20 @@ use cmux_cloud_api::session::{
 
 const USAGE: &str = "usage: cmux vm access new --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux vm access exec --target vm:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
 const API_ENV: &str = "CMUX_CLOUD_API_URL";
+
+/// The machine's command line from exec's words: one word is a shell line as written; several
+/// keep their argv, each shell-quoted (`-- sh -c 'cat > f'` runs as typed), as `cmux vm exec`
+/// and the VM API's `exec` join them.
+fn command_line(words: &[String]) -> String {
+    match words {
+        [line] => line.clone(),
+        _ => words
+            .iter()
+            .map(|word| super::cloud_start_chat::shell_quote(word))
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const EXEC_TIMEOUT_DEFAULT_MS: u64 = 30_000;
 /// The provider's inline exec limit (five minutes).
@@ -157,7 +171,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
             if timeout_ms == 0 || timeout_ms > EXEC_TIMEOUT_MAX_MS {
                 return Err(UsageError::new("--timeout-ms is at most 300000 (five minutes)"));
             }
-            Verb::Exec { command: words.join(" "), timeout_ms }
+            Verb::Exec { command: command_line(&words), timeout_ms }
         }
         _ => return Err(usage()),
     };
@@ -348,6 +362,16 @@ fn print_exec(
     Ok(answer.exit_code)
 }
 
+/// Why the platform's call to the team's Durable Object threw, when a 503 `vm_unavailable` says
+/// (cmux-platform RpcReset.ts `RpcFailure`): only its three fixed words, never other text. Without
+/// it the staging carrier probe's `vm_unavailable` (cmuxterm-hq run 45819031172, 12:25Z on 11-26,
+/// two minutes after a staging deploy) could not say whether the object restarted or was overloaded.
+fn rpc_failure_reason(reason: Option<&Value>) -> Option<&'static str> {
+    ["overloaded", "restarted", "unreachable"]
+        .into_iter()
+        .find(|known| reason.and_then(Value::as_str) == Some(*known))
+}
+
 /// `POST {api}/v1/cloud/machines/{machine}/exec` (cmux-platform MachineGuest.ts):
 /// `{command, timeoutMs}` -> `{exitCode, stdout, stderr}`, as the work user. A refusal answers
 /// `{ok: false, error: {code}}`; only a code from `cmux_cloud_api::session::known_code` is printed.
@@ -380,7 +404,11 @@ pub(super) async fn exec_route(
         let code = body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
         let code = known_code(code);
         let code = if code.contains(credential) { "" } else { code };
-        return Err(format!("the cmux API refused the command: {status} {code}"));
+        let reason = rpc_failure_reason(body.get("error").and_then(|e| e.get("reason")));
+        return Err(match reason {
+            Some(reason) => format!("the cmux API refused the command: {status} {code} ({reason})"),
+            None => format!("the cmux API refused the command: {status} {code}"),
+        });
     }
     let body = body.get("value").filter(|v| v.is_object()).unwrap_or(&body);
     let text = |key: &str| match body.get(key) {

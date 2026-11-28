@@ -11,7 +11,13 @@ name: full-ci idle sweep
 # defaults to a dry run. One GraphQL search page per 50 labelled pull requests, one REST DELETE per removal.
 on:
   schedule:
-    - cron: "17 * * * *"
+    # Every 10 min, not hourly: the shared GITHUB_TOKEN hour is spent to 0 by about 27 min after each reset, so
+    # an hourly tick that lands late in the hour is held every time. 2026-11-26 19:22Z-2026-11-27 00:41Z: 5 of 6
+    # hourly ticks read remaining=0 of 5000 (resets at :54) and removed nothing; only the 20:22Z tick, in a fresh
+    # hour, acted (27 removed). A 10-min tick lands within 10 min of every reset. A held tick costs one free GET
+    # /rate_limit; a sweep costs at most --max (100) REST DELETEs (20:22Z: 27) plus GraphQL search pages, which
+    # draw on the separate GraphQL pool. The floor stays the default 30%.
+    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -37,7 +43,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
