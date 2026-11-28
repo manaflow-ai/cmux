@@ -813,6 +813,12 @@
       ]
     },
     {
+      "name": "client-disconnected-by",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "client-list-invalidated",
       "streams": [
         "subscribe"

@@ -852,6 +852,32 @@ async fn results_to_a_running_turn_coalesce_into_one_steer_and_a_blocker_brings_
     }
 }
 
+/// No notice steers into a Codex turn whose model has not answered its prompt yet: codex-acp
+/// takes that steer as a new prompt and cancels the running one, so the chat's task was lost
+/// to an "expired undelivered" FYI three times in one chat (acp-chief-issues 2026-11-27). No
+/// timer polls it: the model's first sign looks again (`model_answered`), and the notice steers
+/// in as before. A Claude chat's turn takes it at once.
+#[tokio::test]
+async fn no_notice_steers_into_a_codex_turn_before_its_model_answers() {
+    let (hub, session) = hub_with_chat("codex-steer");
+    session.meta.lock().unwrap().family = Some("codex".to_owned());
+    running(&session);
+    session.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), None, "held while the model has not answered");
+    assert!(session.inbox().timer.is_none(), "no timer: the model's first sign looks again");
+
+    session.heard.fetch_add(1, Ordering::SeqCst);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["b1".to_owned()]), "steered in once it answered");
+
+    let (hub, claude) = hub_with_chat("claude-steer");
+    running(&claude);
+    claude.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&claude);
+    assert_eq!(carried(&claude), Some(vec!["b1".to_owned()]), "a Claude turn takes it at once");
+}
+
 /// What steers into a running turn at once: blockers, and a result from the chat's parent or
 /// delegator. Other results (reports included) and FYIs wait.
 #[test]

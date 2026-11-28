@@ -139,7 +139,7 @@ public nonisolated enum ManagedPreferencesManifest {
     public static func jamfSchema() throws -> Data {
         var properties: [String: Any] = [:]
         for e in entries {
-            var p: [String: Any] = ["title": e.title, "description": e.help.isEmpty ? e.name : e.help]
+            var p: [String: Any] = ["title": e.title, "description": e.help.isEmpty ? e.title : e.help]
             if let rules = e.shape?.objectValue {
                 // A nested value: its own JSON Schema, as the daemon checks it.
                 for (rule, value) in rules { p[rule] = propertyList(value) }
