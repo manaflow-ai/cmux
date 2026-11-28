@@ -39,6 +39,30 @@ fn a_refusal_that_made_no_machine_gives_the_retry_a_new_key() {
 }
 
 #[test]
+fn a_create_whose_machine_was_gone_before_it_answered_is_asked_again_with_a_new_key() {
+    let words = "no such machine in this team";
+    assert!(create_machine_gone_retries("cmux.cloud.not_found", words, false, 1));
+    assert!(create_machine_gone_retries("cloud.machine.not_found", "", true, 1));
+    assert!(create_machine_gone_retries(
+        "cmux.cloud.not_found",
+        "No such machine in this team",
+        false,
+        2
+    ));
+    assert!(
+        !create_machine_gone_retries("cmux.cloud.not_found", words, true, MACHINE_GONE_RETRIES + 1),
+        "bounded"
+    );
+    assert!(
+        !create_machine_gone_retries("cmux.cloud.not_found", "no such snapshot", false, 1),
+        "a gone snapshot stays gone"
+    );
+    assert!(!create_machine_gone_retries("cloud.snapshot.not_found", words, true, 1));
+    assert!(!create_machine_gone_retries("cloud.environment.not_found", words, true, 1));
+    assert!(!create_machine_gone_retries("cmux.cloud.quota_exceeded", words, true, 1));
+}
+
+#[test]
 fn a_retry_stays_with_the_first_sends_team_and_is_refused_in_another() {
     let unsent = TeamRequest { current: "team_b".into(), was_sent: false, first: None };
     assert_eq!(
