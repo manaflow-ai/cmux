@@ -60,6 +60,7 @@ jobs:
         with:
           fetch-depth: 1
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/ios_fast_dispatch.py
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
@@ -115,6 +116,7 @@ jobs:
         with:
           fetch-depth: 1
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/ios_fast_verdict.py
             scripts/ci/proof_record.py
             scripts/ci/ci_steps.py

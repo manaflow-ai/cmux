@@ -59,6 +59,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.gitmodules
             /.github/workflows/cmux-next-agent-conn-chaos.yml
       - id: route
         env:

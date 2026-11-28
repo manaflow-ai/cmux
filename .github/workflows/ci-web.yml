@@ -2143,7 +2143,8 @@ jobs:
           echo "saving $(find "$DIR" -type f | wc -l) entries, $(du -sh "$DIR" | cut -f1)"
 
       - name: Save the React Compiler transform cache
-        if: ${{ steps.transform-cache-prune.outcome == 'success' }}
+        # A pull request's copy is read by that pull request alone: feat-cmux-next pushes save, everyone restores.
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.transform-cache-prune.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 3
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

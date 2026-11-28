@@ -90,7 +90,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .old-phones-list
-          key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
+          # No key names this run: the newest list saved under the prefix is the one read.
+          key: mobile-old-phones-list-
           restore-keys: mobile-old-phones-list-
       - id: resolve
         env:
@@ -107,11 +108,13 @@ jobs:
             *) echo 'apis=["staging","prod"]' >> "$GITHUB_OUTPUT" ;;
           esac
       - name: Keep this phone list for the next run
-        if: ${{ steps.resolve.outputs.fresh == 'true' }}
+        # Keyed by the list itself, saved from feat-cmux-next only (tests/test_ci_no_run_scoped_cache_keys.py): a run id
+        # key stored one entry per run, and a dispatch from another branch saved where no later run reads it.
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' && steps.resolve.outputs.fresh == 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .old-phones-list
-          key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mobile-old-phones-list-${{ hashFiles('.old-phones-list/phones.txt') }}
 
   dial:
     name: Shipped iPhones vs ${{ matrix.api }} API

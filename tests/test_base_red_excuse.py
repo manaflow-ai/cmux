@@ -999,6 +999,7 @@ class GlaedaKeptLog(unittest.TestCase):
         "cmux_tui_tree_request_rerun.py": "not switched yet: follow-up to the glaeda job-log cache",
         "ios_kit_base_red.py": "not switched yet: follow-up to the glaeda job-log cache",
         "nightly_next_retry_exhausted.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "nightly_fetch_total.py": "not switched yet (#64155): follow-up to the glaeda job-log cache",
     }
 
     def test_every_job_log_reader_asks_glaeda_gh_first(self):

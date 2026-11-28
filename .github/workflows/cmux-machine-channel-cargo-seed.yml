@@ -46,6 +46,7 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/machine_channel_cargo_seed_due.py
             .gitmodules
           sparse-checkout-cone-mode: false

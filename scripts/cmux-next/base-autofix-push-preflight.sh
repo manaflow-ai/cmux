@@ -19,7 +19,9 @@ ok() { echo "push=ok"; echo "why=$*"; exit 0; }
 [[ "${BASE_AUTOFIX_PUSH_PREFLIGHT:-1}" == "0" ]] && ok "preflight off (CMUX_NEXT_BASE_AUTOFIX_PUSH_PREFLIGHT=0)"
 [[ -n "${GH_TOKEN:-}" ]] || ok "no App token to read the rules with; repairing as before"
 
-ids="$(gh api "repos/$repo/rules/branches/$branch" --paginate \
+# One bounded page (a branch carries a handful of rules, never 100), not gh api's paginate flag: the gh quota
+# wrapper refuses that unbounded call (tests/test_gh_pages.py).
+ids="$(gh api "repos/$repo/rules/branches/$branch?per_page=100" \
   --jq '.[] | select(.type == "pull_request") | .ruleset_id' 2>/dev/null)" \
   || ok "could not read the rules on $branch; repairing as before"
 ids="$(sort -u <<<"$ids" | grep -E '^[0-9]+$' || true)"

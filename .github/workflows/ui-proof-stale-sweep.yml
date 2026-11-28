@@ -47,6 +47,7 @@ jobs:
         with:
           ref: feat-cmux-next
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
             scripts/ci/gh_http.py
@@ -58,6 +59,7 @@ jobs:
         with:
           path: floor
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/job_token_floor.py
             scripts/ci/app_spend_mark.py
           sparse-checkout-cone-mode: false

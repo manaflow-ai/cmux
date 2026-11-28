@@ -1669,6 +1669,7 @@ jobs:
           fetch-depth: 2
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.gitmodules
             /.github/
             /scripts/ci/install-actionlint.sh
             /scripts/ci/workflow_start_lint.py

@@ -69,6 +69,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.gitmodules
             /scripts/
             /.gitmodules
           submodules: false
@@ -146,7 +147,7 @@ jobs:
         id: cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ runner.temp }}/nightly-pr-build-pass
+          path: .same-tree/nightly-pr-build-pass
           key: ${{ env.KEY }}
           lookup-only: true
       - name: Skip a head the fleet already passed
@@ -267,19 +268,23 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "no fleet client on ${RUNNER_NAME:-?}: no fleet step to cancel"
+            exit 0
+          fi
           log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" 2>/dev/null | head -1 | cut -d' ' -f2 || true)"
-          if [[ -x "$client" && -n "$step" ]]; then
+          if [[ -n "$step" ]]; then
             "$client" cancel "$step" --reason "nightly pr build: job cancelled" || true
           fi
       - name: Record the pass
         if: ${{ steps.compile.outputs.passed == 'true' || steps.verdict.outputs.passed == 'true' }}
-        run: mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$KEY" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
+        run: mkdir -p .same-tree/nightly-pr-build-pass && echo "$KEY" > .same-tree/nightly-pr-build-pass/key
       - name: Save the pass
         if: ${{ steps.compile.outputs.passed == 'true' || steps.verdict.outputs.passed == 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ runner.temp }}/nightly-pr-build-pass
+          path: .same-tree/nightly-pr-build-pass
           key: ${{ env.KEY }}
 
   helpers:
@@ -297,7 +302,7 @@ jobs:
         id: cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ runner.temp }}/nightly-pr-build-pass
+          path: .same-tree/nightly-pr-build-pass
           key: ${{ env.KEY }}
           lookup-only: true
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -324,10 +329,10 @@ jobs:
         run: python3 scripts/ci/nightly_pr_build.py helpers
       - name: Record the pass
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        run: mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$KEY" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
+        run: mkdir -p .same-tree/nightly-pr-build-pass && echo "$KEY" > .same-tree/nightly-pr-build-pass/key
       - name: Save the pass
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ runner.temp }}/nightly-pr-build-pass
+          path: .same-tree/nightly-pr-build-pass
           key: ${{ env.KEY }}

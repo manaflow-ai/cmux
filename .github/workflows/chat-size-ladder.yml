@@ -112,7 +112,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-chat-size-ladder-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
-          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       # One target folder for both trees: the base's build reuses the head's compiled dependencies. The base runs
       # the head's copy of the sweep script, so both sides are driven the same way (the harness itself, god_daemon.rs

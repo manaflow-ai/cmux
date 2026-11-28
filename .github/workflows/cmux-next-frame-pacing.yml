@@ -85,6 +85,7 @@ jobs:
           ref: ${{ needs.resolve-ref.outputs.sha }}
           persist-credentials: false
           sparse-checkout: |
+            /.gitmodules
             .github/actions/setup-cmux-tui-rust
             .github/actions/runner-cargo-home
             .github/golden-inputs.json

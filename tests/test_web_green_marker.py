@@ -89,8 +89,15 @@ class GreenKeyTests(unittest.TestCase):
             "react_apps: ${{ steps.reuse.outputs.react_apps }}",
         ):
             self.assertIn(needle, text)
-        # a full-ci pull request never reuses a marker
-        self.assertEqual(text.count("!contains(github.event.pull_request.labels.*.name, 'full-ci') }}\n        continue-on-error: true\n        uses: actions/cache/restore"), 2)
+        # a full-ci pull request never reuses a marker on the push the label asks for (the one-shot full-ci clause:
+        # the labeled event itself, a base other than feat-cmux-next, or CI_FULL_CI_ONE_SHOT=0 keeps it on every push)
+        one_shot = (
+            "!(contains(github.event.pull_request.labels.*.name, 'full-ci') && "
+            "(github.event.pull_request.base.ref != 'feat-cmux-next' || "
+            "(github.event.action == 'labeled' && github.event.label.name == 'full-ci') || "
+            "(vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}\n        continue-on-error: true\n        uses: actions/cache/restore"
+        )
+        self.assertEqual(text.count(one_shot), 2)
 
 
 if __name__ == "__main__":

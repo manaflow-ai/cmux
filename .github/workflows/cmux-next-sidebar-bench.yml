@@ -51,6 +51,7 @@ jobs:
           submodules: false
           fetch-depth: 1
           sparse-checkout: |
+            /.gitmodules
             .github/actions/fleet-client
             Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChiefLagTests.swift
             Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBenchTests.swift
