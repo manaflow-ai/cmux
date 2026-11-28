@@ -215,6 +215,11 @@ jobs:
       key: cmux-tui-artifacts
       hold_minutes: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES || '60') }}
       no_coalesce: ${{ format('{0}', vars.NEXT_TUI_ARTIFACTS_COALESCE) == '0' }}
+      # Failed runs a window retries (RFD 0200 tier 3; default 3, as before). 11-27 21:49Z..11-28 05:37Z the
+      # feat-cmux-next pushes built 22 first-attempt trees in about 8 windows, nearly every one red on the same
+      # darwin/musl link failure, each about 100 runner-min: a retry of an unchanged red is a rebuild, not a fix.
+      # '1' holds after one retry (about 2k runner-min a day less), '0' after the window's run (about 4.4k).
+      retries: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_RETRIES || '3') }}
       # The gate decides whether the window's tree builds at all, so it takes the preflight's pool (below), not the
       # shared cmux-linux: on 2026-11-25 04:26Z this gate queued 44 min behind PR CI, the queued-run supersede then
       # cancelled the run, and that window published no tree, so the nightly-next tick refused every newer commit.
@@ -245,6 +250,7 @@ jobs:
       runner: ${{ github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || '' }}
       window: ${{ needs.coalesce.outputs.window }}
       round: ${{ needs.coalesce.outputs.round }}
+      retries: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_RETRIES || '3') }}
 
   # A superseded lane-branch push stops here, before it takes a preflight-sized runner.
   # On 2026-11-18 at 06:35Z 418 runs of this workflow sat queued, the oldest since
@@ -6179,10 +6185,14 @@ jobs:
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
   # build changes what the image carries; its concurrency keeps one roll running and replaces a waiting one.
+  # It also asks for a push whose tree another run already published (publish skipped, adopt-commit-manifest
+  # wrote or found this commit's manifest): 2026-11-28 10:21-11:20Z every feat-cmux-next window run reused a
+  # tree its PR run had published, so no roll was asked for after 09:00Z and production's image fell 39
+  # commits behind (run 46137991047: tree preflight ready, publish and both roll requests skipped).
   request-image-roll:
     name: request the Cloud VM image roll
-    needs: [publish, verify-publish]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true' }}
+    needs: [publish, verify-publish, adopt-commit-manifest]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && ((needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true') || (needs.publish.result == 'skipped' && needs.adopt-commit-manifest.result == 'success' && contains(fromJSON('["present","adopted"]'), needs.adopt-commit-manifest.outputs.state))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.

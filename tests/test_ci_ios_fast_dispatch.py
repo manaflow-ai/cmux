@@ -93,6 +93,9 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(inputs["pr"]["required"])
         self.assertTrue(inputs["sha"]["required"])
         self.assertEqual(self.wf["permissions"], {})
+        # A per-target title: a sweep over many PRs is not one run fanned out.
+        self.assertIn("${{ inputs.pr }}", self.wf["run-name"])
+        self.assertIn("${{ inputs.sha }}", self.wf["run-name"])
 
     def test_the_pipeline_runs_only_the_ios_fast_verdict_at_the_merge_commit(self) -> None:
         call = self.jobs["pipeline"]
@@ -158,6 +161,28 @@ class WorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(fd.Refused, "rate-limited until"):
                 fd.get(f"repos/{REPO}/pulls/1", "t")
         self.assertEqual(slept, [])
+
+    def test_a_refused_run_token_falls_to_the_pool_without_waiting(self) -> None:
+        # cmux run 46112802526 (cmux#62219): resolve read `pulls/62219` with the run token alone, got HTTP 403, slept
+        # toward 900 s and was cancelled at its 5-min timeout. The pool token reads it at once.
+        import time
+        from unittest import mock
+        import gh_http
+        headers = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(time.time()) + 900)}
+        seen: list[tuple[str, object]] = []
+
+        def request(req, seconds, **kw):
+            token = req.get_header("Authorization")
+            seen.append((token, kw.get("rate_budget_s")))
+            if token == "Bearer run":
+                return 403, b'{"message":"API rate limit exceeded"}', headers
+            return 200, json.dumps(pr()).encode(), {}
+        with mock.patch.object(gh_http, "request", request):
+            self.assertEqual(fd.get(f"repos/{REPO}/pulls/1", ["run", "pool1", "pool2"])["merge_commit_sha"], MERGE)
+        self.assertEqual(seen, [("Bearer run", 0), ("Bearer pool1", 0)])
+        self.assertEqual(fd.read_tokens({"GH_TOKEN": "run", "TOKENS": "pool1  pool2 run"}), ["run", "pool1", "pool2"])
+        step = next(s for s in self.jobs["resolve"]["steps"] if s.get("id") == "resolve")
+        self.assertIn("CI_POOL_TOKEN_1", step["env"]["TOKENS"])
 
     def test_the_resolver_parses(self) -> None:
         step = next(s for s in self.jobs["resolve"]["steps"] if s.get("id") == "resolve")
