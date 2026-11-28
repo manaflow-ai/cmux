@@ -58,7 +58,11 @@ async fn a_peer_inbox_delivery_is_accepted_before_the_agent_probe_times_out() {
 
     let child = s.child.lock().await;
     let (tx, receipt) = tokio::sync::oneshot::channel();
+    // Its caller reads the reply and stays connected, so the send waits past acceptance and the
+    // unsend answers it (one that reads nothing ends once delivered, `inbox.rs`).
+    let (_connected, reader) = tokio::sync::watch::channel(false);
     let opts = PromptOptions {
+        reply_reader: Some(reader),
         prompt_id: Some("peer-delivery".into()),
         provenance: Some(json!({"kind": "session_message", "from": "acp:peer",
                                 "fromName": "peer", "to": format!("acp:{}", s.id)})),
