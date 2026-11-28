@@ -10,8 +10,20 @@ nonisolated enum RustSidebarClient {
     static let initialCapacity = 4096
 
     static func call<Request: Encodable, Response: Decodable>(_ operation: String, _ request: Request, as: Response.Type) -> Response? {
-        SidebarPerfCounters.add(.ffiCalls)
         guard let data = try? JSONEncoder().encode(request) else { return nil }
+        return call(operation, json: data, as: Response.self)
+    }
+
+    /// `call(_:_:as:)` with the request's JSON already made (a request that carries JSON the caller holds as bytes,
+    /// such as a `sidebar.apply` op array, which no `Encodable` value round-trips exactly).
+    static func call<Response: Decodable>(_ operation: String, json data: Data, as: Response.Type) -> Response? {
+        guard let reply = reply(operation, json: data) else { return nil }
+        return try? JSONDecoder().decode(Response.self, from: reply)
+    }
+
+    /// The reply's JSON bytes of one call with the request's JSON already made; nil when the reducer refuses it.
+    static func reply(_ operation: String, json data: Data) -> Data? {
+        SidebarPerfCounters.add(.ffiCalls)
         var capacity = initialCapacity
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity); var outputLength = 0
@@ -24,7 +36,7 @@ nonisolated enum RustSidebarClient {
                 continue
             }
             guard code == CMUX_LAYOUT_REDUCER_OK, outputLength <= capacity else { return nil }
-            return try? JSONDecoder().decode(Response.self, from: Data(output.prefix(outputLength)))
+            return Data(output.prefix(outputLength))
         }
         return nil
     }
