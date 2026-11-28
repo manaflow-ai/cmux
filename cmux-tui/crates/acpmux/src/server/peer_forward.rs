@@ -196,6 +196,7 @@ const MOVED_FORWARDED: &[&str] = &[
     method::MUX_ATTACHMENT,
     method::MUX_ROWS,
     method::MUX_HISTORY,
+    method::MUX_LAST,
     method::MUX_NATIVE_HISTORY,
     method::MUX_DRAFT_GET,
     method::MUX_DRAFT_SET,
@@ -1082,7 +1083,9 @@ async fn forward_inner(
             method::MUX_INFO
                 | method::MUX_EVENTS
                 | method::MUX_HISTORY
+                | method::MUX_LAST
                 | method::MUX_SESSION_SEARCH
+                | method::MUX_SESSION_RESOURCES
         ) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute

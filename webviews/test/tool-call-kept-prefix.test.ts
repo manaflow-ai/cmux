@@ -134,7 +134,7 @@ test("the rail's offered choices read only the turns an update changed, and stay
   type Turns = Parameters<typeof railShowsOffered>[0];
   type Ticks = Parameters<typeof railShowsOffered>[1];
   const turn = (index: number, fields: object = {}) => ({ id: `t${index}`, ...fields }) as unknown as Turns[number];
-  const tick = (from?: string) => ({ from }) as unknown as Ticks[number];
+  const tick = (from?: string) => ({ from, ...(from ? { others: true } : {}) }) as unknown as Ticks[number];
   const turns: Turns[number][] = Array.from({ length: 1_000 }, (_, index) => turn(index));
   const ticks: Ticks[number][] = turns.map(() => tick());
   expect([...railShowsOffered(turns, ticks)].map(String).sort()).toEqual(["mine", "prompts"]);
