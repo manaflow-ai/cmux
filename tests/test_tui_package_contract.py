@@ -74,6 +74,24 @@ def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
     path.chmod(0o755)
 
 
+# What the real cmux binary prints for `cmux autocloud --help` (cmux-autocloud's clap
+# `about` plus its `login` subcommand); validate_package_contract.py requires both markers.
+AUTOCLOUD_HELP = "An agent chat on any machine, in the terminal (RFD 0139)\n\nCommands:\n  login"
+
+
+def write_cmux_executable(path: Path, version_output: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = autocloud ]; then\n'
+        f"  printf '%b\\n' '{AUTOCLOUD_HELP}'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\\n' '{version_output}'\n"
+    )
+    path.chmod(0o755)
+
+
 def write_relay_launcher_fixture(path: Path) -> None:
     """Write a launcher fixture that resolves and forwards to its platform binary."""
 
@@ -225,7 +243,7 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
         )
         (package / NOTICE).write_text(notice_text("cmux-tui", package_rust_target(name)))
         # What the real binary prints for `--version`: the distribution release.
-        write_executable(
+        write_cmux_executable(
             package / "bin/cmux-tui",
             tui_version_output or f"cmux {VERSION} ({BUILD_COMMIT}; {name})",
         )
