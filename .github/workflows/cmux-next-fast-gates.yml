@@ -357,6 +357,7 @@ jobs:
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
             /scripts/ci/gh_http.py
+            /.gitmodules
 
       - name: "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"
         if: ${{ github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && startsWith(runner.name, 'cmux-runner-pool-') }}
