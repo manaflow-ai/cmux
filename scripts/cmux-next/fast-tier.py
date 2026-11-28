@@ -234,13 +234,21 @@ def scope(root, entries, changed, labels):
     return run, build, skipped
 
 
+# The fast tier builds cmux-tui-core's test library at opt-level 0; mux-dev's debug builds keep the
+# workspace's 1 (Cargo.toml [profile.dev]: render lag at 0). A PR that rebuilds cmux-tui-core sat in that one
+# rustc for 11.8 of the job's 17.5 min at 1 (run 46153153413, 14:13:39-14:25:25Z), ahead of the Mac Release
+# compile, which waits on this job (note-cheap-gate). The entry runs only mux::tests::matrix, well inside its cap
+# at 0. The build and the run take the same flags, so the run reuses the build.
+CARGO_FAST_PROFILE = ["--config", "profile.dev.package.cmux-tui-core.opt-level=0"]
+
+
 def command(entry):
     """(argv, working directory relative to the root) for one run of the entry."""
     kind = entry["kind"]
     if kind == "swift":
         return ["swift", "test", "--skip-build", "--package-path", entry["package"], "--filter", entry["filter"]], "."
     if kind == "cargo":
-        argv = ["cargo", "test", "--locked", "-p", entry["package"], *cargo_targets(entry)]
+        argv = ["cargo", "test", "--locked", *CARGO_FAST_PROFILE, "-p", entry["package"], *cargo_targets(entry)]
         if entry.get("filter"):
             argv += ["--", entry["filter"]]
         return argv, entry["path"]
@@ -461,7 +469,7 @@ def build_packages(root, entries, dry_run, timing):
     # features, so the reducer entry's own `cargo test -p cmux-layout-reducer`
     # rebuilt libc, serde_json and proptest inside its 60 s cap (57.6 s of build,
     # then a timeout: job 137088937648 on cmux-runner-pool).
-    cargo = [(["cargo", "test", "--locked", "--no-run", "-p", package, *targets], path, f"{path} {package}")
+    cargo = [(["cargo", "test", "--locked", *CARGO_FAST_PROFILE, "--no-run", "-p", package, *targets], path, f"{path} {package}")
              for path, package, targets in dict.fromkeys(
                  (e["path"], e["package"], tuple(cargo_targets(e))) for e in entries if e["kind"] == "cargo")]
     builds = swift + cargo
