@@ -327,6 +327,11 @@ impl Hub {
             .clone()
             .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
             .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
+        meta.credential_connection =
+            credential.as_ref().and_then(|c| c.connection().map(str::to_owned));
+        if meta.credential_connection.is_some() {
+            meta.credential_model = model.clone();
+        }
         meta.workspace_id = workspace_id;
         // Its Sources, then the folders every new chat gets (`agents.additionalDirectories`).
         let additional_directories =
@@ -392,7 +397,7 @@ impl Hub {
         // A named route is checked before anything is created: it exists and
         // serves this chat's harness family.
         if let Some(route_id) = &route {
-            self.check_new_route(route_id, &family).await?;
+            self.check_new_route(route_id, &family, &profile).await?;
         }
         let stores = super::adoption::store_families(&*self.config.read().await);
         // An evicted chat this create may meet (its id, key, name, or adopted agent session) is
@@ -559,14 +564,14 @@ impl Hub {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).modes =
                 Some(json!({ "currentModeId": mode }));
         }
-        let spawned =
-            match self.spawn_profile(&session, &profile, launch_digest, &defaults.env).await {
-                Ok(spawn) => {
-                    let checked = checked_cwd.as_ref();
-                    self.ensure_checked_child(&session, &spawn, checked, created_stops).await
-                }
-                Err(e) => Err(e),
-            };
+        let spawned = self
+            .ensure_checked_child(
+                &session,
+                (&profile, launch_digest, &defaults.env),
+                checked_cwd.as_ref(),
+                created_stops,
+            )
+            .await;
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
@@ -747,7 +752,11 @@ impl Hub {
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        profile: &super::spawn::Spawn,
+        launch: (
+            &crate::config::HarnessProfile,
+            String,
+            &std::collections::BTreeMap<String, String>,
+        ),
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // MDM's off as this start begins: its one read, before it waits on anything (review 123),
@@ -756,6 +765,25 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // One spawn at a time per session; a caller that waited here finds
+        // the child the previous holder started. The idle pass never ends the harness meanwhile.
+        self.touch(session);
+        let _using = session.harness_use.read().await;
+        let _spawning = self.spawn_lease(session).await;
+        if session.read_meta(super::credentials::claude_login_needs_restart) {
+            let child = session.child.lock().await.clone();
+            if let Some(child) = child
+                && child.is_alive().await
+            {
+                return Err(super::credentials::claude_login_busy());
+            }
+            if !Self::host_record_gone(&session.id) {
+                return Err(super::credentials::claude_login_busy());
+            }
+        }
+        let (profile, digest, defaults) = launch;
+        let spawn = self.spawn_profile(session, profile, digest, defaults).await?;
+        let profile = &spawn;
         // Harness startup can itself run repository hooks and write files. A harness that gates
         // every tool on the sync itself starts at the repository's head (repo_sync.rs).
         let head_ok = super::repo_sync::gates_its_tools(profile);
@@ -764,11 +792,6 @@ impl Hub {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;
-        // One spawn at a time per session; a caller that waited here finds
-        // the child the previous holder started. The idle pass never ends the harness meanwhile.
-        self.touch(session);
-        let _using = session.harness_use.read().await;
-        let _spawning = self.spawn_lease(session).await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
         // A chat being deleted starts nothing either, whatever stop count its request read
@@ -1300,6 +1323,13 @@ impl Hub {
             // (`host_unheard`, review 68 of #23322).
             && !(child.is_stopped() && self.full_access_managed_off())
         {
+            // Read credential changes under the spawn lock, when handing the child to the caller.
+            if session.read_meta(|meta| meta.credential_withdrawn) {
+                return Err(super::credentials::credential_needed());
+            }
+            if session.read_meta(super::credentials::claude_login_needs_restart) {
+                return Err(super::credentials::claude_login_busy());
+            }
             return Ok(child.clone());
         }
         // Its own host first, when one ran at the start (a second agent would take its turn),
@@ -1316,8 +1346,7 @@ impl Hub {
             (profile, cfg.defaults_for(&agent))
         };
         let digest = profile.launch_digest();
-        let spawn = self.spawn_profile(session, &profile, digest, &defaults.env).await?;
-        self.ensure_child(session, &spawn, stops).await
+        self.ensure_child(session, (&profile, digest, &defaults.env), stops).await
     }
 }
 

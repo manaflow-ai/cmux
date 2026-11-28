@@ -32,7 +32,7 @@ GATEWAY_MAC = frozenset({
     "cmux-next-iphone-clips.yml#record",
     "cmux-next-perf-bench.yml#bench",
     "cmux-next-perf-budgets.yml#measure",
-    "cmux-next-stress-bench.yml#measure",
+    "cmux-next-web-perf.yml#stress-measure",
     "cmux-next-tab-switch.yml#frames",
     "fleet-compile-check.yml#compile-check",
     "fleet-test-compile.yml#mac-fallback",

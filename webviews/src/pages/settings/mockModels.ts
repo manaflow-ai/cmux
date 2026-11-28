@@ -1,7 +1,6 @@
 // l10n-allow-file: fixture data (sample addresses, machine and team names), not shipped UI.
 // Fixture states of Settings > Models (ModelsCard.tsx) as the app's `cmux.settings.models.state`
 // answers them (cmux-tui/docs/model-connections.md), and the mock host's answer to the card's gestures.
-import { isClaudeToken } from "../../agent-session/shared/claudeSetupToken";
 import type { ModelConnection, ModelsRun, ModelsState } from "./ops";
 
 const codexLogin: ModelConnection = {
@@ -34,6 +33,7 @@ const claudeLogin: ModelConnection = {
 
 const chatgptPlan: ModelConnection = {
   id: "chatgpt",
+  credentialInstance: "fixture-chatgpt",
   kind: "chatgpt-plan",
   provider: "openai",
   families: ["codex"],
@@ -48,6 +48,7 @@ const chatgptPlan: ModelConnection = {
 
 const claudeToken: ModelConnection = {
   id: "claude-token",
+  credentialInstance: "fixture-claude-token",
   kind: "claude-token",
   provider: "anthropic",
   families: ["claude"],
@@ -62,6 +63,7 @@ const claudeToken: ModelConnection = {
 
 const openrouterKey: ModelConnection = {
   id: "openrouter-key",
+  credentialInstance: "fixture-openrouter",
   kind: "api-key",
   provider: "openrouter",
   families: ["claude", "codex"],
@@ -71,11 +73,14 @@ const openrouterKey: ModelConnection = {
   signedIn: true,
   enabled: false,
   defaultFor: [],
-  // Only Anthropic and OpenAI keys reach Cloud chats (acpmux connections.rs `serves_cloud`).
   servesCloud: false,
+  canServeCloud: false,
+  canCheckAccess: true,
+  canReplaceKey: true,
 };
 
 const empty: ModelsState = {
+  connectionTools: true,
   personal: { connections: [], spread: true, available: true },
   organization: { team: null, canEdit: false, keys: [] },
   members: null,
@@ -83,6 +88,7 @@ const empty: ModelsState = {
 };
 
 const macLogins: ModelsState = {
+  connectionTools: true,
   personal: {
     connections: [codexLogin, claudeLogin, chatgptPlan, claudeToken, openrouterKey],
     spread: true,
@@ -100,8 +106,8 @@ const macLogins: ModelsState = {
   chatgpt: { attempt: null, error: null },
 };
 
-/** Settings > Cloud's states (CloudModelsCard.tsx): only this Mac's CLI logins (healthy here, nothing
- * for Cloud), a Claude Code token, a ChatGPT plan, and that plan signed out or turned off. */
+/** Model connection states: only this Mac's CLI logins (healthy here, nothing
+ * for Cloud), a Claude Code token, and a ChatGPT plan. */
 const personalOnly = (connections: ModelConnection[]): ModelsState => ({
   ...empty,
   personal: { connections, spread: true, available: true },
@@ -112,10 +118,45 @@ const chatgptForCloud = personalOnly([codexLogin, claudeLogin, chatgptPlan]);
 const chatgptSignedOut = personalOnly([codexLogin, claudeLogin, { ...chatgptPlan, signedIn: false }]);
 const chatgptOff = personalOnly([codexLogin, claudeLogin, { ...chatgptPlan, enabled: false }]);
 
+export function mockChatGPTDevice(
+  expiresAt = Math.floor(Date.now() / 1000) + 900,
+  provider?: ModelsState["deviceProvider"],
+) {
+  return {
+    phase: "waiting",
+    userCode: provider === "openrouter" ? "" : "MOCK-1234",
+    verificationURL:
+      provider === "grok"
+        ? "https://accounts.x.ai/oauth2/device"
+        : provider === "copilot"
+          ? "https://github.com/login/device"
+          : provider === "kimi"
+            ? "https://www.kimi.ai/code/authorize_device"
+            : provider === "openrouter"
+              ? ""
+              : "https://auth.openai.com/codex/device",
+    expiresAt,
+  } as const;
+}
+
+export const chatgptDeviceError = (error: string): ModelsState => ({
+  ...macOnly,
+  chatgptDevice: { phase: "failed", error },
+});
+
 export const mockModels = {
   empty,
   macLogins,
   macOnly,
+  signedOut: personalOnly([codexLogin, claudeLogin].map((c) => ({ ...c, signedIn: false }))),
+  claudeTokenOnly: personalOnly([claudeToken]),
+  claudeApproving: { ...macOnly, cloudClaudeLogin: { phase: "approving", error: null } },
+  claudeCode: { ...macOnly, cloudClaudeLogin: { phase: "code", error: null } },
+  claudeCancelling: { ...macOnly, cloudClaudeLogin: { phase: "cancelling", error: null } },
+  claudeTimedOut: { ...macOnly, cloudClaudeLogin: { phase: "failed", error: "expired" } },
+  claudeFailed: { ...claudeForCloud, cloudClaudeLogin: { phase: "failed", error: "failed" } },
+  claudeMissing: { ...macOnly, cloudClaudeLogin: { phase: "disabled", error: "cli_missing" } },
+  claudeMacOnly: personalOnly([claudeLogin]),
   claudeForCloud,
   chatgptForCloud,
   chatgptSignedOut,
@@ -159,42 +200,90 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
     case "enable":
       find(run.id);
       return personal({ connections: connections.map((c) => (c.id === run.id ? { ...c, enabled: run.on } : c)) });
+    case "rename":
+      if ((find(run.id).credentialInstance ?? null) !== run.instance)
+        throw new Error("the connection changed while it was open");
+      return personal({ connections: connections.map((c) => (c.id === run.id ? { ...c, label: run.name } : c)) });
+    case "checkAccess":
+      return state;
     case "remove": {
       const found = find(run.id);
       if (found.kind === "codex-login" || found.kind === "claude-login")
         throw new Error(`${run.id} is the CLI's own login: sign out in the CLI, or turn it off`);
+      if ((found.credentialInstance ?? null) !== run.instance)
+        throw new Error("the connection changed while it was open");
       return personal({ connections: connections.filter((c) => c.id !== run.id) });
     }
     case "connectChatGPT":
       return { ...state, chatgpt: { attempt: "attempt-mock", error: null } };
     case "cancelChatGPT":
       return { ...state, chatgpt: { attempt: null, error: null } };
-    case "connectClaude":
-      return connections.some((c) => c.kind === "claude-login")
-        ? state
-        : personal({ connections: [...connections, { ...claudeLogin, defaultFor: [] }] });
+    case "connectChatGPTDevice":
+      return {
+        ...state,
+        deviceProvider: run.provider ?? "chatgpt",
+        deviceRegion: run.region,
+        deviceTarget: run.id,
+        chatgptDevice: mockChatGPTDevice(undefined, run.provider),
+      };
+    case "openChatGPTDevice":
+      return state;
     case "connectClaudeToken":
       // The app's run starts on the sign-in page; `advanceMockClaudeToken` walks it on.
       return { ...state, claudeToken: { attempt: "claude-mock", phase: "starting", error: null } };
     case "cancelClaudeToken":
       return { ...state, claudeToken: { attempt: null, phase: null, error: null } };
     case "claudeSetupToken":
-      // The app opens a terminal tab running `claude setup-token` and ends a one-click run left waiting.
-      return { ...state, claudeToken: { attempt: null, phase: null, error: null } };
-    case "addClaudeToken": {
-      if (!isClaudeToken(run.token)) throw new Error("not a Claude setup token");
-      const id = nextId("claude-token", connections);
-      // The token itself never lands in the state: the app keeps it in the Keychain.
+      // The app opens a terminal tab running `claude setup-token`; the state does not change.
+      return state;
+    case "cancelChatGPTDevice":
+      return { ...state, chatgptDevice: { phase: "idle" } };
+    case "setCloud": {
+      const connection = find(run.id);
+      if (connection.credentialInstance !== run.instance || connection.keyRevision !== run.keyRevision)
+        throw new Error("the connection changed while it was open");
+      if (connection.kind !== "api-key" || !(connection.canServeCloud ?? connection.servesCloud))
+        throw new Error("setCloud needs an eligible API-key connection");
       return personal({
-        connections: [...connections, { ...claudeToken, id, label: run.label?.trim() || "Claude Code token" }],
+        connections: connections.map((c) => (c.id === run.id ? { ...c, servesCloud: run.on } : c)),
       });
     }
+    case "closeKeyPage":
+    case "checkClaudeLogin":
+      return state;
+    case "connectClaude":
+      if (run.cloud) return { ...state, cloudClaudeLogin: { phase: "preparing", error: null, machine: run.machine } };
+      return { ...state, claudeLogin: { phase: "approving", error: null } };
+    case "finishClaudeLogin":
+      return { ...state, [run.cloud ? "cloudClaudeLogin" : "claudeLogin"]: { phase: "approving", error: null } };
+    case "cancelClaudeLogin":
+    case "signOutClaude":
+      return { ...state, [run.cloud ? "cloudClaudeLogin" : "claudeLogin"]: { phase: "idle", error: null } };
     case "addKey": {
       if (!run.key.trim()) throw new Error("a key is required");
+      if (run.replace) {
+        const connection = find(run.replace);
+        if (
+          !connection.canReplaceKey ||
+          connection.provider !== run.provider ||
+          !run.replaceInstance ||
+          connection.credentialInstance !== run.replaceInstance
+        )
+          throw new Error("replacement needs a matching API-key connection");
+        return personal({
+          connections: connections.map((c) =>
+            c.id === run.replace ? { ...c, signedIn: true, keyRevision: crypto.randomUUID() } : c,
+          ),
+        });
+      }
       const provider = KEY_PROVIDERS[run.provider];
+      const launch = { google: "gemini", "vertex-express": "gemini", xai: "grok" }[run.provider as string];
+      const canServeCloud = run.provider !== "openrouter";
       // The key itself never lands in the state: the app keeps it in the Keychain.
       const added: ModelConnection = {
         id: nextId(`${run.provider}-key`, connections),
+        credentialInstance: crypto.randomUUID(),
+        keyRevision: canServeCloud ? crypto.randomUUID() : undefined,
         kind: "api-key",
         provider: run.provider,
         families: [...provider.families],
@@ -204,9 +293,28 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
         signedIn: true,
         enabled: true,
         defaultFor: [],
-        servesCloud: run.provider === "anthropic" || run.provider === "openai",
+        servesCloud: canServeCloud && run.servesCloud === true,
+        canServeCloud,
+        cloudFamilies: launch ? [launch] : [...provider.families],
+        canCheckAccess: run.provider !== "vertex-express",
+        launchHarness: launch,
+        canReplaceKey: true,
       };
       return personal({ connections: [...connections, added] });
+    }
+    case "addClaudeToken": {
+      const id = nextId("claude-token", connections);
+      const added = {
+        ...claudeToken,
+        id,
+        credentialInstance: crypto.randomUUID(),
+        label: run.label?.trim() || claudeToken.label,
+      };
+      if (!run.replacement) return personal({ connections: [...connections, added] });
+      const replacing = find(run.replacement.id);
+      if (replacing.kind !== "claude-token" || replacing.credentialInstance !== run.replacement.instance)
+        throw new Error("the connection changed while it was open");
+      return personal({ connections: connections.map((row) => (row === replacing ? added : row)) });
     }
     case "orgKey": {
       if (!state.organization.canEdit) throw new Error("only owners and admins change the team's keys");
@@ -231,7 +339,8 @@ const KEY_PROVIDERS: Record<ModelConnection["provider"], { label: string; famili
   openai: { label: "OpenAI API key", families: ["codex"] },
   openrouter: { label: "OpenRouter API key", families: ["claude", "codex"] },
   google: { label: "Google AI API key", families: ["gemini"] },
-  xai: { label: "xAI API key", families: ["codex"] },
+  "vertex-express": { label: "Vertex AI Express key", families: ["gemini"] },
+  xai: { label: "xAI API key", families: ["grok"] },
 };
 
 /** acpmux's id for a new route: `base`, then `base-2`, `base-3`, ... (the first one free). */

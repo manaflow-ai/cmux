@@ -119,8 +119,7 @@ final class CloudMachineUpdates {
             reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) },
             legacy: { [weak session] build, judged in
                 // Only the build this app pins for its own: a manifest of another build is not this app's.
-                // Only where the Cloud API runs commands on the machine (the legacy update's channel).
-                guard let api, await session?.machine.allows(.exec) == true,
+                guard let api, await CloudMachineUpdates.allowsExec(session),
                       let pin = await CloudLegacyPin.pin(for: build.hash, besideCLI: binary, ask: cli.machinePin),
                       let script = CloudLegacyMachineUpdate.script else { return nil }
                 logger.info("cloud machine \(machineID, privacy: .public): too old to update in place; installing cmux-tui \(pin.commit, privacy: .public) through exec")
@@ -130,6 +129,11 @@ final class CloudMachineUpdates {
                     try await api.exec(machineID, command: command, timeoutMs: timeoutMs)
                 }
             })
+    }
+
+    /// Whether the Cloud API runs commands on the machine of `session` (the legacy update's channel).
+    private static func allowsExec(_ session: CloudMachineSession?) -> Bool {
+        session?.machine.allows(.exec) == true
     }
 
     /// The machine's daemon as the app sees it: on a live handshake (its build and level), refused

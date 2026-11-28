@@ -5,7 +5,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 public import CmuxNextPages
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// The Settings page's `cmux.settings.models.*` (webviews/src/pages/settings/ops.ts): `state` (after the
 /// first read), `run`, and the `changed` stream, which watches acpmux's changes while a page shows the card.
@@ -38,16 +38,18 @@ extension SettingsModels: PageProvider {
         }
     }
 
-    /// The app's Settings > Models: acpmux at `environment`, the person's browser for the ChatGPT sign-in,
-    /// the Claude account sign-in of `harnesses`, `models.spreadUsage` through `settings`' one writer, and the
+    /// The app's Settings > Models: acpmux at `environment`, the Settings browser for sign-in,
+    /// `models.spreadUsage` through `settings`' one writer, and the
     /// active team (none for the personal team) with its keys and policy.
-    public static func live(environment: @escaping @MainActor () -> AcpmuxEnvironment?, harnesses: SettingsHarnesses,
+    public static func live(environment: @escaping @MainActor () async -> AcpmuxEnvironment?,
                             settings: SettingsController, activeTeam: @escaping @MainActor () -> ActiveTeam?,
-                            agentKeys: TeamAgentKeys, policy: TeamModelsPolicy) -> SettingsModels {
-        SettingsModels(
-            environment: environment, keys: KeychainModelKeyStore(),
-            openURL: { NSWorkspace.shared.openInBackground($0) },
-            harnesses: harnesses,
+                            agentKeys: TeamAgentKeys, policy: TeamModelsPolicy, cloudClaudeApproval: CloudClaudeApproval,
+                            openSignInPage: @escaping @MainActor (URL, String) async -> Bool,
+                            openClaudeCallback: CloudClaudeMachine.CallbackOpener? = nil,
+                            closeSignInPage: @escaping @MainActor (String) -> Void) -> SettingsModels {
+        let models = SettingsModels(
+            environment: environment, keys: KeychainModelKeyStore(environment: environment),
+            openURL: { _ in },
             team: {
                 guard !agentKeys.isPersonal, let team = activeTeam()?.team else { return nil }
                 return (team.id, team.displayName)
@@ -57,22 +59,25 @@ extension SettingsModels: PageProvider {
             writeSpreadSetting: { on in
                 let value: JSONValue? = on == ModelsSettings.spreadUsageDefault ? nil : .bool(on)
                 try await settings.setSetting(at: ModelsSettings.spreadUsagePath, to: value, by: .user)
-            })
+            }, cloudClaudeApproval: cloudClaudeApproval)
+        models.presentSignInPage = openSignInPage
+        models.presentClaudeCallback = openClaudeCallback
+        models.dismissSignInPage = closeSignInPage
+        return models
     }
 
     /// The Cloud chat's own connector (Set up Cloud's buttons, ``connectInPlace(_:)``): no page, no team
     /// keys; a sign-in page opens in the app's own browser (`openSignInPage`), else the person's.
     public static func cloudSetup(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                                   openSignInPage: @escaping @MainActor (URL) async -> (@MainActor () -> Void)?) -> SettingsModels {
-        SettingsModels(environment: environment, keys: KeychainModelKeyStore(),
+        SettingsModels(environment: environment, keys: KeychainModelKeyStore(environment: environment),
                        openURL: { NSWorkspace.shared.openInBackground($0) },
                        harnesses: SettingsHarnesses(environment: environment, openTerminal: { _ in false }, openSignInPage: { url, _ in await openSignInPage(url) }))
     }
 
-    /// ``CloudSetup/run`` for the app: Continue with ChatGPT connects in place, with no Settings window
-    /// (the card's spinner is the progress). Set up Claude opens Settings > Cloud on Claude's Claude Code
-    /// steps (cmux#57418: `claude setup-token` in a terminal tab, then paste its token); so do an acpmux
-    /// that cannot connect in place and the other buttons (`openSettings`).
+    /// ``CloudSetup/run`` for the app: Set up Claude and Continue with ChatGPT connect in place, with no
+    /// Settings window and no terminal (Leo, 2026-11-25: one button, done when the chat starts; the
+    /// card's spinner is the progress). An acpmux that cannot, and the other buttons, `openSettings`.
     public static func cloudSetupRun(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                                      openSignInPage: @escaping @MainActor (URL) async -> (@MainActor () -> Void)?,
                                      changed: @escaping @MainActor () -> Void,
