@@ -7,6 +7,14 @@ system (cmuxterm-hq RFD 0034). A version moves when a token's Instrument value o
 Semver for a design system: a patch moves no pixel (a source, a note, a renamed path); a minor applies
 pending values (a default moves, the pending list shrinks); a major changes a seed or a rule.
 
+## 0.1.5 (2026-11-28)
+
+`corner.toast` today reads 12: RFD 0207 "One toast corner" set the toast role's `webRadius` in
+`schemas/surface-roles/surface-roles.json` to 12, the native toast's corner, and dropped the stale 9 exception. A
+minor: the role's value moves, but the default toast does not change, because only a stack toast on the App's toast glass
+(`experiments.toastGlass` host arm, off by default) draws `--surface-toast-radius`; the page arm keeps
+`--role-toast-radius`.
+
 ## 0.1.4 (2026-11-26)
 
 `ink.shortcut` follows the key hint to `webviews/src/ui/keyHint.css`. cmux#57918 drew every web shortcut through
