@@ -1,3 +1,4 @@
+import type { DriveOptions } from "../chatDrive";
 import React from "react";
 import { type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import type { MockScript } from "../mock";
@@ -96,6 +97,14 @@ declare global {
       /// `cmux app chat perf` (the app's `agent.chat.perf`, every build): frames, long tasks,
       /// layout shift and each arriving record's time to paint for `seconds` (chatPerfCapture.ts).
       perfCapture?(options: { seconds?: unknown }): Promise<Record<string, unknown>>;
+      /// `cmux app chat drive` (every build): while the host holds a hover on a thumbnail and wheels,
+      /// the composer's renders and DOM changes, the hover, card, scroll and focus per frame (chatDrive.ts).
+      drive?: {
+        begin(options: DriveOptions): Promise<Record<string, unknown>>;
+        state(): Record<string, unknown>;
+        personActive(): Record<string, unknown>;
+        end(): Promise<Record<string, unknown>>;
+      };
     };
     cmuxAcpmuxRegistry?: {
       register(

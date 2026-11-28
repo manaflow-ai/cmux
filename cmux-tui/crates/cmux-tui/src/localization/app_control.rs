@@ -84,6 +84,8 @@ pub(crate) struct AppControlMessages {
     pub live: LiveMessages,
     /// `cmux app chat perf` (cli/app/chat_perf.rs).
     pub chat_perf: ChatPerfMessages,
+    /// `cmux app chat drive` (cli/app/chat_drive.rs).
+    pub chat_drive: ChatDriveMessages,
     /// `cmux app launch-times` (cli/app/launch_times.rs).
     pub launch_times: LaunchTimesMessages,
     /// `cmux window record` and `cmux pane record` (cli/app/record.rs).
@@ -168,6 +170,39 @@ pub(crate) struct ChatPerfMessages {
     pub owner_animation: &'static str,
     pub owners_none: &'static str,
     pub owners_unsupported: &'static str,
+}
+
+/// `cmux app chat drive`: a held hover, wheel ticks and typing in one chat page, and what it drew
+/// on each frame. The JSON keys stay English; `{name}` placeholders are filled by
+/// cli/app/chat_drive.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ChatDriveMessages {
+    pub usage: &'static str,
+    pub seconds: &'static str,
+    pub nth: &'static str,
+    pub one_target: &'static str,
+    pub wheel: &'static str,
+    pub delta: &'static str,
+    pub tick_ms: &'static str,
+    pub wheel_needs_hover: &'static str,
+    pub hold_ms: &'static str,
+    pub text: &'static str,
+    pub text_keys: &'static str,
+    pub nothing: &'static str,
+    pub header: &'static str,
+    pub hover_held: &'static str,
+    pub hover_missed: &'static str,
+    pub wheel_sent: &'static str,
+    pub wheel_scrolled: &'static str,
+    pub unmeasured: &'static str,
+    pub frames: &'static str,
+    pub composer: &'static str,
+    pub flips: &'static str,
+    pub hover_frames: &'static str,
+    pub typed: &'static str,
+    pub typed_cut: &'static str,
+    pub engine_counters: &'static str,
+    pub engine_counters_unavailable: &'static str,
 }
 
 /// `cmux live start|stop|status`: run a checkout's web UI dev server and point the running app at it.
@@ -602,6 +637,34 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         owner_animation: "  animation {name} on {target}: {count} running, {iterations} iterations",
         owners_none: "  no page code asked for frames, short timers or animations",
         owners_unsupported: "Frame owners: this chat page does not report them (a build from before they were added)",
+    },
+    chat_drive: ChatDriveMessages {
+        usage: "usage: cmux app chat drive --tab <tab> [--hover <test-id> | --hover-sent-image <n> | --hover-tool-screenshot <n>]\n         [--wheel <ticks> [--delta <px>] [--tick-ms <ms>]] [--hold-ms <ms>] [--type <text> [--over-draft]]\n         [--allow-busy] [--seconds <1-30>]\n  Rests a pointer on one element of the chat in <tab> and holds it there, wheels the transcript under it\n  (--delta px per tick, default 100, negative scrolls up) and types into the composer, then reports each\n  frame: composer renders and DOM mutations, focus, :focus-within and page-inactive flips, hover and\n  hover card state, frame times. The system pointer never moves and the window is never focused or\n  shown. Refuses a chat with a turn running unless --allow-busy, and typing into a draft unless\n  --over-draft; typed text stays in the draft. At most --seconds (default 10). --json prints the report.",
+        seconds: "--seconds must be a whole number from 1 to 30",
+        nth: "--hover-sent-image and --hover-tool-screenshot take a position from 1 to 10000",
+        one_target: "name one element to hover: --hover, --hover-sent-image or --hover-tool-screenshot",
+        wheel: "--wheel must be a whole number of ticks from 1 to 200; --delta and --tick-ms go with it",
+        delta: "--delta must be a whole number of pixels from -2000 to 2000, not 0",
+        tick_ms: "--tick-ms must be a whole number from 8 to 200",
+        wheel_needs_hover: "--wheel scrolls under the held pointer: name the element to hover too",
+        hold_ms: "--hold-ms must be a whole number from 0 to 10000",
+        text: "--type takes 1 to 500 characters, at most 2000 UTF-16 units",
+        text_keys: "--type takes plain keys: no control characters, tabs or line breaks, and no ! first (in an empty draft it starts a shell command)",
+        nothing: "nothing to drive: name an element to hover or text to type (`cmux app chat perf` measures a chat left alone)",
+        header: "Chat {tab} ({engine})",
+        hover_held: "Hover: held at {x}, {y} (CSS px); the system pointer did not move",
+        hover_missed: "Hover: not held ({reason})",
+        wheel_sent: "Wheel: {sent} of {ticks} ticks of {delta} px sent; the page saw {seen} wheel events, {trusted} trusted",
+        wheel_scrolled: "Wheel: the transcript moved {scrolled} px of the {expected} px sent",
+        unmeasured: "Measured nothing: {reason}. A covered, hidden or screen-locked chat draws no frames; uncover it, then run this again.",
+        frames: "Frames: {count}; p50 {p50} ms, p95 {p95} ms, max {max} ms; {over33} over 33 ms",
+        composer: "Composer: {renders} renders, {mutations} DOM mutation batches ({nodes} records)",
+        flips: "Flips: focus {focus}, :focus-within {within}, page inactive {inactive}",
+        hover_frames: "Hovered in {hovered} of {frames} frames; hover card open in {card}",
+        typed: "Typed {count} characters; they stay in the draft",
+        typed_cut: "Typed {count} of {asked} characters, then stopped ({why}); what was typed stays in the draft",
+        engine_counters: "Engine: {counters}",
+        engine_counters_unavailable: "Engine layout and style counts: not available ({reason})",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",

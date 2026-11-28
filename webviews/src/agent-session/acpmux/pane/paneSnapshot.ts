@@ -60,6 +60,7 @@ import { BridgeSocket } from "../bridgeSocket";
 import { createAcpmuxDebug } from "../debug";
 import { type AutomationCompose, pageAction } from "../automation";
 import { acpWire } from "../wire";
+import { chatDrive } from "../chatDrive";
 import { chatPerfCapture } from "../chatPerfCapture";
 import { acpmuxPerf } from "../perf";
 import { actionTrace } from "../actionTrace";
@@ -154,10 +155,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
@@ -166,10 +167,10 @@ import {
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
+  acpmuxSendsReady,
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
-  acpmuxSendsReady,
   pageClientLink,
   paneSends,
 } from "../sendWhenReady";
@@ -609,6 +610,16 @@ export function paneSnapshotEffect({
         rows: rowsRef.current.length,
         events: directClient.current?.eventSeq ?? null,
       })),
+    drive: {
+      begin: (options) =>
+        chatDrive.begin(options ?? {}, {
+          busy: () => snapshotRef.current?.isWorking === true,
+          draft: () => composerHandle.current?.draft(),
+        }),
+      state: () => chatDrive.state(),
+      personActive: () => chatDrive.personActive(),
+      end: () => chatDrive.end(),
+    },
     lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
     composerState: () => {
       const draft = composerHandle.current?.draft();
