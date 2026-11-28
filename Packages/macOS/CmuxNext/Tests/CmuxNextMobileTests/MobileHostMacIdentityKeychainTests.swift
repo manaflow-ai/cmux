@@ -28,6 +28,10 @@ nonisolated let testLoginKeychain = LoginKeychain()
         /// From now on every read returns `status` (nil: the reads answer again).
         func refuseReads(_ status: OSStatus?) { lock.withLock { copyStatus = status } }
 
+        /// The item is removed (a reset Keychain): reads find nothing until a key is added again.
+        func forgetItem() { lock.withLock { stored = nil } }
+        var storedKey: Data? { lock.withLock { stored } }
+
         var queries: [[String: Any]] { lock.withLock { recordedQueries } }
         var interactionDuringCalls: [Bool] { lock.withLock { recordedInteraction } }
 
@@ -210,6 +214,21 @@ nonisolated let testLoginKeychain = LoginKeychain()
         try MobileHostMacIdentity.generate().privateKey.write(to: copy)
         #expect(try dev.loadOrCreate() == pinned)
         #expect(MobileHostMacIdentity.restore(try Data(contentsOf: copy)) == pinned)
+    }
+
+    /// The DEV build's Keychain item is gone (2026-11-24, paged-horizontal-tabs): the copy is proved and
+    /// stored in the Keychain again; no new key, so the phone that pinned it still connects.
+    @Test func aDevBuildWhoseKeychainItemIsGoneProvesItsCopy() throws {
+        let recorder = Recorder()
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keepsKeychainCopy: true,
+                                               keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        let pinned = try store.loadOrCreate(fileStoreOnRefusal: false)
+        recorder.forgetItem()
+        #expect(try store.loadOrCreate(fileStoreOnRefusal: false) == pinned)
+        #expect(recorder.storedKey == pinned.privateKey)
+        #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
     }
 
     /// Release builds (nightly, stable) keep no copy on disk: the key stays in the Keychain alone.
