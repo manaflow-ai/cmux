@@ -1,5 +1,6 @@
 import AppKit
 import CmuxRemoteSession
+import CmuxSettings
 import CmuxTerminal
 import SwiftUI
 import Testing
@@ -1766,6 +1767,103 @@ import Testing
         #expect(
             mirror.containerSizePt == postResize,
             "the settled pass consumes the parked post-resize reading"
+        )
+        withExtendedLifetime(connection) {}
+    }
+}
+
+extension RemoteTmuxBonsplitImpositionRenderTests {
+    /// `terminal.sessionContentMaxWidth` caps a mirror the way it caps a local
+    /// terminal: the region the mirror measures, and so the size it asks tmux
+    /// for, is the capped and aligned column. Measuring the whole pane told
+    /// tmux about columns that were drawn past the column's edge (#36699).
+    @Test(arguments: [
+        (SessionContentWidthSettings.noMaximumWidth, SessionContentAlignment.center, CGFloat(1000), CGFloat(0)),
+        (600, .center, 600, 200),
+        (600, .left, 600, 0),
+        (600, .right, 600, 400),
+    ])
+    func sessionContentMaxWidthCapsTheMirrorRegion(
+        storedMaximumWidth: Double,
+        alignment: SessionContentAlignment,
+        expectedWidth: CGFloat,
+        expectedMinX: CGFloat
+    ) throws {
+        let suiteName = "RemoteTmuxMirrorSessionContentWidth.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(storedMaximumWidth, forKey: SessionContentWidthSettings.maxWidthKey)
+        defaults.set(alignment.rawValue, forKey: SessionContentWidthSettings.alignmentKey)
+
+        let layout = node(.pane(1), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            hostingContentSizeSource: { CGSize(width: 10_000, height: 10_000) },
+            makePanel: { _ in nil }
+        )
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let hostingView = NSHostingView(
+            rootView: RemoteTmuxWindowMirrorSplitView(
+                mirror: mirror,
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: true,
+                portalPriority: 0,
+                onOuterFocus: {}
+            )
+            .defaultAppStorage(defaults)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 400),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        for _ in 0..<10 {
+            contentView.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        let container = try #require(mirror.containerSizePt, "the mirror never measured its region")
+        #expect(
+            abs(container.width - expectedWidth) <= 1,
+            "the mirror measured a \(container.width)pt region, expected the \(expectedWidth)pt column"
+        )
+        let probe = try #require(mirror.hostProbeView)
+        let regionInWindow = probe.convert(probe.bounds, to: nil)
+        #expect(
+            abs(regionInWindow.minX - expectedMinX) <= 1,
+            "the mirror region starts at x=\(regionInWindow.minX), expected \(expectedMinX)"
+        )
+        #expect(mirror.updateClientSize())
+        let expectedGrid = try #require(
+            mirror.clientGrid(contentSize: CGSize(width: expectedWidth, height: container.height))
+        )
+        let pushed = try #require(connection.lastWindowSizes[0])
+        #expect(
+            pushed.0 == expectedGrid.columns,
+            "tmux was asked for \(pushed.0) columns, the \(expectedWidth)pt column holds \(expectedGrid.columns)"
         )
         withExtendedLifetime(connection) {}
     }
