@@ -516,6 +516,7 @@ export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): 
     bytes += value.byteLength;
     if (bytes > MAX_INFLATED_BYTES) {
       void reader.cancel();
+      // l10n-allow: an internal protocol error, not shown
       throw new Error("compressed frame too large");
     }
     text += decoder.decode(value, { stream: true });
@@ -2573,20 +2574,26 @@ export class AcpmuxDirectClient {
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
   async recordedEvents(sessionId: string): Promise<EventRecord[]> {
-    const events: EventRecord[] = [];
-    // ends: `after` moves to the page's newest seq each pass; it returns on no more, an empty page or no move
+    // Keep journal reads aligned with the Rust replay adapter's bounded page. The daemon's
+    // cursor may repeat a boundary record while a page cache catches up, so merge by seq before
+    // handing the replay reducer its source of truth.
+    const events = new Map<number, EventRecord>();
     for (let after = 0; ;) {
       const page = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: after,
-        limit: 2000,
+        limit: 400,
         kinds: ["transcript"],
       });
       const batch = records(page?.events);
-      events.push(...batch);
-      const last = batch.at(-1)?.seq;
-      if (!page?.hasMore || last === undefined || last <= after) return events;
-      after = last;
+      let through = Math.max(after, page.pageThrough ?? 0);
+      for (const event of batch) {
+        if (event.seq > 0 && !events.has(event.seq)) events.set(event.seq, event);
+        through = Math.max(through, event.seq);
+      }
+      if (!page.hasMore) return [...events.values()].sort((a, b) => a.seq - b.seq);
+      if (through <= after) throw new Error("journal_replay_cursor_stalled");
+      after = through;
     }
   }
 
@@ -16920,6 +16927,7 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     // l10n-allow: a developer error; the caller shows notice.forkFailed.
     if (!this.canFork || !sessionId || this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) !== true)
+      // l10n-allow: an internal protocol error, not shown
       throw new Error("acpmux cannot fork a subagent");
     // l10n-allow: as above.
     if (this.forking) throw new Error("a fork is already running");
