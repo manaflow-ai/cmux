@@ -31,6 +31,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "surgery", on: h::surgery::enabled },
     Feature { name: h::best_of_n::FEATURE, on: h::best_of_n::enabled },
     Feature { name: "dedupe", on: stdio::dedupe_enabled },
+    Feature { name: crate::cited_memory::FEATURE, on: crate::cited_memory::enabled },
     Feature { name: h::sidecars::FEATURE, on: || enabled(h::sidecars::FEATURE) },
     Feature { name: "dirRules", on: stdio::dir_rules_enabled },
     Feature { name: h::idle_digest::FEATURE, on: h::idle_digest::enabled },

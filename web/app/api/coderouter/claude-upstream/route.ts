@@ -6,6 +6,9 @@ import { defaultImportVisibility } from "@/services/coderouter/accountAccess";
 // carry masked identifiers only.
 import {
   addClaudeAccount,
+  BEDROCK_LONG_LIVED_KEY_ERROR,
+  BEDROCK_LONG_LIVED_KEY_MESSAGE,
+  isLongLivedBedrockKey,
   listClaudeAccounts,
   parseClaudeUpstreamInput,
   removeAllClaudeAccounts,
@@ -28,6 +31,8 @@ export type ClaudeUpstreamRouteDependencies = {
   readonly list: typeof listClaudeAccounts;
   readonly add: typeof addClaudeAccount;
   readonly removeAll: typeof removeAllClaudeAccounts;
+  /** RFD 0222: refuse a new long-lived Bedrock key at link. Off until the per-user store takes Bedrock keys. */
+  readonly refuseLongLivedBedrock?: boolean;
 };
 
 const defaultDependencies: ClaudeUpstreamRouteDependencies = {
@@ -36,6 +41,7 @@ const defaultDependencies: ClaudeUpstreamRouteDependencies = {
   list: listClaudeAccounts,
   add: addClaudeAccount,
   removeAll: removeAllClaudeAccounts,
+  refuseLongLivedBedrock: process.env.CODEROUTER_REFUSE_LONG_LIVED_BEDROCK === "1",
 };
 
 export function makeClaudeUpstreamHandlers(
@@ -71,6 +77,9 @@ export function makeClaudeUpstreamHandlers(
     if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
     const visibility = access.kind === "vm" ? "team" : requestedVisibility;
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
+    if (dependencies.refuseLongLivedBedrock && isLongLivedBedrockKey(body.value)) {
+      return Response.json({ error: BEDROCK_LONG_LIVED_KEY_ERROR, message: BEDROCK_LONG_LIVED_KEY_MESSAGE }, { status: 400 });
+    }
     const input = parseClaudeUpstreamInput(body.value);
     if (!input) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
