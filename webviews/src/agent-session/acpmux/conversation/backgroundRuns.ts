@@ -8,7 +8,9 @@
 // Members: a quiet background turn's line that has ended (backgroundTurns.ts), and a background
 // shell's end noted where it ended (BackgroundTaskNote.tsx), finished, stopped or failed. A failed
 // shell joins the run and the line counts it ("21 background commands finished, 2 failed"), so a
-// failure is still named in sight. Between members, a reply that draws nothing (visibleMessage.ts: empty or
+// failure is still named in sight. A subagent's end is a member too; one that failed waits on its
+// Retry, so failed subagent ends never join the others' line: two or more read "5 subagents failed".
+// Between members, a reply that draws nothing (visibleMessage.ts: empty or
 // a lone period) and the rows of a member line the reader
 // opened on its own (`inBackground`) go with the run. Anything else ends it. A line acpmux weighed
 // (backgroundTurns.ts `backgroundWeight`: a result its call could not carry, a failure) names its
@@ -130,23 +132,12 @@ export function foldBackgroundRuns(all: AcpmuxRow[], expanded: Folds): AcpmuxRow
       index += 1;
       continue;
     }
-    const counts = { finished: 0, stopped: 0, failed: 0, scheduled: 0, other: 0 };
-    let commands = 0;
-    let subagents = 0;
-    const ends = new Set<SubagentEnd>();
     const lines = new Set<string>();
     let end = index;
     let last = index;
     for (; end < rows.length; end += 1) {
       const row = rows[end]!;
-      const kind = memberKind(row, inline);
-      if (kind) {
-        counts[kind] += 1;
-        if (row.kind === "backgroundTask") commands += 1;
-        if (row.kind === SUBAGENT_DONE) {
-          subagents += 1;
-          ends.add(subagentEnd(row));
-        }
+      if (memberKind(row, inline)) {
         if (row.background) lines.add(row.background.id);
         last = end;
       } else if (ownedBy(row, lines)) last = end;
@@ -154,40 +145,75 @@ export function foldBackgroundRuns(all: AcpmuxRow[], expanded: Folds): AcpmuxRow
     }
     // Bare replies after the run's last member are not the run's: they draw (nothing) as before.
     end = last + 1;
-    const members = counts.finished + counts.stopped + counts.failed + counts.scheduled + counts.other;
-    if (members < 2) {
-      out?.push(...rows.slice(index, end));
+    const span = rows.slice(index, end);
+    // A subagent that failed waits on its Retry, so it is never folded among ends that need nothing:
+    // the run's failed subagent ends are a group of their own after the others' line, and two or more
+    // of them read as one line in sight, "5 subagents failed", that opens to each with its Retry. One
+    // draws as it came. Only consecutive ends are a burst: the person's steer ends the run above.
+    const failures = span.filter(failedSubagentEnd);
+    const groups =
+      failures.length && failures.length < span.length
+        ? [span.filter((row) => !failedSubagentEnd(row)), failures]
+        : [span];
+    const drawn = groups.map((group) => runRows(group, inline, expanded, outerOpen));
+    if (drawn.every((group) => group === undefined)) {
+      out?.push(...span);
       index = end;
       continue;
     }
     out ??= rows.slice(0, index);
-    const folded = rows.slice(index, end);
-    // Open under any member's key, as a message run is (messageRuns.ts): two runs a reply that draws
-    // nothing joins, or a run whose first member changed, keep the open the reader gave one of them.
-    // Its id is that key, so a click closes it by the same key. Keyed lookups, one per member.
-    const opened = folded.find((row) => expanded.has(backgroundRunRowId(row.id)));
-    const id = backgroundRunRowId((opened ?? first).id);
-    const open = opened !== undefined || outerOpen;
-    const run: AcpmuxBackgroundRun = {
-      ...counts,
-      commands,
-      ...(subagents > 0 && { subagents, ...(ends.size === 1 && { subagentEnd: [...ends][0] }) }),
-      rows: folded.map((row) => row.id),
-    };
-    out.push({
-      id,
-      // Moves with every member's version and the open state: the memoized line and the height
-      // cache compare versions only.
-      version: folded.reduce((sum, row) => (sum * 31 + row.version) % 1_000_003, folded.length) * 2 + (open ? 1 : 0),
-      at: first.at,
-      kind: BACKGROUND_TURN,
-      foldOpen: open,
-      backgroundRun: run,
-    });
-    if (open) out.push(...folded);
+    groups.forEach((group, at) => out!.push(...(drawn[at] ?? group)));
     index = end;
   }
   return out ?? rows;
+}
+
+const failedSubagentEnd = (row: AcpmuxRow) => row.kind === SUBAGENT_DONE && row.subagents?.[0]?.state === "failed";
+
+/// One run's rows `group` (members, the bare replies and opened lines' rows between them) as its line,
+/// with the rows under it while open, or undefined when fewer than two members leave nothing to fold.
+function runRows(group: AcpmuxRow[], inline: boolean, expanded: Folds, outerOpen: boolean): AcpmuxRow[] | undefined {
+  const counts = { finished: 0, stopped: 0, failed: 0, scheduled: 0, other: 0 };
+  let commands = 0;
+  let subagents = 0;
+  let first: AcpmuxRow | undefined;
+  const ends = new Set<SubagentEnd>();
+  for (const row of group) {
+    const kind = memberKind(row, inline);
+    if (!kind) continue;
+    first ??= row;
+    counts[kind] += 1;
+    if (row.kind === "backgroundTask") commands += 1;
+    if (row.kind === SUBAGENT_DONE) {
+      subagents += 1;
+      ends.add(subagentEnd(row));
+    }
+  }
+  const members = counts.finished + counts.stopped + counts.failed + counts.scheduled + counts.other;
+  if (members < 2 || !first) return undefined;
+  // Open under any member's key, as a message run is (messageRuns.ts): two runs a reply that draws
+  // nothing joins, or a run whose first member changed, keep the open the reader gave one of them.
+  // Its id is that key, so a click closes it by the same key. Keyed lookups, one per member.
+  const opened = group.find((row) => expanded.has(backgroundRunRowId(row.id)));
+  const id = backgroundRunRowId((opened ?? first).id);
+  const open = opened !== undefined || outerOpen;
+  const run: AcpmuxBackgroundRun = {
+    ...counts,
+    commands,
+    ...(subagents > 0 && { subagents, ...(ends.size === 1 && { subagentEnd: [...ends][0] }) }),
+    rows: group.map((row) => row.id),
+  };
+  const line: AcpmuxRow = {
+    id,
+    // Moves with every member's version and the open state: the memoized line and the height
+    // cache compare versions only.
+    version: group.reduce((sum, row) => (sum * 31 + row.version) % 1_000_003, group.length) * 2 + (open ? 1 : 0),
+    at: first.at,
+    kind: BACKGROUND_TURN,
+    foldOpen: open,
+    backgroundRun: run,
+  };
+  return open ? [line, ...group] : [line];
 }
 
 /// The open background-run lines among a turn's rows `rows[start..end)`, which a cached turn

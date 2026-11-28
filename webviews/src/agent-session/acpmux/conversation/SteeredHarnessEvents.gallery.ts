@@ -134,8 +134,12 @@ export default agentPaneEntry({
       },
     },
     mixed: {
-      note: "Ends that differ (finished, stopped, disconnected) and shells read as one count, 13 background updates; the one subagent that failed stays in sight outside the Worked for, counted and named in red: 1 failed.",
+      note: "Ends that differ (finished, stopped, disconnected) and shells read as one count, 12 background updates; the one subagent that failed draws as its own row in sight outside the Worked for, with its Retry.",
       snapshot: chat(steered(mixedBurst())),
+    },
+    failedBurst: {
+      note: "Five subagents that failed together read as one line in sight, 5 subagents failed, never hidden in the Worked for; it opens to each failed row with its Retry.",
+      snapshot: chat(steered(Array.from({ length: 5 }, (_, i) => ended(i, "failed", 15 - i * 0.05)))),
     },
   },
 });

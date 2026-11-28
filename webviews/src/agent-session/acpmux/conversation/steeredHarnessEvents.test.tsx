@@ -90,10 +90,12 @@ test("the run reads as one count of subagents, and opens to each end", () => {
   expect(ids(open).filter((id) => id.startsWith("subagentDone:"))).toHaveLength(12);
 });
 
-test("ends that differ read as one count, and a failed one stays counted", () => {
+test("ends that differ read as one count, and a failed one stays in sight beside it", () => {
   const rows = steered([ended(0, "completed"), ended(1, "cancelled"), ended(2, "failed"), shell(3), shell(4)]);
-  const line = view(rows).find((r) => r.backgroundRun);
-  expect(line?.backgroundRun).toMatchObject({ subagents: 3, commands: 2, failed: 1 });
+  const shown = view(rows);
+  const line = shown.find((r) => r.backgroundRun);
+  expect(line?.backgroundRun).toMatchObject({ subagents: 2, commands: 2, failed: 0 });
+  expect(ids(shown)).toContain("subagentDone:a2");
 });
 
 test("the person's steer is never folded or moved by the burst", () => {
