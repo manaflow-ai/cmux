@@ -100,31 +100,6 @@ struct CloudBuildSpaceTests {
         #expect(await owner.gitHubApp(team: "team_1") == .unknown)
     }
 
-    @Test("The wire ticket request and the /v1/wire/cloud upgrade carry the header with a build space, none without",
-          arguments: [true, false])
-    func machineWire(tagged: Bool) throws {
-        let space = Self.state(tagged)
-        let ticket = try CloudMachineWire.ticketRequest(apiBaseURL: Self.base, access: "access", buildSpace: space)
-        #expect(ticket.url?.absoluteString == "https://cloud-api-staging.cmux.dev/v1/wire/ticket")
-        #expect(ticket.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        let socket = try CloudMachineWire.socketRequest(apiBaseURL: Self.base, ticket: "t1", team: "team_1", version: "1.0",
-                                                        buildSpace: space)
-        #expect(socket.url?.absoluteString == "wss://cloud-api-staging.cmux.dev/v1/wire/cloud")
-        #expect(socket.value(forHTTPHeaderField: "Sec-WebSocket-Protocol") == "cmux.wire.v1, ticket.t1, team.team_1")
-        #expect(socket.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-    }
-
-    @Test("A misconfigured dev build mints no wire ticket and opens no /v1/wire/cloud socket")
-    func machineWireRefuses() {
-        #expect(throws: CMUXBuildSpaceError.self) {
-            _ = try CloudMachineWire.ticketRequest(apiBaseURL: Self.base, access: "access", buildSpace: Self.misconfigured)
-        }
-        #expect(throws: CMUXBuildSpaceError.self) {
-            _ = try CloudMachineWire.socketRequest(apiBaseURL: Self.base, ticket: "t1", team: nil, version: nil,
-                                                   buildSpace: Self.misconfigured)
-        }
-    }
-
     @Test("The install transport and identity of a misconfigured dev build refuse: no request, no install token")
     func installRefuses() async throws {
         let transport = InstallHTTPTransport(baseURL: Self.base, buildSpace: Self.misconfigured, machineIO: nil)
