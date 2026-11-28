@@ -278,7 +278,7 @@ fn the_schema_says_what_a_typed_action_is() {
     assert_eq!(items[0]["type"], "string");
     assert_eq!(
         items[1]["properties"]["run"]["properties"]["customize"]["enum"],
-        json!(["try", "keep", "revert"])
+        json!(["try", "keep", "revert", "go"])
     );
     assert!(
         tool["inputSchema"]["properties"]["actions"]["description"]
