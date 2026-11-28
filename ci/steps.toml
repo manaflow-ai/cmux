@@ -665,6 +665,7 @@ exit "$rc"
 # longer decode. Leo, 2026-11-24: "of course acpmux/cmux protocols need to be able to work in lockstep with these".
 [step.wire-lockstep]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Wire protocols stay in lockstep, old against new"
 about = "every message acpmux, cmux-mobile-link or cmux-remote adds is behind a new capability negotiated in the handshake, so an old peer and a new one still talk in both directions"
@@ -695,6 +696,7 @@ cargo run --locked -q -p cmux-wire-lockstep --bin wire-lockstep-check -- --root 
 # acpmux's full suite (cmux-tui-spec.yml acpmux-tests), and this is the one place its wire is checked on the PR.
 [step.wire-lockstep-peers]
 job = "linux"
+tier = "push"
 alone = true
 timeout = 1800
 title = "Old and new peers talk in both directions"
