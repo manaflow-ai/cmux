@@ -107,8 +107,10 @@ pub enum Inbound {
     /// The reader of this generation's host link stopped: an entry could not be logged, or the
     /// link closed (the host died, or another owner took it), so what the host reports from there
     /// is not heard until a reattach. The hub's full-access bound treats such an agent as unheard
-    /// (#23322).
-    LinkBroken { agent: u64 },
+    /// (#23322). `lost_lines`: the link's writer panicked, so the host may never have got some
+    /// requests; those wait on no replay and are answered at once. Otherwise the host holds every
+    /// request written to it, and the reattach's replay brings their real answers.
+    LinkBroken { agent: u64, lost_lines: bool },
 }
 
 #[cfg(all(test, unix))]
@@ -1976,7 +1978,7 @@ impl ChildAgent {
                             tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
                         }
                         let _ =
-                            hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
+                            hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation, lost_lines: false }).await;
                         return;
                     }
                     if fresh {
@@ -2026,7 +2028,7 @@ impl ChildAgent {
                     if reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
                         let _ = hosted
                             .inbound
-                            .send(Inbound::LinkBroken { agent: reader.generation })
+                            .send(Inbound::LinkBroken { agent: reader.generation, lost_lines: true })
                             .await;
                     }
                     return;
@@ -2066,7 +2068,7 @@ impl ChildAgent {
                     // that lock can not be watched, and does nothing once a reattach replaced `link`.
                     tokio::spawn(async move { agent.fail_pending_once_host_ends(&link).await });
                 }
-                let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
+                let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation, lost_lines: false }).await;
             })
             .catch_unwind()
             .await;
@@ -2078,8 +2080,10 @@ impl ChildAgent {
             if read.is_err() {
                 tracing::error!(agent = %reader.name, "agent host reader panicked; its link stops");
                 if reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
-                    let _ =
-                        hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
+                    let _ = hosted
+                        .inbound
+                        .send(Inbound::LinkBroken { agent: reader.generation, lost_lines: false })
+                        .await;
                 }
             }
         });
