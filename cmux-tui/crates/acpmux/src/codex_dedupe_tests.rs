@@ -67,6 +67,29 @@ fn only_read_only_commands_are_recorded() {
 }
 
 #[test]
+fn a_grep_or_glob_call_is_not_taken() {
+    let dir = checkout();
+    let mut table = Table::default();
+    for (tool, input) in
+        [("Grep", json!({"pattern": "hello"})), ("Glob", json!({"pattern": "*.txt"}))]
+    {
+        for (event, id) in [("pre", "a"), ("post", "a"), ("pre", "b")] {
+            let mut v = payload(
+                if event == "pre" { "PreToolUse" } else { "PostToolUse" },
+                "t1",
+                dir.path(),
+                "",
+                id,
+            );
+            v["tool_name"] = json!(tool);
+            v["tool_input"] = input.clone();
+            assert_eq!(decide(event, &v, &mut table), None, "{tool}");
+        }
+    }
+    assert!(table.seen.is_empty() && table.pending.is_empty(), "{table:?}");
+}
+
+#[test]
 fn a_call_with_no_result_or_a_moved_input_is_not_recorded() {
     let dir = checkout();
     let mut table = Table::default();

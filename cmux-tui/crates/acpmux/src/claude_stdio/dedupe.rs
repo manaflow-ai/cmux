@@ -738,7 +738,8 @@ impl CodexShell {
     pub(crate) fn of(input: &Value) -> Option<Self> {
         match Call::of(input)? {
             call @ Call::Shell { .. } => Some(Self(call)),
-            Call::Read { .. } => None,
+            // Codex has neither `Read` nor `Grep` / `Glob`.
+            Call::Read { .. } | Call::Search { .. } => None,
         }
     }
 
@@ -747,6 +748,7 @@ impl CodexShell {
         match &self.0 {
             Call::Shell { cwd, command, .. } => format!("{cwd}\0{command}"),
             Call::Read { path, .. } => path.display().to_string(),
+            Call::Search { cwd, key, .. } => format!("{cwd}\0{key}"),
         }
     }
 
