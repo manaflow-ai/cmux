@@ -69,11 +69,17 @@ final class MacSession {
     /// Looks again when a redial reaches ``LiveCoordinator/macStallAfter`` (cmux#52200).
     var stallTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
-    var chatsError: String?
+    /// Stamped (``ConnectionErrorStamp``): the chat list arriving clears a failed bind's error, and a bind
+    /// that began before the list arrived can't put its failure back.
+    var chatsErrors = ConnectionErrorStamp()
+    var chatsError: String? { chatsErrors.message }
     /// The chats channel bound again by itself after it failed on a link that stayed up (bounded,
     /// `RetryBounds.chatsRebindDelay`); a newer link or a bind that succeeds ends it.
     var chatsRebind: Task<Void, Never>?
-    var daemonError: String?
+    /// The workspaces stream's error, stamped with who set it and when (``ConnectionErrorStamp``): fresh
+    /// workspaces clear a timeout's or a failed read's error.
+    var daemonErrors = ConnectionErrorStamp()
+    var daemonError: String? { daemonErrors.message }
     var workspacesTimeout: Task<Void, Never>?
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false

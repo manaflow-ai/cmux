@@ -68,6 +68,7 @@ extension LiveCoordinator {
 
     private func rebindAcpmux(_ session: MacSession) async {
         let macID = session.macID
+        let started = session.chatsErrors.begin()
         do {
             try Task.checkCancellation()
             let link = try await pairedLink(session)
@@ -79,12 +80,12 @@ extension LiveCoordinator {
             }
             await session.acpmux.bind(channel)
             guard session.currentLink === link, !Task.isCancelled else { return }
-            session.chatsError = session.acpmux.isReady ? nil : session.acpmux.lastError
+            chatsBound(session, startedAt: started, fallback: nil)
             if session.acpmux.isReady { feedStore.syncState = .live }
             phaseChanged(session)
         } catch is CancellationError {
         } catch {
-            session.chatsError = LinkController.reason(error)
+            session.chatsErrors.set(LinkController.reason(error), by: .fetch, startedAt: started)
         }
     }
 }

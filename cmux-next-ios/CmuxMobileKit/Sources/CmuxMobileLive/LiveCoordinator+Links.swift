@@ -99,7 +99,7 @@ extension LiveCoordinator {
         }
         session.workspaces.onTree = { [weak self, weak session] tree in
             guard let self, let session else { return }
-            session.daemonError = nil
+            session.daemonErrors.fresh()
             self.apply(tree, session: session)
             self.updateDiagnostics(session)
         }
@@ -139,11 +139,15 @@ extension LiveCoordinator {
             let hub = session.acpmux
             // The chats are ready the moment the list is in, which is before `bind` returns (it
             // still seeds the pending prompts): a failure the bind before left says nothing from
-            // here on, not only once this bind returns (#46669's follow made that gap a read).
-            if hub.isReady, session.chatsError != nil {
-                session.chatsError = nil
-                self?.phaseChanged(session)
-            }
+            // here on, not only once this bind returns (#46669's follow made that gap a read). A
+            // failed bind's "Chats: ..." no longer stands once fresh data arrives (Leo, 2026-11-27:
+            // "Stale errors clear on fresh data."); an error a person's action set stays.
+            // A whole list is fresh data on its own, even before `isReady` flips (catch-up and
+            // paged lists arrive ahead of the bind's return; gating on `isReady` alone left the
+            // stale "Chats: ..." standing whenever the list beat it).
+            let listArrived: Bool
+            if case .sessionsLoaded = event { listArrived = true } else { listArrived = false }
+            if hub.isReady || listArrived, session.chatsErrors.fresh() { self?.phaseChanged(session) }
             session.feed.handle(event, sessions: hub.sessions)
             // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
             // event used to rebuild both maps over every chat on the main actor (about 30,000
@@ -228,8 +232,8 @@ extension LiveCoordinator {
         session.pairingRetry = nil
         session.pairingRetries = 0
         session.acpmux.approver = nil
-        session.chatsError = nil
-        session.daemonError = nil
+        session.chatsErrors.clear()
+        session.daemonErrors.clear()
         // Pairing belongs to one link (review M1): a banner for another Mac, or a
         // stale "waiting" that holds back the workspaces deadline, never carries over.
         setPairing(.idle, for: session)
@@ -312,6 +316,7 @@ extension LiveCoordinator {
         // The chats' channel opens now, behind `auth`: the Mac holds it until the pairing passes,
         // so `initialize` and the first page of chats ride beside the pairing's last round trip
         // instead of after it (ask-48f698fc26). The hub applies nothing before `passed`.
+        let chatsStarted = session.chatsErrors.begin()
         let chats = Task { [weak self] in await self?.bindChats(session, link, passed: passed) }
         guard await passed.value else {
             // Nothing on this link is served now: terminals, files and uploads say
@@ -372,7 +377,7 @@ extension LiveCoordinator {
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
-        session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+        chatsBound(session, startedAt: chatsStarted)
         // A failed bind on a link that stays up is tried again by itself, bounded (before, only
         // the Feed's Retry or a new link bound the chats again).
         if !session.acpmux.isReady { rebindChats(session, link) }
@@ -413,9 +418,10 @@ extension LiveCoordinator {
                 // Another bind under way (the Feed's Retry, a stall's recovery) is left alone.
                 guard session.acpmux.lastError != nil || session.acpmux.connection == nil else { continue }
                 log.info("acpmux: binding the chats again (attempt \(attempt, privacy: .public))")
+                let started = session.chatsErrors.begin()
                 await self.bindChats(session, link, passed: Task { true })
                 guard session.currentLink === link else { return }
-                session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
+                self.chatsBound(session, startedAt: started)
                 self.phaseChanged(session)
                 if session.acpmux.isReady { return }
             }
@@ -465,7 +471,8 @@ extension LiveCoordinator {
     /// Opens the `daemon` channel and loads the workspaces; a failure or a
     /// Mac that never answers shows as a failure with Retry.
     private func bindWorkspaces(_ session: MacSession, _ link: any MacLink, prepared: Result<WorkspaceSync.Prepared, LinkError>? = nil) {
-        session.daemonError = nil
+        session.daemonErrors.clear()
+        let started = session.daemonErrors.begin()
         updateDiagnostics(session)
         armWorkspacesDeadline(session, link)
         let macID = session.macID
@@ -481,8 +488,8 @@ extension LiveCoordinator {
                     await session.workspaces.bind(daemon, macID: macID, cached: cached)
                 }
                 // The link may have moved on (closed, or this Mac was removed).
-                if let error = session.workspaces.lastError, session.currentLink === link, self.store.macData[macID]?.source != .live {
-                    session.daemonError = error
+                if let error = session.workspaces.lastError, session.currentLink === link, self.store.macData[macID]?.source != .live,
+                   session.daemonErrors.set(error, by: .fetch, startedAt: started) {
                     self.updateDiagnostics(session)
                     self.store.handleMacData(.failed("Offline"), macID: macID)
                     // The link reached the Mac; cmux on it did not answer (cmux#52200).
@@ -492,8 +499,8 @@ extension LiveCoordinator {
                 }
             } catch {
                 log.error("daemon channel: \(String(describing: error), privacy: .public)")
-                if session.currentLink === link {
-                    session.daemonError = LinkController.reason(error)
+                if session.currentLink === link,
+                   session.daemonErrors.set(LinkController.reason(error), by: .fetch, startedAt: started) {
                     self.updateDiagnostics(session)
                     self.store.handleMacData(.failed("Offline"), macID: macID)
                     self.store.macFailure[macID] = .serviceDown
@@ -514,7 +521,7 @@ extension LiveCoordinator {
             // timeout fails the channel itself.
             if session.pairingState.isWaiting { return }
             log.error("workspaces did not arrive in time")
-            session.daemonError = "the Mac didn't send its workspaces"
+            session.daemonErrors.set("the Mac didn't send its workspaces", by: .timeout)
             self.updateDiagnostics(session)
             self.store.handleMacData(.failed("Offline"), macID: macID)
             self.store.macFailure[macID] = .serviceDown
@@ -1148,12 +1155,23 @@ extension LiveCoordinator {
         return listed != built
     }
 
+    /// A chats bind that began at STARTEDAT ended: ready is fresh data; a failure stands only when no chat
+    /// list arrived since the bind began (``ConnectionErrorStamp``).
+    func chatsBound(_ session: MacSession, startedAt: UInt64, fallback: String? = "chats are unavailable") {
+        if session.acpmux.isReady {
+            session.chatsErrors.fresh()
+        } else if let error = session.acpmux.lastError ?? fallback {
+            session.chatsErrors.set(error, by: .fetch, startedAt: startedAt)
+        } else {
+            session.chatsErrors.clear()
+        }
+    }
+
     /// The Mac sent its workspaces: a "didn't send its workspaces" left by the deadline on a slow
     /// first load no longer stands, so Diagnostics drops it with no Retry (Leo, 2026-11-27: "An error
     /// set by a timeout clears when the next good data arrives").
     func workspacesArrived(_ session: MacSession) {
-        guard session.daemonError != nil else { return }
-        session.daemonError = nil
+        guard session.daemonErrors.fresh() else { return }
         updateDiagnostics(session)
     }
 
