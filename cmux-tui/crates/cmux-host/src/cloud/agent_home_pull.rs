@@ -16,8 +16,7 @@
 
 use std::io::Read;
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -132,64 +131,55 @@ pub fn reply_for(outcome: &Outcome, ms: u64) -> Value {
     }
 }
 
-/// Runs one pull to its end or its bound; the child is killed and reaped on the bound.
+/// Runs one pull to its end or its bound. The pull leads its own process group, and its
+/// [`cmux_process::Child`] owns it: past the bound, dropping it ends the group and reaps it.
 pub fn run(job: &Job) -> (Outcome, u64, String) {
     let started = Instant::now();
-    let child = Command::new(&job.bin)
+    let child = cmux_process::Command::new(&job.bin)
         .args(argv(job))
         .env(TOKEN_ENV, &job.token)
         .env_remove("CMUX_AGENT_HOME_CAPABILITY")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
+        .process_group(0)
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::piped())
         .spawn();
     let Ok(mut child) = child else {
         return (Outcome::NotStarted, elapsed_ms(started), String::new());
     };
-    let stderr = child.stderr.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut kept = Vec::new();
-            let mut chunk = [0u8; 4096];
-            while let Ok(n) = pipe.read(&mut chunk) {
-                if n == 0 {
-                    break;
+    let stderr = child.stderr.take().and_then(|mut pipe| {
+        std::thread::Builder::new()
+            .name("cmux-host-agent-home-err".into())
+            .stack_size(64 * 1024)
+            .spawn(move || {
+                let mut kept = Vec::new();
+                let mut chunk = [0u8; 4096];
+                while let Ok(n) = pipe.read(&mut chunk) {
+                    if n == 0 {
+                        break;
+                    }
+                    kept.extend_from_slice(&chunk[..n]);
+                    if kept.len() > STDERR_KEPT {
+                        kept.drain(..kept.len() - STDERR_KEPT);
+                    }
                 }
-                kept.extend_from_slice(&chunk[..n]);
-                if kept.len() > STDERR_KEPT {
-                    kept.drain(..kept.len() - STDERR_KEPT);
-                }
-            }
-            String::from_utf8_lossy(&kept).into_owned()
-        })
+                String::from_utf8_lossy(&kept).into_owned()
+            })
+            .ok()
     });
-    let outcome = wait_bounded(&mut child, started + job.bound);
+    let outcome = match child.wait_timeout(job.bound) {
+        Ok(Some(status)) => status.code().map_or(Outcome::Signaled, Outcome::Exited),
+        Ok(None) => Outcome::TimedOut,
+        Err(_) => Outcome::Signaled,
+    };
+    // Still running (a timeout or a failed wait): the drop ends its group and reaps it.
+    drop(child);
     // A pull stopped at its bound may leave a process holding the pipe: its tail is not waited for.
     let tail = match (&outcome, stderr) {
         (Outcome::TimedOut, _) | (_, None) => String::new(),
         (_, Some(reader)) => reader.join().unwrap_or_default(),
     };
     (outcome, elapsed_ms(started), tail)
-}
-
-fn wait_bounded(child: &mut Child, until: Instant) -> Outcome {
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                return status.code().map_or(Outcome::Signaled, Outcome::Exited);
-            }
-            Ok(None) if Instant::now() >= until => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Outcome::TimedOut;
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Outcome::Signaled;
-            }
-        }
-    }
 }
 
 fn elapsed_ms(since: Instant) -> u64 {
