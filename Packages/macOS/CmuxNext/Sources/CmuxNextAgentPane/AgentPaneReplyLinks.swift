@@ -15,11 +15,19 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
         self.title = title
     }
 
-    /// Encodes a favicon already held by the host, without fetching another image.
+    /// Encodes a favicon already held by the host, without fetching another image. Each image is
+    /// encoded once: the favicon loader hands back the same `NSImage` for a cached icon, and every
+    /// reply chip of that site asked for it again on the main actor (one PNG encode per link per
+    /// request). The table holds its images weakly, so an icon the loader drops frees its PNG too.
     @MainActor public static func png(_ image: NSImage) -> Data? {
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
+        if let cached = encoded.object(forKey: image) { return cached as Data }
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let data = NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]) else { return nil }
+        encoded.setObject(data as NSData, forKey: image)
+        return data
     }
+
+    @MainActor private static let encoded = NSMapTable<NSImage, NSData>.weakToStrongObjects()
 }
 
 /// The App's side of the reply link requests (``AgentPaneReplyRequest``): the settings, the

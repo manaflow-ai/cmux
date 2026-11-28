@@ -36,8 +36,20 @@ public import Foundation
         FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
     }
 
+    /// Each app's icon PNG, by path and the bundle's modification date (an update redraws it). The
+    /// "Open in" menu asked for up to 16 icons on every open, each a draw and a PNG encode on the
+    /// main actor; an app's icon only changes when the app does. Shared by every pane's instance.
+    private static var icons: [String: (modified: Date?, png: Data?)] = [:]
+
     public func iconPNG(of app: URL) -> Data? {
-        let icon = workspace.icon(forFile: app.path)
+        let modified = (try? app.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        if let cached = Self.icons[app.path], cached.modified == modified { return cached.png }
+        let png = Self.render(workspace.icon(forFile: app.path))
+        Self.icons[app.path] = (modified, png)
+        return png
+    }
+
+    private static func render(_ icon: NSImage) -> Data? {
         let side = 32
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
                                          samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
