@@ -97,6 +97,12 @@ grep -q 'cargo group 1 (): the kernel OOM-killed a process (exit 101); rerunning
 grep -q 'built on the rerun' <<<"$out" || { echo "$out"; echo "FAIL: the rerun did not run"; exit 1; }
 grep -q 'cargo group 1 () rerun: [0-9]* s' <<<"$out" || { echo "$out"; echo "FAIL: no rerun time"; exit 1; }
 ! grep -q 'out of memory' <<<"$out" || { echo "$out"; echo "FAIL: a passing rerun still reported OOM"; exit 1; }
+# The rerun builds one unit at a time: CARGO_BUILD_JOBS=1 (the first run had more).
+mark2="$tmp/rerun-jobs-mark"
+jobs_cmd='if [ ! -e '"$mark2"' ]; then : > '"$mark2"'; echo "jobs first $CARGO_BUILD_JOBS"; echo "rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 11" > '"$tmp/vmstat"'; exit 101; fi; echo "jobs rerun $CARGO_BUILD_JOBS"'
+echo "oom_kill 10" > "$tmp/vmstat"
+out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "$jobs_cmd" "" "echo b" 2>&1) || { echo "$out"; echo "FAIL: jobs rerun did not pass"; exit 1; }
+grep -q 'jobs rerun 1$' <<<"$out" || { echo "$out"; echo "FAIL: the rerun was not CARGO_BUILD_JOBS=1"; exit 1; }
 out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo 'error[E0308]: mismatched types'; exit 101" 2>&1) || true
 ! grep -q 'rerunning' <<<"$out" || { echo "$out"; echo "FAIL: a compile error was rerun"; exit 1; }
 

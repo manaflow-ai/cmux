@@ -260,9 +260,15 @@ for i in "${!pids[@]}"; do
 done
 
 # OOM_RERUN_ALONE (above): each OOM-killed group again, one at a time, with nothing else building.
+# The rerun builds one unit at a time (CARGO_BUILD_JOBS=1, and rustc's codegen threads draw on the same jobserver).
+# Alone but at the group's token count it was OOM-killed again: acpmux's rustc (incremental, 16 codegen units)
+# next to cmux-tui-core's, both still running, outgrew a 14 GiB memory.max with 29 GiB free on the host (Cloud
+# machine channel run 46164056465, job 141037923342, after #64863 and #64901). One unit's peak is what has to fit.
+orig_lead_jobs=$lead_jobs orig_jobs=${CARGO_BUILD_JOBS:-}
 for i in ${pending_reruns[@]+"${pending_reruns[@]}"}; do
   n=$((i + 1))
   label="cargo group $n (${bins[i]//\?/}) rerun"
+  lead_jobs=1 CARGO_BUILD_JOBS=1
   starts[i]=$(date +%s)
   (run_group "$i" "${dirs[i]}") || true
   status=255 end=$(date +%s)
@@ -280,6 +286,8 @@ for i in ${pending_reruns[@]+"${pending_reruns[@]}"}; do
     timings_summary "${dirs[i]}/cargo-timings/cargo-timing.html" "${starts[i]}"
   fi
 done
+
+lead_jobs=$orig_lead_jobs CARGO_BUILD_JOBS=$orig_jobs
 
 for i in "${!bins[@]}"; do
   n=$((i + 1))
