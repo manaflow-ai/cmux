@@ -2429,6 +2429,25 @@ class IosJobTest(unittest.TestCase):
         self.assertEqual(ci_steps.route(t, ["cmux-next-ios/CmuxKit/Sources/CmuxKit/A.swift"]).get("ios"),
                          ["ios-kit-macos", "ios-kit"])
 
+    def test_roaming_routes_its_cargo_closure(self) -> None:
+        from unittest.mock import patch
+        import ios_link_ffi_key
+
+        # The integration target builds dev dependencies too. Reuse the build-key
+        # walker so new path dependencies or vendored patches cannot silently skip it.
+        with patch.object(ios_link_ffi_key, "FFI", "cmux-next-ios/rust/crates/cmux-mobile-link"), \
+                patch.object(ios_link_ffi_key, "BUILT_TABLES",
+                             ("dependencies", "build-dependencies", "dev-dependencies")):
+            packages, roots = ios_link_ffi_key.closure("HEAD")
+        paths = [f"{pkg}/{leaf}" for pkg in packages for leaf in ("Cargo.toml", "src/lib.rs")]
+        paths += [f"{root}/{name}" for root in roots for name in ("Cargo.toml", "Cargo.lock")]
+        paths += ["cmux-tui/.cargo/config.toml", "cmux-next-ios/rust/.cargo/config.toml"]
+        table = ci_steps.load()
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertIn("ios-roaming-headless", ci_steps.route(table, [path], pr_scope=True).get("linux", []))
+        self.assertNotIn("ios-roaming-headless", ci_steps.route(table, ["webviews/README.md"], pr_scope=True).get("linux", []))
+
     def test_the_macos_swift_test_runs_beside_the_simulator_leg(self) -> None:
         # Goal ios-ci-under-5min: the kit's macOS swift test ran before the simulator leg in one step on one Mac;
         # now it is ios-kit-macos, which the `ios macos` job runs beside the `ios` job, and ios is the longer leg.
