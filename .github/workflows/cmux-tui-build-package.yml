@@ -214,7 +214,11 @@ jobs:
           # memory.max 14 GiB (hq#36694, 2026-11-28 11:58Z) the acpmux lib's rustc alone was SIGKILLed by the
           # kernel on both musl legs, every attempt, so no cmux-tui tree published (cmux-tui-artifacts runs
           # 46161165035 and 46161772976). Attempt 2 already moved them there (linux_retry_runner).
-          LINUX_FAT_RUNNER: ${{ github.repository_owner == 'manaflow-ai' && inputs.nightly_runner && inputs.lto != 'thin' && 'cmux-gcp-nightly-jit-x64' || '' }}
+          # The Cloud machine channel cargo seed's thin legs (lto thin, feat-cmux-next pushes) go there too: on a slot
+          # the acpmux lib's rustc alone still lost to the 14 GiB cap at CARGO_BUILD_JOBS=1, nothing else running
+          # (cmux-machine-channel-cargo-seed run 46176740958, aarch64 job 141077770866, OOM rerun 19:03-19:19Z),
+          # so neither the giant lock (#65281) nor a lone rerun fits it in a slot.
+          LINUX_FAT_RUNNER: ${{ github.repository_owner == 'manaflow-ai' && (inputs.nightly_runner && inputs.lto != 'thin' || inputs.lto == 'thin' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || '' }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_arm64) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
           LTO: ${{ inputs.lto }}
@@ -992,10 +996,15 @@ jobs:
           profile=""
           if [[ "$LTO" == thin ]]; then
             export CARGO_PROFILE_RELEASE_LTO=off
-            export CARGO_PROFILE_RELEASE_INCREMENTAL=true
-            for pkg in cmux-tui cmux-tui-core acpmux; do
+            # Incremental is off and acpmux gets 8 codegen units, no debuginfo: under a 14 GiB pool
+            # slot's memory.max the acpmux lib's rustc was SIGKILLed even alone (cmux#65149, run
+            # 46164056465 job 141037923342); incremental's dep-graph and 16 live LLVM modules are its
+            # peak. Costs the incremental reuse measured above on a warm target.
+            export CARGO_PROFILE_RELEASE_INCREMENTAL=false CARGO_PROFILE_RELEASE_DEBUG=0
+            for pkg in cmux-tui cmux-tui-core; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
+            profile+=" --config profile.release.package.acpmux.codegen-units=8"
           fi
           profile+=" --timings"
           # One cargo per package, all at once, each in its own target directory

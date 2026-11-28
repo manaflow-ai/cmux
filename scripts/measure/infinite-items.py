@@ -17,6 +17,11 @@ compresses DAYS days into minutes; each simulated day is:
     person comes back to: its hibernated agent wakes and goes again);
   - an archive and unarchive of a few chats;
   - a sleep/wake: every process of both trees stopped (SIGSTOP) for SLEEP seconds and continued;
+  - a day passing for the daemon's freeing timer (workspaces.freeing, on, a day idle): cmux-tui runs on the
+    measure clock (--measure-freeing-clock-fifo, idle_freeing.rs) and the bench advances it by
+    --day-clock-seconds (default 86400, one day) after the sleep, so a tab the day's switches started and
+    nobody looked at since is parked as the product parks it a day later; --day-clock-seconds=0 keeps the
+    wall clock (the bench before cmux#64135's follow-up: a day lasted seconds and the timer never came due);
   - the acpmux idle timer fast-forwarded (ACPMUX_IDLE_CHILD_SECS, default 2 min in the product), and its
     chat eviction too (ACPMUX_EVICT_IDLE_SECS, default 10 min in the product; --evict-idle-secs=0 is off);
 then it waits for the idle agents to hibernate and samples an idle window.
@@ -427,6 +432,7 @@ class Run:
     def __init__(self, args, count):
         self.args, self.count = args, count
         self.root = tempfile.mkdtemp(prefix=f"inf{count}-", dir=args.root_dir)
+        self.clock_advanced = 0
         self.acp_home = os.path.join(self.root, "acpmux")
         self.tui_root = os.path.join(self.root, "tui")
         os.makedirs(self.acp_home, mode=0o700)
@@ -507,7 +513,10 @@ class Run:
                                     "--terminal-reap-grace-seconds", str(self.args.reap_grace_secs)]
                                    # --free-idle-seconds: the daemon's own freeing timer (workspaces.freeing.*), shortened.
                                    + (["--freeing-idle-seconds", str(self.args.free_idle_seconds)]
-                                      if self.args.free_idle_seconds else []),
+                                      if self.args.free_idle_seconds else [])
+                                   # --day-clock-seconds: the freeing timer's measure clock, advanced once a day.
+                                   + (["--measure-freeing-clock-fifo", self.clock_fifo()]
+                                      if self.args.day_clock_seconds else []),
                                    stdout=log_file, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                    env=self.env(), start_new_session=True)
         self.procs.append(tui)
@@ -524,6 +533,42 @@ class Run:
         self.top = {"acpmux": acp.pid, "tui": tui.pid}
         self.disks = {"acpmux_home": self.acp_home, "tui_state": os.path.join(self.tui_root, "state"),
                       "tui_home": os.path.join(self.tui_root, "home")}
+
+    def clock_fifo(self):
+        path = os.path.join(self.root, "freeing-clock.fifo")
+        if not os.path.exists(path):
+            os.mkfifo(path, 0o600)
+        return path
+
+    def advance_day_clock(self):
+        """--day-clock-seconds: let a day pass for cmux-tui's freeing timer (the measure clock, idle_freeing.rs)
+        and wait for its pass: one on the clock as it was, then one a day later (tui.log says when done)."""
+        seconds = self.args.day_clock_seconds
+        if not seconds:
+            return
+        done = "measure freeing clock advanced"
+        before = open(TUI_LOG[0], errors="replace").read().count(done)
+        deadline = time.monotonic() + 120
+        fd = None
+        while fd is None:
+            try:
+                fd = os.open(self.clock_fifo(), os.O_WRONLY | os.O_NONBLOCK)
+            except OSError as exc:  # ENXIO: the daemon's reader is between two opens
+                if time.monotonic() >= deadline:
+                    self.error("measure clock open", exc)
+                    return
+                time.sleep(0.05)  # bench: the daemon reopens its FIFO right after a writer closes
+        try:
+            os.write(fd, f"{seconds}\n".encode())
+        finally:
+            os.close(fd)
+        while time.monotonic() < deadline:
+            if open(TUI_LOG[0], errors="replace").read().count(done) > before:
+                self.clock_advanced += seconds
+                log(f"N={self.count} freeing clock: advanced {seconds} s (total {self.clock_advanced} s), pass done")
+                return
+            time.sleep(0.25)  # bench: waiting for the daemon's freeing pass it asked for (bounded)
+        self.error("measure clock pass", RuntimeError(f"no '{done}' in tui.log within 120 s"))
 
     def wait_for(self, check, proc, what, seconds=60):
         deadline = time.monotonic() + seconds
@@ -773,7 +818,8 @@ class Run:
     def report_freed(self):
         """--free-idle-seconds: how many of the run's terminal tabs the daemon's freeing timer parked (dead tabs
         that start again on show), logged after each settle; no request parks anything here."""
-        if not (self.args.free_idle_seconds or self.args.lazy_start == "on") or not self.workspaces:
+        if not (self.args.free_idle_seconds or self.args.day_clock_seconds or self.args.lazy_start == "on") \
+                or not self.workspaces:
             return
         tui = Tui(self.tui_sock, timeout=300)
         try:
@@ -783,7 +829,9 @@ class Run:
                     for tab in pane.get("tabs", []) if tab.get("kind", "pty") == "pty"]
             freed = sum(1 for tab in tabs if tab.get("dead"))
             self.parked = freed
-            what = "freeing timer" if self.args.free_idle_seconds else "lazy start"
+            what = ("freeing timer" if self.args.free_idle_seconds else
+                    f"freeing timer (measure clock +{self.clock_advanced} s) and lazy start" if self.args.day_clock_seconds
+                    else "lazy start")
             log(f"N={self.count} {what}: {freed} of {len(tabs)} terminal tabs parked")
         except (OSError, RuntimeError, ValueError) as exc:
             self.error("list-workspaces", exc)
@@ -867,6 +915,8 @@ class Run:
                     os.kill(pid, signal.SIGCONT)
                 except ProcessLookupError:
                     pass
+        # The day is over for the freeing timer too (a simulated day lasts seconds, the timer's idle time a day).
+        self.advance_day_clock()
         return self.turns
 
 
@@ -940,7 +990,8 @@ def dhat_mark(day):
 
 def run_count(args, count):
     run = Run(args, count)
-    result = {"count": count, "samples": []}
+    result = {"count": count, "samples": [], "freeing_clock": {
+        "kind": "measure" if args.day_clock_seconds else "wall", "advance_s_per_day": args.day_clock_seconds}}
     try:
         run.start()
         if args.heap_profile_at:
@@ -975,7 +1026,7 @@ def run_count(args, count):
             settle(args, run.top)
             run.report_freed()
             s = idle_window(run.top, args.window, run.disks)
-            s.update(day=number, turns=turns, seconds=spent)
+            s.update(day=number, turns=turns, seconds=spent, freeing_clock_s=run.clock_advanced)
             result["samples"].append(s)
             log(f"N={count} day {number} ({spent} s, {turns} turns): {json.dumps(s['total'])}")
             if number in args.dhat_mark_days:
@@ -1113,6 +1164,11 @@ def main():
                         "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, on by default "
                         "with a day's idle time, which a simulated day never reaches), with no park-tabs request; 0 "
                         "(default) passes nothing, so the settings file decides")
+    p.add_argument("--day-clock-seconds", type=int, default=86400,
+                   help="start cmux-tui on the freeing timer's measure clock (--measure-freeing-clock-fifo) and advance "
+                        "it this many seconds at the end of each simulated day (default 86400: a day passes for the timer, "
+                        "at the product's idle time, workspaces.freeing.idleMinutes 1440); 0: the wall clock, on which "
+                        "a simulated day of seconds never reaches the timer")
     p.add_argument("--lazy-start", choices=("off", "on"), default="on",
                    help="CMUX_TUI_LAZY_START for cmux-tui: on, a never-shown plain shell (new-workspace, new-tab, "
                         "create-terminal in a workspace no client shows) gets no shell or host until its first need "
@@ -1143,6 +1199,11 @@ def main():
           f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
           f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)} "
           f"free_idle_seconds={args.free_idle_seconds} lazy_start={args.lazy_start}", flush=True)
+    # Which clock the freeing timer ran on: "day 1" is a real day for it (measure) or seconds (wall).
+    print("INFINITE-CLOCK " + (f"freeing_clock=measure advance_s_per_day={args.day_clock_seconds} "
+                               f"idle=product(workspaces.freeing.idleMinutes)" if args.day_clock_seconds else
+                               "freeing_clock=wall advance_s_per_day=0")
+          + (f" idle_override_s={args.free_idle_seconds}" if args.free_idle_seconds else ""), flush=True)
     results = []
     for count in (int(c) for c in args.counts.split(",")):
         try:
