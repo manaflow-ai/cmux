@@ -190,9 +190,9 @@ keyed! {
     /// `_acpmux/agent_login/cancel`.
     AgentLoginCancelParams: ["loginId", "sessionId"];
     /// `_acpmux/agent_login/finish`.
-    AgentLoginFinishParams: ["loginId", "code", "sessionId"];
+    AgentLoginFinishParams: ["loginId", "code", "sessionId", "recoverySession"];
     /// `_acpmux/agent_login/start`.
-    AgentLoginStartParams: ["agent", "sessionId"];
+    AgentLoginStartParams: ["agent", "sessionId", "reuseExisting", "recoverySession"];
     /// `_acpmux/agent_pair_resume`.
     AgentPairResumeParams: ["sessionId", "peerSessionId"];
     /// `_acpmux/app_reply`.
