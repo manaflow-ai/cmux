@@ -480,6 +480,8 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-motion-frames.yml') }}
     uses: ./.github/workflows/cmux-next-motion-frames.yml
+    secrets:
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
     permissions:
       # dispatch starts cmux-next-frame-pacing.yml's `frames` suite on the pull request's branch.
       actions: write
