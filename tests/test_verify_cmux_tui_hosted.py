@@ -17,6 +17,8 @@ and git ls-remote (no network) and checks what it does to the run:
 - Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not;
 - a dispatch that gets HTTP 5xx is tried again (3 tries), a run GitHub created anyway is adopted,
   and when every try fails the script says no run was created;
+- a refusal that names when it can be retried ("retry after 18:40Z (reset)") is waited out, bounded, instead
+  of spending every try inside the window the refusal already named (2026-11-22: two verifies lost this way);
 - a 404 or 500 on the first read of the new run is not a failure: the script names the run,
   waits on it with glaeda-gh, and checks its revision before it accepts an artifact;
 - a run state the script cannot read is never "still running": it reads only fields gh has, and after a few
@@ -60,6 +62,14 @@ case "$*" in
     n=$(cat "$STUB_DIR/dispatches" 2>/dev/null || echo 0)
     echo $((n + 1)) > "$STUB_DIR/dispatches"
     if (( n < ${FAKE_DISPATCH_FAILS:-0} )); then
+      # FAKE_DISPATCH_REFUSAL_IN: answer like the gh-quota shim with a spent REST bucket, naming the
+      # reset instant that many seconds from now (no HTTP code: the script may try again).
+      if [[ -n "${FAKE_DISPATCH_REFUSAL_IN:-}" ]]; then
+        at="$(date -u -d "+${FAKE_DISPATCH_REFUSAL_IN} seconds" +%H:%M:%S 2>/dev/null \
+          || date -u -v+"${FAKE_DISPATCH_REFUSAL_IN}"S +%H:%M:%S)"
+        echo "gh-quota: refused: GitHub's REST rate limit is spent for login until ${at}Z (reset); next: retry after ${at}Z (reset); nothing is sent to GitHub before then (why: guard-why)" >&2
+        exit 1
+      fi
       echo "gh: Server Error (HTTP ${FAKE_DISPATCH_CODE:-502})" >&2
       exit 1
     fi
@@ -473,6 +483,63 @@ def signal_case(signum: int, whole_group: bool, want_cancels: int, want_code: in
     return test
 
 
+def dispatch_waits_out_a_named_reset(failures: list[str], name: str, box: Sandbox) -> None:
+    """Both of 2026-11-22's verifies died with "no run was created": three dispatch tries spent in
+    two seconds against a gh-quota refusal that said "retry after 18:40Z (reset)". With the backoff
+    at 0, any pause here is the time the refusal named."""
+    started = time.monotonic()
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="1",
+                        FAKE_DISPATCH_REFUSAL_IN="3", CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS="0",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    took = time.monotonic() - started
+    check(failures, name, box.count("gh api -X POST") == 2 and "for the time the refusal names" in out
+          and took >= 2 and box.count("gh run download") >= 1, box, out + f"\n(took {took:.1f} s)")
+
+
+def named_reset_wait_is_bounded(failures: list[str], name: str, box: Sandbox) -> None:
+    """A refusal naming an hour away may not park the dispatch for an hour: the wait is capped by
+    CMUX_TUI_HOSTED_DISPATCH_RESET_WAIT_SECONDS, and a cap of 0 falls back to the backoff."""
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="1",
+                        FAKE_DISPATCH_REFUSAL_IN="3600", CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS="1",
+                        CMUX_TUI_HOSTED_DISPATCH_RESET_WAIT_SECONDS="2", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 2 and "waiting 2 s for the time the refusal names" in out
+          and box.count("gh run download") >= 1, box, out)
+
+
+def named_retry_time_is_read_the_way_refusals_write_it(failures: list[str], name: str, box: Sandbox) -> None:
+    """The parser itself, against the forms a refusal uses: a bare HH:MM(:SS)Z, a full instant, a
+    time already gone, and text that names none."""
+    body = SCRIPT.read_text(encoding="utf-8")
+    if "seconds_until_named_retry() {" not in body:
+        check(failures, name, False, box, "the script reads no retry time a refusal names")
+        return
+    start = body.index("seconds_until_named_retry() {")
+    end = body.index("\n}\n", start) + len("\n}\n")
+    helper = body[start:end]
+    now = time.time()
+
+    def stamp(offset: float, form: str) -> str:
+        return time.strftime(form, time.gmtime(now + offset))
+
+    cases = [
+        ("a spent REST bucket", "gh-quota: refused: GitHub's REST rate limit is spent for login until "
+         + stamp(180, "%H:%M") + "Z (reset); next: retry after " + stamp(180, "%H:%M")
+         + "Z (reset); nothing is sent to GitHub before then", range(1, 181)),
+        ("seconds in the named time", "next: retry after " + stamp(200, "%H:%M:%S") + "Z", range(150, 201)),
+        ("a full instant, over the cap", "retry after " + stamp(7200, "%Y-%m-%dT%H:%M:%SZ"), range(900, 901)),
+        ("a time already gone", "retry after " + stamp(-60, "%H:%M:%S") + "Z", range(0, 1)),
+        ("no time named", "gh: Server Error (HTTP 502)", range(0, 1)),
+        ("a word that is not a time", "retry after the reset", range(0, 1)),
+    ]
+    program = helper + "\ndispatch_reset_wait=900\nseconds_until_named_retry \"$1\"\n"
+    bad = []
+    for case, text, want in cases:
+        done = subprocess.run(["bash", "-c", program, "bash", text], capture_output=True, text=True)
+        if done.returncode != 0 or not done.stdout.strip().isdigit() or int(done.stdout) not in want:
+            bad.append(f"{case}: {text!r} -> {done.stdout!r} {done.stderr!r}, wanted {want}")
+    check(failures, name, not bad, box, "\n".join(bad))
+
+
 def main() -> int:
     if not shutil.which("bash") or not shutil.which("git"):
         print("bash and git are required", file=sys.stderr)
@@ -484,6 +551,10 @@ def main() -> int:
         ("a 5xx dispatch whose run GitHub did create is adopted, not dispatched twice",
          dispatch_error_with_a_created_run_adopts_it),
         ("a failed run lookup after a 5xx does not dispatch again", dispatch_lookup_failure_does_not_dispatch_again),
+        ("a refusal naming a retry time is waited out, not spent against", dispatch_waits_out_a_named_reset),
+        ("the wait for a named retry time is bounded", named_reset_wait_is_bounded),
+        ("the named retry time is read the way refusals write it",
+         named_retry_time_is_read_the_way_refusals_write_it),
         ("a 4xx dispatch is not tried again", dispatch_client_error_is_not_retried),
         ("at the deadline the run is not cancelled and the script exits 3", deadline_does_not_cancel),
         ("a waiter that returns before the run is done is started again", early_waiter_return_waits_again),
