@@ -1,4 +1,9 @@
 public import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// The embedded Chromium's locale paks that arrive on first use (CMUX-570, cmux#45928's language
 /// packs). A NIGHTLY keeps only Chromium's English pak in the signed framework; a language's pack
@@ -33,10 +38,11 @@ public struct ChromiumLocalePaks {
             try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
             let staged = folder.appending(path: ".locale.pak.\(UUID().uuidString)", directoryHint: .notDirectory)
             try fileManager.copyItem(at: pak, to: staged)
-            if fileManager.fileExists(atPath: target.path) {
-                _ = try fileManager.replaceItemAt(target, withItemAt: staged)
-            } else {
-                try fileManager.moveItem(at: staged, to: target)
+            // rename(2) in one folder: an older copy is replaced atomically, or the pak lands. Not
+            // FileManager.replaceItemAt, whose Linux Foundation removes the old copy and then throws.
+            guard rename(staged.path, target.path) == 0 else {
+                try? fileManager.removeItem(at: staged)
+                return nil
             }
             return lproj.lastPathComponent
         } catch {
