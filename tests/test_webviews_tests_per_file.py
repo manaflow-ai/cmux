@@ -150,7 +150,7 @@ def path_without_timeout(temp):
 
 class PerFileRunner(unittest.TestCase):
     def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=(),
-                   uname=None, no_bun=False):
+                   uname=None, no_bun=False, fake_bun=FAKE_BUN):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -164,7 +164,7 @@ class PerFileRunner(unittest.TestCase):
         bin_dir = temp / "bin"
         bin_dir.mkdir()
         if not no_bun:
-            (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
+            (bin_dir / "bun").write_text(fake_bun, encoding="utf-8")
             (bin_dir / "bun").chmod(0o755)
         if uname is not None:
             # The host the runner believes it is on (`uname -s`), whatever runs this test.
@@ -1026,6 +1026,67 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(calls, sorted(f"./{name}" for name in files))
         self.assertEqual(self.peaks(), (1, 1), result.stdout)
 
+    def test_the_warm_and_gallery_build_leave_half_the_stop_budget_to_the_files(self):
+        """cmux#65070, job 141117153828: react-apps-base-check's first replay had 900 s to CMUX_WEB_TEST_STOP_AT, the
+        React Compiler warm ran 310 s to an OOM kill and the gallery build the other 587 s, and all 34 head-red files
+        were NOT RUN past the stop. Each preparation now takes at most half of what is left, so the files still run."""
+        # The two preparations hang until their limit; the test files themselves pass at once.
+        hang_prep = FAKE_BUN.replace('[ "$1" = test ] || exit 9',
+                                     'case "$1" in scripts/warm-react-compiler-cache.mjs|run) sleep 60; exit 1 ;; esac\n'
+                                     '[ "$1" = test ] || exit 9', 1)
+        contents = {"test/gallery-browser.test.ts": 'import { chromium } from "playwright";\n// accentGlassInvariants\n',
+                    "package.json": '{"scripts": {"gallery:build": "vite build"}}\n',
+                    "scripts/warm-react-compiler-cache.mjs": "", "test/support/galleryStageServer.ts": ""}
+        stop_at = int(time.time()) + 12
+        result, elapsed, calls = self.run_runner(
+            list(contents), contents=contents, fake_bun=hang_prep,
+            extra_env={"CMUX_WEB_TEST_STOP_AT": str(stop_at), "CMUX_WEB_TEST_JOBS": "1"})
+        output = result.stdout + result.stderr
+        self.assertIn("warm-react-compiler-cache failed", output)
+        self.assertIn("gallery-build failed or timed out", output)
+        self.assertNotIn("NOT RUN", output)
+        self.assertIn("./test/gallery-browser.test.ts", calls, output)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 30, output)
+
+    def test_base_check_replays_the_base_at_the_head_shards_widths(self):
+        """One file at a time, 34 head-red files could not finish in react-apps-base-check's 55 minutes (job
+        141117153828); its base replay runs at react-apps-base-early's widths."""
+        text = WORKFLOW.read_text(encoding="utf-8")
+        compare = text.split("      - name: Run base reds and compare\n", 1)[1].split("        run: |\n", 1)[0]
+        early = text.split("      - name: Run the base reds\n", 1)[1].split("        run: |\n", 1)[0]
+        for name in ("CMUX_WEB_TEST_JOBS", "CMUX_WEB_TEST_DEV_JOBS", "CMUX_WEB_TEST_SIZED_FOR_VCPU"):
+            width = [line.strip() for line in early.splitlines() if line.strip().startswith(name + ":")]
+            self.assertEqual(len(width), 1, name)
+            self.assertIn(width[0], compare, name)
+
+    def test_browser_files_left_when_the_plain_pool_is_done_run_at_the_dev_server_width(self):
+        """Shard 8 of run 46177265997 (8 vCPU, a 1-wide browser pool) ran its browser files one at a time for 26 min
+        after the plain pool drained, three of its four slots idle. Once the plain pool is done the browser files left
+        run at the dev server width; CMUX_WEB_TEST_BROWSER_ALONE_JOBS sets it, and a run of browser files alone gets it
+        from the start."""
+        if subprocess.run(["xargs", "--version"], capture_output=True, text=True).stdout.find("GNU findutils") < 0:
+            self.skipTest("only GNU xargs takes more workers while it runs")
+        browser = {f"test/pool-browser-{index}.test.ts": 'import { webkit } from "playwright";\n' for index in range(20)}
+        files = [*browser, "test/pool-jsdom-a.test.ts"]
+        result, _, calls = self.run_runner(files, contents=browser, extra_env={"CMUX_WEB_TEST_DEV_JOBS": "4"})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in files), "each file runs once")
+        everything, browsers = self.peaks()
+        self.assertEqual(browsers, 4, output)
+        self.assertLessEqual(everything, 8, output)
+        self.assertIn("6 at a time, beside 20 browser files 2 at a time, 4 once the plain pool is done", output)
+        self.assertIn("plain pool done: the browser files left run 4 at a time", output)
+        result, _, _ = self.run_runner(files, contents=browser, extra_env={"CMUX_WEB_TEST_DEV_JOBS": "4",
+                                                                           "CMUX_WEB_TEST_BROWSER_ALONE_JOBS": "2"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.peaks()[1], 2, result.stdout)
+        result, _, calls = self.run_runner(list(browser), contents=browser, extra_env={"CMUX_WEB_TEST_DEV_JOBS": "3"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(calls), 20)
+        self.assertEqual(self.peaks()[1], 3, result.stdout)
+
     def test_a_smaller_runner_runs_the_declared_widths_at_its_share_and_splits_the_same(self):
         """The 16 vCPU shards (8 jobs, 4 dev-server files) got 2 and 4 vCPU runners when the pool writer
         marked the large sizes dead: 8 files at once on 2 cores ran every shard of run 44249075431 (attempt 2)
@@ -1033,7 +1094,8 @@ class PerFileRunner(unittest.TestCase):
         declared size runs at that share of each width, and the split still reads the declared widths."""
         browser = {f"test/pool-browser-{index}.test.ts": 'import { webkit } from "playwright";\n' for index in range(6)}
         files = [*browser, *(f"test/pool-jsdom-{index}.test.ts" for index in range(6))]
-        sized = {"CMUX_WEB_TEST_DEV_JOBS": "4", "CMUX_WEB_TEST_SIZED_FOR_VCPU": "16"}
+        # Pool widths only: the browser files' widening once the plain pool is done has its own test.
+        sized = {"CMUX_WEB_TEST_DEV_JOBS": "4", "CMUX_WEB_TEST_SIZED_FOR_VCPU": "16", "CMUX_WEB_TEST_BROWSER_ALONE_JOBS": "1"}
         for cores, peaks in (("16", (8, 2)), ("8", (4, 1)), ("4", (2, 1)), ("2", (1, 1))):
             result, _, calls = self.run_runner(files, contents=browser,
                                                extra_env={**sized, "CMUX_CI_CPU_BUDGET": cores})

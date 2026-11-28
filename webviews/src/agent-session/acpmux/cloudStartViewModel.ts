@@ -171,6 +171,7 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.phase.lfs": "Getting large files",
   "cloudStart.stage.machine": "Starting your Cloud machine",
   "cloudStart.stage.clone": "Copying your project",
+  "cloudStart.stage.project": "Connecting your project",
   "cloudStart.stage.setup": "Running your setup script",
   "cloudStart.eta.longer": "taking longer than usual",
   "cloudStartup.leftOnMac": "{count} files stayed on this Mac",
@@ -337,7 +338,12 @@ export function quietStage(
         ? // A GitHub repository is cloned on the machine, nothing of this Mac copied: the line says so (cmux#53226).
           githubFolderRepo(start.cwd)
           ? t("cloudStartup.phase.clone")
-          : t("cloudStart.stage.clone")
+          : // A folder of this Mac is projected by default (cmux-tui `link project`): nothing is copied, its files
+            // are read from this Mac on first use, so the line says it connects the project. Only a seed or a
+            // copy under way (its phase or its file counts) says it copies.
+            start.clone?.phase || start.clone?.progress?.filesTotal !== undefined
+            ? t("cloudStart.stage.clone")
+            : t("cloudStart.stage.project")
         : current.id === "setup"
           ? t("cloudStart.stage.setup")
           : current.label;

@@ -32,7 +32,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  readback:
+  # The job id ends in -fleet: the gateway runner hook (glaeda scripts/glaeda-cmux-runner-hook) takes a home-repo
+  # job on mac-gateway only as a thin cmux-ci client, named so; as `readback`, run 46199736166 was refused at set-up.
+  readback-fleet:
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != ''
     environment:
       name: cmux-next-cloud-journey
@@ -40,8 +42,11 @@ jobs:
     # An owned Mac: the fleet controller answers only on the tailnet, and no owned Linux runner reached it (the
     # client fetch timed out in runs 46037691304 and 46039141923 here, and in each chief-evals fleet job on
     # 2026-11-27; #60707 met the same on the Swift fast tier). The job only submits the step and waits, on the
-    # same label as cmux-next-batch.yml's fleet gateway. Back to cmux-linux once that pool reaches the controller.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    # same label as every other fleet driver (chief-evals, rivals-nightly, nightly-pr-build): mac-gateway, a tailnet
+    # Mac. Not cmux-mac with vars.CI_OVERFLOW_MAC: on 2026-11-28 the overflow sent run 46197818945 to
+    # blacksmith-6vcpu-macos-26, which has no route to the controller, after runs 46194667200 and 46195913072 sat
+    # on cmux-mac until "not acquired by Runner". Back to cmux-linux once that pool reaches the controller.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # The display queue waits hours when busy (run 46102219213: source bundling 24 min, then 87 measurements
     # ahead; p90 of the exclusive class 517-764 min over 24 h). A 25-min queue wait cancelled every readback
     # before its turn, so the job waits up to 3 h for a display Mac, plus the step's 40 min.

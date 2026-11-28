@@ -101,6 +101,10 @@ class VerdictTest(unittest.TestCase):
         for title in ("fix(next): preserve New Tab composer through lazy screen loading", "fix: row gap",
                       "Fix sidebar caret jump"):
             self.assertEqual(u.verdict("app", "", {}, [], 7, title=title), ("success", u.FIX_NO_LOOK), title)
+        for title in ("Update cards: fix stale badge", "Gallery health fix: shard timeouts", "Sidebar: fixes caret"):
+            self.assertEqual(u.verdict("app", "", {}, [], 7, title=title), ("success", u.FIX_NO_LOOK), title)
+        for title in ("Popup windows: no omnibar focus ring", "Prefix: add a fixture panel", "Suffix: fixture"):
+            self.assertEqual(u.verdict("app", "", {}, [], 7, title=title)[0], "pending", title)
         self.assertEqual(u.verdict("app", "", {}, [], 7, title="Split New Tab: composer pre-rendered")[0], "pending")
         self.assertEqual(u.verdict("app", "", {}, ["webviews/src/New.tsx"], 7, title="fix: add panel")[0], "pending")
         failed = {"verdict": "fail", "suite": "gui-flows", "runs": [{"name": "tabs", "result": "fail"}]}
@@ -530,7 +534,7 @@ class LookFailedTest(unittest.TestCase):
         prs = [self.node(61289, "PENDING", "2026-11-27T14:12:00Z"), self.node(2, "PENDING", "2026-11-27T23:00:00Z")]
         with mock.patch.object(u, "open_prs", return_value=prs):
             stale = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
-                            answered=lambda pr, sha: "", rerun=lambda sha: self.fail("no record, no rerun"))
+                            answered=lambda pr, sha: "", rerun=lambda sha: self.fail("no record, no rerun"), rules_at="")
         self.assertEqual(len(posts), 1)
         state, desc, repo, sha = posts[0][:4]
         self.assertEqual((state, repo, sha), ("failure", "manaflow-ai/cmux", f"{61289:040d}"))
@@ -547,7 +551,8 @@ class LookFailedTest(unittest.TestCase):
         posts, reruns = [], []
         with mock.patch.object(u, "open_prs", return_value=prs):
             out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
-                          answered=lambda pr, sha: records[pr], rerun=lambda sha: reruns.append(sha) or "reran")
+                          answered=lambda pr, sha: records[pr], rerun=lambda sha: reruns.append(sha) or "reran",
+                          rules_at="")
         self.assertEqual(reruns, [f"{62379:040d}"])
         self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
         self.assertEqual([(s["pr"], "rerun" in s) for s in out], [(62379, True), (8, False)])
@@ -565,7 +570,7 @@ class LookFailedTest(unittest.TestCase):
         with mock.patch.object(u, "open_prs", return_value=prs):
             out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
                           answered=lambda pr, sha: records[pr],
-                          rerun=lambda sha, after="": reruns.append((sha, after)) or "reran")
+                          rerun=lambda sha, after="": reruns.append((sha, after)) or "reran", rules_at="")
         self.assertEqual(reruns, [(f"{63752:040d}", "2026-11-28T11:37:05Z")])
         self.assertEqual(posts, [])
         self.assertEqual([s["pr"] for s in out], [63752])
@@ -581,6 +586,32 @@ class LookFailedTest(unittest.TestCase):
         with mock.patch.object(u, "api", side_effect=api), \
                 mock.patch.object(u.proof_record, "with_tokens", side_effect=lambda f, tokens: f(tokens[0])):
             self.assertIn("already read", u.rerun_gate_rest("r/r", "s", ["t"], "2026-11-28T11:37:05Z"))
+
+    def test_sweep_rejudges_a_pending_posted_before_the_rules_changed(self) -> None:
+        # cmux#62573: pending "Visual change, no look" at 16:01Z, FIX_NO_LOOK from 18:26Z passes it; nothing re-judged.
+        now = u.dt.datetime(2026, 11, 28, 23, 0, tzinfo=u.dt.timezone.utc)
+        prs = [self.node(62573, "PENDING", "2026-11-28T16:01:50Z"),  # older rules: re-judged, no failure
+               self.node(7, "PENDING", "2026-11-28T19:00:00Z"),      # current rules, under 6 h: left
+               self.node(8, "PENDING", "2026-11-28T10:00:00Z")]      # older, but its gate already re-ran: failure
+        reruns, posts, at = [], [], "2026-11-28T18:26:45Z"
+
+        def rerun(sha, after=""):
+            reruns.append((sha, after))
+            return "gate job 5 already read the record" if sha == f"{8:040d}" else "reran ui proof status (job 9)"
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: "", rerun=rerun, rules_at=at)
+        self.assertEqual(reruns, [(f"{62573:040d}", at), (f"{8:040d}", at)])
+        self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
+        self.assertEqual([(s["pr"], bool(s.get("rejudged"))) for s in out], [(62573, True), (8, False)])
+
+    def test_sweep_rejudges_at_most_rejudge_max_a_pass(self) -> None:
+        now = u.dt.datetime(2026, 11, 28, 19, 0, tzinfo=u.dt.timezone.utc)
+        prs = [self.node(n, "PENDING", "2026-11-28T17:00:00Z") for n in range(1, u.REJUDGE_MAX + 6)]
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: self.fail("under 6 h"),
+                          answered=lambda pr, sha: "", rerun=lambda sha, after="": "reran x")
+        self.assertEqual(sum(1 for s in out if s.get("rejudged")), u.REJUDGE_MAX)
 
     def test_sweep_reads_the_newest_prs_first(self) -> None:
         self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", u.SWEEP_QUERY)

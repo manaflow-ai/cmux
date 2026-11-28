@@ -71,7 +71,7 @@ const TEXT_FIELDS = 'input:not([type="checkbox"]):not([type="radio"]), textarea'
 type Refusal = { problems: Problem[]; written: unknown };
 
 /** A token's title: its element switch's (localized with the schema), the name the page's own. */
-export function tokenTitle(token: Token): string {
+function tokenTitle(token: Token): string {
   if (token === "name") return t("settingsPage.rowLayout.name");
   const row = rowsByKey.get(switchKey(token));
   return row ? text(row.title) : token;
@@ -474,7 +474,7 @@ function problemsFor(refusal: Refusal | undefined, entry: string | null): Layout
 }
 
 /** A problem in the page's words. */
-export function problemText(problem: { why: string; token: string | null; line: number | null }): string {
+function problemText(problem: { why: string; token: string | null; line: number | null }): string {
   const token = problem.token && isKnownToken(problem.token) ? tokenTitle(problem.token) : (problem.token ?? "");
   const line = String((problem.line ?? 0) + 1);
   switch (problem.why) {
