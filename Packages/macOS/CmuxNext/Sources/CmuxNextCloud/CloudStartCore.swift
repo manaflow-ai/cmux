@@ -163,6 +163,12 @@ public nonisolated struct CloudStartCore: Sendable {
         return ["what": reply.what, "next": reply.next]
     }
 
+    /// [`paneSurface`] as a failed reply's `details` (`{"surface": {what, next}}`), the card's headline and next step
+    /// (ask-17e4ae3662: "surfacing right errors"); `nil` when it names nothing.
+    public func paneSurfaceDetails(code: String?, message: String) -> [String: Any]? {
+        paneSurface(code: code, message: message).map { ["surface": $0] }
+    }
+
     /// A failed start the table reads: its code, words and whether the card would offer Retry.
     public struct PaneFailure: Sendable, Equatable {
         public let code: String?, message: String, retryable: Bool
