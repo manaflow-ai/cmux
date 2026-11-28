@@ -30,7 +30,7 @@ impl Mux {
                 .filter_map(|screen| {
                     let (wi, si) = locate_screen(&state, *screen)?;
                     name_screen_splits(&mut state, (wi, si));
-                    let entity = crate::server::tree_entity_json(
+                    let entity = crate::tree_wire::tree_entity_json(
                         &state,
                         &decorations,
                         TreeDeltaKind::ScreenChanged,
@@ -76,7 +76,7 @@ impl Mux {
                 let workspace = state.workspaces.get(wi)?;
                 Some(Arc::new(LayoutDelta {
                     workspace: workspace.id,
-                    layout: crate::server::screen_layout_json(
+                    layout: crate::tree_wire::screen_layout_json(
                         workspace.screens.get(si)?,
                         &state.resource_indexes.split_ids,
                     ),

@@ -8,6 +8,7 @@ import React, {
   type ErrorInfo,
 } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { rowFrameStyle } from "../conversation/settledRowSkip";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
@@ -28,6 +29,7 @@ import { sameReferenceScope, sameRowFrame } from "../virtualTranscriptModel";
 import { isRunPart } from "../conversation/runPartId";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
+import { rowDomId } from "./rowDomId";
 import { OFFSCREEN_ROW_CLASS, onceRendered } from "../conversation/offscreenRows";
 
 /// What a row's content draws from (the registry component's props, and the component).
@@ -78,7 +80,7 @@ export const RowContent = React.memo(
 /// saved snapshot (Leo, 2026-11-22: "the agent pane just blanked out entirely"). The row's next
 /// version (or another row in its frame) tries its renderer again.
 type RowBoundaryState = { id: string; version: number; failed: boolean };
-export class RowBoundary extends ReactComponent<{ row: AcpmuxRow; children?: React.ReactNode }, RowBoundaryState> {
+class RowBoundary extends ReactComponent<{ row: AcpmuxRow; children?: React.ReactNode }, RowBoundaryState> {
   state: RowBoundaryState = { id: this.props.row.id, version: this.props.row.version, failed: false };
 
   static getDerivedStateFromProps(
@@ -143,6 +145,7 @@ export const RowFrame = React.memo(function RowFrame({
   lastTurn,
   index,
   setSizeRef,
+  intrinsicHeight,
   top,
   rowWidth,
   expanded,
@@ -218,6 +221,7 @@ export const RowFrame = React.memo(function RowFrame({
   /// The list's length for `aria-setsize`, held in a ref so a row that arrives changes no prop here
   /// (TranscriptView, `setSize`). The row writes the attribute on the mount that puts it in the list.
   setSizeRef: React.MutableRefObject<string>;
+  intrinsicHeight: number | undefined;
   top: number;
   rowWidth: number;
   expanded: boolean;
@@ -463,7 +467,9 @@ export const RowFrame = React.memo(function RowFrame({
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
       // The unread line's row takes no height and draws its mark over the gap under it
-      // (conversation/unread.css), so it reads the gap's length.
+      // (conversation/unread.css), so it reads the gap's length. A shelved row (shelvedRows.ts) holds
+      // its height hidden; any other settled row may hold its indexed height while the browser skips
+      // it (settledRowSkip.ts); with both off its style is exactly `{top, marginTop}`.
       data-shelved={shelved > 0 ? "true" : undefined}
       style={
         row.kind === SINCE_DIVIDER
@@ -474,7 +480,7 @@ export const RowFrame = React.memo(function RowFrame({
             } as React.CSSProperties)
           : shelved > 0
             ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
-            : { top: integralTop, marginTop: placedTop - integralTop }
+            : rowFrameStyle(integralTop, placedTop, intrinsicHeight)
       }
       onFocus={() => onFocus(row.id)}
     >
@@ -504,8 +510,6 @@ export const RowFrame = React.memo(function RowFrame({
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
-
-export const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places
 /// (each row's `top` adds it), so the transcript ends this far past their total height.

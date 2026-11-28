@@ -362,6 +362,14 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
     if let Some(code) = digits_after("(close ") {
         return Some(code);
     }
+    // How an ssh run exited when its link ended (`the ssh link ended (ssh
+    // exit 255)`): 255 is ssh's own failure, any other the remote command's.
+    if let Some(code) = digits_after("(ssh exit ") {
+        return Some(format!("exit_{code}"));
+    }
+    if let Some(signal) = digits_after("(ssh signal ") {
+        return Some(format!("signal_{signal}"));
+    }
     if let Some(status) = digits_after("http status ").or_else(|| digits_after("answered ")) {
         return Some(format!("http_{status}"));
     }
@@ -399,6 +407,8 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         ("no transport provider handles", "no_provider"),
         ("ssh connection group is closed", "ssh_group_closed"),
         ("could not start ssh", "ssh_spawn"),
+        ("closed the link before its welcome", "no_welcome"),
+        ("closed the link before link-ready", "no_link_ready"),
         ("link closed during handshake", "handshake_closed"),
         ("link is closed", "link_closed"),
         ("did not finish within", "open_timeout"),
@@ -457,7 +467,11 @@ pub(super) enum PhasesOf {
 
 /// The per-step line, appended only to the connect log beside each route
 /// line (never on stderr, whose lines `dial` and `serve` pin):
-/// `carrier.phases machine=<vm_id> phase=<connect|reconnect|stream> carrier=relay:<i> outcome=<ok|error_code> ticket_ms=<n> relay_ms=<n> parked_ms=<n> handshake_ms=<n> mux_ms=<n> lanes=<n> ms=<n>`.
+/// `carrier.phases machine=<vm_id> phase=<connect|reconnect|stream> carrier=relay:<i> outcome=<ok|error_code> ticket_ms=<n> relay_ms=<n> parked_ms=<n> handshake_ms=<n> mux_ms=<n> lanes=<n> ms=<n> net=<wifi|wired|cell|other|unknown> region=<relay host|unknown>`.
+/// `net` and `region` (RFD 0223 row 1, Mac-side connect by network and region) come last, so
+/// readers that take the earlier fields by key read the line as before. `net` is this machine's
+/// primary interface kind ([`super::net_kind`]); `region` is the relay host the answer named
+/// (`relay+do://<host>`; the Durable Object's colo is not in the answer), or `unknown`.
 /// `carrier` is the relay's index in the answer's relay list (one relay
 /// today, so `relay:0`). It holds no `cloud.connect`, so readers of the
 /// route line (cmuxterm-hq's start matrix fails any `cloud.connect` line of
@@ -468,13 +482,29 @@ pub(super) fn phases_line(
     outcome: Option<Step>,
     times: PhaseTimes,
     elapsed: Duration,
+    relay: Option<&str>,
 ) -> String {
+    phases_line_on(machine, of, outcome, times, elapsed, super::net_kind::current(), relay)
+}
+
+/// [`phases_line`] with the `net` tag given (tests).
+pub(super) fn phases_line_on(
+    machine: &str,
+    of: PhasesOf,
+    outcome: Option<Step>,
+    times: PhaseTimes,
+    elapsed: Duration,
+    net: &str,
+    relay: Option<&str>,
+) -> String {
+    let region =
+        relay.filter(|r| !r.is_empty() && !r.contains(char::is_whitespace)).unwrap_or("unknown");
     let phase = match of {
         PhasesOf::Attempt(phase) => phase.name(),
         PhasesOf::Stream => "stream",
     };
     format!(
-        "carrier.phases machine={machine} phase={phase} carrier=relay:0 outcome={} ticket_ms={} relay_ms={} parked_ms={} handshake_ms={} mux_ms={} lanes={} ms={}\n",
+        "carrier.phases machine={machine} phase={phase} carrier=relay:0 outcome={} ticket_ms={} relay_ms={} parked_ms={} handshake_ms={} mux_ms={} lanes={} ms={} net={net} region={region}\n",
         outcome.map_or("ok", Step::error_code),
         times.ticket.as_millis(),
         times.relay.as_millis(),

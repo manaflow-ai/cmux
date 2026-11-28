@@ -5,6 +5,32 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputContinue {
+    pub r#type: LitContinue,
+    pub until: Vec<TriggerInputContinueUntilItem>,
+    pub cooldown_seconds: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_runs: Option<i64>,
+}
+
+wire_enum! {
+    TriggerInputPresenceWhen {
+        UserActive = "user_active",
+        UserReturnsAfter = "user_returns_after",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputPresence {
+    pub r#type: LitPresence,
+    pub when: TriggerInputPresenceWhen,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_minutes: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earliest: Option<CronSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UsageMeterLine {
     pub meter: Meter,
     pub unit: String,

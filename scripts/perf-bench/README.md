@@ -455,6 +455,11 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
 
 ## rivals: agent apps and browsers, first install to idle ceiling
 
+Daily page (wow-20 idea 4): `.github/workflows/rivals-nightly.yml` runs it for cmux, Claude and ChatGPT on the
+bench Mac once a day and `rivals_page.py` publishes the head-to-head (cold start, warm relaunch, idle memory ceiling,
+with the last 14 days) at https://ci-cache-next.cmux.com/rivals/v1/index.md; history in `rivals/v1/index.json`.
+Tests: `python3 -I scripts/perf-bench/tests/test_rivals_page.py`.
+
 Leo, 2026-11-22 (ask-7c96907088): "did you guys do it against the fresh starts first install type timings? [...]
 and after shutdown or whatever. restarting a computer. or close enough to it. and gauging our ram/cpu ceiling and
 growth too probably. compare more exhaustively. much more. compare to claude and codex and t3 code too."

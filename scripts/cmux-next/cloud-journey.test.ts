@@ -1986,6 +1986,11 @@ describe("clean-room provider key probe", () => {
       // counted; a key found by its context (a refresh token's field) counts there too.
       "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
       "home/cmux/.codex/.tmp/plugins/p/skills/api.md": `call it with ${PROJ}\n`,
+      // An installed Python library's own source names the refresh token field (an OAuth client's grants): shipped. A
+      // key's name given a value in that same tree, and the field in a tool's config outside one, still count.
+      "opt/venv/lib/python3.12/site-packages/authlib/grants.py": `doc = '{"refresh_token": "${tok("", 24)}"}'\n`,
+      "opt/venv/lib/python3.12/site-packages/tool/.env": `MISTRAL_API_KEY=${MISTRAL}\n`,
+      "opt/tool/token.json": `{"refresh_token": "${tok("", 24)}"}\n`,
       // AWS's documented stand-in is not a key anywhere; a real-shaped id is.
       "home/cmux/aws.txt": "id AKIAIOSFODNN7EXAMPLE\nid AKIA2E0A8F3B244C9986\n",
       "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
@@ -2023,13 +2028,16 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/cache/[a name].env:1: MISTRAL_API_KEY",
         "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
         "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
+        "file /opt/[a name]/lib/[a name]/site-packages/[a name]/.env:1: MISTRAL_API_KEY",
+        "file /opt/[a name]/token.json:1: an OAuth refresh token",
       ]);
       expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
         "file /home/cmux/.codex/.tmp/plugins/[a name]/skills/[a name].md:1: an OpenAI project key",
         "file /opt/[a name]/bin/[a name]: an OpenAI project key",
+        "file /opt/[a name]/lib/[a name]/site-packages/[a name]/[a name].py:1: an OAuth refresh token",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("23 findings: ");
-      expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
+      expect(keyProbeDetail(probe)).toStartWith("25 findings: ");
+      expect(keyProbeDetail(probe)).toContain("3 key shapes in installed software, not counted");
       expect(keyProbeStatus(probe, true)).toBe("fail");
       expect(keyProbeStatus(probe, false)).toBe("skip");
     } finally {
@@ -3817,6 +3825,42 @@ open(out, 'w').write(json.dumps(seen))
       globalThis.fetch = realFetch;
     }
   });
+  test("directExec premint mints once ahead of the first exec, which then reuses it", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } })) as any;
+    let mints = 0;
+    let fail = true;
+    try {
+      const api = { raw: async () => { mints += 1; if (fail) return { status: 503, body: { ok: false, error: { code: "cloud.unavailable" } } }; return { status: 200, body: { ok: true, value: { token: "tok_abcdefgh", vm_id: "vm1", linux_user: "u", api_base_url: "https://fs.example", expires_at: Date.now() + 900_000 } } }; } } as any;
+      const exec = journey.directExec(api, "m1", { secrets: [] });
+      expect(await exec.premint()).toBeNull();
+      fail = false;
+      expect(typeof (await exec.premint())).toBe("number");
+      const first = await exec("start");
+      expect(mints).toBe(2);
+      expect(first.stdout).toBe("ok");
+      expect(first.route?.client_session_ms).toBeUndefined();
+      expect(await exec.premint()).toBe(0);
+      expect(mints).toBe(2);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+  test("directExec shares one client-session mint between calls that start together", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } })) as any;
+    let mints = 0;
+    try {
+      const api = { raw: async () => { mints += 1; await new Promise((r) => setTimeout(r, 20)); return { status: 200, body: { ok: true, value: { token: "tok_abcdefgh", vm_id: "vm1", linux_user: "u", api_base_url: "https://fs.example", expires_at: Date.now() + 900_000 } } }; } } as any;
+      const exec = journey.directExec(api, "m1", { secrets: [] });
+      const [a, b] = await Promise.all([exec("start"), exec("observe")]);
+      expect(mints).toBe(1);
+      expect(a.stdout).toBe("ok");
+      expect(b.stdout).toBe("ok");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
   test("startMarks keeps the first of a retried mark and ignores other lines", () => {
     expect(startMarks("@@mark connected 5\n@@retry x\n@@mark connected 2100\n@@mark session_new 9000\nnoise @@mark x 1\n")).toEqual({ start_connected: 5, start_session_new: 9000 });
   });
@@ -3865,6 +3909,11 @@ while True:
             break
         if m['method'] == '_acpmux/resolve':
             send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'session': {'sessionId': 's-1', 'name': m['params']['query']}}})
+            continue
+        if m['method'] == 'agent/credentials.update':
+            # The restarted daemon kept no launch credential (runs 46154019193, 46161132759): the adopt sends it again.
+            seen[-1] += ':' + m['params']['sessionId'] + ':' + json.dumps(m['params']['env'], sort_keys=True)
+            send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': m['params']['sessionId'], 'restart': 'now'}})
             done = True
             break
         if m['method'] == 'session/new':
@@ -3955,6 +4004,7 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.status).toBe(0);
     expect(seen.filter((m) => m === "session/new")).toHaveLength(2);
     expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+    expect(seen.filter((m) => m.startsWith("agent/credentials.update"))).toEqual(['agent/credentials.update:s-1:{"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"}']);
   });
   test("a taken name with no cut start before it stays a failed start", { timeout: 30_000 }, () => {
     const { r, seen } = runRestarting("taken");
@@ -3971,6 +4021,7 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.stdout).toContain("@@session s-1");
     expect(r.status).toBe(0);
     expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+    expect(seen.filter((m) => m.startsWith("agent/credentials.update:s-1:"))).toHaveLength(1);
   });
   test("the first prompt's promptId is the session name's, so a second run of the start never runs it twice", () => {
     const a = launchCredentialStartProgram("journey-jr-1", "claude", null, null, "hi");
@@ -4342,5 +4393,38 @@ describe("wake-echo own-run cleanup", () => {
     expect(step).toContain('--cleanup-wake-record "$out/created-machine.json"');
     expect(workflow).toContain('--wake-cleanup-record "$out/created-machine.json"');
     expect(workflow).toContain("wake-echo-${{ github.run_id }}-${{ github.run_attempt }}");
+  });
+});
+
+describe("first turn split", () => {
+  // The chat log a warm first turn writes: the turn, Claude Code's init, a refused call retried, the call's text and usage.
+  const log = [
+    { seq: 1, at: 900, dir: "out", kind: "claude.user", msg: {} },
+    { seq: 2, at: 1000, dir: "out", kind: "turn_started", msg: {} },
+    { seq: 3, at: 1400, dir: "in", kind: "claude.system.init", msg: {} },
+    { seq: 4, at: 2000, dir: "in", kind: "claude.system.api_retry", msg: { method: "claude.system.api_retry", params: { type: "system", subtype: "api_retry", attempt: 1, error_status: 429 } } },
+    { seq: 5, at: 9000, dir: "in", kind: "agent_message_chunk", msg: { params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "I'm on Earth." } } } } },
+    { seq: 6, at: 9100, dir: "in", kind: "usage_update", msg: { params: { update: { sessionUpdate: "usage_update", cachedWriteTokens: 15610, cachedReadTokens: 0, _meta: { acpmux: { call: true, timing: { requestAt: 3500, firstTokenAt: 8990, lastTokenAt: 9100 } } } } } } },
+    { seq: 7, at: 9200, dir: "out", kind: "turn_result", msg: {} },
+    { seq: 8, at: 9300, dir: "in", kind: "claude.system.api_retry", msg: {} },
+  ];
+  const run = (lines: string) => {
+    // The command's own python, fed a tail's lines in place of `acp tail` (the part after the pipe).
+    const py = journey.firstTurnSplitCommand("s").split("| python3 -c ")[1]!;
+    return spawnSync("bash", ["-c", `python3 -c ${py}`], { input: lines, encoding: "utf8" }).stdout;
+  };
+
+  test("splits the turn into agent init, request out, the API's wait and retries on the record clock", () => {
+    const split = journey.parseFirstTurnSplit(run(log.map((l) => JSON.stringify(l)).join("\n") + "\nnot json\n"));
+    expect(split).toEqual({ retries: 1, retry_status: "429", agent_first: 400, agent_init: 400, first_text: 8000, first_token: 7990, request: 2500, ttft: 5490, cache_write: 15610, cache_read: 0 });
+    expect(journey.describeFirstTurnSplit(split!)).toBe(
+      "from turn start: agent's first line +400 ms, Claude Code init +400 ms, model request out +2500 ms, first token +7990 ms, first text +8000 ms; API wait 5490 ms; 1 retried call(s) (last 429); prompt 15610 written + 0 read from cache",
+    );
+  });
+
+  test("a log with no turn says so", () => {
+    const split = journey.parseFirstTurnSplit(run(JSON.stringify(log[0]) + "\n"));
+    expect(journey.describeFirstTurnSplit(split!)).toBe("no split: no turn_started");
+    expect(journey.parseFirstTurnSplit("nothing")).toBeNull();
   });
 });
