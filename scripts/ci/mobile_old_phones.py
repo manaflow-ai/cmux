@@ -29,7 +29,9 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 TITLE = re.compile(r"^cmux-next-ios INTERNAL ([0-9a-f]{40})\b")
@@ -53,13 +55,37 @@ def shipped_commits(runs: list[dict], count: int) -> list[dict]:
     return out
 
 
-def fetch_runs(repo: str, token: str) -> list[dict]:
+def runs_request(repo: str, token: str) -> urllib.request.Request:
+    """GitHub's API answers 403 to urllib's default "Python-urllib/3.x" agent, so name ours."""
     url = (f"https://api.github.com/repos/{repo}/actions/workflows/ios-internal-nightly.yml/runs"
            "?status=success&per_page=50")
-    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
-                                               **({"Authorization": f"Bearer {token}"} if token else {})})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r).get("workflow_runs", [])
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "cmux-ci-mobile-old-phones/1"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.Request(url, headers=headers)
+
+
+RETRY_CODES = {403, 429, 500, 502, 503, 504}
+
+
+def fetch_runs(repo: str, token: str, *, opener=urllib.request.urlopen, sleep=time.sleep,
+               waits=(5, 20, 60)) -> list[dict]:
+    """Read the shipped phone runs; a 403/429/5xx (a busy repo's token rate limit) retries, and the last
+    one names GitHub's own reason instead of a bare traceback."""
+    for attempt in range(len(waits) + 1):
+        try:
+            with opener(runs_request(repo, token), timeout=30) as r:
+                return json.load(r).get("workflow_runs", [])
+        except urllib.error.HTTPError as e:
+            body = e.read()[:300].decode("utf-8", "replace")
+            why = (f"GitHub answered {e.code} for the ios-internal-nightly runs "
+                   f"(x-ratelimit-remaining={e.headers.get('x-ratelimit-remaining')}): {body}")
+            if e.code not in RETRY_CODES or attempt == len(waits):
+                raise SystemExit(f"::error::{why}") from None
+            print(f"::warning::{why}; retrying in {waits[attempt]} s", file=sys.stderr)
+            sleep(waits[attempt])
+    raise AssertionError("unreachable")
 
 
 def json_lines(path: Path) -> list[dict]:
