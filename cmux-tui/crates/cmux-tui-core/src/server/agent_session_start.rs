@@ -62,7 +62,7 @@
 //! The answer also carries `timings_ms`, this machine's own clock for each
 //! phase of the start ([`StartTimings`]): the keyed gate, the acpmux connect
 //! (and whether it had to start acpmux), the checks before the agent, the
-//! harness's `session/new`, the mode settle and the bind. The app logs it
+//! harness's `session/new` (and whether acpmux gave it a warm agent), the mode settle and the bind. The app logs it
 //! beside its own start steps, so a Cloud start's `start` step splits into
 //! the harness launch and everything around it (cmuxterm-hq probe rows).
 //! Durations only: no folder, harness or session value is in it.
@@ -477,10 +477,23 @@ pub(crate) struct StartTimings {
     total: Option<u64>,
     /// The agent home pull, from the start's beginning to its answer (owner Cloud VM only).
     agent_home: Option<u64>,
+    /// acpmux's `startPool` for the `session/new`: true when the agent came warm from its pool,
+    /// false when a pooled shape found none ready (it paid the agent boot), None when acpmux
+    /// does not say or the start is one its pool never serves.
+    session_new_warm: Option<bool>,
     /// The phase the start was in last ([`StartTimings::at`]): a bare `refused` names it in
     /// `data.step`, so its reader knows which call acpmux refused (the 2026-11-27T20:12Z
     /// notify-banner-click row said only "acpmux refused the request").
     step: Option<&'static str>,
+}
+
+/// acpmux's `startPool` in a `session/new` answer (`StartTimings::session_new_warm`).
+fn session_new_warm(created: &Value) -> Option<bool> {
+    match created.pointer("/_meta/acpmux/startPool").and_then(Value::as_str)? {
+        "warm" => Some(true),
+        "cold" => Some(false),
+        _ => None,
+    }
 }
 
 /// Milliseconds since `since`, saturating.
@@ -494,13 +507,20 @@ impl StartTimings {
         self.step = Some(step);
     }
 
-    /// `data` of a refusal with the phase it came from: a bare `refused` only (every other
-    /// refusal names its own cause), and never over a `step` already there.
+    /// `data` of a refusal with the phase it came from, never over a `step` already there: a bare
+    /// `refused`, and the link's own ends, `unavailable` (acpmux closed the link, or was not back
+    /// in [`RECONNECT_WAIT`]) and `timeout`, which carry no cause of their own. Those two also get
+    /// a short `reason` code, `acpmux_closed.STEP` or `acpmux_timeout.STEP`: the app prints a
+    /// refusal's reason code beside its code, so the chat probe's row names the phase (the
+    /// 2026-11-28T11:45Z cloud-chat-replies-production row said only "refused to start the agent
+    /// chat (agent_session.unavailable)", with nothing on which call lost acpmux).
     fn refusal_data(&self, refusal: Refusal, data: Option<Value>) -> Option<Value> {
-        let (Refusal::Refused | Refusal::Unavailable | Refusal::Timeout, Some(step)) =
-            (refusal, self.step)
-        else {
-            return data;
+        let Some(step) = self.step else { return data };
+        let lost = match refusal {
+            Refusal::Refused => None,
+            Refusal::Unavailable => Some("acpmux_closed"),
+            Refusal::Timeout => Some("acpmux_timeout"),
+            _ => return data,
         };
         let mut data = match data {
             Some(Value::Object(map)) => map,
@@ -508,6 +528,9 @@ impl StartTimings {
             None => serde_json::Map::new(),
         };
         data.entry("step").or_insert_with(|| json!(step));
+        if let Some(lost) = lost {
+            data.entry("reason").or_insert_with(|| json!(format!("{lost}.{step}")));
+        }
         Some(Value::Object(data))
     }
 
@@ -529,6 +552,9 @@ impl StartTimings {
             }
         }
         out.insert("acpmux_started".to_owned(), json!(self.acpmux_started));
+        if let Some(warm) = self.session_new_warm {
+            out.insert("session_new_warm".to_owned(), json!(warm));
+        }
         Value::Object(out)
     }
 }
@@ -1337,6 +1363,7 @@ fn start_and_bind(
         .map_err(|error| StartRefused::of_session_new(error).naming(params.harness.as_deref()));
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
+    timings.session_new_warm = session_new_warm(&created);
     let settle = Instant::now();
     timings.at("settle");
     let session = created

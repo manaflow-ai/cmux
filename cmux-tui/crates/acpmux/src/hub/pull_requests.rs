@@ -40,7 +40,7 @@ pub(super) const MAX_PULL_REQUESTS: usize = 200;
 
 /// The shell script a tool call runs: `rawInput.command` as a string, or an argv (the script of
 /// `bash -lc SCRIPT`, else the words joined); for a call without one, its title.
-fn script(update: &Value) -> Option<String> {
+pub(super) fn script(update: &Value) -> Option<String> {
     match update.pointer("/rawInput/command").or_else(|| update.pointer("/rawInput/cmd")) {
         Some(Value::String(s)) => Some(s.clone()),
         Some(Value::Array(argv)) => {
@@ -60,7 +60,7 @@ fn script(update: &Value) -> Option<String> {
 /// `script`'s top-level commands, each with the separator after it (`&&`, `||`, `;`, `|`, `&` or
 /// a newline; empty for the last), split outside quotes, `$( )`, backticks and heredoc bodies. An
 /// `&` in a redirect (`2>&1`, `>&2`, `&>file`) separates nothing.
-fn commands(script: &str) -> Vec<(String, String)> {
+pub(super) fn commands(script: &str) -> Vec<(String, String)> {
     let chars: Vec<char> = script.chars().collect();
     let mut out = vec![String::new()];
     let mut seps: Vec<String> = vec![];

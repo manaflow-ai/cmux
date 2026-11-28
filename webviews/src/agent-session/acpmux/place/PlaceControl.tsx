@@ -3,6 +3,7 @@ import { ChevronIcon } from "../ComposerPickers";
 import { EnvironmentIcon } from "../EnvironmentPicker";
 import { useT, type Translate } from "../i18n";
 import type { PlaceMode, PlaceState } from "./placeModel";
+import { faceText, placeName } from "./placeText";
 import "./place.css";
 
 /// How the control draws (PlaceControl.gallery.tsx compares them): `segmented`, Local, Cloud and Auto
@@ -11,22 +12,6 @@ import "./place.css";
 export type PlaceControlLook = "segmented" | "menu" | "rows";
 
 const MODES: readonly PlaceMode[] = ["local", "cloud", "auto"];
-
-/// The place's name: the chat's own VM when known.
-export function cloudLabel(place: PlaceState, t: Translate): string {
-  return place.cloudName ?? t("place.cloud");
-}
-
-export function placeName(place: PlaceState, t: Translate): string {
-  return place.at === "cloud" ? cloudLabel(place, t) : t("place.thisMac");
-}
-
-/// The control's face: the choice, and for Auto where it runs now.
-export function faceText(place: PlaceState, t: Translate): string {
-  if (place.move?.state === "moving") return t("place.faceMoving", { to: place.move.to });
-  if (place.mode === "auto") return t(place.at === "cloud" ? "place.faceAutoCloud" : "place.faceAutoLocal");
-  return t(place.mode === "cloud" ? "place.faceCloud" : "place.faceLocal");
-}
 
 const modeLabel = (mode: PlaceMode, t: Translate) => t(`place.${mode}`);
 

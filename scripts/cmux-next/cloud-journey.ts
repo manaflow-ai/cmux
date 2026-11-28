@@ -141,6 +141,7 @@ import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
+import { allSpentDetail, claudeLoginCandidates, type LoginPick, pickClaudeLogin, probeClaudeLogin, rotationLine, teamFallback, teamRouteInfra } from "./claude-login-pool.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -3670,11 +3671,13 @@ export function probeRow(probe: string, steps: Step[], run?: string, at = new Da
   const failed = steps.find((s) => s.status === "fail");
   const ready = readyMs(steps);
   const fields = context ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
-  const { failure_facts, ...spare } = extra;
+  const { failure_facts, team_spent_detail, ...spare } = extra;
   const warm = spareTaken(extra);
   const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready, agent_ready_ms: ready, agent_ready_path: warm === null ? null : warm ? "warm" : "cold" }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
-  return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran", ...(failure_facts ? { failure_facts } : {}) };
+  // A team-mode fallback whose team has no model route measured no product: the infra words (teamRouteInfra).
+  const infra = team_spent_detail ? teamRouteInfra(team_spent_detail, failed) : null;
+  return { ...base, outcome: "fail", error: infra ?? (failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran"), ...(failure_facts ? { failure_facts } : {}) };
 }
 
 /**
@@ -3692,6 +3695,14 @@ export type ProbeExtra = {
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
   login_path?: "receipt" | "copy" | "launch";
+  /** The Claude login pool's chosen slot (an index, never a token); null when every slot was spent. */
+  login_slot?: number | null;
+  /** Each asked pool slot's preflight answer, in order (claude-login-pool.ts). */
+  login_rotation?: { slot: number; status: string; reason: string }[];
+  /** How the real Claude leg reached its model: its own login copied ("oauth"), or team mode after every slot was spent ("team"). */
+  login_kind?: "oauth" | "team";
+  /** A team-mode fallback's all-spent words (never written as a field: probeRow puts them in `error` only when the team route is missing). */
+  team_spent_detail?: string;
   /** The Cloud scroll-stress probe's counts (SCROLL_PROBE_STEP), only when it measured. */
   terminal_scroll?: TerminalScroll;
   failure_facts?: FailureFacts;
@@ -5984,9 +5995,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // With the gateway and the stub, the stub's nonce reply is checked as --model stub does, but it runs on the gateway.
   const gatewayStub = Boolean(gatewayCmux) && gatewayUpstream === "stub";
   const nonce = randomBytes(6).toString("hex");
+  // A real Claude run takes the first login of its pool (claude-login-pool.ts) whose account still has quota: one
+  // tiny messages request per candidate, before any machine exists. Only the slot index and the answers are written.
+  const claudeCandidates = modelStub ? [] : claudeLoginCandidates(process.env, creds);
+  if (process.env.GITHUB_ACTIONS === "true") for (const token of claudeCandidates) console.log(`::add-mask::${token}`);
+  const claudeRotates = !modelStub && agent.split("/")[0] === "claude" && !gatewayAny && !only.has("chat") && !only.has("login")
+    && !argv.includes("--app-cli") && claudeCandidates.length > 0;
+  const claudePick: LoginPick | null = claudeRotates
+    ? await pickClaudeLogin(claudeCandidates, (token) => probeClaudeLogin(token, globalThis.fetch, process.env.CMUX_JOURNEY_LOGIN_PREFLIGHT_URL || undefined))
+    : null;
+  // Every slot spent: team mode (no login of its own), the app's default for a person, instead of no run at all.
+  const claudeTeam = teamFallback(claudePick, process.env);
   const claudeLogin = modelStub
     ? `sk-ant-oat01-journeystub-${randomBytes(24).toString("hex")}`
-    : (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
+    : claudePick ? claudePick.login ?? "" : claudeCandidates[0] ?? "";
   // Codex's login is its auth.json (a ChatGPT sign-in), as the app copies it; CODEX_AUTH_JSON for a real run.
   const codexLogin = modelStub ? stubCodexAuth() : (process.env.CODEX_AUTH_JSON || creds.CODEX_AUTH_JSON || "").trim();
   // `claude/claude-sonnet-5-5` is the claude harness on that model (`acp ensure -m`): the same login and lifecycle legs.
@@ -6069,6 +6091,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
   const probeExtra: ProbeExtra = {};
   J.warm = () => spareTaken(probeExtra);
+  if (claudePick) {
+    probeExtra.login_slot = claudePick.slot;
+    probeExtra.login_rotation = claudePick.rotation;
+    probeExtra.login_kind = claudeTeam ? "team" : "oauth";
+    if (claudeTeam) {
+      // The login stage stays in the marks (login and login_ready land together: nothing is copied), so the stage
+      // times compare with an oauth run's. The all-spent words go into the row only if the team has no route.
+      probeExtra.team_spent_detail = allSpentDetail(claudePick);
+      J.skip("login rotation", `${rotationLine(claudePick)}; team mode: no login of its own, the team's model route`);
+    } else if (claudePick.login === null) {
+      // Every slot is spent or refused: an infra row (the limit words cmuxterm-hq's agent_quota reads), not a product
+      // failure, and no machine is made for a reply that cannot come.
+      J.record({ step: loginStep, status: "fail", ms: 0, detail: allSpentDetail(claudePick) });
+      J.skip("login rotation", rotationLine(claudePick));
+      if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext, probeExtra))}\n`);
+      console.log(`\nFAIL ${allSpentDetail(claudePick)}`);
+      return 1;
+    } else {
+      J.skip("login rotation", rotationLine(claudePick));
+    }
+  }
+  // A real Claude run given no login at all is the same team-mode leg (#63318).
+  if (!claudePick && !modelStub && provider === "claude" && !gatewayAny && !login) probeExtra.login_kind = "team";
   let factsRead = false;
   // --preclaim-login's warm-spare state dir, removed by the cleanup.
   let preclaimStateDir: string | null = null;
@@ -6641,10 +6686,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const meta: Record<string, unknown> = { backend: backend.name, machine: created.id, asked: wakeEchoN };
       const write = () => {
         if (!outDir) return;
-        writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles), cycles }, null, 2), J.secrets)}\n`);
+        writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles, wakeEchoN), cycles }, null, 2), J.secrets)}\n`);
         writeFileSync(path.join(outDir, "wake-echo.md"), wakeEchoMarkdown(cycles, meta));
       };
       let k = 0;
+      const readDeploy = async () => {
+        const api_before = await api.raw("GET", "/v1/health", undefined, 30_000).then(preclaimHealthSnapshot, (e): PreclaimHealthSnapshot => ({ http_status: 0, outcome: "error", commit: null, commit_unavailable: `api /v1/health failed: ${short(String((e as Error)?.message ?? e))}` }));
+        const platform_before = await platformDeploy();
+        return { api_before, platform_before } as Record<string, PreclaimHealthSnapshot>;
+      };
+      const platformDeploy = async (): Promise<PreclaimHealthSnapshot> => {
+        try {
+          const origin = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+          return preclaimHealthSnapshot(await http("GET", `${origin}/v1/health`, undefined, {}, 30_000));
+        } catch (e) {
+          return { http_status: 0, outcome: "error", commit: null, commit_unavailable: `platform /v1/health failed: ${short(String((e as Error)?.message ?? e))}` };
+        }
+      };
       try {
         await J.step("wake-echo machine size", async () => {
           const m = await row();
@@ -6661,6 +6719,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const netHost = new URL(backend.api).hostname;
         const setup = await J.step("wake-echo probe setup", async () => ({ value: await setupProbe({ exec, guest: GUEST, netHost, netPort: 443, log }), detail: "daemon socket, terminal and dry run ok" }));
         meta.probe = { daemon: setup.daemon, version: setup.version, protocol: setup.protocol, dry_run: setup.dry_run };
+        // The deploy the run measured, by commit (the API's /v1/health names only API_VERSION "0.1.0"), and the guest
+        // daemon at both ends: run 46158958288's updater swapped it mid-run (c6cd14b5 -> d788eb8c).
+        meta.deploy = await readDeploy();
+        meta.daemon_before = bound.image?.daemon_version ?? null;
         cycles = await runWakeEcho({
           exec, guest: GUEST, netHost, netPort: 443, holdMs: wakeEchoHoldMs, log,
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
@@ -6701,8 +6763,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: "wake-echo", status: "fail", ms: 0, detail: String((e as Error).message ?? e) });
         meta.setup_error = String((e as Error).message ?? e);
       }
+      if (meta.deploy) (meta.deploy as Record<string, PreclaimHealthSnapshot>).platform_after = await platformDeploy();
+      meta.daemon_after = (await row().catch(() => null))?.image?.daemon_version ?? null;
       write();
-      const sum = wakeEchoSummary(cycles);
+      const sum = wakeEchoSummary(cycles, wakeEchoN);
       const table = wakeEchoMarkdown(cycles, meta);
       console.log(table);
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Wake to first echo (${backend.name}, ${created.id})\n\n${table}${meta.setup_error ? `\nSetup failed: ${meta.setup_error}\n` : ""}`);
@@ -7198,7 +7262,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (!provider || only.has("chat") || only.has("login")) {
       J.skip(loginStep, !provider ? `agent ${agent}` : "--skip");
     } else if (!login) {
-      J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
+      J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : claudeTeam ? "team mode: every login slot is spent, so none is copied; the agent takes the team's model route" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else if (loginPathAfterClaim({ receipt: Boolean(prepared?.spare === created.id && preclaimLoginCmux && preclaimStateDir && await spareLoginReceipt(preclaimLoginCmux, api, preclaimStateDir, install.token, prepared!, created.id)), launchCredential, launchOnMiss }) === "receipt") {
       // The claim handed out the spare whose login was copied on spare.ready, and its receipt says installed. The app
       // reads that receipt from its own ledger (spare_warm.rs login_receipt, no machine call) and starts the agent;
@@ -7449,7 +7513,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!session) throw new Error(`started with no session: ${JSON.stringify(reply).slice(0, 200)}`);
         J.firstText.mark("session_ready");
         started = true;
-        return { value: null, detail: `${outcome.detail}; no cwd or model credential on the start` };
+        const split = reservedChat.phaseLine();
+        return { value: null, detail: `${outcome.detail}; no cwd or model credential on the start${split ? `; ${split}` : ""}` };
       }).catch(() => undefined);
       if (!started) {
         reservedChat?.stop();
@@ -7516,7 +7581,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const reply = memoryCodeword ? await chat.startAttached(agent) : await chat.start(agent);
           const outcome = appStartDetail(reply);
           if (!outcome.ok) throw new Error(outcome.detail);
-          return { value: String(reply?.data?.session ?? ""), detail: outcome.detail };
+          const split = chat.phaseLine();
+          return { value: String(reply?.data?.session ?? ""), detail: split ? `${outcome.detail}; ${split}` : outcome.detail };
         }).catch(() => null);
         if (!memoryCodeword) {
           for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");

@@ -288,7 +288,42 @@ class Output:
         self.write_bytes((text + "\n").encode("utf-8", "replace"))
 
 
-def sample_stacks(processes: list[tuple[int, str]], seconds: int, out: Output) -> None:
+def matching_processes(pattern: Optional[re.Pattern[str]]) -> list[tuple[int, str]]:
+    """Processes anywhere on the host whose command line matches `pattern`.
+
+    A simulator test runs in a process launchd_sim starts, not one under the
+    command: xcodebuild's tree holds only drivers (cmux#59376, run 46185679058:
+    the samples were xcodebuild and DTServiceHub, never the test runner).
+    """
+    if pattern is None:
+        return []
+    try:
+        listing = subprocess.run(
+            ["ps", "-A", "-o", "pid=", "-o", "command="],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    found = []
+    for row in listing.splitlines():
+        pid, _, command = row.strip().partition(" ")
+        # The watchdog's own argv carries the pattern's text, and can match it.
+        if pid.isdigit() and int(pid) != os.getpid() and "--sample-also" not in command and pattern.search(command):
+            found.append((int(pid), command.strip()[:160]))
+    return found
+
+
+def sample_stacks(
+    processes: list[tuple[int, str]],
+    seconds: int,
+    out: Output,
+    also: Optional[list[tuple[int, str]]] = None,
+) -> None:
     if seconds <= 0:
         return
     sampler = shutil.which("sample")
@@ -296,6 +331,9 @@ def sample_stacks(processes: list[tuple[int, str]], seconds: int, out: Output) -
         out.line("Stack sampling skipped: `sample` is not available on this host.")
         return
     targets = [process for process in processes if TEST_PROCESS.search(process[1])] or processes
+    # The test processes outside the tree first: they hold the hung test.
+    known = {pid for pid, _ in targets}
+    targets = [process for process in also or [] if process[0] not in known] + targets
     for pid, name in targets[:MAX_SAMPLED_PROCESSES]:
         with tempfile.TemporaryDirectory(prefix="cmux-hung-test-sample.") as directory:
             report = Path(directory) / "sample.txt"
@@ -383,6 +421,7 @@ def run(
     silence_seconds: float,
     timeout_seconds: float,
     sample_seconds: int,
+    sample_also: Optional[re.Pattern[str]] = None,
     log_path: Optional[Path],
     stall_seconds: float = 0,
     drain_seconds: float = 2.0,
@@ -480,7 +519,7 @@ def run(
         # "timed out" counts one hit per stalled attempt.
         state = report(f"{label}: tests in flight when the watchdog fired")
         tree = process_tree(process.pid)
-        sample_stacks(tree, sample_seconds, out)
+        sample_stacks(tree, sample_seconds, out, also=matching_processes(sample_also))
         terminate(process, tree=tree)
         title = escape_property(f"Hung test in {label}")
         if reason is None:
@@ -538,6 +577,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=3,
         help="seconds of `sample` per test process on a hang (0 disables)",
     )
+    parser.add_argument(
+        "--sample-also",
+        type=re.compile,
+        help="on a hang, also sample processes outside the command's tree whose command line matches this regex "
+        "(a simulator's test runner)",
+    )
     parser.add_argument("--label", help="name for the annotation; defaults to the command")
     parser.add_argument("--log", type=Path, help="also write the command's output here")
     parser.add_argument("command", nargs=argparse.REMAINDER)
@@ -558,6 +603,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         stall_seconds=args.stall_seconds,
         timeout_seconds=args.timeout_seconds,
         sample_seconds=args.sample_seconds,
+        sample_also=args.sample_also,
         log_path=args.log,
     )
 

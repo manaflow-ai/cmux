@@ -13,7 +13,7 @@ import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
 import { setExperimentSwitches } from "../../../experiments/switches";
 import type { AcpmuxActivity } from "../model";
 import { ToolRow } from "./ToolRow";
-import { ChatWidgetClientContext } from "./ToolWidget";
+import { ChatWidgetClientContext } from "./toolWidgetModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
 type Look = "hairline" | "flat" | "titled";

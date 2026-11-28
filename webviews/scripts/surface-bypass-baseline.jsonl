@@ -45,8 +45,8 @@
 {"file":"agent-session/acpmux/composer/attachmentIntake.tsx","kind":"title-attribute","count":8}
 {"file":"agent-session/acpmux/composer/ComposerCopyStatus.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/composer/ContentChip.tsx","kind":"raw-button","count":3}
-{"file":"agent-session/acpmux/composer/inlineAttachments.tsx","kind":"raw-button","count":1}
-{"file":"agent-session/acpmux/composer/inlineAttachments.tsx","kind":"title-attribute","count":1}
+{"file":"agent-session/acpmux/composer/InlineChip.tsx","kind":"raw-button","count":1}
+{"file":"agent-session/acpmux/composer/InlineChip.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/composer/VideoAttachmentTile.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/composer/VideoAttachmentTile.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"own-shell","count":6}
@@ -112,7 +112,7 @@
 {"file":"agent-session/acpmux/conversation/IncomingMessageCard.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/conversation/IncomingMessageCard.tsx","kind":"title-attribute","count":2}
 {"file":"agent-session/acpmux/conversation/inlineMarkdown.tsx","kind":"raw-button","count":2}
-{"file":"agent-session/acpmux/conversation/inlineMarkdown.tsx","kind":"title-attribute","count":1}
+{"file":"agent-session/acpmux/conversation/InlineImage.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/conversation/InlinePreview.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/conversation/InlinePreview.tsx","kind":"title-attribute","count":2}
 {"file":"agent-session/acpmux/conversation/InlinePromptContent.tsx","kind":"raw-button","count":1}
@@ -190,8 +190,8 @@
 {"file":"agent-session/acpmux/DictationButton.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/DictationListening.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/DictationNotice.tsx","kind":"raw-button","count":2}
-{"file":"agent-session/acpmux/discoveryPrototypes.tsx","kind":"raw-button","count":1}
-{"file":"agent-session/acpmux/discoveryPrototypes.tsx","kind":"title-attribute","count":1}
+{"file":"agent-session/acpmux/DiscoveryPrototypeViews.tsx","kind":"raw-button","count":1}
+{"file":"agent-session/acpmux/DiscoveryPrototypeViews.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/dotGrid/AgentDotGrid.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/dotGrid/AgentDotGrid.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/EffortPicker.tsx","kind":"title-attribute","count":2}
