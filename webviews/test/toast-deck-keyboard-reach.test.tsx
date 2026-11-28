@@ -11,8 +11,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { createNoticeQueue, NoticeStack } from "../src/ui/NoticeStack";
-import { JumpToLatest } from "../src/agent-session/acpmux/VirtualTranscript";
+import { importWithDom } from "./support/importWithDom";
+
+const { createNoticeQueue, NoticeStack } = await importWithDom(() => import("../src/ui/NoticeStack"));
+const { JumpToLatest } = await importWithDom(() => import("../src/agent-session/acpmux/VirtualTranscript"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
