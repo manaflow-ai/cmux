@@ -247,7 +247,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
 /// keys only while the app is active (``ActiveAppKeyPanel``). Between opens it stays ordered in with its
 /// card transparent and click-through, so the page paints the next group before it shows.
 @MainActor
-final class GroupEditorPanel: ActiveAppKeyPanel {
+final class GroupEditorPanel: ActiveAppKeyPanel, FullScreenFollowingChild {
     /// Closes the editor: the panel lost the keys, or Escape.
     var onDismiss: (() -> Void)?
     private let card: NSView
