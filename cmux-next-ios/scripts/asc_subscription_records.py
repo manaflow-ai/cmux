@@ -21,7 +21,8 @@ Subcommands, all through the public App Store Connect API with the CI key
 
   plan   Read every listed subscription and print what is missing and what
          `apply` would write. Writes nothing. The default.
-  apply  Write only what `plan` prints: create a missing localization, upload a
+  apply  Write only what `plan` prints: create a missing localization, rename one
+         whose name or description differs from records.json, upload a
          missing review screenshot or promotional image, and replace one whose
          upload never completed (delete that stuck asset, upload the file
          again). Idempotent: anything complete is left alone, so a second run
@@ -162,6 +163,21 @@ def asset_stuck(asset: dict) -> str:
     return f"{state or 'no delivery state'}" + (f" ({errors})" if errors else "")
 
 
+def image_matches(image: dict, path: Path) -> bool:
+    """Whether an uploaded image is this file: by checksum when ASC reports
+    one, else by size; a missing file or no size at all counts as a match so
+    apply never loops on re-uploads it cannot tell apart."""
+    if not path.is_file():
+        return True
+    attributes = image.get("attributes") or {}
+    data = path.read_bytes()
+    checksum = attributes.get("sourceFileChecksum")
+    if checksum:
+        return checksum == hashlib.md5(data).hexdigest()
+    size = attributes.get("fileSize")
+    return size is None or int(size) == len(data)
+
+
 def read_state(api: Api, sub: dict) -> dict:
     sid = sub["id"]
     shot = api.get(f"/v1/subscriptions/{sid}/appStoreReviewScreenshot").get("data")
@@ -178,6 +194,7 @@ def read_state(api: Api, sub: dict) -> dict:
         "reviewScreenshot": shot,
         "images": images,
         "locales": {(loc.get("attributes") or {}).get("locale") for loc in locs},
+        "localizations": {(loc.get("attributes") or {}).get("locale"): loc for loc in locs},
         "hasPrice": bool(prices),
         "hasAvailability": bool(availability),
     }
@@ -190,12 +207,13 @@ def plan_for(listed: dict, state: dict, root: Path = RECORDS_DIR) -> tuple[list[
     person: list[str] = []
     waiting: list[str] = []
 
-    def upload(kind: str, stuck: list[dict] = ()) -> None:
+    def upload(kind: str, stuck: list[dict] = (), why: str = "") -> None:
         name = listed[kind]
         if (root / name).is_file():
             write: dict[str, Any] = {"kind": kind, "file": name}
             if stuck:
-                write["replace"] = [{"id": a["id"], "why": asset_stuck(a)} for a in stuck]
+                write["replace"] = [{"id": a["id"], "why": why or asset_stuck(a)} for a in stuck]
+                write["verb"] = "old" if why else "stuck"
             writes.append(write)
         else:
             waiting.append(f"{kind} {name} is not checked in under AppStoreReview/subscriptions/")
@@ -207,10 +225,22 @@ def plan_for(listed: dict, state: dict, root: Path = RECORDS_DIR) -> tuple[list[
         upload("reviewScreenshot", [shot])
     if not any(asset_done(image) for image in state["images"]):
         upload("promotionalImage", state["images"])
+    elif not any(asset_done(image) and image_matches(image, root / listed["promotionalImage"])
+                 for image in state["images"]):
+        # A finished image that is not the checked-in file (the file was
+        # redrawn): replace it, or ASC keeps showing the old artwork.
+        upload("promotionalImage", state["images"], why="the checked-in file changed")
+    localizations = state.get("localizations") or {}
     for locale, text in sorted((listed.get("localizations") or {}).items()):
+        name, description = text["name"], text.get("description", "")
+        loc = localizations.get(locale)
         if locale not in state["locales"]:
-            writes.append({"kind": "localization", "locale": locale, "name": text["name"],
-                           "description": text.get("description", "")})
+            writes.append({"kind": "localization", "locale": locale, "name": name, "description": description})
+        elif loc is not None:
+            have = loc.get("attributes") or {}
+            if have.get("name") != name or (description and have.get("description") != description):
+                writes.append({"kind": "localizationUpdate", "id": loc["id"], "locale": locale, "name": name,
+                               "description": description, "was": have.get("name")})
     if not state["hasPrice"]:
         person.append("no price (set it in App Store Connect; prices are never written here)")
     if not state["hasAvailability"]:
@@ -257,6 +287,13 @@ def apply_write(api: Api, sid: str, write: dict, root: Path = RECORDS_DIR) -> st
         for stuck in write.get("replace") or []:
             api.request("DELETE", f"/v1/{kind}/{stuck['id']}")
         return upload_asset(api, kind, sid, root / write["file"])
+    if write["kind"] == "localizationUpdate":
+        attributes = {"name": write["name"]}
+        if write["description"]:
+            attributes["description"] = write["description"]
+        api.request("PATCH", f"/v1/subscriptionLocalizations/{write['id']}", {"data": {
+            "type": "subscriptionLocalizations", "id": write["id"], "attributes": attributes}})
+        return write["id"]
     if write["kind"] == "localization":
         attributes = {"locale": write["locale"], "name": write["name"]}
         if write["description"]:
@@ -271,7 +308,9 @@ def apply_write(api: Api, sid: str, write: dict, root: Path = RECORDS_DIR) -> st
 def describe(write: dict) -> str:
     if write["kind"] == "localization":
         return f"create localization {write['locale']} ({write['name']!r})"
-    replaced = "".join(f", replacing stuck {s['id']} ({s['why']})" for s in write.get("replace") or [])
+    if write["kind"] == "localizationUpdate":
+        return f"rename localization {write['locale']} ({write['was']!r} -> {write['name']!r})"
+    replaced = "".join(f", replacing {write.get('verb', 'stuck')} {s['id']} ({s['why']})" for s in write.get("replace") or [])
     return f"upload {write['kind']} {write['file']}{replaced}"
 
 
