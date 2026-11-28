@@ -3055,11 +3055,11 @@ export type ErrorCode =
 
 const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable", "cmux.protocol.auth_refused"]);
 
-/** Refusals the host words for the person: the updater's (Go Back, Switch, Update) and a
- * person-only action's (RefusalStrings). Any other failure shows the plain sentence. */
 /** `cmux.settings.cloud.allotment.set` refused by the Cloud app server; `message` is its sentence. */
 export const ALLOTMENT_REFUSED = "cmux.settings.cloud.allotment.refused";
 
+/** Refusals the host words for the person: the updater's (Go Back, Switch, Update) and a
+ * person-only action's (RefusalStrings). Any other failure shows the plain sentence. */
 export const SETTINGS_SENTENCES = {
   "cmux.page.refused": OWNER_SENTENCE,
   "cmux.app.user_only": OWNER_SENTENCE,
