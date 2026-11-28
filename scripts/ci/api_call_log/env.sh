@@ -7,7 +7,7 @@
 # together and the Python line's X-RateLimit-Reset names that token's installation pool. It
 # never logs a header value besides those, a body, a flag value or a token.
 #
-# It switches itself off at 2026-11-23 00:00 UTC (below). The third window (to 2026-11-22) was for the
+# It switches itself off at 2026-11-23 00:00 UTC (below), and is on again 2026-11-28 12:00 to 20:00 UTC. The third window (to 2026-11-22) was for the
 # routing App installation 164690637 (manaflow-glaeda-route); this day is for the repository's GITHUB_TOKEN
 # hour that ran dry about hourly on 2026-11-21 (about 8,000 calls an hour, ci-token-budget-sampler.yml),
 # whose calls the first three windows could not see. The first window ended 2026-11-05, the second
@@ -33,8 +33,13 @@ _api_call_log_setup() {
   [ -z "${API_CALL_LOG_DIR:-}" ] || return 0
   case "${RUNNER_OS:-}" in Linux | macOS) ;; *) return 1 ;; esac
   [ -n "${RUNNER_TEMP:-}" ] && [ -n "${BASH_SOURCE[0]:-}" ] || return 1
-  # Self-expiring: after this hour (UTC) it does nothing, whether or not the cleanup PR has landed.
-  [ "$(date -u +%Y%m%d%H 2>/dev/null || echo 9999999999)" -lt 2026112300 ] || return 1
+  # Self-expiring: outside these hours (UTC) it does nothing, whether or not the cleanup PR has landed.
+  # The second window (2026-11-28 12:00 to 20:00 UTC) attributes the GITHUB_TOKEN hour that ran dry about
+  # 8 min after each reset on 2026-11-28 (1,943 of 5,000 spent in the first 3.3 min after the 10:55Z reset), which
+  # stalled every Nightly `decide` from about :10 to :55 each hour.
+  local hour
+  hour="$(date -u +%Y%m%d%H 2>/dev/null || echo 9999999999)"
+  [ "$hour" -lt 2026112300 ] || { [ "$hour" -ge 2026112812 ] && [ "$hour" -lt 2026112820 ]; } || return 1
   local src dir sink
   src=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || src=""
   dir="$RUNNER_TEMP/api-call-log"
