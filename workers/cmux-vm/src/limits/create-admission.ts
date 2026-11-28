@@ -116,6 +116,24 @@ interface Waiter {
   cancel: () => void;
 }
 
+/** An event-time queue observation: aggregate counts only, never tenant or VM ids. */
+export interface CreateQueueObservation {
+  readonly transition: "admitted" | "renewed" | "queued" | "queue_full" | "wait_expired" | "released" | "lease_expired";
+  readonly atMs: number;
+  readonly foregroundInFlight: number;
+  readonly backgroundInFlight: number;
+  readonly foregroundQueued: number;
+  readonly backgroundQueued: number;
+  readonly oldestForegroundWaitMs: number | null;
+  readonly oldestBackgroundWaitMs: number | null;
+  readonly background?: boolean;
+  readonly waitedMs?: number;
+  readonly retryAfterMs?: number;
+  readonly cap?: number;
+  readonly queueWaitMs?: number;
+  readonly expiredSlots?: number;
+}
+
 export class CreateAdmissionQueue {
   private slots: Map<string, Slot> | null = null;
   private loading: Promise<Map<string, Slot>> | null = null;
@@ -126,7 +144,31 @@ export class CreateAdmissionQueue {
   constructor(
     private readonly storage: LedgerStorage,
     private readonly clock: AdmissionClock = systemClock,
+    private readonly observe?: (event: CreateQueueObservation) => void,
   ) {}
+
+  private emit(slots: Map<string, Slot>, transition: CreateQueueObservation["transition"], now: number,
+    details: Pick<CreateQueueObservation, "background" | "waitedMs" | "retryAfterMs" | "cap" | "queueWaitMs" | "expiredSlots"> = {}) {
+    if (this.observe === undefined) return;
+    let foregroundQueued = 0, backgroundQueued = 0;
+    let oldestForegroundWaitMs: number | null = null, oldestBackgroundWaitMs: number | null = null;
+    for (const waiter of this.waiters) {
+      const age = Math.max(0, now - waiter.arrivedMs);
+      if (waiter.background) {
+        backgroundQueued++;
+        oldestBackgroundWaitMs = Math.max(oldestBackgroundWaitMs ?? 0, age);
+      } else {
+        foregroundQueued++;
+        oldestForegroundWaitMs = Math.max(oldestForegroundWaitMs ?? 0, age);
+      }
+    }
+    const backgroundInFlight = backgroundHeld(slots);
+    // A diagnostic sink must never change an admission decision or strand a lease.
+    try {
+      this.observe({ transition, atMs: now, foregroundInFlight: slots.size - backgroundInFlight, backgroundInFlight,
+        foregroundQueued, backgroundQueued, oldestForegroundWaitMs, oldestBackgroundWaitMs, ...details });
+    } catch { /* observability is best effort */ }
+  }
 
   /** Held slots and waiters right now (tests and logs). */
   get state(): { readonly inFlight: number; readonly queued: number; readonly meanHoldMs: number } {
@@ -147,15 +189,18 @@ export class CreateAdmissionQueue {
     const held = slots.get(holder);
     if (held !== undefined) {
       this.take(slots, holder, held.startedMs, now, settings);
+      this.emit(slots, "renewed", now, { background, waitedMs: 0, cap: settings.cap, queueWaitMs: settings.queueWaitMs });
       return { admitted: true, waitedMs: 0, inFlight: slots.size, queued: this.waiters.length };
     }
     const ahead = background ? this.waiters.length : this.foregroundWaiting();
     if (ahead === 0 && slots.size < settings.cap && (!background || backgroundHeld(slots) < backgroundCap(settings.cap))) {
       this.take(slots, holder, now, now, settings, background);
+      this.emit(slots, "admitted", now, { background, waitedMs: 0, cap: settings.cap, queueWaitMs: settings.queueWaitMs });
       return { admitted: true, waitedMs: 0, inFlight: slots.size, queued: this.waiters.length };
     }
     const estimate = this.estimateMs(ahead + 1, slots, now, settings);
     if (estimate > settings.queueWaitMs) {
+      this.emit(slots, "queue_full", now, { background, waitedMs: 0, retryAfterMs: estimate, cap: settings.cap, queueWaitMs: settings.queueWaitMs });
       return { admitted: false, reason: "queue_full", waitedMs: 0, inFlight: slots.size, queued: this.waiters.length, retryAfterMs: estimate };
     }
     return new Promise<CreateAdmission>((answer) => {
@@ -165,13 +210,16 @@ export class CreateAdmissionQueue {
         if (index < 0) return;
         this.waiters.splice(index, 1);
         const at = this.clock.now();
+        const retryAfterMs = this.estimateMs(this.waiters.length + 1, slots, at, settings);
+        this.emit(slots, "wait_expired", at, { background, waitedMs: at - now, retryAfterMs, cap: settings.cap, queueWaitMs: settings.queueWaitMs });
         answer({
           admitted: false, reason: "wait_expired", waitedMs: at - now, inFlight: slots.size, queued: this.waiters.length,
-          retryAfterMs: this.estimateMs(this.waiters.length + 1, slots, at, settings),
+          retryAfterMs,
         });
       });
       // A person's create goes after the people already waiting and before every background create.
       this.waiters.splice(background ? this.waiters.length : this.foregroundWaiting(), 0, waiter);
+      this.emit(slots, "queued", now, { background, cap: settings.cap, queueWaitMs: settings.queueWaitMs });
       this.armLeaseTimer(slots);
     });
   }
@@ -185,6 +233,7 @@ export class CreateAdmissionQueue {
       slots.delete(holder);
       this.meanHoldMs = 0.8 * this.meanHoldMs + 0.2 * Math.max(0, now - held.startedMs);
       quietly(this.storage.delete(`${PREFIX}${holder}`));
+      this.emit(slots, "released", now, { background: held.background === true });
     }
     this.pump(slots, now);
   }
@@ -213,11 +262,14 @@ export class CreateAdmissionQueue {
   }
 
   private expire(slots: Map<string, Slot>, now: number) {
+    let expiredSlots = 0;
     for (const [holder, slot] of slots) {
       if (slot.untilMs > now) continue;
       slots.delete(holder);
+      expiredSlots++;
       quietly(this.storage.delete(`${PREFIX}${holder}`));
     }
+    if (expiredSlots > 0) this.emit(slots, "lease_expired", now, { expiredSlots });
   }
 
   /**
@@ -234,6 +286,8 @@ export class CreateAdmissionQueue {
       if (waiter === undefined) break;
       waiter.cancel();
       this.take(slots, waiter.holder, now, now, waiter.settings, waiter.background);
+      this.emit(slots, "admitted", now, { background: waiter.background, waitedMs: now - waiter.arrivedMs,
+        cap: waiter.settings.cap, queueWaitMs: waiter.settings.queueWaitMs });
       waiter.answer({ admitted: true, waitedMs: now - waiter.arrivedMs, inFlight: slots.size, queued: this.waiters.length });
     }
     this.armLeaseTimer(slots);
