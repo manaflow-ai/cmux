@@ -524,6 +524,7 @@ import {
   pickOnlyNewChat,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
+import { cloudStartOpenedSettled, cloudStartWaitsForFirstPage } from "./cloudStartOpened";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
 import {
   lastNewChatPlace,
@@ -4895,7 +4896,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// stalled: the card says so, and the start is still out.
   /// The chat view shows the start (CloudStartView: the sent prompt, its steps, a failure and Retry) in place
   /// of the new chat: one with no session, or an empty local chat the start replaces (`emptyLocalChat`).
-  const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
+  /// An opened start (cloudStartOpened.ts) shows until the Cloud chat's first page is drawn: the pane never blanks between.
+  const cloudStartShown =
+    cloudStart !== undefined &&
+    (!snapshot.sessionId || emptyLocalChat || cloudStartWaitsForFirstPage(cloudStart, snapshot));
   /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
   const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
   const cloudStartPickShown = shownCloudStartPick(cloudStartShown, cloudStart, {
@@ -4930,7 +4934,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudStartQueued = useRef<{ key: string; texts: string[] } | undefined>(undefined);
   const queueCloudStartSend = (text: string): boolean => {
     const start = cloudStart;
-    if (!start || start.state !== "starting" || start.signingIn || !cloudStartGoes()) return false;
+    // An opened start took its queue with the chat: what is typed now stays in the composer for the chat.
+    if (!start || start.state !== "starting" || start.signingIn || start.opened || !cloudStartGoes()) return false;
     const before = cloudStartQueued.current?.key === start.key ? cloudStartQueued.current.texts : [];
     const texts = [...before, text];
     cloudStartQueued.current = { key: start.key, texts };
@@ -7275,6 +7280,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
   const [hostErrorShown, setHostErrorShown] = useState(false);
+  // An opened Cloud start's card goes once the Cloud chat's first page is drawn, or says why the chat did not open
+  // (the host's error, the start's notice), its prompt kept: never a blank chat or one that loads forever.
+  const cloudStartOpenedNow = cloudStart?.opened === true;
+  useEffect(() => {
+    if (!cloudStartOpenedNow) return;
+    const view = {
+      sessionId: snapshot.sessionId,
+      rows: snapshot.rows,
+      hostError: hostErrorShown ? hostError : undefined,
+    };
+    setCloudStart((current) => cloudStartOpenedSettled(current, view));
+  }, [cloudStartOpenedNow, snapshot.sessionId, snapshot.rows, hostError, hostErrorShown]);
   /// A Retry the user asked for that waits on the attempt in flight.
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.

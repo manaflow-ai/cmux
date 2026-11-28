@@ -21,6 +21,7 @@ import {
 import { type CloudSetupAction, type CloudSetupNeed, waitForCloudSetUp } from "../cloudSetup";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "../cloudSignIn";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "../cloudStartCarry";
+import { cloudStartOpened } from "../cloudStartOpened";
 import {
   cloudStartBegun,
   cloudStartEnded,
@@ -445,7 +446,8 @@ export function beginCloudSendWith(
       // The chat opened on its machine: a pick's local session on this page (pickOnlyChat) is nobody's now.
       harnessSwitch.cancel();
     }
-    setCloudStart((current) => cloudStartEnded(current, key, answer));
+    // Opened: the card stays until the Cloud chat's first page is drawn, never an empty chat between (cloudStartOpened.ts).
+    setCloudStart((current) => (answer.ok ? cloudStartOpened(current, key) : cloudStartEnded(current, key, answer)));
     if (!answer.ok && !cloudStartSaid(answer))
       notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
   });
