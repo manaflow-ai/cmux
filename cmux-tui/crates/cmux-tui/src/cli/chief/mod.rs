@@ -643,6 +643,15 @@ pub(super) fn json_output(output: OutputMode) -> bool {
     matches!(output, OutputMode::Json | OutputMode::JsonLines)
 }
 
+/// The Chief conversation owner's state dir (`<Chief home>/tui`, no `--chief-home`): one of the
+/// roots whose stores a rollback must keep readable (cli/app/nightly/frozen.rs).
+pub(crate) fn conversation_state_dir(
+    user_home: &std::path::Path,
+    cwd: &std::path::Path,
+) -> std::path::PathBuf {
+    home::ChiefHome::resolve(None, |k| std::env::var(k).ok(), user_home, cwd).state_dir()
+}
+
 /// The person's Chief home this build resolves (no `--chief-home`; None for
 /// an isolated launch or without `HOME`): the app's one-time adoption at
 /// launch (build_adopt.rs).
