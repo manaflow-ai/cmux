@@ -197,6 +197,14 @@ pub(super) enum Row {
 pub(super) const TOTAL_BYTE_BOUND: usize = 1 << 30;
 /// What a connection whose reader is stalled ([`READER_STALL`]) may hold.
 pub(super) const FAIR_SHARE: usize = 4 << 20;
+/// Past a sixteenth of [`TOTAL_BYTE_BOUND`] held by every queue together (64 MiB), a stalled
+/// reader's share is a sixteenth of [`FAIR_SHARE`] (256 KiB, one [`BULK_WINDOW`]): a hundred
+/// attached readers that never read each kept about 2 MiB, under their fair share, so none was
+/// ever ended and together they held 202 MB of a 768 MiB memory ceiling; the daemon then spent
+/// 87% of the window stalled on reclaim (cgroup memory PSI, 66,920 memory.high events) and CLI
+/// `ls`, `send` and `register` p99 reached 2.3-2.5 s (duress bigchat leg, 2026-11-28 04:03Z).
+/// Under the threshold nothing changes, and a reader that takes lines is never stalled.
+pub(super) const PRESSURE_DIVISOR: usize = 16;
 /// How long a reader over [`FAIR_SHARE`] may take nothing before it is ended.
 /// One that is taking lines is slow, not stuck, and keeps its connection up to its own bound: on
 /// cosmic-gray the cut fell on the app's coordinator chats mid-replay, each cut cost a re-attach of
@@ -475,8 +483,9 @@ impl Shared {
         // ceiling, and every answer waited on it (duress bigchat leg, 2026-11-26). So what never-read
         // readers hold is their fair share each for at most the stall bound; one that is taking
         // lines keeps its own bound.
+        let share = self.stalled_share(state);
         let over_total = |state: &State| {
-            state.held + size > self.fair_share && state.progress_at.elapsed() >= self.reader_stall
+            state.held + size > share && state.progress_at.elapsed() >= self.reader_stall
         };
         if state.held + size > self.bound || over_total(state) {
             state.settle();
@@ -494,7 +503,13 @@ impl Shared {
         }
         let own = own || over_rows;
         if own || over_total(state) {
-            let limit = if over_rows { self.row_bound } else { self.bound };
+            let limit = if over_rows {
+                self.row_bound
+            } else if own {
+                self.bound
+            } else {
+                share
+            };
             self.end_overrun(state, own, size, limit);
             return false;
         }
@@ -545,11 +560,22 @@ impl Shared {
             return true;
         }
         state.settle();
-        if state.held > self.fair_share && state.progress_at.elapsed() >= self.reader_stall {
-            self.end_overrun(&mut state, false, 0, self.fair_share);
+        let share = self.stalled_share(&state);
+        if state.held > share && state.progress_at.elapsed() >= self.reader_stall {
+            self.end_overrun(&mut state, false, 0, share);
             return true;
         }
         false
+    }
+
+    /// What a stalled reader may hold now: [`FAIR_SHARE`], or a [`PRESSURE_DIVISOR`]th of it once
+    /// every queue together holds more than a [`PRESSURE_DIVISOR`]th of [`TOTAL_BYTE_BOUND`].
+    fn stalled_share(&self, state: &State) -> usize {
+        if state.pool.load(Ordering::Relaxed) > self.total_bound / PRESSURE_DIVISOR {
+            self.fair_share / PRESSURE_DIVISOR
+        } else {
+            self.fair_share
+        }
     }
 
     fn queue_line(state: &mut State, mut line: Line, lane: Lane) {

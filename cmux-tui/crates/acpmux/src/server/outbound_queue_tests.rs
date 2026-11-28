@@ -340,6 +340,59 @@ async fn a_stalled_reader_over_its_share_ends_with_no_next_line() {
     assert!(pool.load(Ordering::Relaxed) < 2 * FAIR, "the stalled reader's bytes left the total");
 }
 
+/// Duress bigchat leg, 2026-11-28 04:03Z: a hundred attached readers that never read each kept
+/// about 2 MiB, under their fair share, so none was ended and together they held 202 MB of a 768
+/// MiB memory ceiling. Past a sixteenth of the daemon-wide bound held, a stalled reader's share is
+/// a sixteenth of its fair share; under it, the same reader is kept.
+#[tokio::test]
+async fn under_pressure_a_stalled_reader_under_its_fair_share_ends() {
+    const FAIR: usize = 64 << 10;
+    const OWN: usize = 1 << 20;
+    const STALL: Duration = Duration::from_millis(200);
+    let scope = cmux_scope::Scope::new("outbound-test");
+    // Under pressure: the total these readers reach is past a sixteenth of the bound.
+    let pool = own_pool();
+    let limits = || Limits { pool, total_bound: 256 << 10, fair_share: FAIR, reader_stall: STALL };
+    let mut readers = vec![];
+    let mut held = vec![];
+    for _ in 0..8 {
+        let (t, rx) = mpsc::channel(1);
+        let (q, _) = start_limited(&scope, None, t, OWN, limits());
+        held.push(rx);
+        readers.push(q);
+    }
+    // Each holds half its fair share and four times the pressure share.
+    let mut n = 0;
+    for q in &readers {
+        for _ in 0..(FAIR / 2 / 200) {
+            assert!(q.push(note(n)), "a reader within its stall bound is kept");
+            n += 1;
+        }
+    }
+    assert!(pool.load(Ordering::Relaxed) > (256 << 10) / 16);
+    for q in &readers {
+        assert!(q.held() < FAIR && q.held() > FAIR / 16);
+    }
+    for q in &readers {
+        tokio::time::timeout(STALL * 10, q.closed())
+            .await
+            .expect("under pressure a stalled reader over the pressure share ends");
+    }
+    assert!(pool.load(Ordering::Relaxed) < FAIR, "their bytes left the total");
+
+    // The same readers with the total under the threshold are kept.
+    let calm = own_pool();
+    let calm_limits =
+        || Limits { pool: calm, total_bound: 1 << 40, fair_share: FAIR, reader_stall: STALL };
+    let (t, _rx) = mpsc::channel(1);
+    let (q, _) = start_limited(&scope, None, t, OWN, calm_limits());
+    for n in 0..(FAIR / 2 / 200) {
+        assert!(q.push(note(n)));
+    }
+    tokio::time::sleep(STALL * 3).await;
+    assert!(!q.is_closed(), "without pressure a stalled reader under its fair share is kept");
+}
+
 fn list_row(n: usize) -> String {
     row_of(n, 400)
 }
