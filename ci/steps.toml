@@ -3758,12 +3758,22 @@ exit "$status"
 # published-keys.txt, fixed by #59554), and the channel held every merged daemon fix meanwhile. This step names the
 # files a settings row lives in, so a pull request that touches one runs the one test, cmux-config's published_keys:
 # about 150 s cold on a 32-vCPU host (2m29s compile, the test 0.05 s), nothing on a pull request that touches none.
+# land_gate (registry-row-missing class): #55022 moved it to the push tier, so a pull request never ran it again, and
+# from 11-21 to 11-28 four reds landed this way (fixes #51790, #54610, #60814, #61828; culprits #51725, #54442). A
+# landing head that touches a settings row runs it. Its rows come from settings-schema.json (cmux-config's
+# include_str!), and that file is the export of the settings sources: the Swift CmuxNextSettings rows and catalogs,
+# and schemas/settings/source. #51725 changed the sources and not the export, and #54442 (CmuxNextSettings
+# Localizable.xcstrings only) left the export stale, so the step first checks the export is fresh
+# (export-settings-linux.sh --check, 8 s, python only; exit 2, a Swift shape it cannot read, leaves the Mac export to
+# decide) and its inputs name those sources. new_red_only.sh: a red the base has already warns; the base run shares
+# the target directory (a fleet runner's shared one when set), so it recompiles cmux-config alone.
 [step.settings-published-keys]
 job = "linux"
 tier = "push"
-timeout = 360
-title = "Settings keys are published or retired"
-about = "every live settings row is in schemas/settings/published-keys.txt, and every published key is a row or has a retired-keys.json entry (cmux-config's published_keys test, one of the cmux_next_ daemon tests)"
+land_gate = true
+timeout = 600
+title = "Settings export is fresh and its keys are published or retired"
+about = "the committed settings export matches the settings sources (export-settings-linux.sh --check), and every live settings row is in schemas/settings/published-keys.txt, and every published key is a row or has a retired-keys.json entry (cmux-config's published_keys test, one of the cmux_next_ daemon tests)"
 needs = ["rust"]
 inputs = [
   "schemas/settings/settings-schema.json",
@@ -3774,13 +3784,27 @@ inputs = [
   "cmux-tui/crates/cmux-config/tests/published_keys.rs",
   "cmux-tui/crates/cmux-config/src/schema/*.rs",
   "cmux-tui/crates/cmux-config/Cargo.toml",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt*.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Localizable.xcstrings",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
+  "scripts/cmux-next/export-settings-linux.sh",
+  "scripts/cmux-next/linux-exports/*.py",
+  "scripts/cmux-next/settings-exports.txt",
+  "scripts/ci/new_red_only.sh",
 ]
 run = '''
-cd cmux-tui
-channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+status=0
+scripts/ci/new_red_only.sh "Settings export fresh" -- bash -c '
+  rc=0; bash scripts/cmux-next/export-settings-linux.sh --check || rc=$?
+  if [ "$rc" = 2 ]; then echo "::notice::the Linux settings export cannot decide; the Mac export decides"; exit 0; fi
+  exit "$rc"' || status=1
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal
-export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
-cargo test -p cmux-config --locked --test published_keys cmux_next_
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/cmux-tui/target}"
+scripts/ci/new_red_only.sh "Settings keys published" -- \
+  bash -c 'cd cmux-tui && cargo test -p cmux-config --locked --test published_keys cmux_next_' || status=1
+exit "$status"
 '''
 
 # Six more checks whose feat-cmux-next pull request runs each took a Linux job: risk-tier-tests.yml's tests,
@@ -3854,6 +3878,28 @@ python3 -I tests/test_check_bridge_on_main.py || status=1
 python3 -I scripts/cmux-next/check-objc-selectors.py || status=1
 python3 -I scripts/cmux-next/check-cef-objc-contract.py || status=1
 exit "$status"
+'''
+
+# The unrecognized-selector half of cmux-next-crash-class above, on the landing head (registry-row-missing class).
+# That step's Sources input is a whole-directory glob, so --pr-scope drops it: a Swift change that added a super call
+# or runtime key without its objc-selector-table.json row merged green, and the tip went red. 11-21 to 11-28: four
+# (fixes #48431, #48686, #48768, #49018; culprit e06d1661da88, CmuxNextDesign/Dialog and BookmarkEditView.swift).
+# land_gate keeps every input. 88 s on an 8-CPU lane machine; new_red_only.sh: a red the base has already warns
+# (the base was red at this step's adding: WindowController.swift:522 super.maxFullScreenContentSize needs a probe).
+[step.objc-selector-table]
+job = "linux"
+land_gate = true
+timeout = 420
+title = "ObjC selector table covers the Sources"
+about = "every CmuxNext super call and runtime key has a scripts/cmux-next/objc-selector-table.json row (check-objc-selectors.py)"
+inputs = [
+  "Packages/macOS/CmuxNext/Sources/**/*.swift",
+  "scripts/cmux-next/check-objc-selectors.py",
+  "scripts/cmux-next/objc-selector-table.json",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "ObjC selector table" -- python3 -I scripts/cmux-next/check-objc-selectors.py
 '''
 
 # The job's 2026-11 runs took about 2 min (its bound was 30). Its tests need no database.
