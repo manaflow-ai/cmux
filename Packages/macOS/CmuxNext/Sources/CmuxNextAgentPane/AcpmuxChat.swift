@@ -148,7 +148,7 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         switch grouping {
         case .harness: return harness
         case .folder: return cwd
-        case .account: return accounts.first
+        case .account: return accounts.first(where: { !$0.isEmpty })
         }
     }
 }

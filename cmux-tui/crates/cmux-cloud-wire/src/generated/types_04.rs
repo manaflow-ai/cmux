@@ -190,6 +190,36 @@ wire_enum! {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamEgress {
+    pub mode: TeamEgressMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presets: Option<Vec<TeamEgressPresetsItem>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domains: Option<Vec<String>>,
+}
+
+wire_enum! {
+    TeamEgressMode {
+        Full = "full",
+        Allowlist = "allowlist",
+        None = "none",
+    }
+}
+
+wire_enum! {
+    TeamEgressPresetsItem {
+        Anthropic = "anthropic",
+        Openai = "openai",
+        Openrouter = "openrouter",
+        Opencode = "opencode",
+        Github = "github",
+        Npm = "npm",
+        Pypi = "pypi",
+        Rust = "rust",
+    }
+}
+
 /// A team; a personal account is a team of one.
 pub type TeamId = String;
 
@@ -299,6 +329,24 @@ pub struct TeamPolicyValues {
     pub cloud_connect_services: Option<TeamPolicyValuesCloudConnectServices>,
     #[serde(rename = "cloud.idlePause", default, skip_serializing_if = "Option::is_none")]
     pub cloud_idle_pause: Option<TeamPolicyValuesCloudIdlePause>,
+    #[serde(rename = "cloud.providers", default, skip_serializing_if = "Option::is_none")]
+    pub cloud_providers: Option<TeamPolicyValuesCloudProviders>,
+    #[serde(rename = "cloud.regions", default, skip_serializing_if = "Option::is_none")]
+    pub cloud_regions: Option<TeamPolicyValuesCloudRegions>,
+    #[serde(rename = "cloud.egress", default, skip_serializing_if = "Option::is_none")]
+    pub cloud_egress: Option<TeamPolicyValuesCloudEgress>,
+    #[serde(rename = "agents.harnesses", default, skip_serializing_if = "Option::is_none")]
+    pub agents_harnesses: Option<TeamPolicyValuesAgentsHarnesses>,
+    #[serde(rename = "agents.models", default, skip_serializing_if = "Option::is_none")]
+    pub agents_models: Option<TeamPolicyValuesAgentsModels>,
+    #[serde(rename = "projection.folders", default, skip_serializing_if = "Option::is_none")]
+    pub projection_folders: Option<TeamPolicyValuesProjectionFolders>,
+    #[serde(rename = "projection.readOnly", default, skip_serializing_if = "Option::is_none")]
+    pub projection_read_only: Option<TeamPolicyValuesProjectionReadOnly>,
+    #[serde(rename = "projection.syncBack", default, skip_serializing_if = "Option::is_none")]
+    pub projection_sync_back: Option<TeamPolicyValuesProjectionSyncBack>,
+    #[serde(rename = "sandbox.local", default, skip_serializing_if = "Option::is_none")]
+    pub sandbox_local: Option<TeamPolicyValuesSandboxLocal>,
     #[serde(rename = "telemetry.level", default, skip_serializing_if = "Option::is_none")]
     pub telemetry_level: Option<TeamPolicyValuesTelemetryLevel>,
     #[serde(rename = "updates.channel", default, skip_serializing_if = "Option::is_none")]
@@ -471,6 +519,67 @@ pub struct TeamPolicyValuesCloudConnectServices {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesCloudIdlePause {
     pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesCloudProviders {
+    pub value: Vec<String>,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesCloudRegions {
+    pub value: Vec<String>,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesCloudEgress {
+    pub value: TeamEgress,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesAgentsHarnesses {
+    pub value: Vec<String>,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesAgentsModels {
+    pub value: Vec<String>,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesProjectionFolders {
+    pub value: Vec<String>,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesProjectionReadOnly {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesProjectionSyncBack {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesSandboxLocalValue {
+        On = "on",
+        Required = "required",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSandboxLocal {
+    pub value: TeamPolicyValuesSandboxLocalValue,
     pub mode: PolicyMode,
 }
 
@@ -795,63 +904,3 @@ pub struct TriggerInputPresence {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earliest: Option<CronSpec>,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageMeterLine {
-    pub meter: Meter,
-    pub unit: String,
-    pub quantity: WireNumber,
-    pub usd: WireNumber,
-}
-
-wire_enum! {
-    UsageStopReason {
-        CapReached = "cap.reached",
-        CapNotConfigured = "cap.not_configured",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageSummary {
-    pub owner: Option<TeamId>,
-    pub month: String,
-    pub meters: Vec<UsageMeterLine>,
-    pub total_usd: WireNumber,
-    pub cap_usd: Option<WireNumber>,
-    pub ceiling_usd: Option<WireNumber>,
-    pub team_cap_usd: Option<WireNumber>,
-    pub stopped: Option<UsageStopReason>,
-}
-
-/// A cmux user (Stack user id kept as an external id).
-pub type UserId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserProfile {
-    pub id: UserId,
-    pub stack_user_id: String,
-    pub email: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email_verified: Option<bool>,
-    pub display_name: String,
-    pub personal_team: TeamId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTeam {
-    pub id: TeamId,
-    pub display_name: String,
-    pub kind: UserTeamKind,
-    pub role: TeamRole,
-    pub sso_required: bool,
-}
-
-wire_enum! {
-    UserTeamKind {
-        Personal = "personal",
-        Stack = "stack",
-    }
-}
-
-/// A WireGuard public key, standard base64 of 32 bytes.
-pub type WgPublicKey = String;
