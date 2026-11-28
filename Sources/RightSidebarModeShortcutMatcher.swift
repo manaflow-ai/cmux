@@ -11,16 +11,19 @@ final class RightSidebarModeShortcutMatcher {
     typealias LayoutCharacterProvider = (UInt16, NSEvent.ModifierFlags) -> String?
 
     private let shortcutProvider: ShortcutProvider
+    private let bindingsProvider: ((KeyboardShortcutSettings.Action) -> [ConfiguredShortcutBinding])?
     private let availability: Availability
     private let layoutCharacterProvider: LayoutCharacterProvider
     private var entriesByModifierRawValue: [UInt: [RightSidebarModeShortcutEntry]] = [:]
 
     init(
         shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:),
+        bindingsProvider: ((KeyboardShortcutSettings.Action) -> [ConfiguredShortcutBinding])? = nil,
         availability: @escaping Availability = { $0.isAvailable() },
         layoutCharacterProvider: @escaping LayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) {
         self.shortcutProvider = shortcutProvider
+        self.bindingsProvider = bindingsProvider
         self.availability = availability
         self.layoutCharacterProvider = layoutCharacterProvider
         rebuildSnapshot()
@@ -33,6 +36,15 @@ final class RightSidebarModeShortcutMatcher {
     func modeShortcut(
         for event: NSEvent,
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
+    ) -> RightSidebarMode? {
+        modeShortcut(for: event) { entry in
+            allowingAction(entry.action)
+        }
+    }
+
+    func modeShortcut(
+        for event: NSEvent,
+        allowingBinding: (RightSidebarModeShortcutEntry) -> Bool
     ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
         let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
@@ -50,18 +62,29 @@ final class RightSidebarModeShortcutMatcher {
             guard entry.shortcut.matches(
                 event: event,
                 layoutCharacterProvider: cachedLayoutCharacterProvider
-            ), availability(entry.mode), allowingAction(entry.action) else { continue }
+            ), availability(entry.mode), allowingBinding(entry) else { continue }
             return entry.mode
         }
         return nil
     }
 
     private func rebuildSnapshot() {
-        let entries = RightSidebarMode.allCases.compactMap { mode -> RightSidebarModeShortcutEntry? in
-            guard let action = mode.shortcutAction else { return nil }
-            let shortcut = shortcutProvider(action)
-            guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-            return RightSidebarModeShortcutEntry(mode: mode, action: action, shortcut: shortcut)
+        let entries = RightSidebarMode.allCases.flatMap { mode -> [RightSidebarModeShortcutEntry] in
+            guard let action = mode.shortcutAction else { return [] }
+            let bindings = bindingsProvider?(action)
+                ?? [ConfiguredShortcutBinding(
+                    shortcut: shortcutProvider(action),
+                    whenClause: action.shortcutContext.defaultWhenClause
+                )]
+            return bindings.compactMap { binding in
+                guard !binding.shortcut.isUnbound, !binding.shortcut.hasChord else { return nil }
+                return RightSidebarModeShortcutEntry(
+                    mode: mode,
+                    action: action,
+                    shortcut: binding.shortcut,
+                    whenClause: binding.whenClause
+                )
+            }
         }
         entriesByModifierRawValue = Dictionary(grouping: entries) {
             $0.shortcut.modifierFlags.rawValue

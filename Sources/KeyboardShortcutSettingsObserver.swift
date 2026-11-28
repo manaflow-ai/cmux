@@ -12,6 +12,7 @@ final class KeyboardShortcutSettingsObserver {
 
     private(set) var revision: UInt64 = 0
     private(set) var globalSearchShortcut: StoredShortcut
+    private(set) var globalSearchShortcuts: [ConfiguredShortcutBinding]
     let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
     private let notificationCenter: NotificationCenter
     private let distributedNotificationCenter: DistributedNotificationCenter
@@ -35,8 +36,10 @@ final class KeyboardShortcutSettingsObserver {
         self.distributedNotificationCenter = distributedNotificationCenter
         self.shortcutProvider = shortcutProvider
         globalSearchShortcut = shortcutProvider(.globalSearch)
+        globalSearchShortcuts = KeyboardShortcutSettings.shortcutBindings(for: .globalSearch)
         rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
-            shortcutProvider: shortcutProvider
+            shortcutProvider: shortcutProvider,
+            bindingsProvider: KeyboardShortcutSettings.shortcutBindings(for:)
         )
         settingsObserver = notificationCenter.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
@@ -98,6 +101,7 @@ final class KeyboardShortcutSettingsObserver {
 
     private func reloadCachedShortcuts() {
         globalSearchShortcut = shortcutProvider(.globalSearch)
+        globalSearchShortcuts = KeyboardShortcutSettings.shortcutBindings(for: .globalSearch)
         revision &+= 1
         rightSidebarModeShortcutMatcher.reload()
     }
