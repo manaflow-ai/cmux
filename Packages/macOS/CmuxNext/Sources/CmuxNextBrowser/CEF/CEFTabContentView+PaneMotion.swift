@@ -95,8 +95,10 @@ extension CEFTabContentView {
     /// update, so that update moves no window (``CEFLayerHosting/resizeMotion(active:)``). A page whose pane the drag
     /// never moves stays attached: no detach at the press and no attach at the landing, each a fork call that orders
     /// a child window out or in (1-4 ms each, RESIZE P0 5) and runs Chromium's window observers.
-    func pageWillMoveInMotion() {
+    func pageWillMoveInMotion(postedBy host: CEFHostView? = nil) {
         guard paneMotionAwaitsMove else { return }
+        // A geometry post alone (an occlusion or clip change, a tracker nudge) is no move: a frame change reports its own.
+        if let host, let start = paneMotionStartRect, host.convert(host.bounds, to: nil) == start { return }
         paneMotion(active: true)
     }
 

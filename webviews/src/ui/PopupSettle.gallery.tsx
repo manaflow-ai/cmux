@@ -47,6 +47,7 @@ function useStages(steps: readonly string[], afterInput = false) {
   useEffect(() => {
     if (!started || (afterInput && !typed)) return;
     const gap = afterInput ? 120 : STEP_MS;
+    // gallery-capture: the stage's steps run after the play opens the popup, and the variant's play waits for the popup it names.
     const timers = [...steps, "done"].map((step, index) => setTimeout(() => setStage(step), gap * (index + 1)));
     return () => timers.forEach(clearTimeout);
   }, [started, typed, afterInput, steps]);
