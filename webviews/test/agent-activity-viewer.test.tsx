@@ -13,6 +13,7 @@ import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import type { ActivityEvent, ActivityFrame, ActivityState } from "../src/agent-activity/model";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -72,8 +73,8 @@ afterAll(async () => {
   await teardownDom(saved, { window, scope });
 });
 
-const model = await import("../src/agent-activity/model");
-const { ActivityView } = await import("../src/agent-activity/view");
+const model = await importWithDom(() => import("../src/agent-activity/model"));
+const { ActivityView } = await importWithDom(() => import("../src/agent-activity/view"));
 
 const T0 = Date.UTC(2026, 9, 27, 9, 0, 0);
 
