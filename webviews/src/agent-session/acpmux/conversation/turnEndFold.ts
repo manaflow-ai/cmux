@@ -570,6 +570,12 @@ function lookTiming(look: TurnEndLook, settled: { ms: number; easing: string }):
   return settled;
 }
 
+/// The `dropped-window-200` arm of hidden-measure-caches also samples the fold's overlap curve once per pass
+/// (`clearFractionOnce`), read once at load like `HELD_KEPT` (direct/heldRecords.ts).
+const FOLD_SAMPLES_ONCE =
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments?.["hidden-measure-caches"] ===
+  "dropped-window-200";
+
 /// A curve's progress at a time fraction: a cubic-bezier() or a linear() of evenly spaced points.
 function curveProgress(easing: string): ((x: number) => number) | undefined {
   const curve = parseBezier(easing);
@@ -1727,8 +1733,30 @@ export function playTurnEnd(
     // Heights from the pass's reads (`heights`), never the rows' offsetHeight: this runs after the
     // pass's first animation started, where each read forced a style pass (R2; cmux#48689 read
     // 46,640 of them in one turn's end, turn-end-fold-restyle.browser.test.ts).
+    // The `dropped-window-200` arm reads the curve's 201 samples and the moving rows once per pass, not once
+    // per arriving row and step: the old loop called `arrives` (a `dataset.rowId` string per call) for every
+    // row at every step, 201 x rows x rows, which was the grow's top allocation site at 100k rows
+    // (chat-100k-flat GROW_ALLOC: 361 MB of 4893 MB, 3.8 KB per arrived row). Same answer.
+    let samples: number[] | undefined;
+    let movers: number[] | undefined;
+    const clearFractionOnce = (index: number) => {
+      samples ??= Array.from({ length: 201 }, (_, step) => progressAt!(step / 200));
+      movers ??= nodes.flatMap((other, k) => (drift[k] === 0 || arrives(other, k) ? [] : [k]));
+      const top = tops[index]!;
+      const bottom = top + heights[index]!;
+      for (let step = 200; step >= 0; step--) {
+        const remaining = 1 - samples[step]!;
+        for (const k of movers) {
+          if (k === index) continue;
+          const drawn = tops[k]! + drift[k]! * remaining;
+          if (Math.min(bottom, drawn + heights[k]!) - Math.max(top, drawn) > 0.5) return Math.min(1, (step + 1) / 200);
+        }
+      }
+      return 0;
+    };
     const clearFraction = (index: number) => {
       if (!progressAt) return 1;
+      if (FOLD_SAMPLES_ONCE) return clearFractionOnce(index);
       const top = tops[index]!;
       const bottom = top + heights[index]!;
       let last = -1;
