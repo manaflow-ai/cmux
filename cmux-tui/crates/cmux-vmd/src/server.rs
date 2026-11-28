@@ -219,14 +219,5 @@ async fn ports(State(st): State<AppState>, Path(id): Path<String>) -> ApiResult 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::token_matches;
-
-    #[test]
-    fn token_comparison() {
-        assert!(token_matches(b"abc", b"abc"));
-        assert!(!token_matches(b"abd", b"abc"));
-        assert!(!token_matches(b"ab", b"abc"));
-        assert!(!token_matches(b"", b"abc"));
-    }
-}
+#[path = "server_tests.rs"]
+mod tests;
