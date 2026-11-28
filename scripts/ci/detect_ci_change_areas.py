@@ -328,6 +328,13 @@ def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
     return frozenset(result.stdout.splitlines())
 
 
+def _is_docs_table(path: str) -> bool:
+    """A table under docs/ that local tools read, never CI (#61514's
+    docs/benches/relevance-map.toml lists the tests a path's bench runs, and
+    made every helper those tests reach route to every area)."""
+    return path.startswith("docs/") and path.endswith((".toml", ".json", ".yml", ".yaml"))
+
+
 def referrer_role(path: str) -> Optional[str]:
     """What ci_helper_areas() makes of a tracked file that names a helper, or
     None when it cannot place the file and so answers every area.
@@ -344,9 +351,14 @@ def referrer_role(path: str) -> Optional[str]:
         # own `inputs`, outside ci.yml's call tree, so a dead end like that
         # workflow. Its path lists named helpers and made them every area.
         return "workflow"
-    if path.endswith(_DOCUMENTATION_SUFFIXES):
+    if path.endswith(_DOCUMENTATION_SUFFIXES) or _is_docs_table(path):
         return "documentation"
     if path in _NON_RUNNING_FILES:
+        return "data"
+    if path.startswith("tests/fixtures/") and path.endswith((".yml", ".yaml", ".json")):
+        # A captured workflow or a table a test reads, never run as CI
+        # (#64464's base_red_excuse_step_mapping/cmux-63557-acpmux.yml snapshot
+        # named the warm-target helpers and made them every area).
         return "data"
     if path.startswith(".github/actions/") and path.endswith(("/action.yml", "/action.yaml")):
         return "action"
@@ -948,6 +960,7 @@ def ci_helper_areas(
                         if runner != referrer
                         and runner not in _TEST_PATH_LISTS
                         and not runner.endswith(_DOCUMENTATION_SUFFIXES)
+                        and not _is_docs_table(runner)
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
                         # So does a script under scripts/ (scripts/cmux-next/tests/
                         # test_build_names.py names tests/test_script_module_loads.py
