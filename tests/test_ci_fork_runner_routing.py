@@ -131,6 +131,7 @@ RELEASE_JOBS_FORK_GATED = {
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
     "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
     "sign-live-code-variant": "signs, notarizes and publishes the live code variant on the signing Mac; starts with the owner fork branch",
+    "restore-historical-notes": "restores nightly-next release notes under the publish lease; runs only on manaflow-ai/cmux (an owner-only job), on the nightly JIT runner",
     "nightly-next-pkg": "builds, signs, notarizes and uploads the pre-warming .pkg on the signing Mac; starts with the owner fork branch",
 }
 
@@ -243,6 +244,21 @@ UNRESOLVED_NAME_EXEMPT = {
         "key), never one of the required context names"
     ),
 }
+# (workflow, job) names the feat-only jobs below, which main has no copy of.
+UNRESOLVED_NAME_EXEMPT.update({
+    ("cmux-next-degenerate-lab.yml", "run"): (
+        "named by matrix.name, a lab part from the plan job, never one of the required context names; the lab "
+        "is an advisory nightly/smoke lab on the owned cmux-linux pool"
+    ),
+    ("cmux-machine-channel.yml", "build-x86_64"): (
+        "named 'build-machine-channel [ARCH lane N]', never one of the required context names; builds on the owned "
+        "cmux-linux pool"
+    ),
+    ("cmux-machine-channel.yml", "build-aarch64"): (
+        "named 'build-machine-channel [ARCH lane N]', never one of the required context names; builds on the owned "
+        "cmux-linux pool"
+    ),
+})
 # (workflow, job) -> why a job outside the required contexts still takes the trusted route.
 TRUSTED_RUNNER_EXTRA_JOBS: dict[tuple[str, str], str] = {}
 # Parser-regression anchors: a derivation that loses these has stopped reading the workflows.
