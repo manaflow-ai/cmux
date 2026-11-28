@@ -115,7 +115,7 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
     const list = async (p: any) => { seen.push(p); return p.cursor ? { machines: rows(49, 52) } : { machines: rows(0, 49), next_cursor: "c2" }; };
     const r = await listedMachine("vm_51", list, async () => { throw new Error("not asked"); });
     expect(r.detail).toBe("52 machines");
-    expect(seen).toEqual([{ limit: 100 }, { limit: 100, cursor: "c2" }]);
+    expect(seen).toEqual([{ limit: 25 }, { limit: 25, cursor: "c2" }]);
   });
   test("a capped page with no cursor: confirmed by cloud.machine.get, the cap named", async () => {
     const r = await listedMachine("vm_51", async () => ({ machines: rows(0, 49) }), async (id: string) => ({ id, status: "running", size: { cpu: 2 } }));

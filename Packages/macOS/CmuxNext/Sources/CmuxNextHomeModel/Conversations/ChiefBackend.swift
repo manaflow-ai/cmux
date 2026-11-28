@@ -73,19 +73,24 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     /// (``Swift/String/chiefHarnessName``: `claude-cr` → "Claude (CodeRouter)"), never the raw id.
     /// Rust's `chief_settings.backendTitle`.
     public static func title(for id: String) -> String {
-        (try? HomeRules.call("chief_settings.backendTitle", ChiefNameRequest(id: id, strings: .official)))
-            ?? ChiefBackend(id: id)?.title ?? id.chiefHarnessName
+        titles.value(HomeRuleLanguageKey(id)) {
+            (try? HomeRules.call("chief_settings.backendTitle", ChiefNameRequest(id: id, strings: .official)))
+                ?? ChiefBackend(id: id)?.title ?? id.chiefHarnessName
+        }
     }
+
+    /// `title(for:)` and `badge(for:)` by harness and app language (the rules read `.official`'s
+    /// localized titles): a Home and sidebar row asks per draw.
+    private static let titles = HomeRuleMemo<HomeRuleLanguageKey<String>, String>()
+    private static let badges = HomeRuleMemo<HomeRuleLanguageKey<String?>, String?>()
 
     /// The badge a Home row shows for a Chief whose effective harness is `harness`: nil for
     /// the default engine (no choice, `default`, or a Claude route such as `claude-cr`),
     /// else the engine's name (an unknown id made readable). Rust's `chief_settings.backendBadge`.
     public static func badge(for harness: String?) -> String? {
-        do {
-            let badge: String? = try HomeRules.call("chief_settings.backendBadge", BadgeRequest(harness: harness, strings: .official))
-            return badge
-        } catch {
-            return nil
+        badges.value(HomeRuleLanguageKey(harness)) {
+            let badge: String?? = try? HomeRules.call("chief_settings.backendBadge", BadgeRequest(harness: harness, strings: .official))
+            return badge ?? nil
         }
     }
 

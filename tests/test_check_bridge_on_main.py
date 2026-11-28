@@ -78,6 +78,13 @@ struct ChiefList: View {
         }
     }
 }
+struct Actions: View {
+    var body: some View {
+        Button(title) { welcomeRule("welcome.tap", 1, fallback: "") }
+        Text(title).onTapGesture(count: 2) { _ = welcomeRule("welcome.double", 1, fallback: "") }
+        Button(action: { _ = welcomeRule("welcome.action", 1, fallback: "") }) { Text(title) }
+    }
+}
 struct Reviewed: View {
     var body: some View {
         // bridge-ok: one call per settings open, not per row
@@ -114,7 +121,29 @@ class BridgeOnMainTests(unittest.TestCase):
     def test_body_and_for_each_and_allow(self):
         found = run({"WelcomeRule.swift": RULE, "Views.swift": VIEW})
         lines = [line for line, _ in found["Views.swift"][check.ROW_RULE]]
-        self.assertEqual(lines, [10])  # ForEach's welcomeRule; `HomeRules.callName` is not a bridge call; bridge-ok skips
+        # ForEach's welcomeRule; `HomeRules.callName` is not a bridge call; a tap's handler runs per tap, not per
+        # frame (WorkspaceTodoRow's beginEdit); bridge-ok skips
+        self.assertEqual(lines, [10])
+
+    def test_own_bridge_free_declaration_wins_an_unqualified_call(self):
+        """HostsSidebar's `rows` calls its own pure `holdsConnect`; CloudMachineRules' `holdsConnect` calls Rust.
+        A bare name graph flagged the row; the file's own declaration is the one an unqualified call reaches."""
+        cloud = """struct CloudMachineRules {
+    func holdsConnect(origin: Int) -> Bool { welcomeRule("cloud.holds", origin, fallback: false) }
+}
+"""
+        hosts = """enum HostsSidebar {
+    static func holdsConnect(_ machine: Int) -> Bool { machine > 0 }
+    static func rows(machines: [Int]) -> [Bool] { machines.map { holdsConnect($0) } }
+}
+"""
+        other = """enum Session {
+    func rows(machine: CloudMachineRules) -> Bool { machine.holdsConnect(origin: 1) }
+}
+"""
+        found = run({"WelcomeRule.swift": RULE, "Cloud.swift": cloud, "Hosts.swift": hosts, "Session.swift": other})
+        self.assertNotIn("Hosts.swift", found)
+        self.assertIn(check.ROW_RULE, found["Session.swift"])  # a qualified call still reaches Cloud's
 
     def test_subscripted_file_root_is_not_the_whole_file(self):
         services = SERVICES.replace("settings?.fileRoot)", 'settings?.fileRoot["home"])')
