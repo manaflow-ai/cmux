@@ -782,6 +782,22 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             }
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::RunElsewhereCarrier(args)) => {
+            // The bg task's shell reads the far run's own exit code.
+            match crate::cli::run_elsewhere_carrier::run(args).await {
+                Ok(0) => Ok(()),
+                Ok(code) => {
+                    let e = errors::AppError::new(
+                        errors::Code::Runtime,
+                        "run_elsewhere_exit",
+                        format!("the run exited {code}"),
+                    )
+                    .with_exit(code);
+                    errors::exit_with(&e.into(), cli.json)
+                }
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
             Ok(()) => Ok(()),
             Err(e) => errors::exit_with(&e, cli.json),
