@@ -1390,3 +1390,6 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 .acpmux-vim-mode[data-vim-mode="normal"] {
   color: var(--agent-text);
 }
+
+/* ABLATION nobackdrop: measurement-only branch, never lands */
+*,*::before,*::after{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
