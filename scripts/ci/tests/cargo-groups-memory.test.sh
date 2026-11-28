@@ -55,10 +55,23 @@ grep -q 'CARGO_BUILD_JOBS=5 each' <<<"$out" || { echo "$out"; echo "FAIL: caller
 # 5. No memory.max, but the VM's sibling slot holds most of its RAM (64 GiB, 20 available): 6 of 16 cores.
 echo max > "$tmp/cg/ci.slice/r2.service/memory.max"; echo max > "$tmp/cg/ci.slice/memory.max"
 meminfo 62 20
-out=$(FAKE_NPROC=16 run)
+out=$(CARGO_GROUPS_NO_GIANT_LOCK=1 FAKE_NPROC=16 run)
 grep -q 'memory: memory.max none GiB, MemTotal 62 GiB, MemAvailable 20 GiB, 16 cores' <<<"$out" || { echo "$out"; echo "FAIL: no memory line"; exit 1; }
 grep -q 'MemAvailable 20 GiB holds 6 of 16 cores' <<<"$out" || { echo "$out"; echo "FAIL: MemAvailable not used"; exit 1; }
 grep -q 'CARGO_BUILD_JOBS=4 for group 1, 2 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: jobs not capped by MemAvailable"; exit 1; }
+
+# 5b. GIANT_RESERVE: the uncapped 31 GiB nightly VM whose darwin cross leg (8 cores, 10 groups, sized by cores alone:
+# 8 + 9 x 2 = 26 tokens) took the runner down (cmux-tui-artifacts run 46173391786 attempt 2, 2026-11-28): one
+# giant's 16 GiB kept aside, the other 13 GiB sized as a cap, and the giants one at a time.
+meminfo 31 29
+out=$(FAKE_NPROC=8 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo b" "" "echo c" "" "echo d" "" "echo e" "" "echo f" "" "echo g" "" "echo h" "" "echo i" "" "echo j" 2>&1)
+grep -q 'MemAvailable 29 GiB holds fewer than two giants at 16 GiB: 13 GiB for everything else' <<<"$out" || { echo "$out"; echo "FAIL: no giant reserve"; exit 1; }
+grep -q 'giants (acpmux cmux_tui_core) compile one at a time' <<<"$out" || { echo "$out"; echo "FAIL: giants not one at a time uncapped"; exit 1; }
+! grep -q 'CARGO_BUILD_JOBS=8 for group 1' <<<"$out" || { echo "$out"; echo "FAIL: still sized by cores"; exit 1; }
+# A fat-LTO musl leg (CARGO_GROUPS_HEAVY) keeps its own rule; a memory.max budget keeps the cap (case 6).
+out=$(CARGO_GROUPS_HEAVY="1 5" FAKE_NPROC=8 run)
+! grep -q 'fewer than two giants' <<<"$out" || { echo "$out"; echo "FAIL: reserve on a heavy leg"; exit 1; }
+meminfo 512 500
 
 # 6. memory.max under MemAvailable still wins.
 echo $((24 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 300

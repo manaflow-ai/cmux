@@ -294,8 +294,9 @@ class SidebarItemRowView: NSView {
         // One icon column for every row (Lawrence 2026-10-28, "home and pinned are not aligned"; #38061): a band row's
         // glyph and a pinned row's pin start their ink on the icon column's leading edge, the row inset (its inset plus
         // the pill inset) where text-only titles start (Lawrence 2026-11-09), and a title after that glyph starts at the
-        // one text column (`SidebarStyle.leadingTextX`). A pinned row leads as its list row does, with no pin (Leo
-        // 2026-11-23, ask c-b5d3e0efb6); `info.leadingPin` stays off for it, so the pin branches below draw nothing.
+        // one text column (`SidebarStyle.leadingTextX`). Every pinned row draws its pin in that column, and its own icon or color
+        // dot, when it has one, in the next column (`SidebarPinnedRowLeading.pinThenIcon`, #42431, #63247). The Debug
+        // `ownIcon` look draws that icon in the pin's place instead.
         let columns = bandColumns(in: b)
         // A missing workspace (its fallback glyph, dimmed) keeps its pin: the glyph is not the workspace's own icon.
         let showsPin = info.leadingPin && (bare && !showsSwatchDot || info.isMissing || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
@@ -508,6 +509,8 @@ class SidebarItemRowView: NSView {
 
     /// The pin's square in the row's coordinates; nil without a pin (tests): Home's glyph square (`SidebarStyle.pinGlyphSide`).
     var pinSquareFrame: CGRect? { pin.isHidden || pin.image == nil ? nil : pin.frame }
+    /// The leading pin's view (tests: it and every view over it must be shown, #63247).
+    var pinSquareView: NSView { pin }
 
     /// The ink in the row's leading icon column (tests): the pin, else a color dot, else the item's glyph (Home's, a
     /// band row's, or, in the Debug `SidebarPinnedRowLeading.ownIcon` look, a pinned workspace's own icon in the pin's place).
