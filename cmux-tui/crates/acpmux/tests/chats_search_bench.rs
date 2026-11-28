@@ -534,6 +534,20 @@ async fn the_chats_page_finds_a_chat_by_what_was_said_within_150_ms_a_keystroke(
         later[later.len() - 1],
         nearest_rank(&later, 0.95)
     );
+    // Detector: the 2nd and 3rd key of a phrase cost what the 1st does. They matched every chat's
+    // title and ranked all of them again (key2/key3 sat 4-12 ms over key1 before the title
+    // ranker kept its work across keystrokes); a regression that brings that back fails here.
+    let p95_at = |at: usize| {
+        let mut v: Vec<f64> = by_position.iter().filter_map(|t| t.get(at).copied()).collect();
+        v.sort_by(f64::total_cmp);
+        nearest_rank(&v, 0.95)
+    };
+    let key1 = p95_at(0);
+    for (label, at) in [("key2", 1), ("key3", 2)] {
+        let p = p95_at(at);
+        println!("  {label} p95 {p:.1} ms vs key1 p95 {key1:.1} ms");
+        assert!(p <= key1 * 1.25 + 2.0, "{label} p95 {p:.1} ms is above key1 p95 {key1:.1} ms");
+    }
     row("chat_search.keystroke", times, found, planted.len());
 
     // The scan, report-only: one phrase, at the scan's longest budget.
