@@ -522,8 +522,13 @@ public final class MobileSSHComputers {
         for terminal in workspacesByHost[hostID]?.first(where: { $0.id == local.rawValue })?.terminals ?? [] {
             await detach(surfaceID: MobileSSHIdentifier(host: hostID, local: terminal.id).rawValue)
         }
-        if let provider = try? await registry.provider(for: local) {
-            try? await provider.closeWorkspace(id: local.providerID)
+        do {
+            try await registry.provider(for: local).closeWorkspace(id: local.providerID)
+        } catch {
+            // The workspace may still be alive on the host: keep its row and
+            // report the failure instead of relisting as if it closed.
+            fail(hostID: hostID, error)
+            return
         }
         await refreshWorkspaces(hostID: hostID)
     }
