@@ -1802,7 +1802,7 @@ fn steps(
     {
         return outcome;
     }
-    // The fresh name a new machine gets (no listed machine or create has it); see fresh::own.
+    // The fresh name a new machine gets (no listed machine or create has it).
     let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
