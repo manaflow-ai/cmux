@@ -2,13 +2,15 @@
 //! comparing release opt-levels (scripts/measure/app-ffi-hot-bench.sh):
 //! the palette rank of one typed query against an installed catalog
 //! (cmux-palette-ranker, pinned at opt-level 3) and the omnibox's typed-URL
-//! resolve (cmux-url-input, at the profile's level). Prints one
+//! resolve (cmux-url-input, at the profile's level) and a transcript's
+//! markdown parse (cmux-chat-markdown pinned at 3; its unicode crates are not). Prints one
 //! `hot-path NAME ns_per_call=N` line per path, the median of 7 rounds.
 
 use std::time::Instant;
 
 use cmux_palette_ranker::ffi as palette;
 use cmux_url_input::ffi as url;
+use cmux_chat_markdown::{DefaultPolicy, parse};
 
 fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(|a, b| a.total_cmp(b));
@@ -109,7 +111,24 @@ fn bench_url() -> f64 {
     median(rounds)
 }
 
+fn bench_markdown() -> f64 {
+    let mut text = String::new();
+    for i in 0..40 {
+        text.push_str(&format!("## Step {i}: café naïve résumé\n\nEdited **3 files** `+70 -11`: GETs now retry 408, 429 and 5xx with [jittered backoff](https://example.com/{i}) — see _src/fetch.rs_.\n\n- one ✅ item\n- two 🚀 item with `code`\n\n```rust\nfn retry(n: u32) -> u32 {{ n * 2 }}\n```\n\n"));
+    }
+    let mut rounds = Vec::new();
+    for _ in 0..7 {
+        let start = Instant::now();
+        for _ in 0..200 {
+            std::hint::black_box(parse(std::hint::black_box(&text), &DefaultPolicy));
+        }
+        rounds.push(start.elapsed().as_nanos() as f64 / 200.0);
+    }
+    median(rounds)
+}
+
 fn main() {
     println!("hot-path palette_rank_keystroke ns_per_call={:.0}", bench_palette());
+    println!("hot-path markdown_parse_8kb ns_per_call={:.0}", bench_markdown());
     println!("hot-path url_resolve_typed ns_per_call={:.0}", bench_url());
 }
