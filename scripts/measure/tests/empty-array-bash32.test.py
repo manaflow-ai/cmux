@@ -5,7 +5,8 @@ on a Linux runner never sees the abort (launch-premain.sh's root_check, 2026-11-
 `refused` empty and both row F settle=1 steps exited 1 before measuring).
 
 This flags, in every scripts/measure/*.sh that sets -u, an array that starts empty (`name=()`) and is expanded bare.
-Guard such an expansion with a default ("${name[*]:-}", "${name[*]-}") or the `+` form ("${name[@]+"${name[@]}"}").
+Guard such an expansion with a default ("${name[*]:-}", "${name[*]-}"), the `+` form ("${name[@]+"${name[@]}"}"), or a
+length check earlier on the line (`(( ${#name[@]} )) && cmd "${name[@]}"`).
 
     python3 scripts/measure/tests/empty-array-bash32.test.py
 """
@@ -17,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 EMPTY = re.compile(r'(?:^|[\s;(])(?:local\s+[^\n]*?\b)?([A-Za-z_][A-Za-z0-9_]*)=\(\)')
 BARE = re.compile(r'(?<![+-])"\$\{([A-Za-z_][A-Za-z0-9_]*)\[[*@]\]\}"')
 GUARDED = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\[[*@]\]\+')
+# `(( ${#name[@]} )) && ... "${name[@]}"`: bash 3.2 reads ${#name[@]} of an empty array as 0 under `set -u`, so the
+# expansion after it runs only when the array has items.
+LENGTH_GUARD = re.compile(r'\(\(\s*\$\{#([A-Za-z_][A-Za-z0-9_]*)\[[*@]\]\}\s*\)\)\s*&&')
 
 
 def problems(path: Path) -> list[str]:
@@ -28,7 +32,7 @@ def problems(path: Path) -> list[str]:
     for number, line in enumerate(text.splitlines(), 1):
         if line.lstrip().startswith("#"):
             continue
-        guarded = set(GUARDED.findall(line))
+        guarded = set(GUARDED.findall(line)) | set(LENGTH_GUARD.findall(line))
         for name in BARE.findall(line):
             if name in empty and name not in guarded:
                 out.append(f"{path.relative_to(ROOT.parents[1])}:{number}: \"${{{name}[...]}}\" starts empty: {line.strip()}")
