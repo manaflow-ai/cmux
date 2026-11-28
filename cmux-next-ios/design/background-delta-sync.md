@@ -41,7 +41,23 @@ Sources: [BGAppRefreshTask](https://developer.apple.com/documentation/background
 [Modifying content in newly delivered notifications](https://developer.apple.com/documentation/usernotifications/modifying-content-in-newly-delivered-notifications),
 [Downloading files in the background](https://developer.apple.com/documentation/foundation/downloading-files-in-the-background),
 [backgroundRefreshStatus](https://developer.apple.com/documentation/uikit/uiapplication/backgroundrefreshstatus),
-[TN2277](https://developer.apple.com/library/archive/technotes/tn2277/_index.html).
+[TN2277](https://developer.apple.com/library/archive/technotes/tn2277/_index.html),
+[earliestBeginDate](https://developer.apple.com/documentation/backgroundtasks/bgtaskrequest/earliestbegindate),
+[BGProcessingTask](https://developer.apple.com/documentation/backgroundtasks/bgprocessingtask).
+
+What each page says, read back on 2026-11-28 (the pages' JSON under
+`developer.apple.com/tutorials/data/documentation/`, the archive and video pages as HTML):
+
+| Claim | Apple's words | Page |
+|---|---|---|
+| A suspended app runs nothing; its sockets may close | "When the app is suspended, no code within the app's process executes." "the system may choose to reclaim resources out from underneath a network socket used by the app" | TN2277 |
+| A refresh wake gets about 30 s | "your app will get 30 seconds of run time, each time it's launched, to fetch new content" | WWDC19 707 |
+| We pick no refresh time, only a floor | "the system doesn't guarantee launching the task at the specified date, but only that it won't begin sooner." | earliestBeginDate |
+| Low Power Mode and parental controls turn refresh off | "Background App Refresh is disabled automatically when a device is operating in low-power mode." "A restricted user ... can't enable Background App Refresh." | backgroundRefreshStatus |
+| Silent pushes: 30 s, two or three an hour, best effort, none after force quit | "Your app has 30 seconds to perform any tasks", "don't try to send more than two or three per hour", "the system doesn't guarantee their delivery", "If something force quits or kills the app, the system discards the held notification." | Pushing background updates |
+| The service extension: about 30 s per alert push | "Your [didReceive] method has only about 30 seconds to modify the payload and call the provided completion handler." | Modifying content in newly delivered notifications |
+| Processing tasks run minutes, at the system's time, interruptible | "Although processing tasks can run for minutes, the system can interrupt the process." | BGProcessingTask |
+| Background `URLSession` is rate limited and delayed | "it uses a rate limiter to prevent abuse of background downloads", "The delay increases each time the system resumes or relaunches your app." | Downloading files in the background |
 
 No mechanism has a cadence we control. So the design does not depend on any wake: **the foreground catch-up is
 one round trip carrying every cursor and a byte budget, and its cost is bounded whatever the time away**. A
@@ -80,12 +96,27 @@ nothing: the phone does not send the field to it.
 ## Budgets
 
 - Per wake: 64 KiB down, 30 s wall clock, stop early when every cursor is current.
-- Per background hour: 256 KiB (lists about 5 KB a wake, chats 64 KiB a wake, at most about 4 wakes an hour as
-  iOS schedules them).
+- Per background hour: 256 KiB, enforced (`cmux-mobile-core::catch_up::hour`). Each background reply spends what
+  it weighed (what came, not what was asked, so a Mac that overshoots shrinks the next wakes) from a sliding
+  one-hour window kept with the cursors, so the app and its notification service extension spend from one hour.
+  A wake asks its chats for at most what the hour has left after the two lists' 8 KiB estimate; once spent, it
+  asks the lists only (a few hundred bytes when nothing changed) and every chat stays behind its cursor for the
+  next hour or the foreground. The foreground is not bounded by it: the person asked. Busy Macs push more than
+  4 wakes an hour (one per agent turn ending), which is why the bound is enforced rather than assumed.
 - Battery: a wake is one resumed link (one handshake round trip, cmux#51007) and one request per surface; no
   timers in the background.
 
 ## Numbers
+
+`cmux-mobile-host/tests/catch_up_conditions.rs` `staleness_rows_under_conditions`, one harness for before and
+after: the real `services::serve` behind the `cmux-fault` shaper (`link-profiles.json` good-wifi, lte, lossy-3), a
+daemon and an acpmux faked over a modelled Mac (busy: a long agent session writing an event every 2 s, two chats
+an event every 20 s, the list and the tree changing every minute; idle: one chat and the list every 10 min), the
+phone's own `catch_up::service` code. Time away is modelled (heads set per wake), the link is real time. Before:
+no background wakes. After: `BGAppRefreshTask` at its 15 min floor (its best case) and, when busy, a push every
+10 min. The PR body carries the table.
+
+Earlier:
 
 Measured on `scripts/measure/ios-network-conditions.sh mode=background` (this PR): the real cmux-tui daemon and
 acpmux behind the `cmux-fault` shaper; time away simulated by the events an idle Mac and a busy agent produce in
