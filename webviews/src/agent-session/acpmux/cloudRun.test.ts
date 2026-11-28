@@ -10,8 +10,6 @@ import {
   cloudPageRefusal,
   pageOnOtherMachine,
   cloudRunsHere,
-  cloudSendAfterCheck,
-  heldPromptShown,
   composerAgentLocal,
   cloudStartFolder,
   cloudStartKeys,
@@ -23,6 +21,8 @@ import {
   newTabProjectPick,
   oneCloudStart,
   startCloudChat,
+  cloudSendAfterCheck,
+  heldPromptShown,
   composerCloudStartFolder,
 } from "./cloudRun";
 
