@@ -14,32 +14,21 @@ extension SettingsController {
     /// hand-authored keymaps. Existing comments, unknown top-level keys and
     /// settings outside `shortcuts` remain untouched.
     public func importShortcutKeymap(_ value: JSONValue) async throws {
-        guard case .object(var root) = value else {
+        // Rust builds the edits (cmux-config app_ops/keymap.rs `keymap.import_edits`): the key
+        // style and keyboard layout (`app.keyStyle`, `app.shortcutLayout`), then each `shortcuts` member.
+        guard let reply = try? SettingsRust.call("keymap.import_edits", ["value": value]) else {
             throw CmuxConfigFile.Failure.invalidPath("keymap must be a JSON object")
         }
-        // A keymap file also carries the key style and keyboard layout (`app.keyStyle`,
-        // `app.shortcutLayout`); no other `app` key is taken from a shared file.
-        var edits: [(path: [String], value: JSONValue?)] = []
-        if case .object(let app)? = root.removeValue(forKey: "app") {
-            for path in Self.keymapAppPaths {
-                if let value = app[path[1]] { edits.append((path: path, value: Optional(value))) }
-            }
-        }
-        let shortcuts: [String: JSONValue]
-        if case .object(let nested)? = root["shortcuts"] {
-            shortcuts = nested
-        } else if root.keys.contains(where: { ["bindings", "tiers", "when"].contains($0) }) {
-            shortcuts = root
-        } else if root.isEmpty {
-            shortcuts = [:]
-        } else {
-            shortcuts = ["bindings": .object(root)]
-        }
-        edits += shortcuts.map { key, value in
-            (path: ["shortcuts", key], value: Optional(value))
-        }
+        let edits = Self.fileEdits(reply)
         guard !edits.isEmpty else { return }
         try await file.apply(edits)
+    }
+
+    /// The `{path, value?}` edits of a `keymap.*` reply as file edits (no `value` removes the path).
+    static func fileEdits(_ reply: JSONValue) -> [(path: [String], value: JSONValue?)] {
+        reply["edits"]?.arrayValue?.compactMap { edit in
+            edit["path"]?.arrayValue.map { (path: $0.compactMap(\.stringValue), value: edit["value"]) }
+        } ?? []
     }
 
     /// The `app` settings a keymap file carries besides `shortcuts`.
@@ -93,12 +82,8 @@ extension SettingsController {
     /// shortcut it changed (the base keymap toast's Undo).
     public func applyUndoably(_ plan: ShortcutKeymapPlan) async throws -> ShortcutKeymapUndo {
         var previous: [(path: [String], value: JSONValue?)] = []
-        for change in plan.changes {
-            // Only the paths `apply` writes (the legacy key goes only for a removed override).
-            var paths = [["shortcuts", "bindings", change.actionID]]
-            if change.write == nil { paths.append(["shortcuts", change.actionID]) }
-            for path in paths { previous.append((path, try await file.value(at: path))) }
-        }
+        // Only the paths `apply` writes (the legacy key goes only for a removed override).
+        for edit in plan.edits { previous.append((edit.path, try await file.value(at: edit.path))) }
         try await apply(plan)
         return ShortcutKeymapUndo(edits: previous)
     }
@@ -111,26 +96,17 @@ extension SettingsController {
         try await file.apply(undo.edits)
     }
 
-    /// Writes `plan` in one publish. A removed override also goes from the
-    /// legacy `shortcuts.<id>` form, so the cmux default applies again.
+    /// Writes `plan` in one publish (Rust's edits: a removed override also goes
+    /// from the legacy `shortcuts.<id>` form, so the cmux default applies again).
     public func apply(_ plan: ShortcutKeymapPlan) async throws {
-        var edits: [(path: [String], value: JSONValue?)] = []
-        for change in plan.changes {
-            edits.append((["shortcuts", "bindings", change.actionID], change.write))
-            if change.write == nil { edits.append((["shortcuts", change.actionID], nil)) }
-        }
-        try await file.apply(edits)
+        try await file.apply(plan.edits.map { (path: $0.path, value: $0.value) })
     }
 
     /// `shortcuts.bindings` merged over the legacy `shortcuts.<id>` keys, as
-    /// `CmuxConfigSnapshot` reads them.
+    /// `CmuxConfigSnapshot` reads them (`keymap.bindings`).
     func shortcutBindings() async throws -> [String: JSONValue] {
-        guard case .object(let section)? = try await file.value(at: ["shortcuts"]) else { return [:] }
-        var bindings = section.filter { !CmuxConfigSnapshot.reservedShortcutKeys.contains($0.key) }
-        if case .object(let entries)? = section["bindings"] {
-            bindings.merge(entries) { _, binding in binding }
-        }
-        return bindings
+        let shortcuts = try await file.value(at: ["shortcuts"]) ?? .null
+        return SettingsRust.answer("keymap.bindings", ["shortcuts": shortcuts])["bindings"]?.objectValue ?? [:]
     }
 }
 
