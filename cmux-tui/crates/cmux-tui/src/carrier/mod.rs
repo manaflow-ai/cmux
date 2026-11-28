@@ -152,6 +152,7 @@
 mod adopt;
 mod answer;
 mod client;
+mod connect_stats;
 mod contract;
 pub(crate) mod drill;
 pub(crate) mod drill_dial;
@@ -579,6 +580,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     if args.first().is_some_and(|verb| verb == "capabilities") {
         return capabilities(args);
+    }
+    if args.first().is_some_and(|verb| verb == "connect-stats") {
+        return connect_stats::run(args);
     }
     let Some(args) = parse(args) else {
         return usage(
