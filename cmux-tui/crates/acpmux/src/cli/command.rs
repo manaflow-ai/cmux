@@ -247,6 +247,11 @@ pub enum Command {
     /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
     #[command(name = "pr-wait")]
     PrWait(crate::cli::pr_wait::PrWaitArgs),
+    /// One GitHub read of a repos/OWNER/REPO/... path through this machine's one poller: a kept
+    /// answer while it is fresh, a conditional read (a 304 costs no quota) when not, the kept
+    /// answer marked stale when the budget is spent. Prints the body (`cli/gh_read.rs`).
+    #[command(name = "gh-read")]
+    GhRead(crate::cli::gh_read::GhReadArgs),
     /// Run another person's agent's accepted forum `run` ask: one command at a repo's pushed ref,
     /// here when light, through the scheduler (cmux-ci) when heavy; prints the result as JSON,
     /// `{exit, tail, artifacts}`. A refused ask exits 7 with its reason (`run_ask.rs`).
@@ -1035,6 +1040,7 @@ pub enum Command {
         reason: Option<String>,
         status: bool,
         hold_for: Option<String>,
+        thaw_order: Option<Vec<String>>,
     },
     #[command(hide = true)]
     ResumeQueue {
@@ -1150,8 +1156,9 @@ pub enum Command {
         /// conversation with its first prompt.
         #[arg(long)]
         harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
+        /// The model the fork runs, on --harness or the chat's own harness (MODEL or
+        /// HARNESS/MODEL). A model the harness does not list fails the fork.
+        #[arg(long, short)]
         model: Option<String>,
     },
     #[command(hide = true)]
@@ -1714,18 +1721,26 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
-                Command::SessionHold {
-                    session,
-                    held: true,
-                    fleet,
-                    allow,
-                    set_allow,
-                    reason,
-                    status,
-                    hold_for,
-                }
-            }
+            SessionCmd::Hold {
+                session,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            } => Command::SessionHold {
+                session,
+                held: true,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            },
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
@@ -1735,6 +1750,7 @@ pub fn flatten(c: Command) -> Command {
                 reason: None,
                 status: false,
                 hold_for: None,
+                thaw_order: None,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
@@ -1980,5 +1996,24 @@ pub enum ExecCmd {
         /// How many of the newest decisions.
         #[arg(long, default_value_t = 20)]
         last: usize,
+    },
+    /// The identical-result rule (`placement/exec_conformance.rs`): run a fixed corpus of
+    /// commands (a tiny cargo build and test, file writes, a failing exit, stdout and stderr
+    /// order, creates, deletes, renames and a symlink, ...) in fresh copies of a fixture
+    /// checkout, once with CMUX_EXEC_ROUTE=local and once routed, and compare exit code, output
+    /// and the resulting file tree. One row per case, then `identical N/M`; exits 1 unless every
+    /// case was routed and none differed beyond its documented divergence. Run it in a Cloud
+    /// machine session with run VMs on: elsewhere the routed side runs here and proves nothing.
+    Conformance {
+        /// Only these cases (repeatable); default every case.
+        #[arg(long = "case", value_name = "NAME")]
+        cases: Vec<String>,
+        /// Where the work copies go (default `$ACPMUX_HOME/exec-conformance/run-*`, removed
+        /// after a passing run). Must be on the disk a fork copies.
+        #[arg(long, value_name = "DIR")]
+        dir: Option<std::path::PathBuf>,
+        /// Keep the work copies after a passing run too.
+        #[arg(long)]
+        keep: bool,
     },
 }
