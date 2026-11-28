@@ -64,6 +64,7 @@ import {
   type ReplayLog,
 } from "./replayLogs";
 import { cpuSession } from "./stability";
+import { newestPage } from "./daemonPage";
 import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
@@ -161,16 +162,54 @@ const summary = (p: Play) => ({
   turnCount: p.log.events.filter((event) => event.kind === "user_message").length,
   updatedAt: p.log.events.at(-1)?.at ?? Date.now(),
 });
-function answer(p: Play, method: string): unknown {
+/// `OPEN=whole` hands the page the whole log at attach, as this bench did before god-chat-snapshot-tail: a full
+/// replay acpmux never does. By default the stand-in pages as acpmux does (hub/paging.rs via `newestPage`):
+/// attach the newest page under the pane's `limit`/`maxBytes`, older pages by `beforeSeq`, the prompt index
+/// whole, so the pane's open costs what is on screen, not the chat's length.
+const OPEN_WHOLE = process.env.OPEN === "whole";
+function answer(p: Play, method: string, params: Record<string, any> = {}): unknown {
+  const served = () => p.log.events.slice(0, p.served);
   switch (method) {
     case "initialize":
       return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     case "_acpmux/watch":
       return { sessions: [summary(p)] };
-    case "_acpmux/attach":
-      return { session: summary(p), lastSeq: p.served, events: p.log.events.slice(0, p.served) };
-    case "_acpmux/events":
+    case "_acpmux/attach": {
+      if (OPEN_WHOLE) return { session: summary(p), lastSeq: p.served, events: served() };
+      const records = served();
+      if (params.afterSeq !== undefined) {
+        const after = Number(params.afterSeq);
+        return { session: summary(p), lastSeq: p.served, events: records.filter((event) => event.seq > after) };
+      }
+      const { page, hasMore } = newestPage(records, { limit: Number(params.limit ?? 400), maxBytes: params.maxBytes });
+      return { session: summary(p), lastSeq: p.served, events: page, hasMore };
+    }
+    case "_acpmux/events": {
+      if (OPEN_WHOLE) return { events: [], hasMore: false, lastSeq: p.served };
+      const records = served();
+      const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
+      if (params.promptIndex === true)
+        return {
+          events: records.filter((event) => event.kind === "user_message" && event.seq < before),
+          hasMore: false,
+          lastSeq: p.served,
+        };
+      if (params.beforeSeq !== undefined) {
+        const { page, hasMore } = newestPage(records, {
+          limit: Number(params.limit ?? 400),
+          beforeSeq: before,
+          maxBytes: params.maxBytes,
+        });
+        return { events: page, hasMore, lastSeq: p.served };
+      }
+      if (params.afterSeq !== undefined) {
+        const after = Number(params.afterSeq);
+        const limit = Number(params.limit ?? 400);
+        const page = records.filter((event) => event.seq > after).slice(0, limit);
+        return { events: page, hasMore: page.length === limit && page.at(-1)!.seq < p.served, lastSeq: p.served };
+      }
       return { events: [], hasMore: false, lastSeq: p.served };
+    }
     default:
       return null;
   }
@@ -1296,11 +1335,11 @@ if (import.meta.main) {
         },
         websocket: {
           message(ws, raw) {
-            const message = JSON.parse(String(raw)) as { id?: number; method: string };
+            const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
             const p = daemon.play;
             if (message.method === "_acpmux/attach" && p) p.socket = ws;
             if (message.id !== undefined)
-              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: p ? answer(p, message.method) : null }));
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: p ? answer(p, message.method, message.params) : null }));
           },
         },
       });
