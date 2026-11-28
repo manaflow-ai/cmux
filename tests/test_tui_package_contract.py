@@ -87,23 +87,15 @@ def write_executable(
     path.chmod(0o755)
 
 
-def write_cmux_binary(path: Path, version_output: str) -> None:
+def write_cmux_binary(
+    path: Path, version_output: str, *, autocloud_help: str = AUTOCLOUD_HELP
+) -> None:
     """The platform `cmux-tui` binary: its `--version` line, and `autocloud --help` as the real binary prints it.
 
     The validator checks both (`_require_autocloud`, RFD 0139, #55901), so a fixture that only prints its version
-    fails every npm install contract test.
+    fails every npm install contract test. `autocloud_help` lets a test drop the help text to see the validator refuse.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#!/bin/sh\n"
-        'if [ "$1" = autocloud ]; then\n'
-        "  printf '%s\\n' 'An agent chat on any machine, in the terminal (RFD 0139)' '' 'Commands:'"
-        " '  login  Sign in to cmux Cloud'\n"
-        "  exit 0\n"
-        "fi\n"
-        f"printf '%s\\n' '{version_output}'\n"
-    )
-    path.chmod(0o755)
+    write_executable(path, version_output, autocloud_help=autocloud_help)
 
 
 def write_relay_launcher_fixture(path: Path) -> None:

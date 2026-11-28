@@ -136,21 +136,58 @@ def parse(comment_body: str) -> dict | None:
 DEFAULT_BOTS = "quota-goblin-*[[]bot[]],cmux-bot[[]bot[]]"
 
 
-def trusted(comment: dict, bots: Iterable[str] = ()) -> bool:
+def trusted(comment: dict, bots: Iterable[str] = (), can_write: Callable[[str], bool] | None = None) -> bool:
     """A collaborator's comment, or one by a GitHub App this repository installed (BOTS: fnmatch patterns; a
-    fleet agent's `gh pr comment` goes through the broker and posts as its pool app, quota-goblin-N[bot])."""
+    fleet agent's `gh pr comment` goes through the broker and posts as its pool app, quota-goblin-N[bot]), or a
+    person CAN_WRITE says can push here. author_association is computed for the token that reads the comment: a
+    member whose org membership is private reads as CONTRIBUTOR to a workflow's github.token, so their record never
+    counted (cmux#62808, 2026-11-28: a passing look at the head, posted by a private member, left the gate red)."""
     user = comment.get("user") or {}
-    return (comment.get("author_association") in TRUSTED_ASSOCIATIONS
-            or (user.get("type") == "Bot" and any(fnmatch.fnmatchcase(user.get("login") or "", b) for b in bots)))
+    if comment.get("author_association") in TRUSTED_ASSOCIATIONS:
+        return True
+    login = user.get("login") or ""
+    if user.get("type") == "Bot":
+        return any(fnmatch.fnmatchcase(login, b) for b in bots)
+    return bool(can_write and login and user.get("type") == "User" and can_write(login))
 
 
-def find(comments: list[dict], suite: str, head_sha: str, bots: Iterable[str] = ()) -> dict | None:
+# The collaborator permission levels that may push (GitHub reports maintain as write and triage as read).
+WRITE_PERMISSIONS = frozenset({"admin", "write"})
+
+
+def writer_check(repo: str, tokens: list[str]) -> Callable[[str], bool]:
+    """LOGIN -> whether GitHub says LOGIN can push to REPO (GET /repos/R/collaborators/LOGIN/permission, which counts
+    org members whose membership is private and needs only the metadata read every token has). One read per login;
+    a read that fails is no, never a pass."""
+    seen: dict[str, bool] = {}
+
+    def can_write(login: str) -> bool:
+        if login not in seen:
+            def read(token: str) -> bool:
+                req = urllib.request.Request(
+                    f"https://api.github.com/repos/{repo}/collaborators/{urllib.parse.quote(login)}/permission",
+                    headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+                             "X-GitHub-Api-Version": "2022-11-28"})
+                _, body, _ = gh_http.request(req, 20, raise_errors=True, rate_budget_s=_rate_wait_s.get())
+                return (json.loads(body or b"{}").get("permission") or "") in WRITE_PERMISSIONS
+            try:
+                seen[login] = with_tokens(read, tokens)
+            except Exception as e:  # noqa: BLE001 - an unread permission is untrusted
+                print(f"permission of {login} not read ({read_error(e)}): not trusted", file=sys.stderr)
+                seen[login] = False
+        return seen[login]
+
+    return can_write
+
+
+def find(comments: list[dict], suite: str, head_sha: str, bots: Iterable[str] = (),
+         can_write: Callable[[str], bool] | None = None) -> dict | None:
     """The newest trusted record of SUITE at HEAD_SHA among a PR's issue comments (GitHub's REST shape)."""
     best = None
     for c in comments:
-        if not trusted(c, bots):
-            continue
         record = parse(c.get("body") or "")
+        if record and not trusted(c, bots, can_write):
+            continue
         if record and record["suite"] == suite and record["head_sha"] == head_sha:
             if best is None or (c.get("created_at") or "") >= best[0]:
                 best = (c.get("created_at") or "", {**record, "_comment": c.get("html_url", "")})
@@ -274,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         return UNREAD
     try:
         comments = with_tokens(lambda token: pr_comments(repo, pr, token), tokens)
-        record = find(comments, a.suite, sha, [b for b in a.bots.split(",") if b])
+        record = find(comments, a.suite, sha, [b for b in a.bots.split(",") if b], writer_check(repo, tokens))
     except Exception as e:  # noqa: BLE001 - an unread record is an error state, never a pass
         print(f"error\tproof record not read ({read_error(e)}): see job log")
         return UNREAD

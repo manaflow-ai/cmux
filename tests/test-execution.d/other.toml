@@ -365,6 +365,11 @@ path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_git_fixture_cleanup.py"
+lane = "manual"
+reason = "No workflow step runs it. Unit tests of the git fixture helper's cleanup; run python3 tests/test_git_fixture_cleanup.py after changing that helper (seconds, no build)."
+
+[[test]]
 path = "tests/test_git_history.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_git_history.py"
@@ -413,6 +418,11 @@ reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins scripts
 path = "tests/test_guards_new_reds.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_guards_new_reds.py"
+
+[[test]]
+path = "tests/test_head_compile.py"
+lane = "manual"
+reason = "No workflow step runs it. Unit tests of the feat-cmux-next head compile helper; run python3 tests/test_head_compile.py after changing it (seconds, no build)."
 
 [[test]]
 path = "tests/test_head_tier.py"
@@ -639,6 +649,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_media_tag_lock.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_memory_gate.py"
 lane = "linux-guard"
 
 [[test]]
