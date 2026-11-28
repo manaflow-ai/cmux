@@ -1,0 +1,147 @@
+name: cmux vault end to end (staging, no Mac)
+
+# The end-to-end encrypted cmux vault (cmuxterm-hq docs/design/e2e-vault.md) proven on staging with no Mac:
+# scripts/cmux-next/vault-e2e.ts signs in as the staging agent test account, makes a CLI device the first device of
+# that account's (reset) personal vault, keeps a random nonce, creates `cmux-test-vault-<run>`, runs that machine's
+# cmux-host from the cmux built here (the machine side, cmux#56879: a systemd drop-in on the test machine only),
+# syncs from the CLI device (standing in for the phone), checks `bash -lc 'printenv VAULT_E2E_NONCE'` on the machine
+# by hash, checks that a second, never approved device cannot read the vault, then cleans up the vault and deletes
+# the machine, pass or fail.
+#
+# The cmux is built from `host_ref` (default lane/secrets-vault-host, the machine side on top of the device side);
+# the script comes from this workflow's own commit. Secrets: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in
+# cmux-next-vm-image-dev. Runs on a same-repo pull request that changes this file or the script, and by manual
+# dispatch on feat-cmux-next.
+
+on:
+  workflow_dispatch:
+    inputs:
+      host_ref:
+        description: "The ref whose cmux-tui the CLI device and the machine's cmux-host run"
+        default: lane/secrets-vault-host
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/vault-e2e.yml
+      - scripts/cmux-next/vault-e2e.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vault-e2e-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository)
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    # linux_16: the debug cmux-tui link lost two linux_8 runners (attempts 3 and 6 of run 45703929549).
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    timeout-minutes: 120
+    steps:
+      # The tree that is built: the machine side's branch. The script comes from this run's own commit (e2e/).
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.host_ref || 'lane/secrets-vault-host' }}
+          persist-credentials: false
+          submodules: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: e2e
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: scripts
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+      # The compiled dependencies come from R2 (public reads, no credentials), as cloud-journey-pr.yml restores
+      # them: run 45689034736 built cold for 80 min and hit the job's timeout.
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        continue-on-error: true
+        run: bash scripts/cmux-next/cloud-journey-cargo-key.sh >> "$GITHUB_OUTPUT"
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
+      - name: Build cmux (cmux-tui) with the vault's device and machine sides
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          mkdir -p "$RUNNER_TEMP/bin"
+          # Named `cmux`: argv[0] selects the `host` verb on the machine.
+          cp "$target_dir/debug/cmux-tui" "$RUNNER_TEMP/bin/cmux"
+          strip "$RUNNER_TEMP/bin/cmux"
+          ls -l "$RUNNER_TEMP/bin/cmux"
+          echo "built from $(git rev-parse HEAD)"
+          "$RUNNER_TEMP/bin/cmux" vault help --json | head -c 300; echo
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: true
+      - name: The vault on a staging machine with no Mac, then clean up
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: bun e2e/scripts/cmux-next/vault-e2e.ts --backend staging --cmux "$RUNNER_TEMP/bin/cmux" --run "${GITHUB_RUN_ID}x${GITHUB_RUN_ATTEMPT}" --out "$RUNNER_TEMP/vault-e2e"
+      - name: Summary
+        if: always()
+        run: cat "$RUNNER_TEMP/vault-e2e/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no summary written" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: vault-e2e-${{ github.run_id }}
+          path: ${{ runner.temp }}/vault-e2e/
+          if-no-files-found: warn
+          retention-days: 3
