@@ -595,6 +595,22 @@ class FetchSelectionTests(unittest.TestCase):
         self.assertEqual((usage.queued, usage.running), (2, 1))
         self.assertEqual(janitor.format_age(NOW - usage.oldest_queued_at), "1h30m")
 
+    def test_environment_approval_waiting_job_does_not_count_as_pool_demand(self):
+        waiting = {"status": "waiting", "name": "macos / shard", "labels": [MAC], "created_at": iso(90)}
+        usage = janitor.macos_usage([waiting])
+        self.assertEqual((usage.queued, usage.running), (0, 0))
+        self.assertEqual(usage.held_by_pool, {})
+        self.assertEqual(usage.queued_by_pool, {})
+
+    def test_waiting_job_does_not_trigger_pool_pressure_or_cancellation(self):
+        run = make_run(event="push", branch="exp/incremental-waiting")
+        jobs = {run["id"]: [{"status": "waiting", "name": "macos / shard", "labels": [MAC],
+                              "created_at": iso(90)}]}
+        result = plan([run], jobs, threshold=0)
+        self.assertEqual(result.queued_macos_jobs, 0)
+        self.assertFalse(result.over_threshold)
+        self.assertEqual(result.to_cancel(), [])
+
 
 class GraphQLTests(unittest.TestCase):
     def test_single_query_for_all_branches(self):

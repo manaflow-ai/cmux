@@ -107,6 +107,10 @@ RESCUE_ACTORS = frozenset({"github-actions[bot]", "cmux-bot[bot]"})
 IN_FLIGHT_RUN_STATUSES = ("queued", "in_progress", "pending")
 QUEUED_JOB_STATUSES = frozenset({"queued", "waiting", "pending", "requested"})
 RUNNING_JOB_STATUSES = frozenset({"in_progress"})
+# Environment approval leaves a job in `waiting` without asking a runner for
+# capacity.  Keep it in QUEUED_JOB_STATUSES for run-level replacement logic,
+# but exclude it from pool demand and cancellation pressure.
+POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 
 # A queued run this old is a ghost the Actions backend never scheduled, not
 # demand. Skip fetching its jobs every sweep.
@@ -431,12 +435,12 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
             continue
         status = job.get("status")
         name = job.get("name") or ""
-        if status in QUEUED_JOB_STATUSES or status in RUNNING_JOB_STATUSES:
+        if status in POOL_QUEUED_JOB_STATUSES or status in RUNNING_JOB_STATUSES:
             for pool in counted_pools(runner_pool(job)):
                 held_by_pool[pool] = held_by_pool.get(pool, 0) + 1
-                if status in QUEUED_JOB_STATUSES:
+                if status in POOL_QUEUED_JOB_STATUSES:
                     queued_by_pool[pool] = queued_by_pool.get(pool, 0) + 1
-        if status in QUEUED_JOB_STATUSES:
+        if status in POOL_QUEUED_JOB_STATUSES:
             queued += 1
             created = parse_time(job.get("created_at"))
             if created and (oldest is None or created < oldest):
@@ -471,7 +475,6 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 # minutes on blacksmith-6vcpu-macos-26 behind pull request jobs (14:21 to 15:27Z), and the base stayed red 5 h 14
 # min. Its queued build reserves the label as a nightly's does.
 RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly|app-ffi-release)\.yml$", re.IGNORECASE)
-POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
 POOL_SETTINGS_ENV = {
