@@ -147,6 +147,99 @@ pub(crate) fn honors(signal: libc::c_int, sender_pid: libc::pid_t) -> bool {
     signal == libc::SIGTERM && sender_pid == 1
 }
 
+/// What the signals thread runs when a descriptor it also waits on is
+/// readable. True ends that wait.
+pub(crate) type OnReadable = Box<dyn FnMut() -> bool + Send>;
+
+/// One more descriptor the signals thread waits on, so a host's other
+/// fd-only wait (its record directory watch) needs no thread of its own:
+/// every open tab runs a host, so each host thread is paid a thousand
+/// times (goal infinite-items-flat).
+static ALSO_WATCHED: Mutex<Option<(libc::c_int, OnReadable)>> = Mutex::new(None);
+
+/// Wait on `fd` on the signals thread: `on_readable` runs there each time
+/// `fd` is readable (it must not block) until it returns true. `Err` gives
+/// `on_readable` back when this process runs no signals thread (not a
+/// host) or the one extra wait is taken; the caller then waits itself.
+/// `fd` must stay open until `on_readable` returns true or the process
+/// ends.
+pub(crate) fn also_wait_on(fd: libc::c_int, on_readable: OnReadable) -> Result<(), OnReadable> {
+    if INSTALLED.get().is_none() {
+        return Err(on_readable);
+    }
+    {
+        let mut watched = ALSO_WATCHED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if watched.is_some() {
+            return Err(on_readable);
+        }
+        *watched = Some((fd, on_readable));
+    }
+    // Wake the thread so its next poll includes `fd`. A wake with no
+    // signal recorded acts on nothing (every action is flag-gated).
+    let writer = WAKE_WRITER.load(Ordering::Acquire);
+    if writer >= 0 {
+        // SAFETY: one byte from a live buffer to the host's wake pipe.
+        let _ = unsafe { libc::write(writer, [0u8].as_ptr().cast(), 1) };
+    }
+    Ok(())
+}
+
+/// The signals thread: acts on recorded signals when the handler wakes
+/// it, and runs [`also_wait_on`]'s callback when that descriptor is
+/// readable.
+fn run_signal_thread(reader: libc::c_int) {
+    let mut buffer = [0u8; 64];
+    loop {
+        let watched_fd = ALSO_WATCHED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or(-1, |(fd, _)| *fd);
+        // A negative descriptor is skipped by poll.
+        let mut fds = [
+            libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: watched_fd, events: libc::POLLIN, revents: 0 },
+        ];
+        // SAFETY: two pollfds in a live array, no timeout.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return;
+        }
+        if fds[1].revents != 0 {
+            let mut watched =
+                ALSO_WATCHED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some((fd, on_readable)) = watched.as_mut()
+                && *fd == watched_fd
+            {
+                // An error or a closed descriptor would report forever:
+                // end that wait rather than spin.
+                let broken = fds[1].revents & (libc::POLLERR | libc::POLLNVAL) != 0;
+                if broken || on_readable() {
+                    *watched = None;
+                }
+            }
+        }
+        if fds[0].revents == 0 {
+            continue;
+        }
+        // SAFETY: reader is owned by this thread for the process lifetime.
+        let count = unsafe { libc::read(reader, buffer.as_mut_ptr().cast(), buffer.len()) };
+        if count == 0 {
+            return;
+        }
+        if count < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return;
+        }
+        // A service-manager stop first: naming senders reads /proc.
+        act_on_service_manager_stop();
+        act_on_orphan_term();
+        flush();
+    }
+}
+
 /// Register how the host ends its terminal on a service-manager stop.
 pub(crate) fn on_service_manager_stop(terminate: Box<dyn Fn() + Send + Sync>) {
     let _ = TERMINATE.set(terminate);
@@ -300,25 +393,7 @@ pub(crate) fn install() -> anyhow::Result<()> {
     std::thread::Builder::new()
         .name("terminal-host-signals".into())
         .stack_size(crate::terminal_host_runtime::shared::LIGHT_HOST_THREAD_STACK_BYTES)
-        .spawn(move || {
-            let mut buffer = [0u8; 64];
-            loop {
-                // SAFETY: reader is owned by this thread for the process lifetime.
-                let count = unsafe { libc::read(reader, buffer.as_mut_ptr().cast(), buffer.len()) };
-                if count == 0 {
-                    return;
-                }
-                if count < 0
-                    && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-                {
-                    return;
-                }
-                // A service-manager stop first: naming senders reads /proc.
-                act_on_service_manager_stop();
-                act_on_orphan_term();
-                flush();
-            }
-        })?;
+        .spawn(move || run_signal_thread(reader))?;
     // SAFETY: a zeroed sigaction with a valid SA_SIGINFO handler and an
     // empty mask; the signals are platform constants.
     unsafe {

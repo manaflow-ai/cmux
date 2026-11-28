@@ -4,8 +4,9 @@
 //! adopts it from its record. A host whose record directory is removed (a
 //! throwaway `HOME` deleted after a run, a wiped state directory) can never
 //! be discovered again, so it would hold its PTY and shell until reboot. One
-//! thread blocks on kernel events for the directory's removal or rename and
-//! reports it once. Nothing polls: after every event the directory's
+//! wait on kernel events for the directory's removal or rename reports it
+//! once; in a host it runs on the signals thread (`host_signals`), with no
+//! thread of its own. Nothing polls: after every event the directory's
 //! identity is read again (event order is not trusted), and the thread ends
 //! with the removal or with the process.
 //!
@@ -41,17 +42,64 @@ pub(crate) fn follow_record_root_removal(
             Err(error) => return Err(error),
         },
     };
-    std::thread::Builder::new()
-        .name("terminal-host-record-root".into())
-        .stack_size(crate::terminal_host_runtime::shared::LIGHT_HOST_THREAD_STACK_BYTES)
-        .spawn(move || {
-            let Some(watch) = watch else { return on_removed() };
-            match watch.wait() {
-                Ok(()) => on_removed(),
-                Err(error) => eprintln!("terminal-host: the record directory watch ended: {error}"),
-            }
-        })?;
+    let Some(watch) = watch else {
+        on_removed();
+        return Ok(());
+    };
+    // In a host, the signals thread waits on the watch too: one host thread
+    // fewer per open tab (goal infinite-items-flat). Elsewhere (tests, a
+    // process with no signals thread) the watch keeps its own thread.
+    let on_readable = folded_wait(watch, on_removed);
+    if let Err(mut on_readable) = also_wait_on(on_readable.0, on_readable.1) {
+        std::thread::Builder::new()
+            .name("terminal-host-record-root".into())
+            .stack_size(crate::terminal_host_runtime::shared::LIGHT_HOST_THREAD_STACK_BYTES)
+            // `on_readable` blocks on the watch when nothing is queued.
+            .spawn(move || while !on_readable() {})?;
+    }
     Ok(())
+}
+
+/// The signals thread's wait on the host's record directory watch.
+fn also_wait_on(
+    fd: libc::c_int,
+    on_readable: crate::terminal_host_runtime::unix::host_signals::OnReadable,
+) -> Result<(), crate::terminal_host_runtime::unix::host_signals::OnReadable> {
+    crate::terminal_host_runtime::unix::host_signals::also_wait_on(fd, on_readable)
+}
+
+/// The watch's descriptor and a callback that takes one event batch off
+/// it, then reports the removal once (true: the watch is done).
+fn folded_wait(
+    watch: Watch,
+    on_removed: impl FnOnce() + Send + 'static,
+) -> (libc::c_int, crate::terminal_host_runtime::unix::host_signals::OnReadable) {
+    use std::os::fd::AsRawFd;
+    let fd = watch.queue.as_raw_fd();
+    let mut on_removed = Some(on_removed);
+    // Armed before this check: a removal since the caller's identity read
+    // is never missed.
+    let mut checked = false;
+    let on_readable = Box::new(move || {
+        if checked {
+            match watch.take_events() {
+                Ok(()) => {}
+                Err(error) => {
+                    eprintln!("terminal-host: the record directory watch ended: {error}");
+                    return true;
+                }
+            }
+        }
+        checked = true;
+        if watch.removed() {
+            if let Some(on_removed) = on_removed.take() {
+                on_removed();
+            }
+            return true;
+        }
+        false
+    });
+    (fd, on_readable)
 }
 
 /// The directory's (device, inode), or `None` when no directory is there.
@@ -155,15 +203,11 @@ impl Watch {
         identity(&self.path) != Some(self.before)
     }
 
-    /// Block until the directory is removed, renamed away or replaced.
-    fn wait(self) -> io::Result<()> {
+    /// Take one batch of events off the queue, blocking when none is
+    /// queued. Their content is not needed: the identity check decides.
+    fn take_events(&self) -> io::Result<()> {
         use std::os::fd::AsRawFd;
         loop {
-            // Watches are armed before this check, so a removal between the
-            // caller's identity read and here is never missed.
-            if self.removed() {
-                return Ok(());
-            }
             #[cfg(target_vendor = "apple")]
             let ready = {
                 // SAFETY: a zeroed kevent is a valid output buffer.
@@ -184,17 +228,17 @@ impl Watch {
             let ready = {
                 let mut buffer = [0_u8; 4096];
                 // SAFETY: the buffer outlives the call and its length is
-                // passed. The events' content is not needed: the identity
-                // check above decides.
+                // passed.
                 unsafe {
                     libc::read(self.queue.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len())
                 }
             };
-            if ready < 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() != io::ErrorKind::Interrupted {
-                    return Err(error);
-                }
+            if ready >= 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
             }
         }
     }
