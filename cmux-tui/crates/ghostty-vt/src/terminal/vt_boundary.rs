@@ -284,6 +284,27 @@ impl C1Normalizer {
         output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
     }
 
+    /// Steps `byte` as [`Self::normalize`] would when that leaves it
+    /// unchanged, and returns true; returns false, and steps nothing, for a
+    /// byte the normalizer would replace (a standalone 8-bit C1 form).
+    #[inline(always)]
+    pub(super) fn step_if_unchanged(&mut self, byte: u8) -> bool {
+        if self.utf8_remaining != 0 && matches!(byte, 0x80..=0xbf) {
+            self.utf8_remaining -= 1;
+            return true;
+        }
+        if matches!(byte, 0x90 | 0x98 | 0x9c..=0x9f) {
+            return false;
+        }
+        self.utf8_remaining = match byte {
+            0xc2..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
+        true
+    }
+
     /// Original byte-at-a-time normalizer, kept as the exactness reference.
     pub(super) fn normalize_reference<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut output: Option<Vec<u8>> = None;
