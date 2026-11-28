@@ -973,6 +973,84 @@ fn subagent_page_perf() {
     }
 }
 
+/// A subagent pane's whole own-log read as webviews `readSubagentLog` makes it (up to 8 forward
+/// pages of 400 records / 1 MiB from the start, then the newest page) on a long chat with many
+/// subagents, for a subagent still running (its records run to the log's end) and one that
+/// finished early (its newest page reads back over the whole later chat). Leo, 2026-11-27:
+/// "these needs to be faster". Run with
+/// `cargo test -p acpmux --release --lib -- --ignored --nocapture subagent_pane_read_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn subagent_pane_read_perf() {
+    const PAGES: usize = 8;
+    const LIMIT: usize = 400;
+    const BYTES: usize = 1 << 20;
+    for (case, later) in [("running", 200_000usize), ("finished-early", 200_000)] {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-subagent-pane-{}", uuid::Uuid::now_v7()));
+        let sessions = root.join("sessions");
+        let mut seq = 0;
+        let text = "x".repeat(600);
+        {
+            let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+            writer.save(&meta("c")).unwrap();
+            if case == "finished-early" {
+                // 6,000 records of its own, then a long chat of 9 other subagents.
+                for _ in 0..6_000 {
+                    seq += 1;
+                    writer.append("c", &update_of(seq, Some("sub-me"), &text)).unwrap();
+                }
+            }
+            for n in 0..later {
+                seq += 1;
+                let sub = match n % 10 {
+                    0 if case == "running" => Some("sub-me".to_owned()),
+                    0 => None,
+                    k => Some(format!("sub-{k}")),
+                };
+                writer.append("c", &update_of(seq, sub.as_deref(), &text)).unwrap();
+            }
+        }
+        let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+        let filter = transcript(true).of_subagent(Some("sub-me"));
+        let mut runs = Vec::new();
+        let mut parsed = 0;
+        let mut got = 0;
+        for _ in 0..5 {
+            let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+            let started = std::time::Instant::now();
+            let mut after = 0;
+            let mut found = 0;
+            let mut more = true;
+            for _ in 0..PAGES {
+                let page =
+                    hub.events_page("c", after, None, LIMIT, Some(BYTES), false, &filter).unwrap();
+                found += page.events.len();
+                if !page.has_more || page.events.is_empty() {
+                    more = false;
+                    break;
+                }
+                after = page.events.iter().map(|r| r.seq).max().unwrap();
+            }
+            if more {
+                let newest = hub
+                    .events_page("c", 0, Some(u64::MAX), LIMIT, Some(BYTES), true, &filter)
+                    .unwrap();
+                found += newest.events.iter().filter(|r| r.seq > after).count();
+            }
+            runs.push(started.elapsed().as_secs_f64() * 1000.0);
+            parsed = PARSED_LINES.with(std::cell::Cell::get) - parsed_before;
+            got = found;
+        }
+        runs.sort_by(f64::total_cmp);
+        println!(
+            "subagent pane read, {case}, {later} later lines: median {:.1} ms (min {:.1}), {got} records, {parsed} lines parsed",
+            runs[2], runs[0]
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
+
 /// A Codex chat as the app server logs it: per turn a prompt, an answer, and the app server's
 /// raw lines (`codex_app_server::tap_kind`): a `codex.response` of `raw_bytes` (a resumed
 /// thread's answer holds its whole history) and a notification.
