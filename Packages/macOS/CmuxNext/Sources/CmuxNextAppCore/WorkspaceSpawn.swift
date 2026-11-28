@@ -66,6 +66,14 @@ public struct WorkspaceSpawn: Sendable {
         self.profile = profile
     }
 
+    /// A sidebar New Workspace (a double-click in empty space, a section's "+"): the New Tab page, placed at `slot`.
+    /// `picksCloud` (a Cloud machine's section, cmux#46021): a chat whose composer has Cloud picked, as New Cloud Chat.
+    public static func sidebarNew(at slot: WorkspaceSlot?, picksCloud: Bool) -> WorkspaceSpawn {
+        var spawn = WorkspaceSpawn(newTabPage: true)
+        (spawn.slot, spawn.firstChat) = (slot, picksCloud ? .picksCloud(handoff: nil) : nil)
+        return spawn
+    }
+
     public init(opening directory: String?) {
         self.init(cwd: directory, name: directory.flatMap(Self.folderName))
     }
