@@ -1,0 +1,15 @@
+{
+  "title": "Screen Sharing, Your Devices: each device drawn as what it is (a MacBook, a Mac mini, a Linux server, an iPhone), from the kind its device-hub record names; a device that never said keeps the old desktop icon (Leo 2026-11-14: \"nicer icons ... across all the remote related areas\").",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Fixture devices: a MacBook, a Mac mini, a Linux server, an iPhone, and a Mac from an older app", "rpc": {"method": "debug.device_hub", "params": {"action": "fixture", "devices": [
+      {"name": "MacBook Air", "kind": "macbook"},
+      {"name": "Mac mini", "kind": "mac-mini"},
+      {"name": "Build server", "kind": "linux-server", "online": false},
+      {"name": "iPhone", "kind": "iphone", "platform": "ios"},
+      {"name": "Older Mac"}
+    ]}}, "wait": 1, "shot": false, "record": true},
+    {"title": "Open Screen Sharing", "cmux": ["action", "run", "macScreen.open"], "wait": 3}
+  ]
+}

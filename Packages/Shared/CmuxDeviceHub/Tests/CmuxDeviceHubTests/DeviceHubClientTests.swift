@@ -47,6 +47,20 @@ import Testing
         // The Mac it runs on, the same for every build: the hub reads an Always answer about this Mac across its device ids.
         #expect(body["machine"] as? String == DeviceMachine.current.id)
         #expect((body["machine"] as? String).map { $0.count == 64 && $0.allSatisfy(\.isHexDigit) && $0 == $0.lowercased() } ?? true)
+        // No kind given: none sent, and the hub keeps what it has.
+        #expect(body["kind"] == nil)
+    }
+
+    /// A registration names what kind of device this is (PROTOCOL.md, Device kind), and the record
+    /// the hub answers with carries it and the glyph it draws.
+    @Test func registrationSendsThisDevicesKindAndTheRecordCarriesIt() async throws {
+        let identity = DeviceIdentity.software()
+        let hub = StubHub.routes(["POST /v1/devices": (200, #"{"device":{"id":"6f1c2a4e-0d3b-4c5a-9e7f-112233445566","name":"Phone","platform":"ios","kind":"iphone","online":true}}"#)])
+        let device = try await makeClient(hub, identity: identity).registerDevice(name: "Phone", platform: .ios, kind: "iphone")
+        #expect(device.kind == "iphone" && device.glyph?.symbol == "iphone")
+        let body = try #require(hub.requests.last?.jsonBody)
+        #expect(body["kind"] as? String == "iphone")
+        #expect(body["platform"] as? String == "ios")
     }
 
     /// The hub matches answers by this value: every build keys the same hardware UUID with the same secret to the same id,

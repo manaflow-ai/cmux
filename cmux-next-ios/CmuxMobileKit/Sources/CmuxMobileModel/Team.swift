@@ -174,6 +174,8 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     /// kept only past the service's freshness bound (``MacReachability/lateQuiet(_:)``) (PROTOCOL.md "Mac freshness") and rounded
     /// down to 10 s, so a healthy Mac's every poll changes nothing. Nil: fresh, offline or unknown.
     public var quietMs: Int?
+    /// The device kind used by the shared glyph table (nil from older Workers).
+    public var deviceKind: String?
 
     // Saved snapshots keep the service's presence under its old key; `linked` is not saved.
     private enum CodingKeys: String, CodingKey {
@@ -183,7 +185,7 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     }
 
     public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, ownerUserID: String? = nil,
-                machineID: String? = nil, quietMs: Int? = nil) {
+                machineID: String? = nil, quietMs: Int? = nil, deviceKind: String? = nil) {
         self.id = id
         self.name = name
         self.listedOnline = isOnline
@@ -191,5 +193,6 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
         self.ownerUserID = ownerUserID
         self.machineID = machineID
         self.quietMs = isOnline ? MacReachability.lateQuiet(quietMs) : nil
+        self.deviceKind = deviceKind
     }
 }

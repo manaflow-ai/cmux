@@ -1,11 +1,17 @@
 #if os(iOS)
 import CmuxAgentBrands
+import CmuxDeviceHub
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
+
+/// The same device glyph in the composer's selected place, options, and machine choices.
+func taskComposerMacSymbol(_ mac: MacDevice?) -> String {
+    DeviceGlyphKind(name: mac?.deviceKind)?.symbol ?? "desktopcomputer"
+}
 
 /// Task Options (classic's): the workspace's name, Chat or Terminal, then where it runs (a Mac
 /// and its folder, or a Cloud machine).
@@ -124,14 +130,14 @@ struct TaskComposerOptionsSheet: View {
         // A remembered Cloud pick the Mac no longer lists keeps the menu, so a Mac can be chosen.
         if macs.count > 1 || !clouds.isEmpty || onCloud, let shown = placeName {
             TaskPlaceMenu(creator: creator, sameNames: sameNames, sent: sent) {
-                routeLabel(symbol: onCloud ? "cloud" : "desktopcomputer", title: onCloud ? "Cloud machine" : "Mac", value: shown,
+                routeLabel(symbol: onCloud ? "cloud" : taskComposerMacSymbol(mac), title: onCloud ? "Cloud machine" : "Mac", value: shown,
                            chevron: "chevron.up.chevron.down")
             }
             .accessibilityLabel(onCloud ? "Cloud machine" : "Mac")
             .accessibilityValue(shown)
             .accessibilityIdentifier("taskComposer.mac")
         } else {
-            routeLabel(symbol: "desktopcomputer", title: "Mac", value: mac.map { sameNames.displayName($0) } ?? "No Mac online", chevron: nil)
+            routeLabel(symbol: taskComposerMacSymbol(mac), title: "Mac", value: mac.map { sameNames.displayName($0) } ?? "No Mac online", chevron: nil)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("taskComposer.mac.only")
         }
@@ -333,7 +339,7 @@ struct TaskPlaceMenu<MenuLabel: View>: View {
     var body: some View {
         Menu {
             Picker("Runs on", selection: Binding(get: { tag }, set: { choose($0) })) {
-                ForEach(creator.taskMacs) { Label(sameNames.displayName($0), systemImage: "desktopcomputer").tag("mac:" + $0.id) }
+                ForEach(creator.taskMacs) { Label(sameNames.displayName($0), systemImage: taskComposerMacSymbol($0)).tag("mac:" + $0.id) }
             }
             if !creator.cloudTaskTargets.isEmpty {
                 Section("Cloud") {

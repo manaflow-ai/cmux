@@ -176,6 +176,7 @@ async fn register(api: &ApiClient, team: &str, device: &str, kind: &str) -> Resu
     api.register_device(&DeviceRegistration {
         device_id: device.to_owned(),
         kind: kind.to_owned(),
+        model_kind: None,
         name: format!("cmux-mobile-path-probe {kind}"),
         team_id: team.to_owned(),
         wg_public_key: None,

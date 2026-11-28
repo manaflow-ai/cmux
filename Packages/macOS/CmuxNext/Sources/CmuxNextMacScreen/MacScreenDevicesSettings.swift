@@ -117,9 +117,11 @@ public final class MacScreenDevicesSettings {
             var access: String?
             var screenAction: ScreenAction?
             var removeConfirm: Confirm
+            /// What kind of device it is (`macbook`, `iphone`), as its hub record says; null when it never said.
+            var kind: String?
 
             enum CodingKeys: String, CodingKey {
-                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, screenAction, removeConfirm
+                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, screenAction, removeConfirm, kind
             }
 
             /// The page reads null for an absent value, never a missing key.
@@ -137,6 +139,7 @@ public final class MacScreenDevicesSettings {
                 try c.encode(access, forKey: .access)
                 try c.encode(screenAction, forKey: .screenAction)
                 try c.encode(removeConfirm, forKey: .removeConfirm)
+                try c.encode(kind, forKey: .kind)
             }
         }
 
@@ -344,7 +347,8 @@ public final class MacScreenDevicesSettings {
             presence: row?.presence.string ?? "", thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
             access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue,
             screenAction: row?.screen.map { .init(kind: $0.kind, title: $0.title.string, disabled: $0.disabled) },
-            removeConfirm: .init(title: confirm["title"]?.string ?? "", body: confirm["body"]?.string ?? "", confirm: confirm["confirm"]?.string ?? ""))
+            removeConfirm: .init(title: confirm["title"]?.string ?? "", body: confirm["body"]?.string ?? "", confirm: confirm["confirm"]?.string ?? ""),
+            kind: device.kind ?? (device.platform == .ios ? "iphone" : nil))
     }
 
     /// The `rd_devices_*` answers this card reads: a device row (its words, screen button and Remove

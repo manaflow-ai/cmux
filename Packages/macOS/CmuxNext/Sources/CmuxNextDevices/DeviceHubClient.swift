@@ -149,18 +149,18 @@ public actor DeviceHubClient {
     /// Registers or updates this device, signed by the key it registers. `machine` identifies the
     /// Mac/build space for cross-build permissions; `machineKey` and `appId` identify this install
     /// so a renewed identity can retire its offline predecessor.
-    public func registerDevice(name: String, platform: DevicePlatform, machineKey: String? = nil,
+    public func registerDevice(name: String, platform: DevicePlatform, kind: String? = nil, machineKey: String? = nil,
                                appId: String? = nil) async throws -> HubDevice {
         struct Body: Encodable {
             var id, name: String
             var platform: DevicePlatform
             var signingKey, agreementKey: String
-            var machine, machineKey, appId: String?
+            var machine, machineKey, appId, kind: String?
         }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
                         agreementKey: identity.agreementKey, machine: DeviceMachine.current(in: buildSpace).id,
-                        machineKey: machineKey, appId: appId)
+                        machineKey: machineKey, appId: appId, kind: kind)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 

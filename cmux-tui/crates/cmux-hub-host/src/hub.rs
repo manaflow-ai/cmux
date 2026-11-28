@@ -248,7 +248,8 @@ impl Hub {
         self.send(method, path, body, Some(&session), true)
     }
 
-    /// `POST /v1/devices`: registers this device as `platform` (`linux`, `macos`).
+    /// `POST /v1/devices`: registers this device as `platform` (`linux`, `macos`), with
+    /// its locally detected hardware kind for the device glyph.
     pub fn register(&self, platform: &str) -> Res<Value> {
         self.register_with(platform, serde_json::Map::new())
     }
@@ -264,6 +265,7 @@ impl Hub {
         body.insert("id".into(), json!(self.device.id));
         body.insert("name".into(), json!(self.device.name));
         body.insert("platform".into(), json!(platform));
+        body.insert("kind".into(), json!(cmux_device_kind::this_device().kind.as_str()));
         body.insert("signingKey".into(), json!(self.signer.public_key()));
         body.insert("agreementKey".into(), json!(self.device.agreement_key()?));
         self.call("POST", "/v1/devices", Some(&Value::Object(body)))

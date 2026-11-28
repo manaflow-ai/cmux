@@ -340,7 +340,7 @@ struct TaskComposerScreen: View {
     private var placePill: some View {
         TaskPlaceMenu(creator: creator, sameNames: sameNames, sent: sent) {
             HStack(spacing: 7) {
-                Image(systemName: onCloud ? "cloud" : "desktopcomputer").accessibilityHidden(true)
+                Image(systemName: onCloud ? "cloud" : taskComposerMacSymbol(mac)).accessibilityHidden(true)
                 Text(onCloud ? (cloud?.name ?? "Cloud") : macName).lineLimit(1).fixedSize()
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2.weight(.bold))

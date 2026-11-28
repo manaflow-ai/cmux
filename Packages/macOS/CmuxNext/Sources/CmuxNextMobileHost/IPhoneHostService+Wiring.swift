@@ -139,6 +139,7 @@ extension IPhoneHostService {
                 if let nameOverride { return nameOverride }
                 return MobileHostDeviceName(computer: await computerName(), label: instanceLabel).value
             },
+            deviceKind: { [weak daemon] in daemon?.identity?.machineDevice },
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             surfaceHosts: surfaceHosts,

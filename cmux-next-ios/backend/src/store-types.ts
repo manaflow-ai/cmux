@@ -1,6 +1,10 @@
 /** Store contract and the pure helpers shared by every store (memory, Postgres, MySQL). No database imports. */
 export type DeviceKind = "mac" | "phone"
 
+/** Forward-compatible glyph names, shared with the device hub; malformed strings never erase a known kind. */
+export const modelKind = (value: unknown): string | undefined =>
+  typeof value === "string" && value.length <= 32 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value) ? value : undefined
+
 export interface Device {
   deviceId: string
   /** The build space it registered in: "" for stable and nightly, `dev:<slug>` for a dev build (src/index.ts spaceOf). */
@@ -9,6 +13,8 @@ export interface Device {
   ownerUserId: string
   teamId: string
   kind: DeviceKind
+  /** Hardware model for glyphs, separate from the platform used for admission. */
+  modelKind: string | null
   name: string
   wgPublicKey: string | null
   /** A Mac's machine id; null when it sent none (phones, older hosts). */
@@ -24,6 +30,8 @@ export interface DeviceInput {
   ownerUserId: string
   teamId: string
   kind: DeviceKind
+  /** Undefined preserves the stored model kind, including registrations from older clients. */
+  modelKind?: string
   name: string
   wgPublicKey: string | null
   /** Undefined keeps the stored machine id (a host that predates it, or a phone). */

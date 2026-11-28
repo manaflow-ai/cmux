@@ -5,6 +5,7 @@ import enum CmuxMobileModel.UserFacingError
 import struct CmuxMobileModel.BoundedWait
 public import Foundation
 public import Observation
+import UIKit
 
 /// This iPhone as a device of the device hub (docs/device-hub/PROTOCOL.md),
 /// for Screen Sharing: it registers the phone (platform `ios`), keeps the User
@@ -353,7 +354,15 @@ public final class ScreenSharingService {
 
     private func attach(_ hub: DeviceHub) {
         self.hub = hub
+        // What this device is (PROTOCOL.md, Device kind), so the Macs list it as an iPhone or an iPad.
+        hub.deviceKind = Self.deviceKind(idiom: UIDevice.current.userInterfaceIdiom)
         hub.onSessionPush = { [weak self] push in self?.route(push) }
+    }
+
+    /// The device-hub kind (PROTOCOL.md, Device kind) of a device with this idiom: an iPad says
+    /// `ipad`, anything else that runs this app `iphone`.
+    nonisolated static func deviceKind(idiom: UIUserInterfaceIdiom) -> String {
+        idiom == .pad ? "ipad" : "iphone"
     }
 
     static func status(of status: DeviceHub.Status) -> Status {

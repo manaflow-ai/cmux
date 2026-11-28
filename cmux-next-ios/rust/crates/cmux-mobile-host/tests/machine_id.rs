@@ -65,6 +65,7 @@ fn a_mac_registration_carries_its_machine_id_and_siblings() {
     let mut registration = DeviceRegistration {
         device_id: "d".into(),
         kind: "mac".into(),
+        model_kind: Some("macbook".into()),
         name: "Mac".into(),
         team_id: "t".into(),
         wg_public_key: None,
@@ -73,6 +74,7 @@ fn a_mac_registration_carries_its_machine_id_and_siblings() {
     };
     let body = serde_json::to_value(&registration).unwrap();
     assert_eq!(body["machineId"], "ab".repeat(16));
+    assert_eq!(body["modelKind"], "macbook");
     assert_eq!(body["siblingDeviceIds"], serde_json::json!(["s"]));
     registration.machine_id = None;
     registration.sibling_device_ids.clear();

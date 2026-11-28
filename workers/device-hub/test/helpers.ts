@@ -303,13 +303,15 @@ export class Device {
     return { status: res.status, json: text ? (JSON.parse(text) as any) : null, headers };
   }
 
-  async register() {
+  /** Registers this device; `extra` adds body fields (`kind`). */
+  async register(extra: Record<string, unknown> = {}) {
     const res = await this.call("POST", "/v1/devices", {
       id: this.id,
       name: this.name,
       platform: this.platform,
       signingKey: this.signingKey,
       agreementKey: this.agreementKey,
+      ...extra,
       ...(this.machine === undefined ? {} : { machine: this.machine }),
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);

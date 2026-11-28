@@ -67,6 +67,11 @@ import Testing
         #expect(environment["CMUX_MOBILE_REFRESH_TOKEN"] == nil)
         #expect(environment.keys.allSatisfy { !$0.lowercased().contains("token") })
         #expect(environment["CMUX_MOBILE_AGENT_TAB_HOST"] == nil)
+        var withDeviceKind = launch
+        withDeviceKind.deviceKind = "macbook"
+        #expect(withDeviceKind.environment(inherited: [:])["CMUX_MOBILE_DEVICE_KIND"] == "macbook")
+        withDeviceKind.deviceKind = ""
+        #expect(withDeviceKind.environment(inherited: [:])["CMUX_MOBILE_DEVICE_KIND"] == nil)
         var withHost = launch
         withHost.agentTabHost = "install:mac-1"
         #expect(withHost.environment(inherited: [:])["CMUX_MOBILE_AGENT_TAB_HOST"] == "install:mac-1")

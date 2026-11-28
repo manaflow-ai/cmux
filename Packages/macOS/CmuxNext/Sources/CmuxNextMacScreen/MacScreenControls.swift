@@ -74,9 +74,12 @@ final class MacScreenText: NSTextField, MacScreenInked {
 final class MacScreenGlyph: NSImageView, MacScreenInked {
     private let ink: KeyPath<MacScreenColors, NSColor>
     private var pointSize: CGFloat
+    /// The SF Symbol it draws.
+    let symbol: String
 
     init(_ symbol: String, font: NSFont, ink: KeyPath<MacScreenColors, NSColor> = \.secondary, width: CGFloat? = nil) {
         self.ink = ink
+        self.symbol = symbol
         pointSize = font.pointSize
         super.init(frame: .zero)
         image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)

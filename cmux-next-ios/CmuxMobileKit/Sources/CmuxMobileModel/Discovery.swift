@@ -66,10 +66,13 @@ public struct DiscoveredMac: Hashable, Sendable {
     public var machineID: String?
     /// The service's heartbeat age (``MacDevice/quietMs``).
     public var quietMs: Int?
+    /// The device kind used by the shared glyph table (nil from older Workers).
+    public var deviceKind: String?
 
     public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, teamID: String,
-                ownerUserID: String? = nil, machineID: String? = nil, quietMs: Int? = nil) {
+                ownerUserID: String? = nil, machineID: String? = nil, quietMs: Int? = nil, deviceKind: String? = nil) {
         self.quietMs = quietMs
+        self.deviceKind = deviceKind
         self.id = id
         self.name = name
         self.isOnline = isOnline
@@ -83,7 +86,8 @@ public struct DiscoveredMac: Hashable, Sendable {
     /// missing machine id) is kept from `known`.
     func device(keeping known: MacDevice?) -> MacDevice {
         MacDevice(id: id, name: name, isOnline: isOnline, lastSeenAt: lastSeenAt,
-                  ownerUserID: ownerUserID ?? known?.ownerUserID, machineID: machineID ?? known?.machineID, quietMs: quietMs)
+                  ownerUserID: ownerUserID ?? known?.ownerUserID, machineID: machineID ?? known?.machineID,
+                  quietMs: quietMs, deviceKind: deviceKind ?? known?.deviceKind)
     }
 
     /// The Mac in its team: a Mac that moves to another team is a new arrival there.

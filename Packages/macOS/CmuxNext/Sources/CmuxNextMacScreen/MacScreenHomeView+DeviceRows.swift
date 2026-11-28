@@ -5,7 +5,10 @@ import CmuxNextDevices
 /// own glyph, not another Mac's (Leo 2026-11-16: "i dont see windows nor linux").
 extension MacScreenHomeSnapshot.Device {
     /// The SF Symbol its row draws (a record from before platforms is a Mac, or a phone when `isPhone`).
-    var glyph: String { MacScreenHomeView.glyph(platform ?? (isPhone ? .ios : .macos)) }
+    var glyph: String {
+        if let symbol, NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil { return symbol }
+        return MacScreenHomeView.glyph(platform ?? (isPhone ? .ios : .macos))
+    }
 
     /// False only for a Windows PC, which cmux can't view yet; every other row keeps the state it had before.
     var viewable: Bool { platform != .windows }
