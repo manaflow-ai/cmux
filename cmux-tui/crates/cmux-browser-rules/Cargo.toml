@@ -11,5 +11,7 @@ description = "The browser pane's rules for the cmux macOS app, out of its Swift
 workspace = true
 
 [dependencies]
+# Foundation's URL parts, for the URL filter (src/url_filter.rs).
+cmux-url-input.workspace = true
 serde.workspace = true
 serde_json.workspace = true

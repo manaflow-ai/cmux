@@ -150,6 +150,22 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.newMachineKept", defaultValue: "Its new machine `%1$@` still runs. Delete it with `cmux cloud kill-machine --target machine:%2$@ --confirm true`.", table: "CloudSessions", bundle: .module), name, id)
     }
 
+    /// A failed start's error once the machine it made for itself is deleted: its `message` without the steps that name
+    /// that machine (`machine:ID`), which `cmux` refuses for a gone machine ("No Cloud machine has the id"), then that a
+    /// new chat starts on a new machine. Production, 2026-11-28 05:20Z-07:45Z (cmuxterm-hq#36372): four starts said
+    /// "Run `cmux vm start-session --target vm:…` again" for a machine already deleted. Nil when `message` names none.
+    public static func newMachineDeleted(_ name: String, id: String, after message: String) -> String? {
+        guard let named = message.range(of: "machine:\(id)") else { return nil }
+        let before = message[..<named.lowerBound]
+        let kept: String
+        if let end = before.lastIndex(where: { ".。".contains($0) }) {
+            kept = String(message[...end])
+        } else if let tick = before.lastIndex(of: "`") {
+            kept = message[..<tick].trimmingCharacters(in: .whitespaces)
+        } else { return nil }
+        return kept + " " + String(format: String(localized: "cloud.startSession.newMachineDeleted", defaultValue: "Its new machine `%1$@` was deleted. Start a new chat to try again on a new machine.", table: "CloudSessions", bundle: .localizedModule), name)
+    }
+
     /// The person closed the new chat's tab before its session started.
     public static func tabClosed(_ name: String, id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.tabClosed", defaultValue: "The new chat's tab on machine `%1$@` was closed before its agent started, so %3$@ didn't start there. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .localizedModule), name, id, agent)
@@ -261,6 +277,12 @@ public struct CloudStartSessionStrings {
 
     public static func targetUnread(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.startSession.targetUnread", defaultValue: "Couldn't read the Cloud machines of the account signed in now, so %2$@ didn't start on %1$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command)
+    }
+
+    /// The list read itself failed (`reason`), so the start stopped before any create: name that failure, not a guess
+    /// that a machine by the name exists.
+    public static func listFailed(_ asked: Asked, reason: String) -> String {
+        String(format: String(localized: "cloud.startSession.listFailed", defaultValue: "Couldn't read your Cloud machines, so %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command, reason)
     }
 
     public static func listUnread(_ asked: Asked) -> String {

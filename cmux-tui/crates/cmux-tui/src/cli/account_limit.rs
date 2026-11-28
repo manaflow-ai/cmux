@@ -9,6 +9,23 @@ use serde_json::{Value, json};
 use acpmux::usage_limit::{AccountLimit, harness_name, other_agent};
 use cmux_json::JsonSet as _;
 
+use super::cloud_start_chat::Outcome;
+
+/// A turn that failed on its agent's account (out of usage, or turned off) answers what
+/// happened and the way on, not the agent's bare words (cmux#55066).
+pub(super) fn explain_outcome(outcome: Outcome, agent: &str) -> Outcome {
+    match outcome {
+        Outcome::Failed { mut error, exit }
+            if error.get("code").and_then(Value::as_str) == Some("chat.turn_failed") =>
+        {
+            let said = error.get("message").and_then(Value::as_str).unwrap_or_default().to_owned();
+            explain(&mut error, &said, agent);
+            Outcome::Failed { error, exit }
+        }
+        outcome => outcome,
+    }
+}
+
 /// Rewrites `error` (a `chat.turn_failed`) when `said`, the agent's error, names an account
 /// limit. `harness` is the chat's harness id (`claude`, `codex`, `claude-sr`); empty is Claude.
 pub(super) fn explain(error: &mut Value, said: &str, harness: &str) {
