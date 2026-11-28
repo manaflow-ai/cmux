@@ -64,6 +64,7 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
             if row.waitForExistence(timeout: 5) { return row }
         }
         attach(app, "no-face-row-\(title)")
+        print("CMUX_MOBILE_UI_NO_FACE_ROW keyboard=\(app.keyboards.firstMatch.exists) pill=\(pill.exists)/\(pill.isHittable) glyph=\(glyph.exists)")
         return nil
     }
 
@@ -72,9 +73,20 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     func face(_ app: XCUIApplication) -> String? {
         guard let row = faceRow(app) else { return nil }
         let face = row.label.hasPrefix("Show Terminal") ? "chat" : "terminal"
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
-        _ = row.waitForNonExistence(timeout: 5)
+        closeMenu(app, row)
         return face
+    }
+
+    /// Closes the page menu with a tap outside it on the status bar row. A tap on the page itself
+    /// lands on the terminal, which takes focus and raises the keyboard: the bottom pill then never
+    /// turns hittable again and the next `faceRow` finds no row.
+    @MainActor
+    func closeMenu(_ app: XCUIApplication, _ row: XCUIElement) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).tap()
+        if row.waitForNonExistence(timeout: 3) { return }
+        attach(app, "menu-still-open-\(title)")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.02)).tap()
+        _ = row.waitForNonExistence(timeout: 5)
     }
 
     /// Waits until the open tab shows `wanted` (the kept face lands once the file is read).
