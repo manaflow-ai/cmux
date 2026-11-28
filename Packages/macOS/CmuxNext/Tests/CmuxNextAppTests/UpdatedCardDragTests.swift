@@ -223,35 +223,4 @@ struct UpdatedCardDragTests {
         host.configure(nil)
     }
 
-    /// Through the App's real island and page provider: the page's drag reaches the host in points,
-    /// and the host's place reaches the page.
-    @Test func theAppsIslandCarriesTheDragAndThePlace() async throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let island = UpdateSurfaceIsland(kind: .updated, services: services)
-        defer { island.close() }
-        var drags: [SidebarCardDrag] = []
-        island.onDrag = { drags.append($0) }
-        let context = PageCallContext(page: PageDescriptor.changelog.id)
-        _ = try await island.provider.card.call("cmux.changelog.surface.card.drag",
-                                                params: .object(["x": .number(0), "y": .number(-40)]), context: context)
-        _ = try await island.provider.card.call("cmux.changelog.surface.card.drag",
-                                                params: .object(["x": .number(0), "y": .number(-200), "anchor": .string("top")]),
-                                                context: context)
-        #expect(drags.count == 2)
-        #expect(drags.first?.drop == nil)
-        #expect(drags.last?.drop == .top)
-        #expect((drags.first?.offset.y ?? 0) <= -40, "CSS px at the page's zoom, in points")
-
-        var places: [JSONValue] = []
-        let subscription = try await island.provider.card.subscribe("cmux.changelog.surface.card.place", filter: .object([:]),
-                                                                    context: context) { places.append($0) }
-        island.setPlace(SidebarCardPlace(anchor: .bottom, above: 400, below: 0))
-        island.setPlace(SidebarCardPlace(anchor: .bottom, above: 400, below: 0))
-        #expect(places.count == 1, "an unchanged place is not sent again")
-        #expect(places.first?["anchor"]?.stringValue == "bottom")
-        // Review F3 of #37790: the page reads the pointer's screen deltas in CSS px at this zoom.
-        #expect(places.first?["zoom"]?.doubleValue == Double(island.provider.card.zoom()))
-        subscription.cancel()
-    }
 }

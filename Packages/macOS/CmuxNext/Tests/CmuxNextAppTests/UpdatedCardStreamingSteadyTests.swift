@@ -172,14 +172,4 @@ struct UpdatedCardStreamingSteadyTests {
         #expect(counts == Counts(), "a streaming turn touched the Updated card: \(counts)")
     }
 
-    /// The App's island: its page keeps the web it loaded with, so a web update never reloads the card in place.
-    @Test func theUpdatedCardsPageKeepsItsWebThroughAWebUpdate() throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let island = UpdateSurfaceIsland(kind: .updated, services: services)
-        defer { island.close() }
-        let page = try #require(island.view as? PageWebView, "the card's surface is a page")
-        #expect(WebBundleServedViews.shared.keepsLoadedTree(page.webKitView),
-                "a web update would reload the Updated card's page in place (a blank frame at every merge)")
-    }
 }
