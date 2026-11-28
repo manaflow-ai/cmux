@@ -122,7 +122,7 @@ impl Http for Bridge {
     ) -> Result<(u16, Value), String> {
         let left = self.deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
-            return Err("the vault took too long: try again".to_owned());
+            return Err("the vault took too long to answer".to_owned());
         }
         let device = headers
             .iter()

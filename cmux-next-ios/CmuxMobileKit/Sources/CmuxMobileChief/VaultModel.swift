@@ -104,6 +104,12 @@ public final class VaultModel {
         case loading
         case failed(String)
         case loaded
+
+        /// The status read failed; the screen reads it again on its own (``AutoRetry``).
+        public var isFailed: Bool {
+            if case .failed = self { return true }
+            return false
+        }
     }
 
     public private(set) var phase: Phase = .loading

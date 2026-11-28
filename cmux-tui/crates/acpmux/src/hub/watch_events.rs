@@ -388,7 +388,7 @@ fn emit(
         let name = s["name"].as_str().unwrap_or(key);
         let reply: String = crate::secret_scan::mask(&c.reply).chars().take(400).collect();
         let next = if state == "blocked" {
-            "\nIf the remote sandbox refused the work, choose Full access on the starting machine only when authorized, or retry with a folder and tools that sandbox permits."
+            "\nIf the remote sandbox refused the work, choose Full access on the starting machine only when authorized, or choose a folder and tools that sandbox permits."
         } else {
             ""
         };

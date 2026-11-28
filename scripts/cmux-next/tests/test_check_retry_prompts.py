@@ -67,6 +67,10 @@ class RetryPrompts(unittest.TestCase):
         self.write("webviews/src/pages/Add.tsx", 'export const Add = () => <button>{t("project.retry")}</button>;\n')
         self.assertEqual(self.run_check()[0], 1)
 
+    def test_retry_after_a_wait_is_still_a_prompt(self) -> None:
+        self.write("webviews/src/pages/Wait.tsx", 'const wait = "Cloud is busy. Retry after a minute.";\n')
+        self.assertEqual(self.run_check()[0], 1)
+
     def test_swift_button_and_rust_error_fail(self) -> None:
         self.write("cmux-next-ios/Kit/Sources/Chat/Screen.swift", 'Button("Try Again") { reload() }\n')
         self.write("cmux-tui/crates/acpmux/src/cli/chats.rs",
@@ -101,6 +105,10 @@ class RetryPrompts(unittest.TestCase):
             const usage = "cmux: reload-config takes no arguments";
             const next = "Serving, trying again {next}: {why}";
             const attempt = "retry {attempt} of {of} waits out {cause}";
+            const exhausted = "reconnect failed after {attempts} attempts: {last}";
+            const timedOut = "reconnect attempt timed out after {}ms";
+            const expired = "reconnect deadline expired after {attempts} attempts";
+            const header = ["retry after ", "retry-after: ", "retry-after "];
             const open = t("project.open");
             console.warn("Try again later");
             export const Quiet = () => <p>Reconnecting…</p>;

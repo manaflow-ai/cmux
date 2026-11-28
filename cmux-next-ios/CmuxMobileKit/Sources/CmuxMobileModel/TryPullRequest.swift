@@ -152,8 +152,14 @@ public final class TryPullRequestModel {
         case loading
         case loaded(TryPullRequestList)
         case failed(String)
-        /// The Mac's link is down; the page offers Try Again.
+        /// The Mac's link is down; the page reads again when it connects.
         case unreachable
+
+        /// The list read failed; the page reads it again on its own (``AutoRetry``).
+        public var isFailed: Bool {
+            if case .failed = self { return true }
+            return false
+        }
     }
 
     public enum Install: Equatable {
