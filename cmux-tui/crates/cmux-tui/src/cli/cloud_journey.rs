@@ -467,8 +467,6 @@ fn run_tag() -> String {
     format!("jr-{}", out.iter().rev().collect::<String>())
 }
 
-/// One machine's exec, through a client session minted once and reused, or through the cmux API's
-/// exec route on a provider with no client sessions (cloud_client_session.rs's two routes).
 /// The client the journey's machine file writes, session mints and execs go out on.
 fn exec_client(ua: &str) -> Result<reqwest::Client, String> {
     cmux_egress::client_builder("cmux_tui::cli::cloud_journey")
@@ -479,6 +477,8 @@ fn exec_client(ua: &str) -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
+/// One machine's exec, through a client session minted once and reused, or through the cmux API's
+/// exec route on a provider with no client sessions (cloud_client_session.rs's two routes).
 struct Exec<'a> {
     client: &'a reqwest::Client,
     scope: &'a Scope,
