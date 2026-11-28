@@ -143,8 +143,9 @@ extension CEFTabContentView: PaneMotionTargeting {
             // A retarget: a key press that caught the spring (its pane's host starts no key resize on a running spring,
             // so ``holdPage(for:)`` never comes) or another close. The page follows its pane from here, as any page does.
             endRestHold()
-        } else if !pageSyncReasons.contains(.paneSpring), pageHoldsKeys {
-            // Decided at the spring's start: the page that holds the keys waits at its rest.
+        } else if !pageSyncReasons.contains(.paneSpring), pageHoldsKeys || CEFLayerHosting.springRestsEveryPage {
+            // Decided at the spring's start: the page that holds the keys (with `CMUX_CEF_SPRING_REST_ALL=1`, every page)
+            // waits at its rest.
             let rest = CGSize(width: bounds.width + sizeChange.width, height: bounds.height + sizeChange.height)
             if holdPageAtRest(rest) {
                 pageRestHold = true
