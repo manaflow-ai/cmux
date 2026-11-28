@@ -307,6 +307,21 @@ impl Hub {
         self.write_archive(session, &dir, pending);
     }
 
+    /// [`Self::archive_aged_inbox`] for a caller that already holds the inbox (`inbox`): ages
+    /// out into it and answers what to write, outside the lock. It never reads `session.inbox()`.
+    pub(super) fn age_out_restored(
+        &self,
+        session: &Session,
+        inbox: &mut Inbox,
+    ) -> Option<(PathBuf, Vec<Value>)> {
+        let Some(dir) = self.inbox_archive_dir(session) else {
+            inbox.archive_pending.clear();
+            return None;
+        };
+        age_out(inbox, now_ms(), ARCHIVE_AGE_MS);
+        Some((dir, std::mem::take(&mut inbox.archive_pending)))
+    }
+
     /// Writes `lines`; a write that fails puts the messages back where they were (the journal
     /// holds them either way, so a thread read still finds them).
     pub(super) fn write_archive(&self, session: &Session, dir: &Path, lines: Vec<Value>) {

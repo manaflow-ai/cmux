@@ -64,6 +64,13 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// The folded header counts its groups in words (trayFoldHead.experiment.ts `groups`); its default is now
+// the one `line` ("N subagents working"), which draws the panel button only while open.
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-tray-fold-head": "groups" };
+afterAll(() => {
+  const pins = globalThis.cmuxExperiments as Record<string, string> | undefined;
+  if (pins) delete pins["subagent-tray-fold-head"];
+});
 
 const now = Date.now();
 const agent = (id: string, task: string, startedAgo: number): Subagent => ({
@@ -317,16 +324,18 @@ describe("Background tasks opens as a tab in the right column", () => {
     expect(await openBackgroundPane(async () => Promise.reject(new Error("no host")), "Background tasks")).toBe(false);
   });
 
-  test("in its own tab the header keeps Clear finished, without Expand or Close", async () => {
+  test("in its own tab there is no header: no title, no Expand or Close, and Clear finished is on the Finished heading", async () => {
     const host = dom.window.document.getElementById("root")!;
     const root = createRoot(host);
     await act(async () =>
       root.render(createElement(BackgroundTasksPanel, { groups: GROUPS, views: VIEWS, onClearFinished: () => {} })),
     );
-    const labels = [...host.querySelectorAll(".acpmux-bg__head button")].map((b) => b.getAttribute("aria-label"));
-    expect(labels).not.toContain("Expand");
-    expect(labels).not.toContain("Close");
-    expect(host.querySelector(".acpmux-bg__title")?.textContent).toBe("Background tasks");
+    // The tab already says "Background tasks" (Leo, 2026-11-24: "could be cut entirely").
+    expect(host.querySelector(".acpmux-bg__head")).toBeNull();
+    expect(host.querySelector(".acpmux-bg__title")).toBeNull();
+    const clear = host.querySelector('[data-section="finished"] .acpmux-bg__clear');
+    expect(clear?.textContent).toBe("Clear finished");
+    expect(host.querySelector(".acpmux-bg__head .acpmux-bg__clear")).toBeNull();
     await act(async () => root.unmount());
   });
 });
