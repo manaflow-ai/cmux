@@ -93,7 +93,7 @@ jobs:
           # changes a Package.swift or Package.resolved seeds at once (cmux#38170's daemon tests built
           # cold 29 minutes). The index holds every path in a sparse checkout; Xcode is not on Linux and
           # only the inputs field is read. Unread inputs count every seed, as before.
-          inputs="$(CMUX_FAST_CACHE_XCODE_VERSION=none scripts/cmux-next/fast-tier-cache-key.sh 2>/dev/null | sed -n 's/^swift-prefix=.*-\([0-9a-f]\{16\}\)-[0-9a-f]\{12\}-$/\1/p')" || inputs=""
+          inputs="$(CMUX_FAST_CACHE_XCODE_VERSION=none scripts/cmux-next/fast-tier-cache-key.sh 2>/dev/null | sed -n 's/^inputs=\([0-9a-f]\{16\}\)$/\1/p')" || inputs=""
           pools="$SEED_POOLS"
           if [[ "$SECOND_SEED_ROOT" == 0 ]]; then
             pools="$(python3 -I -c 'import json, sys; print(json.dumps([p for p in json.loads(sys.argv[1]) if p["pool"] != "blacksmith-root2"]))' "$SEED_POOLS")"
