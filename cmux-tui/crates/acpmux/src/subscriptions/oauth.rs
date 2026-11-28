@@ -514,24 +514,6 @@ fn copilot_api_url(raw: &str) -> Option<String> {
     .then(|| url.origin().ascii_serialization())
 }
 
-#[cfg(test)]
-#[test]
-fn copilot_api_url_accepts_only_github_copilot_origins() {
-    assert_eq!(
-        copilot_api_url("https://api.business.githubcopilot.com/").as_deref(),
-        Some("https://api.business.githubcopilot.com"),
-    );
-    for url in [
-        "https://notgithubcopilot.com",
-        "https://api.githubcopilot.com.example.com",
-        "https://api.githubcopilot.com@localhost",
-        "http://api.githubcopilot.com",
-        "https://api.githubcopilot.com/?query",
-    ] {
-        assert!(copilot_api_url(url).is_none());
-    }
-}
-
 fn verification_url(provider: Provider, raw: &str) -> bool {
     let Ok(url) = Url::parse(raw) else { return false };
     url.scheme() == "https"
@@ -575,4 +557,26 @@ fn form(request: RequestBuilder, pairs: &[(&str, &str)]) -> RequestBuilder {
     request
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(crate::chatgpt::oauth::form_encode(pairs))
+}
+
+#[cfg(test)]
+mod copilot_url_tests {
+    use super::copilot_api_url;
+
+    #[test]
+    fn copilot_api_url_accepts_only_github_copilot_origins() {
+        assert_eq!(
+            copilot_api_url("https://api.business.githubcopilot.com/").as_deref(),
+            Some("https://api.business.githubcopilot.com"),
+        );
+        for url in [
+            "https://notgithubcopilot.com",
+            "https://api.githubcopilot.com.example.com",
+            "https://api.githubcopilot.com@localhost",
+            "http://api.githubcopilot.com",
+            "https://api.githubcopilot.com/?query",
+        ] {
+            assert!(copilot_api_url(url).is_none());
+        }
+    }
 }

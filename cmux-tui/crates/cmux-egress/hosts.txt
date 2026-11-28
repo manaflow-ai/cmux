@@ -24,6 +24,16 @@
 # when: only when an agent uses that integration in your signed-in browser
 # off: don't give an agent the integration, or sign out of the site in cmux's browser
 accounts.google.com
+# the Vercel AI Gateway API, when you add a Vercel AI Gateway key in Settings
+# sends: your prompts, the files and output the agent sends, and your Vercel AI Gateway key
+# when: when an agent uses your Vercel AI Gateway key
+# off: remove the Vercel AI Gateway key
+ai-gateway.vercel.sh
+# the Google Vertex AI API, when you add a Google Vertex AI key in Settings or sign a Gemini agent in to Vertex
+# sends: your prompts, the files and output the agent sends, and your Google Vertex AI key
+# when: when an agent uses your Google Vertex AI key
+# off: remove the Google Vertex AI key
+aiplatform.googleapis.com
 # cmux's chat relay API on staging, only when chosen
 # sends: your chatmux session's messages and your account token
 # when: only when you choose staging
@@ -49,6 +59,11 @@ api.artic.edu
 # when: as you type, when Bing is your search engine
 # off: `browser.omnibar.remoteSuggestions` off, or another `browser.searchEngine`
 api.bing.com
+# the Cerebras API, when you add a Cerebras key in Settings
+# sends: your prompts, the files and output the agent sends, and your Cerebras key
+# when: when an agent uses your Cerebras key
+# off: remove the Cerebras key
+api.cerebras.ai
 # cmux's chat relay API, for chatmux sessions
 # sends: your chatmux session's messages and your account token
 # when: when you use chatmux sessions
@@ -59,6 +74,21 @@ api.chatmux.dev
 # when: only `cmux keys connect cloudflare` or `cmux keys mint`
 # off: don't run those commands
 api.cloudflare.com
+# the DeepSeek API, when you add a DeepSeek key in Settings
+# sends: your prompts, the files and output the agent sends, and your DeepSeek key
+# when: when an agent uses your DeepSeek key
+# off: remove the DeepSeek key
+api.deepseek.com
+# the Mistral (EU region) API, when you add a Mistral (EU region) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Mistral (EU region) key
+# when: when an agent uses your Mistral (EU region) key
+# off: remove the Mistral (EU region) key
+api.eu.mistral.ai
+# the Fireworks AI API, when you add a Fireworks AI key in Settings
+# sends: your prompts, the files and output the agent sends, and your Fireworks AI key
+# when: when an agent uses your Fireworks AI key
+# off: remove the Fireworks AI key
+api.fireworks.ai
 # only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Freestyle key): lists, starts and pauses the pool's VMs; never run by the app
 # sends: the CI pool's own requests with cmux CI's credential
 # when: only `cmux vm pool`, run by cmux's own CI
@@ -74,6 +104,56 @@ api.github.com
 # when: when an agent on a Cloud machine calls a GitHub tool
 # off: don't connect GitHub to Cloud machines
 api.githubcopilot.com
+# the Groq API, when you add a Groq key in Settings
+# sends: your prompts, the files and output the agent sends, and your Groq key
+# when: when an agent uses your Groq key
+# off: remove the Groq key
+api.groq.com
+# the Kimi Code (global) API, when you add a Kimi Code (global) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Kimi Code (global) key
+# when: when an agent uses your Kimi Code (global) key
+# off: remove the Kimi Code (global) key
+api.kimi.ai
+# the Kimi Code (China) API, when you add a Kimi Code (China) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Kimi Code (China) key
+# when: when an agent uses your Kimi Code (China) key
+# off: remove the Kimi Code (China) key
+api.kimi.com
+# the Meta Llama API, when you add a Meta Llama key in Settings
+# sends: your prompts, the files and output the agent sends, and your Meta Llama key
+# when: when an agent uses your Meta Llama key
+# off: remove the Meta Llama key
+api.meta.ai
+# the MiniMax (global) API, when you add a MiniMax (global) key in Settings
+# sends: your prompts, the files and output the agent sends, and your MiniMax (global) key
+# when: when an agent uses your MiniMax (global) key
+# off: remove the MiniMax (global) key
+api.minimax.io
+# the MiniMax (China) API, when you add a MiniMax (China) key in Settings
+# sends: your prompts, the files and output the agent sends, and your MiniMax (China) key
+# when: when an agent uses your MiniMax (China) key
+# off: remove the MiniMax (China) key
+api.minimaxi.com
+# the Mistral API, when you add a Mistral key in Settings
+# sends: your prompts, the files and output the agent sends, and your Mistral key
+# when: when an agent uses your Mistral key
+# off: remove the Mistral key
+api.mistral.ai
+# the Moonshot (international) API, when you add a Moonshot (international) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Moonshot (international) key
+# when: when an agent uses your Moonshot (international) key
+# off: remove the Moonshot (international) key
+api.moonshot.ai
+# the Moonshot (mainland China) API, when you add a Moonshot (mainland China) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Moonshot (mainland China) key
+# when: when an agent uses your Moonshot (mainland China) key
+# off: remove the Moonshot (mainland China) key
+api.moonshot.cn
+# the Morph API, when you add a Morph key in Settings
+# sends: your prompts, the files and output the agent sends, and your Morph key
+# when: when an agent uses your Morph key
+# off: remove the Morph key
+api.morphllm.com
 # the clock and weather widget's forecast, only when you install it (a customize template)
 # sends: your city's coordinates
 # when: when the clock and weather widget refreshes
@@ -94,11 +174,26 @@ api.stack-auth.com
 # when: only when you add a Cloud machine to your tailnet with an OAuth client
 # off: don't add Cloud machines to a tailnet with an OAuth client
 api.tailscale.com
+# the Together AI API, when you add a Together AI key in Settings (its key page is on the same host)
+# sends: your prompts, the files and output the agent sends, and your Together AI key
+# when: when an agent uses your Together AI key
+# off: remove the Together AI key
+api.together.ai
+# the Mistral (US region) API, when you add a Mistral (US region) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Mistral (US region) key
+# when: when an agent uses your Mistral (US region) key
+# off: remove the Mistral (US region) key
+api.us.mistral.ai
 # the xAI API, when you give an agent an xAI API key
 # sends: your prompts, the files and output the agent sends, and your xAI key
 # when: when an agent uses your xAI key or sign-in
 # off: remove the xAI key or sign-in
 api.x.ai
+# the Z.ai API, when you add a Z.ai key in Settings
+# sends: your prompts, the files and output the agent sends, and your Z.ai key
+# when: when an agent uses your Z.ai key
+# off: remove the Z.ai key
+api.z.ai
 # the Notion integration, only when an agent uses it in your signed-in browser
 # sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
 # when: only when an agent uses that integration in your signed-in browser
@@ -114,6 +209,16 @@ app.slack.com
 # when: when a GitHub page or agent reply you open shows an image
 # off: not a setting: it follows what you open
 avatars.githubusercontent.com
+# the Amazon Bedrock API in the region you pick, when you add a Bedrock key in Settings
+# sends: your prompts, the files and output the agent sends, and your Bedrock key
+# when: when an agent uses your Bedrock key
+# off: remove the Bedrock key
+bedrock-mantle.*.api.aws
+# the Amazon Bedrock API's default region (us-east-1), when you add a Bedrock key in Settings
+# sends: your prompts, the files and output the agent sends, and your Bedrock key
+# when: when an agent uses your Bedrock key
+# off: remove the Bedrock key
+bedrock-mantle.us-east-1.api.aws
 # the Google integration, only when an agent uses it in your signed-in browser
 # sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
 # when: only when an agent uses that integration in your signed-in browser
@@ -259,6 +364,21 @@ commons.wikimedia.org
 # when: only `cmux vm pool`, run by cmux's own CI
 # off: the app never runs it
 compute.googleapis.com
+# the Alibaba Model Studio (international) API, when you add a Alibaba Model Studio (international) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Alibaba Model Studio (international) key
+# when: when an agent uses your Alibaba Model Studio (international) key
+# off: remove the Alibaba Model Studio (international) key
+dashscope-intl.aliyuncs.com
+# the Alibaba Model Studio (US) API, when you add a Alibaba Model Studio (US) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Alibaba Model Studio (US) key
+# when: when an agent uses your Alibaba Model Studio (US) key
+# off: remove the Alibaba Model Studio (US) key
+dashscope-us.aliyuncs.com
+# the Alibaba Model Studio (China) API, when you add a Alibaba Model Studio (China) key in Settings
+# sends: your prompts, the files and output the agent sends, and your Alibaba Model Studio (China) key
+# when: when an agent uses your Alibaba Model Studio (China) key
+# off: remove the Alibaba Model Studio (China) key
+dashscope.aliyuncs.com
 # the Google integration, only when an agent uses it in your signed-in browser
 # sends: the requests your signed-in browser makes for the agent's task, with that site's cookies
 # when: only when an agent uses that integration in your signed-in browser
@@ -299,6 +419,11 @@ fonts.gstatic.com
 # when: when a Homebrew-installed cmux CLI checks for a newer version
 # off: no setting yet
 formulae.brew.sh
+# Cloudflare AI Gateway, at the account and gateway you enter, when you add a Cloudflare AI Gateway key in Settings
+# sends: your prompts, the files and output the agent sends, and your Cloudflare AI Gateway key
+# when: when an agent uses your Cloudflare AI Gateway key
+# off: remove the Cloudflare AI Gateway key
+gateway.ai.cloudflare.com
 # the Google AI API, when you give an agent a Google AI API key
 # sends: your prompts, the files and output the agent sends, and your Google AI key
 # when: when an agent uses your Google AI key or sign-in
@@ -344,6 +469,16 @@ ice2.somafm.com
 # when: when a Cloud machine's crates cache needs an index file no peer has fresh
 # off: create `/etc/cmux/crates-cache.disabled` on the Cloud machine
 index.crates.io
+# the Baseten API, when you add a Baseten key in Settings
+# sends: your prompts, the files and output the agent sends, and your Baseten key
+# when: when an agent uses your Baseten key
+# off: remove the Baseten key
+inference.baseten.co
+# the NVIDIA NIM API, when you add a NVIDIA NIM key in Settings
+# sends: your prompts, the files and output the agent sends, and your NVIDIA NIM key
+# when: when an agent uses your NVIDIA NIM key
+# off: remove the NVIDIA NIM key
+integrate.api.nvidia.com
 # images in agent replies
 # sends: an image request (your IP address and the image's URL)
 # when: when a GitHub page or agent reply you open shows an image
@@ -384,6 +519,11 @@ o4507547940749312.ingest.us.sentry.io
 # when: once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub
 # off: no setting yet; it never runs on a machine that is not joined
 objects.githubusercontent.com
+# the Zhipu BigModel API, when you add a Zhipu key in Settings (its key page is on the same host)
+# sends: your prompts, the files and output the agent sends, and your Zhipu key
+# when: when an agent uses your Zhipu key
+# off: remove the Zhipu key
+open.bigmodel.cn
 # museum art for backgrounds, when you search for art
 # sends: your art search words, then image requests
 # when: when you search for background art
@@ -434,6 +574,11 @@ registry.npmjs.org
 # when: once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub
 # off: no setting yet; it never runs on a machine that is not joined
 release-assets.githubusercontent.com
+# the Hugging Face Inference Providers API, when you add a Hugging Face Inference Providers key in Settings
+# sends: your prompts, the files and output the agent sends, and your Hugging Face Inference Providers key
+# when: when an agent uses your Hugging Face Inference Providers key
+# off: remove the Hugging Face Inference Providers key
+router.huggingface.co
 # shared workspace links in development builds
 # sends: the shared workspace link's contents
 # when: development builds only, or when you choose that stack
@@ -469,6 +614,11 @@ stun.cloudflare.com
 # when: when the remote-desktop link's first STUN server fails
 # off: don't start a remote-desktop link
 stun.l.google.com
+# the third STUN server of `cmux-nat-probe`, a NAT-traversal measurement tool the team runs, not the app: it learns only the probe's public address
+# sends: a STUN probe: only the public address
+# when: when someone runs `cmux-nat-probe`
+# off: don't run `cmux-nat-probe`
+stun1.l.google.com
 # search suggestions as you type, when Google is your search engine
 # sends: what you type in the address bar
 # when: as you type, when Google is your search engine

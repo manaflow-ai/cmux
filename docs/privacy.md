@@ -109,24 +109,45 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `*.atlassian.net` | connects | the Jira integration: your company's Jira site, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `*.r2.cloudflarestorage.com` | connects | a large chat attachment you upload or open in cmux Cloud: the file's bytes go to cmux's storage bucket through a presigned URL the cmux API made | the attachment file's bytes | when you upload or open a large chat attachment in cmux Cloud | don't attach large files in Cloud chats |
 | `accounts.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
+| `ai-gateway.vercel.sh` | connects | the Vercel AI Gateway API, when you add a Vercel AI Gateway key in Settings | your prompts, the files and output the agent sends, and your Vercel AI Gateway key | when an agent uses your Vercel AI Gateway key | remove the Vercel AI Gateway key |
+| `aiplatform.googleapis.com` | connects | the Google Vertex AI API, when you add a Google Vertex AI key in Settings or sign a Gemini agent in to Vertex | your prompts, the files and output the agent sends, and your Google Vertex AI key | when an agent uses your Google Vertex AI key | remove the Google Vertex AI key |
 | `api-staging.chatmux.dev` | connects | cmux's chat relay API on staging, only when chosen | your chatmux session's messages and your account token | only when you choose staging | release builds use production unless you choose staging |
 | `api.*.wdev.cmux.dev` | connects | the API of a cmux developer's preview stack, only when the iPhone app's backend override names one | the iPhone app's API requests and account token | only when the iPhone app's backend override names one | clear the backend override |
 | `api.anthropic.com` | connects | the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude | your prompts, the files and output the agent sends, and your Anthropic key | when an agent uses your Anthropic key or sign-in | remove the Anthropic key or sign-in |
 | `api.artic.edu` | connects | museum art for backgrounds, when you search for art | your art search words, then image requests | when you search for background art | don't search for art (`appearance.background`) |
 | `api.bing.com` | connects | search suggestions as you type, when Bing is your search engine | what you type in the address bar | as you type, when Bing is your search engine | `browser.omnibar.remoteSuggestions` off, or another `browser.searchEngine` |
+| `api.cerebras.ai` | connects | the Cerebras API, when you add a Cerebras key in Settings | your prompts, the files and output the agent sends, and your Cerebras key | when an agent uses your Cerebras key | remove the Cerebras key |
 | `api.chatmux.dev` | connects | cmux's chat relay API, for chatmux sessions | your chatmux session's messages and your account token | when you use chatmux sessions | don't start a chatmux session |
 | `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` | your Cloudflare token and the key requests you run | only `cmux keys connect cloudflare` or `cmux keys mint` | don't run those commands |
+| `api.deepseek.com` | connects | the DeepSeek API, when you add a DeepSeek key in Settings | your prompts, the files and output the agent sends, and your DeepSeek key | when an agent uses your DeepSeek key | remove the DeepSeek key |
+| `api.eu.mistral.ai` | connects | the Mistral (EU region) API, when you add a Mistral (EU region) key in Settings | your prompts, the files and output the agent sends, and your Mistral (EU region) key | when an agent uses your Mistral (EU region) key | remove the Mistral (EU region) key |
+| `api.fireworks.ai` | connects | the Fireworks AI API, when you add a Fireworks AI key in Settings | your prompts, the files and output the agent sends, and your Fireworks AI key | when an agent uses your Fireworks AI key | remove the Fireworks AI key |
 | `api.freestyle.sh` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Freestyle key): lists, starts and pauses the pool's VMs; never run by the app | the CI pool's own requests with cmux CI's credential | only `cmux vm pool`, run by cmux's own CI | the app never runs it |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open | your GitHub token and the repo, PR and file requests you or an agent make | when you or an agent use git, gh or the app's GitHub views | sign out of GitHub (`gh auth logout`) |
 | `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls | the agent's GitHub tool calls with your GitHub token | when an agent on a Cloud machine calls a GitHub tool | don't connect GitHub to Cloud machines |
+| `api.groq.com` | connects | the Groq API, when you add a Groq key in Settings | your prompts, the files and output the agent sends, and your Groq key | when an agent uses your Groq key | remove the Groq key |
+| `api.kimi.ai` | connects | the Kimi Code (global) API, when you add a Kimi Code (global) key in Settings | your prompts, the files and output the agent sends, and your Kimi Code (global) key | when an agent uses your Kimi Code (global) key | remove the Kimi Code (global) key |
+| `api.kimi.com` | connects | the Kimi Code (China) API, when you add a Kimi Code (China) key in Settings | your prompts, the files and output the agent sends, and your Kimi Code (China) key | when an agent uses your Kimi Code (China) key | remove the Kimi Code (China) key |
+| `api.meta.ai` | connects | the Meta Llama API, when you add a Meta Llama key in Settings | your prompts, the files and output the agent sends, and your Meta Llama key | when an agent uses your Meta Llama key | remove the Meta Llama key |
+| `api.minimax.io` | connects | the MiniMax (global) API, when you add a MiniMax (global) key in Settings | your prompts, the files and output the agent sends, and your MiniMax (global) key | when an agent uses your MiniMax (global) key | remove the MiniMax (global) key |
+| `api.minimaxi.com` | connects | the MiniMax (China) API, when you add a MiniMax (China) key in Settings | your prompts, the files and output the agent sends, and your MiniMax (China) key | when an agent uses your MiniMax (China) key | remove the MiniMax (China) key |
+| `api.mistral.ai` | connects | the Mistral API, when you add a Mistral key in Settings | your prompts, the files and output the agent sends, and your Mistral key | when an agent uses your Mistral key | remove the Mistral key |
+| `api.moonshot.ai` | connects | the Moonshot (international) API, when you add a Moonshot (international) key in Settings | your prompts, the files and output the agent sends, and your Moonshot (international) key | when an agent uses your Moonshot (international) key | remove the Moonshot (international) key |
+| `api.moonshot.cn` | connects | the Moonshot (mainland China) API, when you add a Moonshot (mainland China) key in Settings | your prompts, the files and output the agent sends, and your Moonshot (mainland China) key | when an agent uses your Moonshot (mainland China) key | remove the Moonshot (mainland China) key |
+| `api.morphllm.com` | connects | the Morph API, when you add a Morph key in Settings | your prompts, the files and output the agent sends, and your Morph key | when an agent uses your Morph key | remove the Morph key |
 | `api.open-meteo.com` | connects | the clock and weather widget's forecast, only when you install it (a customize template) | your city's coordinates | when the clock and weather widget refreshes | remove the widget (a customize template you installed) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key | your prompts and agent output with your OpenAI key; on iPhone, voice call audio | when an agent uses your OpenAI key, or you start a voice call on iPhone | remove the OpenAI key; don't start voice calls |
 | `api.stack-auth.com` | connects | the sign-in service | your sign-in credentials and session token | when you sign in or the app refreshes your session | stay signed out |
 | `api.tailscale.com` | connects | the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine | your Tailscale OAuth client ID and secret, and the request for a single-use auth key | only when you add a Cloud machine to your tailnet with an OAuth client | don't add Cloud machines to a tailnet with an OAuth client |
+| `api.together.ai` | connects | the Together AI API, when you add a Together AI key in Settings (its key page is on the same host) | your prompts, the files and output the agent sends, and your Together AI key | when an agent uses your Together AI key | remove the Together AI key |
+| `api.us.mistral.ai` | connects | the Mistral (US region) API, when you add a Mistral (US region) key in Settings | your prompts, the files and output the agent sends, and your Mistral (US region) key | when an agent uses your Mistral (US region) key | remove the Mistral (US region) key |
 | `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key | your prompts, the files and output the agent sends, and your xAI key | when an agent uses your xAI key or sign-in | remove the xAI key or sign-in |
+| `api.z.ai` | connects | the Z.ai API, when you add a Z.ai key in Settings | your prompts, the files and output the agent sends, and your Z.ai key | when an agent uses your Z.ai key | remove the Z.ai key |
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies | an image request (your IP address and the image's URL) | when a GitHub page or agent reply you open shows an image | not a setting: it follows what you open |
+| `bedrock-mantle.*.api.aws` | connects | the Amazon Bedrock API in the region you pick, when you add a Bedrock key in Settings | your prompts, the files and output the agent sends, and your Bedrock key | when an agent uses your Bedrock key | remove the Bedrock key |
+| `bedrock-mantle.us-east-1.api.aws` | connects | the Amazon Bedrock API's default region (us-east-1), when you add a Bedrock key in Settings | your prompts, the files and output the agent sends, and your Bedrock key | when an agent uses your Bedrock key | remove the Bedrock key |
 | `calendar.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies | an image request (your IP address and the image's URL) | when a GitHub page or agent reply you open shows an image | not a setting: it follows what you open |
 | `captive.apple.com` | connects | only for a cmux team account, after a Mac stayed unreachable for 30 s: the iPhone app checks Apple's captive portal page (as iOS does) to tell its own outage from a cmux one | a plain page request, as iOS sends | only for a cmux team account, after a Mac stayed unreachable for 30 s | not a setting: team accounts only |
@@ -156,6 +177,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `codeload.github.com` | connects | a GitHub repository's archive at one commit, when you install an extension from it | an archive download request | when you install an extension from a GitHub repository | don't install extensions from GitHub |
 | `commons.wikimedia.org` | connects | museum art for backgrounds, when you search for art | your art search words, then image requests | when you search for background art | don't search for art (`appearance.background`) |
 | `compute.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): lists, resumes and suspends the pool's instances by name; never run by the app | the CI pool's own requests with cmux CI's credential | only `cmux vm pool`, run by cmux's own CI | the app never runs it |
+| `dashscope-intl.aliyuncs.com` | connects | the Alibaba Model Studio (international) API, when you add a Alibaba Model Studio (international) key in Settings | your prompts, the files and output the agent sends, and your Alibaba Model Studio (international) key | when an agent uses your Alibaba Model Studio (international) key | remove the Alibaba Model Studio (international) key |
+| `dashscope-us.aliyuncs.com` | connects | the Alibaba Model Studio (US) API, when you add a Alibaba Model Studio (US) key in Settings | your prompts, the files and output the agent sends, and your Alibaba Model Studio (US) key | when an agent uses your Alibaba Model Studio (US) key | remove the Alibaba Model Studio (US) key |
+| `dashscope.aliyuncs.com` | connects | the Alibaba Model Studio (China) API, when you add a Alibaba Model Studio (China) key in Settings | your prompts, the files and output the agent sends, and your Alibaba Model Studio (China) key | when an agent uses your Alibaba Model Studio (China) key | remove the Alibaba Model Studio (China) key |
 | `docs.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `drive.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `drive.usercontent.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
@@ -164,6 +188,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `fonts.googleapis.com` | connects | fonts an agent's rendered page may load | a file request (your IP address and the file's URL) | when an agent's rendered page loads it | not a setting: it follows the page you open |
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load | a file request (your IP address and the file's URL) | when an agent's rendered page loads it | not a setting: it follows the page you open |
 | `formulae.brew.sh` | connects | checks for a newer cmux CLI when installed with Homebrew | a version lookup for the cmux CLI | when a Homebrew-installed cmux CLI checks for a newer version | no setting yet |
+| `gateway.ai.cloudflare.com` | connects | Cloudflare AI Gateway, at the account and gateway you enter, when you add a Cloudflare AI Gateway key in Settings | your prompts, the files and output the agent sends, and your Cloudflare AI Gateway key | when an agent uses your Cloudflare AI Gateway key | remove the Cloudflare AI Gateway key |
 | `generativelanguage.googleapis.com` | connects | the Google AI API, when you give an agent a Google AI API key | your prompts, the files and output the agent sends, and your Google AI key | when an agent uses your Google AI key or sign-in | remove the Google AI key or sign-in |
 | `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) | the city name you search | when you search a city in the clock and weather widget | remove the widget (a customize template you installed) |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media | your GitHub token and the repo, PR and file requests you or an agent make | when you or an agent use git, gh or the app's GitHub views | sign out of GitHub (`gh auth logout`) |
@@ -173,6 +198,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches | the agent's search words | when an agent uses its web search tool | don't give agents the search tool |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) | a stream request | when you press Play in the radio player | remove the widget (a customize template you installed) |
 | `index.crates.io` | connects | crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code | the index file's name and its ETag | when a Cloud machine's crates cache needs an index file no peer has fresh | create `/etc/cmux/crates-cache.disabled` on the Cloud machine |
+| `inference.baseten.co` | connects | the Baseten API, when you add a Baseten key in Settings | your prompts, the files and output the agent sends, and your Baseten key | when an agent uses your Baseten key | remove the Baseten key |
+| `integrate.api.nvidia.com` | connects | the NVIDIA NIM API, when you add a NVIDIA NIM key in Settings | your prompts, the files and output the agent sends, and your NVIDIA NIM key | when an agent uses your NVIDIA NIM key | remove the NVIDIA NIM key |
 | `lh3.googleusercontent.com` | connects | images in agent replies | an image request (your IP address and the image's URL) | when a GitHub page or agent reply you open shows an image | not a setting: it follows what you open |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `mail.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
@@ -181,6 +208,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `monitoring.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app | the CI pool's own requests with cmux CI's credential | only `cmux vm pool`, run by cmux's own CI | the app never runs it |
 | `o4507547940749312.ingest.us.sentry.io` | connects | crash and error reports, scrubbed (below), only when telemetry is on | crash and error reports, scrubbed | only after you turn telemetry on | `app.sendAnonymousTelemetry` off (the default) |
 | `objects.githubusercontent.com` | connects | the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here) | a download request for the pinned cmux-rd release (no account data) | once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub | no setting yet; it never runs on a machine that is not joined |
+| `open.bigmodel.cn` | connects | the Zhipu BigModel API, when you add a Zhipu key in Settings (its key page is on the same host) | your prompts, the files and output the agent sends, and your Zhipu key | when an agent uses your Zhipu key | remove the Zhipu key |
 | `openaccess-api.clevelandart.org` | connects | museum art for backgrounds, when you search for art | your art search words, then image requests | when you search for background art | don't search for art (`appearance.background`) |
 | `openaccess-cdn.clevelandart.org` | connects | museum art for backgrounds, when you search for art | your art search words, then image requests | when you search for background art | don't search for art (`appearance.background`) |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode | a download request for the schema and installer | when you install OpenCode | don't install OpenCode |
@@ -191,6 +219,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `raw.githubusercontent.com` | connects | release media reels and raw files linked in agent replies | an image request (your IP address and the image's URL) | when a GitHub page or agent reply you open shows an image | not a setting: it follows what you open |
 | `registry.npmjs.org` | connects | checks for a newer cmux CLI when installed with npm; npm packages agents install | version lookups; package downloads agents ask for | when an npm-installed cmux CLI checks for a newer version, or an agent installs a package | no setting yet |
 | `release-assets.githubusercontent.com` | connects | the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here) | a download request for the pinned cmux-rd release (no account data) | once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub | no setting yet; it never runs on a machine that is not joined |
+| `router.huggingface.co` | connects | the Hugging Face Inference Providers API, when you add a Hugging Face Inference Providers key in Settings | your prompts, the files and output the agent sends, and your Hugging Face Inference Providers key | when an agent uses your Hugging Face Inference Providers key | remove the Hugging Face Inference Providers key |
 | `share-dev.cmux.dev` | connects | shared workspace links in development builds | the shared workspace link's contents | development builds only, or when you choose that stack | release builds never connect unless you choose it |
 | `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen | the shared workspace link's contents | only when you choose staging | release builds use production unless you choose staging |
 | `share.cmux.dev` | connects | shared workspace links (production) | the shared workspace link's contents | when you share a workspace or open a shared link | don't share or open shared links |
@@ -198,6 +227,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `static.crates.io` | connects | crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version | the package name and version | when a Cloud machine's crates cache needs a `.crate` neither the machine nor a peer has | create `/etc/cmux/crates-cache.disabled` on the Cloud machine |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic | a STUN probe: only the device's public address | when a phone or remote-desktop link starts and names no STUN server | don't start a link |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic | a STUN probe: only the device's public address | when the remote-desktop link's first STUN server fails | don't start a remote-desktop link |
+| `stun1.l.google.com` | connects | the third STUN server of `cmux-nat-probe`, a NAT-traversal measurement tool the team runs, not the app: it learns only the probe's public address | a STUN probe: only the public address | when someone runs `cmux-nat-probe` | don't run `cmux-nat-probe` |
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine | what you type in the address bar | as you type, when Google is your search engine | `browser.omnibar.remoteSuggestions` off, or another `browser.searchEngine` |
 | `thumb.wikimedia.org` | connects | museum art for backgrounds, when you search for art | your art search words, then image requests | when you search for background art | don't search for art (`appearance.background`) |
 | `uniichat.com` | connects | the hosted UniiChat agent, only when you start it | your messages to the hosted agent | only when you start the UniiChat agent | don't start it |
@@ -299,6 +329,49 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `en.wikipedia.org` | opens | a search engine, when you search with it |
 | `notion.so` | opens | a site the address bar suggests before it is in your history |
 | `twitch.tv` | opens | a site the address bar suggests before it is in your history |
+| `ai.azure.com` | opens | a provider's page to get an API key, opened from Settings |
+| `app.baseten.co` | opens | a provider's page to get an API key, opened from Settings |
+| `app.fireworks.ai` | opens | a provider's page to get an API key, opened from Settings |
+| `bailian.console.aliyun.com` | opens | a provider's page to get an API key, opened from Settings |
+| `build.nvidia.com` | opens | a provider's page to get an API key, opened from Settings |
+| `cloud.cerebras.ai` | opens | a provider's page to get an API key, opened from Settings |
+| `dev.meta.ai` | opens | a provider's page to get an API key and its docs, opened from Settings |
+| `modelstudio.console.alibabacloud.com` | opens | a provider's page to get an API key, opened from Settings |
+| `morphllm.com` | opens | a provider's page to get an API key, opened from Settings |
+| `platform.kimi.ai` | opens | a provider's page to get an API key, opened from Settings |
+| `platform.minimax.io` | opens | a provider's page to get an API key or a plan, and its docs, opened from Settings |
+| `platform.minimaxi.com` | opens | a provider's page to get an API key or a plan, opened from Settings |
+| `platform.moonshot.cn` | opens | a provider's page to get an API key, opened from Settings |
+| `z.ai` | opens | a page to get an API key, opened from Settings |
+| `ai.google.dev` | opens | a provider's docs page, opened from Settings |
+| `api-docs.deepseek.com` | opens | a provider's docs page, opened from Settings |
+| `code.claude.com` | opens | a provider's docs page, opened from Settings |
+| `docs.api.nvidia.com` | opens | a provider's docs page, opened from Settings |
+| `docs.aws.amazon.com` | opens | a provider's docs page, opened from Settings |
+| `docs.baseten.co` | opens | a provider's docs page, opened from Settings |
+| `docs.cloud.google.com` | opens | a provider's docs page, opened from Settings |
+| `docs.fireworks.ai` | opens | a provider's docs page, opened from Settings |
+| `docs.mistral.ai` | opens | a provider's docs page, opened from Settings |
+| `docs.modelstudio.console.alibabacloud.com` | opens | a provider's docs page, opened from Settings |
+| `docs.ollama.com` | opens | a provider's docs page, opened from Settings |
+| `docs.together.ai` | opens | a provider's docs page, opened from Settings |
+| `docs.x.ai` | opens | a provider's docs page, opened from Settings |
+| `docs.z.ai` | opens | a provider's docs page, opened from Settings |
+| `geminicli.com` | opens | a provider's docs page, opened from Settings |
+| `inference-docs.cerebras.ai` | opens | a provider's docs page, opened from Settings |
+| `learn.chatgpt.com` | opens | a provider's docs page, opened from Settings |
+| `learn.microsoft.com` | opens | a provider's docs page, opened from Settings |
+| `platform.moonshot.ai` | opens | a provider's docs page, opened from Settings |
+| `www.morphllm.com` | opens | a provider's docs page, opened from Settings |
+| `api.slack.com` | opens | Slack's app page that shows the configuration token, opened from Settings |
+| `grok.com` | opens | Grok's sign-in and plans pages, opened when you sign that agent in or from Settings |
+| `www.grok.com` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `auth.kimi.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `auth.kimi.com` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `kimi.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `kimi.com` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `www.kimi.ai` | opens | a provider's sign-in page or API key page, opened when you sign that agent in or from Settings |
+| `www.kimi.com` | opens | a provider's sign-in page or API key page, opened when you sign that agent in or from Settings |
 
 ### Names the app never contacts
 
@@ -394,6 +467,15 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `netlify.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
 | `portal.azure.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
 | `sentry.io` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `api.llama.com` | identifier | Meta's Llama API host, compared with an endpoint you enter so it gets Meta's settings; the app connects to the endpoint you enter |
+| `openai.azure.com` | identifier | an Azure OpenAI host suffix, compared with the endpoint you enter so it gets Azure's settings; the app connects to the endpoint you enter |
+| `cognitiveservices.azure.com` | identifier | an Azure AI host suffix, compared with the endpoint you enter so it gets Azure's settings; the app connects to the endpoint you enter |
+| `services.ai.azure.com` | identifier | an Azure AI Foundry host suffix, compared with the endpoint you enter so it gets Azure's settings; the app connects to the endpoint you enter |
+| `console.cmux.dev` | identifier | the cmux console host GitHub returns you to after installing the GitHub App: the in-app sign-in panel compares the page it reaches with it and stops there |
+| `console-staging.cmux.dev` | identifier | the staging cmux console host GitHub returns you to in staging builds: the in-app sign-in panel compares the page it reaches with it and stops there |
+| `share.io` | identifier | the error code a workspace share prints when its listing cannot be read or encoded, not a host |
+| `tool.sh` | identifier | a file name in a test fixture, not a host |
+| `try.sh` | identifier | the name of a script on the Mac that serves the iPhone try-a-PR picker, not a host |
 
 ### Samples and placeholders
 
