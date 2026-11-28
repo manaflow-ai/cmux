@@ -1,7 +1,10 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -239,31 +242,6 @@ final class NewTabSparePool {
         }
     }
 
-    /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
-    /// header band holds the bar now (the band goes with the browser).
-    static func newTabContentSize(in pane: PaneController) -> NSSize {
-        let scale = pane.view.window?.backingScaleFactor ?? 2
-        let strip = pane.hidesTabBar || pane.isAppPane ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
-        return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
-    }
-
-    /// Sizes the parking view and the spare in it to the target pane now, laid out, when it is parked in a window.
-    private func fitParked() {
-        guard let content = parking.superview else { return }
-        let size = targetPaneSize ?? content.bounds.size
-        schedulePrepare()
-        guard parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size) else { return }
-        BenchSpans.measure("pool.fit") { parking.fit(to: size) }
-        if !refills.isOpening { slot.all.forEach(snapshotParked) }
-    }
-
-    /// A pane of `window` changed size, or its focus or tab moved: the spare draws the context Cmd-T there gives and takes the
-    /// pane's size in one background fit once the sizes settled (``fitSettle``) and the layout is still (`whenSettled`).
-    func paneLayoutDidChange(in window: NSWindow?) {
-        guard let window, window === target, parking.superview != nil else { return }
-        if targetIdentity != preparedFor { schedulePrepare() }
-        services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenSettled("NewTabSparePool.fit", after: Self.fitSettle, on: fits) { [weak self] in self?.fitParked() }
-    }
     private lazy var fits = FrameBatchQueue(owner: "NewTabSparePool.fit", budgeted: .background, on: services.mainWork)
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
@@ -276,6 +254,7 @@ final class NewTabSparePool {
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
+        spareFrames.cancel()
         // Hand the parked page out now; its replacement comes once this open settled (`still`), the quiet-input warm
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {
@@ -296,12 +275,8 @@ final class NewTabSparePool {
 
     /// The spare taken last and the size its opening shows it at, when known.
     private var opening: (view: ObjectIdentifier, size: NSSize?)?
-    private let covers = AgentPaneSpareCovers()
+    private let covers = AgentPaneSpareCovers(), spareFrames = AgentPaneNewTabSpareFrames()
     func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
-    private func snapshotParked(_ view: AgentPaneView) {
-        covers.capture(view) { [weak self] page in page.superview === self?.parking && self?.slot.all.contains { $0 === page } == true }
-    }
-
     /// A closed new tab page that never became a chat or a terminal: reset to
     /// the spare context (the page remounts its screen) and parked as the
     /// spare, so the close does no teardown and the pool builds nothing (R81).
@@ -349,6 +324,7 @@ final class NewTabSparePool {
 
     /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
+        spareFrames.cancel()
         nativeSpare?.removeFromSuperview()
         nativeSpare = nil
         awaitingPaint.removeAll()
@@ -441,5 +417,19 @@ final class NewTabSparePool {
             pressured = level != .normal
             if pressured { dropAll() } else { scheduleWarm() }
         }
+    }
+}
+
+extension NewTabSparePool {
+    static func newTabContentSize(in pane: PaneController) -> NSSize { let scale = pane.view.window?.backingScaleFactor ?? 2; let strip = pane.hidesTabBar || pane.isAppPane ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale); return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip)) }
+    func fitParked() { spareFrames.cancel(); guard let content = parking.superview else { return }; let size = targetPaneSize ?? content.bounds.size; schedulePrepare(); BenchSpans.measure("pool.fit") { spareFrames.fit(parking: parking, content: content, size: size, opening: refills.isOpening, views: slot.all, snapshot: snapshotParked) } }
+    func paneLayoutDidChange(in window: NSWindow?) { guard let window, window === target, parking.superview != nil else { return }; if services.windows.controllers.first(where: { $0.window === window })?.content?.layoutView.isInLayoutMotion == true { spareFrames.cancel() }; if targetIdentity != preparedFor { schedulePrepare() }; services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenSettled("NewTabSparePool.fit", after: Self.fitSettle, on: fits) { [weak self] in self?.fitParked() } }
+    func snapshotParked(_ view: AgentPaneView) { spareFrames.snapshot(view, parking: parking, covers: covers, parked: { [weak self] in view.superview === self?.parking && self?.slot.all.contains { $0 === view } == true }, after: { [weak self, weak view] in if let view { self?.prefetchSplits(view) } }) }
+    static func splitContentSize(in pane: PaneController, zone: PaneDropZone) -> NSSize? { guard var size = pane.workspace?.layoutView.newSplitPaneSize(splitting: pane.layoutPaneID, zone: zone) else { return nil }; let full = newTabContentSize(in: pane); size.height = max(0, size.height - (pane.view.bounds.height - full.height)); return size }
+    static func dividerContentSize(in pane: PaneController, insertion: DividerInsertion) -> NSSize? { guard let change = insertion.sizing.first, let size = pane.workspace?.layoutView.newDividerPaneSize(splitting: change.split, ratio: change.ratio) else { return nil }; let full = newTabContentSize(in: pane); return NSSize(width: size.width, height: max(0, size.height - (pane.view.bounds.height - full.height))) }
+    func prefetchSplits(_ view: AgentPaneView) {
+        guard !spareFrames.active, !refills.isOpening, view.superview === parking, view === slot.peek, let pane = targetPane, pane.workspace?.layoutView.isInLayoutMotion != true, view.model.hasPainted else { return }
+        let full = Self.newTabContentSize(in: pane), identity = targetIdentity, frames = AgentPaneNewTabFrame.shared, appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]), generation = frames.generation, sizes = [PaneDropZone.right, .bottom].compactMap { Self.splitContentSize(in: pane, zone: $0) }, cached = sizes.filter { frames.image(size: $0, appearance: appearance) != nil }, plan = NewPlacementPlan.newTabPrefetch(parked: full, splits: sizes, cached: cached), attempt: [AnyHashable] = [ObjectIdentifier(view), generation, full.width, full.height, appearance?.rawValue ?? ""] + (identity ?? []) + sizes.flatMap { [AnyHashable($0.width), AnyHashable($0.height)] }
+        spareFrames.prefetch(view: view, parking: parking, covers: covers, frames: frames, appearance: appearance, generation: generation, full: full, plan: plan, attempt: attempt, valid: { [weak self, weak view, weak pane] in guard let self, let view, let pane else { return false }; return !self.refills.isOpening && view === self.slot.peek && view.superview === self.parking && self.targetIdentity == identity && self.targetPaneSize == full && pane.workspace?.layoutView.isInLayoutMotion != true }, finished: { [weak self, weak view] in guard let self, let view else { return }; if view.superview === self.parking, view === self.slot.peek { self.snapshotParked(view) } }, invalidated: { [weak self] in guard let self else { return }; self.paneLayoutDidChange(in: self.target) })
     }
 }

@@ -111,6 +111,61 @@ extension ScreenContentView {
         return (newPane, resized.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) })
     }
 
+    /// Exact pane bounds for an idle New Tab pre-render, using the drop's final split geometry.
+    func newSplitPaneSize(splitting pane: PaneID, zone: PaneDropZone) -> CGSize? {
+        // Canvas splits retain the source pane's size. Strip splits can move the camera, which
+        // suppresses a drop highlight but does not change the new pane's content size.
+        if isCanvas { return geometry.panes[pane].map { PaneChromeGeometry.contentRect(forCell: $0, style: context.style).size } }
+        guard let split = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: nil,
+                                           evenSizing: context.model.splitSizing == .even, equalizesClose: !zoomed) else { return nil }
+        let after = ScreenGeometry.compute(split.layout, viewport: bounds.size, style: context.style, scale: window?.backingScaleFactor ?? 2)
+        guard let cell = after.panes[DropPreviewLayout.newPane] else { return nil }
+        return PaneChromeGeometry.contentRect(forCell: cell, style: context.style).size
+    }
+
+    /// Exact content size of the pane inserted at a divider. The divider keeps its old axis,
+    /// moves to `ratio`, and the new pane is the second child of the first side; this mirrors
+    /// `DividerInsertPlan` before the daemon creates the pane.
+    func newDividerPaneSize(splitting split: SplitID, ratio: Double) -> CGSize? {
+        let newPane = PaneID(rawValue: "__divider-prefetch-pane")
+        let newSplit = SplitID(rawValue: "__divider-prefetch-split")
+        func inserting(_ node: SplitNode) -> SplitNode {
+            switch node {
+            case .leaf: return node
+            case let .split(id, axis, old, a, b):
+                guard id == split else {
+                    return .split(id, axis: axis, ratio: old, a: inserting(a), b: inserting(b))
+                }
+                let wrapped = SplitNode.split(newSplit, axis: axis, ratio: 0.5, a: a, b: .leaf(newPane))
+                return .split(id, axis: axis, ratio: ratio, a: wrapped, b: b)
+            }
+        }
+        let after: ScreenLayout
+        switch layout {
+        case let .splits(root): after = .splits(inserting(root))
+        case let .columns(columns):
+            var changed = columns
+            var found = false
+            for index in changed.indices {
+                if changed[index].hasRows {
+                    for row in changed[index].rows.indices where changed[index].rows[row].root.node(for: split) != nil {
+                        changed[index].rows[row].root = inserting(changed[index].rows[row].root)
+                        found = true
+                    }
+                } else if changed[index].root.node(for: split) != nil {
+                    changed[index].root = inserting(changed[index].root)
+                    found = true
+                }
+            }
+            guard found else { return nil }
+            after = .columns(changed)
+        }
+        let computed = ScreenGeometry.compute(after, viewport: bounds.size, style: context.style,
+                                              scale: window?.backingScaleFactor ?? 2)
+        guard let cell = computed.panes[newPane] else { return nil }
+        return PaneChromeGeometry.contentRect(forCell: cell, style: context.style).size
+    }
+
     /// The screen's geometry after a split of `pane` at `zone` (the edge preview), or nil when no preview shows: once
     /// per layout, viewport, style and target (`dropAnswers`), not once per pointer move.
     private func predictedGeometry(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> ScreenGeometry? { // perf-hot: 0.05ms drag-frame (every tab-drag move over a pane edge)
