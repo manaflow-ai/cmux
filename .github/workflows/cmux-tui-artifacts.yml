@@ -711,7 +711,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
+          # attempt-2+ rerun on a nightly ref moves to (#64136).
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
         run: |
           set -euo pipefail
           superseded=false
@@ -1212,7 +1214,9 @@ jobs:
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
+          # attempt-2+ rerun on a nightly ref moves to (#64136).
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. On 2026-10-28 a healthy owner published about 20
           # minutes after it started, and owners hung for up to an hour in a Zig
@@ -5960,7 +5964,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest, tree-preflight, publish-tree, sign-nightly-linux-release]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 115  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive, the AppImage and the Mac live update file, 20 for the Screen Sharing helper, 5 each for the Linux nightly and stable channels
+    timeout-minutes: 145  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive, the AppImage and the Mac live update file, 20 for the Screen Sharing helper, 5 each for the Linux nightly and stable channels, 15 each for their AppImages
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -6109,6 +6113,34 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
         run: scripts/ci/linux-appimage-publish.sh "$RUNNER_TEMP/machine-channel/linux-release/built" "$RUNNER_TEMP/linux-appimage"
+
+      # The AppImage of the Linux nightly channel (linux/appimage/nightly/, its own update file): built from the
+      # signed release file of the commit linux-nightly.json names (set by the follow step above), so a nightly
+      # AppImage updates within nightly. Skips when that channel's AppImage is at the commit already.
+      - name: Publish the nightly AppImage
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
+        run: scripts/ci/linux-appimage-publish.sh - "$RUNNER_TEMP/linux-appimage-nightly" nightly
+
+      # The AppImage of the Linux stable channel (linux/appimage/stable/, its own update file): built from the
+      # signed release file of the commit linux-stable.json names (set by the follow step above), so a stable
+      # AppImage updates within stable. Skips when that channel's AppImage is at the commit already.
+      - name: Publish the stable AppImage
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
+        run: scripts/ci/linux-appimage-publish.sh - "$RUNNER_TEMP/linux-appimage-stable" stable
 
   # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
   # Linux release signing. Manual artifact repairs must publish the same live file
