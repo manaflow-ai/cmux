@@ -12,6 +12,7 @@ import unittest
 import unittest.mock
 from argparse import Namespace
 from unittest import mock
+import io
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -163,6 +164,32 @@ class WebTickTest(unittest.TestCase):
                 unittest.mock.patch("sys.stdout"):
             self.assertEqual(pmb.cmd_tick(args), 0)
         self.assertFalse([call for call in calls if "cmux-next-web.yml" in call[1]])
+
+    def test_a_tick_that_cannot_reach_github_goes_red(self) -> None:
+        # 2026-11-27 23:55Z on: every tick's reads were rate limited on every token, each run ended green with
+        # "::warning::tick skipped", and no batch ran for over 2 h. An error that dispatched nothing is red now;
+        # a tick with nothing to do (a batch already in flight) stays green.
+        def limited(path, method="GET", fields=None, **_):
+            raise RuntimeError(f"gh api {method} {path}: API rate limit exceeded for installation ID 175618676. (HTTP 403)")
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", window_minutes="120", dry_run=False)
+        out = io.StringIO()
+        with unittest.mock.patch.object(pmb, "gh_api", limited), unittest.mock.patch("sys.stdout", out):
+            self.assertEqual(pmb.cmd_tick(args), 1)
+        self.assertIn("::error::tick dispatched nothing", out.getvalue())
+
+        dispatched = []
+
+        def covered(path, method="GET", fields=None, **_):
+            if method == "POST":
+                dispatched.append(path)
+            return {"sha": "a" * 40} if path.endswith("/commits/feat-cmux-next") else None
+
+        with unittest.mock.patch.object(pmb, "gh_api", covered), \
+                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "b" * 40, "2026-11-21T11:00:00Z", status="in_progress")]), \
+                unittest.mock.patch("sys.stdout"):
+            self.assertEqual(pmb.cmd_tick(args), 0)
+        self.assertFalse([p for p in dispatched if pmb.WORKFLOW in p])
 
 
 class PlanAndJudgeTest(unittest.TestCase):
@@ -1043,6 +1070,49 @@ class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
                 mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), mock.patch("sys.stderr"):
             code = pmb.cmd_judge(args)
         self.assertEqual(code, 0)  # refused is 1; here the culprit step goes on to its confirm runs
+
+
+
+class DeeperReachTest(unittest.TestCase):
+    """Run 45971503699 (11-27): eight reds red on every batch run in the 24-batch reach, first red at 0e0818af (11-24),
+    were "a known red, no bisect": stuck_reds had no last green. The judges now read further back for such a red."""
+    job = "cmux-tui-sdks / protocol contract"
+    suites = {"cmux-tui-sdks": pmb.Suite("cmux-tui-sdks", "s.yml", ["x/**"], {"protocol contract": "contract"})}
+
+    def setUp(self) -> None:
+        self.reach = [run(50, "5" * 40, "2026-11-27T08:00:00Z"), run(40, "4" * 40, "2026-11-26T08:00:00Z")]
+        self.deep = [run(30, "3" * 40, "2026-11-25T08:00:00Z"), run(20, "2" * 40, "2026-11-24T08:00:00Z")]
+        self.jobs = {50: ({self.job: ("cmux-tui-sdks", "failure")}, True), 40: ({self.job: ("cmux-tui-sdks", "failure")}, True),
+                     30: ({self.job: ("cmux-tui-sdks", "failure")}, True), 20: ({self.job: ("cmux-tui-sdks", "success")}, True)}
+        self.verdicts = {self.job: ("cmux-tui-sdks", "failure")}
+
+    def test_a_red_with_no_green_in_reach_is_bisected_from_a_deeper_green(self) -> None:
+        jobs_of = lambda rid: self.jobs[rid]
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, self.reach, jobs_of, self.suites), [])
+        self.assertEqual(pmb.unreached_reds("6" * 40, self.verdicts, self.reach, jobs_of), [self.job])
+        asked: list = []
+
+        def deeper(repo, branch, **kw):
+            asked.append(kw)
+            return self.reach + self.deep  # a mock that ignores the filter: the reach's own runs are not added twice
+        with mock.patch.object(pmb, "list_runs", deeper):
+            runs = pmb.with_deeper_runs("o/r", "feat", "6" * 40, self.verdicts, self.reach, jobs_of)
+        self.assertEqual(asked, [{"batches": pmb.DEEP_LOOKBACK_BATCHES, "created_before": "2026-11-26T08:00:00Z"}])
+        self.assertEqual([r["id"] for r in runs], [50, 40, 30, 20])
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, runs, jobs_of, self.suites),
+                         [(self.job, "cmux-tui-sdks", "2" * 40, "3" * 40)])
+
+    def test_no_deeper_read_when_every_red_has_a_green_in_reach(self) -> None:
+        self.jobs[40] = ({self.job: ("cmux-tui-sdks", "success")}, True)
+        with mock.patch.object(pmb, "list_runs", side_effect=AssertionError("read deeper")):
+            got = pmb.with_deeper_runs("o/r", "feat", "6" * 40, self.verdicts, self.reach, lambda rid: self.jobs[rid])
+        self.assertEqual(got, self.reach)
+
+    def test_list_runs_filters_by_creation(self) -> None:
+        calls: list = []
+        pmb.list_runs("o/r", "feat", api=lambda path, **_: calls.append(path) or {"workflow_runs": []}, batches=3,
+                      created_before="2026-11-26T08:00:00Z")
+        self.assertIn("&created=%3C2026-11-26T08:00:00Z", calls[0])
 
 
 class KnownVerdictTest(unittest.TestCase):
