@@ -19,6 +19,8 @@ import { takeBackSteer, takesSteersBack } from "../conversation/pendingSteerMode
 import type { QueuedMessageActionsValue } from "../conversation/QueuedMessageCard";
 import type { RetryModel } from "../conversation/retryModelSections";
 import { withoutQuietThoughts } from "../conversation/thoughts";
+import { oneRecap } from "../conversation/oneRecap";
+import { splitSilentTurns } from "../conversation/silentTurns";
 import {
   answerThrough,
   CHAT_CHANGED,
@@ -38,9 +40,9 @@ import {
   withoutHeldRows,
 } from "../conversation/turnEndHold";
 import { retryFailedPrompt, sendUntilTaken } from "../conversation/turnRetry";
-import { trayWaitAgents, turnViewFrom, type TurnView } from "../conversation/turns";
+import { NO_MESSAGE_BREAKS, trayWaitAgents, turnViewFrom, type TurnView } from "../conversation/turns";
 import type { Folds } from "../conversation/viewFolds";
-import type { AcpmuxDirectClient } from "../direct";
+import type { AcpmuxDirectClient, WarmedChat } from "../direct";
 import { translate } from "../i18n";
 import { sessionLink } from "../links";
 import { GITHUB_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
@@ -166,6 +168,47 @@ export interface TurnActionsDeps {
   access: AccessOffer;
 }
 
+/// A chat folded ahead while the page was idle (direct.ts `warmRows`), shaped into turns as its first
+/// open shapes them, with the open folds it opens with (`expanded`, App.tsx `aheadFolds`), and kept
+/// in `pastTurns`: the open reuses every turn whose rows came out the same (turns.ts `turnViewFrom`),
+/// as a switch back to a chat shown before does (settled-page bench, chat_switch).
+export function shapeAhead(
+  warmed: WarmedChat,
+  {
+    expanded,
+    doneLines,
+    workflowLabsEnabled,
+    splitSilent,
+    clockOffset,
+    pastTurns,
+  }: {
+    expanded: Folds;
+    doneLines: DoneLineCache;
+    workflowLabsEnabled: boolean;
+    /// The pane draws a silent turn in the composer hat, not the transcript (App.tsx `silentSplit`).
+    splitSilent: boolean;
+    clockOffset: number | undefined;
+    pastTurns: Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>;
+  },
+): void {
+  if (pastTurns.has(warmed.sessionId)) return;
+  // App.tsx `allSourceRows` and `sourceRows` of a chat that is not working.
+  const all = withoutQuietThoughts(oneRecap([...warmed.rows]), false);
+  const source = splitSilent ? splitSilentTurns(all, false).rows : all;
+  // `turnRowsShownFrom`: no chat it started is known before it shows, so none is drawn here.
+  const rows = withSubagentLines(source, doneLines, workflowLabsEnabled);
+  const turns = turnViewFrom(rows, expanded, {
+    clockOffset,
+    agentFamily: warmed.family,
+    messageBreaks: NO_MESSAGE_BREAKS,
+    trayAgents: trayWaitAgents(source),
+  });
+  const subagents = subagentRowsFrom(projectInboxRows(turns.rows, undefined, turns.reusedRows), expanded);
+  pastTurns.set(warmed.sessionId, { sessionId: warmed.sessionId, turns, subagents });
+  // ends: each pass deletes the oldest key, so the map shrinks to PAST_TURNS_KEPT
+  while (pastTurns.size > PAST_TURNS_KEPT) pastTurns.delete(pastTurns.keys().next().value!);
+}
+
 /// The transcript's rows as AcpmuxPane draws them (its `turnRowsShown` memo's body).
 /// How many chats' last turns the pane keeps once it shows another (`pastTurns`).
 const PAST_TURNS_KEPT = 8;
@@ -221,6 +264,14 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
         : shownSessionId === undefined
           ? undefined
           : pastTurns?.current.get(shownSessionId);
+    // The render that first shows another chat runs with the folds of the chat it left: AcpmuxPane
+    // puts the shown chat's own folds in `expanded` later in that render, so React renders it again
+    // and throws this pass away. Shaped here, under folds the kept turns were not shaped with, every
+    // turn was shaped again, and that pass's turns, kept as the last ones, made the pass React keeps
+    // shape every turn once more (settled-page bench, chat_switch: two whole shapes a switch). The
+    // turns kept for the chat stand in for this pass, and nothing is kept from it.
+    if (last && foldsSeen.current.session !== shownSessionId && foldsSeen.current.folds === folds)
+      return withoutAskedCalls(withShellRows(last.subagents.rows, chatShellRuns), panelAsks);
     if (heldCalls.current.session !== shownSessionId) heldCalls.current = { session: shownSessionId, keys: new Set() };
     // Null while the view follows the latest row: what was held out goes back in there. The view
     // following again with calls held (`callRelease`) shapes the rows again for that.
