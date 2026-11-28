@@ -484,6 +484,60 @@ class FieldOverrideTests(unittest.TestCase):
         bindings["families"]["Layout"]["requests"]["swap-pane"]["mutation"] = True
         with self.assertRaises(BindingError):
             rendered(bindings=bindings)
+def workspace_ref_document() -> dict[str, Any]:
+    """A write command that targets a workspace by handle or key."""
+    document = mutation_document()
+    fields = document["commands"]["rename-pane"]["request"]["fields"]
+    document["commands"]["rename-pane"]["request"]["fields"] = {
+        "workspace": _field(ID, required=False, nullable=True),
+        "key": _field({"kind": "scalar", "name": "string"}, required=False, nullable=True),
+        **fields,
+    }
+    return document
+
+
+class WorkspaceRefTests(unittest.TestCase):
+    """`workspace_ref`: the schema's `workspace` and `key` become one `WorkspaceRef`, encoded flat."""
+
+    def source(self, order: list[str] | None = None, document: dict[str, Any] | None = None, **binding: Any) -> str:
+        bindings = mutation_bindings()
+        request = bindings["families"]["Layout"]["requests"]["rename-pane"]
+        request["workspace_ref"] = True
+        if order is not None:
+            request["order"] = order
+        request.update(binding)
+        document = document or workspace_ref_document()
+        return rendered(document, bindings)["Layout/RenamePaneRequest.generated.swift"]
+
+    def test_workspace_ref_is_one_required_parameter_where_order_puts_it(self) -> None:
+        source = self.source(["workspace", "pane", "title", "index", "mutation"])
+        self.assertIn("public var workspace: WorkspaceRef\n", source)
+        self.assertIn("public init(workspace: WorkspaceRef, pane: PaneID,", source)
+        self.assertNotIn("case key", source)
+        self.assertNotIn("case workspace", source)
+        encode = source[source.index("func encode"):]
+        ref = encode.index("try WorkspaceRefFields(ref: workspace).encode(to: encoder)")
+        self.assertLess(encode.index("forKey: .index"), ref)
+        self.assertLess(ref, encode.index("try MutationFields(identity: mutation)"))
+
+    def test_workspace_ref_left_out_of_order_comes_after_the_fields_before_mutation(self) -> None:
+        source = self.source()
+        self.assertIn("index: Int, workspace: WorkspaceRef, mutation: MutationIdentity? = nil)", source)
+
+    def test_workspace_ref_is_refused_without_both_optional_fields(self) -> None:
+        missing = workspace_ref_document()
+        del missing["commands"]["rename-pane"]["request"]["fields"]["key"]
+        required = workspace_ref_document()
+        required["commands"]["rename-pane"]["request"]["fields"]["workspace"] = _field(ID)
+        for name, document in {"no key": missing, "a required workspace": required}.items():
+            with self.subTest(name), self.assertRaisesRegex(BindingError, "workspace_ref needs"):
+                self.source(document=document)
+        with self.assertRaisesRegex(BindingError, "owns the workspace and key"):
+            self.source(fields={"key": {"type": "String"}})
+        with self.assertRaisesRegex(BindingError, "workspace_ref is true or false"):
+            self.source(workspace_ref="yes")
+
+
 def read_bindings(objects: dict[str, Any]) -> dict[str, Any]:
     bindings = layout_bindings()
     bindings["families"]["Layout"]["objects"] = objects

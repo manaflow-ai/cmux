@@ -588,6 +588,20 @@
           ],
           "response": "hand-written"
         },
+        "float-pane": {
+          "name": "FloatPaneRequest",
+          "doc": [
+            "Floats `pane` above the tiled layout of its screen, puts it back, or gives a floating pane a frame.",
+            "The frame is `x`, `y`, `w` and `h`, all four or none; with a frame and `mode` `on` a floating pane",
+            "moves and comes to the front. Build it from a `FloatingPaneSnapshot.Frame` with",
+            "`init(pane:mode:frame:transaction:)`."
+          ],
+          "order": ["pane", "mode", "x", "y", "w", "h", "transaction"],
+          "fields": {
+            "mode": { "type": "Mode" }
+          },
+          "response": "hand-written"
+        },
         "zoom-pane": {
           "name": "ZoomPaneRequest",
           "order": [
@@ -2284,7 +2298,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: close, create, rename, move and set-metadata (WorkspaceRefFields or fields sent only when true or set), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: close, create and rename (fields sent only with another or only when set, a revision sent as a string), put-blob (its init base64-encodes).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2301,6 +2315,78 @@
             }
           },
           "response": "IconAssetBlob"
+        },
+        "move-workspace": {
+          "name": "MoveWorkspaceRequest",
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "index",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "set-workspace-metadata": {
+          "name": "SetWorkspaceMetadataRequest",
+          "doc": [
+            "Shared color/icon/title (`workspace-metadata-v1`), the sidebar pin",
+            "(`workspace-pin-v1`), and the manual unread mark",
+            "(`notification-mark-unread-v1`), and Keep Awake (`workspace-keep-awake-v1`). Emits `workspace-changed`."
+          ],
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "color",
+            "icon",
+            "title",
+            "pinned",
+            "marked_unread",
+            "keep_awake",
+            "mutation"
+          ],
+          "fields": {
+            "color": {
+              "update": true,
+              "doc": [
+                "Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]`."
+              ]
+            },
+            "icon": {
+              "update": true,
+              "doc": [
+                "SF Symbol name."
+              ]
+            },
+            "title": {
+              "update": true,
+              "doc": [
+                "1-256 characters; overrides `name` for display."
+              ]
+            },
+            "pinned": {
+              "doc": [
+                "Nil leaves the pin unchanged; the field has no clear state."
+              ]
+            },
+            "marked_unread": {
+              "doc": [
+                "Nil leaves the manual unread mark unchanged."
+              ]
+            },
+            "keep_awake": {
+              "doc": [
+                "Nil leaves Keep Awake unchanged."
+              ]
+            }
+          },
+          "response": "WorkspaceMetadataResult"
         }
       }
     },
