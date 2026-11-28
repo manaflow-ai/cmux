@@ -124,6 +124,10 @@ impl NodeVault for PlatformVault {
         parse_lease(&body)
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "positions come from the value's own length or search, so they are in range"
+    )]
     fn claim(&self, holder: &str, if_epoch: Option<u64>) -> Result<Lease, String> {
         let mut body = json!({"holder": holder});
         if let Some(epoch) = if_epoch {

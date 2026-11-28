@@ -1,4 +1,4 @@
-# The NIGHTLY's own app compile and Rust helper builds, on a pull request into feat-cmux-next.
+# The NIGHTLY's own app compile and Rust helper builds, on the feat-cmux-next tip (and on a pull request when asked).
 #
 # A normal Debug or Release PR compile can miss failures specific to the Nightly configuration.
 # This checks the Nightly settings when a landing PR changes their inputs:
@@ -10,19 +10,46 @@
 # (DETACH below), so no runner waits on the fleet queue.
 # Each job keys its inputs (scripts/ci/job_input_fingerprint.py) and saves the key on a pass, so a push
 # that changes nothing it builds from skips the build. Off switch: repository variable CI_NIGHTLY_PR_BUILD=0.
+#
+# Trunk cadence (2026-11-28). Leo: "de facto, im asking for 99% fewer minutes of ci time, period." The per-PR runs were
+# ~28k runner-min/day on 11-27, and ~16.5k/day at 00Z 11-28 after the land-ask cut (#63376): ~28 PR heads an hour
+# still asked. The Nightly itself compiles this configuration on the tip every 15 minutes, and no rule requires this
+# check, so its only per-PR value was naming the PR that broke it. Now it runs once per 30-minute window on the
+# feat-cmux-next tip (base-coalesce.yml), covering every commit since the last tip it ran on, and base-red-watch
+# (cmuxterm-hq fleet-reconcilers, commit_bisect) bisects a red over that range to name the PR. pr-router.yml no
+# longer starts it on a pull request (pr_router.json trunk_only); repository variable CI_NIGHTLY_PR_BUILD_PER_PR=1
+# starts it there again, as before (land's ask and the merge train's tip). CI_NIGHTLY_PR_BUILD_COALESCE=0 runs
+# every tip push.
 name: nightly pr build
 
-# Triggers: a pull request into feat-cmux-next whose paths are scripts/ci/pr_router.json's (pr-router.yml calls
-# it).
+# Triggers: a push to feat-cmux-next (coalesced per 30-minute window), and a pull request into feat-cmux-next whose
+# paths are scripts/ci/pr_router.json's when CI_NIGHTLY_PR_BUILD_PER_PR=1 (pr-router.yml calls it).
 on:
+  push:
+    branches: [feat-cmux-next]
   workflow_call:
 
 permissions: {}
 
 jobs:
+  # One run per 30-minute window on the tip: the first push of each window runs the jobs below over every commit
+  # since the last tip this ran on (needs.coalesce.outputs.base); the window's other pushes skip them, no runner
+  # taken. Skipped on a pull request (pr-router.yml's call).
+  coalesce:
+    if: ${{ github.repository_owner == 'manaflow-ai' && (vars.CI_NIGHTLY_PR_BUILD || '1') != '0' && github.event_name == 'push' }}
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: nightly-pr-build
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.CI_NIGHTLY_PR_BUILD_COALESCE) == '0' }}
+
   route:
     name: nightly pr build route (advisory)
-    if: ${{ github.repository_owner == 'manaflow-ai' && (vars.CI_NIGHTLY_PR_BUILD || '1') != '0' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: [coalesce]
+    if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && (vars.CI_NIGHTLY_PR_BUILD || '1') != '0' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && needs.coalesce.result == 'success' && needs.coalesce.outputs.run != 'false')) }}
     runs-on: cmux-linux
     timeout-minutes: 10
     permissions:
@@ -41,15 +68,25 @@ jobs:
           sparse-checkout: |
             /scripts/
           submodules: false
+      # A pull request diffs its merge commit against the base; a tip push diffs every commit since the last tip this
+      # ran on (the coalesce base; the push's own range when none is recorded).
       - name: Route the change
         id: route
-        run: python3 scripts/ci/nightly_pr_build.py route --base 'HEAD^1' --rev HEAD | tee -a "$GITHUB_OUTPUT"
+        env:
+          BASE: ${{ github.event_name == 'push' && (needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before) || '' }}
+        run: |
+          base='HEAD^1'
+          if [[ "$BASE" =~ ^[0-9a-f]{40}$ && "$BASE" != 0000000000000000000000000000000000000000 ]] &&
+            git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$BASE"; then
+            base="$BASE"
+          fi
+          python3 scripts/ci/nightly_pr_build.py route --base "$base" --rev HEAD | tee -a "$GITHUB_OUTPUT"
       # The fleet job builds the PR head, while this reusable workflow and its driver come from the
       # merge ref. Keeping the recipe revision separate lets an already-open PR predate this workflow.
       - name: Key the inputs at the head
         id: keys
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           RECIPE_SHA: ${{ github.sha }}
         run: |
           git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA"
@@ -115,7 +152,7 @@ jobs:
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         id: verdict
         env:
-          SHA: ${{ github.event.pull_request.head.sha }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
@@ -138,9 +175,9 @@ jobs:
         if: ${{ steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}
         id: compile
         env:
-          SHA: ${{ github.event.pull_request.head.sha }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           ARCH: ${{ matrix.arch }}
-          PR: ${{ github.event.pull_request.number }}
+          PR: ${{ github.event.pull_request.number && format('#{0}', github.event.pull_request.number) || format('{0} tip', github.ref_name) }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -187,10 +224,14 @@ jobs:
           fi
           if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
             detach=(--report-check "$REPORT_CHECK" --detach)
+          elif [[ "$DETACH" != 0 ]]; then
+            # This runner's cmux-ci cannot detach, so the job holds the runner for the whole fleet wait.
+            # Name the runner and client so the stale installs can be counted and updated.
+            echo "::warning title=nightly app compile::cmux-ci on runner $RUNNER_NAME has no --detach ($("$client" --version 2>&1 | head -1)); this job waits on the fleet"
           fi
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
             --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
-            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" ${detach[@]+"${detach[@]}"} 2>&1 \
+            --reason "nightly pr build $PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" ${detach[@]+"${detach[@]}"} 2>&1 \
             | tee "$log" || status=${PIPESTATUS[0]}
           if [[ "$status" == 0 ]] && grep -q ') detached; check run' "$log"; then
             # Submitted: the check run REPORT_CHECK on the head carries the verdict; nothing passed here yet.
@@ -258,7 +299,7 @@ jobs:
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: false
       - name: Use the merge ref's Nightly driver for the source checkout
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
