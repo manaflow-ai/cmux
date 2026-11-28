@@ -40,10 +40,6 @@ pub struct Residency {
     /// When its harness hibernated (ms since the Unix epoch), while it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hibernated_at: Option<u64>,
-    /// A filler chat (started to use idle capacity): evictable, hibernated first when a real start
-    /// needs the room, and counted by no cap.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub filler: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<IdlePolicy>,
 }
@@ -56,10 +52,9 @@ impl Residency {
         (r.v >= 1).then_some(r)
     }
 
-    /// What a lane cap counts: a resident harness that is not filler. A hibernated chat holds
-    /// nothing; a filler one gives its room up first.
+    /// What a cap counts: every resident harness. A hibernated chat holds nothing.
     pub fn counts_for_cap(&self) -> bool {
-        self.resident && !self.filler
+        self.resident
     }
 }
 
@@ -76,13 +71,12 @@ mod tests {
     }
 
     #[test]
-    fn v1_round_trips_and_counts_only_resident_non_filler() {
+    fn v1_round_trips_and_counts_only_resident() {
         let r = Residency {
             v: RESIDENCY_V,
             resident: true,
             busy: false,
             hibernated_at: None,
-            filler: false,
             policy: Some(IdlePolicy { name: "adaptive-v1".into(), idle_secs: Some(1800) }),
         };
         let wire = serde_json::to_value(&r).unwrap();
@@ -93,11 +87,18 @@ mod tests {
         );
         assert_eq!(Residency::of(Some(&wire)), Some(r.clone()));
         assert!(r.counts_for_cap());
-        assert!(!Residency { filler: true, ..r.clone() }.counts_for_cap());
         assert!(
             !Residency { resident: false, hibernated_at: Some(5), ..r }.counts_for_cap(),
             "a hibernated chat costs nothing"
         );
+    }
+
+    #[test]
+    fn external_filler_metadata_cannot_exempt_a_resident_chat() {
+        let wire = json!({"v": 1, "resident": true, "filler": true});
+        let r = Residency::of(Some(&wire)).unwrap();
+        assert!(r.counts_for_cap());
+        assert!(serde_json::to_value(&r).unwrap().get("filler").is_none());
     }
 
     #[test]

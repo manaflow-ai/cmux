@@ -4,7 +4,7 @@
 //! Lane caps counted records: NOW's `live` was every chat not closed, 84 to 413 a host, while the
 //! hosts ran 12 to 32 harnesses (measured on five lane VMs, 2026-11-24,
 //! `scripts/measure/idle-residents.py`). A hibernated chat holds no memory and no CPU, so this
-//! module says per chat whether it is resident, busy, hibernated or filler, as the versioned
+//! module says per chat whether it is resident, busy or hibernated, as the versioned
 //! `residency` record (`acpmux_list_types::residency`) on its summary, with the daemon's counts in
 //! `daemon status`. [`costs_for_cap`] is the predicate a cap counts.
 //!
@@ -115,12 +115,6 @@ pub(super) fn adaptive_period(
     }
 }
 
-/// A filler chat (started on idle capacity, leo-workspace `tools/idle_feeder.py`): evictable, so
-/// no cap counts it. False until its start carries the marker (lane/idle-feeder-sources).
-pub(super) fn is_filler(_session: &Session) -> bool {
-    false
-}
-
 /// A harness runs for the chat: its status says one is up, it holds one, or its agent host runs.
 /// Never a closed chat's.
 fn resident(session: &Session, status: SessionStatus, hosted: bool) -> bool {
@@ -132,11 +126,11 @@ fn resident(session: &Session, status: SessionStatus, hosted: bool) -> bool {
             || session.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
 }
 
-/// What a lane cap counts: a chat not closed whose harness is resident and that is no filler.
+/// What a cap counts: a chat not closed whose harness is resident.
 /// `hosted`: its agent host runs (`admission.rs` passes the hosts it read). A hibernated chat
 /// costs nothing and is not counted.
 pub(super) fn costs_for_cap(session: &Session, hosted: bool) -> bool {
-    resident(session, session.status(), hosted) && !is_filler(session)
+    resident(session, session.status(), hosted)
 }
 
 impl Hub {
@@ -182,7 +176,6 @@ impl Hub {
             hibernated_at: (hibernated && !resident)
                 .then(|| session.meta().hibernated_ms)
                 .filter(|ms| *ms != 0),
-            filler: is_filler(session),
             policy: Some(WirePolicy {
                 name: self.idle_policy().name().to_owned(),
                 idle_secs: idle

@@ -239,9 +239,9 @@ pub struct SessionSummary {
     #[schemars(default)]
     pub working_below: bool,
     /// What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),
-    /// `busy` (a turn runs), `hibernatedAt`, `filler`, and the idle `policy` with this chat's
-    /// period (`hub/residency.rs`, `acpmux_list_types::residency`). A lane cap counts resident
-    /// chats that are not filler. Absent from a peer on an older acpmux: unknown, not idle.
+    /// `busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's
+    /// period (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident
+    /// chat. Absent from a peer on an older acpmux: unknown, not idle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub residency: Option<Value>,
