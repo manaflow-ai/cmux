@@ -5,12 +5,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { isNoRepository } from "../src/agent-session/acpmux/changes/gitWrite";
-import { useGitWrite, type GitWrite } from "../src/agent-session/acpmux/changes/useGitWrite";
+import type { GitWrite } from "../src/agent-session/acpmux/changes/useGitWrite";
 import type { ChangesSource } from "../src/agent-session/acpmux/changes/model";
-import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 import { actTurn, until } from "./support/until";
+
+const { isNoRepository } = await importWithDom(() => import("../src/agent-session/acpmux/changes/gitWrite"));
+const { useGitWrite } = await importWithDom(() => import("../src/agent-session/acpmux/changes/useGitWrite"));
+const { NativeError } = await importWithDom(() => import("../src/agent-session/acpmux/nativeError"));
 
 const notARepository = () =>
   new NativeError({
