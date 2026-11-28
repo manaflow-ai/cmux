@@ -98,7 +98,7 @@ export function cmuxTuiWebsocketSmokeCommand(session = "cloud", binary?: string)
   // privileges) and handed in: re-running the selector here, already dropped to
   // the daemon's user, would fail every probe and fall back to root's path.
   const shell = `#!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 BIN="\${CMUX_TUI_BIN:?cmux-tui binary not provided}"
 : "\${HOME:?home not provided}"
 SESSION=${session}
@@ -113,8 +113,18 @@ PROCESS_ID=""
 rm -rf "$ROOT"
 mkdir -m 700 -p "$ROOT/state"
 rpc() {
-  "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1"
+  "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1" | tee "$ROOT/last-rpc"
 }
+# A failed test or jq -e prints nothing under set -e; name the step and show
+# what it was judging, so a red says which part of the round trip broke.
+on_error() {
+  local code=$?
+  echo "websocket-smoke failed (exit $code) at line $1: $2" >&2
+  for f in create.json connect.out connect.err last-rpc; do
+    if [ -s "$ROOT/$f" ]; then echo "--- $f" >&2; tail -c 1200 "$ROOT/$f" >&2; echo >&2; fi
+  done
+}
+trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
 cleanup() {
   if [ -n "$CONNECT_PID" ]; then
     kill "$CONNECT_PID" 2>/dev/null || true

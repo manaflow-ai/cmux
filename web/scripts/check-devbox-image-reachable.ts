@@ -173,7 +173,7 @@ async function main(): Promise<void> {
       const baked = await sh("cut -d' ' -f1 /etc/cmux/cmux-tui-pin", 30_000);
       const bakedSha = baked.out.trim();
       const smoke = await sh(cmuxTuiWebsocketSmokeCommand());
-      if (smoke.code !== 0) throw new Error(`baked client could not reach the daemon: ${smoke.out.slice(-1200)}`);
+      if (smoke.code !== 0) throw new Error(`baked client could not reach the daemon: ${smoke.out.slice(-6000)}`);
       console.log(`${elapsed()} baked client round trip ok`);
 
       if (bakedSha === live.sha256) {
@@ -193,7 +193,7 @@ async function main(): Promise<void> {
         if (liveSmoke.code !== 0) {
           throw new Error(
             `live client ${live.commit.slice(0, 10)} could not reach the daemon baked from ${bakedSha.slice(0, 12)}…: ` +
-              `${liveSmoke.out.slice(-1200)}`,
+              `${liveSmoke.out.slice(-6000)}`,
           );
         }
         console.log(`${elapsed()} live client round trip ok against the baked daemon`);
