@@ -91,6 +91,8 @@ public struct VaultScreen: View {
             } actions: {
                 // Read again on its own (AutoRetry); one quiet line past the shared bound.
                 AutoRetryQuietLine(autoRetry)
+                // retry-prompt-ok: kept beside AutoRetry, which reads again on its own; the button reads now, ahead of the backoff.
+                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
             }
             .accessibilityIdentifier("vault.failed")
         case .loaded:

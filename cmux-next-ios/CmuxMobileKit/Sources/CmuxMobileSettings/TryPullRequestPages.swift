@@ -68,11 +68,15 @@ struct TryPullRequestPage: View {
                     // Read again on its own (AutoRetry); one quiet line past the shared bound.
                     Text(verbatim: message).foregroundStyle(theme.colors.label2)
                     AutoRetryQuietLine(autoRetry)
+                    // retry-prompt-ok: kept beside AutoRetry, which reads again on its own; the button reads now, ahead of the backoff.
+                    Button("Try Again") { Task { await model.reload() } }
                 }
             case .unreachable:
                 Section {
                     // The page reads again when the Mac connects (the `.task(id:)` below).
                     Text("Not connected to this Mac.").foregroundStyle(theme.colors.label2)
+                    // retry-prompt-ok: kept; the page also reads again on its own when the Mac connects.
+                    Button("Try Again") { Task { await model.reload() } }
                 }
             case .loaded(let list):
                 Section {
