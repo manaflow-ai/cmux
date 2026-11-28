@@ -6,7 +6,8 @@ import CmuxNextSettings
 /// `debug.dock` (plans/cmux-next/dock-column.md): per window, the
 /// active screen's docked columns, strip range and scrollbar in window
 /// coordinates, plus whether the daemon serves `dock-columns-v1`, and a
-/// top-level `docks` list (window, column, edge, mode, frame, rim).
+/// top-level `docks` list (window, column, edge, mode, frame, rim), the
+/// window's edge docks (`window_docks`) and whether any is drawn.
 /// With `pane` and `dock` (bool, optional `edge`, `mode`) it first
 /// changes that pane's column through the same path as every other entry
 /// point (`ColumnDocking.apply`).
@@ -18,12 +19,13 @@ enum DebugDockColumns {
         if let key = params["pane"]?.stringValue, let flag = params["dock"]?.boolValue {
             error = set(key: key, dock: flag, params: params, services: services)
         }
-        var docks: [JSON] = []
+        var docks: [JSON] = [], windowDocks: [JSON] = []
         let windows = services.windows.controllers.map { controller -> JSON in
             var fields: [String: JSON] = ["window": .string(controller.state.id)]
+            windowDocks += controller.state.docks.debugRows(window: controller.state.id).compactMap(JSON.init(foundation:))
             if let report = controller.content?.layoutView.dockReport {
                 fields["screen"] = encode(report)
-                docks += Self.docks(window: controller.state.id, report: report)
+                docks += report.debugColumns(window: controller.state.id).compactMap(JSON.init(foundation:))
             }
             return .object(fields)
         }
@@ -31,6 +33,8 @@ enum DebugDockColumns {
             "supported": .bool(services.activeDaemon.supports(DaemonCapability.dockColumns.rawValue)),
             "windows": .array(windows),
             "docks": .array(docks),
+            "window_docks": .array(windowDocks),
+            "window_dock_shown": .bool(services.windows.controllers.contains { !$0.state.docks.visible.isEmpty }),
         ]
         if let error { result["error"] = .string(error) }
         return .object(result)
@@ -50,23 +54,6 @@ enum DebugDockColumns {
             }
         }
         return "no column holds pane \(key)"
-    }
-
-    /// One entry per docked column of the window's active screen: where it
-    /// is and where its rim (inner-edge resize handle) is, in window
-    /// coordinates.
-    static func docks(window: String, report: DockLayoutReport) -> [CmuxNextSettings.JSONValue] {
-        report.columns.map { column in
-            .object([
-                "window": .string(window),
-                "column": .string(column.column.rawValue),
-                "edge": .string(column.dock.edge.rawValue),
-                "mode": .string(column.dock.mode.rawValue),
-                "shown": .bool(column.shownAsDock),
-                "frame_in_window": rect(column.frameInWindow),
-                "rim_in_window": column.rimInWindow.map(rect) ?? .null,
-            ])
-        }
     }
 
     private static func encode(_ report: DockLayoutReport) -> JSON {
