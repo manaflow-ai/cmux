@@ -224,6 +224,23 @@ inputs = [
 ]
 run = "python3 tests/test_indexnow_notification.py"
 
+# The nightly's static capability check (check-daemon-capabilities.sh --static-only) fails on a capability that
+# identify_capabilities adds at runtime and runtime_only misses. Its test ran only in cmux-next-guards' static checks,
+# which a feat PR runs only with full-ci, so two such capabilities reached the base (hosted#1102, fixed by #63717).
+# This runs it on the pull request that adds one. Python, offline; it reads the crates' .rs files for the consts.
+[step.static-capability-runtime-only]
+job = "linux"
+timeout = 120
+title = "Runtime-added capabilities are runtime_only"
+about = "every capability identify_capabilities adds at runtime and the app lists is in check-daemon-capabilities.sh's runtime_only, so the nightly's static check passes"
+inputs = [
+  "cmux-tui/crates/cmux-tui-core/src/server/capabilities.rs",
+  "plans/cmux-next/daemon-capabilities.json",
+  "scripts/cmux-next/check-daemon-capabilities.sh",
+  "tests/test_cmux_next_static_capability_runtime_only.py",
+]
+run = "python3 tests/test_cmux_next_static_capability_runtime_only.py"
+
 [step.update-replay-diagnostics]
 job = "linux"
 timeout = 60
