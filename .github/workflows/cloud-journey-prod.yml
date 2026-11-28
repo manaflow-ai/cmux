@@ -199,10 +199,7 @@ jobs:
           probe=cloud-chat-replies-production
           if [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
           home_chat_args=()
-          # The stub leg replays a real run's model time to first token (CAPTURED_FIRST_TOKEN_TRACE in cloud-journey.ts),
-          # so its first text has a real-sized model term and our_path_ms (first text minus the guest's model term) is
-          # judged every hour without the journey's Claude login; the six-hourly real legs check the model term itself.
-          if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved --stub-replay captured); fi
+          if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved); fi
           bun scripts/cmux-next/cloud-journey.ts --backend prod --agent "$AGENT" --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
             --preclaim-login "$CMUX_TUI" --spare-wait 180 "${home_chat_args[@]}"
           code=$?
