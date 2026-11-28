@@ -1,0 +1,10 @@
+# Every dogfood fix commit: every later dogfood build must contain each one (cmux-ad 2026-10-27).
+# One abbreviated or full sha per line, then why. dogfood-gate.py refuses a build whose commit lacks any.
+# Ported from the orchestrator's chrome-parity-design/dogfood/fixes.list (check-fixes.sh); add each new
+# dogfood fix here in the commit that lands it.
+d00c05b3f61 v1: event-cause-v1 is an optional daemon capability (compile)
+a6af36e87b8 v1: the server helper phase compiles CmuxSafeConcurrency before CmuxNextCompat (compile)
+6a4a6a0f242 v1.1: test, Ctrl+C reaches the foreground job (controlling tty)
+33cd577dcd8 v1.1: test, live resize does not jump the scrollback
+66d9960c10f v1.1: fix, PTY child gets a controlling tty (setsid, open, TIOCSCTTY)
+673587c97dc v1.1: fix, TerminalScroller ignores AppKit's clip clamp during tile()

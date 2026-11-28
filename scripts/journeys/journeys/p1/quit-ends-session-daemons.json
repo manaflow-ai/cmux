@@ -1,0 +1,187 @@
+{
+  "id": "quit-ends-session-daemons",
+  "priority": "P1",
+  "title": "An app with no terminal: 30 s after Cmd-Q, a crash or SIGKILL no cmux-tui or acpmux of its sessions runs",
+  "why": "R-LIFECYCLE ORPHANS: Lawrence's Mac had 380 cmux-tui processes with parent 1 from old tagged DEV apps. Fleet repro on build 3a43a131 (2026-11-04): with no terminal, Cmd-Q, SIGTERM, SIGKILL and a crash all left the app session's owner (cmux-tui --headless --session cmux-app-...), the Chief session's owner (cmux-chief-...), each one's screen detection plugin, and the acpmux daemon and router running with parent 1; only Quit and End Sessions ended them. They keep nothing a person can see: their state is durable and the next launch starts them again. The journey makes one terminal (evidence that the app works), resets with End Everything (no terminal), then quits by Cmd-Q, a crash and SIGKILL. It expects agents off (the capture slot's default).",
+  "source": "R-LIFECYCLE ORPHANS (handoff/rewrites/R-LIFECYCLE/DESIGN.md section 8), fleet repro rlc-orphans-base-3..6",
+  "first_in_app": true,
+  "budget_seconds": 240,
+  "steps": [
+    {
+      "do": "fresh_app"
+    },
+    {
+      "do": "key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "open-terminal"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "term",
+      "timeout": 20
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "type",
+      "text": "echo keep-${nonce}-$((6*7))",
+      "enter": true,
+      "mark": "typed"
+    },
+    {
+      "do": "expect",
+      "title": "the terminal works",
+      "since": "typed",
+      "timeout": 10,
+      "all": [
+        {
+          "daemon_line": "keep-${nonce}-42"
+        },
+        {
+          "app_text_line": "keep-${nonce}-42"
+        },
+        {
+          "frame_text": "keep-${nonce}-42"
+        }
+      ]
+    },
+    {
+      "do": "relaunch",
+      "how": "quit-end-everything",
+      "mark": "after-reset"
+    },
+    {
+      "do": "expect",
+      "title": "after End Everything the reopened app has no terminal and is connected",
+      "since": "after-reset",
+      "timeout": 30,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "snapshot.get",
+            "path": "topology.daemon_state",
+            "equals": "connected"
+          }
+        }
+      ]
+    },
+    {
+      "do": "relaunch",
+      "how": "quit",
+      "leftovers_after": 30,
+      "mark": "after-quit"
+    },
+    {
+      "do": "expect",
+      "title": "30 s after quit with no terminal: no cmux-tui or acpmux process of the app's sessions runs",
+      "timeout": 2,
+      "all": [
+        {
+          "quit_leftovers": {
+            "allow": [
+              {
+                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection|acpmux)).*$",
+                "why": "not a daemon of the app's sessions (cmux-tui owners, their screen detection plugins, acpmux daemon and router)"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "title": "the reopened app is connected to its daemon again",
+      "since": "after-quit",
+      "timeout": 30,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "snapshot.get",
+            "path": "topology.daemon_state",
+            "equals": "connected"
+          }
+        }
+      ]
+    },
+    {
+      "do": "relaunch",
+      "how": "crash",
+      "leftovers_after": 30,
+      "mark": "after-crash"
+    },
+    {
+      "do": "expect",
+      "title": "30 s after crash with no terminal: no cmux-tui or acpmux process of the app's sessions runs",
+      "timeout": 2,
+      "all": [
+        {
+          "quit_leftovers": {
+            "allow": [
+              {
+                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection|acpmux)).*$",
+                "why": "not a daemon of the app's sessions (cmux-tui owners, their screen detection plugins, acpmux daemon and router)"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "title": "the reopened app is connected to its daemon again",
+      "since": "after-crash",
+      "timeout": 30,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "snapshot.get",
+            "path": "topology.daemon_state",
+            "equals": "connected"
+          }
+        }
+      ]
+    },
+    {
+      "do": "relaunch",
+      "how": "kill-app",
+      "leftovers_after": 30,
+      "mark": "after-kill"
+    },
+    {
+      "do": "expect",
+      "title": "30 s after kill with no terminal: no cmux-tui or acpmux process of the app's sessions runs",
+      "timeout": 2,
+      "all": [
+        {
+          "quit_leftovers": {
+            "allow": [
+              {
+                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection|acpmux)).*$",
+                "why": "not a daemon of the app's sessions (cmux-tui owners, their screen detection plugins, acpmux daemon and router)"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "title": "the reopened app is connected to its daemon again",
+      "since": "after-kill",
+      "timeout": 30,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "snapshot.get",
+            "path": "topology.daemon_state",
+            "equals": "connected"
+          }
+        }
+      ]
+    }
+  ]
+}
