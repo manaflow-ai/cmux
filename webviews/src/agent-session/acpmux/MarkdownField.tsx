@@ -981,6 +981,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // normally provides these is removed with formatting shortcuts in plain mode.
     "Mod-a": selectAll,
     "Shift-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
+    "Alt-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
     "Mod-z": undo,
     "Shift-Mod-z": redo,
     "Mod-y": redo,
@@ -1122,6 +1123,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const drawnFor = useRef(selectionKey);
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
+  /// Shift-Return and Option-Return: the caret at the start of a new line (a new list item inside a
+  /// list, a new paragraph in a quote), scrolled into view. Without `multiline`, the key does nothing.
+  const newLine = useCallback((state: EditorState, dispatch?: EditorView["dispatch"], editorView?: EditorView) => {
+    if (!lines.current) return true;
+    const item = state.schema.nodes.list_item;
+    const enter = baseKeymap.Enter!;
+    return chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(state, dispatch, editorView);
+  }, []);
   const empty = useRef<HTMLSpanElement>(null);
   // The field's text as plain lines until the editor is made (markdownField.css `.acpmux-md-standin`):
   // the field has the editor's height from its first frame, so the composer around it does not grow
@@ -1365,6 +1374,29 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     returnInput();
                     return true;
                   }
+                  // Shift-Return or Option-Return right after an input method committed: ProseMirror's
+                  // WebKit guard drops any key within 500 ms of compositionend (its keydown returns before
+                  // the keymaps), so the browser broke the line itself and `beforeinput` sent the prompt.
+                  // The keymaps run here instead, and the guard is spent, as ProseMirror spends it on
+                  // the key it drops.
+                  if (
+                    isReturnKey(event) &&
+                    (event.shiftKey || event.altKey) &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !isImeKeyEvent(event) &&
+                    !composing.current &&
+                    !_view.composing &&
+                    event.timeStamp - compositionEndedAt <= COMMIT_RETURN_MS
+                  ) {
+                    // ProseMirror's own guard (prosemirror-view `inOrNearComposition`), spent as it spends it.
+                    const guard = (_view as unknown as { input?: { compositionEndedAt?: number } }).input;
+                    if (guard) guard.compositionEndedAt = -2e8;
+                    compositionEndedAt = -Infinity;
+                    event.preventDefault();
+                    _view.someProp("handleKeyDown", (handle) => handle(_view, event));
+                    return true;
+                  }
                   const submit = latest.current.onSubmit;
                   if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !isImeKeyEvent(event)) {
                     event.preventDefault();
@@ -1396,6 +1428,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     return true;
                   }
                   event.preventDefault();
+                  // A line break the browser makes is Shift-Return's (or Option-Return's) that no keymap
+                  // took: a new line, never a send.
+                  if (input.inputType === "insertLineBreak") {
+                    returnTaken = false;
+                    newLine(_view.state, _view.dispatch, _view);
+                    return true;
+                  }
                   if (returnTaken) returnTaken = false;
                   else if (returnKeyDown || !lines.current) returnInput();
                   else {
@@ -1756,12 +1795,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               return false;
             return lift(state, dispatch);
           },
-          "Shift-Enter": (state, dispatch, editorView) => {
-            if (!lines.current) return true;
-            const item = state.schema.nodes.list_item;
-            const enter = baseKeymap.Enter!;
-            return chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(state, dispatch, editorView);
-          },
+          "Shift-Enter": newLine,
+          // Option-Return is a new line too, as in Claude desktop and every chat composer; unbound, the
+          // browser's own paragraph reached `beforeinput` as a Return and sent the prompt.
+          "Alt-Enter": newLine,
         }),
       );
       void Editor.make()
@@ -1847,7 +1884,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         richPlugins.current = [];
       };
     },
-    [configureLiteral],
+    [configureLiteral, newLine],
   );
 
   /// Replaces the document with `markdown`. Parsing drops the spaces at its end ("/review "),
