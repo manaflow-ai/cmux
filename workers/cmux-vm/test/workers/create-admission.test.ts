@@ -50,9 +50,11 @@ const lines = (event: string) => {
 
 it(`answers a burst of ${N} creates with at most ${M} sent, and a quick named retryable 503 for the rest; the same keys then create`, async () => {
   const t = (current = await makeHarness({ createAdmission: admission({ cap: M, queueWaitMs: QUEUE_WAIT_MS, leaseMs: 130_000 }) }));
-  const key = await t.addKey("team_alpha", ["vm:write"]);
+  // One tenant holds at most its share of the slots (cap - 1, #64283), so the burst alternates two billed tenants:
+  // together they fill every slot, and a batch of M consecutive indexes never holds more than one tenant's share.
+  const keys = [await t.addKey("team_alpha", ["vm:write"]), await t.addKey("team_bravo", ["vm:write"])];
   const provider = gatedProvider(t);
-  const create = (index: number) => t.request("/v1/vms", { ...bearer(key), "idempotency-key": `burst-${index}` }, { method: "POST", body: { labels: { role: "burst" } } });
+  const create = (index: number) => t.request("/v1/vms", { ...bearer(keys[index % keys.length]!), "idempotency-key": `burst-${index}` }, { method: "POST", body: { labels: { role: "burst" } } });
   const log = lines("vm_create");
   try {
     const started = Date.now();
@@ -105,14 +107,16 @@ it("queues a create behind a full queue and sends it when a slot frees within th
   expect(provider.peak).toBe(1);
 });
 
-it("sends creates as before when the queue cannot be reached", async () => {
+it("refuses a create with a named retryable 503, sending nothing to the provider, when the queue cannot be reached", async () => {
   const unreachable = { admit: () => Promise.reject(new Error("queue object unavailable")), release: () => Promise.resolve() };
   const t = (current = await makeHarness({ createAdmission: unreachable }));
   const key = await t.addKey("team_alpha", ["vm:write"]);
   const log = lines("vm_create_admission_unavailable");
   try {
     const made = await t.request("/v1/vms", bearer(key), { method: "POST", body: { labels: { role: "burst" } } });
-    expect(made.status).toBe(201);
+    expect(made.status).toBe(503);
+    expect(await made.json()).toMatchObject({ message: "The cmux VM service is temporarily unavailable (vm-provider.createQueueFull)" });
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
     expect(log.seen).toHaveLength(1);
   } finally {
     log.restore();
