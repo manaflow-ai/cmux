@@ -27,6 +27,8 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   if (root) await act(async () => root!.unmount());
   await settleReact();
   root = undefined;

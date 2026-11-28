@@ -11,6 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Thinking } from "./Thinking";
 import { JumpToLatest } from "../VirtualTranscript";
+import { JUMP_LATEST } from "../transcriptSelectors";
 import { setChatDisplay } from "../chatDisplay";
 import {
   resolveThinkingLook,
@@ -72,7 +73,7 @@ test("unset, neither the live line nor Jump to latest mounts a glyph", () => {
   expect(container.querySelector(".cv-glyph")).toBeNull();
   act(() => root!.render(jump()));
   expect(container.querySelector(".cv-glyph")).toBeNull();
-  expect(container.querySelector(".acpmux-jump-latest")?.hasAttribute("data-working-dots")).toBe(false);
+  expect(container.querySelector(JUMP_LATEST)?.hasAttribute("data-working-dots")).toBe(false);
 });
 
 test("the look's glyph reaches the live line and swaps live for another look's", () => {
@@ -103,7 +104,7 @@ test("Jump to latest plays the glyph at glyphSize while the agent works", () => 
     }),
   );
   act(() => root!.render(jump()));
-  const button = container.querySelector(".acpmux-jump-latest")!;
+  const button = container.querySelector(JUMP_LATEST)!;
   expect(button.hasAttribute("data-working-dots")).toBe(true);
   const spans = dots(".cv-jump-glyph");
   expect(spans.length).toBe(tradeGlyph.particle.max);

@@ -79,6 +79,7 @@ test("a running card whose newest read failed reads again on its own, with no Ch
     await act(async () => root.unmount());
     await settleReact();
     setLastingGrace(LASTING_MS);
+    await settleReact();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
       else scope[key] = value;

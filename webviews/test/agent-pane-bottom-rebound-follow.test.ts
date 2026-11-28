@@ -15,6 +15,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import { JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-bottom-rebound-follow.test.ts", async () => {
   /// A spring back from a scroll down past the end, px past it per frame: the stretch the trackpad's
@@ -47,22 +48,25 @@ await requireBrowserLane("agent-pane-bottom-rebound-follow.test.ts", async () =>
 
   /// Where the view sits against its end, and whether Jump to latest shows, read each frame for `ms`.
   const watch = (page: Page, ms: number) =>
-    page.evaluate(async (ms) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      let worst = 0;
-      let jump = false;
-      const start = performance.now();
-      while (performance.now() - start < ms) {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        worst = Math.max(worst, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
-        jump ||= !!document.querySelector(".acpmux-jump-latest[data-shown]");
-      }
-      return {
-        worst: Math.round(worst),
-        jump,
-        end: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
-      };
-    }, ms);
+    page.evaluate(
+      async ({ ms, shown }) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        let worst = 0;
+        let jump = false;
+        const start = performance.now();
+        while (performance.now() - start < ms) {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          worst = Math.max(worst, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
+          jump ||= !!document.querySelector(shown);
+        }
+        return {
+          worst: Math.round(worst),
+          jump,
+          end: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+        };
+      },
+      { ms, shown: JUMP_LATEST_SHOWN },
+    );
 
   setDefaultTimeout(120_000);
   let browser: Browser;

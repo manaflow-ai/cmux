@@ -209,9 +209,11 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
     expect(dom.window.document.body.textContent).not.toContain("{count}");
     const loadingNotice = notices.find((notice) => notice.text?.includes("Loading"));
     const limitedNotice = notices.find((notice) => notice.text?.includes("Only recent"));
-    expect(loadingNotice).toBeDefined();
+    // No loading words while the first page is read since #62227 (Leo, 2026-11-27: "unnecesssary
+    // message"), so the short-history line is the only notice the first read draws.
+    expect(loadingNotice).toBeUndefined();
     expect(limitedNotice).toBeDefined();
-    expect(limitedNotice!.version).not.toBe(loadingNotice!.version);
+    expect(notices.every((notice) => notice.text?.includes("Only recent"))).toBe(true);
     await act(async () => show());
     expect(calls).toBe(1);
     progress = 2;

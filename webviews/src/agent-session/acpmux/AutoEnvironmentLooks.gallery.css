@@ -43,16 +43,14 @@
   transform-box: fill-box;
   transform-origin: center;
 }
-/* Picked: the small spark breathes, slowly. */
-[data-auto-look="constellation"] .auto-env-spark-small { animation: auto-env-breathe calc(var(--cmux-spinner-period) * 1.4) var(--cmux-ease-out) infinite; }
 /* Hover: the big spark turns a quarter and back once (a twinkle). */
 .acpmux-location-button:is(:hover, [data-gallery-hover]) .auto-env-icon[data-look="constellation"] .auto-env-spark,
 .acpmux-menu-item:is(:hover, [data-highlighted]) .auto-env-icon[data-look="constellation"] .auto-env-spark {
   animation: auto-env-twinkle var(--cmux-motion-large) var(--cmux-ease-out) 1;
 }
-@keyframes auto-env-breathe {
-  0%, 100% { opacity: 0.45; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.1); }
+@keyframes auto-env-orbit-turn {
+  from { transform: rotate(0); }
+  to { transform: rotate(120deg); }
 }
 @keyframes auto-env-twinkle {
   0% { transform: rotate(0) scale(1); }
@@ -62,9 +60,8 @@
 
 /* ---- Orbit: machine-coloured dots going round your chat. ---- */
 .auto-env-icon[data-look="orbit"] .auto-env-orbit { transform-origin: 8px 8px; }
-[data-auto-look="orbit"] .auto-env-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
 .acpmux-location-button:is(:hover, [data-gallery-hover]) .auto-env-orbit,
-.acpmux-menu-item:is(:hover, [data-highlighted]) .auto-env-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
+.acpmux-menu-item:is(:hover, [data-highlighted]) .auto-env-orbit { animation: auto-env-orbit-turn var(--cmux-spinner-period) var(--cmux-ease-out) 1; }
 /* The hint names a place: in that place's colour family, still muted. */
 [data-auto-look="orbit"] .auto-env-hint { color: color-mix(in oklab, var(--agent-ansi-4, var(--agent-muted)) 55%, var(--agent-muted)); }
 

@@ -127,6 +127,11 @@ test("a fling up the chat writes the rail's list offset at most twice, then plac
       ),
     );
     await railFrame();
+    // The list places itself in the frame after the commit that drew its ticks (ThreadMinimap.tsx
+    // `place`), never in the commit: run that frame, as a browser would before the rail is seen.
+    await act(async () => {
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+    });
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const list = () => document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
     const bottom = scroller.scrollTop;

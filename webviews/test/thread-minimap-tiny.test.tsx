@@ -8,7 +8,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
+import { railFrame, scrollFrames } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -81,6 +81,16 @@ const listRoom = (node: HTMLElement) =>
       0,
     ) - Number.parseFloat(node.parentElement?.style.height ?? "0"),
   );
+// The content's height, as the browser reports it: the spacer's, rounded (support/jsdomScroller.ts).
+// The transcript reads it to tell a reader's scroll up from the browser's spring back at the end
+// (VirtualTranscript.tsx `sprangBack`, #48114); jsdom's 0 read every scroll up as a spring back.
+Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+  configurable: true,
+  get(this: HTMLElement) {
+    const height = parseFloat(this.querySelector?.<HTMLElement>(":scope > .acpmux-spacer")?.style.height ?? "");
+    return Number.isFinite(height) ? Math.round(height) : this.clientHeight;
+  },
+});
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
   get(this: object) {
@@ -146,6 +156,8 @@ for (let height = 96; height <= 336; height += 16)
         for (const at of offsets.filter((at) => at >= 0)) {
           scroller.scrollTop = at;
           await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+          // The band moves, then the list places itself, each in its own frame (scrollFrames).
+          await scrollFrames(dom.window);
           const rail = host.querySelector<HTMLElement>(".acpmux-minimap__rail");
           if (!rail) {
             clipped.push(`${count} prompts at ${at} px: no rail`);

@@ -21,9 +21,10 @@ import { SCALE, SRC, scan, scanText } from "./motion-scale";
 const finds = (file: string, text: string) => scanText(file, text).map((violation) => violation.line);
 
 describe("motion scale", () => {
+  // A parse of every webview source file: 5 to 9 s on a loaded runner, past bun's 5 s default.
   test("no webview CSS, TS or TSX animates off the scale", () => {
     expect(scan().map((violation) => `${violation.file}:${violation.line} ${violation.text}`)).toEqual([]);
-  });
+  }, 60_000);
 
   test("the generated TypeScript and CSS copies are the JSON's", () => {
     expect<[string, number][]>(Object.entries(MOTION_MS)).toEqual(

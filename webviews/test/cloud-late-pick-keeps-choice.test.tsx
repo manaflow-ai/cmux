@@ -291,7 +291,8 @@ test("a choice made on This Mac before Cloud was picked does not hold off Cloud'
   // Cloud from the Where menu, as the person picks it.
   const where = () =>
     host.querySelector<HTMLButtonElement>(
-      `.acpmux-composer-context button[aria-label^="${t("composer.environment")}"]`,
+      // The Where control is the Computer chip (#51769).
+      `.acpmux-composer-context button[aria-label^="${t("composer.computer")}"]`,
     );
   await until(() => where() !== null, "the composer has its Where control");
   await act(async () => where()!.click());

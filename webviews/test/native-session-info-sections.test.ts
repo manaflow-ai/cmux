@@ -221,10 +221,15 @@ test("Context keeps measured colored segments, expandable lists and Compact", as
     actions,
     t,
   )!;
-  expect(section.segments).toEqual([
+  // The measured segments are the parts' own rows since #53132 (the segmented bar under the share
+  // line, drawn from each used or buffer row's `meter`), not a header `segments` list.
+  expect(
+    section.rows.filter((row) => row.meter !== undefined).map((row) => ({ share: row.meter, color: row.symbolColor })),
+  ).toEqual([
     { share: 0.3, color: "context0" },
     { share: 0.1, color: "buffer" },
   ]);
+  expect(section.rows.find((row) => row.title === "Free")?.meter).toBeUndefined();
   expect(section.rows.find((row) => row.title === "Messages")).toMatchObject({
     symbol: "square.fill",
     symbolColor: "context0",

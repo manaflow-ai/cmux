@@ -4,7 +4,8 @@
   max-height: calc(100dvh - var(--ds-space-6));
   overflow: auto;
   padding: 0;
-  background: var(--surface-popup);
+  /* The sheet is the shared glass (.ui-dialog.ui-glass, popupSurface.css THE SHEET ROLE): no fill of its
+     own over it (glass-never-opaque.test.ts; Leo: "Glass, never opaque"). */
   color: var(--text);
   border-radius: calc(var(--ds-radius-control) + var(--ds-space-4));
 }

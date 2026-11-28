@@ -3641,9 +3641,13 @@ function ComposerFrame({
           className: shell
             ? "acpmux-composer-prompt is-hidden"
             : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}${cloudStarting && startLook === "dimmed" ? " is-cloud-starting" : ""}`,
-          // The editor updates its own content for each key. This value is the frame's last drawn
-          // snapshot, so the box only renders when the prompt's visible facts change.
-          value: facts.text,
+          // The editor updates its own content for each key, and the box only renders when the
+          // prompt's visible facts change. The value is the text as this render reads it, not the
+          // facts' snapshot: facts made by a change React renders after later edits (a paste's
+          // first text, then its tokens) keep that change's text, and the field took it as a value
+          // from outside and wrote it back over the paste (composer-select-all-attachments,
+          // slash-menu-midprompt).
+          value: promptText.text,
           selectionKey: sessionId,
           placeholder: dictating ? t("dictation.listening") : (startingPlaceholder ?? suggested ?? placeholderText),
           placeholderKey:

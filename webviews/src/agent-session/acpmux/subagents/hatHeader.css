@@ -222,7 +222,7 @@
   cursor: default;
   transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
 }
-.acpmux-hat-hide-bar > svg {
+.acpmux-hat-hide-bar > .acpmux-hat-hide-mark {
   opacity: 0;
   transition: opacity var(--cv-actions-out, 120ms) var(--cv-actions-out-ease, ease-out);
 }
@@ -231,9 +231,9 @@
 .acpmux-hat-hide-bar:focus-visible {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
-.acpmux-running-tray:hover > .acpmux-hat-hide-bar > svg,
-.acpmux-running-tray:has([data-popup-open]) > .acpmux-hat-hide-bar > svg,
-.acpmux-hat-hide-bar:focus-visible > svg {
+.acpmux-running-tray:hover > .acpmux-hat-hide-bar > .acpmux-hat-hide-mark,
+.acpmux-running-tray:has([data-popup-open]) > .acpmux-hat-hide-bar > .acpmux-hat-hide-mark,
+.acpmux-hat-hide-bar:focus-visible > .acpmux-hat-hide-mark {
   opacity: 1;
   transition: opacity var(--cv-actions-in, 80ms) var(--cv-actions-in-ease, ease-out);
 }

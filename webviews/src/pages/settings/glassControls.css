@@ -30,6 +30,7 @@
     var(--elevation-1);
   /* What the knob does to the track under it: a small blur and a lift in color and light, the
      lens feel, on the knob's few pixels only. */
+  /* glass-raw-blur-allow: the knob's lens on a few pixels of track, not a surface's material */
   --glass-knob-lens: blur(1px) saturate(1.8) brightness(1.06) contrast(1.06);
   /* How much a held knob grows. */
   --glass-knob-grow: 1.18;

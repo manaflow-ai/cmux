@@ -2679,6 +2679,7 @@ export class AcpmuxDirectClient {
     // cursor may repeat a boundary record while a page cache catches up, so merge by seq before
     // handing the replay reducer its source of truth.
     const events = new Map<number, EventRecord>();
+    // ends: `after` rises to each page's last seq; a page with no more returns, one that moved nothing throws.
     for (let after = 0; ;) {
       const page = await this.typed("_acpmux/events", {
         sessionId,
@@ -11443,6 +11444,10 @@ export class AcpmuxDirectClient {
         ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       });
       this.streamingActivity = id;
+      // The empty placeholder says nothing has come yet; a thought is the turn's first output, as
+      // reply text is, so it gives way here too. Kept, it stays over the thought rows on a page
+      // whose turn view never folds it (a read from a notice turn's prompt, chat-sim-map).
+      this.rows.delete("typing");
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;
@@ -11645,6 +11650,11 @@ export class AcpmuxDirectClient {
         this.ownSteerBelow(running.id)
       )
         this.rows.placeAfterCurrent(id);
+    } else if (event.kind === "plan") {
+      // A plan update draws nothing since cmux keeps no to-do list (#55935), yet it is still the
+      // agent's next step (#36909): a reply held open past a steer or notice (`holdAssistantSegment`)
+      // ends here, so the text after it starts below what landed (Leo, 2026-11-05).
+      if (this.assistantCut) this.endAssistantSegment();
     }
   }
 

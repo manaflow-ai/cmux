@@ -33,6 +33,10 @@ function idleFields(): Record<string, unknown> {
     queueWithdrawn: [],
     waitingSteers: [],
     listener: () => undefined,
+    // The request check a reset clears (`resetRequestCheck`, from `rejectPending` and a socket open).
+    requestCheckedAt: 0,
+    requestCheckOff: false,
+    requestStrikes: new Map<number | string, number>(),
     // Where the chat's rows come from, which every publish and reset reads: v1, no chat on the store.
     chatRows: { view: () => undefined, holds: () => false, asks: () => false, close: () => undefined },
     subagents: {

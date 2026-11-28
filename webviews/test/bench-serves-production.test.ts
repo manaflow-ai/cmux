@@ -30,6 +30,12 @@ const servesItsOwn = (text: string) => /(?<!net\.)\bcreateServer\b/.test(text);
 /// Calls it, not merely mentions it: a file that names `requireProductionReact` in a comment and
 /// never calls it checks nothing.
 const checksTheBundle = (text: string) => /\brequireProductionReact\(/.test(text);
+/// `text` without its `//` comment lines, so a call named in a comment is not read as one.
+const withoutLineComments = (text: string) =>
+  text
+    .split("\n")
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join("\n");
 
 describe("webviews benches serve the build", () => {
   const files = sourceFiles(bench).map((file) => ({ name: rel(file), text: fs.readFileSync(file, "utf8") }));
@@ -65,8 +71,10 @@ describe("webviews benches serve the build", () => {
   });
 
   it("every bench that takes its page from the helper checks which React it loaded", () => {
+    // A call, not a mention: bench/renderCounts.ts names `serveBenchPage(..., { unminified: true })` in
+    // a comment for its callers, and serves nothing.
     const helped = files.filter(
-      (file) => /serveBenchPage\(/.test(file.text) && file.name !== "bench/support/benchPage.ts",
+      (file) => /serveBenchPage\(/.test(withoutLineComments(file.text)) && file.name !== "bench/support/benchPage.ts",
     );
     expect(helped.length).toBeGreaterThan(0);
     const unchecked = helped.filter((file) => !checksTheBundle(file.text)).map((file) => file.name);

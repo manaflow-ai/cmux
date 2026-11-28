@@ -61,6 +61,8 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   resetKnownForksAnyTurnForTests();
   for (const client of live) client.close();
   live = [];
