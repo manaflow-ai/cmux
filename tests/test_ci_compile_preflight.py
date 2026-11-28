@@ -10,10 +10,9 @@ feat-cmux-next's web bundle build and NIGHTLY red. This test keeps the gate that
   - both changes reach a web bundle, so the preflight builds them; a change that reaches none builds nothing;
   - the build's bundler errors (the exact lines NIGHTLY run 45907763450 printed) become annotations;
   - the gate has no tier rule: pr-router.yml calls it on every head its route job runs for, with no `start` gate
-    and no label or tier condition; the callee's job has one job-level `if:`, `inputs.web != 'false' || inputs.force_web`, and the route
-    sets web false only when every changed file is one pr_router.json's paths-ignore names (Rust, Swift, Python,
-    workflows, docs) and none is a web bundle input (never-web-check keeps that list sound), so a head that can
-    reach a bundle always builds. Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can reuse, we reuse.";
+    and no label or tier condition; the callee's job skips on web=false unless a bundle consumer forces it.
+    The route skips known non-web paths or uses the exact bundle-input check; unknown inputs fail open.
+    never-web-check keeps the ignored paths disjoint from bundle inputs, so a head that reaches a bundle builds. Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can reuse, we reuse.";
   - the build step runs build-web-bundles.sh, the build NIGHTLY runs.
 The build itself (a merged tree with each break, red) is proven on a runner: the PR that added this test.
 """
@@ -361,14 +360,15 @@ class PreflightWeb(unittest.TestCase):
 
     def web(self, files: list[str] | None, labels: tuple[str, ...] = ()) -> bool:
         event = {"pull_request": {"labels": [{"name": name} for name in labels]}}
-        return self.router.preflight_web(event, self.callees, files)[0]
+        return self.router.preflight_web(event, self.callees, files,
+                                         exact=lambda root, paths: (None, "unreadable fixture"))[0]
 
     def test_a_rust_swift_python_or_docs_only_change_skips(self) -> None:
         self.assertFalse(self.web(["cmuxd/src/main.rs", "Cargo.lock", "cmuxd/Cargo.toml"]))
         self.assertFalse(self.web(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift", "scripts/foo.py"]))
         self.assertFalse(self.web(["docs/handbook/x.md", ".github/workflows/rust-tests.yml"]))
 
-    def test_a_change_that_may_reach_a_bundle_builds(self) -> None:
+    def test_a_possible_bundle_input_builds_when_exact_inputs_are_unreadable(self) -> None:
         for path in ("webviews/src/App.tsx", "webviews/README.md", "webviews/scripts/x.py",
                      "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
                      "scripts/cmux-next/web-bundle-key.py", ".github/workflows/pr-router.yml",
@@ -385,7 +385,7 @@ class PreflightWeb(unittest.TestCase):
                     start, _ = self.router.route(event, self.callees, files,
                                                  decided=decided, carried=carried)
                     self.assertNotIn(name, start)
-                    self.assertTrue(self.router.preflight_web(event, self.callees, files)[0])
+                    self.assertTrue(self.router.preflight_web(event, self.callees, files, start=start)[0])
         condition = re.search(r"^    if: (.*)$", job_block(ROUTER.read_text(), "compile-preflight"), re.M).group(1)
         self.assertEqual(condition, "${{ !cancelled() && needs.route.result == 'success' }}")
 

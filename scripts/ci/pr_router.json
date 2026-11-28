@@ -255,7 +255,8 @@
     "!release-notes/**",
     "!Packages/macOS/CmuxNext/Sources/**/*.xcstrings.d/**"
    ],
-   "affects_why": "No `start` gate in pr-router.yml (no tier rule): the compile preflight runs on every tier (Leo, 2026-11-27: \"surely we can just have legit build fail preflight checks\"), and the callee's first step decides from web-bundle-key.py --routed, the exact web bundle inputs, whether to build. `paths-ignore` is read by pr_router.py preflight_web, not the tier route: a head whose every changed path it ignores (Rust, Cargo, Swift, Python, docs and plans prose, other workflows; never a path under a web bundle input tree) passes `web: false` and the callee's job skips before taking a runner. In the 6 h to 2026-11-27 10Z 756 of 1,237 no-op preflight runs (~487 runner-min, ~0.8 min a merged PR) were such heads (scripts/measure/ci140-head-minutes). The callee's web job checks, on every head that reaches a web bundle, that no routed input is a path this list ignores (compile_preflight.py never-web-check), so a new import of an ignored file fails there instead of skipping the build."
+   "draft_why": "Web-affecting drafts retain the build check; the web input skips known unrelated changes.",
+   "affects_why": "The caller runs independently of tier and carry decisions, so every web change can get a build verdict. The narrowed affects list still bounds the ordinary start list and never-web-check detects bundle inputs outside it. Restored paths-ignore skips known non-web changes before allocating a runner; possible inputs keep the exact router_web check and its fail-open behavior. A forced bundle consumer still runs the callee. Leo: \"surely we can just have legit build fail preflight checks\"."
   },
   "cmux-next-fast-gates.yml": {
    "types": [
