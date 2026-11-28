@@ -26,7 +26,7 @@ async fn a_closed_chat_still_takes_the_exit_its_agent_sends_late() {
     let reader = own.clone();
     let late = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(2)).await;
-        reader.send(exited()).await.unwrap();
+        reader.send(Box::new(exited())).await.unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
         drop(reader);
     });
@@ -57,8 +57,8 @@ async fn a_loop_that_first_runs_after_the_close_ends() {
 #[tokio::test(start_paused = true)]
 async fn a_closed_chat_drains_its_queue_first() {
     let (own, mut rx, flag) = closed_chat();
-    own.send(exited()).await.unwrap();
-    own.send(exited()).await.unwrap();
+    own.send(Box::new(exited())).await.unwrap();
+    own.send(Box::new(exited())).await.unwrap();
     let mut closed = flag.subscribe();
     let stop = tokio_util::sync::CancellationToken::new();
     assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_some());
