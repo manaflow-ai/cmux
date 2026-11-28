@@ -78,6 +78,20 @@ nonisolated enum MachineStorageCard {
             lines.append(MachineStorageStrings.line(MachineStorageStrings.automatic, auto ? MachineStorageStrings.on : MachineStorageStrings.off))
         }
         var fields: [CmuxDialogField] = []
+        if let caches = state.report?.caches, !caches.items.isEmpty {
+            let rows = caches.items.map { item in
+                var details: [String] = []
+                switch item.verdict.action {
+                case "keep": details.append(MachineStorageStrings.cacheKept)
+                case "reclaim": details.append(MachineStorageStrings.reclaimable)
+                default: break
+                }
+                if let size = item.bytes { details.append(bytes(size)) }
+                details.append(item.verdict.reason)
+                return CmuxDialogListRow(title: item.path, detail: details.joined(separator: " · "))
+            }
+            fields.append(.readOnlyList(label: MachineStorageStrings.cacheDetails, rows: rows))
+        }
         switch state.phase {
         case .measuring: fields.append(.progress(MachineStorageStrings.measuring))
         case .cleaning: fields.append(.progress(MachineStorageStrings.cleaning))

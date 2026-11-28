@@ -50,6 +50,14 @@ extension CmuxDialogView {
             list.setAccessibilityElement(true)
             list.setAccessibilityRole(.list)
             return [list]
+        case .readOnlyList(let title, let rows):
+            let list = CmuxDialogListView(rows: rows, width: width) { [weak self] role, width in
+                self?.label("", font: role == .primary ? Typography.cardBody : Typography.cardCaption,
+                            role: role, width: width)
+            }
+            list.table.setAccessibilityLabel(title)
+            focusables.append(list.table)
+            return captioned(title, list, width: width)
         case .text, .choice, .check:
             return []
         }

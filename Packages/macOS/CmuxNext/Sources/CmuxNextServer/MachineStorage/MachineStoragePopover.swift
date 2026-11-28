@@ -133,7 +133,8 @@ public final class MachineStoragePopover {
         guard let panel, force || panel.isVisible else { return }
         let spec = MachineStorageCard.spec(state)
         guard force || panel.dialogView?.spec != spec else { return }
-        panel.show(spec) { [weak self] id in self?.pressed(id) }
+        let view = panel.show(spec) { [weak self] id in self?.pressed(id) }
+        view.dialog.renderer = view
     }
 
     /// A button of the card (the person's click or key; tests).

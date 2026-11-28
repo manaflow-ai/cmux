@@ -20,10 +20,27 @@ nonisolated struct WorktreeCareReport: Decodable, Equatable, Sendable {
         let verdict: Verdict
     }
 
+    struct Caches: Decodable, Equatable, Sendable {
+        struct Item: Decodable, Equatable, Sendable {
+            struct Verdict: Decodable, Equatable, Sendable {
+                let action: String
+                let reason: String
+            }
+
+            let path: String
+            let bytes: UInt64?
+            let verdict: Verdict
+        }
+
+        let items: [Item]
+    }
+
     let disk: Disk?
     /// A pass that acted (Clean up now), not a measuring one.
     let applied: Bool
     let items: [Item]
+    /// Absent in reports from older daemons.
+    let caches: Caches?
     /// The bytes the pass freed (a pass that acted).
     let freed: UInt64
     /// The bytes acting on every worktree not kept would free (a measuring pass).

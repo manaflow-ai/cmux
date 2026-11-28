@@ -180,7 +180,7 @@ public final class CmuxDialogPresentation {
                 let enabled = options.filter(\.isEnabled)
                 values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
             case .check(let id, _, let on): values[id] = .bool(on)
-            case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps: break
+            case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps, .readOnlyList: break
             }
         }
         return values
