@@ -8,6 +8,8 @@ full matrix untouched).
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -17,6 +19,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -254,6 +257,25 @@ class PlanTest(unittest.TestCase):
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0)
         self.assertIn("not posted", r.stdout)
+
+    def test_status_refused_on_every_token_fails_so_it_can_be_rerun(self) -> None:
+        # cmux#64513: every token refused on a spent rate limit; the job passed, so the verdict was lost.
+        def refuse(req, seconds=0, **kw):
+            return 403, b'{"message": "API rate limit exceeded for installation."}', {}
+
+        old, old_sleep = fv.gh_http.request, fv.time.sleep
+        fv.gh_http.request, fv.time.sleep = refuse, (lambda s: None)
+        env = {"REPO": "o/r", "SHA": "abc", "TOKENS": "t1 t2", "GITHUB_RUN_ID": "77"}
+        out = io.StringIO()
+        try:
+            with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                code = fv.main(["status", "success", "Passed: kit build"])
+        finally:
+            fv.gh_http.request, fv.time.sleep = old, old_sleep
+        self.assertEqual(code, 1)
+        self.assertIn("::error::cmux/ios-fast (success) was not posted at abc", out.getvalue())
+        self.assertIn("gh run rerun 77 --failed", out.getvalue())
 
     def test_status_posts_the_context_capped(self) -> None:
         seen = []
@@ -532,7 +554,7 @@ class WorkflowTest(unittest.TestCase):
         # unset switch enabled and still lets an explicit '0' disable the verdict.
         # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
         self.assertEqual(self.jobs["ios-fast-runner"]["if"],
-                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
+                         "${{ !cancelled() && !inputs.web_browser_only && !inputs.ios_fast_skip && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
 
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]

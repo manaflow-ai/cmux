@@ -356,6 +356,7 @@ mod remote_cwd;
 mod remote_floor;
 mod remote_rows;
 pub(crate) mod remote_sandbox;
+mod remote_start_bound;
 mod remote_table;
 #[cfg(test)]
 mod remote_table_bench;
@@ -496,6 +497,7 @@ pub(crate) mod turn_cap;
 mod turn_checkpoint;
 pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
+pub(crate) mod turn_frames_native;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
@@ -1834,6 +1836,7 @@ impl Hub {
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
+        let usage_stats = usage_view::UsageCache::saved_in(store.usage_tracker_dir());
         let page_rule_sessions =
             StdMutex::new(inbox::page_rule::session_names(config.page_rule.as_ref()));
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -1889,7 +1892,7 @@ impl Hub {
             op_once: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
-            usage_stats: Default::default(),
+            usage_stats,
             usage_answers: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
@@ -2288,70 +2291,6 @@ impl Hub {
         &self.mailbox
     }
 
-    pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        // A bounded debug seam for slow-filesystem startup tests; absent in release builds.
-        #[cfg(debug_assertions)]
-        if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_STORE_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-        {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(10_000)));
-        }
-        let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
-        else {
-            // Adoption still reaches every host this list hid: an off push waits for it
-            // (`full_access_turned_off`).
-            if deferred {
-                self.adoption_ready.send_replace(false);
-            }
-            return;
-        };
-        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store listed");
-        // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
-        let read = Self::read_live_host_sessions();
-        // Records that can not be read may hide a host whose lines adoption holds again: an off
-        // push waits for adoption then too (`full_access_turned_off`).
-        let unknown = read.is_none();
-        let hosted = read.unwrap_or_default();
-        let waiting =
-            metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
-        if deferred && (!hosted.is_empty() || unknown) {
-            self.adoption_ready.send_replace(false);
-        }
-        {
-            let mut plan = self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            plan.listed = true;
-            plan.waiting.extend(waiting);
-            plan.adopting.extend(hosted.iter().cloned());
-            plan.hosted.extend(hosted.iter().cloned());
-        }
-        // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
-        let unsaved = self.settle_legacy_grants(&mut metas);
-        // A deleted chat stays out of the map through its grace (`soft_delete.rs`).
-        self.hold_deleted(&mut metas);
-        self.store_load.total.store(metas.len(), Ordering::SeqCst);
-        // A first start with no ledger file: each session's running totals (`hub/ledger`).
-        if self.ledger.wants_seed() {
-            // Forks' own turns are read first, so the ledger's lock waits on no log read.
-            let seeds: Vec<_> =
-                metas.iter().map(|m| ledger::Seed::of(m, self.fork_own_turns(m))).collect();
-            self.ledger.seed(seeds);
-        }
-        for meta in metas {
-            let hosted = hosted.contains(&meta.id);
-            let saved = !unsaved.contains(&meta.id);
-            self.install_stored_session(meta, deferred, hosted, saved);
-        }
-        tracing::info!(
-            "loaded {} sessions from store",
-            self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
-        );
-        if deferred {
-            self.logs_ready.send_replace(false);
-        }
-        self.resume_races();
-    }
-
     pub(super) fn install_stored_session(
         &self,
         meta: SessionMeta,
@@ -2559,10 +2498,10 @@ impl Hub {
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
-        // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
+        // Unstarted, an adopted chat goes by its saved `agentInfo`.
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
-        // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
-        // policy change refuses it as while it moved (`queue::moving_error`).
+        // A chat that moved away stays frozen after a restart: prompts, queue, drafts and
+        // policy changes refuse as while it moved (`queue::moving_error`).
         let moving =
             meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned()).or_else(|| {
                 // A saved Auto chat is frozen from the moment it exists: the store, not this copy,
@@ -2573,10 +2512,10 @@ impl Hub {
                     .filter(|record| record.auto)
                     .map(|_| AUTO_AWAY.to_owned())
             });
-        // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
+        // Its creator may have its starts wait on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
         let parent_print = views::parent_print_of(&meta);
-        // A fork whose agent had not started before a restart starts as the first daemon's would.
+        // A fork not started at a restart starts as the first daemon would.
         let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
         let session = Arc::new(Session {
             id: meta.id.clone(),
@@ -2710,6 +2649,7 @@ impl Hub {
             stopped_agent: AtomicU64::new(0),
             stop_respawn: AtomicU64::new(0),
             taps: AtomicU64::new(0),
+            raw_line_tap: AtomicU64::new(0),
             muted_taps: AtomicU64::new(0),
             stop_hold: AtomicU64::new(0),
             turn_hold: AtomicU64::new(0),
