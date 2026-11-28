@@ -169,3 +169,24 @@ test("picker grows to the measured room and shrinks to a short viewport", async 
   expect(pickerHeightBounds(900, 300)).toEqual({ maxHeight: 900, minHeight: 300 });
   expect(pickerHeightBounds(150, 300)).toEqual({ maxHeight: 150, minHeight: 150 });
 });
+
+test("the Cloud picker opens at least as tall as the local picker last opened", async () => {
+  const { cloudPickerFloor, pickerHeightBounds, rememberLocalPickerHeight } =
+    await import("../src/agent-session/acpmux/modelPickerLayout");
+  const hadStorage = "localStorage" in scope;
+  const savedStorage = scope.localStorage;
+  const storage = (scope.window as Window).localStorage;
+  scope.localStorage = storage;
+  storage.removeItem("cmux.acpmux.localPickerHeight");
+  expect(cloudPickerFloor()).toBe(480);
+  rememberLocalPickerHeight(412);
+  expect(cloudPickerFloor()).toBe(412);
+  rememberLocalPickerHeight(40);
+  expect(cloudPickerFloor()).toBe(412);
+  // A Connect-only family measures short; the floor keeps the local height, inside the room.
+  expect(pickerHeightBounds(900, 230, cloudPickerFloor())).toEqual({ maxHeight: 900, minHeight: 412 });
+  expect(pickerHeightBounds(300, 230, cloudPickerFloor())).toEqual({ maxHeight: 300, minHeight: 300 });
+  storage.removeItem("cmux.acpmux.localPickerHeight");
+  if (hadStorage) scope.localStorage = savedStorage;
+  else delete scope.localStorage;
+});
