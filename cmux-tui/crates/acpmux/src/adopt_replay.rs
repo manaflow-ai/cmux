@@ -17,11 +17,15 @@ use crate::adopt_tools::{PastTool, ToolResult};
 
 #[path = "adopt_replay_page.rs"]
 mod page;
+#[path = "transcript_page.rs"]
+mod transcript_page;
 pub use page::{
     ClaudePage, PAGE_TURNS, claude_page, claude_page_with_turns, newest_claude_page,
     newest_prompt_start,
 };
 pub(crate) use page::{claude_page_with_turns_open, newest_prompt_start_open};
+pub(crate) use transcript_page::transcript_page_from;
+pub use transcript_page::{TranscriptPage, transcript_page};
 
 /// One past exchange: the person's prompt, the tool calls it led to, in order, and the
 /// assistant's answer text.
@@ -33,6 +37,22 @@ pub struct PastTurn {
     /// When the prompt was sent and the answer last written (ms since the epoch), when recorded.
     pub prompt_at: Option<u64>,
     pub answer_at: Option<u64>,
+    /// The lines Claude Code wrote into the turn itself (a task notification, a peer's message),
+    /// in order among its tool calls: work of the turn, never a prompt of the person's.
+    pub harness: Vec<PastHarness>,
+}
+
+/// A user line the harness wrote into a turn (`origin.kind` `task-notification` or `peer`). It
+/// replays as a user row marked with its origin (`_meta.lineOrigin`), so the transcript folds it
+/// as the turn's work by that mark, never by its text (Leo, 2026-11-24: "we can indeed treat them
+/// as tool calls, even though they're bursted at the end/start of turns").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PastHarness {
+    pub origin: LineOrigin,
+    pub text: String,
+    pub at: Option<u64>,
+    /// How many of the turn's tool calls came before it.
+    pub after_tools: usize,
 }
 
 /// At most this many turns (the newest) and this much text per answer: a long chat stays cheap.
@@ -92,6 +112,7 @@ pub struct Fold {
     // Current Codex records each finished tool call as an `item_completed` event; older Codex
     // wrote `exec_command_end` and patch events, read until the first such item.
     tool_items: bool,
+    answer_limit: usize,
     /// What the last line folded was, as a reader that starts later sees it ([`ItemLine`]).
     last: ItemLine,
 }
@@ -111,6 +132,12 @@ pub enum ItemLine {
 impl Fold {
     /// An empty fold of a `family` (`claude`, `codex`) transcript.
     pub fn new(family: &str, tools: bool) -> Self {
+        Self::with_answer_limit(family, tools, MAX_ANSWER)
+    }
+
+    /// A fold for a terminal page. Terminal pages are searched independently and keep the
+    /// complete answer text up to the page/reply bound rather than the adopted-chat preview cap.
+    pub(crate) fn with_answer_limit(family: &str, tools: bool, answer_limit: usize) -> Self {
         Self {
             codex: family == "codex",
             tools,
@@ -120,6 +147,7 @@ impl Fold {
             items_settled: 0,
             current: false,
             tool_items: false,
+            answer_limit,
             last: ItemLine::Other,
         }
     }
@@ -127,40 +155,52 @@ impl Fold {
     /// Folds one line (a record; anything that does not parse is skipped).
     pub fn line(&mut self, line: &[u8]) {
         self.last = ItemLine::Other;
-        let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
+        if let Ok(record) = serde_json::from_slice::<Value>(line) {
+            self.record(&record);
+        }
+    }
+
+    fn record(&mut self, record: &Value) {
+        self.last = ItemLine::Other;
+        let answer_limit = self.answer_limit;
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
         if !self.codex {
-            for step in claude_steps(&record, at) {
+            for step in claude_steps(record, at) {
+                // A harness line is the turn's work, as a tool call is: a replay draws it, the
+                // chats page's text does not.
                 if self.tools || matches!(step, Step::Prompt(_) | Step::Answer(_)) {
-                    add(&mut self.turns, step, at);
+                    add_limited(&mut self.turns, step, at, answer_limit);
                 }
             }
             return;
         }
-        let kinds = has_item_kinds(&record);
+        let kinds = has_item_kinds(record);
         let was_current = self.current;
         self.current = self.current || kinds;
         if kinds {
             self.last = ItemLine::Annotated;
         }
-        if let Some((tool, item)) = crate::adopt_tools::codex_tool(&record, at) {
-            self.tool_items = self.tool_items || item;
-            if self.tools && (item || !self.tool_items) {
-                // With the turns that are being read: event messages, else items.
+        if let Some(step) = codex_tool_step(record, at, &mut self.tool_items) {
+            if self.tools {
                 let into = if self.current || self.turns_seen() > 0 {
                     &mut self.turns
                 } else {
                     &mut self.items
                 };
-                add(into, tool.map_or_else(Step::ToolResult, Step::Tool), at);
+                add_limited(into, step, at, answer_limit);
             }
-        } else if let Some(step) = codex_step(&record) {
-            add(&mut self.turns, step, at);
-        } else if let Some(step) = codex_item_step(&record) {
+        } else if let Some(step) = codex_step(record) {
+            add_limited(&mut self.turns, step, at, answer_limit);
+        } else if let Some(step) = codex_item_step(record) {
             if was_current && !kinds && matches!(step, Step::Prompt(_)) {
                 self.last = ItemLine::PlainPrompt;
             }
-            add(if self.current { &mut self.turns } else { &mut self.items }, step, at);
+            add_limited(
+                if self.current { &mut self.turns } else { &mut self.items },
+                step,
+                at,
+                answer_limit,
+            );
         }
     }
 
@@ -219,6 +259,9 @@ impl Fold {
 pub enum Step {
     Prompt(String),
     Answer(String),
+    /// A user line Claude Code wrote itself, of an origin that is the turn's work
+    /// ([`LineOrigin::is_tool_like`]).
+    Harness(LineOrigin, String),
     Tool(PastTool),
     ToolResult(ToolResult),
 }
@@ -238,7 +281,7 @@ pub fn record_steps(family: &str, record: &Value, codex_items: &mut bool) -> Vec
         }
         _ => claude_steps(record, record_time(record))
             .into_iter()
-            .filter(|step| matches!(step, Step::Prompt(_) | Step::Answer(_)))
+            .filter(|step| matches!(step, Step::Prompt(_) | Step::Answer(_) | Step::Harness(..)))
             .collect(),
     }
 }
@@ -280,6 +323,10 @@ pub fn record_time(record: &Value) -> Option<u64> {
 /// A prompt starts a turn; an answer adds to the last one, capped at MAX_ANSWER; a tool call
 /// joins the last one (once: a call recorded again replaces it), and a result settles its call.
 fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
+    add_limited(turns, step, at, MAX_ANSWER);
+}
+
+fn add_limited(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>, answer_limit: usize) {
     match step {
         Step::Prompt(text) => turns.push(PastTurn {
             prompt: text,
@@ -287,6 +334,7 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
             answer: String::new(),
             prompt_at: at,
             answer_at: at,
+            harness: Vec::new(),
         }),
         Step::Tool(tool) => {
             let Some(turn) = turns.last_mut() else { return };
@@ -302,6 +350,14 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
                 tool.settle(&result, at);
             }
         }
+        // A page that begins inside a turn has no turn yet to join: the line is left out with it.
+        Step::Harness(origin, text) => {
+            let Some(turn) = turns.last_mut() else { return };
+            if turn.harness.len() < MAX_TOOLS {
+                let after_tools = turn.tools.len();
+                turn.harness.push(PastHarness { origin, text, at, after_tools });
+            }
+        }
         Step::Answer(text) => {
             let Some(turn) = turns.last_mut() else { return };
             turn.answer_at = at.or(turn.answer_at);
@@ -309,8 +365,8 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
                 turn.answer.push_str("\n\n");
             }
             turn.answer.push_str(&text);
-            if turn.answer.len() > MAX_ANSWER {
-                let mut cut = MAX_ANSWER;
+            if turn.answer.len() > answer_limit {
+                let mut cut = answer_limit;
                 while !turn.answer.is_char_boundary(cut) {
                     cut -= 1;
                 }
@@ -325,7 +381,21 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
 /// `{"type":"assistant",...}` text and `tool_use` blocks.
 fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
     let flag = |key: &str| record.get(key).and_then(Value::as_bool) == Some(true);
-    if flag("isSidechain") || flag("isMeta") || flag("isCompactSummary") || !from_person(record) {
+    if flag("isSidechain") || flag("isCompactSummary") {
+        return Vec::new();
+    }
+    // A line Claude Code wrote itself (a task notification; a peer's message, which it writes as
+    // a meta line) is the turn's work, kept with its origin; never a prompt.
+    let origin = line_origin(record);
+    if origin.is_tool_like() {
+        return (record.get("type").and_then(Value::as_str) == Some("user"))
+            .then(|| record.pointer("/message/content").and_then(text_of))
+            .flatten()
+            .map(|text| Step::Harness(origin, text))
+            .into_iter()
+            .collect();
+    }
+    if flag("isMeta") || origin != LineOrigin::Person {
         return Vec::new();
     }
     let Some(content) = record.pointer("/message/content") else { return Vec::new() };
@@ -393,10 +463,69 @@ pub(crate) fn queued_by_person(text: &str) -> bool {
 /// `human`. Claude Code also writes user lines itself (`task-notification` when a background task
 /// or subagent finishes, `peer` for another session's `<cross-session-message>`).
 pub(crate) fn from_person(record: &Value) -> bool {
-    match record.pointer("/origin/kind") {
-        None | Some(Value::Null) => true,
-        Some(kind) => kind.as_str() == Some("human"),
+    line_origin(record) == LineOrigin::Person
+}
+
+/// Who a Claude Code user line is from, decided by its `origin.kind` and never by its text. The one
+/// classification the transcript model shares: a line from the harness (a task notification: a
+/// subagent or background command ended; a peer's message) is a tool-call-like event of the turn it
+/// came in, folded with the turn's work, not a message the person typed (Leo, 2026-11-24: "we can
+/// indeed treat them as tool calls, even though they're bursted at the end/start of turns").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineOrigin {
+    /// No origin, or `human`: the person's own words, a fixed point that never folds.
+    Person,
+    /// `task-notification`: a subagent or background task ended; work of the turn.
+    TaskNotification,
+    /// `peer`: another session's `<cross-session-message>`.
+    Peer,
+    /// An origin this build does not know: never the person's.
+    Other,
+}
+
+impl LineOrigin {
+    /// Its name on a replayed user row (`_meta.lineOrigin`), which the web transcript reads
+    /// (incomingMessage.ts `lineOrigin`): Claude Code's own `origin.kind` words.
+    pub fn wire(self) -> &'static str {
+        match self {
+            LineOrigin::Person => "person",
+            LineOrigin::TaskNotification => "task-notification",
+            LineOrigin::Peer => "peer",
+            LineOrigin::Other => "other",
+        }
     }
+
+    /// Whether the line is harness-injected work the transcript folds like a tool call.
+    pub(crate) fn is_tool_like(self) -> bool {
+        matches!(self, LineOrigin::TaskNotification | LineOrigin::Peer)
+    }
+}
+
+/// Whether a logged `user_message` is a line the harness wrote into a turn (`_meta.lineOrigin`,
+/// written by `native_history::turn_records` and `hub/watch.rs`): the turn's work, not a prompt,
+/// so readers that count or quote prompts leave it out.
+pub fn harness_row(msg: &Value) -> bool {
+    msg.pointer("/_meta/lineOrigin").and_then(Value::as_str).is_some_and(|o| o != "person")
+}
+
+/// The origin of a Claude Code user line (`origin.kind`).
+pub fn line_origin(record: &Value) -> LineOrigin {
+    match record.pointer("/origin/kind") {
+        None | Some(Value::Null) => LineOrigin::Person,
+        Some(kind) => match kind.as_str() {
+            Some("human") => LineOrigin::Person,
+            Some("task-notification") => LineOrigin::TaskNotification,
+            Some("peer") => LineOrigin::Peer,
+            _ => LineOrigin::Other,
+        },
+    }
+}
+
+/// Read legacy tool events until the first current item-completed tool update.
+fn codex_tool_step(record: &Value, at: Option<u64>, tool_items: &mut bool) -> Option<Step> {
+    let (tool, item) = crate::adopt_tools::codex_tool(record, at)?;
+    *tool_items |= item;
+    (item || !*tool_items).then(|| tool.map_or_else(Step::ToolResult, Step::Tool))
 }
 
 /// Codex rollouts: `{"type":"event_msg","payload":{"type":"user_message"|"agent_message","message":...}}`.
@@ -503,3 +632,7 @@ pub(crate) fn text_of(content: &Value) -> Option<String> {
 fn parse_ms(text: &str) -> Option<u64> {
     cmux_chat_index::time::parse_rfc3339_ms(text).and_then(|ms| u64::try_from(ms).ok())
 }
+
+#[cfg(test)]
+#[path = "adopt_replay_line_origin_tests.rs"]
+mod line_origin_tests;

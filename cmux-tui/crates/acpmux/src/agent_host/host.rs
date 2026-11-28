@@ -169,6 +169,8 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         host_level: HOST_LEVEL,
         // A replacement host is the holder of the harness it took over.
         holder: Some(true),
+        local_chatgpt_expiry: spec.local_chatgpt_expiry,
+        local_kimi_expiry: spec.local_kimi_expiry,
     };
     write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
     cleanup.paths.clear();
@@ -209,6 +211,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     cmd.args(&spec.args)
         .env_clear()
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
+        .env_remove(crate::agent_credentials::LOCAL_REDACTION)
         // What this host started is found by it after the host is killed (`end_left_behind`).
         .env(super::HOST_MARK, &nonce)
         .current_dir(&spec.cwd)
@@ -219,8 +222,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
-    // Never at background class while it starts (`cpu_class.rs`): the daemon lowers it once its
-    // session's start is over.
+    // Never at background class or this host's utility disk tier (`cpu_class.rs`): the daemon
+    // lowers a `background` session's harness once its start is over.
     crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = crate::home_fs::remove_file(&spec.socket);
@@ -256,6 +259,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         claude_translator: spec.translator.is_some(),
         host_level: HOST_LEVEL,
         holder: Some(holder.is_some()),
+        local_chatgpt_expiry: spec.local_chatgpt_expiry,
+        local_kimi_expiry: spec.local_kimi_expiry,
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {
@@ -331,6 +336,9 @@ enum Event {
     /// With no controller: a wait (its generation) ended, or its census answered (`Some`,
     /// `host/orphan.rs`).
     Orphan(u64, Option<bool>),
+    /// The Claude translator has stdin replies it worked out off the stdout reader (a
+    /// repo-sync hook's answer, `claude_stdio/hook_callback.rs`): write them now.
+    ClaudeReplies,
 }
 
 /// How long a pooled host waits for its first controller. A daemon may be
@@ -417,6 +425,8 @@ struct Retained {
 struct State {
     record: HostRecord,
     spec: SpawnSpec,
+    launch_key_index: Option<usize>,
+    harness_start: Option<u64>,
     /// Retained entries as their encoded frames: encoded once in `push`, sent as is
     /// (live and on resume), weighed by their size.
     entries: VecDeque<Retained>,
@@ -591,6 +601,12 @@ impl Started {
             let ring = holder.fds.ring.clone();
             Ok(Box::new(super::custody::RingPipe::new(pipe, ring, holder.replay_from)?))
         };
+        let harness_start = match &harness {
+            Harness::Spawned(_) => record.harness_pid.and_then(crate::owner_exit::process_start),
+            Harness::Adopted { .. } => {
+                holder.as_ref().and_then(|h| h.adopt.as_ref()?.harness_start)
+            }
+        };
         let (stdin, stdout, stderr, pgid, exit): (
             Writer,
             Reader,
@@ -703,13 +719,22 @@ impl Started {
         {
             let tx = events_tx.clone();
             let alive = leader_alive.clone();
+            let scratch = spec.copilot_scratch.as_ref().map(|scratch| scratch.path.clone());
+            let session = spec.session_id.clone();
+            let home = spec.hosts_dir.parent().map(Path::to_owned);
             tokio::spawn(async move {
+                let clean = || {
+                    if let (Some(path), Some(home)) = (&scratch, &home) {
+                        crate::agent::copilot_auth::remove_host_launch(home, &session, path);
+                    }
+                };
                 let mut child = match exit {
                     HarnessExit::Child(child) => child,
                     // No child of this host: its exit status is not known here, and its leader
                     // is reaped by another, so its group is not proven ours once it exited.
                     HarnessExit::Watch(watch) => {
                         watch.exited().await;
+                        clean();
                         alive.store(false, std::sync::atomic::Ordering::SeqCst);
                         let _ = tx.send(Event::Exited(None)).await;
                         return;
@@ -727,6 +752,7 @@ impl Started {
                     unsafe { libc::killpg(pg, libc::SIGKILL) };
                 }
                 let code = child.wait().await.ok().and_then(|s| s.code());
+                clean();
                 // Reaped: from here the group id may be freed; nobody may
                 // signal it on the strength of the leader being alive.
                 alive.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -780,6 +806,12 @@ impl Started {
         crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
+            tr.stop_condition.store(t.stop_condition, std::sync::atomic::Ordering::Relaxed);
+            if let Some((_, home)) =
+                spec.env.iter().find(|(key, _)| key == crate::bg_hook::HOME_ENV)
+            {
+                let _ = tr.plugin_hook_home.set(home.into());
+            }
             if t.fast
                 && let Ok(mut fast) = tr.fast.try_lock()
             {
@@ -792,6 +824,9 @@ impl Started {
             {
                 *slot = Some(sid.clone());
             }
+            if t.resumes_cut_turn {
+                tr.owe_resumed();
+            }
             tr
         });
         let codex = (spec.translator.is_none() && spec.codex_bridge)
@@ -800,6 +835,8 @@ impl Started {
         let (start_h, start_out_id) = resumed_at.map_or((0, 0), |a| (a.last_h, a.max_out_id));
         let mut state = State {
             record,
+            launch_key_index: spec.launch_key_index(),
+            harness_start,
             spec,
             entries: VecDeque::new(),
             weight: 0,
@@ -854,6 +891,19 @@ impl Started {
             });
         }
 
+        if let Some(tr) = &state.translator {
+            let ready = tr.replies_ready();
+            let tx = events_tx.clone();
+            // Ends with the event loop (its channel closes) or the translator.
+            tr.scope().spawn_until_cancelled("claude-replies-ready", async move {
+                loop {
+                    ready.notified().await;
+                    if tx.send(Event::ClaudeReplies).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
         state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
@@ -915,6 +965,7 @@ impl Started {
                         state.maybe_push_exit();
                     }
                 }
+                Event::ClaudeReplies => state.write_late_claude_replies().await,
                 Event::OwnerWaitOver => {
                     if pooled_without_owner(still_pooled(&state.spec), state.last_owner) {
                         tracing::warn!("no daemon attached to this pooled host; ending it");
@@ -1021,6 +1072,9 @@ impl Started {
         super::tree::kill_still_running(&state.under);
         remove_own_artifacts(&state.spec.hosts_dir, &state.record);
         remove_promoted(&state.spec.hosts_dir, &state.record);
+        // What double-forked away after that look is still in the host's scope: end it there,
+        // the host with it, when switched on (`scope_kill.rs`). Nothing after this runs then.
+        super::scope_kill::end_own_scope();
         Ok(())
     }
 }
@@ -1063,6 +1117,39 @@ fn over_frame_limit_note(h: u64) -> Entry {
     Entry::Err { line: format!("[entry {h} over the frame limit dropped]") }
 }
 
+fn redact_launch_key(entry: &mut Entry, key: &str) {
+    fn redact_text(text: &mut String, key: &str) {
+        if text.contains(key) {
+            *text = text.replace(key, "[redacted]");
+        }
+    }
+
+    fn redact_json(value: &mut Value, key: &str) {
+        match value {
+            Value::String(text) => redact_text(text, key),
+            Value::Array(items) => items.iter_mut().for_each(|item| redact_json(item, key)),
+            Value::Object(fields) => {
+                if fields.keys().any(|name| name.contains(key)) {
+                    *fields = std::mem::take(fields)
+                        .into_iter()
+                        .map(|(name, value)| {
+                            (crate::agent_credentials::redact_line(name, Some(key)), value)
+                        })
+                        .collect();
+                }
+                fields.values_mut().for_each(|value| redact_json(value, key));
+            }
+            _ => {}
+        }
+    }
+
+    match entry {
+        Entry::Tap { msg, .. } | Entry::In { msg } => redact_json(msg, key),
+        Entry::Err { line } => redact_text(line, key),
+        Entry::Exit { .. } => {}
+    }
+}
+
 impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
@@ -1097,7 +1184,10 @@ impl State {
     }
 
     /// [`Self::push`], carrying ring offset `o` (`custody.rs`).
-    fn push_at(&mut self, entry: Entry, o: Option<u64>) {
+    fn push_at(&mut self, mut entry: Entry, o: Option<u64>) {
+        if let Some(key) = self.spec.launch_key(self.launch_key_index) {
+            redact_launch_key(&mut entry, key);
+        }
         self.orphan.note_entry(&entry);
         let h = self.next_h + 1;
         // One serialization per entry: the bytes are sent and kept (perf100: the entry was
@@ -1429,6 +1519,15 @@ impl State {
         });
     }
 
+    /// The translator's stdin replies worked out off the stdout reader ([`Event::ClaudeReplies`]).
+    async fn write_late_claude_replies(&mut self) {
+        let Some(tr) = self.translator.clone() else { return };
+        match contained(tr.take_stdin_replies()).await {
+            Ok(replies) => replies.into_iter().for_each(|l| self.write_claude_line(l)),
+            Err(why) => self.translator_panicked("Claude", &why),
+        }
+    }
+
     fn write_claude_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
@@ -1548,15 +1647,29 @@ impl State {
                 let _ = old.tx.send(HostFrame::Superseded);
             }
             let exited = self.exit_h.map(|_| self.leader_code.unwrap_or(None));
+            let harness_start = self.harness_start;
+            // The base host omitted the start time from Hello even for a live harness.
+            #[cfg(all(target_os = "linux", debug_assertions))]
+            let harness_start = harness_start.filter(|_| {
+                !self
+                    .spec
+                    .env
+                    .iter()
+                    .any(|(key, value)| key == "ACPMUX_TEST_LEGACY_HOST_HELLO" && value == "1")
+            });
             let _ = tx.send(HostFrame::HostHello {
                 version,
                 host_build: self.record.host_build.clone(),
                 incarnation: self.record.incarnation.clone(),
                 harness_pid: self.record.harness_pid,
+                harness_start,
                 last_h: self.next_h,
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                launch_credential: super::LaunchCredential(
+                    crate::agent_credentials::launched_with(&self.spec.env),
+                ),
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);
@@ -1800,73 +1913,75 @@ fn can_enter(dir: &std::path::Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    /// A pooled host ends at the end of its wait only when no controller
-    /// ever said `Hello`; a session's host never ends this way.
+#[path = "host_tests.rs"]
+mod tests;
+
+#[cfg(test)]
+mod launch_key_redaction_tests {
+    use super::*;
+
     #[test]
-    fn only_a_pooled_host_with_no_controller_yet_ends_after_its_wait() {
-        assert!(super::pooled_without_owner(true, None));
-        assert!(!super::pooled_without_owner(true, Some(1)));
-        assert!(!super::pooled_without_owner(false, None));
-    }
-
-    /// The leader is waited for without being reaped: while it is a zombie
-    /// its process group id cannot be reused, so ending the group then can
-    /// never signal another process group.
-    #[test]
-    fn waiting_for_the_leader_leaves_it_unreaped() {
-        let mut child =
-            std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
-        let pid = child.id() as i32;
-        assert!(super::wait_exit_unreaped(pid), "the wait failed");
-        // SAFETY: signal 0 to this test's own child only checks existence.
-        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
-        assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
-    }
-
-    /// An entry too big for one frame is kept as a frame that fits, never as an empty one:
-    /// an answer whose id alone is over the limit becomes a stderr note, which a next daemon
-    /// does not need.
-    #[test]
-    fn an_entry_whose_replacement_is_over_the_limit_too_is_kept_as_a_note() {
-        use super::{Entry, encode_entry};
-        let answer = Entry::In { msg: serde_json::json!({"id": "x".repeat(300), "result": {}}) };
-        let (bytes, needed) = encode_entry(5, &answer, 200).expect("a note fits");
-        assert!(!needed, "a stderr note keeps no orphaned host waiting");
-        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
-        assert_eq!(body["h"], 5);
-        assert_eq!(body["e"]["line"], "[entry 5 over the frame limit dropped]", "{body}");
-
-        let small = Entry::In { msg: serde_json::json!({"id": 1, "result": "y".repeat(300)}) };
-        let (bytes, needed) = encode_entry(6, &small, 200).expect("the error answer fits");
-        assert!(needed, "an answer is logged by a next daemon");
-        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
-        assert_eq!(body["e"]["msg"]["id"], 1, "{body}");
-        assert!(body["e"]["msg"]["error"].is_object(), "{body}");
-
-        assert!(encode_entry(7, &small, 20).is_none(), "nothing fits: no empty frame");
-    }
-
-    /// An entry too big for one frame is replaced, not dropped with its connection: an
-    /// answer by an error answer to the same id, anything else by a stderr note.
-    #[test]
-    fn an_entry_over_the_frame_limit_is_answered_or_noted() {
-        use super::{Entry, TapDir, over_frame_limit};
-        let answer =
-            Entry::In { msg: serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": {}}) };
-        let Entry::In { msg } = over_frame_limit(3, &answer) else { panic!("not an answer") };
-        assert_eq!(msg["id"], 7);
-        assert_eq!(msg["error"]["message"], "agent answer was over the frame limit");
-        assert!(msg.get("result").is_none());
-
-        let update =
-            serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {}});
-        for entry in [
-            Entry::In { msg: update },
-            Entry::Tap { dir: TapDir::In, msg: serde_json::json!({"id": 1, "result": {}}) },
+    fn local_route_keys_are_redacted_without_becoming_cloud_credentials() {
+        for name in [
+            "OPENROUTER_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "XAI_API_KEY",
+            crate::agent_credentials::CHATGPT_TOKEN,
         ] {
-            let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
-            assert_eq!(line, "[entry 4 over the frame limit dropped]");
+            let key = "fixture-local-provider-key";
+            let spec: SpawnSpec = serde_json::from_value(serde_json::json!({
+                "session_id": "chat",
+                "program": "fixture",
+                "args": [],
+                "env": [[name, key], [crate::agent_credentials::LOCAL_REDACTION, name]],
+                "cwd": "/",
+                "hosts_dir": "/",
+                "socket": "/unused",
+                "buffer_cap": 1024
+            }))
+            .unwrap();
+            let mut entry = Entry::Err { line: format!("provider refused {key}") };
+            redact_launch_key(&mut entry, spec.launch_key(spec.launch_key_index()).unwrap());
+            assert_eq!(entry, Entry::Err { line: "provider refused [redacted]".into() });
+            let process_env =
+                format!("{}={name}\0{name}={key}\0", crate::agent_credentials::LOCAL_REDACTION);
+            assert!(crate::agent_credentials::recovered(process_env.as_bytes()).is_none());
+        }
+    }
+
+    #[test]
+    fn local_kimi_grants_are_redacted_without_a_cloud_recovery_marker() {
+        let grant = "fixture-kimi-grant";
+        let spec: SpawnSpec = serde_json::from_value(serde_json::json!({
+            "session_id": "chat",
+            "program": "opencode",
+            "args": [],
+            "env": [[crate::byo_endpoint::OPENAI_KEY_ENV, grant]],
+            "cwd": "/",
+            "hosts_dir": "/",
+            "socket": "/unused",
+            "buffer_cap": 1024
+        }))
+        .unwrap();
+        let key = spec.launch_key(spec.launch_key_index()).expect("the host registers the grant");
+        let mut entry = Entry::Err { line: format!("provider refused {grant}") };
+        redact_launch_key(&mut entry, key);
+        assert_eq!(entry, Entry::Err { line: "provider refused [redacted]".into() });
+    }
+
+    #[test]
+    fn endpoint_launch_credentials_are_redacted_from_host_entries() {
+        let token = "fixture-provider-key";
+        let mut line = Entry::Err { line: format!("provider refused {token}") };
+        let mut event = Entry::In {
+            msg: serde_json::json!({"params": {"text": token, token: "provider metadata"}}),
+        };
+        for entry in [&mut line, &mut event] {
+            redact_launch_key(entry, token);
+            let json = serde_json::to_string(entry).unwrap();
+            assert!(!json.contains(token));
+            assert!(json.contains("[redacted]"));
         }
     }
 }

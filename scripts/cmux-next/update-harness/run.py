@@ -14,12 +14,15 @@ What it does (plans: .cmux-scratch/hq-ff/updates-plan.md, slice S0):
      builds read CMUXNextUpdateHarness (UpdateHarness.swift, #if DEBUG).
   3. Zips v2, signs the zip, writes a loopback appcast, serves it on
      127.0.0.1:<port>.
-  4. Launches v1 (no activation, automation socket) and checks. Without the
-     automatic-install opt-in (the default) the update-found step asks: the
-     harness checks that nothing downloads, presses Update, waits for the
-     update to stage (Sparkle downloads, verifies and extracts it), checks
-     that nothing relaunches, then presses Restart to Update. Otherwise it
-     runs the install action through the control socket.
+  4. Launches v1 (no activation, automation socket) and checks. By default
+     (automatic downloads on) the update must stage with no click, nothing
+     relaunches until Restart to Update, and the harness presses it once:
+     the run fails unless the update took exactly one click (the click marks
+     and the app's own update_clicks_N). With --downloads-off the update-found
+     step asks: the harness checks that nothing downloads, presses Update,
+     waits for the update to stage (Sparkle downloads, verifies and extracts
+     it), checks that nothing relaunches, then presses Restart to Update.
+     --scenario runs the install action through the control socket.
   5. Waits for v1 to exit (kernel exit event) and for the relaunched app's
      launch marks, then writes <out>/timeline.json and prints the numbers.
   6. Stops what it started (exact pids), the server, and deletes the key.
@@ -29,10 +32,12 @@ with a deadline; nothing sleeps to synchronize.
 """
 import argparse, json, os, plistlib, select, shutil, signal, socket, subprocess, sys, time
 import re
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from sessions import Agent, Owned, Terminal, bundle_commit, patch_build_stamp, wait_path  # noqa: E402
+from sessions import (Agent, Owned, Terminal, UnplacedTerminal, bundle_commit, patch_build_stamp,  # noqa: E402
+                      unplaced_survived, wait_path)
 from tag_teardown import TagTeardown  # noqa: E402
 from state_wait import wait_stable  # noqa: E402
 
@@ -186,7 +191,7 @@ def terminal_survived(r, handoff):
     a handoff, the terminal was found through a replacement cmux-tui daemon; without, the daemons stayed the same."""
     return bool(r["same_terminal_listed"] and r["pid_alive"] and r["pid_before"] == r["pid_after"]
                 and r["last_sample_after_relaunch"] and r["samples_during_swap"] > 0
-                and (r.get("replacement_daemon") if handoff else r["daemons_before"] == r["daemons_after"]))
+                and (r.get("replacement_daemon") if handoff else set(r["daemons_before"]) <= set(r["daemons_after"])))
 
 
 def end_tag(teardowns, owned, acp_home, remove_home, log):
@@ -385,6 +390,75 @@ def second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock
             "v3_pid": opened and opened["pid"], "installed_build": installed, "v3_build": i3["CFBundleVersion"]}
 
 
+REVERT_STEPS = ["revert.inputs_read", "revert.decided", "revert.swapped", "revert.relaunch_helper",
+                "will_terminate"]
+
+
+def installed_build(app_path):
+    try:
+        with open(os.path.join(app_path, "Contents/Info.plist"), "rb") as f:
+            return plistlib.load(f)["CFBundleVersion"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def rollback_hop(a, marks, sock, installed_path, old_pids, remember_app, remember_tag, log):
+    """Goes back one build through `updates.rollback` (no build named: the app picks) on the app that runs now (the
+    last of old_pids), and times it from the click (revert.clicked) to the next process's first window. A refusal is a
+    result (its message verbatim), not a failure of the run."""
+    current = old_pids[-1]
+    hop = {"from_build": installed_build(installed_path)}
+    wait_socket(sock, 30)
+    t_send = time.time()
+    try:
+        reply = rpc(sock, "updates.rollback", {}, timeout=130)
+    except (OSError, ValueError) as error:
+        reply = {"closed": str(error)}
+    hop["reply"] = reply
+    hop["reply_ms"] = round((time.time() - t_send) * 1000)
+    if isinstance(reply, dict) and reply.get("error"):
+        hop["refused"] = reply["error"].get("message") if isinstance(reply["error"], dict) else reply["error"]
+        log("ROLLBACK REFUSED", hop["refused"])
+        return hop
+    t_exit = wait_exit(current, 60)
+    if t_exit is None:
+        hop["exit"] = "no exit within 60 s"
+        return hop
+    opened = marks.wait(lambda rows: next((r for r in rows if r["name"] == "launch.first_window_frame_committed"
+                                           and r["pid"] not in old_pids), None), a.relaunch_timeout)
+    if not opened:
+        hop["window"] = "no window"
+        return hop
+    marks.wait(lambda rows: all(any(r["name"] == m and r["pid"] not in old_pids for r in rows) for m in RESTORED_MARKS), 20)
+    rows = marks.read()
+    pid = opened["pid"]
+    remember_app(pid)
+    remember_tag()
+    clicked = first(rows, "revert.clicked", pid=current)
+    base = clicked["unix_ms"] if clicked else t_send * 1000
+
+    def at(name, p):
+        r = next((r for r in rows if r["pid"] == p and (r["name"] == name or
+                  (name.endswith("*") and r["name"].startswith(name[:-1])))), None)
+        return None if r is None else r["unix_ms"] - base
+
+    hop.update({
+        "pid": pid,
+        "to_build": installed_build(installed_path),
+        "send_to_click_ms": None if not clicked else round(clicked["unix_ms"] - t_send * 1000),
+        "click_to": {n: at(n, current) for n in REVERT_STEPS},
+        "click_to_old_exit_ms": round(t_exit * 1000 - base),
+        "click_to_new": {n: at(n, pid) for n in ["process_start", "updater_created"] + RESTORED_MARKS},
+    })
+    hop["click_to_window_ms"] = hop["click_to_new"].get("launch.first_window_frame_committed")
+    try:
+        wait_socket(sock, 30)
+        hop["status_after"] = rpc(sock, "updates.status")
+    except OSError as error:
+        hop["socket_error"] = str(error)
+    return hop
+
+
 def card_marks(rows, pid):
     """The update card kinds v1 showed, in order (card.* marks)."""
     return [r["name"] for r in rows if r["pid"] == pid and r["name"].startswith("card.")]
@@ -475,13 +549,31 @@ def main():
                     help="run a terminal counter and an agent turn across the update and check they survive")
     ap.add_argument("--agent-count", type=int, default=1, help="active FIFO-gated turns with --sessions (default: 1)")
     ap.add_argument("--terminal-count", type=int, default=1, help="running counters with --sessions (default: 1)")
+    ap.add_argument("--v2-app", help="update to this build instead of a copy of --app (an old build to a new one); "
+                                     "the two builds' daemons differ, so the update takes the real daemon handoff")
+    ap.add_argument("--unplaced-count", type=int, default=0,
+                    help="with --sessions: terminals with no tab, each kept by an attach stream, unplaced for longer "
+                         "than the reap grace before the click (0 to 32, default 0)")
+    ap.add_argument("--unplaced-return", type=int, default=-1,
+                    help="how many of them get their attach stream again after the update (default: all); the rest "
+                         "are abandoned and must end")
+    ap.add_argument("--unplaced-age", type=float, default=40,
+                    help="seconds the terminals stay without a tab before the click (default 40; the grace is 30)")
+    ap.add_argument("--unplaced-return-delay", type=float, default=8,
+                    help="seconds from the new daemon to the returning attach (default 8)")
+    ap.add_argument("--unplaced-settle", type=float, default=90,
+                    help="seconds from the new daemon to the survival check (default 90)")
     ap.add_argument("--required-update", action="store_true",
                     help="turn automatic downloads off (cmux.json) and require v2 (managed MinimumVersion): "
                          "the update must still download and stage with no click")
+    ap.add_argument("--downloads-off", action="store_true",
+                    help="turn automatic downloads off (cmux.json): the found update asks (Update), then the staged "
+                         "update asks (Restart to Update), two clicks. Without it (the default since #39680) the "
+                         "update stages with no click and Restart to Update is the one click")
     ap.add_argument("--sparkle-auto", action="store_true",
                     help="v1 runs with SUAutomaticallyUpdate on and starts with Sparkle's scheduled background "
-                         "check (Sparkle's own silent driver stages the update, as on a Mac whose nightly "
-                         "preferences have automatic updates on)")
+                         "check. This exercises the legacy/classic bundle path whose plist permits Sparkle's "
+                         "silent driver, rather than the NEXT bundle path that sets SUAllowsAutomaticUpdates=false")
     ap.add_argument("--readonly-install", action="store_true",
                     help="make the app's folder read-only after the update stages: the click must not quit; "
                          "the failure sheet with Download Manually shows (the install preflight)")
@@ -511,6 +603,13 @@ def main():
                          "counts the feed reads the install click waited on (click_feed_reads)")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
+    ap.add_argument("--rollback", action="store_true",
+                    help="after the update relaunched, go back to the build it left (updates.rollback, the path the "
+                         "update card's Go back and the menu's Roll Back take) and time it: click to the old build's "
+                         "first window, with each step (revert.* marks)")
+    ap.add_argument("--rollback-twice", action="store_true",
+                    help="with --rollback: go back once more, and record which build that picks (it must not go "
+                         "forward to the build just left)")
     ap.add_argument("--click-delay", type=float, default=0,
                     help="with --click-at-stage: click this many seconds after the update staged (a person who "
                          "installs right away; Leo's NIGHTLY: 3)")
@@ -524,8 +623,21 @@ def main():
     a = ap.parse_args()
     if not 1 <= a.agent_count <= 32 or not 1 <= a.terminal_count <= 32:
         ap.error("session counts must be between 1 and 32")
-    if not a.sessions and (a.agent_count != 1 or a.terminal_count != 1):
+    if not a.sessions and (a.agent_count != 1 or a.terminal_count != 1 or a.unplaced_count):
         ap.error("session counts need --sessions")
+    if not 0 <= a.unplaced_count <= 32:
+        ap.error("--unplaced-count takes 0 to 32")
+    if a.unplaced_return < 0:
+        a.unplaced_return = a.unplaced_count
+    if a.unplaced_return > a.unplaced_count:
+        ap.error("--unplaced-return cannot be more than --unplaced-count")
+    if a.v2_app:
+        if not os.path.isdir(a.v2_app):
+            ap.error(f"--v2-app {a.v2_app} is not an app")
+        if os.path.basename(a.v2_app.rstrip("/")) != os.path.basename(a.app.rstrip("/")):
+            ap.error("--v2-app must have the name of --app (one tag, one bundle id)")
+    # Another build's daemons: the handoff is the builds' own, no stamp to patch.
+    stamp_handoff, a.handoff = a.handoff and not a.v2_app, a.handoff or bool(a.v2_app)
     if a.island_lifecycle and not (a.surface_shots and a.notes):
         ap.error("--island-lifecycle needs --surface-shots and --notes")
     if a.changelog_shots and not (a.surface_shots and a.notes):
@@ -564,7 +676,7 @@ def main():
     result = {"tag": a.tag, "app": name}
     slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
     acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug.lower()).strip("."))
-    terminals, agents = [], []
+    terminals, agents, unplaced = [], [], []
     teardowns = [TagTeardown(copy, acpmux_home=acp_home, acpmux_socket=os.path.join(acp_home, "acpmux.sock"), log=log)
                  for copy in (v1, v2)]
     try:
@@ -573,8 +685,13 @@ def main():
         teardowns[0].install()
         public_key = run(["swift", os.path.join(HERE, "keys.swift"), "generate", keys])
         run(["/usr/bin/ditto", a.app, v1])
-        run(["/usr/bin/ditto", a.app, v2])
-        if a.handoff:
+        run(["/usr/bin/ditto", a.v2_app or a.app, v2])
+        if a.v2_app:
+            result["v1_commit"], result["v2_commit"] = bundle_commit(v1), bundle_commit(v2)
+            log("builds", result["v1_commit"], "->", result["v2_commit"])
+            if result["v1_commit"] == result["v2_commit"]:
+                raise SystemExit("--v2-app is the same build as --app")
+        if stamp_handoff:
             commit = bundle_commit(v2)
             bin2 = os.path.join(v2, "Contents/Resources/bin")
             result["handoff_patch"] = {name: patch_build_stamp(os.path.join(bin2, name), commit) for name in ("cmux-tui", "acpmux")}
@@ -589,6 +706,10 @@ def main():
                 directory = os.path.join(work, f"terminal-{i + 1}")
                 os.makedirs(directory)
                 terminals.append(Terminal(v1, directory, log, f"cmux-app-{slug}"))
+            for i in range(a.unplaced_count):
+                directory = os.path.join(work, f"unplaced-{i + 1}")
+                os.makedirs(directory)
+                unplaced.append(UnplacedTerminal(v1, directory, log, f"cmux-app-{slug}", returns=i < a.unplaced_return))
         harness = {"feed": feed_url, "marks": marks_path}
         base = int(time.time())
         v1_harness = dict(harness)
@@ -684,12 +805,24 @@ def main():
         if a.required_update:
             config = os.path.join(work, "cmux.json")
             with open(config, "w") as f:
-                json.dump({"updates": {"downloadAutomatically": False}}, f)
+                json.dump({"updates": {"automatic": "notify"}}, f)
             managed = os.path.join(work, "managed.plist")
             with open(managed, "wb") as f:
                 plistlib.dump({"MinimumVersion": i2["CFBundleShortVersionString"]}, f)
             env.update(CMUX_NEXT_CONFIG_FILE=config, CMUX_NEXT_MANAGED_PREFS_FILE=managed)
             result["required"] = {"from": i1.get("CFBundleShortVersionString"), "minimum": i2["CFBundleShortVersionString"]}
+        elif a.downloads_off:
+            config = env.get("CMUX_NEXT_CONFIG_FILE") or os.path.join(work, "cmux.json")
+            settings = {}
+            if os.path.exists(config):
+                with open(config) as f:
+                    settings = json.load(f)
+            updates = settings.setdefault("updates", {})
+            updates.pop("downloadAutomatically", None)
+            updates["automatic"] = "notify"  # checks, then asks before it downloads (the base folded the toggle in here)
+            with open(config, "w") as f:
+                json.dump(settings, f)
+            env["CMUX_NEXT_CONFIG_FILE"] = config
         binary = os.path.join(v1, "Contents/MacOS", i1["CFBundleExecutable"])
         arguments = ["-SUAutomaticallyUpdate", "YES"] if a.sparkle_auto else []
         if a.language:
@@ -732,7 +865,8 @@ def main():
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
         if not a.sparkle_auto:
             log("check", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
-        # Without the automatic-install opt-in (the default) the check stops on the update-found step.
+        # With automatic downloads (the default) the update stages with no click; with --downloads-off
+        # the check stops on the update-found step.
         ends = ["phase.ready", "phase.note", "phase.available"]
         staged = marks.wait(lambda rows: next((first(rows, end, pid=v1_pid) for end in ends if first(rows, end, pid=v1_pid)), None),
                             a.stage_timeout)
@@ -741,8 +875,28 @@ def main():
             result["required"]["staged_without_click"] = bool(staged and staged["name"] == "phase.ready")
             result["required"]["phases"] = [r["name"] for r in marks.read() if r["pid"] == v1_pid and r["name"].startswith("phase.")]
             log("required update", json.dumps(result["required"]))
-        if not a.required_update and not a.sparkle_auto:
-            # No automatic-download opt-in here (the default): the check must stop on the
+        # The host's own cmux settings may opt into automatic downloads (a shared capture Mac's
+        # ~/.config/cmux, another lane's): then staging straight to ready is right, not a skip.
+        auto_downloads = bool((rpc(sock, "updates.status").get("result") or {}).get("automatic_downloads"))
+        result["automatic_downloads"] = auto_downloads
+        if not a.required_update and not a.sparkle_auto and auto_downloads and a.scenario is None:
+            # The default: one click. The found update downloads and stages by itself (no Update
+            # step), and the staged update waits for Restart to Update, the only click.
+            if not staged or staged["name"] != "phase.ready":
+                raise SystemExit(f"the update did not stage without a click: {staged and staged['name']}; "
+                                 f"{json.dumps(rpc(sock, 'updates.status'))[:1500]}")
+            rows = marks.read()
+            result["one_click"] = {"clicks_before_stage": [r["name"] for r in rows if r["pid"] == v1_pid
+                                                           and r["name"] in ("download_clicked", "install_clicked")],
+                                   "phases": [r["name"] for r in rows if r["pid"] == v1_pid and r["name"].startswith("phase.")]}
+            if result["one_click"]["clicks_before_stage"] or "phase.available" in result["one_click"]["phases"]:
+                raise SystemExit(f"the update asked before staging: {json.dumps(result['one_click'])}")
+            relaunched = wait_exit(v1_pid, 0 if a.click_at_stage else 5) is not None
+            if relaunched or first(marks.read(), "install_started", pid=v1_pid):
+                raise SystemExit("the staged update installed or relaunched before Restart to Update")
+            log("one click: staged with no click", json.dumps(result["one_click"]))
+        if not a.required_update and not a.sparkle_auto and not auto_downloads:
+            # Automatic downloads off (--downloads-off, or this host's own settings): the check must stop on the
             # update-found step. Anything else (straight to staged) skipped the first ask.
             if not staged or staged["name"] != "phase.available":
                 raise SystemExit(f"the check did not stop on the update-found step: {staged and staged['name']}")
@@ -784,6 +938,9 @@ def main():
             for terminal in terminals:
                 terminal.start(v1)
                 owned.add(terminal.pid)
+            for terminal in unplaced:
+                terminal.start(v1)
+                owned.add(terminal.pid)
             remember_tag()  # the tag's cmux-tui daemon runs the counters' terminals
             for agent in agents:
                 agent.start()
@@ -802,6 +959,15 @@ def main():
                 raise SystemExit("an agent turn is not running before the install")
             if any(not terminal.pid or not sessions_alive(terminal.pid) for terminal in terminals):
                 raise SystemExit("a terminal counter is not running before the install")
+            if unplaced:
+                # Past the reap grace with no tab: only the attach stream keeps each one, as the app keeps an agent's.
+                time.sleep(a.unplaced_age)
+                gone = [terminal.term for terminal in unplaced if not terminal.running_unplaced()]
+                result["unplaced_before_install"] = {"count": len(unplaced), "returning": a.unplaced_return,
+                                                     "age_s": a.unplaced_age, "ended_before_install": gone}
+                log("unplaced before install", json.dumps(result["unplaced_before_install"]))
+                if gone:
+                    raise SystemExit(f"{len(gone)} unplaced terminals ended before the install: the attach did not keep them")
             result["busy_snapshot"] = rpc(sock, "debug.window_snapshot", {"path": os.path.join(out, "busy-before-install.png")})
             log("busy before install", json.dumps(result["busy_before_install"]))
         if a.readonly_install:
@@ -822,10 +988,12 @@ def main():
             if not status.get("badge") or not answered:
                 raise SystemExit("a check while the update waits did not keep the staged update card")
         install_action = ATTEMPT_ACTION if a.scenario == "attempt-staged" else INSTALL_ACTION
-        if "asked" in result and a.scenario is None:
+        if ("asked" in result or "one_click" in result) and a.scenario is None:
             # The answer to the ready step: the Update Ready card's Restart to Update.
             install_action = "debug.updater press restart"
         result["install_action"] = install_action
+        for terminal in unplaced:
+            threading.Thread(target=terminal.follow_update, args=(v1, a.unplaced_return_delay), daemon=True).start()
         t_send = time.time()
         if install_action == "debug.updater press restart":
             reply = rpc(sock, "debug.updater", {"action": "press", "button": "restart"})
@@ -876,13 +1044,18 @@ def main():
         # Home's first page (launch.home.first_page): the post-update launch's own end, when Home is the page it opens.
         marks.wait(lambda rows: first(rows, "launch.home.first_page", not_pid=v1_pid), 20)
         rows = marks.read()
-        v2_pid = next(r["pid"] for r in rows if r["pid"] != v1_pid)
+        click = first(rows, "install_clicked", pid=v1_pid)["unix_ms"]
+        # The relaunched app: the process whose window drew first after the click. The first row of any
+        # other pid was a helper's or an earlier launch's, and every click_to_v2 mark read null (ask-ad4a68e740).
+        v2_pid = next((r["pid"] for r in rows if r["pid"] != v1_pid and r["unix_ms"] >= click
+                      and r["name"] == RESTORED_MARKS[0]), None)
+        if v2_pid is None:
+            raise SystemExit("no process drew a window after the click")
         remember_app(v2_pid)
         remember_tag()
         result["v2_pid"] = v2_pid
         with open(os.path.join(v1, "Contents/Info.plist"), "rb") as f:
             result["installed_build"] = plistlib.load(f)["CFBundleVersion"]
-        click = first(rows, "install_clicked", pid=v1_pid)["unix_ms"]
         if a.handoff:
             handed = marks.wait(lambda rows: first(rows, "launch.daemon_version_handoff", not_pid=v1_pid), 60)
             result["daemon_handoff_mark"] = bool(handed)
@@ -900,11 +1073,28 @@ def main():
             result["terminal_survival"] = result["terminal_survivals"][0]
             result["agent_survival"] = result["agent_survivals"][0]
             terminal_ok = all(terminal_survived(r, a.handoff) for r in result["terminal_survivals"])
+            if unplaced:
+                rows_unplaced = [terminal.check_unplaced(a.unplaced_settle) for terminal in unplaced]
+                returning = [r for r in rows_unplaced if r["returns"]]
+                abandoned = [r for r in rows_unplaced if not r["returns"]]
+                result["unplaced_survivals"] = rows_unplaced
+                result["unplaced_summary"] = {
+                    "returning": len(returning), "returning_kept": sum(unplaced_survived(r) for r in returning),
+                    "abandoned": len(abandoned), "abandoned_ended": sum(unplaced_survived(r) for r in abandoned),
+                    "returning_ended_after_s": sorted(r["ended_after_s"] for r in returning if r["ended_after_s"] is not None),
+                    "abandoned_ended_after_s": sorted(r["ended_after_s"] for r in abandoned if r["ended_after_s"] is not None),
+                    "return_delay_s": a.unplaced_return_delay, "settle_s": a.unplaced_settle,
+                }
+                # One line a fleet step's log keeps, whatever the run's status.
+                print("UNPLACED " + json.dumps(result["unplaced_summary"]), flush=True)
+                terminal_ok = terminal_ok and all(unplaced_survived(r) for r in rows_unplaced)
             agent_ok = all(r["harness_alive_after_swap"] and r["same_host"] and r["transcript_prefix_preserved"]
                            and r["gate_released"] and r["turn_results"] == 1 and r["turn_status"] == "completed"
                            and not r["outcome_unknown"]
                            and r["before_gate_chunks"] == 1 and r["after_gate_chunks"] == 1
-                           and (r["host_adopted"] if a.handoff else r["daemon_before"] == r["daemon_after"])
+                           # Since #40826 the update's quit hands acpmux to the new build (AcpmuxUpdateHandoff):
+                           # the daemon may change; the agent's host and harness are what must survive.
+                           and (r["host_adopted"] if a.handoff else (r["daemon_before"] == r["daemon_after"] or r["same_host"]))
                            for r in result["agent_survivals"])
             result["session_survival_passed"] = terminal_ok and agent_ok
             log("session survival", json.dumps({k: result[k] for k in
@@ -917,6 +1107,7 @@ def main():
             return None if r is None else r["unix_ms"] - click
 
         timeline = {
+            "click_unix_ms": click,  # the click's wall clock, for logs kept beside the marks (update-click-ab.sh frames=1)
             "socket_send_to_click_ms": click - t_send * 1000,
             "socket_reply_ms": (t_reply - t_send) * 1000,
             "click_to": {n: at(n, v1_pid) for n in ["install_started", "install_handed_to_sparkle", "phase.installing",
@@ -934,6 +1125,11 @@ def main():
                                  if click <= r["start_ms"] <= t_exit * 1000] if a.feed_latency_ms else None,
             "click_to_v2": {n: at(n, v2_pid) for n in ["process_start", "updater_created"] + RESTORED_MARKS
                             + ["launch.home.first_page"]},
+            # Every mark of v1 after the click (its quit steps) and of v2 to its first frame plus 10 s:
+            # where the click-to-frame time went, without guessing names up front.
+            "v1_after_click": {r["name"]: r["unix_ms"] - click for r in reversed(rows) if r["pid"] == v1_pid and r["unix_ms"] >= click},
+            "v2_marks": {r["name"]: r["unix_ms"] - click for r in reversed(rows) if r["pid"] == v2_pid
+                         and r["unix_ms"] - click <= (at(RESTORED_MARKS[0], v2_pid) or 0) + 10_000},
         }
         try:
             with open(updater_log, "rb") as f:
@@ -946,6 +1142,15 @@ def main():
         result["rows"] = rows
         result["v2_marks"] = sorted({r["name"] for r in rows if r["pid"] == v2_pid and not r["name"].startswith("launch.")})
         log(json.dumps(timeline, indent=1))
+        # The detector: the person's clicks from the found update to the relaunch (the app's own
+        # count, update_clicks_N at will_relaunch, and the click marks). One is the contract.
+        clicks = [r["name"] for r in rows if r["pid"] == v1_pid and r["name"] in ("download_clicked", "install_clicked")]
+        counted = next((int(r["name"].rsplit("_", 1)[1]) for r in rows
+                        if r["pid"] == v1_pid and r["name"].startswith("update_clicks_")), None)
+        result["update_clicks"] = {"marks": clicks, "app_count": counted}
+        log("update clicks", json.dumps(result["update_clicks"]))
+        if "one_click" in result and (len(clicks) != 1 or counted != 1):
+            raise SystemExit(f"the update needed {counted if counted is not None else len(clicks)} clicks, not one: {clicks}")
         # The relaunched app as the user sees it, and what its updater says.
         try:
             wait_socket(sock, 30)
@@ -964,6 +1169,12 @@ def main():
                 result["updated_changelog_shots"] = changelog_shots(sock, out, "updated", log, "open-whats-new", popover=False)
         except OSError as error:
             result["v2_socket_error"] = str(error)
+        if a.rollback:
+            result["rollback"] = rollback_hop(a, marks, sock, v1, (v1_pid, v2_pid), remember_app, remember_tag, log)
+            if a.rollback_twice and result["rollback"].get("pid"):
+                result["rollback_twice"] = rollback_hop(a, marks, sock, v1, (v1_pid, v2_pid, result["rollback"]["pid"]),
+                                                        remember_app, remember_tag, log)
+            log("rollback", json.dumps({k: v for k, v in result.items() if k.startswith("rollback")}, indent=1))
         if a.second_hop:
             result["second_hop"] = second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock, v1,
                                               (v1_pid, v2_pid), click_after_keep=not a.click_at_stage)
@@ -974,6 +1185,8 @@ def main():
             os.chmod(os.path.dirname(v1), 0o755)
         with open(os.path.join(out, "timeline.json"), "w") as f:
             json.dump(result, f, indent=1)
+        for terminal in unplaced:
+            terminal.stop_streams()
         for pid, identity in owned_apps.items():
             current = TagTeardown._table().get(pid)
             if current and current[1:] == identity:

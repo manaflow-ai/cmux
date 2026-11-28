@@ -43,6 +43,18 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
   return `${saved}${DRAFT_SEPARATOR}${typed}`;
 }
 
+/**
+ * The prompt once a prompt comes back into it (`ComposerHandle.restore`: a send that failed or was
+ * refused, one taken back from the queue, one a hold gives back): `back` goes first, or after what
+ * the prompt holds when `behind`. The same rule as `mergedDraft`, so a prompt that is already there
+ * is never doubled. Before, a send that failed while the chat loaded came back ahead of the same
+ * text the draft had already put in the prompt, and the draft was saved twice over (Mango,
+ * 2026-11-24: "big disaster in Mango! i had a draft too that i wanted to send :(").
+ */
+export function restoredPrompt(typed: string, back: string, behind = false): string {
+  return behind ? mergedDraft(back, typed) : mergedDraft(typed, back);
+}
+
 /** What goes between a saved draft and text typed after it (`mergedDraft`). */
 const DRAFT_SEPARATOR = "\n\n";
 
@@ -212,18 +224,25 @@ export function notifyDraftActionsChanged(): void {
   draftActionsChangedAndFlush();
 }
 
-/** Re-renders a composer when a reconnect installs the native action map. */
+/// Calls `listener` each time the native action map is installed or replaced, with no render: the
+/// composer reads its chat's draft again then (Composer.tsx), and a drop and its reconnect draw
+/// nothing in it. Returns the unsubscribe. The page's event listener stays while any subscriber does
+/// (one subscriber's unsubscribe removed it for all before).
+export function onDraftActionsChanged(listener: () => void): () => void {
+  const page = (globalThis as typeof globalThis & { window?: Window }).window;
+  if (!draftActionSubscribers.size) page?.addEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
+  const subscriber = () => listener();
+  draftActionSubscribers.add(subscriber);
+  return () => {
+    draftActionSubscribers.delete(subscriber);
+    if (!draftActionSubscribers.size) page?.removeEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
+  };
+}
+
+/** Re-renders a component when a reconnect installs the native action map. */
 export function useDraftActionsVersion(): number {
   return useSyncExternalStore(
-    (subscriber) => {
-      draftActionSubscribers.add(subscriber);
-      const page = (globalThis as typeof globalThis & { window?: Window }).window;
-      page?.addEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
-      return () => {
-        draftActionSubscribers.delete(subscriber);
-        page?.removeEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
-      };
-    },
+    onDraftActionsChanged,
     () => draftActionsVersion,
     () => 0,
   );

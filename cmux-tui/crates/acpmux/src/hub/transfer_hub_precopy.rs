@@ -10,10 +10,16 @@
 //! 2. On the target the control hook admits it as it admits a `move`, and
 //!    [`Hub::transfer_pull_op`] runs [`Hub::transfer_pull_stage`] as a local actor: the stage
 //!    (`transfer_stage`), the prepare's pages read from the source through the same circuit as a
-//!    move's, `transfer_stage_finish`. Its answer is the `stageId`.
+//!    move's, `transfer_stage_finish`. Its answer is the `stageId`. The circuit stays open,
+//!    parked for the move's control (`transfer_park.rs`).
 //! 3. The client begins with `prepareId`/`afterSeq` and sends `move` with the `stageId`; the
 //!    target imports on top of the stage. A `transfer.unstaged` refusal is for the client to
 //!    redo in full.
+//!
+//! A prefix whose manifest is past one hub message goes as version 2 with
+//! `stage: {manifestPull}` in place of `stage: {manifest}`, the manifest written into the
+//! prepare's folder for the target to read over the circuit, as a move's
+//! (`transfer_pull.rs`, [`super::transfer_pull::pull_manifest`]).
 //!
 //! A target that is too old to stage refuses the body (it has no `manifest`): no pre-copy, and
 //! the move is whole. A hub move is guarded (`peer` control, this daemon's roots), so the staged
@@ -22,14 +28,16 @@
 //! TODO: a chat coming back does not send only the delta (`transfer_base`) over the hub: a
 //! guarded stage rewrites every line, so the target's own copy cannot stand in for a base.
 
-use super::transfer_guard::Guard;
 use super::transfer_out::transfer_precopy::PREFIX_SCHEMA;
 use super::transfer_out::{inside, transfers_dir};
-use super::transfer_pull::{plain_daemon, pull_error};
+use super::transfer_pull::{
+    MANIFEST_PULL_WIRE_VERSION, MAX_BODY, plain_daemon, pull_error, pull_manifest,
+    write_pulled_manifest,
+};
 use super::*;
 
 /// How long the source waits for the target to stage a prefix.
-const STAGE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+pub(super) const STAGE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// The file in a stage's folder naming the control its records were rewritten for.
 pub(super) const CONTROL_FILE: &str = "control";
@@ -48,7 +56,7 @@ impl Hub {
         }
         let session =
             self.resolve(params.get("sessionId").and_then(Value::as_str).unwrap_or(""))?;
-        let prepared = self.transfer_prepare(&session, None)?;
+        let prepared = self.transfer_prepare(&session, None, None)?;
         let prepare_id = field(&prepared, "prepareId").as_str().unwrap_or_default().to_owned();
         let root = inside(&transfers_dir(), &prepare_id)?;
         let noted = crate::home_fs::write(root.join(super::transfer_pull::TO_HUB), daemon);
@@ -75,12 +83,18 @@ impl Hub {
         session_id: &str,
         prepared: &Value,
     ) -> Result<String, RpcError> {
-        let body = json!({"version": 1, "sessionId": session_id, "stage": {"manifest": prepared}});
-        if body.to_string().len() > 64 * 1024 {
-            return Err(pull_error("size", "the prefix's manifest does not fit one hub message"));
+        let prepare_id = prepared["prepareId"].as_str().unwrap_or_default();
+        let mut body =
+            json!({"version": 1, "sessionId": session_id, "stage": {"manifest": prepared}});
+        if body.to_string().len() > MAX_BODY {
+            // Past one hub message: the target pulls the manifest from the prepare's folder.
+            let dir = inside(&transfers_dir(), prepare_id)?;
+            let reference = write_pulled_manifest(&dir, prepare_id, prepared)?;
+            body = json!({"version": MANIFEST_PULL_WIRE_VERSION, "sessionId": session_id,
+                          "stage": {"manifestPull": reference}});
         }
         let op = crate::mesh_relay_config::MOVE_OP;
-        let key = format!("stage-{}", prepared["prepareId"].as_str().unwrap_or_default());
+        let key = format!("stage-{prepare_id}");
         match self.hub_control(daemon, op, body, key, STAGE_WAIT).await? {
             Ok(result) => result
                 .and_then(|r| serde_json::from_str::<Value>(&r).ok())
@@ -98,7 +112,7 @@ impl Hub {
         body: &Value,
     ) -> Result<Value, RpcError> {
         if body.get("stage").is_some() {
-            return self.transfer_pull_stage(source, body).await;
+            return self.transfer_pull_stage(source, source_host, body).await;
         }
         self.transfer_pull(source, source_host, body).await
     }
@@ -108,35 +122,44 @@ impl Hub {
     async fn transfer_pull_stage(
         self: &Arc<Self>,
         source: &str,
+        source_host: Option<&str>,
         body: &Value,
     ) -> Result<Value, RpcError> {
-        let manifest = field(field(body, "stage"), "manifest").clone();
-        let prepare_id = field(&manifest, "prepareId").as_str().unwrap_or("");
-        let session_id = field(&manifest, "sessionId").as_str().unwrap_or("");
-        if *field(&manifest, "schema") != PREFIX_SCHEMA
-            || !prepare_id.starts_with("pre-")
-            || !super::transfer::is_plain_id(prepare_id)
-            || !super::transfer::is_plain_id(session_id)
-            || session_id != body["sessionId"].as_str().unwrap_or("")
-            || manifest.get("base").is_some_and(|b| !b.is_null())
+        let stage = field(body, "stage");
+        let pull = stage.get("manifestPull").filter(|p| p.is_object());
+        let plain_prefix = |manifest: &Value| {
+            let prepare_id = field(manifest, "prepareId").as_str().unwrap_or("");
+            let session_id = field(manifest, "sessionId").as_str().unwrap_or("");
+            *field(manifest, "schema") == PREFIX_SCHEMA
+                && prepare_id.starts_with("pre-")
+                && super::transfer::is_plain_id(prepare_id)
+                && super::transfer::is_plain_id(session_id)
+                && session_id == body["sessionId"].as_str().unwrap_or("")
+                && manifest.get("base").is_none_or(|b| b.is_null())
+        };
+        let unplain = || RpcError::invalid_params("move: the stage names no plain prefix");
+        let pulled_id = pull.map(|p| field(p, "transferId").as_str().unwrap_or(""));
+        if pulled_id.is_some_and(|id| !id.starts_with("pre-"))
+            || (pull.is_none() && !plain_prefix(field(stage, "manifest")))
         {
-            return Err(RpcError::invalid_params("move: the stage names no plain prefix"));
+            return Err(unplain());
         }
         if !plain_daemon(source) {
             return Err(pull_error("source", "the message names no source daemon"));
         }
-        let roots = self.config.read().await.web_roots.clone();
-        if roots.is_empty() {
-            return Err(pull_error(
-                "no_roots",
-                "this machine names no webRoots, so no moved chat may work here",
-            ));
-        }
-        let guard = Guard::parse(&json!({"control": "peer", "roots": roots})).await?;
+        let guard = self.hub_move_guard().await?;
         let dial = self.transfer_dial().ok_or_else(|| {
             pull_error("no_route", "this daemon has no hub carrier to the source")
         })?;
         let mut pages = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
+        let manifest = match pull {
+            Some(pull) => pull_manifest(&mut *pages, pull).await?,
+            None => field(stage, "manifest").clone(),
+        };
+        let prepare_id = field(&manifest, "prepareId").as_str().unwrap_or("");
+        if !plain_prefix(&manifest) || pulled_id.is_some_and(|id| id != prepare_id) {
+            return Err(unplain());
+        }
         let staged = self.transfer_stage(&json!({"manifest": manifest}))?;
         let stage_id = field(&staged, "stageId").as_str().unwrap_or_default().to_owned();
         let dir = inside(&transfers_dir(), &format!("in-{stage_id}"))?;
@@ -149,7 +172,19 @@ impl Hub {
         .await;
         if filled.is_err() {
             let _ = crate::home_fs::remove_dir_all(&dir);
+            return filled;
         }
+        // The circuit stays open, parked for the move's control (`transfer_park.rs`).
+        let session_id = body["sessionId"].as_str().unwrap_or_default().to_owned();
+        let park = Arc::clone(self).park_for_move(
+            pages,
+            source.to_owned(),
+            source_host.map(str::to_owned),
+            prepare_id.to_owned(),
+            stage_id,
+            session_id,
+        );
+        self.scope.spawn_until_cancelled("transfer-park", park);
         filled
     }
 }

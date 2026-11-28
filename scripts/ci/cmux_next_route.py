@@ -51,7 +51,8 @@ less Rust the app links or bundles, the web ABI and files a Swift test reads), o
 tier by itself. It runs no app compile or package test tier: ci-web, the cargo jobs, the signed tree publish,
 hot-verify and the daemon tier check it. `hot_only` and `hot_layers` say so.
 
-Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
+Pushes, dispatches and pull requests labeled `full-ci` run every tier (under `full-ci`, the app
+compile tiers native and mac_release only when the diff reaches them: full_ci_app_compile). The
 workflow runs the tiers picked here on every same-repository pull request; a
 fork pull request runs the heavier Mac tiers only with `full-ci`. A changed file this script cannot place selects every
 tier, so an unknown input never skips a check.
@@ -168,16 +169,24 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-tab-discard/",
+    "cmux-tui/crates/cmux-browser-rules/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-environment/",
+    "cmux-tui/crates/cmux-build-space/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
     "cmux-tui/crates/cmux-cookie-sync/",
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-update-prewarm-core/",
     "cmux-tui/crates/cmux-health-core/",
+    "cmux-tui/crates/cmux-sign-clone-sweep/",
     "cmux-tui/crates/cmux-launch-image/",
+    "cmux-tui/crates/cmux-pane-pictures/",
+    "cmux-tui/crates/cmux-chat-markdown/",
+    "cmux-tui/crates/cmux-acpmux-remote-wire/",
+    "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -188,6 +197,9 @@ SWIFT_JOB_INPUTS = (
     # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
     # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
     "cmux-tui/crates/cmux-sdk-ffi/",
+    # CmuxNextAgentPane's relay policy tables are generated from it at build time (AgentPanePolicyPlugin).
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+    "scripts/cmux-next/gen-agent-pane-policy-swift.py",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )
@@ -226,6 +238,7 @@ GENERATED_INPUTS = (
 ACTION_EXPORT_INPUTS = "scripts/cmux-next/action_export_inputs.py"
 SETTINGS_EXPORT_INPUTS = (
     PACKAGE + "Sources/CmuxNextSettings/",
+    PACKAGE + "Sources/CmuxNextSettingsExport/",
     PACKAGE + "Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     PACKAGE + "Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
@@ -311,8 +324,22 @@ BUNDLE_INPUTS = (
     "schemas/layout-motion/contract.json",
     # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
     "schemas/transcript-look/transcript-look.json",
+    # The composer status peek pin the agent pane imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
     "examples/gallery/gallery.json", "examples/looks/*",
+    # The setups the Make cmux Yours setups shelf imports (src/pages/onboarding/setupShelf.ts).
+    "examples/setups/*/cmux-setup.json",
+    # The key styles the key presentation imports (src/ui/keyStyle.ts).
+    "schemas/keymap/key-styles.json",
+    # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
+    "schemas/surface-roles/surface-roles.json",
+    # The scene type scale the scene app imports (src/apps/scene/sceneStyle.ts).
+    "schemas/type-scale/scene-type.json",
+    # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
+    # The peek pin the composer status imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -332,7 +359,7 @@ CHECKED_WEB_BUNDLES = (
 # Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
 # Release compile its diff could not change. A test target that reads one still runs (consumed()).
 NO_APP_INPUT = (
-    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "images/*", "services/*", "vault/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
     # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
     # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI
@@ -363,7 +390,7 @@ CI_ONLY = (
     # merge drivers, web lints, the CEF embedder fleet step, the tagged-app launcher, the TestFlight notes step
     # that runs after upload. A Mac tier that reads one still runs (consumed()).
     ".github/github-token-budget.json", ".github/runners.json",
-    "scripts/install-git-hooks.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+    "scripts/install-git-hooks.sh", "scripts/merge-cargo-lock.py", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
@@ -393,6 +420,14 @@ NATIVE_SCRIPT_INPUTS = (
     # The Screen Sharing helper identity check sign-cmux-bundle.sh runs, and the stall bound
     # ensure-cef.sh wraps its CEF download in.
     "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
+    # The LAN cache fetch download-prebuilt-ghosttykit.sh tries before GitHub (#57515).
+    "scripts/ci/lan_cache_fetch.py",
+    # zig-fetch-all.sh seeds the Ghostty build from these locked archives and download helpers.
+    "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/zig-packages.lock",
+    "scripts/ci/zig-packages-r2.sh", "scripts/ci/github-release-download.sh",
+    "scripts/ci/github_release_asset.py",
+    # swiftpm-seed.sh runs this before resolving the app's binary artifacts.
+    "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -1053,8 +1088,9 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "daemon-test": ("daemon", "generated"),
     "generated-files": ("generated",),
     "release-compile": ("native", "mac_release"),
-    "app-compile-fleet": ("native",),
+    "app-compile-fleet": ("native", "mac_release"),
     "cmux-scheme-compile": ("native", "scheme"),
+    "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
 # The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
 WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")
@@ -1314,6 +1350,29 @@ def hot_only_layers(root: Path, event: str, changed: list[str] | None, labels: s
     return layers
 
 
+FULL_CI_NO_APP_COMPILE_REASON = ("full-ci, but no changed file reaches an app compile (the same paths without the label"
+                                 " leave native and mac_release off): the Release compile runs after the merge, on"
+                                 " the feat-cmux-next push")
+
+
+def full_ci_app_compile(root: Path, event: str, changed: list[str], labels: set[str],
+                        base_workflow: str | None, repin: str | None, result: Route) -> None:
+    """Under full-ci, the app compile tiers (native, mac_release) follow what the diff reaches.
+
+    Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." `ready-to-land` adds full-ci,
+    and full-ci asked every tier, so the Mac Release compile (Xcode 26) ran on daemon-Rust-, iOS- and CI-only heads it
+    cannot change: 2026-11-27T07..13Z, 9 of its 24 pull request heads (166 of 393 runner-min). Path routing without
+    the label (path_route) is the input-reach rule every other pull request already uses: a Swift, app, web bundle,
+    app-linked Rust (FFI) or Mac Release input, the workflow's Mac jobs, or a file it cannot place keeps them on. The
+    other full-ci tiers stay. Every feat-cmux-next push still runs the Release compile (path_route: push), so the
+    merge is fully covered, as fast_tier_cargo_route.py does for the cargo fast tier under full-ci."""
+    reach = path_route(root, event, changed, labels - {"full-ci"}, base_workflow, repin)
+    if reach.full or reach.native or reach.mac_release or reach.cmuxnext_swift:
+        return
+    result.native = result.mac_release = False
+    result.reasons.append(FULL_CI_NO_APP_COMPILE_REASON)
+
+
 def path_route(root: Path, event: str, changed: list[str] | None, labels: set[str],
                base_workflow: str | None = None, repin: str | None = None) -> Route:
     """`base_workflow`: the base's cmux-next.yml, for a pull request that changes it (None: every tier).
@@ -1334,6 +1393,8 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
         return result
     if "full-ci" in labels:
         result.everything("labeled full-ci (batch integration PR): every tier")
+        if changed:
+            full_ci_app_compile(root, event, changed, labels, base_workflow, repin, result)
         return result
     if not changed:
         result.everything("the diff is unknown or empty: every tier")

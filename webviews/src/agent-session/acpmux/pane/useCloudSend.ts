@@ -2,7 +2,7 @@ import { type Dispatch, type RefObject, type SetStateAction } from "react";
 import { type ComposerAttachment } from "../attachments";
 import { callNative } from "../callNative";
 import { type CloudComposeReservation } from "../cloudComposeReservation";
-import { type useChatCloudEnvironment } from "../CloudEnvironmentChip";
+import { type useChatCloudEnvironment } from "../chatCloudEnvironment";
 import { currentCloudPlan, readCloudPlanFresh } from "../cloudMachines";
 import { cloudPlanHoldsSend } from "../cloudPlans";
 import {
@@ -90,17 +90,22 @@ export interface CloudSendDeps {
   cloudSignInWait: RefObject<CloudSignInWait | undefined>;
   cloudSignInSend: RefObject<() => Promise<CloudStartAnswer> | undefined>;
   cloudTypedDuringStart: RefObject<CloudStartDraft | undefined>;
+  /// What Return queued during a start, by its key (App `queueCloudStartSend`).
+  cloudStartQueued: RefObject<{ key: string; texts: string[] } | undefined>;
   lastCloudAttempt: RefObject<{ key: string; request: CloudStart } | undefined>;
   cloudStartHeld: RefObject<{ key: string; prompt: CloudStartDraft } | undefined>;
   newTabCloudSent: RefObject<boolean>;
   cloudPageDraft: RefObject<{ text: string; attachments: ComposerAttachment[] } | undefined>;
   cloudRetryFolder: RefObject<ReturnType<typeof cloudStartFolder> | undefined>;
+  /// The start card shown now: a failed one's environment is the retry's target (`forSend`).
+  cloudStart: CloudStartProgress | undefined;
   setCloudStart: Dispatch<SetStateAction<CloudStartProgress | undefined>>;
   setCloudHeld: Dispatch<SetStateAction<CloudHeld | undefined>>;
   setCloudLeftPage: Dispatch<SetStateAction<number | undefined>>;
   setCloudStartsEnded: Dispatch<SetStateAction<number>>;
   cloudAfterCheck: ReturnType<typeof cloudSendAfterCheck>;
   cloudEnvironment: ReturnType<typeof useChatCloudEnvironment>;
+  cloudDraftMachineID: RefObject<string | null | undefined>;
   cloudSwitchTeam: ReturnType<typeof cloudStartTeam>;
   cloudReservation: CloudComposeReservation;
   cloudStartKeys: ReturnType<typeof makeCloudStartKeys>;
@@ -149,9 +154,11 @@ export function sendToCloudWith(
     cloudStartPending,
     cloudPlanHeldTurn,
     cloudPlanHeld,
+    cloudStart,
     setCloudStart,
     sendHeldForPlan,
     cloudEnvironment,
+    cloudDraftMachineID,
     cloudSwitchTeam,
     emptyLocalChat,
     snapshot,
@@ -164,7 +171,7 @@ export function sendToCloudWith(
   if (refused === "cloud_checking") {
     // The tab's check hasn't answered (cloudRun.ts cloudPageRefusal): this send waits for it and
     // goes by itself, the prompt held where it was typed. A read now, since the handshake's may
-    // have missed its 15 s; a read that fails again shows Check again (sandboxUnchecked).
+    // have missed its 15 s; a read that fails again is read again on its own (sandboxUnchecked).
     // The composer's text as it was held, raw (the send's text is trimmed and expanded): an
     // unchanged composer matches it exactly.
     const shownAtHold = fromPage ? undefined : composerHandle.current?.draft();
@@ -216,13 +223,19 @@ export function sendToCloudWith(
     return false;
   }
   // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
-  const environment = cloudEnvironment.forSend(start.environment);
+  // A failed start's environment is part of the preserved intent. The pick resets after the first
+  // send, so a same-prompt Retry uses the card's target instead of silently provisioning another.
+  const retryEnvironment =
+    cloudStart?.state === "failed" && cloudStart.task === text ? cloudStart.environment : undefined;
+  const environment = cloudEnvironment.forSend(start.environment, retryEnvironment);
+  const machine = cloudDraftMachineID.current;
   const team = cloudSwitchTeam.forSend();
   const unreserved: CloudStart = {
     task: text,
     attachments,
     ...start,
     ...(environment ? { environment } : {}),
+    ...(machine ? { machine } : {}),
     ...(team ? { team } : {}),
     // The empty chat this start replaces: the host closes this tab with it once the Cloud chat opens.
     ...(emptyLocalChat && snapshot.sessionId ? { replacesChat: snapshot.sessionId } : {}),
@@ -230,7 +243,8 @@ export function sendToCloudWith(
   // The compose's warm machine goes only with the Send it first went with (or that Send's retry,
   // the same start key): after a refused start, another prompt from this page would be refused
   // by the platform as `409 reservation.bound` (cloudComposeReservation.ts `handoff`).
-  const reservationKey = cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
+  if (machine) cloudReservation.abandon();
+  const reservationKey = machine ? undefined : cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
   const request: CloudStart = { ...unreserved, ...(reservationKey ? { reservationKey } : {}) };
   // A page's send leaves the page: its draft comes back in the chat composer, compared there.
   const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
@@ -260,6 +274,7 @@ export function beginCloudSendWith(
     cloudSignInSend,
     composerHandle,
     cloudTypedDuringStart,
+    cloudStartQueued,
     beginCloudSend,
     lastCloudAttempt,
     cloudStartPending,
@@ -295,7 +310,9 @@ export function beginCloudSendWith(
     const pick = cloudSetUpPick.current;
     cloudSetUpPick.current = undefined;
     setUpNeed = pick?.need;
-    signIn = pick ? waitForCloudSetUp(callNative, key, pick.action, pick.need) : waitForCloudSignIn(callNative, key);
+    signIn = pick
+      ? waitForCloudSetUp(callNative, key, pick.action, pick.need, undefined, request.machine, request.environment)
+      : waitForCloudSignIn(callNative, key);
     cloudSignInWait.current = signIn;
   }
   const wait = signIn;
@@ -374,6 +391,7 @@ export function beginCloudSendWith(
             over: { harness: snapshot.summary?.harness, model: snapshot.summary?.model },
           }
         : undefined,
+      start.environment,
     ),
   );
   void started.then((answer) => {
@@ -389,9 +407,18 @@ export function beginCloudSendWith(
     // The prompt the composer's Send took out (`cloudStartHeld`), for a start that ended here.
     const held = cloudStartHeld.current?.key === key ? cloudStartHeld.current.prompt : undefined;
     if (held) cloudStartHeld.current = undefined;
+    // What Return queued during this start: the started chat took it with its first prompt.
+    const queued = cloudStartQueued.current?.key === key ? cloudStartQueued.current.texts : undefined;
+    if (queued) cloudStartQueued.current = undefined;
     if (!answer.ok || cloudRunsHere(answer)) {
-      // Not opened on its machine: what was typed meanwhile is still in this composer, after the
-      // prompt that comes back in front of it.
+      // Not opened on its machine: the host lets go of the queued messages, and they come back in
+      // this composer, in front of what was typed since and after the prompt.
+      if (queued) {
+        void callNative("chat.cloudStartQueue", { text: "" }).catch(() => undefined);
+        restoreComposerDraft(composerHandle, heldBack, queued.join("\n\n"), []);
+      }
+      // What was typed meanwhile is still in this composer, after the prompt that comes back in
+      // front of it.
       const back = pageDraft ?? held;
       if (back) {
         const typed = composerHandle.current?.draft();

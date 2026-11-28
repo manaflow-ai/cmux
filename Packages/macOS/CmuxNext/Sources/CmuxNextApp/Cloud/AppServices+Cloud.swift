@@ -1,11 +1,16 @@
+import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentCursor
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextDesign
 public import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextMacScreen
 import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
@@ -26,12 +31,12 @@ extension AppServices {
         guard cloud.auth.isSignedIn, !cloud.policyDisabled, let session = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() }),
               let dial = CloudCarrierDial.Connector(machine: session.machineID, service: .desktop, cli: cloud.binary, auth: cloud.auth, platform: cloud.configuration.relayAPIBaseURL(),
                                                     team: session.machine.team, stateDirectory: cloud.tuiState, streams: cloud.desktopStreams) else { return nil }
-        return { control in
+        return { [weak self] control in
             let carrier = RemoteRdStreamCarrier(reportingOpen: { progress in
                 let stream = try await dial.open(progress: progress)
                 return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
             })
-            return RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(), startKey: UUID().uuidString, control: control)
+            return RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(sharpText: self?.settings?.snapshot.remoteDesktop.sharpLinuxText ?? false), startKey: UUID().uuidString, control: control)
         }
     }
 
@@ -77,8 +82,6 @@ extension AppServices {
         cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }
         cloud.planObserved = { [weak self] in self?.paidPlanObserved($0) }
         cloud.start()
-        // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
-        CloudMachineUpdates.start(self)
         iphone.pairedQuitRecord = agentPaneStateLoss
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
@@ -97,18 +100,12 @@ extension AppServices {
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: (user: String, team: String)?
-            var routerUser: String??
             var leaseAccount = GitHubAppLease.Account()
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID, cloud.auth.managedTeamID != nil) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
                 self.agentTabs.syncCloudAccountActions(services: self)
-                // The local model relay follows the signed-in user (ModelRouterLease).
                 let user = state.0 ? state.2 : nil
-                if routerUser != .some(user) {
-                    routerUser = .some(user)
-                    self.modelRouter?.accountChanged(user)
-                }
                 // The sign-in acpmux mints GitHub App tokens with (GitHubAppLease) follows the user
                 // and the active team (its cmux id), whose GitHub connection Cloud mints from.
                 let team = GitHubAppLease.backendTeam(stackProjectID: cloud.auth.configuration.stackProjectID,
@@ -130,9 +127,9 @@ extension AppServices {
 }
 
 extension AppServices {
-    /// What hostd's `surface` service streams: phone tabs `s<surface>` as streamed simulators
-    /// (``SimulatorSurfaceSources``, when SimulatorKit loads) and the owner's Cloud desktops
-    /// `c~<machine>~<team>`, view only (``CloudDesktopSurfaceSources``), on any Mac.
+    /// What hostd's `surface` service streams: phone tabs `s<surface>` as streamed simulators (``SimulatorSurfaceSources``,
+    /// when SimulatorKit loads), the owner's Cloud desktops `c~<machine>~<team>` (``CloudDesktopSurfaceSources``), and
+    /// this Mac's displays `d~<display>` while Share This Mac is on (``MacDisplaySurfaceSources``), these two view only.
     func phoneSurfaceHosts() -> any MobileHostSurfaceHosting {
         let phoneTabs = SimulatorSurfaceSources.available(phones) ? SimulatorSurfaceSources(phones: phones) { [weak self] raw in
             guard let self, let tab = self.daemon.store.tab(surface: SurfaceID(rawValue: raw)),
@@ -141,10 +138,9 @@ extension AppServices {
             return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
         } : nil
         // No Cloud desktop for the phone until it has a carrier route of its own (phoneCloudLinks says so).
-        return MobileHostSurfaceClosures(start: { tab, onExit in
-            guard let phoneTabs else { throw SimulatorSurfaceSources.Failure.notPhoneTab }
-            return try await phoneTabs.start(tab: tab, onExit: onExit)
-        }, stop: { tab in await phoneTabs?.stop(tab: tab) }, stopAll: { await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
+        let sources = PhoneSurfaceSources(phoneTabs: phoneTabs, macDisplays: MacDisplayCapture.surfaceSources { [weak self] in self?.macScreenPages.hubHost.isSharing ?? false })
+        return MobileHostSurfaceClosures(start: { try await sources.start(tab: $0, onExit: $1) }, stop: { await sources.stop(tab: $0) },
+                                         stopAll: { await sources.stopAll() }, streamsSimulators: phoneTabs != nil, streamsMacDisplays: true)
     }
 
     /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),
@@ -240,3 +236,78 @@ extension AppServices {
 }
 
 extension RemoteDesktopWatchFeed: HomeChiefComputerLiveFeed {}
+
+extension AppServices {
+    typealias ModelSignInOpened = @MainActor (String, @escaping @MainActor () -> Void) -> Void
+
+    func settingsClaudeLogin(beside anchor: @escaping @MainActor () -> NSView?,
+                             onOpened: @escaping ModelSignInOpened) -> SettingsCloudClaudeLogin {
+        let host = SettingsCloudClaudeLoginHost(
+            account: { [weak self] in
+                guard let cloud = self?.cloud, cloud.auth.isSignedIn, !cloud.isSigningOut else { return nil }
+                return cloud.account
+            },
+            caller: { [weak self] in self?.cloud.auth.platformUserID },
+            personal: { [weak self] in self?.accounts.agentKeys.isPersonal == true },
+            hasLoadedMachines: { [weak self] in self?.cloud.hasLoadedCurrentMachines == true },
+            machineIDs: { [weak self] in self?.cloud.listedMachineIDs ?? [] },
+            machine: { [weak self] id in
+                guard let self, let session = machines.session(id) else { return nil }
+                return settingsClaudeLink(session, beside: anchor, onOpened: onOpened)
+            },
+            refreshMachines: { [weak self] in await self?.cloud.refresh() ?? false },
+            createMachine: { [weak self] environment, name, check in
+                guard let self else { throw CancellationError() }
+                return try await createSettingsClaudeMachine(beside: anchor, environment: environment, name: name, checking: check, onOpened: onOpened)
+            })
+        return SettingsCloudClaudeLogin(host: host)
+    }
+
+    private func settingsClaudeLink(_ session: CloudMachineSession, beside anchor: @escaping @MainActor () -> NSView?,
+                                    onOpened: @escaping ModelSignInOpened) -> SettingsCloudClaudeMachineLink {
+        let daemon = session.daemon
+        let capability = DaemonCapability.agentSessionLoginSettings.rawValue
+        let supportsLogin: @MainActor @Sendable () -> Bool = { daemon.liveIdentity?.supports(capability) == true }
+        return SettingsCloudClaudeMachineLink(
+            candidate: .init(record: session.machine, status: session.effectiveStatus,
+                             linked: daemon.liveIdentity != nil, supportsLogin: supportsLogin()),
+            ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
+            endpoint: AgentTabRemoteHost.endpoint(on: daemon), linkHeld: { session.linkHeld() }, supportsLogin: supportsLogin,
+            connect: { [weak self] check in
+                guard let self else { throw CancellationError() }
+                try await CloudStartSession(services: self).connected(session, byPerson: true, checking: check,
+                                                                         failure: SettingsCloudClaudeLogin.startFailure)
+            },
+            openCallback: { [weak self] url, owner, scope in
+                await self?.chatSignIn.openSettings(url, daemon: daemon, from: anchor().flatMap { self?.linkOpener.source(containing: $0) },
+                                                    callbackPort: AgentPaneSignInPage.callbackPort(url), owner: owner, checking: scope, onOpened: onOpened) == true
+            }
+        )
+    }
+
+    private func createSettingsClaudeMachine(beside anchor: @escaping @MainActor () -> NSView?, environment: String?, name: String?,
+                                            checking check: @MainActor () throws -> Void,
+                                            onOpened: @escaping ModelSignInOpened) async throws -> SettingsCloudClaudeMachineLink? {
+        do {
+            var request = CloudMachineRequest()
+            request.environment = environment
+            let session = try await cloud.createMachine(name: name, startedByPerson: true, ownCreate: true, request: request, proceed: check)
+            return settingsClaudeLink(session, beside: anchor, onOpened: onOpened)
+        } catch CloudMachineCreateFlow.Failure.declined, CloudMachineCreateFlow.Failure.upgradeRequired(_), is CloudMachineCap.RunHere {
+            return nil
+        } catch let error where CloudMachineCap.refusal(error) != nil {
+            return nil
+        } catch {
+            guard let refusal = CloudMachineCreation.proRefusal(error),
+                  let window = anchor()?.window ?? windows.active?.window else { throw error }
+            try check()
+            let spec = CloudPresenter.planOfferSpec(refusal.message, plan: refusal.plan)
+            let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
+            try check()
+            if answer.button == "confirm" {
+                _ = await paidPlanUpgrade().start(plan: refusal.plan, source: .cloudRefusal, fallback: refusal.upgradeURL)
+            }
+            return nil
+        }
+    }
+}

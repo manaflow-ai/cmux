@@ -8,7 +8,7 @@ import Foundation
 /// over the page, which floated over the transcript's first message (Leo, 2026-11-01: "yuck more
 /// garbage"); the pane now adds no view of its own for it.
 @MainActor final class AgentPaneNotice {
-    /// Which notice: `personUnproven`, `otherInstall` or `remoteApprovals`; the page's button names it back.
+    /// Which notice: `otherInstall` or `remoteApprovals`; the page's button names it back.
     let id: String
     let title: String
     /// The line under the title; an action that failed says why here.
@@ -61,7 +61,20 @@ extension AgentPaneModel {
 
 extension AgentPaneView {
     /// The native notices shown now, in the order the page draws them.
-    var paneNotices: [AgentPaneNotice] { [personUnprovenNotice, otherInstallNotice, remoteApprovalsNotice].compactMap { $0 } }
+    var paneNotices: [AgentPaneNotice] { [cloudChatEndedNotice, otherInstallNotice, remoteApprovalsNotice, modelConnectionNotice].compactMap { $0 } }
+
+    /// Shows a credential refusal in the chat with the action supplied by the app.
+    public func showModelConnectionNotice(_ title: String, button: String, openSettings: @escaping @MainActor () -> Void) {
+        modelConnectionNotice = AgentPaneNotice(id: "modelConnection", title: title, button: button) { _ in openSettings() }
+        pushPaneNotices()
+    }
+
+    /// Clears the refusal after the chat obtains its connection.
+    public func clearModelConnectionNotice() {
+        guard modelConnectionNotice != nil else { return }
+        modelConnectionNotice = nil
+        pushPaneNotices()
+    }
 
     /// Pushes the shown notices to the page, and takes their buttons' clicks.
     func pushPaneNotices() {

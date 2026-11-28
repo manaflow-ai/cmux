@@ -29,9 +29,10 @@ Status 2026-10-14: partly built. What exists:
   the foreground of the chat's own turn after 60 s goes to the background
   through the same `background_tasks` request, so the turn goes on while it
   runs; it is listed with origin `auto_backgrounded`. The daemon's env
-  `ACPMUX_AUTO_BACKGROUND_SECS` sets the wait, `0` turns it off. Before a
-  call starts, the session plugin's PreToolUse hook (`bg_hook.rs`) rewrites
-  a known-slow foreground command (builds, test runs, CI waits, dev servers,
+  `ACPMUX_AUTO_BACKGROUND_SECS` sets the wait, `0` turns it off. With
+  `agents.slowForeground.enabled: true` (off by default; `ACPMUX_SLOW_FOREGROUND=1|0`
+  in the daemon's environment overrides it), before a call starts, the session
+  plugin's PreToolUse hook (`bg_hook.rs`) rewrites a known-slow foreground command (builds, test runs, CI waits, dev servers,
   follows) into `acpmux process start`, which runs it as a daemon-owned task
   and answers at once with its id, when the chat has `bg_start`; otherwise it
   turns the command away towards `run_in_background: true`, and the same call
@@ -92,9 +93,12 @@ Process {
   reason?       // why it stopped: "person", "agent", "harness_exit";
                 // later "budget_memory", "harness_time_limit"
   detail?       // the harness's own words on its end (Claude's summary)
-  origin        // background | auto_backgrounded | user_backgrounded
+  origin        // background | auto_backgrounded | user_backgrounded | daemon
                 // (auto_backgrounded: Claude Code moved it at its timeout,
-                // or acpmux did after a minute in the foreground)
+                // or acpmux did after five minutes in the foreground,
+                // or two when the person's message waits; daemon: a task
+                // the daemon runs, below)
+  daemonTask?   // true for a task the daemon runs (`hub/bg_registry.rs`)
   outputBytes   // the output file's length when listed; null with no file
   outputFile?   // the file the harness writes its output to
   preview?      // {url, port}: the dev server it runs, while it runs
@@ -185,6 +189,34 @@ harness itself exited. Its last output is kept and its command is shown with
 - Codex caps a session at 64 unified-exec processes; that cap is compiled
   in.
 
+**The daemon's own tasks** (`hub/bg_registry.rs`). acpmux's Bash hook rewrites
+a Claude Code background shell, or a known-slow foreground command, into a
+task the daemon runs (`bg_hook.rs`, `hub/bg_tasks.rs`), so Claude Code reports
+no background shell for it. Such a task, and one an agent starts with
+`bg_start`, is a row with `daemonTask: true` and origin `daemon`:
+- `toolCallId` is the Bash call the hook rewrote (`--tool-call`, from the
+  hook's `tool_use_id`); none for an MCP `bg_start`.
+- Its folder (`bg/<sessionId>/`) is the truth. A start logs the running row;
+  every task is watched, and its end (exit, stop, signal, a runner that died:
+  `lost`) logs the ended row; a daemon start watches every task still
+  running and logs its row; each `process/list` first checks every row it
+  holds as running against the folder, so an end while no daemon ran never
+  stays `running`, and gives a row to a task that runs with none. A row is
+  logged only when it changed, and put in the table only once the log took
+  it. Publishes are ordered per chat.
+- A wait moved with its chat (`server/bg_rearm.rs`) runs again as a new task
+  that keeps its call; the old task's row ends (`killed`, reason `moved`)
+  and gives the call up.
+- Its row's records are bookkeeping for the idle clock (`idle.rs`): they
+  start no idle period, as the task keeps no chat awake.
+- It outlives the harness and never keeps a chat awake: a harness exit loses
+  none, and the idle checks count none.
+- `process/kill` stops it through its runner (`bg_stop`), and refuses when
+  it still runs after the stop; `process/tail` reads its spool (`bg_output`),
+  in a Codex chat too.
+- A workflow's machine task (a stable id with its claim) is no row: its
+  workflow shows it.
+
 **Fallback for any harness:** when the harness is gone, its holder signals
 the harness's process group; nothing walks the process tree (cx-t2sqm.3
 replaces `agent_host/tree.rs`'s `ps` walk).
@@ -234,8 +266,11 @@ The regression detectors are `a_recent_reply_refuses_running_rows_that_only_fit_
 | Turn end | Keeps running. |
 | Chat closed, no client attached | Keeps running: a running process blocks the idle reap. |
 | Over the session's memory budget (cx-v9s8g) | Enforced by the kernel, not by acpmux measuring: on Linux the session's cgroup scope (`MemoryMax`); `killed`, reason `budget_memory`. |
-| Over the CPU budget (cx-v9s8g) | Lower priority, not killed: the cgroup's `CPUWeight` on Linux, `setpriority(PRIO_PGRP)` on macOS. |
-| Start (macOS) | The agent host and its harness start at the daemon's CPU class, with no utility clamp (disk I/O stays at utility) (W6, 2026-11-12: at load 125 to 256 a start under the clamp waited 10 to 82 s, and one used 1.8 s of CPU in 90 s); a `normal` harness and what it started go to nice +11, the clamp's priority, once the start is over. The harness starts at normal CPU class: a start has a deadline, and at background class a busy disk can hold it past that deadline (2026-10-30: a harness at background class used under 1 s of CPU in 90 s of trust-settings reads). Once the session's start is over (`initialize` and `session/new` or `session/load` answered), the daemon puts the running harness in background CPU class (`setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, `cpu_class.rs`), so every process it starts after that inherits it and cmux's GUI and renderers go first. A process the harness started during its start keeps normal class, because acpmux lists no processes: an MCP server, and the real agent of a harness that is only a launcher (a script or adapter that starts the agent as a child), whose turns then run at normal class. The daemon also clears a background class that another process set, right after the spawn. Disk I/O stays at the daemon's and host's utility tier. A start that still fails at background class is retried once, and a start that misses its deadline names its agent process's pid, class, run time, CPU time and running threads. A Claude Code profile whose `argv` does not start with `claude` is a launcher and defaults to `normal`, because lowering it cannot reach its agent's tools and it can carry the agent's stream (`sr2 claude` relays it). `normal` opts out of the lowering: a profile's env `ACPMUX_SESSION_CPU_CLASS`, the daemon's env, or config `session.cpuClass`; any of them can also ask a launcher for `background`. |
+| Over the CPU budget (cx-v9s8g) | Lower priority, not killed: the cgroup's `CPUWeight` on Linux, `setpriority(PRIO_PGRP)` (the agent tier's nice) on macOS; background class only from the `dynamic` controller, while the Mac is contended (below). |
+| Start (macOS) | The agent host and its harness start at the daemon's CPU class, with no utility clamp (disk I/O stays at utility) (W6, 2026-11-12: at load 125 to 256 a start under the clamp waited 10 to 82 s, and one used 1.8 s of CPU in 90 s). The harness starts at normal CPU class: a start has a deadline, and at background class a busy disk can hold it past that deadline (2026-10-30: a harness at background class used under 1 s of CPU in 90 s of trust-settings reads). The daemon also clears a background class that another process set, right after the spawn. Once the session's start is over (`initialize` and `session/new` or `session/load` answered), the harness and its process group (its MCP servers, a launcher's agent) go to the agent tier's nice (+11, the clamp's priority), with normal disk I/O, whatever the class. A start that still fails at background class is retried once, and a start that misses its deadline names its agent process's pid, class, run time, CPU time and running threads. |
+| Running (macOS), class `dynamic` (opt-in) | Background CPU class (`PRIO_DARWIN_BG`: efficiency cores only, throttled disk I/O) only while the Mac is contended, never for good (`cpu_class/pressure.rs`, `hub/cpu_pressure.rs`). Leo, 2026-11-25: "lucas ran into slow stuff on the desktop gui app with claude bc he was at relatively high cpu and agents' tool calls ran at background priority and stuff so it took like 87 minutes to do things... and then even when his cpu went down to 80% the background priority stayed". Every second the daemon reads how late a user-interactive thread (the GUI main thread's QoS) wakes from a 10 ms sleep and how busy the CPUs are. After 3 seconds in a row with the CPUs at 90% or more and that thread 2 ms or more late, every `dynamic` session's harness and every process it already started (its tree, read one parent at a time with `proc_listchildpids`, at most 1,024) go to background class, again each second while it lasts. After 3 seconds in a row under 85% busy or under 0.5 ms late they all come back (`setpriority(..., 0)`). A demotion within 30 s of the last promotion doubles the clear seconds the next promotion needs, up to 30; after a calm spell it starts at 3 again. No reading demotes nothing. A person's own turn keeps its harness and tools at normal class until its first token, thought, or tool result arrives; after that, it may yield under pressure, while a background lane can yield immediately. Each change is a `cpu class:` line in the daemon log; `acpmux session info` shows `cpu:` (its class, the one it runs at now, the time it spent demoted in how many spells, whether the person waits on it) and `--json` the `cpuClass` object. `ACPMUX_CPU_PRESSURE=off` on the daemon keeps every `dynamic` session at normal class. |
+| Running (macOS), classes `background` and `normal` | `background` (by name only) puts the harness and every process it already started in background class once its start is over, for good, as before; every process it starts after that inherits it. `normal` never takes background class. A Claude Code profile whose `argv` does not start with `claude` is a launcher and defaults to `normal`, because it can carry the agent's stream (`sr2 claude` relays it), and so does a Codex `app-server` (its TLS failed at background class). The class, first set wins: a profile's env `ACPMUX_SESSION_CPU_CLASS`, the daemon's env, config `session.cpuClass` (`acpmux config --set session.cpu_class=normal`), each `dynamic`, `background` or `normal`. |
+| A background task's process tree (macOS) | Runs as a shell in a terminal runs, as in cmux classic: the daemon's CPU priority (never above nice 0) and the default disk tier, with no utility QoS clamp (`qos.rs`, `Tier::Agent`). Until 2026-11-27 the runner re-executed itself under the utility clamp (priority 20, inherited by every process the task starts) with its disk I/O at `IOPOL_UTILITY`, and on a busy Mac a tagged build it ran took 21 to 41 minutes. `ACPMUX_QOS=background` on the daemon still puts tasks in background class; Linux keeps nice +5. |
 | Harness time limit (Claude's `timeout`; acpmux lifts the ceiling to about 24.8 days) | `killed`, reason `harness_time_limit`. |
 | Daemon restart | Keeps running (the agent host owns the harness); the list is rebuilt from the `process_update` records. A process still `running` there stays so until its harness reports its end. |
 | Harness or host exit, app update relaunch | `lost` (built), with the last output kept and Run again offered. A real reattach needs Claude Code's background sessions (`claude agents`, 2.1.196); evaluated separately. |

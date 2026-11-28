@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 890,
-    "mcp": 808
+    "verbs": 914,
+    "mcp": 831
   },
   "nouns": [
     {
@@ -55,6 +55,13 @@
     {
       "noun": "action",
       "verbs": [
+        {
+          "command": "cmux action appearance-background-follow-desktop",
+          "title": "Follow Desktop Wallpaper",
+          "id": "appearance.background.followDesktop",
+          "mcp": true,
+          "mcpTool": "app_action_appearance_background_follow_desktop"
+        },
         {
           "command": "cmux action customize-reset",
           "title": "Reset Element to Defaults",
@@ -115,6 +122,13 @@
           "id": "agentPane.continueAfterError",
           "mcp": true,
           "mcpTool": "app_agent_continue_after_error"
+        },
+        {
+          "command": "cmux agent copy-cwd-path",
+          "title": "Copy Chat Folder Path",
+          "id": "agentPane.copyCwdPath",
+          "mcp": true,
+          "mcpTool": "app_agent_copy_cwd_path"
         },
         {
           "command": "cmux agent edit-instructions",
@@ -248,6 +262,20 @@
           "id": "agent.openSessionWorkspace",
           "mcp": true,
           "mcpTool": "app_agent_open"
+        },
+        {
+          "command": "cmux agent open-cwd-in",
+          "title": "Open Chat Folder In…",
+          "id": "agentPane.openCwdInApp",
+          "mcp": true,
+          "mcpTool": "app_agent_open_cwd_in"
+        },
+        {
+          "command": "cmux agent open-cwd-in-editor",
+          "title": "Open Chat Folder in Editor",
+          "id": "agentPane.openCwdInEditor",
+          "mcp": true,
+          "mcpTool": "app_agent_open_cwd_in_editor"
         },
         {
           "command": "cmux agent open-cwd-in-terminal",
@@ -493,6 +521,20 @@
           "mcpTool": null
         },
         {
+          "command": "cmux app key-mode-enter",
+          "title": "Enter Key Mode…",
+          "id": "keyMode.enter",
+          "mcp": true,
+          "mcpTool": "app_key_mode_enter"
+        },
+        {
+          "command": "cmux app key-mode-exit",
+          "title": "Exit Key Mode",
+          "id": "keyMode.exit",
+          "mcp": true,
+          "mcpTool": "app_key_mode_exit"
+        },
+        {
           "command": "cmux app merge-all-windows",
           "title": "Merge All Windows",
           "id": "window.mergeAll",
@@ -545,6 +587,13 @@
           "command": "cmux app quit-keep-sessions",
           "title": "Quit and Keep Sessions",
           "id": "quitKeepSessions",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux app relaunch",
+          "title": "Relaunch and Keep Sessions",
+          "id": "relaunchKeepSessions",
           "mcp": false,
           "mcpTool": null
         },
@@ -667,6 +716,18 @@
           "id": "automations.show",
           "mcp": true,
           "mcpTool": "app_automation_show_page"
+        }
+      ]
+    },
+    {
+      "noun": "avatar",
+      "verbs": [
+        {
+          "command": "cmux avatar set",
+          "title": "Set My Picture…",
+          "id": "home.setMyAvatar",
+          "mcp": true,
+          "mcpTool": "app_avatar_set"
         }
       ]
     },
@@ -1226,6 +1287,13 @@
       "noun": "chief",
       "verbs": [
         {
+          "command": "cmux chief adopt",
+          "title": "Make This Agent a Chief",
+          "id": "agentPane.adoptAsChief",
+          "mcp": true,
+          "mcpTool": "app_chief_adopt"
+        },
+        {
           "command": "cmux chief memory",
           "title": "Chief: Open Memory Inspector",
           "id": "chief.openMemoryInspector",
@@ -1290,6 +1358,20 @@
           "id": "cloudBringBack",
           "mcp": true,
           "mcpTool": "app_cloud_bring_back"
+        },
+        {
+          "command": "cmux cloud chief-computer",
+          "title": "Use Chief’s Own Computer…",
+          "id": "cloud.chiefComputer",
+          "mcp": true,
+          "mcpTool": "app_cloud_chief_computer"
+        },
+        {
+          "command": "cmux cloud computer-control",
+          "title": "Chief Computer Control…",
+          "id": "cloud.computerControl",
+          "mcp": true,
+          "mcpTool": "app_cloud_computer_control"
         },
         {
           "command": "cmux cloud copy-session-link",
@@ -2393,6 +2475,27 @@
           "mcpTool": "app_machine_doctor"
         },
         {
+          "command": "cmux machine port-close",
+          "title": "Stop Forwarding Port…",
+          "id": "machine.portClose",
+          "mcp": true,
+          "mcpTool": "app_machine_port_close"
+        },
+        {
+          "command": "cmux machine port-forward",
+          "title": "Forward Port…",
+          "id": "machine.portForward",
+          "mcp": true,
+          "mcpTool": "app_machine_port_forward"
+        },
+        {
+          "command": "cmux machine port-list",
+          "title": "List Forwarded Ports",
+          "id": "machine.portList",
+          "mcp": true,
+          "mcpTool": "app_machine_port_list"
+        },
+        {
           "command": "cmux machine reconnect",
           "title": "Reconnect",
           "id": "machine.reconnect",
@@ -2405,6 +2508,13 @@
           "id": "machine.setIcon",
           "mcp": true,
           "mcpTool": "app_machine_set_icon"
+        },
+        {
+          "command": "cmux machine switch",
+          "title": "Switch Host…",
+          "id": "machine.switch",
+          "mcp": true,
+          "mcpTool": "app_machine_switch"
         }
       ]
     },
@@ -3683,6 +3793,20 @@
           "mcpTool": null
         },
         {
+          "command": "cmux settings background-fill",
+          "title": "Background: Fill Window",
+          "id": "appearance.background.fill",
+          "mcp": true,
+          "mcpTool": "app_settings_background_fill"
+        },
+        {
+          "command": "cmux settings background-fit",
+          "title": "Background: Fit Window",
+          "id": "appearance.background.fit",
+          "mcp": true,
+          "mcpTool": "app_settings_background_fit"
+        },
+        {
           "command": "cmux settings base-keymap",
           "title": "Base Keymap…",
           "id": "palette.shortcutKeymap",
@@ -4052,6 +4176,13 @@
           "id": "palette.uninstallCLI",
           "mcp": false,
           "mcpTool": null
+        },
+        {
+          "command": "cmux settings update-status",
+          "title": "Update Status",
+          "id": "updates.status",
+          "mcp": true,
+          "mcpTool": "app_settings_update_status"
         },
         {
           "command": "cmux settings use-aggressive-tab-hibernation",
@@ -5480,6 +5611,13 @@
           "mcpTool": "app_terminal_open_current_directory_in"
         },
         {
+          "command": "cmux terminal pin-tail",
+          "title": "Show Last Line in Sidebar",
+          "id": "terminal.pinTail",
+          "mcp": true,
+          "mcpTool": "app_terminal_pin_tail"
+        },
+        {
           "command": "cmux terminal reconnect-pane",
           "title": "Reconnect Pane",
           "id": "reconnectPane",
@@ -5527,6 +5665,25 @@
           "id": "terminal.setTheme",
           "mcp": true,
           "mcpTool": "app_terminal_set_theme"
+        }
+      ]
+    },
+    {
+      "noun": "wallpaper",
+      "verbs": [
+        {
+          "command": "cmux wallpaper back",
+          "title": "Switch to Previous Background",
+          "id": "appearance.previousBackground",
+          "mcp": true,
+          "mcpTool": "app_wallpaper_back"
+        },
+        {
+          "command": "cmux wallpaper recent",
+          "title": "Recent Backgrounds…",
+          "id": "appearance.recentBackgrounds",
+          "mcp": true,
+          "mcpTool": "app_wallpaper_recent"
         }
       ]
     },
@@ -6036,6 +6193,27 @@
           "mcpTool": "app_workspace_open_folder_in_vs_code_inline"
         },
         {
+          "command": "cmux workspace open-in",
+          "title": "Open Workspace In…",
+          "id": "workspace.openInApp",
+          "mcp": true,
+          "mcpTool": "app_workspace_open_in"
+        },
+        {
+          "command": "cmux workspace open-in-editor",
+          "title": "Open Workspace in Editor",
+          "id": "workspace.openInEditor",
+          "mcp": true,
+          "mcpTool": "app_workspace_open_in_editor"
+        },
+        {
+          "command": "cmux workspace open-terminal-here",
+          "title": "Open Terminal in Workspace Folder",
+          "id": "workspace.openTerminalHere",
+          "mcp": true,
+          "mcpTool": "app_workspace_open_terminal_here"
+        },
+        {
           "command": "cmux workspace open-todo-pane",
           "title": "Open Todo Pane",
           "id": "palette.openWorkspaceTodoPane",
@@ -6493,7 +6671,7 @@
   ],
   "mcpExempt": {
     "credentials": 7,
-    "endsApp": 4,
+    "endsApp": 5,
     "systemChange": 71
   }
 }

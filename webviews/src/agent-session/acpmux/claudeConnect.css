@@ -1,76 +1,3 @@
-/* Connect your Claude subscription (ClaudeConnectDialog.tsx, ClaudeConnectRow.tsx). The sheet is the
-   Add account sheet (addAccount.css); this file adds only its numbered steps and command chip, and the
-   picker's Connect row. Colours, type and spacing come from the pane's roles (tailwind.css: fg, muted,
-   edge) and the design scale (ui/controls.css: --ds-space-*, --ds-radius-*); nothing new is introduced. */
-
-/* The dialog's steps: a numbered list whose numbers sit in the muted colour outside the text column,
-   so the fields line up with the step titles. */
-.acpmux-connect-claude {
-  width: min(460px, calc(100vw - 32px));
-}
-.acpmux-connect-claude-steps {
-  display: grid;
-  gap: var(--ds-space-3);
-  margin: 0;
-  padding: 0 0 0 1.5em;
-}
-.acpmux-connect-claude-steps > li {
-  display: grid;
-  gap: var(--ds-space-3);
-}
-.acpmux-connect-claude-steps > li::marker {
-  color: var(--agent-muted);
-}
-.acpmux-connect-claude-steps > li > .acpmux-connect-claude-step,
-.acpmux-add-account .acpmux-add-account-field > .acpmux-connect-claude-step {
-  color: var(--agent-text);
-  font-size: var(--text-body);
-  letter-spacing: var(--text-body--letter-spacing);
-}
-
-/* The command chip: the command in the mono face on the field fill, with its copy button inside the
-   chip's trailing edge (as the cloud ask's code row, cloudStart.css .acpmux-cloud-ask__code). */
-.acpmux-connect-claude-command {
-  display: inline-flex;
-  justify-self: start;
-  align-items: center;
-  gap: var(--ds-space-2);
-  min-width: 0;
-  max-width: 100%;
-  height: 28px;
-  padding-inline: var(--ds-space-2) var(--ds-space-1);
-  border: 1px solid var(--agent-border);
-  border-radius: var(--ds-radius-md);
-  background: var(--agent-input-bg);
-}
-.acpmux-connect-claude-command code {
-  overflow: hidden;
-  font-family: var(--font-mono, ui-monospace);
-  font-size: var(--text-body);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.acpmux-connect-claude .ui-button.ui-btn.acpmux-connect-claude-copy {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: var(--ds-radius-control);
-  color: var(--agent-muted);
-}
-.acpmux-connect-claude .ui-button.ui-btn.acpmux-connect-claude-copy:hover,
-.acpmux-connect-claude .ui-button.ui-btn.acpmux-connect-claude-copy[data-copied] {
-  color: var(--agent-text);
-}
-.acpmux-connect-claude .ui-button.ui-btn.acpmux-connect-claude-copy:hover {
-  background: var(--agent-hover, color-mix(in srgb, currentColor 7%, transparent));
-}
-
-/* The primary button while the token is checked: it keeps its solid fill and says Verifying…; the
-   form is aria-busy. */
-.acpmux-connect-claude .ui-btn[data-variant="solid"][data-busy] {
-  cursor: progress;
-}
-
 /* The picker's Connect row: a two-line row at the head of the Claude section, the mark in the model
    rows' mark column, the line in muted detail type, Connect as a compact subtle button, and the
    section's hairline under it (ModelPicker.tsx `This folder` group, border-edge). */
@@ -121,4 +48,108 @@
 }
 .acpmux-quick-connect.ui-menu-item[data-disabled] {
   opacity: 1;
+}
+
+/* The inline connect card (ConnectCard.tsx): the family's mark and one line, the one button, and one
+   progress line under it. The cloud ask's spacing and inks (cloudStart.css); `row` is the picker
+   row's compact line, `steps` adds the setup strip's caption. */
+.acpmux-connect-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-connect-card[data-look="row"] {
+  padding: var(--ds-space-1) var(--ds-space-2);
+}
+.acpmux-connect-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.acpmux-connect-card__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-connect-card__step {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-connect-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.acpmux-connect-card__status {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-connect-card__status[data-state="error"] { color: var(--agent-danger, currentColor); }
+.acpmux-connect-card__status[data-state="done"] { color: var(--agent-accent, currentColor); }
+.acpmux-connect-card[data-look="row"] .acpmux-connect-card__status { font-size: var(--text-body); }
+.acpmux-connect-card__others {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1) var(--ds-space-3);
+}
+.acpmux-connect-card__disclosure {
+  flex-basis: 100%;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-connect-card__disclosure > summary {
+  width: fit-content;
+}
+.acpmux-connect-card__field {
+  display: flex;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+}
+.acpmux-connect-card__field > input { flex: 1; min-width: 0; }
+.acpmux-connect-card__invalid {
+  display: block;
+  margin-top: var(--ds-space-1);
+  color: var(--agent-danger, currentColor);
+}
+/* The picker's card floats over the composer, anchored to its chips (the menu closed on Connect). */
+.acpmux-chips:has(> .acpmux-connect-float) { position: relative; }
+.acpmux-connect-float {
+  position: absolute;
+  z-index: var(--layer-overlay);
+  bottom: calc(100% + var(--ds-space-2));
+  left: 0;
+  width: min(380px, 100%);
+  border-radius: var(--ds-radius-md);
+}
+.acpmux-connect-float > .acpmux-connect-card { border-color: transparent; }
+/* An app connection's parts (ConnectCard `provider`): its name over the line, the pill trailing the
+   head, and the detail lines under it. */
+.acpmux-connect-card__title {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-connect-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
 }

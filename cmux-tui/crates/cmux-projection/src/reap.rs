@@ -2,7 +2,8 @@
 //! [`crate::state`]) once nothing can need it again (RFD 0007, hard case 8). One [`pass`] runs at
 //! the daemon's start and on a timer, does a bounded amount of work ([`Limits`]) and says what it
 //! freed and why ([`Report`]). Each projection's cache is capped on its own
-//! (`overlay::DEFAULT_CACHE_MAX_BYTES`).
+//! (`overlay::DEFAULT_CACHE_MAX_BYTES`), and its content store keeps a floor of free disk
+//! (`overlay::content::DEFAULT_CONTENT_FLOOR`).
 //!
 //! What goes, and the one rule that keeps edits safe:
 //!
@@ -174,12 +175,14 @@ pub trait Live {
     fn mounted(&self, name: &str) -> bool;
     /// Ends projection `name` (this daemon's mount of it, or a dead daemon's mount left at `at`)
     /// with new mounts of it held off, then runs `free` and answers what it did. `None`, and
-    /// `free` not run, when `only_if_idle` and this daemon serves it now.
+    /// `free` not run, when `only_if_idle` and this daemon serves it now, or when
+    /// `still_eligible` fails under the mount lock before unmounting anything.
     fn end(
         &self,
         name: &str,
         at: Option<&Path>,
         only_if_idle: bool,
+        still_eligible: &dyn Fn() -> bool,
         free: &mut dyn FnMut() -> io::Result<u64>,
     ) -> Option<io::Result<u64>>;
 }
@@ -197,9 +200,10 @@ impl Live for Idle {
         _name: &str,
         _at: Option<&Path>,
         _only_if_idle: bool,
+        still_eligible: &dyn Fn() -> bool,
         free: &mut dyn FnMut() -> io::Result<u64>,
     ) -> Option<io::Result<u64>> {
-        Some(free())
+        still_eligible().then(free)
     }
 }
 
@@ -212,8 +216,18 @@ pub fn verdict(
     now: SystemTime,
     grace: Duration,
 ) -> Option<Why> {
-    let record = state::read(state);
-    if let Some(record) = &record {
+    record_verdict(state, state::read(state).as_ref(), chats, mounted, now, grace)
+}
+
+fn record_verdict(
+    state: &Path,
+    record: Option<&state::Record>,
+    chats: &Chats,
+    mounted: bool,
+    now: SystemTime,
+    grace: Duration,
+) -> Option<Why> {
+    if let Some(record) = record {
         if let Some(released) = &record.released {
             return Some(released.why.into());
         }
@@ -221,6 +235,10 @@ pub fn verdict(
             && state::mark(state).is_ok_and(|mark| mark == back.mark)
         {
             return Some(Why::BroughtBack);
+        }
+        if let Some(detached) = &record.detached {
+            let why = detached_verdict(detached, chats, mounted, now, grace)?;
+            return detached_layer_empty(state).then_some(why);
         }
     }
     if !chats.knows() {
@@ -239,6 +257,44 @@ pub fn verdict(
                 .filter(|ms| *ms > 0)
                 .or_else(|| modified_ms(state));
             older_than(since, now, grace).then_some(Why::Orphan)
+        }
+    }
+}
+
+/// A chat ID supplied with detach is a notification address. Its disappearance never
+/// authorizes discarding unsaved files or deletions. Only the first upper entry and the
+/// whiteouts file length are needed, regardless of the number of changes.
+fn detached_layer_empty(state: &Path) -> bool {
+    let empty = match fs::read_dir(state.join("upper")) {
+        Ok(mut entries) => entries.next().is_none(),
+        Err(error) => error.kind() == io::ErrorKind::NotFound,
+    };
+    empty
+        && match fs::symlink_metadata(state.join("whiteouts")) {
+            Ok(meta) => meta.is_file() && meta.len() == 0,
+            Err(error) => error.kind() == io::ErrorKind::NotFound,
+        }
+}
+
+/// A detached projection (the folder was removed from its chat, its edits kept for Bring Back):
+/// eligible for cleanup only if its layer is empty and the chat is archived, or as an orphan
+/// only past the grace when no chat on this machine is that chat (or the Mac named none). Never by
+/// its folder: a removed folder has no chat running in it, and its edits are still wanted.
+fn detached_verdict(
+    detached: &state::Detached,
+    chats: &Chats,
+    mounted: bool,
+    now: SystemTime,
+    grace: Duration,
+) -> Option<Why> {
+    if mounted || !chats.knows() {
+        return None;
+    }
+    match detached.chat.as_deref().and_then(|id| chats.rows.iter().find(|chat| chat.id == id)) {
+        Some(chat) if !chat.archived => None,
+        Some(_) => Some(Why::Archived),
+        None => {
+            older_than(Some(detached.ms).filter(|ms| *ms > 0), now, grace).then_some(Why::Orphan)
         }
     }
 }
@@ -307,17 +363,33 @@ fn projections(
     report: &mut Report,
 ) {
     for (name, state) in folders(dir, limits.max_scan) {
-        let Some(why) = verdict(&state, chats, live.mounted(&name), now, limits.orphan_grace)
-        else {
+        let record = state::read(&state);
+        let Some(why) = record_verdict(
+            &state,
+            record.as_ref(),
+            chats,
+            live.mounted(&name),
+            now,
+            limits.orphan_grace,
+        ) else {
             continue;
         };
         if !take(left, report) {
             continue;
         }
-        let at = state::read(&state).map(|record| record.at);
-        let freed = live.end(&name, at.as_deref(), why == Why::Orphan, &mut || {
-            free_projection(&state, at.as_deref(), why)
-        });
+        let detached =
+            record.as_ref().is_some_and(|r| r.detached.is_some() && r.released.is_none())
+                && matches!(why, Why::Orphan | Why::Archived);
+        // Detach already unmounted this projection. Another chat may have reused its path.
+        let at = record.as_ref().filter(|r| r.detached.is_none()).map(|r| r.at.as_path());
+        // Detach or re-attach can change the record after the scan. Check again under the
+        // mount lock, before unmounting a path that another chat could already be using.
+        let still_eligible =
+            || state::read(&state) == record && (!detached || detached_layer_empty(&state));
+        let freed =
+            live.end(&name, at, detached || why == Why::Orphan, &still_eligible, &mut || {
+                free_projection(&state, at, why)
+            });
         match freed {
             Some(freed) => note(report, &state, why, freed),
             // Mounted since the verdict: it is in use again.

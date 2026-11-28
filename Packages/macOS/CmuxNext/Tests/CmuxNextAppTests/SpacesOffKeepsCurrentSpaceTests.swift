@@ -24,6 +24,8 @@ struct SpacesOffKeepsCurrentSpaceTests {
         windows.select("k3", in: fixture.state)
         #expect(fixture.state.profileID == Fixture.work)
         #expect(fixture.shown == ["k2", "k3"])
+        #expect(fixture.services.windowHomeMembers(fixture.state.id) == ["k2", "k3"],
+                "Home lookup received workspaces hidden by the current space")
 
         // cmux.json loses the key (an upgrade to the default-off build): Spaces turns off.
         try await fixture.write("{}")
@@ -100,6 +102,28 @@ struct SpacesOffKeepsCurrentSpaceTests {
         #expect(fixture.state.profileID == Fixture.work)
         #expect(fixture.shown == ["k1", "k2", "k3"])
         #expect(fixture.state.workspaceID == "k2", "a landed pin took the selection from a later pick")
+        #expect(windows.pinSelections.isEmpty)
+    }
+
+    /// A banner click (`reveal` -> `select`) on a workspace of another space, with a daemon delta before the pin lands: the
+    /// repair kept the window on the old workspace, so the probe saw no window showing the chat (notify-banner-click, Nightly
+    /// 4598798383801). The click's selection stays through the delta, and the landed pin still shows it.
+    @Test func aRevealedHiddenWorkspaceSurvivesADeltaBeforeItsPinLands() async throws {
+        let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
+        defer { fixture.close() }
+        let windows = fixture.services.windows
+        windows.switchProfile(Fixture.work, in: fixture.state)
+        try await fixture.write("{}")
+        windows.select("k2", in: fixture.state)
+
+        _ = windows.reveal(workspaceID: "k1")
+        #expect(fixture.state.workspaceID == "k1")
+        windows.reconcileMembership()
+        #expect(fixture.state.workspaceID == "k1", "a daemon delta before the pin landed sent the window back")
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k1": Fixture.work]))
+        windows.reconcileMembership()
+        #expect(fixture.shown == ["k1", "k2", "k3"])
+        #expect(fixture.state.workspaceID == "k1")
         #expect(windows.pinSelections.isEmpty)
     }
 

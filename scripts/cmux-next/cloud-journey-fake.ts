@@ -19,8 +19,10 @@ export type JourneyFixture = {
   /**
    * The GitHub cells: what GET /v1/integrations/github/status and /repos answer, CMUX_JOURNEY_GITHUB_REPO, and whether
    * the guest takes cloud-github-e2e.sh (each run answers the `e2e:` lines given, exit 1 when one says FAIL).
+   * `lookup` answers /repos?query= by its `cursor` ("" for the first), else `repos` filtered by the query;
+   * `agentTurn: "fail"` makes the agent's GitHub turn fail at its send.
    */
-  github?: { status?: unknown; repos?: unknown; sandbox?: string; script?: { live: string[]; agent: string[] } };
+  github?: { status?: unknown; repos?: unknown; lookup?: Record<string, unknown>; sandbox?: string; script?: { live: string[]; agent: string[] }; agentTurn?: "fail" };
   /**
    * The cold create cell: the size line its own machine's guest answers (`cpu=4 mem_mib=7900 disk_mib=32000`).
    * Without one the run passes `--skip cold`.
@@ -28,10 +30,18 @@ export type JourneyFixture = {
   cold?: string;
   /** What cloud.machine.get says the machine's size is; without one, the size the create asked. */
   recordedSize?: { cpu: number; memory_mb: number; disk_mb: number };
+  /** What cloud.machine.get says once the reply came (AutoSize grew it under the agent's start); before it, recordedSize. */
+  grownSize?: { cpu: number; memory_mb: number; disk_mb: number };
+  /** cloud.plan.get's answer for the capacity preflight; unset, a team with room (5 active, none in use). */
+  plan?: unknown;
+  /** The create also leaves a second, paused machine under the run's own name (FIXTURE_TWIN_MACHINE), as the
+   * 2026-11-27 production run 46059808882 did: listed from create on, until the run deletes it. */
+  twin?: boolean;
 };
 
 export const FIXTURE_MACHINE = "vm_01JFIXTURE7Q";
 export const FIXTURE_COLD_MACHINE = "vm_01JFIXTURECOLD";
+export const FIXTURE_TWIN_MACHINE = "vm_01JFIXTURETWIN";
 export const FIXTURE_LOGIN = `sk-ant-oat01-${"a".repeat(40)}`;
 /** client-config's platform_origin: the only host the fake cmux-tui takes a warm-spare for. The API host answers an
  * empty 404, as cloud-api.cmux.dev does for /v1/machines/reservations. */
@@ -67,10 +77,14 @@ export function runJourney(fixture: JourneyFixture): { steps: Step[]; probe: any
 const fixture = ${JSON.stringify({ spare: "report", exec: "ok", ...fixture })};
 const MACHINE = ${JSON.stringify(FIXTURE_MACHINE)};
 const COLD = ${JSON.stringify(FIXTURE_COLD_MACHINE)};
+const TWIN = ${JSON.stringify(FIXTURE_TWIN_MACHINE)};
+let createdName = "";
+let twinDeleted = false;
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 const log = (line: string) => console.log("@@fake " + line);
 let createdAt = 0;
 let createdSize = null;
+let agentSent = false;
 let deleted = false;
 let lastMarker = "";
 const exec = (command: string) => {
@@ -79,7 +93,12 @@ const exec = (command: string) => {
   // The guest's boot 10 minutes ago and its bind 5 s before create was sent: a claimed spare.
   if (command.includes("guest_now")) return answer("guest_now " + Date.now() + " 600000\\nwall bound.json " + (createdAt - 5000) + "\\n");
   if (command.includes("CMUX_FIRST_TEXT")) return answer("@@first-text\\n");
+  // waitOwnerKind (OWNER_KIND_PROGRAM): the fixture's machine is an owner machine from its first exec.
+  if (command.includes("cmux-vm-kind-sync")) return answer("vm-kind=owner\\n");
   // A later turn: history lists the last sent prompt's marker, so the turn reads as started.
+  if (command.includes("acp send")) agentSent = true;
+  // A Claude start with its first prompt on the start's own link (launchCredentialStartProgram): one exec, both done.
+  if (command.includes("CMUX_JOURNEY_START")) { agentSent = true; return answer("@@session fixture-session\\n@@prompted\\n"); }
   if (command.includes("acp send")) lastMarker = /\\[journey turn [^\\]]+\\]/.exec(command)?.[0] ?? lastMarker;
   if (command.includes("acp --json history")) return answer(JSON.stringify({ turns: lastMarker ? [{ prompt: lastMarker + " ..." }] : [] }));
   const script = fixture.github?.script;
@@ -89,6 +108,8 @@ const exec = (command: string) => {
     const lines = agent ? script.agent : script.live;
     return answer(lines.map((l) => "e2e: " + l).join("\\n") + "\\n", lines.some((l) => l.includes("FAIL")) ? 1 : 0);
   }
+  if (fixture.github?.agentTurn === "fail" && command.includes("acp send") && command.includes("In the GitHub repository")) { log("agent turn fails"); return answer("@@exit 1\\n"); }
+  if (command.includes("acp cancel")) { log("acp cancel"); return answer("@@cancel 0\\n@@wait 0\\n"); }
   if (command.includes("acp ensure") || command.includes("acp send")) return answer("@@exit 0\\n");
   if (command.includes("acp wait")) return answer("@@wait 0\\nHello from the fixture.\\n@@lastexit 0\\n");
   if (command.includes("echo journey-ok")) return answer("journey-ok\\nx86_64\\n");
@@ -130,12 +151,26 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
     log("github status " + url.search);
     return fixture.github?.status === undefined ? json({ error: "not found" }, 404) : json(fixture.github.status);
   }
-  if (route === "/v1/integrations/github/repos") { log("github repos"); return json(fixture.github?.repos ?? { repos: [] }); }
+  if (route === "/v1/integrations/github/repos") {
+    log("github repos " + url.search);
+    const query = url.searchParams.get("query");
+    if (query === null) return json(fixture.github?.repos ?? { repos: [] });
+    const lookup = fixture.github?.lookup;
+    if (lookup) return json(lookup[url.searchParams.get("cursor") ?? ""] ?? { repos: [], cursor: null });
+    const all = ((fixture.github?.repos as any)?.repos ?? []) as Array<{ full_name: string }>;
+    return json({ repos: all.filter((r) => r.full_name.toLowerCase().includes(query.toLowerCase())), truncated: false, cursor: null });
+  }
   const op = body.op;
   if (op === "user.teams.list") return json({ ok: true, value: { teams: [{ id: "team_personal", kind: "personal" }] } });
+  if (op === "cloud.plan.get") return json({ ok: true, value: fixture.plan ?? { limits: { max_active: 5 }, usage: { active: 0 } } });
   if (op === "user.ensure") return json({ ok: true, value: { id: "fixture-user" } });
   if (op === "install.register") return json({ ok: true, value: { id: "fixture-install", user: "fixture-user" } });
-  if (op === "cloud.machine.list") return json({ ok: true, value: { machines: createdAt && !deleted ? [{ id: MACHINE, name: "fixture", status: "running" }] : [] } });
+  if (op === "cloud.machine.list") {
+    const own = createdAt && !deleted ? [{ id: MACHINE, name: "fixture", status: "running" }] : [];
+    const twin = fixture.twin && createdAt && !twinDeleted ? [{ id: TWIN, name: createdName, status: "paused" }] : [];
+    return json({ ok: true, value: { machines: [...own, ...twin] } });
+  }
+  if (op === "cloud.machine.delete" && body.params.machine === TWIN) { log("delete twin"); twinDeleted = true; return json({ ok: true, value: {} }); }
   if (op === "cloud.machine.create" && String(body.params.name).endsWith(" cold")) {
     log("create cold size " + JSON.stringify(body.params.size));
     return json({ ok: true, value: { machine: { id: COLD, status: "creating" } } });
@@ -148,13 +183,14 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
     log("create");
     log("create size " + JSON.stringify(body.params.size));
     createdSize = body.params.size ?? null;
+    createdName = String(body.params.name);
     createdAt = Date.now();
     const report = fixture.spare === "report" ? { spare_fallback: "all_skipped", spare_skips: { restarting: 1, image: 1 } } : {};
     return json({ ok: true, value: { machine: { id: MACHINE, status: "creating" }, ...report } });
   }
   if (op === "cloud.machine.get") {
     log("get");
-    return json({ ok: true, value: { id: MACHINE, status: deleted ? "deleted" : "running", host: "host-fixture.internal", ready: true, image: { daemon_version: "0.9.1" }, size: fixture.recordedSize ?? createdSize } });
+    return json({ ok: true, value: { id: MACHINE, status: deleted ? "deleted" : "running", host: "host-fixture.internal", ready: true, image: { daemon_version: "0.9.1" }, size: (agentSent ? fixture.grownSize : undefined) ?? fixture.recordedSize ?? createdSize } });
   }
   if (op === "cloud.machine.connect_info") return json({ ok: true, value: { host: "h", state: "running", epoch: 1 } });
   if (op === "cloud.machine.delete") { log("delete"); deleted = true; return json({ ok: true, value: {} }); }
@@ -170,6 +206,8 @@ process.exit(await main(${JSON.stringify(args)}));
         PATH: process.env.PATH,
         CMUX_DOGFOOD_STACK_EMAIL: "fixture@example.invalid",
         CMUX_DOGFOOD_STACK_PASSWORD: "fixture-password",
+        // The fake has no platform spans to wait for: the journey's 5 s send-trace settle would eat bun's 5 s test budget.
+        CMUX_JOURNEY_SEND_TRACE_SETTLE_MS: "0",
         ...(fixture.login ? { CLAUDE_CODE_OAUTH_TOKEN: fixture.login } : {}),
         ...(fixture.github?.sandbox ? { CMUX_JOURNEY_GITHUB_REPO: fixture.github.sandbox } : {}),
       },

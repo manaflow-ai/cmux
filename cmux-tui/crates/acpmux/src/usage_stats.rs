@@ -116,6 +116,10 @@ pub struct Source {
     pub argv: Option<Vec<String>>,
     /// The env its harness starts with (profile, preset, chat store, the chat's own).
     pub env: BTreeMap<String, String>,
+    /// No turn ran on this chat here and it carries no conversation from elsewhere (not
+    /// adopted, watched, resumed or forked): its harness has written no transcript yet, so
+    /// none found means it spent nothing, not that it went unmeasured.
+    pub unprompted: bool,
 }
 
 impl Source {
@@ -138,6 +142,7 @@ impl Source {
 struct Bucket {
     tokens: u64,
     by_model: BTreeMap<String, u64>,
+    cache_read_by_model: BTreeMap<String, u64>,
     cost_usd: f64,
     priced: bool,
     compactions: u64,
@@ -172,18 +177,18 @@ struct Tail {
     /// or when a first read began mid-file at a line with no time.
     covered_from: Option<u64>,
     /// The newest time (unix ms) of a record that should have counted but could not be read
-    /// (not JSON, no time, no token counts, longer than a read step): the day's counts are
-    /// unknown until it is older than the day.
+    /// (not JSON, no time, no token counts, longer than a read step): a count whose window
+    /// holds it is unknown until the window starts after it.
     lost_at: Option<u64>,
     /// The read stopped inside a line longer than a read step: the next drops the rest of it.
     in_long_line: bool,
 }
 
 impl Tail {
-    /// Whether what was read covers the day before `now`, with nothing in it lost.
-    fn covers_day(&self, now: u64) -> bool {
-        self.covered_from.is_some_and(|from| from == 0 || from.saturating_add(DAY_MS) <= now)
-            && self.lost_at.is_none_or(|at| at.saturating_add(DAY_MS) <= now)
+    /// Since when (unix ms) what was read covers the file with nothing lost: 0 from its start;
+    /// None before a read. A window that starts at or after it is known in full.
+    fn covered_since(&self) -> Option<u64> {
+        self.covered_from.map(|from| from.max(self.lost_at.unwrap_or(0)))
     }
 
     /// A record that should have counted could not be read: `at` is its time, else now.
@@ -230,21 +235,35 @@ pub struct Tracker {
     context_window: Option<u64>,
     /// The newest call older than the window a read passed over, parsed at the read's end.
     old_context: Option<Vec<u8>>,
-    /// The last refresh read every file to its end, covering the whole day: else the counts are
-    /// lower than the truth, so they read as unknown.
-    complete: bool,
+    /// Since when (unix ms) the last refresh's reads cover every file, each read to its end:
+    /// None when one was not. A count whose window starts before it is lower than the truth,
+    /// so it reads as unknown; the previous UTC hour needs only that hour covered, not the day.
+    covered_since: Option<u64>,
+    /// When the chat's transcript was last written, while only its compressed copy is found
+    /// (`FILE.jsonl.zst`): leo-workspace `tools/transcript_hygiene.py` compresses a transcript in
+    /// place, keeping its mtime, only once its session is closed and the file is a day old or more.
+    /// No call was made since, so the counts are known, and zero, from then on. Before this, such
+    /// a closed chat had no stats at all and its machine's spend read as unmetered (2026-11-27).
+    archived_since: Option<u64>,
     /// The most a first read takes and the most one refresh reads, per file (tests set them).
     limits: Option<(u64, u64)>,
 }
 
 impl Tracker {
     /// Reads what the chat's harness appended since the last refresh and returns the stats as
-    /// of `now`; None while its transcript is not found.
+    /// of `now`; None while its transcript is not found, plain or compressed.
     pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> Option<UsageStats> {
         if self.main.is_none() && now >= self.look_again_at {
-            match locate(source) {
-                Some(path) => self.main = Some(Tail { path, ..Tail::default() }),
-                None => self.look_again_at = now.saturating_add(LOOK_AGAIN_MS),
+            match locate(source, ".jsonl") {
+                Some(path) => {
+                    self.main = Some(Tail { path, ..Tail::default() });
+                    self.archived_since = None;
+                }
+                None => {
+                    self.look_again_at = now.saturating_add(LOOK_AGAIN_MS);
+                    self.archived_since =
+                        locate(source, ".jsonl.zst").and_then(|p| modified_ms(&p));
+                }
             }
         }
         let codex = source.family == "codex";
@@ -257,12 +276,12 @@ impl Tracker {
                     self.claude_line(line, tail, now, true, models);
                 }
             });
-            self.complete = read && tail.covers_day(now);
+            self.covered_since = tail.covered_since().filter(|_| read);
             if !codex {
                 self.settle_context(&mut tail, now, models);
                 let subagents =
                     self.claude_subagents(&tail.path, &source.agent_session_id, now, models);
-                self.complete &= subagents;
+                self.covered_since = later(self.covered_since, subagents);
             }
             self.main = Some(tail);
         }
@@ -270,17 +289,26 @@ impl Tracker {
         self.minutes = self.minutes.split_off(&cutoff.saturating_sub(cutoff % MINUTE_MS));
         let window =
             self.context_window.or_else(|| self.model.as_deref().and_then(|m| models.window(m)));
-        self.main.as_ref()?;
+        if self.main.is_none() {
+            self.covered_since = Some(self.archived_since?);
+        }
         Some(self.stats(source, now, window))
     }
 
     fn stats(&self, source: &Source, now: u64, window: Option<u64>) -> UsageStats {
-        let known = |n: u64| self.complete.then_some(n);
+        let covers = |since: u64| self.covered_since.is_some_and(|from| from <= since);
+        let complete = covers(now.saturating_sub(DAY_MS));
+        let known = |n: u64| complete.then_some(n);
+        let rolling_from = now.saturating_sub(HOUR_MS);
+        let hour_known = covers(rolling_from.saturating_sub(rolling_from % MINUTE_MS));
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
         let mut hourly = BTreeMap::<String, u64>::new();
+        let mut cache_read_hourly = BTreeMap::<String, u64>::new();
         let mut previous_hour = BTreeMap::<String, u64>::new();
+        let mut cache_read_previous_hour = BTreeMap::<String, u64>::new();
         let hour_start = now - now % HOUR_MS;
         let previous = hour_start.saturating_sub(HOUR_MS)..hour_start;
+        let previous_known = covers(previous.start);
         for (minute, b) in &self.minutes {
             day.tokens = day.tokens.saturating_add(b.tokens);
             day.cost_usd += b.cost_usd;
@@ -295,12 +323,17 @@ impl Tracker {
             if rolling {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
             }
-            for (included, totals) in
-                [(rolling, &mut hourly), (previous.contains(minute), &mut previous_hour)]
-            {
+            for (included, totals, cache_read_totals) in [
+                (rolling, &mut hourly, &mut cache_read_hourly),
+                (previous.contains(minute), &mut previous_hour, &mut cache_read_previous_hour),
+            ] {
                 if included {
                     for (model, tokens) in &b.by_model {
                         let total = totals.entry(model.clone()).or_default();
+                        *total = total.saturating_add(*tokens);
+                    }
+                    for (model, tokens) in &b.cache_read_by_model {
+                        let total = cache_read_totals.entry(model.clone()).or_default();
                         *total = total.saturating_add(*tokens);
                     }
                 }
@@ -308,7 +341,7 @@ impl Tracker {
         }
         let (autocompact, autocompact_cap) = autocompact(source, window);
         // Codex's children are not in its rollout: the hub fills them in (`hub/usage_view.rs`).
-        let live = (source.family == "claude" && self.complete)
+        let live = (source.family == "claude" && complete)
             .then(|| self.subagents.values().filter(|s| s.live).count() as u64);
         UsageStats {
             launcher: source.argv.as_deref().and_then(launcher),
@@ -318,17 +351,19 @@ impl Tracker {
             context_window: window,
             compactions24h: known(day.compactions),
             subagents_live: live,
-            subagents1h: known(hour_spawns),
+            subagents1h: hour_known.then_some(hour_spawns),
             subagents24h: known(day.spawns),
             tokens24h: known(day.tokens),
-            tokens_by_model1h: self.complete.then_some(hourly),
-            tokens_by_model_previous_utc_hour: self.complete.then_some(previous_hour),
+            tokens_by_model1h: hour_known.then_some(hourly),
+            cache_read_by_model1h: hour_known.then_some(cache_read_hourly),
+            tokens_by_model_previous_utc_hour: previous_known.then_some(previous_hour),
+            cache_read_by_model_previous_utc_hour: previous_known
+                .then_some(cache_read_previous_hour),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
-            cost_usd24h: (self.complete && priced)
-                .then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
+            cost_usd24h: (complete && priced).then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
             calls24h: known(day.calls),
-            cache_read_share24h: cache_read_share(&day).filter(|_| self.complete),
-            cost_per_call_usd24h: (self.complete && day.priced_calls > 0)
+            cache_read_share24h: cache_read_share(&day).filter(|_| complete),
+            cost_per_call_usd24h: (complete && day.priced_calls > 0)
                 .then(|| (day.cost_usd / day.priced_calls as f64 * 1e8).round() / 1e8),
             updated_at: now,
         }
@@ -434,11 +469,11 @@ impl Tracker {
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens = b.tokens.saturating_add(t.total);
-                    let total = b
-                        .by_model
-                        .entry(if model.is_empty() { "unknown".into() } else { model })
-                        .or_default();
+                    let model_key = if model.is_empty() { "unknown".into() } else { model };
+                    let total = b.by_model.entry(model_key.clone()).or_default();
                     *total = total.saturating_add(t.total);
+                    let cache_read = b.cache_read_by_model.entry(model_key).or_default();
+                    *cache_read = cache_read.saturating_add(t.cache_read);
                     b.calls = b.calls.saturating_add(1);
                     b.prompt_read = b.prompt_read.saturating_add(t.cache_read);
                     b.prompt_rest =
@@ -455,20 +490,27 @@ impl Tracker {
 
     /// Claude Code's subagents: one transcript per spawn beside the chat's
     /// (`<sid>/subagents/agent-*.jsonl`); its spend is the chat's too.
-    /// Whether every subagent's transcript was read to its end, covering the day.
-    fn claude_subagents(&mut self, main: &Path, sid: &str, now: u64, models: &Models) -> bool {
-        let Some(dir) = main.parent().map(|d| d.join(sid).join("subagents")) else { return false };
+    /// Since when every subagent's transcript read covers it, each read to its end (0 with none;
+    /// None when one was not read whole).
+    fn claude_subagents(
+        &mut self,
+        main: &Path,
+        sid: &str,
+        now: u64,
+        models: &Models,
+    ) -> Option<u64> {
+        let dir = main.parent().map(|d| d.join(sid).join("subagents"))?;
         let entries = match std::fs::read_dir(&dir) {
             Ok(entries) => entries,
             // A chat that never started one.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return true,
-            Err(_) => return false,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(0),
+            Err(_) => return None,
         };
         let limits = self.limits.unwrap_or((FIRST_READ_BYTES, READ_STEP_BYTES));
-        let mut complete = true;
+        let mut covered = Some(0);
         for entry in entries {
             let Ok(entry) = entry else {
-                complete = false;
+                covered = None;
                 continue;
             };
             let path = entry.path();
@@ -510,14 +552,19 @@ impl Tracker {
                     b.spawns = b.spawns.saturating_add(1);
                 }
             }
-            complete &= read && tail.covers_day(now);
+            covered = later(covered, tail.covered_since().filter(|_| read));
             agent.tail = tail;
             agent.live = !finished && modified.saturating_add(LIVE_QUIET_MS) > now;
             agent.done = finished && read;
             self.subagents.insert(path, agent);
         }
-        complete
+        covered
     }
+}
+
+/// Two reads' coverage together: the later start, or None when either is unknown.
+fn later(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    Some(a?.max(b?))
 }
 
 /// Which records a transcript has, and the parse that reads them.
@@ -802,8 +849,8 @@ fn read_new(
 
 /// The chat's transcript: Claude's under its project folder (else any project
 /// folder, for a chat whose cwd moved), Codex's rollout under its creation day
-/// (else any day).
-fn locate(source: &Source) -> Option<PathBuf> {
+/// (else any day). Its file name ends in `ext`: `.jsonl`, or `.jsonl.zst` once compressed.
+fn locate(source: &Source, ext: &str) -> Option<PathBuf> {
     let sid = source.agent_session_id.as_str();
     if sid.is_empty() || sid.contains(['/', '\\']) {
         return None;
@@ -812,7 +859,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
     match source.family.as_str() {
         "claude" => {
             let projects = home.join("projects");
-            let name = format!("{sid}.jsonl");
+            let name = format!("{sid}{ext}");
             let direct = projects.join(claude_project_dir(&source.cwd)).join(&name);
             if direct.is_file() {
                 return Some(direct);
@@ -822,7 +869,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
         }
         "codex" => {
             let sessions = home.join("sessions");
-            let suffix = format!("-{sid}.jsonl");
+            let suffix = format!("-{sid}{ext}");
             let day = source.created_at / DAY_MS;
             let near = [day.saturating_sub(1), day, day.saturating_add(1)].map(|d| {
                 let (y, m, d) = civil_from_days(d);
@@ -869,7 +916,8 @@ pub fn launcher(argv: &[String]) -> Option<String> {
 /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in its env, and no settings file (its own settings.json, a
 /// project's `.claude/settings.json` or `settings.local.json` in its folder or above) that names
 /// `autoCompactWindow` or either key in its `env`. acpmux then starts it with its own
-/// window (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). False when its argv is not this
+/// window when the settings name one (`harness_limits::claude_autocompact_window`). False when
+/// its argv is not this
 /// daemon's, or settings.json cannot be read.
 pub fn claude_autocompact_unset(source: &Source) -> bool {
     const KEYS: [&str; 2] = ["CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"];
@@ -1070,7 +1118,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 }
 
 /// The proleptic Gregorian date of a day count since 1970-01-01.
-fn civil_from_days(days: u64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(days: u64) -> (i64, u32, u32) {
     // A day of a unix-ms time (at most ~2.1e11) always fits an i64.
     crate::clock_text::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
 }

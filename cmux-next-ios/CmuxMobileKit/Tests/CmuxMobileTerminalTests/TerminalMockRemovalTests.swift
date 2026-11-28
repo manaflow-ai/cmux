@@ -13,8 +13,8 @@ private final class LiveStub: TerminalSession {
     func stop() {}
 }
 
-/// A live signed-in session never shows the scripted mock terminal: the mock
-/// is DEBUG-only and needs the explicit mock data setting.
+/// A live signed-in session never shows the scripted terminal: it needs demo
+/// content (DEBUG mock mode, or the server-flagged App Review demo account).
 @MainActor
 @Suite struct TerminalSessionChoiceTests {
     @Test func liveSessionAlwaysWins() {
@@ -39,22 +39,65 @@ private final class LiveStub: TerminalSession {
     @Test func liveTabWithoutSessionIsConnectingNotMock() {
         let chosen = TerminalSessionChoice.session(live: nil, mockDataEnabled: false, macName: "Aziz's Mac Studio", programName: "zsh")
         #expect(chosen is PendingTerminalSession)
-        #if DEBUG
         #expect(!(chosen is MockTerminalSession))
-        #endif
         #expect(chosen.connectionState == .connecting(mac: "Aziz's Mac Studio"))
-        #expect(chosen.connectionState.label == "Connecting to Aziz's Mac Studio…")
+        // Connecting says nothing: the pill keeps the program name (#53778, Leo 2026-11-22).
+        #expect(chosen.connectionState.quietLine == nil)
         #expect(chosen.programName == "zsh")
     }
 
-    #if DEBUG
-    @Test func mockOnlyWithTheExplicitSetting() {
-        #expect(TerminalSessionChoice.mockCompiledIn)
+    /// Demo content (DEBUG mock mode, or the App Review demo account in any build)
+    /// gets the scripted shell and its sample files; nothing else does.
+    @Test func demoShellOnlyWithDemoContent() {
         let chosen = TerminalSessionChoice.session(live: nil, mockDataEnabled: true, macName: nil, programName: "zsh")
         #expect(chosen is MockTerminalSession)
         #expect(TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: true) is MockArtifactSource)
     }
-    #endif
+
+    /// The review demo's shell answers typed commands like a Mac's: no mock
+    /// labels, a prompt, and output for a command it knows.
+    @Test func demoShellAnswersACommand() async throws {
+        let session = MockTerminalSession(playsIntro: false)
+        var output = ""
+        session.start { event in
+            if case .output(let data) = event { output += String(decoding: data, as: UTF8.self) }
+        }
+        defer { session.stop() }
+        try await Self.waitUntil(5) { output.contains("❯") }
+        try #require(output.contains("❯"), "the demo shell never showed its prompt")
+        session.send(Data("echo hello from the demo\r".utf8))
+        // Twice: the typed line the shell echoes, then echo's own output.
+        try await Self.waitUntil(5) { output.components(separatedBy: "hello from the demo").count > 2 }
+        #expect(output.components(separatedBy: "hello from the demo").count > 2)
+        session.send(Data([0x04]))
+        try await Self.waitUntil(5) { output.contains("exit is disabled") }
+        #expect(output.contains("exit is disabled in this session"))
+        #expect(!output.contains("(mock)"))
+    }
+
+    /// The review demo's terminal opens on its last commands at once and takes the
+    /// reviewer's typing right away (a typed-out intro dropped keys for seconds).
+    @Test func reviewDemoShellIsReadyAtOnce() async throws {
+        let chosen = TerminalSessionChoice.session(live: nil, mockDataEnabled: true, reviewDemo: true, macName: nil, programName: "zsh")
+        let session = try #require(chosen as? MockTerminalSession)
+        var output = ""
+        session.start { event in
+            if case .output(let data) = event { output += String(decoding: data, as: UTF8.self) }
+        }
+        defer { session.stop() }
+        try await Self.waitUntil(1) { output.contains("Finished") }
+        #expect(output.contains("Finished"), "the intro's build finished within a second")
+        session.send(Data("echo ready\r".utf8))
+        try await Self.waitUntil(2) { output.components(separatedBy: "ready").count > 2 }
+        #expect(output.components(separatedBy: "ready").count > 2, "the first typed command ran")
+    }
+
+    static func waitUntil(_ seconds: Double, _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(seconds * 1000)))
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10)) // test: polls the demo shell's output until a deadline
+        }
+    }
 
     @Test func filesAndLinksWithoutAMacSayNotConnected() async {
         let source = TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: false)
@@ -70,7 +113,7 @@ private final class LiveStub: TerminalSession {
         session.send(Data("ls\r".utf8))
         session.resize(columns: 80, rows: 24)
         #expect(events == [.connection(.connecting(mac: nil))])
-        #expect(session.connectionState.label == "Connecting…")
+        #expect(session.connectionState.quietLine == nil, "connecting says nothing (#53778)")
     }
 }
 
@@ -83,7 +126,7 @@ private final class LiveStub: TerminalSession {
         // Bytes from the Mac mean attached, even without a `.connection` event.
         #expect(connecting.applying(.output(Data("$ ".utf8))) == .attached)
         #expect(TerminalConnectionState.attached.applying(.connection(.reattaching(mac: "mini"))) == .reattaching(mac: "mini"))
-        #expect(TerminalConnectionState.reattaching(mac: "mini").label == "Reattaching…")
-        #expect(TerminalConnectionState.attached.label == nil)
+        #expect(TerminalConnectionState.reattaching(mac: "mini").quietLine == nil, "a reattach says nothing (Leo 2026-11-22)")
+        #expect(TerminalConnectionState.attached.quietLine == nil)
     }
 }

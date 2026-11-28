@@ -191,6 +191,19 @@ class RustWorkspacesTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("solo needs exactly one of", result.stdout)
 
+    def test_a_key_a_merge_left_twice_fails_check_and_plan_naming_file_and_line(self) -> None:
+        # cmux#58656: a merge left `url.workspace = true` twice in one Cargo.toml; cargo said
+        # "duplicate key" and these steps died in a traceback. Every bad manifest gets one line.
+        self.write("ws/crates/a/Cargo.toml", '[package]\nname = "a"\n\n[dependencies]\nurl.workspace = true\n'
+                   'serde.workspace = true\nurl.workspace = true\n')
+        self.change("ws/crates/c/Cargo.toml", '[package]\nname = "c"\nname = "c"\n')
+        for args in (("check",), ("plan", "--base", self.base)):
+            result = self.script(*args)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertIn("::error file=ws/crates/a/Cargo.toml,line=7,title=Cargo.toml does not parse::", result.stdout)
+            self.assertIn("::error file=ws/crates/c/Cargo.toml,line=3,", result.stdout)
+
     # plan
 
     def test_a_change_plans_every_workspace_using_it_by_path(self) -> None:
@@ -248,6 +261,29 @@ class RustWorkspacesTests(unittest.TestCase):
                 self.base = self.head()
                 self.change(path, "{\"v\": 2}\n")
                 self.assertEqual(self.planned(), planned)
+
+    def test_reads_only_plans_a_workspace_only_for_a_file_it_reads_from_elsewhere(self) -> None:
+        # A pull request into feat-cmux-next skips this workflow's jobs (affected-jobs.json pull_request_skip), so
+        # #53827 changed DaemonLanePolicy.swift, which a cmux-next-ios/rust test include_str!s, and landed with that
+        # test red. --reads-only is what such a pull request still runs: the readers of a file it changes.
+        cases = {
+            "schemas/s.json": ["solo"],              # include_str! relative to the source file
+            "proto/v1_y.json": ["solo"],             # a concat! prefix: its directory
+            "fixtures/f.json": ["ws/crates/own"],    # CARGO_MANIFEST_DIR joined with a path
+            "tokens/t.json": ["term", "solo/tool"],  # a "../" const naming a tracked file; include_str!
+            "docs/vws-protocol.json": [],            # an entry's inputs: the push runs them
+            "solo/src/main.rs": [],                  # a workspace's own file: the push runs it
+            "ws/crates/a/src/lib.rs": [],            # a path dependency's file: the push runs it
+            ".github/rust-workspaces.toml": [],      # the planner's own files: its own job tests them
+        }
+        for path, planned in cases.items():
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, "// changed\n" if path.endswith(".rs") else "{\"v\": 2}\n"
+                            if path.endswith(".json") else LIST + "\n# changed\n")
+                result = self.script("plan", "--base", self.base, "--reads-only")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([job["root"] for job in json.loads(result.stdout)], planned)
 
     def test_a_dependencys_own_tests_reads_are_not_its_users_inputs(self) -> None:
         # cmux-action-catalog's tests join CARGO_MANIFEST_DIR with "../../.." (the repository root) and then a path:
@@ -454,6 +490,35 @@ class RustWorkspacesTests(unittest.TestCase):
         result = self.script("run", "ws")
         self.assertEqual(result.returncode, 2)
         self.assertEqual(self.calls(), [])
+
+
+class ShortTmpdirTests(unittest.TestCase):
+    """/tmp on a shared pool VM vanished for a moment under a neighbour's cleanup: mkdtemp raised
+    FileNotFoundError and the run crashed with a Traceback (the 11-26/27 false reds)."""
+
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("rust_workspaces_under_test", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_scratch_directory_that_cannot_be_made_at_first_is_retried(self) -> None:
+        from unittest import mock
+        module = self.load()
+        real, calls = tempfile.mkdtemp, []
+
+        def flaky(*args, **kwargs):
+            calls.append(kwargs.get("dir"))
+            if len(calls) <= 2:
+                raise FileNotFoundError(2, "No such file or directory", "/tmp/rw.x")
+            return real(*args, **kwargs)
+
+        with mock.patch.object(module.tempfile, "mkdtemp", flaky), mock.patch.object(module.time, "sleep"):
+            with module.short_tmpdir() as path:
+                self.assertTrue(Path(path).is_dir())
+                self.assertEqual(calls[:2], ["/tmp", "/dev/shm"])
+        self.assertFalse(Path(path).exists())
 
 
 if __name__ == "__main__":

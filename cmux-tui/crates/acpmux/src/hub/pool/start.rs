@@ -35,6 +35,42 @@ pub(in crate::hub) fn held_reports_full_access(
     reports.of_answer(new)
 }
 
+fn pooled_host_spec(
+    session_id: &str,
+    draft: &SessionMeta,
+    profile: &HarnessProfile,
+    std_cmd: &std::process::Command,
+    env: Vec<(String, String)>,
+    translator: Option<agent_host::TranslatorSpec>,
+) -> agent_host::SpawnSpec {
+    let dir = pool_dir();
+    let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
+    agent_host::SpawnSpec {
+        session_id: session_id.to_owned(),
+        program: std_cmd.get_program().to_string_lossy().into_owned(),
+        args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
+        env,
+        cwd: draft.cwd.clone(),
+        codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
+        translator,
+        socket: agent_host::socket_path(&dir, session_id),
+        hosts_dir: dir,
+        buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
+        router_owner_fifo: crate::daemon::router_owner_path(),
+        // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
+        cwd_pin: None,
+        orphan_exit: None,
+        prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
+        holder: None,
+        copilot_scratch: None,
+        local_chatgpt_expiry: None,
+        local_kimi_expiry: profile
+            .env
+            .get(crate::subscriptions::LOCAL_KIMI_EXPIRY)
+            .and_then(|expiry| expiry.parse().ok()),
+    }
+}
+
 impl Hub {
     /// Start one hidden session for `spec` under a fresh reserved id: its
     /// host in the pool directory, `initialize`, then the harness session.
@@ -85,6 +121,8 @@ impl Hub {
                     ),
                     recap: current_option(draft, crate::claude_stdio::RECAP_OPTION),
                     claude_session_id: Some(fresh_id),
+                    stop_condition: false,
+                    resumes_cut_turn: false,
                 }),
             )
         } else {
@@ -96,7 +134,7 @@ impl Hub {
             draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
             "machine environment changed; login env refresh failed"
         );
-        let cmd = crate::agent::harness_command_ready(
+        let (cmd, scratch) = crate::agent::harness_command_ready(
             &draft.harness,
             profile,
             &draft.cwd,
@@ -104,9 +142,9 @@ impl Hub {
             Some((&session_id, &name)),
         )
         .await?;
+        anyhow::ensure!(scratch.is_none(), "GitHub Copilot needs a dedicated launch");
         let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
-        let dir = pool_dir();
         let env = if draft.remote_origin {
             crate::agent::command_env_cleared(&cmd)
         } else {
@@ -119,24 +157,7 @@ impl Hub {
             &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
-        let mut host_spec = agent_host::SpawnSpec {
-            session_id: session_id.clone(),
-            program: std_cmd.get_program().to_string_lossy().into_owned(),
-            args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env,
-            cwd: draft.cwd.clone(),
-            codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
-            translator,
-            socket: agent_host::socket_path(&dir, &session_id),
-            hosts_dir: dir,
-            buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
-            router_owner_fifo: crate::daemon::router_owner_path(),
-            // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
-            cwd_pin: None,
-            orphan_exit: None,
-            prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
-            holder: None,
-        };
+        let mut host_spec = pooled_host_spec(&session_id, draft, profile, std_cmd, env, translator);
         // The agent holder (`agent_host/custody.rs`), as for a session's own host.
         #[cfg(unix)]
         if crate::agent_host::custody::holder_on()
@@ -238,7 +259,14 @@ impl Hub {
             }
         };
         let started = async {
-            let init = child.request(method::INITIALIZE, initialize_params()).await?;
+            let init = crate::hub::acp_version::initialize(&child, initialize_params()).await?;
+            // An agent signed in by its key says so first (`acp_key_auth.rs`).
+            let family = crate::config::derive_family(&draft.harness, &spec.spawn);
+            if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {
+                crate::acp_key_auth::launch_var(&spec.spawn.env, &family, k)
+            }) {
+                child.request(method::AUTHENTICATE, params).await?;
+            }
             let new_result = if claude {
                 None
             } else {
@@ -253,6 +281,7 @@ impl Hub {
                                 None,
                                 &child,
                                 &spec.answer,
+                                &init,
                             ),
                         )
                         .await?,
@@ -436,5 +465,35 @@ impl Hub {
         for p in entries {
             rt.spawn(end_pooled(p));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pooled_kimi_host_spec_carries_expiry_outside_the_harness_environment() {
+        let profile: HarnessProfile = serde_json::from_value(json!({
+            "argv": ["opencode", "acp"],
+            "env": {"ACPMUX_LOCAL_KIMI_EXPIRY": "123456"},
+        }))
+        .unwrap();
+        let draft = crate::hub::resolve::draft_meta(crate::hub::resolve::Draft {
+            id: "kimi-fixture".into(),
+            agent: "opencode",
+            profile: &profile,
+            family: "opencode",
+            preset: None,
+            model_request: None,
+            cwd: PathBuf::from("/work"),
+            agent_session_id: None,
+            policy: None,
+            remote: false,
+        });
+        let command = std::process::Command::new("opencode");
+        let spec = pooled_host_spec(&draft.id, &draft, &profile, &command, Vec::new(), None);
+        assert_eq!(spec.local_kimi_expiry, Some(123456));
+        assert!(spec.env.is_empty());
     }
 }

@@ -29,6 +29,9 @@ const paths: Record<string, ReactNode> = {
   link: (
     <path d="M6.9 9.1a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9M9.1 6.9a2.6 2.6 0 0 0-3.7 0L3.2 9.1a2.6 2.6 0 0 0 3.7 3.7l.9-.9" />
   ),
+  "link.slash": (
+    <path d="M9 4.6l1.4-1.4a2.6 2.6 0 0 1 3.7 3.7l-1.4 1.4M7 11.4l-1.4 1.4a2.6 2.6 0 0 1-3.7-3.7l1.4-1.4M5 1.8v1.8M1.8 5h1.8M11 14.2v-1.8M14.2 11h-1.8" />
+  ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
   // Settings > Customize: two switches, one on, one off (SF Symbol switch.2).
   "switch.2": (
@@ -210,6 +213,8 @@ const paths: Record<string, ReactNode> = {
   ),
   chevron: <path d="m4.5 6.2 3.5 3.6 3.5-3.6" />,
   // A pop-up button's caret: a small down chevron, centered on the box (Settings menus, Lucas 2026-11-12).
+  "chevron.backward": <path d="m9.5 4-4 4 4 4" />,
+  "chevron.forward": <path d="m6.5 4 4 4-4 4" />,
   "chevron.popup": <path d="m4.75 6.4 3.25 3.25 3.25-3.25" />,
   pawprint: (
     <>
@@ -226,6 +231,9 @@ const paths: Record<string, ReactNode> = {
       <path d="m11.3 2.7 2 2-5.6 5.6-2.4.4.4-2.4Z" />
     </>
   ),
+  checkmark: <path d="m3.5 8 3 3 6-6" />,
+  minus: <path d="M4 8h8" />,
+  "arrow.up.right": <path d="M5 11l6-6M5 5h6v6" />,
   xmark: <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />,
   "contextualmenu.and.cursorarrow": (
     <>
@@ -256,6 +264,8 @@ const paths: Record<string, ReactNode> = {
       <path d="M6.4 1.8V4M9.6 1.8V4M6.4 12v2.2M9.6 12v2.2M1.8 6.4H4M1.8 9.6H4M12 6.4h2.2M12 9.6h2.2" />
     </>
   ),
+  // Settings > Automations: a lightning bolt (an event sets an agent off).
+  bolt: <path d="M9 1.8 3.4 9.2h4.2L7 14.2l5.6-7.4H8.4L9 1.8Z" />,
   // The overflow menu of a row (Settings > Models connections).
   ellipsis: <path d="M3.6 8h.01M8 8h.01M12.4 8h.01" />,
   plus: <path d="M8 3v10M3 8h10" />,

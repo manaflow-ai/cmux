@@ -20,6 +20,16 @@ package nonisolated enum FileGitState: String, Equatable, Sendable {
         }
     }
 
+    /// The `git status` arguments that read the states of the repository whose top level is `top`. The home
+    /// folder's own repository (a dotfiles `~/.git`) lists no untracked file: its untracked files are the whole
+    /// home folder, and listing them reads the Photos library and Desktop, each a privacy prompt in cmux's name
+    /// (LAUNCH-NO-TCC-PROMPTS; cmux-git `home.rs`). Its tracked changes still show.
+    package static func statusArguments(top: String, home: String = NSHomeDirectory()) -> [String] {
+        let resolved = { (path: String) in URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath().path }
+        let untracked = resolved(top) == resolved(home) ? "--untracked-files=no" : "--untracked-files=all"
+        return ["status", "--porcelain=v1", "-z", untracked]
+    }
+
     /// Each changed path (relative to the repository's top) and its state. A rename's second
     /// field (its old path) is skipped; ignored items (`!!`) are left out.
     package static func parse(_ porcelain: String) -> [String: FileGitState] {

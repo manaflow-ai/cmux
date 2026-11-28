@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import Network
 
@@ -54,6 +55,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// `{prompt, harness?, model?, maxTokens?, timeoutMs?}` answers `{text, harness, model}`. The
     /// unix socket only; the harness CLI runs headless with no tools, MCP, hooks or session.
     case complete = "_acpmux/complete"
+    case terminalTranscriptPage = "_acpmux/chat_transcript_page"
+    case terminalTranscriptFind = "_acpmux/chat_transcript_find"
     /// One plain sentence for one diff hunk, kept by its content hash (acpmux `hunk_summary.rs`):
     /// `{path, patch, sessionId?}` answers `{text, key, cached}`; `{check: true, sessionId?}`
     /// answers `{ready, harness}` and runs nothing. The unix socket only.
@@ -96,6 +99,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case routeAdd = "_acpmux/route/add"
     /// `{id}`: removes a route; acpmux keeps a backup of its file.
     case routeRemove = "_acpmux/route/remove"
+    /// Lists a provider's models with the draft or saved key on the proved-person socket.
+    case routeTest = "_acpmux/route/test"
     /// `{scope, routeId?}`: the route new chats of a scope (`family:<family>`) run on; none is the CLI login.
     case routeDefaultSet = "_acpmux/route/default.set"
     /// Settings > Models (cmux-tui/docs/model-connections.md): `{}` answers `ConnectionsState`
@@ -111,12 +116,46 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case chatgptWait = "_acpmux/connections/chatgpt.wait"
     /// `{attempt}`: ends a sign-in attempt.
     case chatgptCancel = "_acpmux/connections/chatgpt.cancel"
+    /// Requests a ChatGPT device code over the proved-person socket.
+    case chatgptDeviceBegin = "_acpmux/connections/chatgpt.device.begin"
+    /// Waits for the device attempt on the proved-person socket.
+    case chatgptDeviceWait = "_acpmux/connections/chatgpt.device.wait"
+    /// Cancels the device attempt on the proved-person socket.
+    case chatgptDeviceCancel = "_acpmux/connections/chatgpt.device.cancel"
+    /// Requests a subscription device code over the proved-person socket.
+    case subscriptionDeviceBegin = "_acpmux/connections/subscription.begin"
+    /// Waits for the subscription device attempt.
+    case subscriptionDeviceWait = "_acpmux/connections/subscription.wait"
+    /// Cancels the subscription device attempt.
+    case subscriptionDeviceCancel = "_acpmux/connections/subscription.cancel"
     /// `{id}`: removes a connection (a ChatGPT plan revokes its refresh token first).
     case connectionsRemove = "_acpmux/connections/remove"
     /// `{provider, secret: "keychain:ITEM", label?}`: an API-key connection; never the key itself.
     case connectionsKeyAdd = "_acpmux/connections/key.add"
+    /// `{provider, secret: "keychain:ITEM"}`: the key's shape, then one read of the provider (8 s), answering
+    /// `{result: ok|bad_shape|bad_key|unreachable, save, message}`; never the key itself.
+    case connectionsKeyCheck = "_acpmux/connections/key.check"
+    /// `{account, label, secret}`: acpmux writes the key into the login Keychain itself (an item that trusts
+    /// acpmux, not `/usr/bin/security`), answering `{secret: "keychain:cmux-model-key/ACCOUNT"}`.
+    case connectionsSecretStore = "_acpmux/connections/secret.store"
+    /// `{account}`: removes a `cmux-model-key` item (a refused add's rollback, a replaced key).
+    case connectionsSecretDelete = "_acpmux/connections/secret.delete"
     /// A Claude setup token's `keychain:ITEM` reference (`{secret, label?}`) as a `claude-token` connection.
     case claudeTokenAdd = "_acpmux/connections/claude_token.add"
+    /// `{label?}` answers `{attempt, url}`: acpmux runs `claude setup-token` in its own PTY (never a
+    /// visible terminal) and answers its sign-in page; the token it prints is captured, not shown.
+    case claudeTokenBegin = "_acpmux/connections/claude_token.begin"
+    /// `{attempt}`: a long poll (up to 25 s) answering `{status, connection, error}`, as chatgpt.wait.
+    case claudeTokenWait = "_acpmux/connections/claude_token.wait"
+    /// `{attempt, code}`: types a code the sign-in page showed into the setup-token run.
+    case claudeTokenCode = "_acpmux/connections/claude_token.code"
+    /// `{attempt}`: ends a setup-token run.
+    case claudeTokenCancel = "_acpmux/connections/claude_token.cancel"
+    case claudeLoginStart = "_acpmux/agent_login/start"
+    case claudeLoginFinish = "_acpmux/agent_login/finish"
+    case claudeLoginCancel = "_acpmux/agent_login/cancel"
+    case claudeLoginStatus = "_acpmux/agent_login/status"
+    case claudeLoginLogout = "_acpmux/agent_login/logout"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -130,13 +169,21 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .registry, .health, .models: .seconds(40)
         // An endpoint add may read its models (10 s), wait on the add lock and the Keychain store (60 s).
         case .add: .seconds(90)
-        case .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
-             .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel: .seconds(10)
-        case .routeAdd, .connectionsKeyAdd, .claudeTokenAdd: .seconds(20)
+        case .terminalTranscriptPage, .terminalTranscriptFind, .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
+             .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel, .chatgptDeviceCancel, .subscriptionDeviceCancel,
+             .claudeTokenCode, .claudeTokenCancel, .claudeLoginCancel, .claudeLoginStatus: .seconds(10)
+        case .routeAdd, .connectionsKeyAdd, .connectionsKeyCheck, .connectionsSecretStore, .connectionsSecretDelete, .claudeTokenAdd: .seconds(20)
+        case .routeTest: .seconds(15)
         // Starts the callback listener; a ChatGPT plan's removal calls the revocation endpoint.
         case .chatgptBegin, .connectionsRemove: .seconds(30)
+        case .claudeLoginStart, .claudeLoginLogout: .seconds(30)
+        case .chatgptDeviceBegin, .subscriptionDeviceBegin: .seconds(45)
+        // The daemon waits up to 30 s for `claude setup-token` to print its sign-in page.
+        case .claudeTokenBegin: .seconds(35)
         // The daemon holds a wait up to 25 s.
-        case .chatgptWait: .seconds(35)
+        case .chatgptWait, .chatgptDeviceWait, .subscriptionDeviceWait, .claudeTokenWait: .seconds(35)
+        // acpmux waits for the CLI to exit or the 15 minute sign-in to expire.
+        case .claudeLoginFinish: .seconds(15 * 60 + 5)
         // The daemon's own limit for one read is 15 s, after a wait for a free read.
         case .accountUsage: .seconds(40)
         // A start waits for the CLI's link (acpmux `agent_login::URL_WAIT`, 20 s); a logout runs the CLI.
@@ -197,23 +244,29 @@ extension AcpmuxEnvironment {
 
     /// Calls `onChange` for each `_acpmux/connections.changed` (Settings > Models: an order, spread,
     /// sign-in or key change by any client), on the same kind of watch connection, with the
-    /// notification's line (its `params` are the whole `ConnectionsState`).
-    public nonisolated func watchConnections(_ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
-        watchNotifications(Self.connectionsChanged, onChange)
+    /// notification's line (its `params` are the whole `ConnectionsState`). `onReady` runs only
+    /// after the daemon acknowledges the watch, so a caller can safely take a fresh snapshot then.
+    public nonisolated func watchConnections(onEnd: @escaping @Sendable () -> Void = {},
+                                              onReady: (@Sendable () -> Void)? = nil,
+                                              _ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
+        watchNotifications(Self.connectionsChanged, onEnd: onEnd, onReady: onReady, onChange)
     }
 
     nonisolated static let harnessesChanged = "_acpmux/harnesses_changed"
     nonisolated static let connectionsChanged = "_acpmux/connections.changed"
 
     /// One watch connection calling `onChange` with each notification line named `method`.
-    private nonisolated func watchNotifications(_ method: String, _ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
+    private nonisolated func watchNotifications(_ method: String, onEnd: @escaping @Sendable () -> Void = {},
+                                                onReady: (@Sendable () -> Void)? = nil,
+                                                _ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
         let socketPath = socketPath
         return Task.detached {
+            defer { onEnd() }
             guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
-            let connection = NWConnection(to: endpoint, using: .tcp)
+            let connection = CmuxEgress.connection(to: endpoint, using: .tcp, site: "CmuxNextAgentPane.AcpmuxEnvironment+Harnesses")
             defer { connection.cancel() }
             await withTaskCancellationHandler {
-                try? await Self.readHarnessChanges(on: connection, method: method, onChange: onChange)
+                try? await Self.readHarnessChanges(on: connection, method: method, onReady: onReady, onChange: onChange)
             } onCancel: {
                 connection.cancel()
             }
@@ -221,6 +274,7 @@ extension AcpmuxEnvironment {
     }
 
     private nonisolated static func readHarnessChanges(on connection: NWConnection, method: String,
+                                                      onReady: (@Sendable () -> Void)?,
                                                       onChange: @escaping @Sendable (Data) -> Void) async throws {
         try await AcpmuxStatusClient.start(connection)
         let initialize: [String: Any] = [
@@ -239,6 +293,7 @@ extension AcpmuxEnvironment {
         }
         try await AcpmuxStatusClient.send(payload, on: connection)
         var buffer = Data()
+        var pendingReady = onReady
         // wakeup-allow: each pass awaits socket data; EOF, an error or cancellation ends it
         while !Task.isCancelled {
             guard let chunk = try await AcpmuxStatusClient.receive(on: connection) else { return }
@@ -246,7 +301,14 @@ extension AcpmuxEnvironment {
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if Self.isNotification(line, method) { onChange(line) }
+                if let ready = pendingReady, let frame = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                   frame["id"] as? Int == 2 {
+                    guard frame["result"] != nil, frame["error"] == nil else { return }
+                    pendingReady = nil
+                    ready()
+                } else if Self.isNotification(line, method) {
+                    onChange(line)
+                }
             }
             // A session event larger than this is not one this reader needs whole.
             if buffer.count > 4 << 20 { buffer.removeAll(keepingCapacity: true) }

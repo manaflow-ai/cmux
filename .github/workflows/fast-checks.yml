@@ -34,6 +34,15 @@ on:
           label that started no job; any other value is ignored
         default: ''
 
+# Base-mode callers reuse the same tested commit across many PRs. Keep one run
+# active and one newest run waiting for each exact check. The command, setup,
+# and directory stay in the key so unrelated checks never replace one another.
+# A running check is allowed to finish. GitHub replaces only an older pending
+# duplicate, preserving one verdict for the tested tree.
+concurrency:
+  group: ${{ format('fast-checks-{0}-{1}-{2}-{3}', inputs.tested_sha || inputs.source_sha, inputs.command, inputs.directory, inputs.setup) }}
+  cancel-in-progress: false
+
 # Same read-only checkout scope as the existing Linux test jobs. No secrets,
 # environment, provider credentials or write token is passed to test commands.
 permissions:
@@ -53,9 +62,15 @@ jobs:
     # on a size that starts jobs, from the overflow probe's per-size health), never a size named here: one stalled
     # size moves the pool to the next, which the overflow switch (it trips only when every size stalls) never did.
     # tests/test_ci_runner_set.py fails any job whose label comes only from literals.
+    # A webviews or playwright run whose broker re-dispatch names the 8 vCPU label takes the 32 vCPU one instead:
+    # run-webviews-tests.sh runs as many files at once as the box has cores, so a full run (3,815 files) held an
+    # 8 vCPU runner 61-93 min (jobs 140530406665, 140527835408, 140524513080, 2026-11-27 13Z), 29% of the
+    # workflow's job-minutes from 3 of 124 jobs. The broker records the label it tried, so a stalled 32 vCPU
+    # label moves on to the next size, not back here (HQ lane-gh-broker ci_reroute_label). Leo: "de facto, im
+    # asking for 99% fewer minutes of ci time, period."
     # The fork pull request branch is never taken (this workflow is dispatch-only); it is the shape
     # tests/test_ci_repo_variable_defaults.py asks of every RUNNER_POOLS read, which has no literal fallback.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || (inputs.setup == 'webviews' || inputs.setup == 'playwright') && inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}  # frozen-label: RUNNER_POOLS.linux, ephemeral (#54437)
     timeout-minutes: 195
     defaults:
       run:
@@ -104,6 +119,12 @@ jobs:
             else
               rm -rf .git/hooks .git/logs .git/refs
               rm -f .git/config .git/index .git/packed-refs .git/objects/info/alternates
+              # Git takes a directory for a repository only with refs/ and HEAD in it. Without them
+              # actions/checkout saw no repository, deleted the whole disk and fetched cold: every run
+              # sampled 2026-11-27 printed "fatal: --local can only be used inside a git repository"
+              # and spent 26 s fetching (ci-min-per-pr-14).
+              mkdir -p .git/refs/heads .git/refs/tags
+              printf 'ref: refs/heads/main\n' > .git/HEAD
               cat > .git/config <<'EOF'
           [core]
             repositoryformatversion = 0
@@ -118,7 +139,7 @@ jobs:
             fi
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.source_sha }}
           path: .fast-checks-checkout
@@ -168,6 +189,12 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Restore pinned Bun from the CI cache bucket
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/.fast-checks-checkout/scripts/ci/toolchain-r2.sh" restore bun ${{ steps.bun-pin.outputs.version }} || true
+
       - name: Set up Bun
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -175,7 +202,14 @@ jobs:
           bun-version: ${{ steps.bun-pin.outputs.version }}
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
+      - name: Restore pinned Node from the CI cache bucket
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/.fast-checks-checkout/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Set up Node
+        timeout-minutes: 5
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -294,8 +328,13 @@ jobs:
             bash scripts/ci/init-submodule.sh ghostty-next
           fi
           echo "GHOSTTY_ZIG_SOURCE=$GHOSTTY_ZIG_SOURCE" >> "$GITHUB_ENV"
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
           ./scripts/install-zig-ci.sh
 
       - name: Set up pinned Rust
@@ -312,12 +351,14 @@ jobs:
       # The script comes from this workflow's own commit, never from the source snapshot.
       - name: Check out the SwiftPM artifact prefetch
         if: contains(inputs.command, 'swift')
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-tools
           persist-credentials: false
-          sparse-checkout: scripts/ci/swiftpm_prefetch_binary_artifacts.py
+          sparse-checkout: |
+            scripts/ci/swiftpm_prefetch_binary_artifacts.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Prefetch SwiftPM binary artifacts
@@ -513,7 +554,7 @@ jobs:
           mkdir -p -- .fast-checks-checkout
           rm -rf -- .fast-checks-checkout/.git
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 10
         with:
           ref: ${{ inputs.source_sha }}

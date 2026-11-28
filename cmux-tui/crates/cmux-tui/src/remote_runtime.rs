@@ -39,8 +39,9 @@ use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
     ConnectRequest, Dialer, DirectWebSocketProvider, IrohPathMode, LinkGroup, ProviderError,
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayProvider, SshProvider, SshProviderConfig, SupportedClientAuthModes, TransportProvider,
-    UnixProvider, sanitized_route, sanitized_route_text, spawn_relay_daemon_registration,
+    RelayProvider, SshProvider, SshProviderConfig, SupportedClientAuthModes, TailnetCarrierMode,
+    TailnetDialer, TailnetHints, TransportProvider, UnixProvider, sanitized_route,
+    sanitized_route_text, spawn_relay_daemon_registration,
 };
 #[cfg(feature = "iroh-transport")]
 use cmux_remote::provider::{
@@ -51,6 +52,7 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
+use cmux_remote::ssh_control::SSH_MASTER_AUTH_TIMEOUT;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -74,8 +76,16 @@ use client_socket::{
     private_socket_directory,
 };
 
+mod daemon_run;
 mod daemon_state;
+mod route_last_good;
+mod route_race;
 mod startup_progress;
+mod warm_standby;
+use cmux_remote::connection::StandbyGroup;
+#[cfg(test)]
+use daemon_run::{finish_daemon_shutdown, load_daemon_auth_during_handoff};
+use daemon_run::{push_unique_route, run_daemon};
 pub use daemon_state::load_runtime_info;
 use daemon_state::{
     CommittedRuntimeInfoError, finalize_daemon_lifecycle, persist_runtime_info,
@@ -92,8 +102,11 @@ use daemon_state::{
     bounded_unix_socket_connect, fail_state_directory_sync_after, persist_shutdown_outcome,
     read_optional_file, read_runtime_info, remove_shutdown_recovery_evidence,
 };
+use route_last_good::LastGoodRoute;
+pub(crate) use route_race::{RouteOrder, RouteRace};
 use startup_progress::StartupProgress;
 pub use startup_progress::startup_refusal;
+use warm_standby::{Armed, WarmStandby, arm_standby, next_warm_route, warm_standby_enabled};
 
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
@@ -499,6 +512,9 @@ impl TransportProvider for RoutedRelayProvider {
 /// `direct_carrier_auth` lets `ws`/`wss` routes dial with carrier authentication
 /// (`remote connect --carrier`): the daemon is expected to serve a trusted-network
 /// listener, as cmux Cloud machines do behind the owner's private network.
+/// Tailscale candidates stay off here; the connect path uses
+/// [`client_provider_registry_with_tailnet`].
+#[cfg(test)]
 pub fn client_provider_registry(
     ssh: SshProviderConfig,
     relay_routes: BTreeMap<String, RelayClientOptions>,
@@ -506,10 +522,40 @@ pub fn client_provider_registry(
     direct_dialer: Option<Arc<dyn Dialer>>,
     direct_carrier_auth: bool,
 ) -> Result<cmux_remote::provider::ProviderRegistry, ProviderError> {
+    client_provider_registry_with_tailnet(
+        ssh,
+        relay_routes,
+        iroh_path,
+        direct_dialer,
+        direct_carrier_auth,
+        TailnetCarrierMode::Off,
+        Arc::new(cmux_remote::provider::NoTailnetHints),
+    )
+}
+
+/// Build the client registry with an optional, cached Tailscale path hint
+/// source. The default registry above stays unchanged for callers that do not
+/// opt into the setting. `cmux_remote::provider::hints_for_mode` supplies the
+/// LocalAPI adapter without changing route races or wire messages.
+pub fn client_provider_registry_with_tailnet(
+    ssh: SshProviderConfig,
+    relay_routes: BTreeMap<String, RelayClientOptions>,
+    iroh_path: IrohPathMode,
+    direct_dialer: Option<Arc<dyn Dialer>>,
+    direct_carrier_auth: bool,
+    tailnet_mode: TailnetCarrierMode,
+    tailnet_hints: Arc<dyn TailnetHints>,
+) -> Result<cmux_remote::provider::ProviderRegistry, ProviderError> {
     let mut providers = cmux_remote::provider::ProviderRegistry::default();
     let direct = match direct_dialer {
         Some(dialer) => DirectWebSocketProvider::with_dialer(MAX_CARRIER_FRAME_BYTES, dialer),
-        None => DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES),
+        None if tailnet_mode == TailnetCarrierMode::Off => {
+            DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES)
+        }
+        None => DirectWebSocketProvider::with_dialer(
+            MAX_CARRIER_FRAME_BYTES,
+            Arc::new(TailnetDialer::new(tailnet_mode, tailnet_hints)),
+        ),
     }
     .with_carrier_auth(direct_carrier_auth);
     providers.register(Arc::new(direct))?;
@@ -720,6 +766,9 @@ fn start_client_runtime_with(
     options.reconnect.validate()?;
     let startup_timeout = options.startup_timeout;
     let recovering = keep_waiting.is_some();
+    // SSH authentication (a password typed at the prompt) does not count
+    // against the startup budget (issue 38157).
+    let auth_clock = options.ssh.connection_share.auth_clock();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -734,10 +783,13 @@ fn start_client_runtime_with(
             result
         })
         .context("could not start remote client thread")?;
-    let deadline = keep_waiting.is_none().then(|| std::time::Instant::now() + startup_timeout);
+    let started = std::time::Instant::now();
+    let deadline = keep_waiting.is_none().then(|| started + startup_timeout);
     let ready = loop {
+        let now = std::time::Instant::now();
+        let excluded = auth_clock.as_ref().map_or(Duration::ZERO, |clock| clock.excluded(now));
         let left = deadline.map_or(STARTUP_SIGNAL_POLL, |deadline| {
-            deadline.saturating_duration_since(std::time::Instant::now())
+            (deadline + excluded).saturating_duration_since(now)
         });
         match ready_rx.recv_timeout(left.min(STARTUP_SIGNAL_POLL)) {
             Ok(Ok(ready)) => break ready,
@@ -768,7 +820,7 @@ fn start_client_runtime_with(
                 reap_failed_startup(thread, "cmux-remote-client");
                 return Err(anyhow!(
                     "remote connection did not become ready within {}s ({}): the host may be down or the route wrong; `cmux remote known-daemons` lists the routes paired here, and a longer `--connect-timeout-seconds N` waits more",
-                    startup_timeout.as_secs(),
+                    whole_seconds_up(startup_timeout),
                     match error {
                         mpsc::RecvTimeoutError::Timeout => "no answer",
                         mpsc::RecvTimeoutError::Disconnected => "the client stopped",
@@ -785,6 +837,14 @@ fn start_client_runtime_with(
         finished: finished_rx,
         thread: Some(thread),
     })
+}
+
+/// A budget in whole seconds, rounded up. The CLI hands the runtime what is left of
+/// `--connect-timeout-seconds N` after loading the identity and routes (N minus some
+/// milliseconds), and `Duration::as_secs` truncated that, so a 3 s timeout reported "within 2s".
+fn whole_seconds_up(budget: Duration) -> u64 {
+    let whole = budget.as_secs();
+    if budget.subsec_nanos() == 0 { whole } else { whole.saturating_add(1) }
 }
 
 struct ClientReady {
@@ -943,17 +1003,24 @@ async fn dial_first_connection(
         _ => None,
     });
     let progress = &progress;
+    let last_good = LastGoodRoute::open(Some(&options.state_dir), options.expected_daemon);
+    let last_good = last_good.as_ref();
     let dial = cell.dial(options.reconnect, network, || {
-        let mut attempt =
-            RuntimeInitialRouteAttempt { options, shutdown: attempt_shutdown.clone() };
+        let attempt =
+            RuntimeInitialRouteAttempt { options, shutdown: attempt_shutdown.clone(), last_good };
+        // Read each round: a remembered route that failed last round is forgotten by now.
+        let first = last_good
+            .and_then(|memory| memory.first(&options.routes, options.ssh_bootstrap.upgrade));
+        let order = initial_route_order(options, first, last_good);
         async move {
-            match select_initial_route(
+            match select_initial_route_from(
                 &options.routes,
+                order,
                 options.session,
                 options.lane_policy,
                 client_auth_kind(&options.auth),
                 options.ssh_bootstrap.upgrade,
-                &mut attempt,
+                &attempt,
             )
             .await
             {
@@ -973,6 +1040,45 @@ async fn dial_first_connection(
         }
         never = progress.tick() => match never {},
     }
+}
+
+/// How a first connect's round orders its routes: the remembered route first, and the routes
+/// raced ([`route_race`]) when the connect is enrolled. An invitation is never raced (each
+/// racer would ask the person to approve it), nor a grant (it may be single-use), nor
+/// `--upgrade` (its SSH route installs the daemon first, alone).
+fn initial_route_order(
+    options: &ClientRuntimeOptions,
+    first: Option<usize>,
+    last_good: Option<&LastGoodRoute>,
+) -> RouteOrder {
+    let raceable = matches!(options.auth, ClientAuthMode::Enrolled)
+        && !options.ssh_bootstrap.upgrade
+        && options.routes.len() > 1
+        && route_race_enabled();
+    // A route broken on this network is dialed after the others, not skipped.
+    let late = last_good.map_or(0, |memory| memory.late(&options.routes));
+    if !raceable {
+        return RouteOrder::serial(first).with_late(late);
+    }
+    // The stagger follows the leading route's last connect time when it is the remembered one.
+    let lead = first.and(last_good.and_then(LastGoodRoute::connect_time));
+    RouteOrder::raced(first, RouteRace::after(lead)).with_late(late)
+}
+
+/// `CMUX_REMOTE_ROUTE_RACE=0` dials the routes one at a time again (the A/B for the race's
+/// numbers).
+fn route_race_enabled() -> bool {
+    std::env::var_os("CMUX_REMOTE_ROUTE_RACE").is_none_or(|value| value != "0")
+}
+
+/// The reconnect pass races when the first connect would: a follow-up dial is Enrolled unless
+/// the link is a carrier's, and a reconnect is never an upgrade. No remembered connect time
+/// reaches it, so the stagger is the floor.
+fn reconnect_race(options: &ClientRuntimeOptions) -> Option<RouteRace> {
+    (followup_auth_kind(&options.auth) == AuthKind::Enrolled
+        && options.routes.len() > 1
+        && route_race_enabled())
+    .then(|| RouteRace::after(None))
 }
 
 /// A route attempt's error type, as the route runner needs it.
@@ -1030,111 +1136,70 @@ impl<E: fmt::Display> fmt::Display for InitialRouteSelectionError<E> {
     }
 }
 
+/// One pass's route dials. The pass may run several at once ([`route_race`]), so both take
+/// `&self`.
 #[async_trait]
-pub(crate) trait InitialRouteAttempt<T: Send, E: Send = anyhow::Error> {
+pub(crate) trait InitialRouteAttempt<T: Send, E: Send = anyhow::Error>: Sync {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         endpoint: &Url,
         upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError<E>>;
     async fn connect(
-        &mut self,
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<T, InitialRouteAttemptError<E>>;
 }
 
+/// One pass over `routes` in their own order, one at a time.
 pub(crate) async fn select_initial_route<T: Send, E: RouteFailure>(
     routes: &[ResolvedRouteCandidate],
     session: SessionId,
     lane_policy: LanePolicy,
     auth: AuthKind,
     upgrade: bool,
-    attempt: &mut impl InitialRouteAttempt<T, E>,
+    attempt: &impl InitialRouteAttempt<T, E>,
 ) -> Result<T, InitialRouteSelectionError<E>> {
-    if routes.is_empty() {
-        return Err(InitialRouteSelectionError::terminal(E::terminal(
-            "remote connection has no route candidates".into(),
-        )));
-    }
-    if upgrade && routes[0].endpoint.scheme() != "ssh" {
-        return Err(InitialRouteSelectionError::terminal(E::terminal(
-            "--upgrade requires SSH to be the initial route".into(),
-        )));
-    }
-    let mut failures = Vec::new();
-    let mut last = None;
-    let mut retryable = false;
-    for (index, candidate) in routes.iter().enumerate() {
-        let display_endpoint = sanitized_route(&candidate.endpoint);
-        if !candidate.supports_client_auth(auth) {
-            failures.push(format!(
-                "{display_endpoint}: {}",
-                ProviderError::UnsupportedClientAuth {
-                    scheme: candidate.endpoint.scheme().into(),
-                    auth,
-                }
-            ));
-            continue;
-        }
-        let request = connect_request(candidate, session, lane_policy).map_err(|error| {
-            InitialRouteSelectionError::terminal(E::terminal(format!("{error:#}")))
-        })?;
-        let endpoint = request.endpoint.clone();
-        let upgrade_candidate = upgrade && index == 0;
-        if endpoint.scheme() == "ssh" {
-            match attempt.bootstrap_ssh(&endpoint, upgrade_candidate).await {
-                Ok(()) => {}
-                Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
-                    if upgrade_candidate {
-                        return Err(InitialRouteSelectionError::terminal(E::terminal(format!(
-                            "SSH bootstrap failed for {display_endpoint}: {}",
-                            error.summary()
-                        ))));
-                    }
-                    retryable |= route_retryable;
-                    failures.push(format!(
-                        "{display_endpoint}: SSH bootstrap failed: {}",
-                        error.summary()
-                    ));
-                    last = Some(error);
-                    continue;
-                }
-                Err(InitialRouteAttemptError::Fatal(error)) => {
-                    return Err(InitialRouteSelectionError::terminal(error));
-                }
-            }
-        }
-        match attempt.connect(index, request).await {
-            Ok(result) => return Ok(result),
-            Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
-                if upgrade_candidate {
-                    return Err(InitialRouteSelectionError::terminal(E::terminal(format!(
-                        "upgraded SSH route failed for {display_endpoint}: {}",
-                        error.summary()
-                    ))));
-                }
-                retryable |= route_retryable;
-                failures.push(format!("{display_endpoint}: {}", error.summary()));
-                last = Some(error);
-            }
-            Err(InitialRouteAttemptError::Fatal(error)) => {
-                return Err(InitialRouteSelectionError::terminal(error));
-            }
-        }
-    }
-    Err(InitialRouteSelectionError { error: E::all_failed(failures, last), retryable })
+    select_initial_route_from(
+        routes,
+        RouteOrder::default(),
+        session,
+        lane_policy,
+        auth,
+        upgrade,
+        attempt,
+    )
+    .await
+}
+
+/// [`select_initial_route`] in `order`: `routes[order.first]` (the last-known-good route,
+/// [`LastGoodRoute`]) before the others, the rest in their own order, raced when `order.race`
+/// is set ([`route_race`]). Each attempt still gets the route's index in `routes`. The order
+/// is ignored when `upgrade` is set: SSH at 0 must go first, alone.
+pub(crate) async fn select_initial_route_from<T: Send, E: RouteFailure>(
+    routes: &[ResolvedRouteCandidate],
+    order: RouteOrder,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    upgrade: bool,
+    attempt: &impl InitialRouteAttempt<T, E>,
+) -> Result<T, InitialRouteSelectionError<E>> {
+    route_race::select_routes(routes, order, session, lane_policy, auth, upgrade, attempt).await
 }
 
 struct RuntimeInitialRouteAttempt<'a> {
     options: &'a ClientRuntimeOptions,
     shutdown: watch::Receiver<bool>,
+    /// The daemon's last-known-good route: told which route connected, and which failed.
+    last_good: Option<&'a LastGoodRoute>,
 }
 
 #[async_trait]
 impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRouteAttempt<'_> {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         endpoint: &Url,
         upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError> {
@@ -1146,14 +1211,65 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             Some(self.shutdown.clone()),
         )
         .await
-        .map_err(|error| InitialRouteAttemptError::Route {
-            retryable: !upgrade && ssh_bootstrap_failure_is_retryable(&error),
-            error,
+        .map_err(|error| {
+            if let Some(memory) = self.last_good {
+                memory.failed(endpoint);
+                memory.leg(endpoint, cmux_braid_path::Outcome::of_text(&format!("{error:#}")));
+            }
+            InitialRouteAttemptError::Route {
+                retryable: !upgrade && ssh_bootstrap_failure_is_retryable(&error),
+                error,
+            }
         })
     }
 
     async fn connect(
-        &mut self,
+        &self,
+        index: usize,
+        request: ConnectRequest,
+    ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
+        let endpoint = request.endpoint.clone();
+        let started = tokio::time::Instant::now();
+        // A dial the race drops (another route won first) counts as outrun.
+        let mut leg = LegOutcome { memory: self.last_good, endpoint: &endpoint, outcome: None };
+        let result = self.connect_route(index, request).await;
+        if let Some(memory) = self.last_good {
+            match &result {
+                Ok(_) => {
+                    memory.connected_in(&endpoint, started.elapsed());
+                    leg.outcome = Some(cmux_braid_path::Outcome::Won);
+                }
+                Err(InitialRouteAttemptError::Route { error, .. }) => {
+                    memory.failed(&endpoint);
+                    leg.outcome = Some(cmux_braid_path::Outcome::of_text(&format!("{error:#}")));
+                }
+                // A refusal or a cancel says nothing about the route.
+                Err(InitialRouteAttemptError::Fatal(_)) => leg.memory = None,
+            }
+        }
+        result
+    }
+}
+
+/// How one route's dial ended, counted when the dial ends or is dropped
+/// ([`LastGoodRoute::leg`]).
+struct LegOutcome<'a> {
+    memory: Option<&'a LastGoodRoute>,
+    endpoint: &'a Url,
+    outcome: Option<cmux_braid_path::Outcome>,
+}
+
+impl Drop for LegOutcome<'_> {
+    fn drop(&mut self) {
+        if let Some(memory) = self.memory {
+            memory.leg(self.endpoint, self.outcome.unwrap_or(cmux_braid_path::Outcome::Outrun));
+        }
+    }
+}
+
+impl RuntimeInitialRouteAttempt<'_> {
+    async fn connect_route(
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
@@ -1195,12 +1311,12 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
         let connection_timeout = if invitation { self.options.startup_timeout } else { timeout };
         let connection_deadline =
             if invitation { tokio::time::Instant::now() + connection_timeout } else { deadline };
-        let reconnect_groups: Arc<dyn ReconnectGroupSource> =
-            Arc::new(RuntimeReconnectGroups::with_shutdown(
-                self.options.clone(),
-                index,
-                self.shutdown.clone(),
-            ));
+        let standby_groups = Arc::new(RuntimeReconnectGroups::with_shutdown(
+            self.options.clone(),
+            index,
+            self.shutdown.clone(),
+        ));
+        let reconnect_groups: Arc<dyn ReconnectGroupSource> = standby_groups.clone();
         let mut shutdown = self.shutdown.clone();
         let connection = tokio::select! {
             result = tokio::time::timeout_at(
@@ -1241,7 +1357,11 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             }
         };
         match connection {
-            Ok(connection) => Ok((connection, route)),
+            Ok(connection) => {
+                // The link is up: the best other route goes warm beside it.
+                standby_groups.start_standby();
+                Ok((connection, route))
+            }
             Err(error) if error.refusal().is_some() => {
                 close_failed_initial_group(&group).await;
                 Err(InitialRouteAttemptError::Fatal(error.into()))
@@ -1298,7 +1418,16 @@ async fn bootstrap_initial_ssh_route(
     config.auto_install = options.auto_install;
     config.timeout = options.attempt_timeout;
     config.required_capabilities = ssh.required_remote_capabilities();
+    config.connection_share = ssh.connection_share.clone();
     let bootstrap = SshBootstrapper::new(config)?;
+    // Authenticate once, before the attempt budget starts: a person may be
+    // typing a password, and every later step reuses this connection.
+    tokio::select! {
+        result = bootstrap.connect() => result?,
+        () = wait_for_shutdown_request(shutdown.clone()) => {
+            return Err(anyhow!("SSH bootstrap interrupted"));
+        }
+    }
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
             if upgrade {
@@ -1316,6 +1445,21 @@ async fn bootstrap_initial_ssh_route(
         }
         () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),
     }
+}
+
+/// Opens (or reuses) the route's shared SSH connection: the same target the
+/// bootstrap and the carrier links use, so they all ride on it.
+async fn open_shared_ssh_connection(endpoint: &Url, ssh: &SshProviderConfig) -> anyhow::Result<()> {
+    let (destination, port) = ssh_bootstrap_destination(endpoint)?;
+    ssh.connection_share
+        .client_arguments(&cmux_remote::ssh_control::SshTarget {
+            ssh_binary: ssh.ssh_binary.clone(),
+            destination,
+            port,
+            extra_args: ssh.extra_args.clone(),
+        })
+        .await?;
+    Ok(())
 }
 
 fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
@@ -1394,7 +1538,7 @@ async fn wait_for_shutdown_request(mut shutdown: Option<watch::Receiver<bool>>) 
     }
 }
 
-fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u16>)> {
+pub(crate) fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u16>)> {
     if endpoint.password().is_some() {
         return Err(anyhow!("passwords are not allowed in SSH URLs; use SSH authentication"));
     }
@@ -1440,6 +1584,8 @@ pub(crate) trait ReconnectRouteAttempt<T: Send>: Send + Sync {
     ) -> Result<T, ProviderError>;
 }
 
+/// [`route_race::select_reconnect_routes`] one route at a time.
+#[cfg(test)]
 async fn select_reconnect_route<T: Send>(
     routes: &[ResolvedRouteCandidate],
     start: usize,
@@ -1448,46 +1594,31 @@ async fn select_reconnect_route<T: Send>(
     auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<(usize, T), ProviderError> {
-    if routes.is_empty() {
-        return Err(ProviderError::Configuration("no reconnect routes configured".into()));
-    }
-    let mut failures = Vec::new();
-    for offset in 0..routes.len() {
-        let index = (start + offset) % routes.len();
-        if !routes[index].supports_client_auth(auth) {
-            failures.push(format!(
-                "{}: {}",
-                sanitized_route(&routes[index].endpoint),
-                ProviderError::UnsupportedClientAuth {
-                    scheme: routes[index].endpoint.scheme().into(),
-                    auth,
-                }
-            ));
-            continue;
-        }
-        let request = connect_request(&routes[index], session, lane_policy)
-            .map_err(|error| ProviderError::Configuration(error.to_string()))?;
-        let endpoint = request.endpoint.clone();
-        let display_endpoint = sanitized_route(&endpoint);
-        match attempt.connect(index, request, auth).await {
-            Ok(group) => return Ok((index, group)),
-            Err(error) => {
-                failures.push(format!("{display_endpoint}: {error}"));
-                continue;
-            }
-        }
-    }
-    Err(ProviderError::Transport(format!(
-        "all reconnect route providers failed: {}",
-        failures.join("; ")
-    )))
+    route_race::select_reconnect_routes(routes, start, None, session, lane_policy, auth, attempt)
+        .await
 }
 
 struct RuntimeReconnectGroups {
+    inner: Arc<ReconnectGroupsInner>,
+}
+
+struct ReconnectGroupsInner {
     options: ClientRuntimeOptions,
     next: AtomicUsize,
+    /// The reconnect pass's race (`None`: one route at a time), as the first connect's.
+    race: Option<RouteRace>,
     prepared_ssh: Vec<AtomicBool>,
     shutdown: Option<watch::Receiver<bool>>,
+    /// The warm standby route (`warm_standby.rs`); empty until [`Self::start_standby`].
+    standby: WarmStandby<Arc<dyn LinkGroup>>,
+}
+
+impl std::ops::Deref for RuntimeReconnectGroups {
+    type Target = ReconnectGroupsInner;
+
+    fn deref(&self) -> &ReconnectGroupsInner {
+        &self.inner
+    }
 }
 
 impl RuntimeReconnectGroups {
@@ -1526,12 +1657,34 @@ impl RuntimeReconnectGroups {
                 )
             })
             .collect();
+        let race = reconnect_race(&options);
         Self {
-            options,
-            next: AtomicUsize::new(selected_index.saturating_add(1)),
-            prepared_ssh,
-            shutdown,
+            inner: Arc::new(ReconnectGroupsInner {
+                options,
+                next: AtomicUsize::new(selected_index.saturating_add(1)),
+                race,
+                prepared_ssh,
+                shutdown,
+                standby: WarmStandby::new(selected_index),
+            }),
         }
+    }
+
+    /// Starts keeping one warm standby route, once the active link is up. One keeper task per
+    /// peer; it ends when this source is dropped. A no-op for a single route, for any follow-up
+    /// auth but Enrolled, and with `CMUX_REMOTE_WARM_STANDBY=0`.
+    fn start_standby(&self) {
+        if !self.standby_enabled() {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        runtime.spawn(keep_standby(Arc::downgrade(&self.inner), self.standby.wake()));
+    }
+
+    fn standby_enabled(&self) -> bool {
+        followup_auth_kind(&self.options.auth) == AuthKind::Enrolled
+            && self.options.routes.len() > 1
+            && warm_standby_enabled()
     }
 
     fn unprepared_ssh_probe_count(&self) -> usize {
@@ -1563,9 +1716,41 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         )
         .unwrap_or(u32::MAX);
         let ssh_bootstraps = u32::try_from(self.unprepared_ssh_probe_count()).unwrap_or(u32::MAX);
-        reconnect_attempt_timeout.saturating_mul(provider_attempts).saturating_add(
-            self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
-        )
+        // Each SSH route may open its shared connection, which may prompt.
+        let ssh_authentications = if self.options.ssh.connection_share.auth_clock().is_some() {
+            u32::try_from(
+                self.options
+                    .routes
+                    .iter()
+                    .filter(|candidate| {
+                        candidate.endpoint.scheme() == "ssh" && candidate.supports_client_auth(auth)
+                    })
+                    .count(),
+            )
+            .unwrap_or(u32::MAX)
+        } else {
+            0
+        };
+        reconnect_attempt_timeout
+            .saturating_mul(provider_attempts)
+            .saturating_add(
+                self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
+            )
+            .saturating_add(SSH_MASTER_AUTH_TIMEOUT.saturating_mul(ssh_authentications))
+    }
+
+    /// Every route this client can authenticate on but the link's own. Without the route race
+    /// (`CMUX_REMOTE_ROUTE_RACE=0`, or a grant that is single-use) a redial is not raced either.
+    fn alternates(&self) -> Option<usize> {
+        self.race?;
+        let auth = followup_auth_kind(&self.options.auth);
+        let routes = self
+            .options
+            .routes
+            .iter()
+            .filter(|candidate| candidate.supports_client_auth(auth))
+            .count();
+        Some(routes.saturating_sub(1))
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
@@ -1574,37 +1759,195 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             prepared_ssh: &self.prepared_ssh,
             shutdown: self.shutdown.clone(),
         };
-        next_reconnect_route(
+        let (group, stale) = next_warm_route(
+            &self.standby,
             &self.next,
             &self.options.routes,
+            self.race,
             self.options.session,
             self.options.lane_policy,
             followup_auth_kind(&self.options.auth),
             &attempt,
+            group_alive,
         )
-        .await
+        .await?;
+        if let Some(stale) = stale {
+            close_failed_initial_group(&stale).await;
+        }
+        Ok(group)
+    }
+
+    async fn take_standby(&self) -> Option<StandbyGroup> {
+        let (_, group) = match warm_standby::take_standby(&self.standby, &self.next, group_alive)? {
+            Ok(taken) => taken,
+            Err(stale) => {
+                close_failed_initial_group(&stale).await;
+                return None;
+            }
+        };
+        let rtt = group
+            .transport_snapshot()
+            .await
+            .selected_path
+            .and_then(|path| path.rtt_micros)
+            .map(Duration::from_micros);
+        Some(StandbyGroup {
+            group,
+            attempt_timeout: warm_standby::attempt_timeout(rtt),
+            race_after: self.race.map(|race| race.stagger),
+        })
+    }
+}
+
+/// A held group is live until it says it closed (no round trip).
+fn group_alive(group: &Arc<dyn LinkGroup>) -> bool {
+    !group.is_closed()
+}
+
+/// The keeper of one peer's warm standby: dials it when the slot is empty, closed or due its
+/// replacement, and looks again when the reconnect took it, when the held group closes, at its
+/// refresh, or after a backoff when the dial failed (or the group closed within
+/// [`warm_standby::MIN_LIFE`]). Holds the source only weakly, so it ends with it.
+async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tokio::sync::Notify>) {
+    let mut backoff = warm_standby::INITIAL_BACKOFF;
+    loop {
+        let Some(inner) = weak.upgrade() else { return };
+        if inner.shutdown.as_ref().is_some_and(|shutdown| *shutdown.borrow()) {
+            return;
+        }
+        let attempt = RuntimeReconnectRouteAttempt {
+            options: &inner.options,
+            prepared_ssh: &inner.prepared_ssh,
+            shutdown: inner.shutdown.clone(),
+        };
+        let armed = arm_standby(
+            &inner.standby,
+            &inner.next,
+            &inner.options.routes,
+            inner.options.session,
+            inner.options.lane_policy,
+            followup_auth_kind(&inner.options.auth),
+            &attempt,
+            group_alive,
+            |group: Arc<dyn LinkGroup>| async move { group.hold().await },
+        )
+        .await;
+        let mut wait = match armed {
+            Ok(Armed::Held(left)) => left,
+            Ok(Armed::Dialed { retired, .. }) => {
+                if let Some(retired) = retired {
+                    close_failed_initial_group(&retired).await;
+                }
+                // Look again at once: the slot answers `Held` with its refresh, which a hold
+                // the far end granted puts minutes out instead of seconds.
+                Duration::ZERO
+            }
+            Ok(Armed::NoRoute) => return,
+            Ok(Armed::Cooling(left)) => left,
+            Err(_) => {
+                let wait = backoff;
+                backoff = (backoff * 2).min(warm_standby::MAX_BACKOFF);
+                wait
+            }
+        };
+        let held = inner.standby.held();
+        drop(inner);
+        let closed = async {
+            match &held {
+                Some((group, _)) => group.wait_closed().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            () = tokio::time::sleep(wait) => {}
+            () = wake.notified() => {}
+            () = closed => {
+                // Closed while held: re-arm now, unless it died young (back off then).
+                let lived = held.as_ref().map(|(_, armed_at)| armed_at.elapsed());
+                if lived.is_some_and(|lived| lived < warm_standby::MIN_LIFE) {
+                    wait = backoff;
+                    backoff = (backoff * 2).min(warm_standby::MAX_BACKOFF);
+                    tokio::select! {
+                        () = tokio::time::sleep(wait) => {}
+                        () = wake.notified() => {}
+                    }
+                }
+                continue;
+            }
+        }
+        if held.as_ref().is_some_and(|(_, armed_at)| armed_at.elapsed() >= warm_standby::MIN_LIFE) {
+            backoff = warm_standby::INITIAL_BACKOFF;
+        }
     }
 }
 
 /// The next route of an established link after its current one failed:
 /// from `next` (one past the route that last connected) round the list,
 /// and `next` moves past the route that connects. `remote connect` and the
-/// Cloud carrier (`carrier::source`) both rotate this way.
+/// Cloud carrier (`carrier::source`) both rotate this way; `remote connect` races the routes
+/// (`race`), the carrier, whose grants are single-use, does not.
 pub(crate) async fn next_reconnect_route<T: Send>(
     next: &AtomicUsize,
     routes: &[ResolvedRouteCandidate],
+    race: Option<RouteRace>,
     session: SessionId,
     lane_policy: LanePolicy,
     auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<T, ProviderError> {
-    let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
+    next_reconnect_route_skipping(next, routes, None, race, session, lane_policy, auth, attempt)
+        .await
+}
+
+/// [`next_reconnect_route`] with one route left out of the pass (the route a warm standby
+/// was just taken from), unless it is the only one.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn next_reconnect_route_skipping<T: Send>(
+    next: &AtomicUsize,
+    routes: &[ResolvedRouteCandidate],
+    skip: Option<usize>,
+    race: Option<RouteRace>,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &impl ReconnectRouteAttempt<T>,
+) -> Result<T, ProviderError> {
+    // A raced pass moves `next` only when it ends: a redial that asks for the next route and
+    // is dropped by a network change a moment later (`ClientConnection::race_redial`) asks
+    // again and must get the same route, not the one after it. A pass that tries its routes
+    // one at a time still moves on before it starts, so one dropped on a hung route does not
+    // start on that route again.
+    let from = if race.is_some() {
+        next.load(Ordering::Relaxed)
+    } else {
+        next.fetch_add(1, Ordering::Relaxed)
+    };
+    let Some(start) = from.checked_rem(routes.len()) else {
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     };
-    let (index, group) =
-        select_reconnect_route(routes, start, session, lane_policy, auth, attempt).await?;
-    next.store(index.saturating_add(1), Ordering::Relaxed);
-    Ok(group)
+    let selected = route_race::select_reconnect_routes_skipping(
+        routes,
+        start,
+        skip,
+        race,
+        session,
+        lane_policy,
+        auth,
+        attempt,
+    )
+    .await;
+    match selected {
+        Ok((index, group)) => {
+            next.store(index.saturating_add(1), Ordering::Relaxed);
+            Ok(group)
+        }
+        Err(error) => {
+            if race.is_some() {
+                next.store(start.saturating_add(1), Ordering::Relaxed);
+            }
+            Err(error)
+        }
+    }
 }
 
 struct RuntimeReconnectRouteAttempt<'a> {
@@ -1638,6 +1981,21 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
                 ))
             })?;
             self.prepared_ssh[index].store(true, Ordering::Release);
+        }
+        if endpoint.scheme() == "ssh" {
+            // A master lost with the network authenticates again here, out of
+            // the attempt budget: a person may be typing a password, and a
+            // 15 s cut would kill ssh and prompt again each attempt.
+            tokio::select! {
+                result = open_shared_ssh_connection(&endpoint, &self.options.ssh) => {
+                    result.map_err(|error| ProviderError::Transport(format!(
+                        "SSH connection failed for reconnect route {display_endpoint}: {error:#}"
+                    )))?;
+                }
+                () = wait_for_shutdown_request(self.shutdown.clone()) => {
+                    return Err(ProviderError::Transport("SSH reconnect interrupted".into()));
+                }
+            }
         }
         tokio::time::timeout(
             self.options.reconnect.attempt_timeout,
@@ -1839,492 +2197,6 @@ fn start_daemon_runtime_with_timeout(
         }
     };
     Ok(DaemonRuntimeHandle { info, shutdown: shutdown_tx, thread: Some(thread), finished })
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_daemon(
-    mux_socket: PathBuf,
-    options: DaemonRuntimeOptions,
-    state_dir: PathBuf,
-    link_socket: PathBuf,
-    admin_socket: PathBuf,
-    shutdown: watch::Receiver<bool>,
-    owner_shutdown: watch::Sender<bool>,
-    ready: mpsc::SyncSender<Result<DaemonRuntimeInfo, String>>,
-) -> anyhow::Result<()> {
-    let setup = async {
-        let mut startup_shutdown = shutdown.clone();
-        let auth_state_dir = state_dir.join("auth");
-        let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
-            .context(catalog().remote.verify_lifecycle_fence)?;
-        if lifecycle_fenced {
-            persist_daemon_lifecycle_fence(&state_dir)
-                .context(catalog().remote.confirm_lifecycle_fence_durability)?;
-        }
-        let auth_state_preexisting =
-            auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)?;
-        let auth_state_schema = auth_state_preexisting
-            .then(|| persisted_auth_state_schema(&auth_state_dir))
-            .transpose()
-            .context(catalog().remote.inspect_authorization_schema)?;
-        if matches!(auth_state_schema, Some(PersistedAuthStateSchema::Legacy))
-            || matches!(auth_state_schema, Some(PersistedAuthStateSchema::Missing))
-            || (lifecycle_fenced && !auth_state_preexisting)
-        {
-            return Err(anyhow!(catalog().remote.legacy_authorization_requires_migration));
-        }
-        let auth = load_daemon_auth_during_handoff(
-            &auth_state_dir,
-            &options.session,
-            &mut startup_shutdown,
-            DAEMON_AUTH_LEASE_RETRY_TIMEOUT,
-        )
-        .await?;
-        // Version 2 authorization state is the rollback fence understood by
-        // older binaries. Publish the lifecycle marker only after that state
-        // is durable and while its exclusive lease is still held.
-        if !auth_state_preexisting && !lifecycle_fenced {
-            ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
-                .context(catalog().remote.prepare_lifecycle_state)?;
-            #[cfg(test)]
-            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeLifecycleFence);
-            persist_daemon_lifecycle_fence(&state_dir)?;
-            lifecycle_fenced = true;
-        }
-        #[cfg(unix)]
-        if lifecycle_fenced {
-            recover_inactive_predecessor_state(&state_dir, &link_socket, &admin_socket).await?;
-        }
-        verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
-        if !lifecycle_fenced {
-            persist_daemon_lifecycle_fence(&state_dir)?;
-        }
-        if *startup_shutdown.borrow() {
-            return Err(anyhow!("remote daemon startup was cancelled"));
-        }
-        if let Some(path) = &options.carrier_grant_config {
-            install_grant_verifier(&auth, path);
-        }
-        let (daemon, clients) = cmux_remote::daemon::RemoteDaemon::with_policy(
-            auth.clone(),
-            SessionLimits::default(),
-            DaemonSessionPolicy { resume_lease: options.resume_lease },
-        )?;
-        #[cfg(unix)]
-        let workspace = crate::machine_secrets::daemon_workspace_service(
-            &auth,
-            &state_dir,
-            options.carrier_grant_config.as_deref(),
-        );
-        #[cfg(not(unix))]
-        let workspace = cmux_remote::workspace::WorkspaceService::new();
-        // The admin proof and service forwarding must use the same resolved
-        // destination, including when the configured path is a symlink.
-        let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
-        let mux_socket = mux_binding.mux_socket.clone();
-
-        let lifecycle_id = uuid::Uuid::new_v4().to_string();
-        let preliminary_runtime = persist_runtime_info(
-            &state_dir,
-            &DaemonRuntimeInfo {
-                session: options.session.clone(),
-                state_dir: state_dir.clone(),
-                link_socket: link_socket.clone(),
-                admin_socket: admin_socket.clone(),
-                daemon_fingerprint: auth.identity().fingerprint(),
-                routes: Vec::new(),
-                direct_websocket: None,
-                iroh_node_id: None,
-                lifecycle_id: Some(lifecycle_id.clone()),
-                replaceable_sidecar: options.replaceable_sidecar,
-            },
-        );
-        if let Err(error) = preliminary_runtime {
-            if error.downcast_ref::<CommittedRuntimeInfoError>().is_some() {
-                return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
-                    .await;
-            }
-            return Err(error);
-        }
-        let transport_setup: anyhow::Result<_> = async {
-            #[cfg(test)]
-            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeListenerStartup);
-            let unix = serve_unix_with_shutdown(
-                daemon.clone(),
-                &link_socket,
-                MAX_CARRIER_FRAME_BYTES,
-                Some(owner_shutdown.clone()),
-            )
-            .await?;
-            let websocket = match options.direct_websocket {
-                Some(address) => Some(
-                    serve_direct_websocket_with_options(
-                        daemon.clone(),
-                        address,
-                        MAX_CARRIER_FRAME_BYTES,
-                        DirectWebSocketOptions::new(
-                            options.allow_insecure_non_loopback,
-                            options.trusted_carrier_websocket,
-                        ),
-                    )
-                    .await?,
-                ),
-                None => None,
-            };
-            let workspace_http = match options.workspace_http {
-                Some(address) => {
-                    let server = serve_workspace_http(
-                        workspace.clone(),
-                        address,
-                        state_dir.join("workspace-http.token"),
-                    )
-                    .await?;
-                    crate::client_log::stderr_log!(
-                        "remote",
-                        "{BIN}: authenticated workspace HTTP at http://{}; bearer token file {}",
-                        server.local_addr(),
-                        server.token_file().display()
-                    );
-                    Some(server)
-                }
-                None => None,
-            };
-
-            // The relay registers in the background: a ticket command that
-            // fails or hangs, or a relay that is down, is retried and logged
-            // while the local sockets serve. Only an invalid relay
-            // configuration fails startup.
-            let mut relays = Vec::with_capacity(options.relays.len());
-            for relay in options.relays.iter().cloned() {
-                relays.push(spawn_relay_daemon_registration(
-                    daemon.clone(),
-                    RelayDaemonConfig {
-                        endpoint: relay.endpoint,
-                        slot: relay.slot,
-                        ticket: String::new(),
-                        maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
-                        control_timeout: Duration::from_secs(15),
-                    },
-                    relay.credentials,
-                    &crate::cli::BIN.to_string(),
-                )?);
-            }
-
-            #[cfg(not(feature = "iroh-transport"))]
-            if options.iroh {
-                return Err(anyhow!("Iroh transport is not included in this cmux-tui build"));
-            }
-            #[cfg(feature = "iroh-transport")]
-            let iroh = match options.iroh {
-                true => {
-                    let config = IrohProviderConfig {
-                        secret_key: Some(load_or_create_iroh_secret(&state_dir.join("iroh.key"))?),
-                        ..IrohProviderConfig::default()
-                    };
-                    Some(tokio::select! {
-                        result = IrohListener::bind(daemon.clone(), config) => result?,
-                        _ = wait_for_shutdown(&mut startup_shutdown) => {
-                            return Err(anyhow!("remote daemon startup was cancelled"));
-                        }
-                    })
-                }
-                false => None,
-            };
-            #[cfg(not(feature = "iroh-transport"))]
-            let iroh = None::<()>;
-
-            let mut routes = Vec::new();
-            for route in &options.advertised_routes {
-                push_unique_route(&mut routes, route.clone());
-            }
-            for relay in &options.relays {
-                push_unique_route(&mut routes, relay.endpoint.to_string());
-            }
-            let mut unix_route = Url::parse("unix:///")?;
-            unix_route.set_path(
-                link_socket
-                    .to_str()
-                    .ok_or_else(|| anyhow!("remote link socket path is not valid UTF-8"))?,
-            );
-            let unix_route = unix_route.to_string();
-            let websocket_route = if let Some(server) = &websocket {
-                let address = server.local_addr();
-                if !address.ip().is_unspecified() {
-                    Some(format!("ws://{address}/v1/link"))
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            #[cfg(feature = "iroh-transport")]
-            let iroh_node_id = if let Some(listener) = &iroh {
-                let route = listener.route().await?;
-                let hints = route.routing_hints();
-                let mut route_url = Url::parse(&format!("iroh://{}", route.node_id()))?;
-                {
-                    let mut query = route_url.query_pairs_mut();
-                    if let Some(relay) = hints.get(cmux_remote::provider::ROUTING_RELAY_URL) {
-                        query.append_pair("relay_url", relay);
-                    }
-                    if let Some(addresses) = hints.get(cmux_remote::provider::ROUTING_DIRECT_ADDRS)
-                    {
-                        query.append_pair("direct_addrs", addresses);
-                    }
-                }
-                push_unique_route(&mut routes, route_url.to_string());
-                Some(route.node_id().to_string())
-            } else {
-                None
-            };
-            #[cfg(not(feature = "iroh-transport"))]
-            let iroh_node_id = None;
-            if let Some(route) = websocket_route {
-                push_unique_route(&mut routes, route);
-            }
-            // Unix is fastest on the same host, and clients promote it when its
-            // socket exists locally. Keeping it last avoids exporting a remote
-            // host's filesystem path as the default route for mobile clients.
-            push_unique_route(&mut routes, unix_route);
-
-            let admin = serve_admin_with_mux_binding(
-                daemon,
-                &admin_socket,
-                routes.clone(),
-                Some(lifecycle_id.clone()),
-                Some(owner_shutdown),
-                Some(mux_binding.clone()),
-            )
-            .await?;
-            let info = DaemonRuntimeInfo {
-                session: options.session,
-                state_dir: state_dir.clone(),
-                link_socket: link_socket.clone(),
-                admin_socket: admin_socket.clone(),
-                daemon_fingerprint: auth.identity().fingerprint(),
-                routes,
-                direct_websocket: websocket.as_ref().map(|server| server.local_addr()),
-                iroh_node_id,
-                lifecycle_id: Some(lifecycle_id.clone()),
-                replaceable_sidecar: options.replaceable_sidecar,
-            };
-            persist_runtime_info(&state_dir, &info)?;
-            Ok((unix, websocket, workspace_http, relays, iroh, admin, info))
-        }
-        .await;
-        let (unix, websocket, workspace_http, relays, _iroh, admin, info) = match transport_setup {
-            Ok(transports) => transports,
-            Err(error) => {
-                return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
-                    .await;
-            }
-        };
-        #[cfg(test)]
-        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
-        let mut shutdown_failures = Vec::new();
-        if ready.send(Ok(info)).is_ok() {
-            // A Cloud machine's carrier (a grant config) also bridges the
-            // acpmux service to this user's acpmux carrier socket, in the
-            // home `cmux acp` resolves.
-            #[cfg(unix)]
-            let acpmux_socket = options
-                .carrier_grant_config
-                .as_ref()
-                .and_then(|_| crate::acp::daemon_acpmux_home())
-                .map(|home| cmux_remote::acpmux_bridge::socket_path(&home));
-            #[cfg(not(unix))]
-            let acpmux_socket = None;
-            let services = DaemonServices::with_carrier_sockets(
-                workspace,
-                Some(mux_socket),
-                options.local_sockets.clone(),
-                acpmux_socket,
-            );
-            services.run_with_shutdown(clients, shutdown).await;
-        } else {
-            shutdown_failures.push(anyhow!("daemon owner stopped during startup"));
-        }
-
-        if let Err(error) = admin.shutdown().await {
-            shutdown_failures
-                .push(anyhow::Error::new(error).context("admin listener shutdown failed"));
-        }
-        if let Some(server) = workspace_http
-            && let Err(error) = server.shutdown().await
-        {
-            shutdown_failures
-                .push(anyhow::Error::new(error).context("workspace HTTP shutdown failed"));
-        }
-        #[cfg(feature = "iroh-transport")]
-        if let Some(listener) = _iroh
-            && let Err(error) = listener.shutdown().await
-        {
-            shutdown_failures
-                .push(anyhow::Error::new(error).context("Iroh listener shutdown failed"));
-        }
-        for registration in relays {
-            shutdown_relay(registration).await;
-        }
-        if let Some(server) = websocket
-            && let Err(error) = server.shutdown().await
-        {
-            shutdown_failures
-                .push(anyhow::Error::new(error).context("WebSocket server shutdown failed"));
-        }
-        if let Err(error) = unix.shutdown().await {
-            shutdown_failures
-                .push(anyhow::Error::new(error).context("Unix listener shutdown failed"));
-        }
-        finalize_daemon_authorization(auth, state_dir, lifecycle_id, shutdown_failures).await
-    }
-    .await;
-
-    if let Err(error) = &setup {
-        let _ = ready.send(Err(format!("{error:#}")));
-    }
-    setup
-}
-
-/// Installs the carrier grant verifier from `path`. A config that cannot be
-/// read leaves grants refused (the daemon's default) and says why; the
-/// daemon still serves every other route.
-fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
-    let installed = cmux_remote::grant::FileGrantVerifier::load(path).and_then(|verifier| {
-        let verifier = verifier.with_unknown_kid_hook(Box::new(report_unknown_kid));
-        let machine = verifier.config().machine.clone();
-        auth.set_grant_verifier(Arc::new(verifier))
-            .map(|()| machine)
-            .map_err(|error| error.to_string())
-    });
-    match installed {
-        Ok(machine) => {
-            crate::client_log::stderr_log!(
-                "remote",
-                "{BIN}: carrier grants admitted for {machine}"
-            );
-        }
-        Err(error) => {
-            crate::client_log::stderr_log!("remote", "{BIN}: carrier grants refused ({error})");
-        }
-    }
-}
-
-/// Tells the Cloud agent a carrier grant named a kid this daemon's keyset
-/// lacks, so it fetches the keyset and rewrites the grant config
-/// (cmux-host `cloud/carrier_keyset.rs`). One line on the agent socket, on
-/// its own thread so a handshake never waits; every step is bounded by
-/// [`UNKNOWN_KID_REPORT_TIMEOUT`], and the verifier reports at most once a
-/// minute.
-fn report_unknown_kid(kid: &str) {
-    let key = cmux_host::cloud::carrier_keyset::REQUEST_KEY;
-    let line = format!("{}\n", serde_json::json!({ key: { "kid": kid } }));
-    let spawned = thread::Builder::new().name("carrier-keyset-report".into()).spawn(move || {
-        use std::io::{Read as _, Write as _};
-        let socket = cmux_host::cloud::wire::AGENT_SOCKET;
-        let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket) else { return };
-        let _ = stream.set_write_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
-        let _ = stream.set_read_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
-        if stream.write_all(line.as_bytes()).is_ok() {
-            let mut reply = [0_u8; 256];
-            let _ = stream.read(&mut reply);
-        }
-    });
-    if let Err(error) = spawned {
-        crate::client_log::stderr_log!("remote", "{BIN}: carrier keyset report: {error}");
-    }
-}
-
-/// Each step of an unknown-kid report (connect is local and immediate).
-const UNKNOWN_KID_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
-
-async fn load_daemon_auth_during_handoff(
-    state_dir: &Path,
-    daemon_name: &str,
-    shutdown: &mut watch::Receiver<bool>,
-    retry_timeout: Duration,
-) -> anyhow::Result<Arc<AuthDatabase>> {
-    let deadline = tokio::time::Instant::now() + retry_timeout;
-    loop {
-        match AuthDatabase::load_or_create(state_dir, daemon_name.to_owned(), true) {
-            Ok(auth) => return Ok(auth),
-            Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if *shutdown.borrow() {
-                    return Err(anyhow!("remote daemon startup was cancelled"));
-                }
-                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-                if remaining.is_zero() {
-                    return Err(anyhow::Error::new(IdentityError::Io(error)).context(
-                        "remote daemon authorization state is still owned by another process",
-                    ));
-                }
-                tokio::select! {
-                    _ = tokio::time::sleep(
-                        DAEMON_AUTH_LEASE_RETRY_INTERVAL.min(remaining)
-                    ) => {}
-                    _ = wait_for_shutdown(shutdown) => {
-                        return Err(anyhow!("remote daemon startup was cancelled"));
-                    }
-                }
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-}
-
-fn combine_shutdown_failures(mut failures: Vec<anyhow::Error>) -> anyhow::Result<()> {
-    match failures.len() {
-        0 => Ok(()),
-        1 => Err(failures.pop().expect("one shutdown failure is present")),
-        _ => Err(anyhow!(
-            "remote daemon shutdown encountered multiple failures: {}",
-            failures.into_iter().map(|error| format!("{error:#}")).collect::<Vec<_>>().join("; ")
-        )),
-    }
-}
-
-async fn finish_daemon_shutdown(
-    mut transport_failures: Vec<anyhow::Error>,
-    authorization_finalization: impl Future<Output = Result<(), IdentityError>>,
-) -> anyhow::Result<()> {
-    if let Err(error) = authorization_finalization.await {
-        transport_failures.push(
-            anyhow::Error::new(error).context(catalog().remote.authorization_finalization_failed),
-        );
-    }
-    combine_shutdown_failures(transport_failures)
-}
-
-async fn finalize_daemon_authorization(
-    auth: Arc<AuthDatabase>,
-    state_dir: PathBuf,
-    lifecycle_id: String,
-    transport_failures: Vec<anyhow::Error>,
-) -> anyhow::Result<()> {
-    let cleanup_state_dir = state_dir.clone();
-    let authorization_finalization = auth.shutdown_with_cleanup(move |finalization| {
-        #[cfg(test)]
-        pause_daemon_cleanup(&cleanup_state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
-        let status = if finalization.is_ok() {
-            DaemonShutdownStatus::Succeeded
-        } else {
-            DaemonShutdownStatus::Failed
-        };
-        finalize_daemon_lifecycle(&cleanup_state_dir, &lifecycle_id, status)
-    });
-    let result = finish_daemon_shutdown(transport_failures, authorization_finalization).await;
-    #[cfg(test)]
-    pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::AfterAuthShutdown);
-    result
-}
-
-fn push_unique_route(routes: &mut Vec<String>, route: String) {
-    if !routes.iter().any(|existing| existing == &route) {
-        routes.push(route);
-    }
-}
-
-async fn shutdown_relay(registration: RelayDaemonRegistration) {
-    registration.shutdown().await;
 }
 
 #[cfg(test)]

@@ -54,13 +54,3 @@ public struct TabGroupResult: Decodable, Sendable, Equatable {
         groups = try c.decodeIfPresent([TabGroupID].self, forKey: .groups) ?? []
     }
 }
-
-/// Every live group with its pane, in the `Pane.tab_groups` shape.
-public struct ListTabGroupsRequest: DaemonRequest {
-    public struct Response: Decodable, Sendable, Equatable {
-        public var groups: [TabGroupSnapshot]
-    }
-    public static let command = "list-tab-groups"
-    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
-    public init() {}
-}

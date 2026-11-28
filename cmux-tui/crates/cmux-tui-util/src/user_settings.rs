@@ -15,25 +15,24 @@ use serde_json::Value;
 /// (`CmuxConfigFile.overrideKey`), so test launches never read the user's.
 pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
 
-/// The app's settings file (`CmuxConfigFile.defaultURL`), under the home.
-const NEXT_FILE: &str = ".config/cmux/cmux-next.json";
-/// Classic cmux's file, which the app copies to [`NEXT_FILE`] at its first
-/// launch.
-const CLASSIC_FILE: &str = ".config/cmux/cmux.json";
+/// The app's settings file (`CmuxConfigFile.defaultURL`), under the home:
+/// `.config/cmux/cmux-next.json`, in `.config/cmux-next/` on macOS
+/// (`cmux_config::location`).
+fn next_file(home: &Path) -> PathBuf {
+    home.join(".config").join(cmux_config::NEXT_DIR).join(cmux_config::location::NEXT_FILE_NAME)
+}
 
 /// The settings file the app reads and writes: `CMUX_NEXT_CONFIG_FILE`,
-/// else `<home>/.config/cmux/cmux-next.json`; while that file does not exist
-/// yet (the app never ran), classic `cmux.json`, which the app would seed it
-/// from.
+/// else `<home>/.config/cmux/cmux-next.json` (`cmux-next/` on macOS). Classic
+/// is imported by the app only after the person consents.
 pub fn config_path() -> PathBuf {
     let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
     if env(CONFIG_OVERRIDE).is_some() {
         return path_from(env);
     }
+    cmux_config::location::migrate_legacy_once();
     let home = crate::platform::home_dir().unwrap_or_default();
-    let next = home.join(NEXT_FILE);
-    let classic = home.join(CLASSIC_FILE);
-    if !next.exists() && classic.exists() { classic } else { next }
+    next_file(&home)
 }
 
 /// `CMUX_NEXT_CONFIG_FILE` (a leading `~` is the home), else the app's file
@@ -49,7 +48,7 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
         return path;
     }
     let home = env("HOME").map(PathBuf::from).unwrap_or_default();
-    home.join(NEXT_FILE)
+    next_file(&home)
 }
 
 /// Settings-file `workspaces.newPlacement`: where a new workspace goes in
@@ -217,6 +216,54 @@ pub enum UltraConnection {
     Always,
 }
 
+/// Settings' Tailscale carrier policy (`transport.tailnetCarrier`). The
+/// default is deliberately off until a LocalAPI snapshot is available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TailnetCarrier {
+    /// Do not add Tailscale addresses to races.
+    #[default]
+    Off,
+    /// Add only paths tailscaled currently reports as direct.
+    DirectOnly,
+    /// Accepted for forward compatibility. Relayed paths remain excluded by
+    /// the race helper until their cost is measured.
+    On,
+}
+
+/// Parse `transport.tailnetCarrier`, with an environment override for tests.
+pub fn tailnet_carrier_from_config_text(text: &str) -> TailnetCarrier {
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+        return TailnetCarrier::default();
+    };
+    match document.pointer("/transport/tailnetCarrier").and_then(Value::as_str) {
+        Some("direct-only") | Some("direct_only") => TailnetCarrier::DirectOnly,
+        Some("on") => TailnetCarrier::On,
+        _ => TailnetCarrier::Off,
+    }
+}
+
+/// Current Tailscale carrier policy. `CMUX_TAILNET_CARRIER` wins for hermetic
+/// tests and development runs.
+pub fn tailnet_carrier() -> TailnetCarrier {
+    if let Ok(value) = std::env::var("CMUX_TAILNET_CARRIER") {
+        return match value.trim() {
+            "direct-only" | "direct_only" => TailnetCarrier::DirectOnly,
+            "on" => TailnetCarrier::On,
+            _ => TailnetCarrier::Off,
+        };
+    }
+    if cfg!(test) {
+        return TailnetCarrier::default();
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| tailnet_carrier_from_config_text(&text))
+            .unwrap_or_default(),
+        _ => TailnetCarrier::default(),
+    }
+}
+
 /// [`UltraConnection`] of a settings file: `remote.ultra` (`"off"`,
 /// `"auto"`, `"always"`); without it, the retired toggle `remote.ultraMode`
 /// set to `true` is Always. Anything else, and a file that does not parse,
@@ -283,6 +330,52 @@ pub fn agent_share_idle_minutes() -> u64 {
             .unwrap_or(AGENT_SHARE_IDLE_MINUTES_DEFAULT),
         _ => AGENT_SHARE_IDLE_MINUTES_DEFAULT,
     }
+}
+
+/// The dotted settings key of AutoCloud (schemas/settings/source/machines.json, a hidden toggle,
+/// default off): Auto may start a chat on a Cloud machine, and the hybrid chat start is on
+/// (`cmux-tui` `feature_flags::hybrid_chat_start_flag`).
+pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
+
+/// `cloud.autoCloud` of a settings file, flat (`"cloud.autoCloud"`) or nested
+/// (`{"cloud": {"autoCloud": …}}`), under what an administrator set
+/// ([`cmux_config::managed::applied_to`]): `Some` of a boolean, a `false` in either form winning
+/// over a `true` in the other; None when no form holds a boolean or the file does not parse.
+pub fn auto_cloud_from_config_text(text: &str) -> Option<bool> {
+    auto_cloud_applied(auto_cloud_file_value(text))
+}
+
+fn auto_cloud_file_value(text: &str) -> Option<Value> {
+    let text = text.trim_start_matches('\u{feff}');
+    let document = serde_json::from_str::<Value>(&strip_jsonc(text)).ok()?;
+    let flat = document.get(AUTO_CLOUD_KEY).and_then(Value::as_bool);
+    let nested = document.pointer("/cloud/autoCloud").and_then(Value::as_bool);
+    match (flat, nested) {
+        (Some(false), _) | (_, Some(false)) => Some(Value::Bool(false)),
+        (flat, nested) => flat.or(nested).map(Value::Bool),
+    }
+}
+
+fn auto_cloud_applied(file: Option<Value>) -> Option<bool> {
+    cmux_config::managed::applied_to(AUTO_CLOUD_KEY, file).as_ref().and_then(Value::as_bool)
+}
+
+/// [`auto_cloud_from_config_text`] of the settings file at `path`; without a readable file, only
+/// what an administrator set.
+pub fn auto_cloud_from_config_file(path: &Path) -> Option<bool> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => auto_cloud_from_config_text(&text),
+        Err(_) => auto_cloud_applied(None),
+    }
+}
+
+/// [`auto_cloud_from_config_file`] of the app's settings file ([`config_path`]), read at each call
+/// so a change applies to the next chat start with no reload; always None in unit tests.
+pub fn auto_cloud() -> Option<bool> {
+    if cfg!(test) {
+        return None;
+    }
+    auto_cloud_from_config_file(&config_path())
 }
 
 /// Settings-file `agents.cmuxMcp` ("Give Agents cmux’s Tools"): whether
@@ -406,94 +499,8 @@ impl AgentsCmuxMcp {
     }
 }
 
-/// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
-/// outside strings (the dialect the app's `JSONC` parser reads).
-pub fn strip_jsonc(text: &str) -> String {
-    drop_trailing_commas(&drop_comments(text))
-}
-
-/// The text without comments; strings are copied unchanged.
-fn drop_comments(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        match (byte, bytes.get(index + 1)) {
-            (b'"', _) => {
-                in_string = true;
-                index += 1;
-            }
-            (b'/', Some(b'/')) => {
-                output.push_str(&text[start..index]);
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-                start = index;
-            }
-            (b'/', Some(b'*')) => {
-                output.push_str(&text[start..index]);
-                index += 2;
-                while index < bytes.len()
-                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
-                {
-                    index += 1;
-                }
-                index = (index + 2).min(bytes.len());
-                start = index;
-            }
-            _ => index += 1,
-        }
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
-}
-
-/// Removes a comma whose next non-space byte closes an object or array.
-fn drop_trailing_commas(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-        } else if byte == b','
-            && matches!(
-                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
-                Some(b'}' | b']')
-            )
-        {
-            output.push_str(&text[start..index]);
-            start = index + 1;
-        }
-        index += 1;
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
-}
+/// JSONC to JSON (`cmux_json::strip_jsonc`, shared with the phone host).
+pub use cmux_json::strip_jsonc;
 
 #[cfg(test)]
 mod tests {
@@ -589,6 +596,17 @@ mod tests {
     }
 
     #[test]
+    fn tailnet_carrier_is_off_unless_direct_only_or_on_is_named() {
+        use super::TailnetCarrier::{DirectOnly, Off, On};
+        use super::tailnet_carrier_from_config_text as carrier;
+        assert_eq!(carrier(""), Off);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off);
+        assert_eq!(carrier("{not json"), Off);
+    }
+
+    #[test]
     fn agent_share_idle_minutes_is_fifteen_unless_the_file_names_a_value_in_range() {
         use super::agent_share_idle_minutes_from_config_text as minutes;
         assert_eq!(minutes(""), 15);
@@ -607,6 +625,43 @@ mod tests {
             15,
             "unit tests never read the developer's file"
         );
+    }
+
+    #[test]
+    fn auto_cloud_is_the_files_boolean_flat_or_nested_and_false_wins() {
+        use super::auto_cloud_from_config_text as auto_cloud;
+        assert_eq!(auto_cloud(""), None);
+        assert_eq!(auto_cloud("{}"), None);
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": true}}"#), Some(true));
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": false}}"#), Some(false));
+        assert_eq!(auto_cloud(r#"{"cloud.autoCloud": true}"#), Some(true), "flat key");
+        assert_eq!(
+            auto_cloud("{\n  // AutoCloud\n  \"cloud\": {\"autoCloud\": true,},\n}"),
+            Some(true)
+        );
+        assert_eq!(auto_cloud("\u{feff}{\"cloud\": {\"autoCloud\": true}}"), Some(true), "a BOM");
+        assert_eq!(
+            auto_cloud(r#"{"cloud.autoCloud": true, "cloud": {"autoCloud": false}}"#),
+            Some(false),
+            "a false in either form wins"
+        );
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": "yes"}}"#), None, "not a boolean");
+        assert_eq!(auto_cloud(r#"{"cloud": {"plan": "pro"}}"#), None);
+        assert_eq!(auto_cloud("{not json"), None);
+        assert_eq!(super::auto_cloud(), None, "unit tests never read the developer's file");
+    }
+
+    #[test]
+    fn auto_cloud_reads_the_file_again_at_each_call() {
+        use super::auto_cloud_from_config_file as read;
+        let path =
+            std::env::temp_dir().join(format!("cmux-auto-cloud-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{"cloud": {"autoCloud": true}}"#).unwrap();
+        assert_eq!(read(&path), Some(true));
+        std::fs::write(&path, r#"{"cloud": {"autoCloud": false}}"#).unwrap();
+        assert_eq!(read(&path), Some(false));
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(read(&path), None, "no file: no value");
     }
 
     #[test]

@@ -62,7 +62,7 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { main, settings, .. } => {
+            ToHost::Init { main, settings, state, .. } => {
                 scene_text = main
                     .split("SCENE_TEXT ")
                     .nth(1)
@@ -74,6 +74,14 @@ fn scripted_app_host() {
                     send(FromHost::Log {
                         level: "info".into(),
                         message: format!("init-settings {settings}"),
+                    });
+                }
+                // The kept scene state (`cmux.state`) the supervisor handed this start.
+                if let Some(state) = state.filter(|s| s.as_object().is_some_and(|s| !s.is_empty()))
+                {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("init-state {state}"),
                     });
                 }
                 // Top-level code that subscribes, as `cmux.events.on(...)` does.
@@ -113,6 +121,10 @@ fn scripted_app_host() {
                     send(FromHost::Scene { mount: mount.clone(), ops: Value::Array(ops) });
                     send(FromHost::Mounted { mount, error: None });
                     continue;
+                }
+                // `keep`: the view keeps these values, as `cmux.state` writes do.
+                if !ctx["keep"].is_null() {
+                    send(FromHost::State { values: ctx["keep"].clone() });
                 }
                 if export == "renderLive" {
                     send(FromHost::Subscribe {
@@ -278,6 +290,9 @@ type Publish = super::supervisor::StreamPublish;
 struct FakeRouter {
     calls: Mutex<Vec<RoutedCall>>,
     publish: Mutex<Option<Publish>>,
+    /// The cmux settings a setting-backed App Store entry reads and writes, by dotted key.
+    settings: Mutex<std::collections::HashMap<String, Value>>,
+    refuse_setting_write: Mutex<bool>,
 }
 
 impl OpRouter for Arc<FakeRouter> {
@@ -304,6 +319,18 @@ impl OpRouter for Arc<FakeRouter> {
 
     fn owns(&self, op: &str) -> bool {
         !super::provider::FAMILIES.contains(&super::provider::family_of(op))
+    }
+
+    fn setting_get(&self, key: &str) -> Option<Value> {
+        self.settings.lock().unwrap().get(key).cloned()
+    }
+
+    fn setting_set(&self, key: &str, value: Value) -> Result<(), super::supervisor::ApiError> {
+        if *self.refuse_setting_write.lock().unwrap() {
+            return Err(super::supervisor::ApiError::new("apps.setting", "setting is managed"));
+        }
+        self.settings.lock().unwrap().insert(key.to_string(), value);
+        Ok(())
     }
 }
 
@@ -340,6 +367,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let name = |verb: &str| format!("{family}.{verb}");
     let mut go = op(&name("go"), "go");
     go["palette"] = json!({ "title": "Go", "when": "paneFocused:editor" });
+    go["keyboard"] = json!([{ "key": "g", "when": "browserFocused" }, { "key": "cmd+g" }]);
     let ops = [go, op(&name("crash"), "crash"), op(&name("focus"), "focusTab")];
     let catalog = json!({ "family": family, "operations": ops });
     std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
@@ -1145,7 +1173,9 @@ fn apps_list_lists_palette_commands_and_apps_run_runs_them() {
     let demo = app_entry(&f.supervisor.list(), "cmux/demo");
     assert_eq!(
         demo["commands"],
-        json!([{ "op": "demo.go", "title": "Go", "when": "paneFocused:editor" }])
+        json!([{ "op": "demo.go", "title": "Go", "when": "paneFocused:editor",
+                 "keys": [{ "key": "cmd+g" }], "page_keys": ["g"],
+                 "page_key_when": { "g": "browserFocused" } }])
     );
     let (tx, rx) = channel();
     f.supervisor.run(
@@ -1159,10 +1189,34 @@ fn apps_list_lists_palette_commands_and_apps_run_runs_them() {
 }
 
 #[test]
+fn page_keys_follow_the_persons_bindings_in_storage() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let keys = |f: &Fixture| {
+        app_entry(&f.supervisor.list(), "cmux/demo")["commands"][0]["page_keys"].clone()
+    };
+    let set = json!({ "key": "cmux.keys", "value": { "demo.go": ["shift+g", "/"] } });
+    assert_eq!(f.call("m1", "app.storage.set", set, false)["ok"], true);
+    assert_eq!(keys(&f), json!(["shift+g", "/"]));
+    let chord = json!({ "key": "cmux.keys", "value": { "demo.go": ["cmd+g"] } });
+    assert_eq!(f.call("m1", "app.storage.set", chord, false)["ok"], true);
+    assert_eq!(keys(&f), json!(["g"]));
+    let off = json!({ "key": "cmux.keys", "value": { "demo.go": [] } });
+    assert_eq!(f.call("m1", "app.storage.set", off, false)["ok"], true);
+    assert_eq!(keys(&f), Value::Null);
+    assert_eq!(
+        f.call("m1", "app.storage.delete", json!({ "key": "cmux.keys" }), false)["ok"],
+        true
+    );
+    assert_eq!(keys(&f), json!(["g"]));
+}
+
+#[test]
 fn the_shipped_first_party_directory_is_the_default_set() {
     let root = temp_dir();
     let first_party = root.0.join("first-party");
-    write_app(&first_party, "coderouter", "cmux/coderouter", json!({ "workspace:read": "r" }));
+    write_app(&first_party, "notes", "cmux/notes", json!({ "workspace:read": "r" }));
     write_app(&first_party, "impostor", "octo/impostor", json!({}));
     let catalog = super::catalog::load(&Sources {
         first_party: Some(first_party),
@@ -1174,8 +1228,8 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         saved_prompts: None,
         defaults: None,
     });
-    assert_eq!(catalog.defaults, vec!["cmux/coderouter".to_string()]);
-    assert_eq!(catalog.packages["cmux/coderouter"].source, super::mirror::Source::Default);
+    assert_eq!(catalog.defaults, vec!["cmux/notes".to_string()]);
+    assert_eq!(catalog.packages["cmux/notes"].source, super::mirror::Source::Default);
     assert!(
         !catalog.packages.contains_key("octo/impostor"),
         "only first-party apps load from there"
@@ -1192,7 +1246,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         defaults: Some(vec![]),
     });
     assert!(overridden.defaults.is_empty());
-    assert_eq!(overridden.packages["cmux/coderouter"].source, super::mirror::Source::Bundled);
+    assert_eq!(overridden.packages["cmux/notes"].source, super::mirror::Source::Bundled);
 }
 
 /// Gate for the switch to the daemon supervisor: every bundled first-party
@@ -1307,6 +1361,97 @@ fn native_pane_apps_install_and_list_but_never_spawn_a_host() {
     );
 }
 
+/// The App Store's Auto cleanup (`first-party-apps/worktree-cleanup`, the shipped manifest): a
+/// first-party entry whose enabled switch is the cmux setting `worktrees.autoCleanup`, which
+/// acpmux reads before each automatic pass. It lists on by default (acpmux's default), the
+/// person's switch writes the setting, an agent's is refused, and an edit of the setting made
+/// elsewhere shows in the store; a switch that leaves the install record as it was still tells
+/// every page to read the entry again.
+#[test]
+fn the_auto_cleanup_entry_switches_its_cmux_setting() {
+    const ID: &str = "cmux/worktree-cleanup";
+    const KEY: &str = "worktrees.autoCleanup";
+    let root = temp_dir();
+    let app = root.0.join("bundled/worktree-cleanup");
+    std::fs::create_dir_all(&app).unwrap();
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../first-party-apps/worktree-cleanup/cmux-app.v2.json");
+    std::fs::copy(shipped, app.join("cmux-app.v2.json")).unwrap();
+    let f = fixture_with(&[ID], Duration::from_secs(60), root);
+    let row = |f: &Fixture| {
+        let list =
+            f.supervisor.store_call(CLIENT, "apps.catalog.list", json!({}), Origin::User).unwrap();
+        list["listings"].as_array().unwrap().iter().find(|l| l["app"] == ID).cloned().unwrap()
+    };
+    let installed = |f: &Fixture| {
+        let list = f
+            .supervisor
+            .store_call(CLIENT, "apps.installed.list", json!({}), Origin::User)
+            .unwrap();
+        list["apps"].as_array().unwrap().iter().find(|a| a["app"] == ID).cloned().unwrap()
+    };
+    let set = |f: &Fixture, key: &str, on: bool, origin: Origin| {
+        f.supervisor.store_call(
+            CLIENT,
+            "apps.set",
+            json!({ "app": ID, "enabled": on, "idempotency_key": key }),
+            origin,
+        )
+    };
+    let first = row(&f);
+    assert_eq!(first["name"], "Auto cleanup");
+    assert_eq!(first["hide_only"], json!(true));
+    assert_eq!(first["install"]["enabled"], json!(true), "on by default, as acpmux reads it");
+
+    let refused = set(&f, "k0", false, Origin::Script).unwrap_err();
+    assert_eq!(refused.code, "apps.origin", "an agent never turns cleanup off");
+    assert!(f.router.settings.lock().unwrap().get(KEY).is_none());
+
+    let answer = set(&f, "k1", false, Origin::User).unwrap();
+    assert_eq!(answer["app"]["state"]["enabled"], json!(false));
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(false)));
+    assert_eq!(row(&f)["install"]["enabled"], json!(false));
+    assert_eq!(installed(&f)["state"]["enabled"], json!(false));
+
+    // `cmux-next.json` edited by hand (or the Settings page): the store follows the setting.
+    f.router.settings.lock().unwrap().insert(KEY.into(), json!(true));
+    assert_eq!(row(&f)["install"]["enabled"], json!(true));
+    assert_eq!(installed(&f)["state"]["enabled"], json!(true));
+
+    // Off again: the install record already says off, so only the entry's own event refreshes
+    // the page.
+    while f.events.try_recv().is_ok() {}
+    set(&f, "k2", false, Origin::User).unwrap();
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(false)));
+    f.wait("the entry's apps-changed", |e| {
+        e["event"] == "apps-changed" && e["app"] == ID && e["transaction"] == "k2"
+    });
+
+    // A delayed retry of an older switch must not undo the person's newer choice.
+    set(&f, "k3", true, Origin::User).unwrap();
+    set(&f, "k4", false, Origin::User).unwrap();
+    let replay = set(&f, "k3", true, Origin::User).unwrap();
+    assert_eq!(replay["app"]["state"]["enabled"], json!(false));
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(false)));
+    assert_eq!(row(&f)["install"]["enabled"], json!(false));
+
+    // Settings edits outside the App Store also survive retries of committed switches.
+    f.router.settings.lock().unwrap().insert(KEY.into(), json!(true));
+    let replay = set(&f, "k4", false, Origin::User).unwrap();
+    assert_eq!(replay["app"]["state"]["enabled"], json!(true));
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(true)));
+
+    // A settings refusal must not consume the key: after it clears the same request can act.
+    *f.router.refuse_setting_write.lock().unwrap() = true;
+    let refused = set(&f, "k5", false, Origin::User).unwrap_err();
+    assert_eq!(refused.code, "apps.setting");
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(true)));
+    *f.router.refuse_setting_write.lock().unwrap() = false;
+    let retried = set(&f, "k5", false, Origin::User).unwrap();
+    assert_eq!(retried["app"]["state"]["enabled"], json!(false));
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(false)));
+}
+
 #[test]
 fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     let root = temp_dir();
@@ -1355,6 +1500,8 @@ mod local_reload;
 mod openers;
 #[path = "supervisor_overlay_tests.rs"]
 mod overlay;
+#[path = "supervisor_pane_flow_tests.rs"]
+mod pane_flow;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
@@ -1373,6 +1520,8 @@ mod status_items;
 mod subscriptions;
 #[path = "supervisor_toolbar_tests.rs"]
 mod toolbar;
+#[path = "supervisor_view_state_tests.rs"]
+mod view_state;
 #[path = "supervisor_widget_tests.rs"]
 mod widget_tiles;
 
@@ -1398,6 +1547,15 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_synced_tests.rs"]
+mod synced;
+
+#[path = "supervisor_git_tests.rs"]
+mod git_installs;
+
+#[path = "supervisor_git_update_tests.rs"]
+mod git_updates;
 
 #[path = "supervisor_scale_tests.rs"]
 mod at_scale;

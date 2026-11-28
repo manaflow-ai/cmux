@@ -61,6 +61,10 @@ def setUpModule():
     # As tests/test_base_red_excuse.py: no git, network or on-disk cache read.
     for patch in (unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True),
                   unittest.mock.patch.object(excuse, "compile_receipt", lambda repo, sha: None),
+                  # The settled-run lookup asks glaeda even with the disk cache off.
+                  unittest.mock.patch.object(excuse, "glaeda_log", None),
+                  unittest.mock.patch("subprocess.Popen", side_effect=AssertionError(
+                      "the property test must use fixture reads, never external commands")),
                   unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_JOBS_CACHE": "off",
                                                         "BASE_RED_EXCUSE_FIXTURE_SHA": "1"})):
         patch.start()
@@ -558,6 +562,64 @@ class GeneratorIsSound(unittest.TestCase):
                 said = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], PropertyGitHub(case))
                 self.assertTrue(said[0].startswith(f"excused '{JOB}'"), said)
                 self.assertEqual(violations(case, said[0]), [])
+
+
+ROLLUP = "ci-status"
+ROLLUP_RUN = 10
+OWN_STEP = "Upload a summary"  # a step of the rollup's own that reads no needs
+STEP_CONCLUSIONS = ("failure",) * 4 + ("cancelled", "timed_out", "success", "skipped")
+
+
+def rollup_case(rng: random.Random) -> tuple[dict, list[str], list[dict], bool]:
+    """A red ci-status job, the failed jobs judged beside it (some under its needs, some not, some in another run),
+    judge()'s audit so far, and whether run_rollup_line may name it: every failed job under its needs excused (at least
+    one), and every failed step of its own one that reports its needs, failed (never cancelled or timed out)."""
+    contract = excuse.rollups()["run"][ROLLUP]
+    under = [matcher["exact"][0] if matcher["exact"] else matcher["prefixes"][0] + "x"
+             for matcher in contract["under"].values()]
+    jobs, audit, children_ok, children = [], [], True, 0
+    for index, name in enumerate(rng.sample(under, rng.randint(0, 3)) + ["outside the needs"] * rng.randint(0, 1)):
+        run = ROLLUP_RUN if rng.random() < 0.85 else ROLLUP_RUN + 1
+        jobs.append({"id": 100 + index, "run_id": run, "name": name, "conclusion": "failure"})
+        excused = rng.random() < 0.7
+        if excused:
+            audit.append(f"excused '{name}': " + rng.choice(("fails the same way on base", "fixed on base (run 1)")))
+        elif rng.random() < 0.5:
+            audit.append(f"ignored '{name}': superseded")
+        if run == ROLLUP_RUN and name != "outside the needs":
+            children += 1
+            children_ok = children_ok and excused
+    steps = [{"name": name, "conclusion": rng.choice(STEP_CONCLUSIONS)}
+             for name in rng.sample(contract["reports"] + [OWN_STEP], rng.randint(0, len(contract["reports"]) + 1))]
+    own = [step for step in steps if step["conclusion"] not in ("success", "skipped")]
+    own_ok = bool(own) and all(step["name"] in contract["reports"] and step["conclusion"] == "failure" for step in own)
+    rollup = {"id": 1, "run_id": ROLLUP_RUN, "name": ROLLUP, "conclusion": "failure", "steps": steps}
+    return rollup, audit, jobs, children_ok and children > 0 and own_ok
+
+
+class RollupLineProperty(unittest.TestCase):
+    """run_rollup_line names a red rollup excused exactly when every failed job under its needs is excused and its
+    own failed steps only report them (hq#12466); everything else refuses, so no rollup red is named past its
+    children."""
+
+    def test_a_rollup_is_named_only_when_every_failed_need_is_excused_and_its_own_steps_report_them(self):
+        count = int(os.environ.get("BASE_RED_PROPERTY_SEEDS", "1500"))
+        start = int(os.environ.get("BASE_RED_PROPERTY_START", "0"))
+        named = refused = 0
+        for seed in range(start, start + count):
+            rollup, audit, jobs, allowed = rollup_case(random.Random(seed))
+            try:
+                line = excuse.run_rollup_line(REPO, rollup, audit, jobs)
+            except excuse.Refused:
+                refused += 1
+                self.assertFalse(allowed, f"seed {seed}: refused a rollup every need of which is excused")
+                continue
+            named += 1
+            self.assertTrue(allowed, f"seed {seed}: named {line!r}")
+            self.assertTrue(line.startswith(f"excused '{ROLLUP}': "), line)
+        if count >= NON_VACUOUS_SEEDS:
+            self.assertGreater(named, 0)
+            self.assertGreater(refused, 0)
 
 
 if __name__ == "__main__":
