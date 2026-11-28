@@ -314,3 +314,163 @@ async fn a_lane_vms_reads_go_through_the_broker() {
     assert_eq!(fetch.get("repos/o/r/pulls/9", None).await.unwrap_err(), e);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A fake GitHub of repository reads: `repos/o/r/actions/runs/1` answers with ETag `r1`;
+/// `repos/o/r/issues/404` answers 404; `fail` makes every read a transport failure.
+#[derive(Default)]
+struct Reads {
+    gets: AtomicU64,
+    fail: std::sync::atomic::AtomicBool,
+    remaining: Option<u64>,
+}
+
+impl Fetch for Reads {
+    fn get<'a>(&'a self, path: &'a str, etag: Option<&'a str>) -> Fut<'a, Result<Reply, String>> {
+        Box::pin(async move {
+            self.gets.fetch_add(1, Ordering::SeqCst);
+            if self.fail.load(Ordering::SeqCst) {
+                return Err("connection reset".to_owned());
+            }
+            if path.ends_with("/issues/404") {
+                return Ok(Reply { status: 404, body: b"{}".to_vec(), ..Reply::default() });
+            }
+            let remaining = self.remaining;
+            let reset = remaining.map(|_| 4_000_000_000);
+            if etag == Some("r1") {
+                return Ok(Reply {
+                    status: 304,
+                    etag: Some("r1".into()),
+                    remaining,
+                    reset,
+                    ..Reply::default()
+                });
+            }
+            Ok(Reply {
+                status: 200,
+                etag: Some("r1".into()),
+                body: json!({"id": 1, "path": path}).to_string().into_bytes(),
+                remaining,
+                reset,
+                last_page: None,
+            })
+        })
+    }
+
+    fn view<'a>(&'a self, _repo: &'a str, _number: u64) -> Fut<'a, Result<Value, String>> {
+        Box::pin(async move { Err("not used".to_owned()) })
+    }
+}
+
+const RUN: &str = "repos/O/R/actions/runs/1";
+
+#[tokio::test(start_paused = true)]
+async fn n_readers_of_one_path_cost_one_read() {
+    // Before: every agent's `gh api repos/...` was its own call. After: one GET however many
+    // read it within `fresh`.
+    for n in [1_u64, 5, 20, 50] {
+        let poller = Arc::new(Poller::new(Reads::default(), Config::default()));
+        let mut joins = Vec::new();
+        for _ in 0..n {
+            let p = poller.clone();
+            joins.push(tokio::spawn(async move {
+                p.get(RUN, Duration::from_secs(30)).await.map(|a| a.source)
+            }));
+        }
+        let mut fetched = 0;
+        for j in joins {
+            if j.await.expect("join").expect("answer") == Source::Fetched {
+                fetched += 1;
+            }
+        }
+        assert_eq!(poller.fetch.gets.load(Ordering::SeqCst), 1, "{n} readers");
+        assert_eq!(fetched, 1);
+        assert_eq!(poller.counters().cache_hits, n - 1);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reread_past_fresh_is_a_free_304() {
+    let poller = Poller::new(Reads::default(), Config::default());
+    let first = poller.get(RUN, Duration::from_secs(30)).await.expect("first");
+    tokio::time::advance(Duration::from_secs(31)).await;
+    let second = poller.get(RUN, Duration::from_secs(30)).await.expect("second");
+    assert_eq!(second.source, Source::Fetched);
+    assert_eq!(second.pr, first.pr);
+    let c = poller.counters();
+    assert_eq!((c.requests, c.charged, c.not_modified), (2, 1, 1));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_path_is_the_key_whatever_its_case_or_prefix() {
+    let poller = Poller::new(Reads::default(), Config::default());
+    poller.get(RUN, Duration::from_secs(30)).await.expect("first");
+    for same in ["/repos/o/r/actions/runs/1", "https://api.github.com/repos/O/r/actions/runs/1"] {
+        let a = poller.get(same, Duration::from_secs(30)).await.expect(same);
+        assert_eq!(a.source, Source::Cache, "{same}");
+    }
+    assert_eq!(poller.fetch.gets.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_spent_budget_answers_kept_bodies_stale_and_refuses_new_ones() {
+    let cfg = Config { capacity: 1.0, refill_per_hour: 1.0, ..Config::default() };
+    let poller = Poller::new(Reads::default(), cfg);
+    poller.get(RUN, Duration::from_secs(30)).await.expect("first");
+    tokio::time::advance(Duration::from_secs(60)).await;
+    let kept = poller.get(RUN, Duration::from_secs(30)).await.expect("kept");
+    assert_eq!(kept.source, Source::Stale);
+    assert!(kept.note.as_deref().unwrap_or_default().contains("budget is spent"));
+    let other = poller.get("repos/o/r/issues/5", Duration::from_secs(30)).await;
+    let refusal = other.expect_err("nothing kept");
+    assert!(refusal.retry_after.is_some());
+    assert_eq!(poller.fetch.gets.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failed_read_answers_kept_stale_but_a_4xx_refuses_and_drops_it() {
+    let poller = Poller::new(Reads::default(), Config::default());
+    poller.get(RUN, Duration::from_secs(30)).await.expect("first");
+    poller.fetch.fail.store(true, Ordering::SeqCst);
+    tokio::time::advance(Duration::from_secs(31)).await;
+    let kept = poller.get(RUN, Duration::from_secs(30)).await.expect("stale");
+    assert_eq!(kept.source, Source::Stale);
+    assert_eq!(kept.note.as_deref(), Some("connection reset"));
+    poller.fetch.fail.store(false, Ordering::SeqCst);
+    let gone = poller.get("repos/o/r/issues/404", Duration::from_secs(30)).await;
+    let refusal = gone.expect_err("404");
+    assert!(refusal.message.contains("HTTP 404"));
+    assert_eq!(refusal.retry_after, None);
+}
+
+#[test]
+fn read_path_takes_repository_reads_only() {
+    assert_eq!(
+        read_path("/repos/Man/Cmux/pulls/1?per_page=5").as_deref(),
+        Ok("repos/man/cmux/pulls/1?per_page=5")
+    );
+    for bad in [
+        "",
+        "graphql",
+        "search/issues?q=x",
+        "user",
+        "repos/o/r",
+        "repos/o/r/",
+        "repos/../r/x",
+        "repos/o/r/a/../../b",
+        "repos/o/r/a b",
+        "repos/o/r/x#y",
+        "repos/o$/r/x",
+    ] {
+        assert!(read_path(bad).is_err(), "{bad}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn github_s_floor_holds_reads_too() {
+    let reads = Reads { remaining: Some(10), ..Reads::default() };
+    let poller = Poller::new(reads, Config::default());
+    poller.get(RUN, Duration::from_secs(30)).await.expect("first");
+    let other = poller.get("repos/o/r/issues/9", Duration::from_secs(30)).await;
+    assert!(other.is_err(), "under GitHub's floor nothing new is fetched");
+    assert_eq!(poller.fetch.gets.load(Ordering::SeqCst), 1);
+}

@@ -24,7 +24,7 @@ presented_observer=0 presented_pid="" presented_window="" presented_marker_origi
 ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""
 video_path="" video_sha=""
 netem_rtt_ms="" netem_loss_pct=0 netem_seed=1
-stage_table=""
+stage_table="" seed_grants=0
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -59,6 +59,10 @@ for arg in "$@"; do
     netem-seed=*) netem_seed="${arg#netem-seed=}" ;;
     # prebuilt=DIR: copy the built tools from DIR instead of building any (README.md, "Prebuilt tools").
     prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
+    # seed-grants=1 (a dedicated fleet Mac, inside a fleet console step only): when CmuxScreenEvalLauncher.app
+    # lacks Screen Recording or Accessibility, write the two rows a person's console grant makes
+    # (launcher/seed-grants.sh), so a new fleet Mac needs no console step. Printed, never silent.
+    seed-grants=*) seed_grants="${arg#seed-grants=}" ;;
     # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
     tools-only=*) tools_only="${arg#tools-only=}" ;;
     # Apple always requires a fresh source marker. Other displayed viewers may
@@ -496,6 +500,16 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
     app="$home/Applications/CmuxScreenEvalLauncher.app"
   else
     app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log") || install_status=$?
+  fi
+  if [[ "$install_status" == 0 && "$seed_grants" == 1 ]]; then
+    # The fleet console step test person_guard.py uses (fleet_console_step); person_guard has already refused
+    # a person's Mac above, so this writes grants only on a dedicated fleet worker.
+    if [[ "${CMUX_CI_CONSOLE_SESSION:-}" == 1 && -n "${CMUX_CI_STEP_KEY:-}" ]]; then
+      seeded=$(bash "$here/launcher/seed-grants.sh" "$app" 2>&1)
+      echo "SCREEN-STREAM-EVAL-LAUNCHER-SEED $seeded"
+    else
+      echo "SCREEN-STREAM-EVAL-LAUNCHER-SEED skipped: seed-grants=1 runs only inside a fleet console step (CMUX_CI_CONSOLE_SESSION=1 with CMUX_CI_STEP_KEY)"
+    fi
   fi
   if [[ "$install_status" == 0 ]]; then
     # --request also lists the app under Privacy & Security, where the grant is made.
