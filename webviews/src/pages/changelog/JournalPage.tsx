@@ -14,6 +14,7 @@
 // The Ledger (u5099, the default) is this page laid out as conductor.build/changelog: each day's
 // newest version as a small tag and its date sit sticky in the left margin, the changes beside them.
 import {
+  Fragment,
   memo,
   useCallback,
   useLayoutEffect,
@@ -22,7 +23,6 @@ import {
   useState,
   type FocusEvent,
   type KeyboardEvent,
-  type ReactNode,
   type RefObject,
 } from "react";
 import {
@@ -89,7 +89,8 @@ export function JournalPage({
             {shown.days.map(({ index, gap }) => {
               const day = days[index]!;
               return (
-                <DayRoom key={dayKey(day)} gap={gap}>
+                <Fragment key={dayKey(day)}>
+                  {dayGap(gap)}
                   <DaySection
                     index={index}
                     measure={shown.measure}
@@ -100,7 +101,7 @@ export function JournalPage({
                     ctx={ctx}
                     ledger={ledger}
                   />
-                </DayRoom>
+                </Fragment>
               );
             })}
             {shown.after > 0 && <div aria-hidden="true" style={{ height: shown.after }} />}
@@ -243,14 +244,11 @@ export function dayKey(day: { day: string; builds: IndexEntry[] }): string {
   return day.day + day.builds[0]!.build;
 }
 
-/** A drawn day, after the room the days above it that are not drawn would take. */
-export function DayRoom({ gap, children }: { gap: number; children: ReactNode }) {
-  return (
-    <>
-      {gap > 0 && <div aria-hidden="true" style={{ height: gap }} />}
-      {children}
-    </>
-  );
+/** The room the days above a drawn day that are not drawn would take, before it. A plain element in
+    the list's own render, not a component around the day: a wrapper would run for every drawn day
+    each time the list renders (a note loads, a scroll step), though the day itself is memo. */
+export function dayGap(gap: number) {
+  return gap > 0 && <div aria-hidden="true" style={{ height: gap }} />;
 }
 
 /** A day section's ref: `measure` sizes it for the day list (and lets it go when it unmounts),

@@ -12,6 +12,7 @@ import type { Root } from "react-dom/client";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import type { IndexEntry, ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { rowRenders } from "./support/commitRenders";
 import { teardownDom } from "./support/domTeardown";
 
 /// Each day's date drawn, by date.
@@ -174,7 +175,8 @@ function host(builds: IndexEntry[], held: string) {
   return { client, release: () => release() };
 }
 
-const mounted = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>(".clj-section:not(.clj-span)")];
+const DAYS = ".clj-section:not(.clj-span)";
+const mounted = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>(DAYS)];
 const datesOf = (sections: HTMLElement[]) => sections.map((s) => s.querySelector("time")!.getAttribute("dateTime")!);
 
 async function scrollWindow(y: number) {
@@ -227,6 +229,34 @@ describe.each(["sheet", "journal"] as const)("the %s page's days", (design) => {
       counts.set(count, { days: days.length, reads });
       await scrollWindow(0);
     }, 60_000);
+
+  // Counted from React's commits (support/commitRenders.ts), not from the date's draws: a wrapper
+  // around each day that runs on every list render is charged to its day too.
+  test("at 1000 builds a note load and a scroll step render nothing in the other drawn days", async () => {
+    const { ChangelogStore } = await import("../src/pages/changelog/store");
+    const { ChangelogPage } = await import("../src/pages/changelog/ChangelogPage");
+    const builds = index(1_000);
+    const held = builds[1]!;
+    const { client, release } = host(builds, held.build);
+    const store = new ChangelogStore(client);
+    await store.start();
+    Object.defineProperty(dom.window, "scrollY", { configurable: true, value: 0 });
+    const page = await mount(<ChangelogPage store={store} strings={await strings()} design={design} />);
+    expect(mounted(page).length).toBeGreaterThan(2);
+    const renders = rowRenders();
+
+    // One note loads: its day renders, no other drawn day.
+    renders.begin(page, DAYS);
+    release();
+    await settle();
+    expect(renders.end()).toMatchObject({ rerendered: 1, wasted: 0 });
+
+    // One scroll step (a day): no day still drawn renders.
+    renders.begin(page, DAYS);
+    await scrollWindow(DAY);
+    expect(renders.end()).toMatchObject({ rerendered: 0, wasted: 0 });
+    await scrollWindow(0);
+  }, 60_000);
 
   test("the days drawn and the boxes read do not grow with the index", () => {
     const small = counts.get(SIZES[0])!;
