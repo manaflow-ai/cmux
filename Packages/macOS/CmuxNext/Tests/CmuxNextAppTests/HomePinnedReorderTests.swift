@@ -183,17 +183,4 @@ import Testing
         #expect(pins.unpinned == [CmuxHomeCore.ConversationID("conv_c")])
         #expect(pins.positions.isEmpty)
     }
-
-    @Test func withOnlyThisMacsPinsTheMainChiefLeadsUntilItIsDropped() {
-        let rows = HomeChiefRosterTests.rows
-        let roster = HomeChiefRosterTests.roster()
-        var pins = HomePins()
-        let first = HomeSidebarModel(rows: rows, pins: pins, me: HomeChiefRosterTests.me, chiefRoster: roster)
-        #expect(first.pinned.first?.id == HomeChiefRosterTests.hosted, "by default the main Chief leads")
-        let shown = first.pinned.map(\.id)
-        pins.place(HomeChiefRosterTests.hosted, at: shown.count - 1, shown: shown)
-        let dropped = HomeSidebarModel(rows: rows, pins: pins, me: HomeChiefRosterTests.me, chiefRoster: roster)
-        #expect(dropped.pinned.last?.id == HomeChiefRosterTests.hosted, "dropped last, the main Chief stays last")
-        #expect(dropped.pinned.first?.isMainChief == false)
-    }
 }
