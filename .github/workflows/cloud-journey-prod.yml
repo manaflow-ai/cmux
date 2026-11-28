@@ -263,6 +263,13 @@ jobs:
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saved a ~260 MB `setup-zig-cache-journey-...-<run_id>` entry every hourly run, which kept
+          # the repository's 10 GB cache store churning (every entry evicted within ~35 min on 2026-11-28).
+          # zig-global-cache keys it by job, Zig version and week, and saves once per key.
+          use-cache: false
+      - name: Restore the Zig global cache
+        if: env.SELECTED == 'true'
+        uses: ./.github/actions/zig-global-cache
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
@@ -478,6 +485,9 @@ jobs:
       - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache
+        uses: ./.github/actions/zig-global-cache
       - name: Build the shipped Linux cmux-tui
         id: build-cmux-tui
         working-directory: cmux-tui
