@@ -59,6 +59,22 @@ class Record(unittest.TestCase):
         self.assertTrue(body.startswith(f"<!-- cmux-proof-record ios-flows {HEAD} -->"))
         self.assertEqual(pr.parse(body), RECORD)
 
+    def test_a_big_record_still_fits_one_comment(self):
+        # cmux#38466: 201 screens rendered 38365 characters, the broker refused it and the gate never saw the proof.
+        big = copy.deepcopy(RECORD)
+        big["captures"] = [{"name": f"{i:08X}-4C8B-4892-AAAB-66BEE93F5ACA.png", "sha256": f"{i:064x}",
+                            "diff_ratio": 0.0008, "verdict": "same"} for i in range(201)]
+        big["visual"] = {"screens": 201, "changed": [c["name"] for c in big["captures"][:100]]}
+        self.assertGreater(len(json.dumps(big, indent=1)), pr.COMMENT_BUDGET)
+        body = pr.render(big, "summary")
+        self.assertLessEqual(len(body), pr.COMMENT_BUDGET)
+        back = pr.parse(body)
+        self.assertEqual(back["verdict"], "pass")
+        self.assertEqual(len(back["captures"]), 201)
+        self.assertEqual(pr.gate(back, "ios-flows")[0], "success")
+        self.assertEqual(back["captures"][0]["sha256"], f"{0:012x}")
+        self.assertIn('\n "kind"', pr.render(RECORD))  # a small record keeps the readable indented form
+
     def test_problems(self):
         self.assertEqual(pr.problems(RECORD), [])
         bad = copy.deepcopy(RECORD)
