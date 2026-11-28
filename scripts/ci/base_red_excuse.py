@@ -6459,6 +6459,8 @@ _FAIL_FAST = ("head fail-fast (head-fail-fast.yml, #54837): cancels the head's o
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
+        "app-store-shelf-pr": "installs every App Store shelf listing at the head (app-store-shelf-check.sh): "
+                              "a product check whose red reads the packages, judged as any job's",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
@@ -8040,6 +8042,9 @@ def risk_evidence_quota(view: "FailedView | Unplaced", workflow_info: dict | Non
         r"Policy: docs/ci/risk-tiers\.md|"
         r"(?:::|##\[)warning(?:::|\])the glaeda-route App's read failed; grading on GITHUB_TOKEN|"
         r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, GitHub rate limit \(not a verdict on this pull request\)|"
+        # risk-tier.yml's own line when the reset is past RATE_LIMIT_WAIT_S (#64468 run 46145858015).
+        r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, the soonest budget reset \(\d{2}:\d{2}:\d{2}Z\) "
+        r"is past the \d+s wait; rerun after it|"
         r"gh api .* exited [1-9]\d* \(GitHub API quota: structured refusal; endpoint [^,]+, HTTP (?:403|429)\)|"
         r"gh api .*: GitHub rate limit; waiting \d+s for the budget|"
         r"##\[error\]Process completed with exit code 1\.?|Cleaning up orphan processes"
