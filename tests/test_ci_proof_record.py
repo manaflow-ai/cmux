@@ -358,6 +358,51 @@ class Plan(unittest.TestCase):
              ios_verify.fetch) = saved
 
 
+class PinChecks(unittest.TestCase):
+    """cmux#62161: an offline and a runner-paused pin left the verify silent for 3 h; a disk-paused pin held a
+    shard 41 min. Explicit pins are checked first and a queued shard reports where it waits."""
+
+    ROWS = {"cmux22": {"state": "offline"}, "cmux23": {"state": "online", "claim_paused": "runner_job"},
+            "cmux21": {"state": "online", "claim_paused": "disk"}, "aws-m4pro-1": {"state": "online"}}
+
+    def test_offline_and_paused_pins_are_skipped(self):
+        with mock.patch.object(ios_verify, "log") as log:
+            got = ios_verify.check_pins(["cmux22", "cmux23", "cmux21", "aws-m4pro-1"], self.ROWS, False)
+        self.assertEqual(got, ["aws-m4pro-1"])
+        said = " ".join(c.args[0] for c in log.call_args_list)
+        for why in ("state=offline", "claim_paused=runner_job", "claim_paused=disk"):
+            self.assertIn(why, said)
+
+    def test_all_blocked_hands_placement_to_the_controller(self):
+        with mock.patch.object(ios_verify, "log"):
+            self.assertEqual(ios_verify.check_pins(["cmux21"], self.ROWS, False), [])
+
+    def test_pin_strict_warns_and_keeps(self):
+        with mock.patch.object(ios_verify, "log") as log:
+            self.assertEqual(ios_verify.check_pins(["cmux21"], self.ROWS, True), ["cmux21"])
+        self.assertIn("--pin-strict keeps it", log.call_args.args[0])
+
+    def test_unreadable_list_keeps_pins(self):
+        with mock.patch.object(ios_verify, "log"):
+            self.assertEqual(ios_verify.check_pins(["cmux22"], None, False), ["cmux22"])
+
+    def test_queued_shard_reports_placement_and_stays_put(self):
+        step = {"name": "sim 1/1: test", "mode": "test", "worker": None, "args": ["test"]}
+        CP = ios_verify.subprocess.CompletedProcess
+        sid = "0123456789abcdef01234567"
+        status = CP([], 0, '{"placement_wait": "target_paused: cmux21 pauses its claims: disk"}', "")
+        results = [CP([], ios_verify.QUEUE_TIMEOUT_EXIT, f"step {sid} queued", ""), status, CP([], 0, "", "")]
+        with mock.patch.object(ios_verify.subprocess, "run", side_effect=results) as run, \
+                mock.patch.object(ios_verify, "log") as log:
+            r = ios_verify.run_step(step, HEAD, 7, False, "1")
+        cmds = [c.args[0] for c in run.call_args_list]
+        self.assertEqual(cmds[0], cmds[2])  # same key re-attaches; no cancel, no other host
+        self.assertNotIn("--target-worker", cmds[0])
+        self.assertEqual(cmds[1], ["cmux-ci", "status", sid])
+        self.assertTrue(any("target_paused" in c.args[0] for c in log.call_args_list))
+        self.assertEqual(r["result"], "pass")
+
+
 class Launcher(unittest.TestCase):
     def test_cmux_ios_verify_runs_this_script(self):
         dev = (ROOT / "cmux-tui/crates/cmux-tui/src/cli/dev.rs").read_text()

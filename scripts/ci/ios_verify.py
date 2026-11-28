@@ -13,6 +13,10 @@
    reusing cached DerivedData, FFI/cargo cache and a slim simulator (--sim-features none); `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
    reconnects) when a selected flow has "pair_e2e": true; the flows' `scripts` here. A flow's macOS `swift` tests
    are named as delegated to pr-pipeline's mac job, which runs them on the same head.
+   An explicit pin that is offline or claim-paused (runner_job, host_lock, disk, ...) is warned about and dropped
+   before submitting, so its shard goes to the controller's placement; with --pin-strict it is warned about and kept.
+   While a shard is queued, a progress line (its placement_wait) prints every 2 min, so a stall shows where it is
+   (cmux#62161 sat 3 h silent on an offline and a runner-paused pin, then exit 124).
 4. Compare. Each screenshot is diffed against the newest passing ios-flows proof on a PR merged into the base (the
    last green build's captures). A screen whose changed pixels pass 1% (channel tolerance 16, ios_gate_screen_diff.py's
    threshold) fails the proof unless a `Visual-change: <screen or family/screen or *>: <why>` line in the PR body (its
@@ -67,6 +71,8 @@ DEFAULT_SHARDS = 2
 LEGACY_WORKERS = ("cmux22", "cmux23")  # Scrub old worker names from public proof text too.
 FORBIDDEN_WORKERS = {"cosmic-gray", "air-blue"}
 GATE_JOB = "ios fast verdict status"
+POLL_S = 120  # a queued shard reports its placement this often; the same --key re-attaches to the queued step
+QUEUE_TIMEOUT_EXIT = 75  # cmux-ci run --queue-timeout: the client stopped waiting, the step keeps its place
 BROKER_ID = re.compile(r"through the broker as (\S+)")
 STEP_ID = re.compile(r"\bstep[: ]+([0-9a-f]{8,})\b")
 SAME_RATIO = 0.002
@@ -99,6 +105,75 @@ def workers_from(spec: str) -> list[str]:
     if bad:
         raise SystemExit(f"ios verify: {', '.join(bad)} take no builds (Leo's GUI Macs); pick fleet minis")
     return out
+
+
+def log(msg: str) -> None:
+    """Progress on stderr as it happens, so a stall shows where it is instead of a silent timeout."""
+    print(f"ios verify {now()}: {msg}", file=sys.stderr, flush=True)
+
+
+def fleet_rows(names: list[str]) -> dict[str, dict] | None:
+    """The controller's rows for the named workers, or None when the list cannot be read (then pins stand)."""
+    out: dict[str, dict] = {}
+    for n in names:  # one --name read per pin: the bare list is the whole fleet (megabytes)
+        try:
+            p = subprocess.run(["cmux-ci", "workers", "--name", n], capture_output=True, text=True, timeout=90)
+            text = p.stdout
+            rows, _ = json.JSONDecoder().raw_decode(text[text.find("{"):] if "{" in text else "")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return None
+        if p.returncode or not isinstance(rows, dict):
+            return None
+        if n in rows:
+            out[n] = dict(rows[n], name=n)
+    return out
+
+
+def unusable(name: str, rows: dict[str, dict]) -> str:
+    """Why an explicit pin cannot claim now ("" when it can): gone, not online, or any claim_paused."""
+    w = rows.get(name)
+    if w is None:
+        return "not in the fleet list"
+    if w.get("state") != "online":
+        return f"state={w.get('state') or '?'}"
+    if w.get("claim_paused"):
+        return f"claim_paused={w['claim_paused']}"
+    return ""
+
+
+def check_pins(workers: list[str], rows: dict[str, dict] | None, strict: bool) -> list[str]:
+    """Explicit pins that can claim now. A blocked pin is warned about and dropped (its shards go to the
+    controller's placement); with --pin-strict it is kept. An unreadable fleet list keeps every pin."""
+    if not workers or rows is None:
+        if workers:
+            log("worker list unreadable: keeping the pins as given")
+        return workers
+    ok = []
+    for n in workers:
+        why = unusable(n, rows)
+        if not why:
+            ok.append(n)
+        elif strict:
+            log(f"warning: pinned {n} is {why}; --pin-strict keeps it, its shard waits there")
+            ok.append(n)
+        else:
+            log(f"warning: pinned {n} is {why}; skipping it")
+    if workers and not ok:
+        log("no pinned worker can claim now: the controller places the shards")
+    return ok
+
+
+def placement_wait(text: str) -> str:
+    """The controller's placement_wait for the step a cmux-ci run printed, or "" when it cannot be read."""
+    ids = re.findall(r"\b[0-9a-f]{24}\b", text)
+    if not ids:
+        return ""
+    try:
+        p = subprocess.run(["cmux-ci", "status", ids[-1]], capture_output=True, text=True, timeout=90)
+        row, _ = json.JSONDecoder().raw_decode(p.stdout[p.stdout.find("{"):])
+        return str(row.get("placement_wait") or "")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return ""
 
 
 # ---------- plan ----------
@@ -151,8 +226,19 @@ def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -
         cmd.append("--pin-strict")
     for a in step["args"]:
         cmd += ["--arg", a]
+    cmd += ["--queue-timeout", str(POLL_S)]
     t0 = time.monotonic()
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    where = step["worker"] or "controller placement"
+    log(f"{step['name']}: submitted ({where})")
+    while True:  # each pass waits up to POLL_S in the queue; the same --key re-attaches, keeping its place
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if p.returncode != QUEUE_TIMEOUT_EXIT:
+            break
+        wait = placement_wait(p.stdout + "\n" + p.stderr)
+        log(f"{step['name']}: queued {round(time.monotonic() - t0) // 60} min ({where})"
+            + (f": {wait[:200]}" if wait else ""))
+    log(f"{step['name']}: {'pass' if p.returncode == 0 else f'exit {p.returncode}'}"
+        f" after {round(time.monotonic() - t0)} s")
     text = p.stdout + "\n" + p.stderr
     m = BROKER_ID.search(text) or STEP_ID.search(text)
     return {"name": step["name"], "mode": step["mode"], "worker": step["worker"], "args": step["args"],
@@ -435,6 +521,9 @@ def main(argv: list[str] | None = None) -> int:
     workers = workers_from(a.workers)
     if a.pin_strict and not workers:
         ap.error("--pin-strict requires --workers or CMUX_IOS_VERIFY_WORKERS")
+    named = list(workers)
+    if workers and not a.plan:
+        workers = check_pins(workers, fleet_rows(workers), a.pin_strict)
     view = pr_view(a.pr, a.repo)
     repo = a.repo or view["url"].split("github.com/")[1].rsplit("/pull/", 1)[0]
     merged = False
@@ -459,6 +548,7 @@ def main(argv: list[str] | None = None) -> int:
             print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
         return 0
     with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
+        log(f"{len(steps)} simulator shard(s), {len(selection['scripts'])} script(s) at {head[:10]}")
         futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
         futs += [pool.submit(run_script, s) for s in selection["scripts"]]
         runs = [f.result() for f in futs]
@@ -495,7 +585,7 @@ def main(argv: list[str] | None = None) -> int:
         if r["result"] in ("fail", "error"):
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = scrub_hosts(proof_record.render(record, summary_md(record)),
-                       [*workers, *LEGACY_WORKERS, *FORBIDDEN_WORKERS, os.uname().nodename,
+                       [*workers, *named, *LEGACY_WORKERS, *FORBIDDEN_WORKERS, os.uname().nodename,
                         *(r.get("worker", "") for r in runs)])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
