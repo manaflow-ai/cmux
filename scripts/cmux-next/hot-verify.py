@@ -3,7 +3,8 @@
 
     hot-verify.py plan --source dir:PATH|pr:N|sha:SHA [--repo CMUX_CLONE] [--app APP | --base COMMIT] [--json]
     hot-verify.py look --source dir:PATH|pr:N|sha:SHA --app APP --out DIR [--repo CMUX_CLONE] [--side NAME]
-                       [--kit DIR] [--state STEPS.json] [--no-video] [--watch] [--pr N --record]
+                       [--kit DIR] [--state STEPS.json] [--no-video] [--watch] [--pr N --record [--no-post]]
+                       [--head-app APP]
     hot-verify.py run --source dir:PATH|pr:N|sha:SHA --app APP --side NAME [--repo CMUX_CLONE] [--label TEXT]
     hot-verify.py extract --side NAME [--out FILE.patch]
     hot-verify.py stop --side NAME [--remove]
@@ -66,6 +67,11 @@ edit_to_visible_s (the change handed to the copy until its first after shot), pu
 commit's time until that shot)}. The marker is the line cmuxterm-hq's hot-verify comment and NOW metric read:
 
     <!-- cmux-hot-verify sha=<40-hex head> app=<CMUXCommit> layers=<web,rust> source=<worktree|pr> -->
+
+--head-app APP is the head's Swift already swapped into a copy of --app (scripts/measure/ui-proof-look.sh, a fleet
+Mac: swap-binary.sh): a plan whose build is only Swift, manifests, resources and strings shows that copy after, with
+its web and rust layers put in as onto NIGHTLY's, instead of a fleet app build. --no-post writes proof-record.md and
+posts nothing.
 
 Exit 0 looked (or nothing in the app changes), 1 the look failed, 2 usage, 3 the change needs a build (no look).
 The copy is stopped at the end; --watch leaves it and its dev server running (edits to a dir: source then show
@@ -1802,7 +1808,8 @@ def command_look(args) -> int:
         # A Swift-only change (strings beside it) gets the head's complete app from the fleet: NIGHTLY's copy is
         # shot first, then the copy is made again from that app and shot after (look(), built). Without this no
         # Swift PR could get a look, and cmux/ui-proof held every one pending (cmux#62345, cmux#61438, 2026-11-27).
-        built = planned["needs_build"] and can_build_swift_app(planned)
+        swapped = getattr(args, "head_app", None)
+        built = planned["needs_build"] and (swap_carries(planned) if swapped else can_build_swift_app(planned))
         if planned["needs_build"] and not built:
             receipt["errors"].append("the change needs a build: " + "; ".join(planned["build"]))
             return finish(out, receipt, phases, began, EXIT_NEEDS_BUILD)
@@ -1856,6 +1863,9 @@ def command_look_recorded(args) -> int:
     from proof_record import render  # noqa: E402 - ui_proof_verdict put scripts/ci on the path
     body = out / "proof-record.md"
     body.write_text(render(record, ui_proof_verdict.summary(record)))
+    if getattr(args, "no_post", False):
+        log(f"proof record {record['verdict']}: written to {body}, not posted (--no-post)")
+        return code
     done = subprocess.run(["gh", "pr", "comment", str(args.pr), "--repo", args.repo_slug, "--body-file", str(body)],
                           capture_output=True, text=True)
     log(f"proof record {record['verdict']}: " + (why_exited(done) if done.returncode else "posted")
@@ -1925,7 +1935,14 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
 
     try:
         built_app = None
-        if built:
+        swapped = bool(built and getattr(args, "head_app", None))
+        if swapped:
+            # The head's Swift a fleet Mac swapped into a copy of NIGHTLY (scripts/measure/ui-proof-look.sh): its
+            # web and rust layers still go in after it, as onto NIGHTLY's copy.
+            built_app = real_app(args.head_app)
+            if built_app is None:
+                raise LookError(f"--head-app {args.head_app} is not an app")
+        elif built:
             # First, so a build that fails or times out costs no copy and no shots.
             with phases("app-build"):
                 built_app = build_swift_app(repo, planned, args.source, scratch)
@@ -1956,15 +1973,17 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
         with phases("apply"):
             if built_app is not None:
                 pid, sock, repaint = copy_of(built_app)
-                applied["app"] = {"how": "fleet app build of the head (a fresh side copy)", "commit": planned["head"]}
+                applied["app"] = ({"how": "the head's Swift swapped into a copy of NIGHTLY (swap-binary.sh)",
+                                   "commit": planned.get("daemon_from") or planned["head"]} if swapped else
+                                  {"how": "fleet app build of the head (a fresh side copy)", "commit": planned["head"]})
                 if not args.no_video:
                     video = start_video()
-            if built_app is None and "rust" in planned["layers"]:
+            if (built_app is None or swapped) and "rust" in planned["layers"]:
                 given = Path(args.rust_binary).resolve() if getattr(args, "rust_binary", None) else None
                 head_binary = (Path(args.rust_binary_head).resolve() if getattr(args, "rust_binary_head", None)
                                else None)
                 applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given, head_binary)
-            if built_app is None and "web" in planned["layers"]:
+            if (built_app is None or swapped) and "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
                 # The copy's pages reload on the new overlay: wait for the window to change from the before shot
                 # and settle (a change the main window does not show waits out the bound).
@@ -2378,6 +2397,17 @@ def can_build_swift_app(planned: dict) -> bool:
                for reason, paths in build.items())
 
 
+SWAP_REASONS = {"Swift", "Swift, resources or manifests", "strings"}
+
+
+def swap_carries(planned: dict) -> bool:
+    """Whether a swap of the head's Swift into NIGHTLY's copy (look --head-app, swap-binary.sh) carries every build
+    reason in the plan: Swift, the packages' manifests and resources, strings. Helpers, the FFI and the web ABI need
+    the complete fleet app (can_build_swift_app); the plan's web and rust layers go in after the swap."""
+    build = planned.get("build")
+    return bool(planned.get("needs_build") and isinstance(build, dict) and build and set(build) <= SWAP_REASONS)
+
+
 def _ci_client() -> str:
     ci = os.environ.get("CMUX_CI") or str(Path.home() / ".local/bin/cmux-ci")
     if not os.access(ci, os.X_OK):
@@ -2693,6 +2723,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="after a look at pull request --pr, post its proof record (cmux/ui-proof reads it: "
                    "scripts/ci/ui_proof_verdict.py) and rerun that gate")
     p.add_argument("--repo-slug", default="manaflow-ai/cmux", help="the GitHub repository --record posts on")
+    p.add_argument("--no-post", action="store_true",
+                   help="with --record: write proof-record.md and post nothing (a fleet step: its caller posts it)")
+    p.add_argument("--head-app", help="the head's Swift swapped into a copy of --app (scripts/measure/"
+                   "ui-proof-look.sh): the look's after copy for a plan whose build only a swap needs, instead of "
+                   "a fleet app build")
     p.set_defaults(func=command_look_recorded)
     p = sub.add_parser("run")
     p.add_argument("--source", required=True)
