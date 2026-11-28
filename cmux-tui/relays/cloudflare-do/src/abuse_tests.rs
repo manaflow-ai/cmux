@@ -21,6 +21,23 @@ fn slot_admission_reserves_daemon_and_bounds_pending_clients() {
 }
 
 #[test]
+fn a_slot_holds_two_kept_lanes_from_each_of_a_hundred_fleet_machines() {
+    // Every other machine of the account keeps its cheap and bulk circuit to this one, all redialed inside
+    // one minute (a fleet-wide acpmux update restarts every dialer).
+    let mut ledger = CircuitLedger::default();
+    for machine in 0..100 {
+        for lane in ["cheap", "bulk"] {
+            let circuit = format!("{machine}-{lane}");
+            assert!(ledger.reserve(circuit.clone(), 10_000, 100), "{circuit} refused");
+            assert!(ledger.activate(&circuit, 100));
+        }
+    }
+    assert_eq!(ledger.active(), 200);
+    // A hedge's fresh circuit beside a silent one still fits.
+    assert!(ledger.reserve("hedge".into(), 10_000, 100));
+}
+
+#[test]
 fn closing_websockets_do_not_consume_capacity() {
     assert!(websocket_counts_toward_capacity(1, 200, 100));
     assert!(!websocket_counts_toward_capacity(2, 200, 100));
