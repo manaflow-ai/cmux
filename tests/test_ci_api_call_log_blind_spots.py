@@ -190,7 +190,9 @@ class BlindSpots(unittest.TestCase):
 
     def test_the_log_stays_on_through_2026_11_22_and_then_switches_off(self) -> None:
         real_date = shutil.which("date")
-        for hour, on in (("2026112213", True), ("2026112300", False)):
+        # Off from 2026-11-23, on again for 2026-11-28 12:00 to 20:00 UTC (the token-hour attribution window).
+        for hour, on in (("2026112213", True), ("2026112300", False), ("2026112811", False), ("2026112812", True),
+                         ("2026112819", True), ("2026112820", False), ("2026112900", False)):
             with self.subTest(hour=hour):
                 # A date that answers env.sh's `date -u +%Y%m%d%H` with this hour, and anything else as usual.
                 self.write_exe("date", f"""#!/bin/sh
