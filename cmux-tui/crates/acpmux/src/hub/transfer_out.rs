@@ -110,16 +110,23 @@ pub(super) fn note_started() {
     STARTED.get_or_init(std::time::SystemTime::now);
 }
 
-/// Whether the transfers entry `name`, last changed at `changed`, is scratch no running daemon
-/// owns: a [`scratch_dir`] of a process that no longer runs, or one named before them that
-/// predates this daemon.
-fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+/// Whether the entry `name`, last changed at `changed`, is scratch no running daemon owns: a
+/// [`scratch_dir`] (or a pack's `history-pack/work-<pid>-…`, `pack_as_it_grows.rs`) of a process
+/// that no longer runs, or one named before them, without its owner's pid, that predates this
+/// daemon. A pack's `work-<uuid>` of a build before pids were in the names is one of those: a
+/// daemon killed mid-seal left 6 to 8 GB of them in one chat's `history-pack` on Leo's Mac.
+pub(super) fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+    let predates =
+        || STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started);
     if let Some(rest) = name.strip_prefix(SCRATCH) {
-        let pid = rest.split('-').next().and_then(|p| p.parse::<u32>().ok());
-        return pid.is_some_and(|pid| pid != std::process::id() && !process_runs(pid));
+        let pid =
+            rest.split('-').next().filter(|p| p.len() < 32).and_then(|p| p.parse::<u32>().ok());
+        return match pid {
+            Some(pid) => pid != std::process::id() && !process_runs(pid),
+            None => predates(),
+        };
     }
-    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p))
-        && STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started)
+    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p)) && predates()
 }
 
 #[cfg(unix)]

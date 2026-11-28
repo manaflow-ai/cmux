@@ -106,6 +106,25 @@ struct Prepacked {
     ms: u64,
 }
 
+/// About the most bytes of lines one piece of a whole pack writes and holds in memory
+/// ([`Hub::pack_whole_in_pieces`]): 64 of the pack's 4 MiB segments. Small in tests, so a whole
+/// pack of a test chat runs in several pieces.
+const WHOLE_PIECE: u64 = if cfg!(test) { 6 << 20 } else { 256 << 20 };
+
+/// A writer that counts the bytes written through it.
+struct Counted<W>(W, u64);
+
+impl<W: std::io::Write> std::io::Write for Counted<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.0.write(buf)?;
+        self.1 += n as u64;
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
 /// The most records one scan of [`Hub::write_lines`] writes before it lets the store's
 /// fork-view lock go and scans on from the last one. Three in tests, so every export and pack
 /// test writes its lines in several passes and checks they are the bytes one pass wrote.
@@ -168,6 +187,64 @@ pub(in crate::hub) fn pack_error(e: pack::Error) -> anyhow::Error {
 /// The folder of a chat's pack store, in the chat's own folder.
 const PACK_DIR: &str = "history-pack";
 
+/// A seal's scratch folder in chat pack store `store` (`pack_as_it_grows.rs`), named for this
+/// process, `work-<pid>-<kind>-<uuid>`, as a move's scratch is (`transfer_out.rs` `scratch_dir`):
+/// it holds the lines the seal encodes (a whole pack's are the whole log, 6 to 8 GB for a long
+/// chat). Removed when its [`PackScratch`] drops; one a daemon left as it died is removed by the
+/// next start's sweep ([`Hub::sweep_pack_work`]) or the chat's next seal ([`sweep_pack_work_in`]).
+pub(in crate::hub) fn pack_work_dir(store: &pack::Store, kind: &str) -> PathBuf {
+    let id = uuid::Uuid::now_v7().simple();
+    store.root().join(format!("work-{}-{kind}-{id}", std::process::id()))
+}
+
+/// A scratch folder removed when dropped, on an error or a panic as on success.
+pub(in crate::hub) struct PackScratch(pub PathBuf);
+
+impl Drop for PackScratch {
+    fn drop(&mut self) {
+        let _ = crate::home_fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Removes the `work-*` scratch folders in chat pack store folder `dir` that no running daemon
+/// owns (`transfer_out.rs` `dead_scratch`): a daemon's that died sealing, or one of a build that
+/// named them without its pid and predates this daemon. The pack itself (`chunks/`, `sessions/`)
+/// is the chat's history and is never touched. Returns the folders and bytes removed.
+pub(in crate::hub) fn sweep_pack_work_in(dir: &Path) -> (u64, u64) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return (0, 0) };
+    let (mut count, mut bytes) = (0, 0);
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(meta) = entry.metadata() else { continue };
+        if !name.starts_with("work-") || !meta.is_dir() {
+            continue;
+        }
+        if !super::transfer_out::dead_scratch(&name, meta.modified().ok()) {
+            continue;
+        }
+        let size = tree_bytes(&entry.path());
+        match crate::home_fs::remove_dir_all(entry.path()) {
+            Ok(()) => {
+                tracing::info!(dir = %dir.display(), "removed {name} ({size} bytes): a pack's scratch of a daemon that is gone");
+                count += 1;
+                bytes += size;
+            }
+            Err(error) => tracing::warn!(dir = %dir.display(), "{name} not removed: {error}"),
+        }
+    }
+    (count, bytes)
+}
+
+/// The bytes of the files under `dir` (a scratch folder is one level of files).
+fn tree_bytes(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    entries
+        .flatten()
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| if m.is_dir() { 0 } else { m.len() })
+        .sum()
+}
+
 /// Whether a staged manifest's files are a history export's bundle, to be unpacked first.
 pub(in crate::hub) fn is_packed(manifest: &Value) -> bool {
     manifest.get("packed").is_some_and(|p| !p.is_null())
@@ -187,6 +264,39 @@ impl Hub {
         // In the chat's folder, which the store made owner-only; made through the held home.
         crate::home_fs::create_dir_all(&dir, 0o700)?;
         Ok(pack::Store::new(dir))
+    }
+
+    /// Removes every chat's pack scratch a daemon before this one left
+    /// ([`sweep_pack_work_in`]), on a thread of its own: listing a folder a chat is cheap, the
+    /// removal of gigabytes is not, and nothing waits for it. Called once the store's index is
+    /// read (`store_load.rs`), after [`super::transfer_out::note_started`].
+    pub(in crate::hub) fn sweep_pack_work(&self) {
+        let mut ids: Vec<String> = self.sessions().iter().map(|s| s.id.clone()).collect();
+        ids.extend(self.evicted.rows().iter().map(|row| row.keys.id.clone()));
+        let dirs: Vec<PathBuf> = ids
+            .iter()
+            .filter_map(|id| self.store.session_path(id))
+            .map(|chat| chat.join(PACK_DIR))
+            .filter(|dir| dir.is_dir())
+            .collect();
+        if dirs.is_empty() {
+            return;
+        }
+        let spawned = std::thread::Builder::new().name("acpmux-pack-sweep".into()).spawn(move || {
+            lower_this_thread();
+            let (mut count, mut bytes) = (0, 0);
+            for dir in dirs {
+                let (c, b) = sweep_pack_work_in(&dir);
+                count += c;
+                bytes += b;
+            }
+            if count > 0 {
+                tracing::info!("removed {count} chat pack scratch folders ({bytes} bytes) a daemon before this one left");
+            }
+        });
+        if let Err(error) = spawned {
+            tracing::warn!("chat pack scratch not swept: {error}");
+        }
     }
 
     /// Unpacks chat `chat`'s staged history bundle (the module's step 5).
@@ -449,17 +559,91 @@ impl Hub {
             return Ok(kept);
         }
         let lines = work.join("history.ndjson");
-        let written = self.write_lines(session, 0, through, &lines);
-        let packed = written.and_then(|(last, digest)| {
-            anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
-            let params = pack::Params::default();
-            let packed =
-                pack::pack(store, &session.id, std::slice::from_ref(&lines), &params, false);
-            Ok((packed.map_err(pack_error)?, digest))
-        });
+        let packed = self.pack_whole_in_pieces(session, through, store, &lines);
         let _ = crate::home_fs::remove_file(&lines);
-        let ((manifest, stats), digest) = packed?;
-        Ok((manifest, stats, digest))
+        packed
+    }
+
+    /// A whole pack of chat `session`'s log through `through`, in pieces of about
+    /// [`WHOLE_PIECE`] of lines: each piece is written to `lines`, encoded, and its sealed
+    /// segments saved in the manifest; the next piece starts after the last sealed segment
+    /// ([`pack::pack_after`]), so the open tail a piece ends with is encoded again with the next.
+    /// A segment seals at a fixed count of bytes from its start, so the pack is the one a single
+    /// pass makes (`pack_as_it_grows.rs` extends a pack the same way).
+    ///
+    /// Before, the whole log was written to `lines` and then read into memory at once: an 8 GB
+    /// chat's pack took 8 GB of scratch on disk and 8 GB of memory, and saved nothing until it
+    /// ended. A daemon killed in it (a NIGHTLY's take-over) kept nothing, so the next daemon's
+    /// first seal packed the whole log again: Leo's Mac held five of these folders of one chat,
+    /// 3.4 to 7.8 GB each, from 11-26 to 11-27. Now the scratch and the memory are a piece's,
+    /// and a pack cut short keeps every piece it finished: the next one checks and keeps them.
+    fn pack_whole_in_pieces(
+        &self,
+        session: &Session,
+        through: u64,
+        store: &pack::Store,
+        lines: &Path,
+    ) -> anyhow::Result<(pack::Manifest, pack::PackStats, String)> {
+        let params = pack::Params::default();
+        let files = vec![lines.to_path_buf()];
+        let (mut after_seq, mut after_line, mut piece) = (0u64, 0u64, WHOLE_PIECE);
+        let mut total = pack::PackStats::default();
+        let mut first = true;
+        loop {
+            let (last, digest, capped) =
+                self.write_lines_capped(session, after_seq, through, lines, piece)?;
+            if !capped {
+                anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
+            }
+            let (manifest, stats) = if after_line == 0 {
+                pack::pack(store, &session.id, &files, &params, false).map_err(pack_error)?
+            } else {
+                pack::pack_after(store, &session.id, after_line, &files, &params)
+                    .map_err(pack_error)?
+                    .ok_or_else(|| anyhow::anyhow!("the pack changed under a whole pack"))?
+            };
+            if first {
+                total.kept_segments = stats.kept_segments;
+                first = false;
+            }
+            total.raw_bytes = stats.raw_bytes;
+            total.stored_bytes = stats.stored_bytes;
+            total.manifest_bytes = stats.manifest_bytes;
+            total.encoded_bytes += stats.encoded_bytes;
+            total.new_chunks += stats.new_chunks;
+            total.new_bytes += stats.new_bytes;
+            if !capped {
+                return Ok((manifest, total, digest));
+            }
+            let end = manifest.segments.iter().take_while(|s| s.sealed).last();
+            match end.and_then(|s| Some((s.line + s.lines, s.seq?.1))) {
+                Some((line, seq)) if line > after_line => {
+                    (after_line, after_seq, piece) = (line, seq, WHOLE_PIECE);
+                }
+                // No segment sealed in the piece (records larger than it): a larger one.
+                Some(_) => piece = piece.saturating_mul(2),
+                // Segments without seqs cannot be continued from: the rest in one piece.
+                None => piece = u64::MAX,
+            }
+        }
+    }
+
+    /// [`Self::write_lines`] that stops after the line that takes it to `cap` bytes; also
+    /// whether it stopped there (the records through `through` are then not all written).
+    fn write_lines_capped(
+        &self,
+        session: &Session,
+        after: u64,
+        through: u64,
+        lines: &Path,
+        cap: u64,
+    ) -> anyhow::Result<(u64, String, bool)> {
+        use std::io::Write as _;
+        let mut out = Counted(std::io::BufWriter::new(crate::home_fs::create_file(lines)?), 0);
+        let (last, digest, capped) =
+            self.emit_lines_capped(session, after, through, &mut out, cap)?;
+        out.flush()?;
+        Ok((last, digest, capped))
     }
 
     /// [`Self::pack_through`] from the pack's sealed segments that end by `through`: those the
@@ -571,7 +755,24 @@ impl Hub {
         through: u64,
         out: &mut dyn std::io::Write,
     ) -> anyhow::Result<(u64, String)> {
+        let mut out = Counted(out, 0);
+        let (last, digest, _) =
+            self.emit_lines_capped(session, after, through, &mut out, u64::MAX)?;
+        Ok((last, digest))
+    }
+
+    /// [`Self::emit_lines`] that stops after the line that takes `out` to `cap` bytes.
+    fn emit_lines_capped<W: std::io::Write>(
+        &self,
+        session: &Session,
+        after: u64,
+        through: u64,
+        out: &mut Counted<W>,
+        cap: u64,
+    ) -> anyhow::Result<(u64, String, bool)> {
+        use std::io::Write as _;
         let (mut last, mut digest, mut failed) = (after, String::new(), None::<anyhow::Error>);
+        let mut capped = false;
         // In passes of at most WRITE_LINES_PASS records, each a scan of its own: a scan holds the
         // store's fork-view lock (`store/fork_view.rs` `dropping`, one for every chat) shared for
         // its whole run, a cold archive commit waits for it exclusively, and every read of any
@@ -601,6 +802,10 @@ impl Hub {
                 }
                 seen += 1;
                 let more = failed.is_none() && !at_end;
+                if more && out.1 >= cap {
+                    capped = true;
+                    return false;
+                }
                 if more && seen >= WRITE_LINES_PASS {
                     // This pass ends here; the next one starts after `last`.
                     ended = false;
@@ -608,14 +813,14 @@ impl Hub {
                 }
                 more
             })?;
-            if failed.is_some() || ended || last == from {
+            if failed.is_some() || capped || ended || last == from {
                 break;
             }
         }
         if let Some(e) = failed {
             return Err(e);
         }
-        Ok((last, digest))
+        Ok((last, digest, capped))
     }
 
     /// At a history-later prepare through seq `through`: packs the chat's log through it into

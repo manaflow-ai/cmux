@@ -26,6 +26,8 @@ impl Hub {
             // goes now (`transfer_out.rs` `scratch_dir`), not at the next move.
             super::transfer_out::note_started();
             hub.sweep();
+            // And the scratch a daemon killed mid-seal left in a chat's `history-pack`.
+            hub.sweep_pack_work();
         })
         .await;
         if let Err(error) = result {

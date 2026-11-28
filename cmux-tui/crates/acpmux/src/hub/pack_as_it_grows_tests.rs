@@ -217,6 +217,7 @@ fn a_failed_seal_is_followed_by_a_whole_pack() {
     std::fs::write(&path, b"{ not a manifest").unwrap();
     grow(&hub, &session, &sessions, (9 << 20) + (512 << 10), &mut text);
     assert!(hub.seal_pack(id).is_err());
+    assert_eq!(work_dirs(&hub, id), Vec::<String>::new(), "a failed seal leaves no scratch");
     assert!(!hub.pack_checked.lock().unwrap().contains_key(id), "a failed seal is forgotten");
     std::fs::write(&path, good).unwrap();
     let again = hub.seal_pack(id).unwrap().unwrap();
@@ -285,4 +286,127 @@ fn a_purged_chat_is_not_packed_and_is_forgotten() {
     hub.pack_checked.lock().unwrap().insert("no-such-chat".to_owned(), 1);
     assert!(hub.seal_pack("no-such-chat").unwrap().is_none());
     assert!(!hub.pack_checked.lock().unwrap().contains_key("no-such-chat"));
+}
+
+/// The `work-*` folders in chat `id`'s pack store.
+fn work_dirs(hub: &Hub, id: &str) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(hub.pack_store(id).unwrap().root())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("work-"))
+        .collect();
+    names.sort();
+    names
+}
+
+/// A seal that ends leaves no scratch in the chat's `history-pack`; one a daemon was killed in
+/// (SIGKILL halfway through writing its lines, as a NIGHTLY's take-over or a crash does) is
+/// removed by the next daemon's start, and by the chat's next seal, and so is a `work-<uuid>`
+/// of a build that named them without a pid. Scratch of a daemon still running (this one) and
+/// the pack itself stay. Leo's Mac held 24 GB of these in one chat (5 folders, 11-26 to 11-27).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_interrupted_seals_scratch_is_removed_at_restart_and_a_finished_one_leaves_none() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(&sessions);
+    let id = "pack-grows-scratch";
+    let session = chat(&hub, id);
+    let mut text = Text(13);
+    grow(&hub, &session, &sessions, (4 << 20) + (1 << 20), &mut text);
+    assert!(hub.seal_pack(id).unwrap().is_some());
+    assert_eq!(work_dirs(&hub, id), Vec::<String>::new(), "a finished seal leaves no scratch");
+    grow(&hub, &session, &sessions, (8 << 20) + (1 << 20), &mut text);
+    assert!(hub.seal_pack(id).unwrap().unwrap().extended);
+    assert_eq!(work_dirs(&hub, id), Vec::<String>::new(), "an extending seal leaves none");
+    let packed = manifest(&hub, id).unwrap();
+
+    let store = hub.pack_store(id).unwrap().root().to_owned();
+    let killed_mid_seal = || {
+        // A daemon killed with SIGKILL halfway through writing a seal's lines.
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(r#"d="$1/work-$$-seal-x"; mkdir "$d"; head -c 1048576 /dev/zero > "$d/history.ndjson"; kill -9 $$"#)
+            .arg("sh")
+            .arg(&store)
+            .status()
+            .unwrap();
+        assert!(!status.success());
+    };
+    killed_mid_seal();
+    super::transfer_out::note_started();
+    // A build before pids were in the names, long before this daemon began.
+    let legacy = store.join("work-019ac1f2a3b47c5d8e9f0a1b2c3d4e5f");
+    std::fs::create_dir(&legacy).unwrap();
+    std::fs::write(legacy.join("history.ndjson"), vec![b'x'; 1 << 20]).unwrap();
+    let long_ago = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+    std::fs::File::open(&legacy).unwrap().set_modified(long_ago).unwrap();
+    // One of this daemon (it runs), and one unowned but dated after this daemon began.
+    let own = store.join(format!("work-{}-seal-live", std::process::id()));
+    let fresh = store.join("work-019ac1f2a3b47c5d8e9f0a1b2c3d4e60");
+    for d in [&own, &fresh] {
+        std::fs::create_dir(d).unwrap();
+    }
+    let later = std::time::SystemTime::now() + Duration::from_secs(3600);
+    std::fs::File::open(&fresh).unwrap().set_modified(later).unwrap();
+    assert_eq!(work_dirs(&hub, id).len(), 4);
+
+    // A daemon's start (`store_load.rs`) sweeps every chat's pack store.
+    hub.sweep_pack_work();
+    let want = vec![
+        fresh.file_name().unwrap().to_string_lossy().into_owned(),
+        own.file_name().unwrap().to_string_lossy().into_owned(),
+    ];
+    let started = Instant::now();
+    while work_dirs(&hub, id) != want {
+        assert!(started.elapsed() < Duration::from_secs(30), "left: {:?}", work_dirs(&hub, id));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let kept = manifest(&hub, id).unwrap();
+    assert_eq!(kept.segments.len(), packed.segments.len(), "the pack itself is kept");
+    assert_eq!(kept.lines, packed.lines);
+
+    // A daemon killed sealing while this one runs (a take-over's overlap): the chat's next
+    // seal removes its scratch before writing its own, and leaves none of its own.
+    killed_mid_seal();
+    grow(&hub, &session, &sessions, (9 << 20) + (512 << 10), &mut text);
+    assert!(hub.seal_pack(id).unwrap().is_some());
+    assert_eq!(work_dirs(&hub, id), want);
+    std::fs::remove_dir(&own).unwrap();
+}
+
+/// A whole pack of a log larger than a piece (`WHOLE_PIECE`, 6 MiB in tests) runs in pieces,
+/// each saving its sealed segments, and makes the same pack one pass over the export does;
+/// it leaves no lines file behind.
+#[test]
+fn a_whole_pack_runs_in_pieces_and_is_the_one_pass_pack() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(&sessions);
+    let id = "pack-grows-pieces";
+    let session = chat(&hub, id);
+    let mut text = Text(17);
+    grow(&hub, &session, &sessions, (18 << 20) + (1 << 20), &mut text);
+    let through = session.read_meta(|m| m.last_seq);
+    let store = hub.pack_store(id).unwrap();
+    let work = root.path().join("whole");
+    let (manifest, stats, _) = hub.pack_through(&session, through, &store, &work).unwrap();
+    let raw = log_bytes(&sessions, id);
+    assert!(stats.encoded_bytes > raw.min(stats.raw_bytes), "one piece only: {stats:?}");
+    assert_eq!(stats.kept_segments, 0, "{stats:?}");
+    assert!(!work.join("history.ndjson").exists(), "the lines file is removed");
+
+    let want = export_lines(&hub, &session, root.path());
+    let fresh = pack::Store::new(root.path().join("fresh"));
+    let file = root.path().join("export.ndjson");
+    let (one_pass, _) = pack::pack(&fresh, id, &[file], &pack::Params::default(), true).unwrap();
+    assert_eq!(manifest, one_pass, "the pieces make the one-pass pack");
+    let mut back = Vec::new();
+    pack::Pack::open(&store, id).unwrap().cat(&mut back).unwrap();
+    assert!(back == want, "the pack reads back as the export's lines");
+
+    // A pack after it keeps every sealed segment the pieces saved.
+    let (_, again, _) = hub.pack_through(&session, through, &store, &work).unwrap();
+    assert_eq!(again.kept_segments as usize, sealed(&Some(one_pass)), "{again:?}");
 }

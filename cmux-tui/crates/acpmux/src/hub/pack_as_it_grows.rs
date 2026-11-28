@@ -165,15 +165,20 @@ impl Hub {
         };
         let checked =
             self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(id) == Some(&stamp);
-        let work = store.root().join(format!("work-{}", uuid::Uuid::now_v7().simple()));
+        // Scratch a daemon left as it died sealing this chat goes before this seal writes its
+        // own; the turn holds off every other pack of the chat in this daemon.
+        sweep_pack_work_in(store.root());
+        let work = PackScratch(pack_work_dir(&store, "seal"));
         let sealed = (|| -> anyhow::Result<Sealed> {
-            if checked && let Some(extended) = self.extend_pack(&session, through, &store, &work)? {
+            if checked
+                && let Some(extended) = self.extend_pack(&session, through, &store, &work.0)?
+            {
                 return Ok(extended);
             }
-            let (manifest, stats, _) = self.pack_through(&session, through, &store, &work)?;
+            let (manifest, stats, _) = self.pack_through(&session, through, &store, &work.0)?;
             Ok(Sealed { manifest, stats, extended: false })
         })();
-        let _ = crate::home_fs::remove_dir_all(&work);
+        drop(work);
         if sealed.is_err() {
             // Whatever failed, the next seal trusts nothing: it packs whole and re-verifies.
             self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
