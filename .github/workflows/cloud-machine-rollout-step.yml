@@ -1,0 +1,75 @@
+name: Cloud machine rollout step
+
+# The ring gate of the Cloud machine channel's staged rollout (cmuxterm-hq RFD 0224 phase 3: "Cloud steps
+# 1 / 10 / 50 / 100, each step only after the inventory shows no `update-failed` from the step before"). Every
+# 15 minutes this reads the channel's signed file (files.cmux.com/cmux-tui/channels/cloud-machine.json), the version
+# inventory of its commit (scripts/ci/cmux-machine-channel-inventory.sh), and runs `cmux-machine-channel.py step`:
+# the same build at the next share, re-signed and published through scripts/ci/cmux-machine-channel-point.sh
+# (web-ota-pointer.py newer takes a wider file of the same build, never a narrower one), or a hold and why.
+#
+# Off by default: the job runs only when vars.CLOUD_MACHINE_FIRST_PCT is set, the same variable that makes
+# cmux-machine-channel.yml sign a first share at all. Unset, the channel carries no rollout field, every machine
+# takes every build, and this does nothing. The inventory source is a stub today (no per-commit Cloud
+# update-failed count exists; see the inventory script), so even set, every run holds until one does.
+#
+# A schedule runs from the default branch (main): main carries a twin of this file that checks out feat-cmux-next,
+# as cmux-tui-channel-heal.yml.
+on:
+  schedule:
+    - cron: "4,19,34,49 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cloud-machine-rollout-step.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Its own group: a shared one would cancel a pending point job. point.sh compares and swaps the bytes, so a
+  # point that moved the channel meanwhile wins and this run reads again next time.
+  group: cloud-machine-rollout-step
+  cancel-in-progress: false
+
+jobs:
+  step:
+    name: step the Cloud machine channel's rollout share
+    if: github.repository == 'manaflow-ai/cmux' && vars.CLOUD_MACHINE_FIRST_PCT != ''
+    environment:
+      name: artifacts
+      deployment: false
+    runs-on: cmux-linux
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: feat-cmux-next
+          persist-credentials: false
+
+      - name: Step or hold
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          CLOUD_MACHINE_INVENTORY_URL: ${{ vars.CLOUD_MACHINE_INVENTORY_URL }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/machine-channel-step"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+          curl -fsS --retry 3 --max-time 60 -o "$dir/current.json" \
+            "https://files.cmux.com/cmux-tui/channels/cloud-machine.json?step=$GITHUB_RUN_ID"
+          commit="$(python3 scripts/cmux-next/web-ota-pointer.py verify --pointer "$dir/current.json" --keys "$keys" \
+            --purpose cmux-cloud-machine-update --channel cloud-machine --allow-expired |
+            python3 -c 'import json, sys; print(json.load(sys.stdin)["commit"])')"
+          scripts/ci/cmux-machine-channel-inventory.sh "$commit" "$dir/inventory.json"
+          rc=0
+          python3 scripts/ci/cmux-machine-channel.py step --current "$dir/current.json" --keys "$keys" \
+            --inventory "$dir/inventory.json" --out "$dir/payload.json" 2> >(tee -a "$GITHUB_STEP_SUMMARY" >&2) || rc=$?
+          [[ $rc == 3 ]] && exit 0
+          [[ $rc == 0 ]] || exit "$rc"
+          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
