@@ -1,46 +1,52 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parseInputsLock } from "../scripts/cmux-vm-image/lock.ts";
+import { parseInputsLock } from "../scripts/cmux-vm-image/lock";
+import { runChild } from "./helpers/run-child";
 
-const repoRoot = path.resolve(import.meta.dir, "../..");
+const repoRoot = path.resolve(import.meta.dirname, "../..");
 const script = path.join(repoRoot, "images/cmux-vm/pin-cmux-tui.ts");
 const TARGET = "x86_64-unknown-linux-musl";
 const FILES = "https://files.cmux.com/cmux-tui";
 const sha = (bytes: string) => createHash("sha256").update(bytes).digest("hex");
 
 /** files.cmux.com as a map of path (under cmux-tui/) to body; anything else answers 404. */
-function serve(files: Record<string, string>) {
-  return Bun.serve({
-    port: 0,
-    fetch(req) {
-      const key = new URL(req.url).pathname.replace(/^\//, "");
-      const body = files[key];
-      if (body === undefined) return new Response("not found", { status: 404 });
-      return new Response(req.method === "HEAD" ? null : body, { headers: { "content-length": String(Buffer.byteLength(body)) } });
-    },
+async function serve(files: Record<string, string>): Promise<{ server: Server; port: number }> {
+  const server = createServer((req, res) => {
+    const key = new URL(req.url ?? "/", "http://127.0.0.1").pathname.replace(/^\//, "");
+    const body = files[key];
+    if (body === undefined) {
+      res.writeHead(404).end("not found");
+      return;
+    }
+    res.writeHead(200, { "content-length": String(Buffer.byteLength(body)) });
+    res.end(req.method === "HEAD" ? undefined : body);
   });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { server, port: (server.address() as AddressInfo).port };
 }
 
 async function pin(files: Record<string, string>, commit: string) {
   const dir = mkdtempSync(path.join(tmpdir(), "pin-cmux-tui-"));
-  const server = serve(files);
+  const { server, port } = await serve(files);
   try {
     const lock = path.join(dir, "inputs.lock.json");
     copyFileSync(path.join(repoRoot, "images/cmux-vm/inputs.lock.json"), lock);
     // Async: a synchronous child would block this process's server.
-    const proc = Bun.spawn(["bun", script, "--commit", commit, "--lock", lock, "--write"], {
-      env: { ...process.env, CMUX_TUI_FILES: `http://127.0.0.1:${server.port}` },
-      stderr: "pipe",
-      stdout: "pipe",
+    const { status, stderr } = await runChild("bun", [script, "--commit", commit, "--lock", lock, "--write"], {
+      env: { ...process.env, CMUX_TUI_FILES: `http://127.0.0.1:${port}` },
+      timeout: 25_000,
     });
-    const [status, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
-    const programs = parseInputsLock(readFileSync(lock, "utf8")).programs.filter((p) => p.name.startsWith("cmux-tui"));
-    return { status, stderr, programs };
+    const lockText = readFileSync(lock, "utf8");
+    const programs = parseInputsLock(lockText).programs.filter((p) => p.name.startsWith("cmux-tui"));
+    return { status, stderr, programs, lockText };
   } finally {
-    server.stop(true);
+    server.closeAllConnections();
+    server.close();
     rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -78,7 +84,7 @@ describe("pin-cmux-tui.ts --commit with no commit manifest", () => {
       expect(p.version).toBe(commit);
       expect(p.url).toBe(`${FILES}/${commit}/machine/${p.name}-${TARGET}`);
       expect(p.sha256).toBe("a".repeat(64));
-      expect(p.source).toMatch(/cloud-machine\.json \(signed/);
+      expect(p.source).toBe(`${FILES}/${commit}/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)`);
     }
   }, 30_000);
 
@@ -89,9 +95,19 @@ describe("pin-cmux-tui.ts --commit with no commit manifest", () => {
       expect(p.url).toBe(`${FILES}/${commit}/machine/${p.name}-${TARGET}`);
       expect(p.sha256).toBe(sha(bytes[p.name as keyof typeof bytes]));
       expect(p.size).toBe(Buffer.byteLength(bytes[p.name as keyof typeof bytes]));
-      expect(p.source).toMatch(/sha256 of the bytes/);
+      expect(p.source).toBe(`${FILES}/${commit}/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)`);
     }
   }, 30_000);
+
+  // Rolls 46085354594 and 46091967248 (2026-11-28): the bake pinned while the channel named the commit, promote
+  // re-pinned after it moved on, the source lines differed, and approve refused the image as "the tip moved".
+  test("writes the same lock bytes whether or not the channel still names the commit", async () => {
+    const named = await pin({ ...machine, ...channel(commit) }, commit);
+    const moved = await pin({ ...machine, ...channel("b".repeat(40)) }, commit);
+    expect(named.status).toBe(0);
+    expect(moved.status).toBe(0);
+    expect(moved.lockText).toBe(named.lockText);
+  }, 60_000);
 
   test("a commit with neither a manifest nor a machine build answers non-zero and leaves the lock", async () => {
     const got = await pin(channel(commit), "c".repeat(40));

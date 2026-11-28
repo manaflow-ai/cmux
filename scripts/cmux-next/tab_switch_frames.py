@@ -32,6 +32,8 @@ meaningful"):
   rapid-open-5       five new tabs as fast as the socket takes them (animations retarget mid-flight)
   rapid-close-3      three of them closed as fast
   open-while-close   a close, then a new tab while the close still animates
+  browser-split      splitBrowserRight from the terminal (ask-08552f8ea0, #56574): blank frames in the new pane's half of the
+                     content (the right 40%) fail; the layout's own motion, the first page time and the shift are reported
 Loads (--loads; parse_load, LOAD_PRESETS): idle and cpu and agents as before, and the instant-at-any-load modes:
   L0 idle; L1 the focused chat streams 60 chunks/s and a 2,000 lines/s tool output; L2 10 other chats streaming at
   30 chunks/s (3 as tabs of a pane split beside the measured one, the rest in background workspaces); L3 the focused
@@ -361,6 +363,47 @@ def session_id(stdout):
     return found.group(0) if found else None
 
 
+def acpmux_socket_for(home, uid=None):
+    """The socket a daemon whose ACPMUX_HOME is `home` listens on (AcpmuxEnvironment.defaultSocketPath):
+    `<home>/acpmux.sock` under 96 bytes, else `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock`."""
+    preferred = os.path.join(home, "acpmux.sock")
+    if len(preferred.encode()) < 96:
+        return preferred
+    return f"/tmp/acpmux-{os.getuid() if uid is None else uid}/{fnv1a64(home):016x}.sock"
+
+
+def fnv1a64(text):
+    """cmux-agent-pane-policy `environment::fnv1a64` over the text's UTF-8 bytes."""
+    digest = 0xcbf29ce484222325
+    for byte in text.encode():
+        digest = ((digest ^ byte) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return digest
+
+
+def daemon_home_for(socket_path, user_home, uid=None):
+    """The acpmux home of the app's daemon that listens on `socket_path`, among the homes a build under `user_home` picks
+    (NIGHTLY `~/.acpmux`, any other build `~/.acpmux/builds/<key>`), each as given and resolved (/tmp is /private/tmp);
+    None when none matches."""
+    if not socket_path:
+        return None
+    roots = []
+    for base in (user_home, os.path.realpath(user_home)):
+        root = os.path.join(base, ".acpmux")
+        if root in roots:
+            continue
+        roots.append(root)
+    for root in roots:
+        candidates = [root]
+        try:
+            candidates += [os.path.join(root, "builds", name) for name in sorted(os.listdir(os.path.join(root, "builds")))]
+        except OSError:
+            pass
+        for home in candidates:
+            if acpmux_socket_for(home, uid) == socket_path:
+                return home
+    return None
+
+
 class Agents:
     """Chats on the app's own acpmux (the test agents registered as harnesses of the app)."""
 
@@ -376,7 +419,14 @@ class Agents:
                 if "timeout" not in json.dumps(added):
                     break
                 time.sleep(5)  # test script: the app is still starting; the add goes on, try again
-        self.env = dict(os.environ, ACPMUX_SOCKET=bm.FakeChats.acpmux_socket(bundle))
+        socket_path = bm.FakeChats.acpmux_socket(bundle)
+        self.env = dict(os.environ, ACPMUX_SOCKET=socket_path)
+        # ACPMUX_SOCKET counts only beside the ACPMUX_HOME it belongs to (acpmux config.rs autostart_refusal): with the
+        # step's own home inherited, `acpmux new` refused the app's socket ("acpmux starts a daemon only where its lock
+        # and socket share one home") and the chat rows were unmeasurable on cmux9s and cmux19, 2026-11-28.
+        home = daemon_home_for(socket_path, os.path.join(app.root, "h")) if getattr(app, "root", None) else None
+        if home:
+            self.env["ACPMUX_HOME"] = home
         self.streaming = []
         self.new_argvs = new_session_argvs(self.help_text())
 
@@ -916,6 +966,24 @@ class Harness:
             close["error"] = f"the pane has {len(tabs)} tabs after the close, want {len(tabs0)}"
         return new, close
 
+    def browser_split_round(self, load, r):
+        """browser-split: Split Browser Right of the measured pane, judged on its new half; the new pane closes after."""
+        label = f"browser-split/{load} round {r}"
+        self.select("terminal")
+        self.wait_selected("terminal")
+        time.sleep(self.args.settle)  # sleep-ok: --settle, the recorded span before the leave flip (its last AMBIENT_S are the ambient baseline)
+        before = set(self.all_panes())
+        self.flip3(label)
+        reply = self.c.action("splitBrowserRight", target=f"pane:{self.pane_id}")
+        time.sleep(self.args.record + 0.3)  # sleep-ok: --record, the recording window after the action
+        self.rec.flip(f"{label}:end")
+        made = [p for p in self.all_panes() if p not in before]
+        error = f"splitBrowserRight: {reply['error']}" if reply.get("error") else (None if made else "no new pane after splitBrowserRight")
+        for pane in made:
+            self.c.action("closePane", target=f"pane:{pane}")
+        wait_until(lambda: not [p for p in made if p in self.all_panes()], "the new pane closed", timeout=15, raise_on_timeout=False)
+        return [("browser-split", {"label": label, "kind": "settled", "region": "right", "error": error})]
+
     def workspace_round(self, load, r):
         """new-workspace, switch-workspace (back, then to it again) and close-workspace; the items to judge, by name."""
         out = []
@@ -1061,7 +1129,13 @@ class Harness:
                 reference = self.at(frames, flips[item["ref_flip"]]) if item.get("ref_flip") in flips else None
             else:
                 reference = self.refs.get(item.get("neighbor"))
-            switch = self.judge(window, mark, reference=reference, strip=strip)
+            if item.get("region") == "right":
+                x0, y0, x1, y1 = self.content
+                switch = judge.judge_switch(window, mark, self.rec.w, (x0 + int((x1 - x0) * 0.6), y0, x1, y1), self.rec.frame_ms,
+                                            reference=reference, strip=None, px_per_point=self.rec.scale, tolerance=self.args.tolerance)
+                switch["gate"] = "blank-only"
+            else:
+                switch = self.judge(window, mark, reference=reference, strip=strip)
             if kind == "close":
                 switch["neighbor"] = item.get("neighbor")
             if item.get("strip") == "sidebar" and getattr(self, "sidebar", None):
@@ -1141,6 +1215,8 @@ class Harness:
                         pending.append(("new-tab", new))
                         if close is not None:
                             pending.append(("close-tab", close))
+                    if "browser-split" in scenarios:
+                        pending += self.browser_split_round(load, r)
                     if any(s in scenarios for s in ("new-workspace", "switch-workspace", "close-workspace")):
                         pending += self.workspace_round(load, r)
                     if any(s in scenarios for s in ("rapid-open-5", "rapid-close-3", "open-while-close")):

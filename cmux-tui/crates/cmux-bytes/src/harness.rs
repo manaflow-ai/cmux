@@ -27,11 +27,20 @@ use crate::policy::{self, Link};
 
 /// This thread's CPU time, seconds: the codec cost measured this way does not grow when other
 /// work shares the machine, so two hill-climb runs compare like for like.
+#[cfg(unix)]
 pub fn cpu_now() -> f64 {
     let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: `t` is a valid out-pointer; CLOCK_THREAD_CPUTIME_ID is always available on Linux and macOS.
     unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
     t.tv_sec as f64 + t.tv_nsec as f64 * 1e-9
+}
+
+/// Off unix (Windows builds this crate through its users): wall time since the first call, so
+/// the crate builds everywhere; the harness itself runs on Linux and macOS.
+#[cfg(not(unix))]
+pub fn cpu_now() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
 }
 
 struct Clock(f64);

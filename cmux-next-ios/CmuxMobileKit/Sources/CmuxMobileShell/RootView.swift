@@ -923,8 +923,15 @@ private struct LinkSettingsObserver: ViewModifier {
             .onChange(of: blockUDPPreference) { _, _ in
                 shell.live?.setBlockUDP(DeveloperOptions.blockUDP)
             }
-            .onChange(of: scenePhase) { _, phase in
+            .onChange(of: scenePhase) { old, phase in
                 if phase == .active {
+                    // R1: a warm return from the background is a tap whose content marks start again
+                    // (not the cold launch's first activation: process start is that tap).
+                    if old == .background {
+                        LaunchMarks.shared.rearm(tap: "foreground")
+                        // The page kept on screen (memory) is the first content a warm return draws.
+                        LaunchMarks.shared.firstContent("shown", cached: true)
+                    }
                     shell.live?.foreground()
                     // The content extension's replies, and those waiting for the app.
                     PushReplies.shared.drainOutbox()
@@ -1072,6 +1079,7 @@ struct ShellTabs: View {
                     scrollRequest: shell.settingsScrollTarget,
                     directory: shell.deviceDirectory,
                     sizing: shell.sizingService,
+                    tryPullRequests: shell.tryPullRequestService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
                     cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: .nightly) == nil ? nil : SettingsCloudPages(

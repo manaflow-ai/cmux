@@ -135,15 +135,25 @@ button.cv-agentmsg__name:focus-visible {
   > .cv-agentmsg__chevron {
   color: var(--cv-text);
 }
+/* The chevron's ink stands --cv-chip-chevron-gap (the grid's 8px) from the chip's edge. The "rest"
+   tokens are where its ink sits with no margin: the flex gap, the sentence's space and the glyph's
+   own inset, measured in the gallery (test/transcript-chevron-after-label.test.ts); opened the
+   chip is whole and its line one space nearer. Opened it used to overlap the chip by 1.8px (Leo,
+   2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"). */
+:root {
+  --cv-chip-chevron-gap: var(--grid-gap);
+  --cv-chip-chevron-rest: 14.6px;
+  --cv-chip-chevron-rest-open: 12.2px;
+}
 /* Shut and stacked, or opened (the first line is in the card then), the toggle holds no words: it
    takes back the line's gap before it, so the chevron sits right after the sender's or recipient's
    chip, as after any row's words (transcript-chevron-after-label). */
 .acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
-  margin-inline-start: calc(-1 * var(--grid-gap) - 0.5 * var(--ds-space-1));
+  margin-inline-start: calc(var(--cv-chip-chevron-gap) - var(--cv-chip-chevron-rest));
 }
 /* Opened, the sender's chip ends the words: its own end padding stands in for the rest of the gap. */
 .acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
-  margin-inline-start: calc(-1 * var(--grid-gap) - 1.5 * var(--ds-space-1));
+  margin-inline-start: calc(var(--cv-chip-chevron-gap) - var(--cv-chip-chevron-rest-open));
 }
 /* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
    pointer already toggles, shows its focus. */

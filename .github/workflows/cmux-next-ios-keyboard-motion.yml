@@ -37,7 +37,7 @@ jobs:
   bench:
     name: Keyboard motion on a fleet simulator
     if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     timeout-minutes: 150
     continue-on-error: true
     permissions:
@@ -60,7 +60,7 @@ jobs:
           "$client" run --class simulator --label measure --script scripts/measure/ios-keyboard-motion.sh \
             --ref "$REF" --timeout 7200 --artifact .build/ios-keyboard-motion/report.json 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
           if [ -n "$step" ]; then
             "$client" artifact "$step" "$out/report.json" || "$client" artifact --failed "$step" "$out/report.json" \
               || echo "::warning title=Keyboard motion bench::step $step returned no report"

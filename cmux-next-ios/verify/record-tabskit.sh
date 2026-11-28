@@ -61,7 +61,7 @@ axe drag --start-x 250 --start-y 816 --end-x 30 --end-y 816 --duration 0.35 --st
 shot 07-swiped
 axe drag --start-x 150 --start-y 816 --end-x 380 --end-y 816 --duration 0.35 --steps 20 --udid "$udid" >/dev/null; sleep 1.4
 # Agent composer: keyboard up, then an interactive dismissal drag.
-tap_label "Reply to Claude" AXButton 1.8; shot 08-agent-keyboard
+tap_label "Reply to Refactor transport layer" AXButton 1.8; shot 08-agent-keyboard
 axe drag --start-x 200 --start-y 250 --end-x 200 --end-y 860 --duration 1.6 --steps 96 --udid "$udid" >/dev/null; sleep 1.6
 shot 09-agent-dismissed
 # Terminal: keyboard up from the page, then the same drag.

@@ -77,6 +77,21 @@ struct MenuIdentityHeaderTests {
         #expect(renamed.names == ["de"], "a click outside keeps what was typed")
     }
 
+    /// The field takes the keyboard as the menu opens, with the caret after the name, not the whole name
+    /// selected (Lucas 2026-11-27): a keystroke adds to the name.
+    @Test func theFieldOpensFocusedWithTheCaretAfterTheName() throws {
+        let (registry, menu, _) = workspaceMenu()
+        MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: "api", rename: "renameWorkspace")
+        let header = try #require(menu.items.first?.view as? MenuIdentityHeaderView)
+        let field = try #require(header.field)
+        let window = NSWindow(contentRect: header.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        window.contentView = header
+        let editor = try #require(field.currentEditor(), "the field has the keyboard on open")
+        #expect(window.firstResponder === editor)
+        #expect(editor.selectedRange == NSRange(location: 3, length: 0), "the caret is after \"api\", nothing selected")
+    }
+
     /// A multi-row selection renames no one row: the header is the swatches alone.
     @Test func aSelectionGetsSwatchesWithoutAField() throws {
         let (registry, menu, _) = workspaceMenu()

@@ -161,7 +161,7 @@ extension CloudHandlers {
         let (surfaces, continuation) = AsyncStream<SurfaceID?>.makeStream(bufferingPolicy: .bufferingOldest(1))
         let refusal: String?
         do throws(BrowserTabOpen.Refusal) {
-            let request = try BrowserTabOpen.request(route: pageJSON(route), machineName: names.name)
+            let request = try BrowserTabOpen.request(route: CloudPageProvider.pageJSON(route), machineName: names.name)
             refusal = try await BrowserTabOpen.open(request, services: services, background: background, reportsRefusal: true) { continuation.yield($0) }
         } catch {
             continuation.finish()

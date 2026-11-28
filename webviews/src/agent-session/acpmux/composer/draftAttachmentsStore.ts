@@ -103,6 +103,7 @@ export function draftAttachmentsStore(
   const toHost = async (sessionId: string, attachments: ComposerAttachment[]) => {
     const held = contents.get(sessionId) ?? attachments;
     const result = await host.write(sessionId, held);
+    // l10n-allow: an internal invariant error, not shown
     if (!holdsInlineContents(result, held)) throw new Error("host did not acknowledge attachment contents");
     hostNewer.add(sessionId);
     rememberAuthority(sessionId, "host");
@@ -163,9 +164,11 @@ export function draftAttachmentsStore(
     const { read, write } = await connected();
     if (!read) {
       const authority = authorityFor(sessionId);
+      // l10n-allow: an internal invariant error, not shown
       if (authority === "daemon") throw new Error("acpmux is unavailable while its draft is authoritative");
       const fromHost = await host.read(sessionId);
       if (fromHost.length || !options.actionsChanged || authority === "host") return fromHost;
+      // l10n-allow: an internal invariant error, not shown
       throw new Error("acpmux connection is unavailable and draft authority is unknown");
     }
     // A successful response without `attachments` is an older daemon. A rejected read is a

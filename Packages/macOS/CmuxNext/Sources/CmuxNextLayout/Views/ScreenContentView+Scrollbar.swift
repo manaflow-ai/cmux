@@ -44,7 +44,7 @@ extension ScreenContentView {
             self.beginUserScroll()
         }
         bar.onDrag = { [weak self] offset in
-            guard let self, let raw = self.scrollState.gesture?.raw else { return }
+            guard let self, let raw = self.scrollState.gestureRaw else { return }
             self.userScroll(deltaX: raw - offset, timestamp: ProcessInfo.processInfo.systemUptime)
             self.context.requestFrames()
         }

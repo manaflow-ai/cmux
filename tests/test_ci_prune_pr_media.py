@@ -261,9 +261,9 @@ class RewriteTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def test_only_main_prunes_and_a_dry_run_is_the_default(self) -> None:
-        workflow = yaml.safe_load((ROOT / ".github/workflows/pr-media-prune.yml").read_text())
+        workflow = yaml.safe_load((ROOT / ".github/workflows/storage-maintenance.yml").read_text())
         self.assertEqual(workflow["permissions"], {})
-        job = workflow["jobs"]["prune"]
+        job = workflow["jobs"]["pr-media"]
         self.assertIn("refs/heads/main", job["if"])
         self.assertEqual(job["permissions"], {"contents": "write", "pull-requests": "read"})
         self.assertFalse(workflow[True]["workflow_dispatch"]["inputs"]["apply"]["default"])

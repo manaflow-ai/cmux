@@ -444,7 +444,15 @@ public final class SidebarModel {
     /// placeholders, which are no workspace yet.
     public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { !$0.rowState.isPending } }
 
-    public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
+    /// Workspace `id`'s row, its first listing in visual order: O(1) through `rowIndex` (built once per structural set),
+    /// never a walk of every row. A drag reads it each move for the dragged rows and their parents, hover cards and row
+    /// menus once per show (`SidebarWorkspaceLookupCostTests`).
+    public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? {
+        access(keyPath: \.sections)
+        guard let path = listedPaths(of: id).first else { return nil }
+        let row = SidebarRowIndex.workspace(at: path, in: storedSections)
+        return row.id == id ? row : SidebarEdits.workspace(id, in: storedSections) // a stale index: the walk, never a wrong row
+    }
 
     public func group(_ id: GroupID) -> SidebarGroup? {
         access(keyPath: \.sections)

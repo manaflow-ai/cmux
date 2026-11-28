@@ -81,8 +81,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Bytes the download in progress received. Sparkle reports each network chunk (thousands a
     /// second, on the main thread); the model hears of them only when the shown percent changes.
     private var downloadedBytes: UInt64 = 0
-    /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
-    /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
+    /// The update a legacy/classic Sparkle silent driver staged (`willInstallUpdateOnQuit`), which
+    /// never reaches ``backgroundItem``; read only while its "Restart to Complete Update" state
+    /// holds. NEXT release bundles disable this path in their plist.
     var quitInstallItem: SUAppcastItem?
     /// The update whose relaunch the gate holds, so the host still names it as the staged
     /// update a click installs; read only while that held state is the model's.
