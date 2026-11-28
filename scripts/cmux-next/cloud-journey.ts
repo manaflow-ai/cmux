@@ -257,7 +257,7 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; reserved_hit?: boolean };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; route_ms?: Record<string, number>; reserved_hit?: boolean };
 export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
@@ -265,16 +265,22 @@ export class FirstTextTiming {
   private start: number | undefined;
   private marks: Record<string, number> = {};
   private onGuest: Record<string, number> = {};
+  private onRoute: Record<string, number> = {};
   constructor(private readonly clock = () => performance.now()) {}
   /** A part as the guest timed it (its own clock, without the exec route's trip): `guest_ms` beside the marks. */
   guest(part: string, ms: number | null): void {
     if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
+  }
+  /** A part of the exec route as the runner timed it (the client-session mint, the provider's exec call): `route_ms`. */
+  route(part: string, ms: number | null | undefined): void {
+    if (typeof ms === "number" && Number.isFinite(ms) && ms >= 0 && !(part in this.onRoute)) this.onRoute[part] = Math.round(ms);
   }
   /** Forget every mark: a create the team's machine cap refused (createWithRoom) is asked again, and the clock starts at that ask. */
   reset(): void {
     this.start = undefined;
     this.marks = {};
     this.onGuest = {};
+    this.onRoute = {};
   }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
@@ -291,6 +297,7 @@ export class FirstTextTiming {
       create_marks_ms: { ...this.marks },
       ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}),
       ...(Object.keys(this.onGuest).length ? { guest_ms: { ...this.onGuest } } : {}),
+      ...(Object.keys(this.onRoute).length ? { route_ms: { ...this.onRoute } } : {}),
     };
   }
 }
@@ -2427,7 +2434,8 @@ async function sign(key: CryptoKey, message: string): Promise<string> {
   return Buffer.from(sig).toString("base64url");
 }
 
-export type ExecResult = { code: number; stdout: string; stderr: string };
+/** `route`: the runner's own times for this call's trip (directExec): the client-session mint it paid, if any, and the provider call. */
+export type ExecResult = { code: number; stdout: string; stderr: string; route?: { client_session_ms?: number; call_ms: number } };
 export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
@@ -2644,12 +2652,20 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
   return async (command, timeoutMs = 60_000) => {
-    if (guestRoute) return guestExec(command, timeoutMs);
+    const timedGuest = async () => {
+      const t0 = performance.now();
+      const out = await guestExec(command, timeoutMs);
+      return { ...out, route: { ...(mintMs === undefined ? {} : { client_session_ms: mintMs }), call_ms: Math.round(performance.now() - t0) } };
+    };
+    let mintMs: number | undefined;
+    if (guestRoute) return timedGuest();
     if (!session || session.expires_at - Date.now() < 60_000) {
+      const m0 = performance.now();
       const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
+      mintMs = Math.round(performance.now() - m0);
       if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
         guestRoute = true;
-        return guestExec(command, timeoutMs);
+        return timedGuest();
       }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
       session = r.body.value;
@@ -2658,12 +2674,14 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     const s = session!;
     const identity = { "x-freestyle-identity-access-token": s.token };
     const deadlineAt = Date.now() + timeoutMs + 15_000;
+    const c0 = performance.now();
     const sent = await http("POST", `${s.api_base_url.replace(/\/+$/, "")}/v5/vms/${s.vm_id}/exec-await`, { command, linuxUser: s.linux_user, timeoutMs }, { ...identity, ...BACKGROUND_AFTER }, timeoutMs + 15_000);
     const r = await settleBackground(sent, s.api_base_url, identity, deadlineAt, backgroundPollMs);
     if (r.status < 200 || r.status >= 300) throw new Error(`exec-await: HTTP ${r.status}`);
     const rawCode = r.body.statusCode ?? r.body.exitCode ?? r.body.code;
     // Freestyle leaves statusCode null or missing when the command timed out; the cmux CLI maps that to 124.
-    return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? "") };
+    const route = { ...(mintMs === undefined ? {} : { client_session_ms: mintMs }), call_ms: Math.round(performance.now() - c0) };
+    return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? ""), route };
   };
 }
 
@@ -3911,7 +3929,7 @@ export const providerKeysProgram = (folders: readonly string[] = PROVIDER_KEY_FO
   "echo \"@@procs $(ls -d /proc/[0-9]* | wc -l)\"",
   "$R grep -aoE \"$P\" /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | while IFS= read -r l; do p=${l#/proc/}; p=${p%%/*}; echo \"$p $(printf '%s\\n' \"${l#*:}\" | kind)\"; done" +
     " | sort -u | while read -r p k; do echo \"@@hit env pid $p ($($R cat /proc/$p/comm 2>/dev/null)): $k\"; done",
-  `$R timeout 80 find ${folders.join(" ")} -xdev` + " \\( -name node_modules -o -name .git \\) -prune -o -type f -size -4M -print0 2>/dev/null" +
+  `$R timeout 80 find ${folders.join(" ")} -xdev` + " \\( -name node_modules -o -name site-packages -o -name dist-packages -o -name .git \\) -prune -o -type f -size -4M -print0 2>/dev/null" +
     " | $R xargs -0 -r grep -IlsE \"$P\" 2>/dev/null | while IFS= read -r f; do echo \"@@hit file $f: $($R grep -ohIsE \"$P\" \"$f\" | kind)\"; done",
   "echo @@done",
 ].join("\n");
@@ -4536,12 +4554,15 @@ export function startMarks(stdout: string): Record<string, number> {
 }
 
 /** Each start mark as a guest part, and a detail line naming them. */
-function recordStartMarks(timing: FirstTextTiming, stdout: string): string {
+function recordStartMarks(timing: FirstTextTiming, stdout: string, route?: ExecResult["route"]): string {
+  timing.route("start_client_session", route?.client_session_ms);
+  timing.route("start_call", route?.call_ms);
   const marks = startMarks(stdout);
   for (const [k, v] of Object.entries(marks)) timing.guest(k, v);
   timing.guest("start_total", guestMs(stdout));
   const parts = Object.entries(marks).map(([k, v]) => `${k.slice(6)} ${v}`);
-  return parts.length ? `; start marks ms ${parts.join(", ")}` : "";
+  const trip = route ? `; route ms${route.client_session_ms === undefined ? "" : ` client-session ${route.client_session_ms},`} call ${route.call_ms}` : "";
+  return `${parts.length ? `; start marks ms ${parts.join(", ")}` : ""}${trip}`;
 }
 
 /** "; on the guest N ms (the rest is the exec route)" for a step's detail, or "" with no time. */
@@ -4701,7 +4722,7 @@ export function journeyMachineTtl(long: boolean, env: Record<string, string | un
     return { ttl_seconds: n };
   }
   if (env.GITHUB_ACTIONS !== "true") return {};
-  return { ttl_seconds: Math.round((long ? LONG_JOURNEY_MS : STALE_JOURNEY_MS / 2) / 1000) };
+  return { ttl_seconds: Math.round((long ? LONG_JOURNEY_MS : SHORT_JOURNEY_MS) / 1000) };
 }
 /**
  * The live machines on ROWS that carry one of TAG's own names (autoMachineName either length, its gateway and its cold create cell), minus
@@ -4716,6 +4737,15 @@ export function ownNamedMachines(rows: any[], tag: string, opts: { kept?: boolea
   const exclude = new Set([...(opts.exclude ?? [])].filter((id): id is string => typeof id === "string" && id !== ""));
   return rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting" && !exclude.has(String(r.id ?? r.machine_id ?? "")));
 }
+/**
+ * How old a short run's own machine (`cloud journey auto jr-<tag>`, no ` long`) is when the sweep takes it, in any state
+ * (paused and failed included), idle: half of STALE_JOURNEY_MS, the same bound as its ttl. Every workflow job that runs
+ * a journey is at most this long (the age-bound test checks every timeout-minutes), so no run that named the machine is
+ * still going. The 3 h bound kept every paused leftover under 3 h old: run 46115218791 (2026-11-28 07:20Z) swept 4 of
+ * the staging test team's 86 machines (paused 64, running 14, failed 8) while its owner object answered
+ * cloud.machine.list "Durable Object exceeded its CPU time limit" and every exec 503 vm_unavailable (overloaded).
+ */
+export const SHORT_JOURNEY_MS = STALE_JOURNEY_MS / 2;
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 /**
@@ -4784,14 +4814,18 @@ export function gatewayModeAction(body: unknown, gatewayOnly: boolean): "keep" |
   return strandedGatewayMode(body) ? "off" : "keep";
 }
 
-export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
+export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS, shortMs = SHORT_JOURNEY_MS): StaleMachine[] {
   const out: StaleMachine[] = [];
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
     // So are the Auto mode journey's (auto-journey.ts `auto journey aj-<tag>`): it always deletes its machine.
-    const auto = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
+    // A short journey run's own name (no ` long`) gets SHORT_JOURNEY_MS: every job that runs one is pinned under it.
+    const short = /^cloud journey auto jr-([0-9a-z]+)(?: (?!long(?: |$))\S.*)?$/.exec(name);
+    // `cmux repro run --cloud`'s capsule machine (cmux-tui cloud_journey/sweep.rs owned_tag_ms): only that run, which
+    // deletes it at its end, gives the name, so a leaked one goes by the same rule as a journey's.
+    const auto = short ?? /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name) ?? /^repro capsule \S+ jr-([0-9a-z]+)$/.exec(name);
     // A --keep run's own name (ownNamedMachines' `kept`): only the journey gives it, so it is the sweep's past KEPT_JOURNEY_MS.
     const kept = auto ? null : /^cloud journey jr-([0-9a-z]+)(?: \S.*)?$/.exec(name);
     const m = auto ?? kept;
@@ -4799,7 +4833,7 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    const bound = kept ? (r.status === "failed" ? longMs : KEPT_JOURNEY_MS) : r.status === "failed" ? FAILED_JOURNEY_MS : m[2] ? longMs : maxAgeMs;
+    const bound = kept ? (r.status === "failed" ? longMs : KEPT_JOURNEY_MS) : r.status === "failed" ? FAILED_JOURNEY_MS : short ? shortMs : m[2] ? longMs : maxAgeMs;
     if (nowMs - started <= bound) continue;
     if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
@@ -7228,7 +7262,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout, r.route)}` };
         }
         if (provider === "claude") {
           // The machine holds the person's login (a receipt spare or a copy) or reaches its model through the team's
@@ -7245,7 +7279,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
+          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout, r.route)}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));

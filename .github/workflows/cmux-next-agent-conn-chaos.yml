@@ -139,7 +139,7 @@ jobs:
             --key "agent-conn-chaos-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact artifacts/agent-conn-chaos/result.json ${extra[@]+"${extra[@]}"} \
             2>&1 | tee "$out/step.log" || status=1
-          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/step.log" | head -1)"
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/step.log" | head -1 || true)"
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/result.json" || "$client" artifact --failed "$step" "$out/result.json" || true
           fi
