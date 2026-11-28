@@ -148,9 +148,15 @@ extension CloudStartChat {
                 if owned && machineLogin { return (session, plan, .own) }
                 if !owned, start.machine != nil { throw CloudMove.Failure(message: CloudMoveStrings.noSuchMachine(machineID)) }
             }
+            // A team route start (the team's gateway or shared key, `claude_team_route`) carries its connection with the
+            // launch: acpmux puts the team's pair on the agent, so a machine with no edge route of its own still starts
+            // (cmux#64323's pair). Counting only this Mac's connection showed Set up Cloud for a gateway team (probe
+            // gui.auto_reply.signed_out, NEXT b3dfdf1d).
+            let teamRoute = connection == nil && choice.claudeAuth == .team
             try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: { @MainActor [invocation] in try await CloudWait.startStopped(status: { session.machine.shownStatus }, within: CloudStartSession.connectWait, read: { await session.refresher?($0) }) { do { try await session.resumer?(machineID, CloudHandlers.connectOrigin(for: invocation)) } catch where !CloudMachineRoute.keepsItsError(error) && CloudMachineCreation.proRefusal(error) == nil { throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(CloudStrings.errorText(error)), retry: .move(machineID: machineID)) } }; _ = try await CloudMove.connected(session, invocation) }).prepare(serves: {
                 services.agentTabs.holdsTabs(session.daemon) && (connection == nil || session.daemon.supports(capability))
-            }, carriesConnection: connection != nil,
+                    && (!teamRoute || session.daemon.supports(AgentSessionAttachClient.ClaudeAuth.team.capability))
+            }, carriesConnection: connection != nil || teamRoute,
                 family: endpoint ? (start.harness ?? "claude") : CloudSetup.family(of: start.harness),
                 ahead: (cloud.spareReadiness.takeRouteReport(machineID, scope: cloud.account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: machineID)) ?? readAhead).flatMap { session.machine.status == .running && session.machine.pendingChange == nil ? $0 : nil },
                 requiresCredentialCapability: endpoint) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
