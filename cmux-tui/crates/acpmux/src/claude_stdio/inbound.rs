@@ -991,6 +991,12 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // The turn's stop-hook continuations (`hub/stop_condition.rs`), likewise.
+                let continue_counts =
+                    Some(self.stop_continue.lock().await.turn_ended()).filter(|_| {
+                        self.stop_condition.load(Ordering::Relaxed)
+                            && crate::hub::stop_condition::continue_enabled()
+                    });
                 // And its path rules' counts, while that feature is on (path_rules.rs).
                 let path_rule_counts =
                     Some(self.path_rules.turn_ended()).filter(|_| path_rules::enabled());
@@ -1040,6 +1046,12 @@ impl Translator {
                     }
                     if let Some(misses) = cache_misses {
                         hm.insert("cacheAlarm".into(), misses);
+                    }
+                    if let Some(counts) = continue_counts {
+                        hm.insert(
+                            crate::hub::stop_condition::CONTINUE_FEATURE.into(),
+                            counts.to_json(),
+                        );
                     }
                     if !hm.is_empty() {
                         meta.set("harnessMagic", Value::Object(hm));

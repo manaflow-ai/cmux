@@ -3,8 +3,9 @@
 // tray and the end line's words, read from retryState.ts's one owner.
 import { describe, expect, test } from "bun:test";
 import { translate } from "../i18n";
+import type { AcpmuxRow } from "../model";
 import { retryKey } from "./retryState";
-import { finishedTrayItems, trayItems } from "./runningTray";
+import { finishedTrayItems, trayItems, withSubagentLines, type DoneLineCache } from "./runningTray";
 import { SubagentFold } from "./subagentFold";
 
 const RETRY = { attempt: 2, of: 4, reason: "capacity", nextAt: 1_792_000_060_000 };
@@ -62,6 +63,48 @@ describe("the running tray", () => {
     expect(trayItems(agents, [], [], false)).toEqual([]);
     expect(finishedTrayItems(agents, []).map((item) => item.id)).toEqual(["a"]);
   });
+});
+
+test("one cached start line transitions from finished to capacity-paused and back without duplicate rows", () => {
+  const fold = new SubagentFold();
+  const cache: DoneLineCache = new Map();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Overview" }] });
+  const update = (fields: Record<string, unknown>) => {
+    feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", ...fields }] });
+    const group: AcpmuxRow = { id: "helpers", kind: "subagents", version: seq, at: 1, subagents: [...fold.all()] };
+    return withSubagentLines([group], cache);
+  };
+
+  const completed = update({ state: "completed" });
+  expect(completed.map((row) => row.kind)).toEqual(["subagentStarted", "subagentDone"]);
+  expect(completed[0]!.startedAllEnded).toBe(true);
+
+  // Leo: "Keep one capacity indicator, not three." The same cache must drop the finished label
+  // and the done line, while neither live nor finished trays repeat the transcript's held row.
+  const paused = update({
+    state: "failed",
+    retry: RETRY,
+    capacityWait: { reason: "capacity", resumesAt: RETRY.nextAt },
+  });
+  expect(paused.map((row) => row.kind)).toEqual(["subagentStarted"]);
+  expect(paused[0]).not.toBe(completed[0]);
+  expect(paused[0]!.startedAllEnded).toBeUndefined();
+  for (const working of [false, true]) expect(trayItems(fold.all(), [], [], working)).toEqual([]);
+  expect(finishedTrayItems(fold.all(), [])).toEqual([]);
+
+  // A new provider deadline must also refresh the held row even though allEnded stays false.
+  const later = RETRY.nextAt + 60_000;
+  const extended = update({ capacityWait: { reason: "capacity", resumesAt: later } });
+  expect(extended).toHaveLength(1);
+  expect(extended[0]).not.toBe(paused[0]);
+  expect(extended[0]!.subagents![0]!.capacityWait?.resumesAt).toBe(later);
+  expect(extended[0]!.startedAllEnded).toBeUndefined();
+
+  const recovered = update({ state: "completed", retry: null, capacityWait: null });
+  expect(recovered.map((row) => row.kind)).toEqual(["subagentStarted", "subagentDone"]);
+  expect(recovered[0]).not.toBe(extended[0]);
+  expect(recovered[0]!.startedAllEnded).toBe(true);
+  expect(recovered[0]!.subagents![0]!.capacityWait).toBeUndefined();
 });
 
 test("a change to any retry field redraws the line (its cache key)", () => {

@@ -2729,7 +2729,12 @@ function shapeTurn(
     const outside = (rows: readonly AcpmuxRow[]) =>
       rows.flatMap((row) =>
         out(row)
-          ? [row]
+          ? // A start line beside the closed fold, whose done lines that fold hides, says they finished
+            // once every one did: "started working" stood under "Worked for 9s" after the subagent had
+            // ended (Leo, 2026-11-25: "dot on left weird").
+            !open && !unlabeled && row.kind === SUBAGENT_STARTED && row.startedAllEnded
+            ? [{ ...row, startedEndedLine: true as const, version: row.version * 2 + 1 }]
+            : [row]
           : dialogue
             ? [row]
             : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`),
