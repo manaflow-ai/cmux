@@ -54,12 +54,25 @@ on:
     # "nothing in the app changes" or "needs a build", so its head started a run, a Linux runner and a plan for no
     # look (6,879 heads planned in 11-13..19, 1 own red). Only a change that can reach a layer starts it now, the
     # merged (closed) half included; the `!` lines are scripts/ci/docs_only_paths.py's prose excludes. A change to the
-    # engine's layer rules (live_apply.py, hot-apply.py) updates this list in the same pull request.
+    # engine's layer rules (live_apply.py, hot-apply.py) or to cmux/ui-proof's visual roots updates this list in the
+    # same pull request.
     paths:
       - "webviews/**"
       - "cmux-tui/**"
       - "acpmux/**"
       - "first-party-apps/cloud/server/**"
+      # The app layer (cmux#63712): the plan makes a Swift change eligible for a look with a fleet app build of the
+      # head, and cmux/ui-proof holds every head under these roots (scripts/ci/ui_proof_verdict.py APP_VISUAL)
+      # pending until that look's record. Without them here the look never started for a Swift-only head: 13 of
+      # the 17 ui_proof-held ready rows on 2026-11-28T12:12Z had no run of this workflow at any head
+      # (tests/test_ci_hot_verify_paths_cover_visual.py keeps the two lists together).
+      - "Packages/macOS/**"
+      - "Packages/Shared/**"
+      - "Native/**"
+      - "Resources/**"
+      - "Assets.xcassets/**"
+      - "AppIcon.icon/**"
+      - "App/**"
       - "**/*.rs"
       - "**/Cargo.toml"
       - ".github/workflows/cmux-next-hot-verify.yml"

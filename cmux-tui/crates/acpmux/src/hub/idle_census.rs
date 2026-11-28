@@ -132,6 +132,8 @@ impl Hub {
             .unwrap_or_else(|e| e.into_inner())
             .get()
             .and_then(|asked| asked.record.clone());
+        // The env its agent started with: its names are recorded, never its values.
+        let env = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         meta.idle_launch = stored;
         // The session's namespace, recorded once at its first start (`session_manifest.rs`).
@@ -148,6 +150,7 @@ impl Hub {
         }
         let cwd = meta.cwd.clone();
         crate::session_manifest::keep_codex(on, &mut meta.manifest, &cwd, codex);
+        crate::session_manifest::keep_env(on, &mut meta.manifest, &cwd, env.as_ref());
     }
 
     /// An adopted host's servers, from its session's meta when they were kept for this
