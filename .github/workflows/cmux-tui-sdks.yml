@@ -51,6 +51,7 @@ on:
       - "tests/test_tui_publish_workflow_security.py"
       - ".github/workflows/base-coalesce.yml"  # tests/test_tui_publish_workflow_security.py reads it
       - "scripts/ci/cmux_tui_tree_key.py"  # tests/test_tui_publish_workflow_security.py reads it
+      - "scripts/ci/cmux-next-daemon-tests.sh"  # tests/test_tui_publish_workflow_security.py reads it
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
       # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
@@ -210,6 +211,7 @@ on:
       - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
       - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/settings/source/notifications.json"
       - "schemas/settings/source/page-layout.json"
@@ -257,6 +259,7 @@ on:
       - "tests/test_tui_publish_workflow_security.py"
       - ".github/workflows/base-coalesce.yml"  # tests/test_tui_publish_workflow_security.py reads it
       - "scripts/ci/cmux_tui_tree_key.py"  # tests/test_tui_publish_workflow_security.py reads it
+      - "scripts/ci/cmux-next-daemon-tests.sh"  # tests/test_tui_publish_workflow_security.py reads it
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
       # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
@@ -416,6 +419,7 @@ on:
       - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
       - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/settings/source/notifications.json"
       - "schemas/settings/source/page-layout.json"
@@ -1406,6 +1410,9 @@ jobs:
           CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           test "$(zig version)" = "$GHOSTTY_ZIG_REQUIRED"
+          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
+          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
 
       # Pull request caches stay read-only. main publishes the build they reuse,

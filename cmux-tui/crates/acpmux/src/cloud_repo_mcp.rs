@@ -134,23 +134,30 @@ fn result_text(result: &Value) -> String {
             .and_then(Value::as_str)
             .unwrap_or("Repository action failed")
             .to_owned();
-        if error.get("code").and_then(Value::as_str) == Some("repo.needs_github") {
+        let code = error.get("code").and_then(Value::as_str);
+        if code == Some("repo.needs_github") {
             text.push_str(
                 " Connect GitHub; this add will be retried automatically when it finishes.",
             );
         }
+        if code == Some("repo.no_access") {
+            // One line the person and the agent both read: whose grant, which owner, the fix.
+            text = no_access_line(
+                error.get("org").and_then(Value::as_str),
+                error.get("install_url").and_then(Value::as_str),
+            );
+        }
+        // The agent reads only this text (no outputSchema is declared, so clients
+        // like Claude Code never show structuredContent to the model), and the chat
+        // reads its card's fields from the same text: keep the payload on it.
+        if matches!(code, Some("repo.needs_github" | "repo.no_access")) {
+            text.push('\n');
+            text.push_str(&serde_json::to_string(error).unwrap_or_default());
+        }
         return text;
     }
     if let Some(repos) = result.get("repos").and_then(Value::as_array) {
-        return if repos.is_empty() {
-            "No repositories match. Connect GitHub, or use a local project.".to_owned()
-        } else {
-            format!(
-                "Found {} {}.",
-                repos.len(),
-                if repos.len() == 1 { "repository" } else { "repositories" }
-            )
-        };
+        return repos_text(repos, result.pointer("/connect/install_url").and_then(Value::as_str));
     }
     if result.get("state").and_then(Value::as_str) == Some("done") {
         return format!(
@@ -160,6 +167,67 @@ fn result_text(result: &Value) -> String {
         );
     }
     serde_json::to_string(result).unwrap_or_else(|_| "Repository action completed.".to_owned())
+}
+
+/// The refusal for a repository the team's GitHub grant does not cover, in one line.
+pub(crate) fn no_access_line(owner: Option<&str>, install_url: Option<&str>) -> String {
+    let owner = owner.filter(|o| !o.is_empty());
+    let what = match owner {
+        Some(owner) => format!(
+            "This chat's GitHub grant does not cover {owner}: the cmux GitHub App is not installed on {owner} for this cmux team."
+        ),
+        None => "This chat's GitHub grant does not cover this repository.".to_owned(),
+    };
+    match install_url {
+        Some(url) => format!(
+            "{what} Install it from the chat's Install GitHub App button or {url}, then retry."
+        ),
+        None => format!(
+            "{what} Install the cmux GitHub App there (in cmux choose Connect GitHub), then retry."
+        ),
+    }
+}
+
+/// The most repository names one list result names; the rest are counted.
+const LISTED_REPOS: usize = 200;
+
+/// The names themselves: an agent sees only this text, so "Found 202
+/// repositories." with no names left it nothing to choose (proof-3).
+fn repos_text(repos: &[Value], install_url: Option<&str>) -> String {
+    let mut text = if repos.is_empty() {
+        "No repositories match. Use a repository your GitHub connection covers, or a local project."
+            .to_owned()
+    } else {
+        format!(
+            "Found {} {}; add one with add_repo:",
+            repos.len(),
+            if repos.len() == 1 { "repository" } else { "repositories" }
+        )
+    };
+    for repo in repos.iter().take(LISTED_REPOS) {
+        let Some(name) = repo.get("fullName").and_then(Value::as_str) else { continue };
+        text.push_str("\n- ");
+        text.push_str(name);
+        let private = repo.get("private").and_then(Value::as_bool) == Some(true);
+        match (private, repo.get("source").and_then(Value::as_str)) {
+            (true, Some(source)) => text.push_str(&format!(" (private, {source})")),
+            (true, None) => text.push_str(" (private)"),
+            (false, Some(source)) => text.push_str(&format!(" ({source})")),
+            (false, None) => {}
+        }
+    }
+    if repos.len() > LISTED_REPOS {
+        text.push_str(&format!(
+            "\n...and {} more; pass a query to list_repos to narrow it.",
+            repos.len() - LISTED_REPOS
+        ));
+    }
+    if let Some(url) = install_url {
+        text.push_str(&format!(
+            "\nA repository of an organization that is not listed needs the cmux GitHub App installed there: {url}"
+        ));
+    }
+    text
 }
 
 /// The Cloud CLI already speaks the legacy machine socket contract. Calling
@@ -508,6 +576,58 @@ mod tests {
             json!({"action": REPO_ADD_ACTION, "args": {"session":"chat-1","repo":"acme/tool"}})
         );
     }
+    /// proof-3: the agent sees only the content text, so it must carry the names.
+    #[test]
+    fn list_repos_text_names_each_repository() {
+        let repos: Vec<Value> = (0..202)
+            .map(
+                |i| json!({"fullName": format!("leo/r{i}"), "private": i == 0, "source": "github"}),
+            )
+            .collect();
+        let result = ok(
+            json!({"repos": repos, "connect": {"install_url": "https://github.com/apps/cmux/installations/new"}}),
+        );
+        assert_eq!(result["isError"], false);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("Found 202 repositories; add one with add_repo:"), "{text}");
+        assert!(text.contains("\n- leo/r0 (private, github)\n- leo/r1 (github)"), "{text}");
+        assert!(text.contains("\n- leo/r199 (github)"), "{text}");
+        assert!(!text.contains("leo/r200"), "{text}");
+        assert!(text.contains("...and 2 more"), "{text}");
+        assert!(text.contains("https://github.com/apps/cmux/installations/new"), "{text}");
+        let one = ok(json!({"repos": [{"fullName": "leo/x"}]}));
+        assert_eq!(
+            one["content"][0]["text"],
+            "Found 1 repository; add one with add_repo:\n- leo/x"
+        );
+        let none = ok(json!({"repos": []}));
+        assert!(!none["content"][0]["text"].as_str().unwrap().contains("Connect GitHub"));
+    }
+
+    /// Gap 1: an owner the grant leaves out reads as one line naming it, and the
+    /// payload the chat's card reads rides on the same text.
+    #[test]
+    fn no_access_says_the_grant_does_not_cover_the_owner_in_one_line() {
+        let url = "https://github.com/apps/cmux/installations/new";
+        let result = ok(
+            json!({"code":"repo.no_access","message":"Install GitHub access.","org":"manaflow-ai","install_url":url}),
+        );
+        assert_eq!(result["isError"], true);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        let (line, payload) = text.split_once('\n').unwrap();
+        assert_eq!(
+            line,
+            format!(
+                "This chat's GitHub grant does not cover manaflow-ai: the cmux GitHub App is not \
+                 installed on manaflow-ai for this cmux team. Install it from the chat's Install \
+                 GitHub App button or {url}, then retry."
+            )
+        );
+        let payload: Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(payload["org"], "manaflow-ai");
+        assert_eq!(payload["install_url"], url);
+    }
+
     #[test]
     fn other_errors_are_not_retried() {
         let mut result = json!({"code":"repo.not_found"});

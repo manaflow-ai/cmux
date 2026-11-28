@@ -1,8 +1,10 @@
 #if os(iOS) && canImport(CmuxMobileLinkFFI)
+import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileLinkFFI
 import CmuxMobileModel
 import Foundation
+import SwiftUI
 import Testing
 @testable import CmuxMobileWorkspaces
 
@@ -100,6 +102,60 @@ struct TerminalChatToggleTests {
         #expect(source.activeTabID == "s1")
         // The page menu's row is the other face.
         #expect(source.terminalChatItems(tab, in: workspace).map(\.title) == ["Show Terminal"])
+    }
+
+    /// A terminal that records the prompts typed into it, or refuses them (not attached).
+    @MainActor final class PromptTerminal: TerminalTabContent {
+        var takes = true
+        var typed: [String] = []
+        var interrupted: [String] = []
+        func interruptAgent(for tab: WorkspaceTab, in workspace: Workspace) -> Bool {
+            guard takes else { return false }
+            interrupted.append(tab.id)
+            return true
+        }
+        func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView { AnyView(EmptyView()) }
+        func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView { AnyView(EmptyView()) }
+        func sendPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) -> Bool {
+            guard takes else { return false }
+            typed.append("\(tab.id): \(text)")
+            return true
+        }
+    }
+
+    /// Leo, 2026-11-16: "it's not usable like the regular gui". The Chat face has the regular
+    /// chat's composer; its View Only chat takes no prompt, so a prompt is typed into the terminal.
+    @Test func aPromptOnTheChatFaceIsTypedIntoItsTerminal() throws {
+        let backend = PairBackend(listings: [Self.watch])
+        let store = AppStore.mock(tabMemory: .inMemory([:]))
+        store.workspaces = [Workspace(id: "w", macID: "mac", title: "relay", directory: "~/p",
+                                      tabs: [Self.terminal("s1", agent: "claude-code", session: "h-1")], lastActivityAt: Date())]
+        let terminal = PromptTerminal()
+        let source = WorkspaceTabsSource(store: store, workspaceID: "w", terminal: terminal, sessions: AgentSessionDirectory(),
+                                         creator: WorkspaceCreator(store: store, backend: backend))
+        source.terminalChatToggleOn = { true }
+        let workspace = try #require(source.workspace)
+        let tab = try #require(source.workspaceTab("s1"))
+        source.swapTerminalChat("s1", to: .chat)
+        #expect(source.showsChatFace(tab, in: workspace))
+        let chat = try #require(source.terminalChatStore(tab, in: workspace))
+        chat.send(prompt: "  fix the build  ")
+        #expect(terminal.typed == ["s1: fix the build"])
+        #expect(chat.clientError == nil)
+        // Stop interrupts the terminal's turn, not the View Only chat.
+        chat.cancel()
+        #expect(terminal.interrupted == ["s1"])
+        // A terminal that cannot take it now: the draft comes back, with why.
+        terminal.takes = false
+        chat.send(prompt: "and the tests")
+        #expect(terminal.typed == ["s1: fix the build"])
+        #expect(chat.returnedDraft?.text == "and the tests")
+        #expect(chat.clientError == AgentChatStore.terminalNotTakingPromptNotice)
+        // The model and mode belong to the terminal's agent: the View Only chat does not change them.
+        chat.setModel("opus")
+        #expect(chat.clientError == AgentChatStore.terminalSettingsNotice)
+        chat.setMode("plan")
+        #expect(chat.clientError == AgentChatStore.terminalSettingsNotice)
     }
 
     @Test func aTerminalWithNoChatAsksTheMacForTheViewOnlyChatOnce() async throws {
