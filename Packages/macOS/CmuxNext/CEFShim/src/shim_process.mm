@@ -404,6 +404,12 @@ void cmux_shim_set_default_search(const char* template_url_json) {
 
 // Read once by cmux_shim_initialize (CefSettings.chrome_policy_id).
 static std::string g_chrome_policy_id;
+// Read once by cmux_shim_initialize (CefSettings.locales_dir_path).
+static std::string g_locales_dir;
+
+void cmux_shim_set_locales_dir(const char* dir) {
+  g_locales_dir = dir ? dir : "";
+}
 
 void cmux_shim_set_chrome_policy_id(const char* policy_id) {
   g_chrome_policy_id = policy_id ? policy_id : "";
@@ -500,6 +506,11 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   }
   if (!g_chrome_policy_id.empty()) {
     CefString(&settings.chrome_policy_id) = g_chrome_policy_id;
+  }
+  if (!g_locales_dir.empty()) {
+    // Locale paks downloaded on first use live outside the signed framework: CEF looks here
+    // first and keeps the framework's own en pak as the fallback (cef#47).
+    CefString(&settings.locales_dir_path) = g_locales_dir;
   }
   settings.background_color = BackgroundColor();
   g_accept_languages = accept_languages ? accept_languages : "";

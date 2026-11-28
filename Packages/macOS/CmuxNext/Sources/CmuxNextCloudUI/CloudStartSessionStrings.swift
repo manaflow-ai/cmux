@@ -18,6 +18,11 @@ public struct CloudStartSessionStrings {
         }
     }
 
+    public static var environmentMismatch: CloudMoveFailure {
+        CloudMoveFailure(message: String(localized: "cloud.start.environmentMismatch", defaultValue: "The chosen machine cannot serve the selected Cloud environment.", table: "CloudSessions", bundle: .localizedModule),
+                         code: "environment_mismatch")
+    }
+
     public static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .localizedModule) }
     public static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .localizedModule) }
 
@@ -58,9 +63,15 @@ public struct CloudStartSessionStrings {
     /// connection on this Mac or the team serves `agent`'s family, so no machine was taken. `link` opens the Settings >
     /// Cloud row that sets it up (`cmux://settings/cloud/claude` or `/chatgpt`, the running build's scheme). With
     /// `localLogin` (a Claude Code or Codex login on this Mac, which serves only this Mac) it says why that one does not count.
-    public static func setupRequired(agent: String, family: String, localLogin: Bool, link: String, command: String) -> String {
+    /// `gatewayTeam`, `gatewayCode`: the team gateway the refusal read and why it counted none (the CLI's error code, or
+    /// `not_serving` when it read the gateway off or offline), said last (hq#19758); nil when none was read.
+    public static func setupRequired(agent: String, family: String, localLogin: Bool, link: String, command: String,
+                                     gatewayTeam: String? = nil, gatewayCode: String? = nil) -> String {
         let text = String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "No Cloud connection serves %1$@ yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), then run `%2$@` again.", table: "CloudSessions", bundle: .localizedModule), agent, command)
-        let open = String(format: String(localized: "cloud.startSession.setupRequired.open", defaultValue: "`cmux link open --url %@` opens it there.", table: "CloudSessions", bundle: .localizedModule), link)
+        var open = String(format: String(localized: "cloud.startSession.setupRequired.open", defaultValue: "`cmux link open --url %@` opens it there.", table: "CloudSessions", bundle: .localizedModule), link)
+        if let gatewayCode {
+            open += " " + String(format: String(localized: "cloud.startSession.setupRequired.gateway", defaultValue: "Inference gateway of team %1$@: %2$@.", table: "CloudSessions", bundle: .localizedModule), gatewayTeam ?? "-", gatewayCode)
+        }
         guard localLogin else { return text + " " + open }
         let login = family == "codex"
             ? String(localized: "cloud.startSession.setupRequired.codexLogin", defaultValue: "Your Codex login on this Mac works only on this Mac; Cloud needs a ChatGPT connection (or an API key).", table: "CloudSessions", bundle: .localizedModule)
@@ -160,6 +171,11 @@ public struct CloudStartSessionStrings {
     /// The `agent-session-start` refusals that name their cause (cmux-tui agent_session_start.rs, hq#11225): an agent
     /// not signed in, an agent the machine lacks, a model route that can't serve the start.
     public static let namedRefusals: Set<String> = ["agent_session.sign_in_required", "agent_session.harness_missing", "agent_session.route_unavailable"]
+
+    /// A team launch would expose a credential from the machine's Claude settings file.
+    package static var claudeSettingsSecret: String {
+        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
+    }
 
     /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:
     /// its sign-in expired; `harness`: the refused harness id (`cmux`, the cmux router, is named as the router).

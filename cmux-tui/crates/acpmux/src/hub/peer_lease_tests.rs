@@ -12,11 +12,13 @@ async fn a_lease_takes_only_a_loopback_or_tls_url() {
     let hub = hub();
     let cfg = crate::config::Config::default();
     for url in ["ws://10.0.0.5:4000", "ssh://me@host", "http://127.0.0.1:1", "ws://example.com"] {
-        let e = hub.lease_peer("vm", url, "t".into(), None, false, &cfg).unwrap_err();
+        let e = hub.lease_peer("vm", url, "t".into(), None, false, None, &cfg).unwrap_err();
         assert!(e.message.contains("loopback"), "{url}: {}", e.message);
     }
-    assert!(hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).is_ok());
-    assert!(hub.lease_peer("vm2", "wss://example.com", "t".into(), None, false, &cfg).is_ok());
+    assert!(hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, None, &cfg).is_ok());
+    assert!(
+        hub.lease_peer("vm2", "wss://example.com", "t".into(), None, false, None, &cfg).is_ok()
+    );
 }
 
 #[tokio::test]
@@ -33,9 +35,11 @@ async fn a_lease_never_takes_a_saved_peers_name() {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
-    let e = hub.lease_peer("box", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).unwrap_err();
+    let e =
+        hub.lease_peer("box", "ws://127.0.0.1:1", "t".into(), None, false, None, &cfg).unwrap_err();
     assert!(e.message.contains("saved peer"), "{}", e.message);
 }
 
@@ -43,8 +47,10 @@ async fn a_lease_never_takes_a_saved_peers_name() {
 async fn ending_an_old_lease_leaves_its_renewal_running() {
     let hub = hub();
     let cfg = crate::config::Config::default();
-    let (old, _) = hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).unwrap();
-    let (new, _) = hub.lease_peer("vm", "ws://127.0.0.1:2", "t".into(), None, false, &cfg).unwrap();
+    let (old, _) =
+        hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, None, &cfg).unwrap();
+    let (new, _) =
+        hub.lease_peer("vm", "ws://127.0.0.1:2", "t".into(), None, false, None, &cfg).unwrap();
     hub.end_peer_lease(&old);
     assert!(hub.is_leased("vm"));
     assert_eq!(hub.peers().len(), 1);
@@ -84,7 +90,7 @@ fn leasing_while_listing_peers_never_deadlocks() {
             let cfg = crate::config::Config::default();
             for _ in 0..2_000 {
                 let (lease, _) = hub
-                    .lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg)
+                    .lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, None, &cfg)
                     .unwrap();
                 hub.end_peer_lease(&lease);
             }
@@ -105,7 +111,7 @@ async fn a_saved_peer_takes_a_leased_name_over_and_drops_its_rows() {
     let hub = hub();
     let cfg = crate::config::Config::default();
     let (lease, _) =
-        hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+        hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
     let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
     hub.apply_peer_notice(
         "vm",
@@ -131,7 +137,7 @@ async fn a_leased_peer_leaves_no_session_cache_and_its_rows_go_with_it() {
     let store = crate::store::open(&cfg.store, dir.path()).unwrap();
     let hub = Hub::new(cfg.clone(), store);
     let (lease, _) =
-        hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+        hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
     let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
     hub.apply_peer_notice(
         "vm",
@@ -171,7 +177,7 @@ async fn a_replaced_instances_late_notice_adds_no_rows_and_saves_no_cache() {
 
     // A saved peer takes the leased name over.
     let (lease, _) =
-        hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+        hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
     hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
     hub.apply_peer_notice(
         "vm",
@@ -183,7 +189,7 @@ async fn a_replaced_instances_late_notice_adds_no_rows_and_saves_no_cache() {
 
     // The lease ended.
     let (lease, _) =
-        hub.lease_peer("vm2", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+        hub.lease_peer("vm2", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
     hub.end_peer_lease(&lease);
     hub.apply_peer_notice(
         "vm2",
@@ -217,7 +223,7 @@ async fn removing_a_leased_peer_is_refused_and_never_touches_config() {
     let store = crate::store::open(&cfg.store, dir.path()).unwrap();
     let hub = Hub::new(cfg.clone(), store);
     let (lease, _) =
-        hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+        hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
     let e = hub.remove_peer("vm").await.unwrap_err();
     assert!(e.message.contains("leased"), "{}", e.message);
     assert!(
@@ -231,4 +237,77 @@ async fn removing_a_leased_peer_is_refused_and_never_touches_config() {
     hub.end_peer_lease(&lease);
     assert!(hub.peers().is_empty());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+}
+
+/// Reproduce lease_peer's startup window: the instance is visible, but its lease
+/// generation has not yet been inserted because the lease writer is still held.
+#[tokio::test]
+async fn wedge_a_lease_is_classified_before_its_lease_registry_entry() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-pl");
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+    let hub = Hub::new(cfg, store);
+    let pc = crate::config::PeerConfig {
+        link_host: None,
+        wireguard: None,
+        url: "ws://127.0.0.1:9".into(),
+        token: None,
+        peer_token: None,
+        vm_boundary: false,
+        github_broker: false,
+        group: None,
+    };
+    let mut leases = hub.peer_leases.lock().unwrap();
+    let (generation, _) = hub.spawn_peer("vm", &pc, false, true);
+    assert!(!leases.contains_key("vm"));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = {
+        let hub = hub.clone();
+        std::thread::spawn(move || {
+            hub.apply_peer_notice(
+                "vm",
+                generation,
+                crate::peer::PeerNotice::sessions_from_values(vec![
+                    json!({"sessionId": "m1", "status": "idle", "updatedAt": 5}),
+                ]),
+            );
+            hub.save_peer_cache_now("vm", generation, true);
+            tx.send((hub.is_leased("vm"), hub.peers())).unwrap();
+        })
+    };
+    let result = rx.recv_timeout(std::time::Duration::from_secs(2));
+    let lease = PeerLease { name: "vm".into(), generation, cloud_registry_id: None };
+    leases.insert(lease.name.clone(), lease.clone());
+    drop(leases);
+    reader.join().unwrap();
+    let (leased, rows) = result.expect("startup notice or listing waited on lease publication");
+    assert!(leased);
+    assert_eq!(rows.iter().find(|r| r["name"] == "vm").unwrap()["leased"], true);
+    assert!(!dir.path().join("peers/vm.json").exists(), "startup saved a leased peer");
+    assert_eq!(hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst), 0);
+    hub.end_peer_lease(&lease);
+}
+
+#[tokio::test]
+async fn wedge_saved_peer_cache_scheduling_does_not_wait_for_a_lease_writer() {
+    let hub = hub();
+    let peer = hub.seed_down_peer("saved", vec![json!({"sessionId": "s1", "status": "idle"})]);
+    // Exercise the synchronous scheduling decision without doing a disk write.
+    peer.cache_saved_at.store(crate::store::now_ms(), std::sync::atomic::Ordering::SeqCst);
+    let leases = hub.peer_leases.lock().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = {
+        let hub = hub.clone();
+        let generation = peer.generation;
+        std::thread::spawn(move || {
+            hub.save_peer_cache("saved", generation, false);
+            tx.send(()).unwrap();
+        })
+    };
+    let result = rx.recv_timeout(std::time::Duration::from_secs(2));
+    drop(leases);
+    reader.join().unwrap();
+    result.expect("cache scheduling waited on the lease writer");
+    assert!(peer.cache_is_dirty());
 }

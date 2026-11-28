@@ -4,7 +4,7 @@
 // says only "Thinking", with no clock (conversation/liveTurnClock.experiment.ts).
 import { afterEach, expect, test } from "bun:test";
 import { layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ACTIVITY_LINE, THINKING, WORKED, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { THINKING, WORKED, turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const scope = globalThis as { cmuxExperiments?: Record<string, string> };
 afterEach(() => {
@@ -51,19 +51,13 @@ test("the turn's end puts Worked for in Working for's place, at the same height"
   expect(after.heights[worked]).toBe(during.heights[header]);
 });
 
-test("a turn of only a reply so far draws no Working for: its end has no fold line to take its place", () => {
+// A reply-only turn's end keeps its Worked for line in this place (turns.ts `holdsHeader`, #51896), so it draws
+// Working for from its first row, as every turn does; it once drew none, then the heading arrived with the first
+// work row and moved the reply down. Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways so it disappearing means there's multiple problems".
+test("a turn of only a reply so far draws Working for under its prompt, where its end draws Worked for", () => {
   const live = shown(turnView(turn.slice(0, 2), new Set(), { now: 60_000, agentFamily: "codex", working: true }));
-  expect(live.some((each) => each.turnPhase === "running")).toBe(false);
-});
-
-test("a plan's activity line replaces the top clock when session status is enabled", () => {
-  const plan = row("steps", "plan", 4_000, { plan: [{ content: "Build", status: "in_progress" }] });
-  const rows = [...turn.slice(0, -1), plan];
-  const options = { now: 60_000, agentFamily: "codex", working: true };
-  expect(turnView(rows, new Set(), options).some((each) => each.turnPhase === "running")).toBe(true);
-  const status = turnView(rows, new Set(), { ...options, sessionStatus: true });
-  expect(status.at(-1)?.kind).toBe(ACTIVITY_LINE);
-  expect(status.some((each) => each.turnPhase === "running")).toBe(false);
+  expect(live.map((each) => each.id)).toEqual(["u", "worked-u", "plan", expect.any(String)]);
+  expect(live[1]).toMatchObject({ kind: WORKED, turnPhase: "running" });
 });
 
 test("the line arm keeps the clock on the bottom line and draws nothing over the work", () => {

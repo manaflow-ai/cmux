@@ -1,20 +1,21 @@
 public import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemonService
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
 import Observation
+import CmuxNextWakeups
 
 /// Settings > Models (cmux-tui/docs/model-connections.md): the person's model connections from acpmux
 /// (`_acpmux/connections`), the team's shared keys and the team's members policy, for
 /// the React Settings page's `cmux.settings.models.state|run` and its `.changed` stream.
 ///
 /// Every run maps to one owner: acpmux for the person's connections (order, spread, enable, remove,
-/// Sign in with ChatGPT, an API key, a Claude setup token), the existing Claude account sign-in and a
-/// terminal tab running `claude setup-token` (``SettingsHarnesses``), the owner API for the team's keys
+/// Sign in with ChatGPT, or an API key), Claude Code for its own login, and the owner API for the team's keys
 /// (``TeamAgentKeys``) and policy (``TeamModelsPolicy``). Revision 2: no team gateway.
 ///
-/// A pasted API key or setup token goes into this Mac's Keychain (``ModelKeyStoring``) before anything
+/// A pasted API key goes into this Mac's Keychain (``ModelKeyStoring``) before anything
 /// else sees it; acpmux gets only its `keychain:ITEM` reference. It never reaches page state, a log or a file.
 /// Spread lives in the settings schema (`models.spreadUsage`, so the palette, `cmux settings` and MCP
 /// reach it); this mirrors it into acpmux, which keeps a copy in its bindings.
@@ -22,8 +23,8 @@ import Observation
 @Observable
 public final class SettingsModels {
     /// acpmux's connection kinds and providers the page draws (`ModelConnection`).
-    nonisolated static let kinds: Set<String> = ["codex-login", "claude-login", "subscription", "chatgpt-plan", "claude-token", "api-key"]
-    nonisolated static let providers: Set<String> = ["openai", "anthropic", "openrouter", "google", "xai"]
+    nonisolated static let kinds: Set<String> = ["codex-login", "claude-login", "subscription", "native-login", "chatgpt-plan", "claude-token", "grok-plan", "copilot-plan", "kimi-plan", "api-key", "endpoint"]
+    nonisolated static let providers: Set<String> = ["openai", "anthropic", "openrouter", "google", "vertex-express", "xai"]
     /// `chatgpt.wait` rounds (each up to 25 s) before an attempt is given up: about 15 minutes.
     nonisolated static let chatgptRounds = 36
     /// Failed `chatgpt.wait` calls in a row (no answer) before the attempt is given up.
@@ -36,53 +37,109 @@ public final class SettingsModels {
     private(set) var daemonSpread = true
     /// Whether acpmux answered `_acpmux/connections` at the last read.
     private(set) var available = false
+    private var claudeCodeAvailable: Bool?
     private(set) var read = false
     private(set) var chatgptAttempt: String?
     private(set) var chatgptError: String?
+    var chatgptDevice = ChatGPTDeviceState.idle
+    var deviceProvider = ModelDeviceProvider.chatgpt
+    var deviceRegion: String?
+    var deviceTarget: String?
+    @ObservationIgnored var chatgptDeviceRunID = UUID()
+    @ObservationIgnored var chatgptDeviceTask: Task<Void, Never>?
+    @ObservationIgnored var chatgptDeviceEnvironment: AcpmuxEnvironment?
+    var claudeLogins: [ClaudeLoginTarget: ClaudeLoginState] = [:]
+    @ObservationIgnored var claudeLoginTasks: [ClaudeLoginTarget: Task<Void, Never>] = [:]
+    @ObservationIgnored var claudeLoginTimers: [ClaudeLoginTarget: DemandTimer] = [:]
+    @ObservationIgnored var onCloudClaudeSignIn: (@MainActor (String) -> Void)?
+    @ObservationIgnored var presentClaudeCallback: CloudClaudeMachine.CallbackOpener?
+    @ObservationIgnored var claudeLoginAttempts: [ClaudeLoginTarget: ClaudeLoginAttempt] = [:]
+    @ObservationIgnored var claudeLoginCancellations: Set<ClaudeLoginTarget> = []
+    nonisolated let cloudClaudeApproval: CloudClaudeApproval
+    nonisolated let cloudClaudeApprovalOwner = UUID()
+    /// The current owner machine, keeping the machine this dialog used while it is still ready.
+    @ObservationIgnored public var cloudClaudeLogin: (@MainActor (String?, String?, String?) -> CloudClaudeLogin)?
+    /// Prepares an owned machine for Connect. Nil means the Cloud create card handled the request.
+    @ObservationIgnored public var prepareCloudClaudeLogin: (@MainActor (String?, String?, String?) async throws -> CloudClaudeMachine?)?
+    @ObservationIgnored var refreshCloudClaudeMachines: (@MainActor () async -> Bool)?
+    @ObservationIgnored var cloudClaudeAccount: (@MainActor @Sendable () -> [String?]?)?
+    @ObservationIgnored var cloudClaudeAccountWatch: Task<Void, Never>?
+    @ObservationIgnored var cloudClaudeStateAccount: [String?]?
 
-    @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
+    /// The one-click Claude connection (`claude_token.begin`): its attempt, phase (`starting`,
+    /// `signing_in`, `saving`), the last attempt's error, and whether the last attempt saved a token
+    /// (a Cancel, or a run the daemon cancelled, ends with neither an error nor `saved`).
+    private(set) var claudeTokenAttempt: String?
+    private(set) var claudeTokenPhase: String?
+    private(set) var claudeTokenError: String?
+    private(set) var claudeTokenSaved = false
+
+    var hasDaemonOverride: Bool { call != nil }
+
+    @ObservationIgnored let environment: @MainActor () async -> AcpmuxEnvironment?
     @ObservationIgnored private let call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)?
     @ObservationIgnored private let keys: any ModelKeyStoring
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
-    @ObservationIgnored private let harnesses: SettingsHarnesses?
+    @ObservationIgnored var presentSignInPage: (@MainActor (URL, String) async -> Bool)?
+    @ObservationIgnored var dismissSignInPage: (@MainActor (String) -> Void)?
+    @ObservationIgnored package var harnesses: SettingsHarnesses?
     @ObservationIgnored private let team: @MainActor () -> (id: String, name: String)?
     @ObservationIgnored private let agentKeys: TeamAgentKeys?
     @ObservationIgnored private let policy: TeamModelsPolicy?
     @ObservationIgnored private let spreadSetting: (@MainActor () -> Bool)?
     @ObservationIgnored private let writeSpreadSetting: (@MainActor (Bool) async throws -> Void)?
+    /// Confirmed credential runners and whether any listed machine has yet to report support.
+    @ObservationIgnored public var cloudHarnesses: (@MainActor (_ subscription: Bool, _ offline: Set<String>) -> (confirmed: Set<String>, pending: Bool))?
+    @ObservationIgnored public var cloudUnlinkedMachines: (@MainActor () -> Set<String>)?
+    @ObservationIgnored public var cloudRunnerConnectWait: Duration = .seconds(180)
+    @ObservationIgnored private var cloudRunnerWatch: Task<Void, Never>?
+    @ObservationIgnored private var cloudRunnerTimers: [String: DemandTimer] = [:]
+    private var cloudOfflineMachines: Set<String> = []
     @ObservationIgnored private var generation = 0
     /// Called each time this Mac's connections are read or change (a run's answer, a watched change): a
     /// Cloud chat waiting on Set up Cloud checks again (``CloudSetup/connectionsChanged()``, set by the app).
     @ObservationIgnored public var onConnections: (@MainActor () -> Void)?
+
+    nonisolated deinit {
+        cloudClaudeAccountWatch?.cancel()
+        let approval = cloudClaudeApproval, owner = cloudClaudeApprovalOwner
+        MainDelivery().run { approval.release(owner) }
+    }
     @ObservationIgnored private(set) var chatgptTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var claudeTokenTask: Task<Void, Never>?
     @ObservationIgnored private var watch: Task<Void, Never>?
     @ObservationIgnored private var watchers = 0
+    @ObservationIgnored private var watchEnvironment: AcpmuxEnvironment?
 
     /// - Parameters:
+    ///   - environment: waits for the local host to finish starting before returning its socket.
     ///   - call: a test's stand-in for the daemon; nil calls it (``AcpmuxEnvironment/harness(_:params:)``).
     ///   - openURL: opens the ChatGPT sign-in page in the person's browser, in the background.
     ///   - team: the active team's id and name; nil signed out or for the personal team.
     ///   - spreadSetting, writeSpreadSetting: `models.spreadUsage`, read and written through the settings writer.
-    public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
+    ///   - cloudClaudeApproval: the app's approval slot shared across Settings windows.
+    public init(environment: @escaping @MainActor () async -> AcpmuxEnvironment?,
                 call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
                 keys: any ModelKeyStoring,
                 openURL: @escaping @MainActor (URL) -> Void,
-                harnesses: SettingsHarnesses? = nil,
                 team: @escaping @MainActor () -> (id: String, name: String)? = { nil },
                 agentKeys: TeamAgentKeys? = nil,
                 policy: TeamModelsPolicy? = nil,
                 spreadSetting: (@MainActor () -> Bool)? = nil,
-                writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil) {
+                writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil,
+                cloudClaudeApproval: CloudClaudeApproval = CloudClaudeApproval(),
+                harnesses: SettingsHarnesses? = nil) {
         self.environment = environment
         self.call = call
         self.keys = keys
         self.openURL = openURL
-        self.harnesses = harnesses
         self.team = team
         self.agentKeys = agentKeys
         self.policy = policy
         self.spreadSetting = spreadSetting
         self.writeSpreadSetting = writeSpreadSetting
+        self.cloudClaudeApproval = cloudClaudeApproval
+        self.harnesses = harnesses
     }
 
     // MARK: State
@@ -98,7 +155,16 @@ public final class SettingsModels {
         let members: JSONValue = active == nil ? .null : policy?.current.map { policy -> JSONValue in
             ["ownConnections": .bool(policy.ownConnections), "chooseRunout": .bool(policy.chooseRunout), "canEdit": .bool(policy.canEdit)]
         } ?? .null
+        let offline = cloudOfflineMachines.intersection(cloudUnlinkedMachines?() ?? [])
+        let endpoints = cloudHarnesses?(false, offline)
+        let subscriptions = cloudHarnesses?(true, offline)
         return [
+            "connectionTools": .bool(true),
+            "cloudHarnesses": .array((endpoints?.confirmed ?? []).sorted().map(JSONValue.string)),
+            "cloudSubscriptionHarnesses": .array((subscriptions?.confirmed ?? []).sorted().map(JSONValue.string)),
+            "cloudRunnersOffline": .bool(!offline.isEmpty),
+            "cloudEndpointRunnersPending": .bool(endpoints?.pending ?? false),
+            "cloudSubscriptionRunnersPending": .bool(subscriptions?.pending ?? false),
             "personal": ["connections": .array(connections), "spread": .bool(spread), "available": .bool(available)],
             "organization": [
                 "team": active.map { team -> JSONValue in ["id": .string(team.id), "name": .string(team.name)] } ?? .null,
@@ -106,7 +172,19 @@ public final class SettingsModels {
                 "keys": .array(keys),
             ],
             "members": members,
+            "claudeLogin": claudeLoginState(.mac).pageState,
+            "cloudClaudeLogin": claudeLoginState(.cloud).pageState,
+            "cloudClaudeApprovalBusy": .bool(cloudClaudeApproval.isBusy(for: cloudClaudeApprovalOwner)),
+            "claudeCodeAvailable": claudeCodeAvailable.map(JSONValue.bool) ?? .null,
             "chatgpt": ["attempt": chatgptAttempt.map(JSONValue.string) ?? .null, "error": chatgptError.map(JSONValue.string) ?? .null],
+            "chatgptDevice": chatgptDevice.pageState,
+            "deviceProvider": .string(deviceProvider.rawValue),
+            "deviceRegion": deviceRegion.map(JSONValue.string) ?? .null,
+            "deviceTarget": deviceTarget.map(JSONValue.string) ?? .null,
+            "claudeToken": ["attempt": claudeTokenAttempt.map(JSONValue.string) ?? .null,
+                            "phase": claudeTokenPhase.map(JSONValue.string) ?? .null,
+                            "error": claudeTokenError.map(JSONValue.string) ?? .null,
+                            "saved": .bool(claudeTokenSaved)],
         ]
     }
 
@@ -115,7 +193,7 @@ public final class SettingsModels {
 
     /// The state after the first read (the page's first `state` call reads it).
     public func loadedState() async -> JSONValue {
-        if !read || !available { await refresh() } // not listed yet (acpmux still coming up): the page's next read asks again
+        if !read || !available { await refresh() }
         return state
     }
 
@@ -125,21 +203,25 @@ public final class SettingsModels {
         let mine = generation
         read = true
         async let teamRead: Void = refreshTeam()
-        if let environment = environment() {
-            do {
-                let reply = try JSONValue.parse(try await daemon(environment, .connections, [:]))
-                if mine == generation { apply(reply) }
+        do {
+            let environment = try await requireDaemon()
+            let reply = try JSONValue.parse(try await daemon(environment, .connections, [:]))
+            if mine == generation {
+                apply(reply)
+                watchEnvironment = environment
                 startWatch()
                 // The setting is the writer: an acpmux copy that differs (another client, an older run) follows it.
-                if mine == generation, let wanted = spreadSetting?(), wanted != daemonSpread {
+                if let wanted = spreadSetting?(), wanted != daemonSpread {
                     try? await push(spread: wanted, environment)
                 }
-            } catch {
-                if mine == generation { available = false }
             }
-        } else {
-            available = false
-            connections = []
+        } catch {
+            if mine == generation {
+                available = false
+                watchEnvironment = nil
+                watch?.cancel()
+                watch = nil
+            }
         }
         await teamRead
     }
@@ -152,8 +234,16 @@ public final class SettingsModels {
     }
 
     /// An acpmux `ConnectionsState`: its connections as the page draws them, and its spread.
-    func apply(_ reply: JSONValue) {
-        connections = (reply["connections"]?.arrayValue ?? []).compactMap(Self.connection)
+    func apply(_ reply: JSONValue, preserveNativeSignIns: Bool = false) {
+        var updated = (reply["connections"]?.arrayValue ?? []).compactMap(Self.connection)
+        if preserveNativeSignIns {
+            let ids = Set(updated.compactMap { $0["id"]?.stringValue })
+            updated.append(contentsOf: connections.filter {
+                $0["kind"]?.stringValue == "native-login" && !ids.contains($0["id"]?.stringValue ?? "")
+            })
+        }
+        connections = updated
+        if let installed = reply["claude_code_available"]?.boolValue { claudeCodeAvailable = installed }
         if let on = reply["spread"]?.boolValue { daemonSpread = on }
         available = true
         onConnections?()
@@ -167,16 +257,30 @@ public final class SettingsModels {
             .array((value[key]?.arrayValue ?? value[camel]?.arrayValue ?? []).compactMap { $0.stringValue.map(JSONValue.string) })
         }
         let text = { (key: String) -> JSONValue in value[key]?.stringValue.map(JSONValue.string) ?? .null }
-        let provider = value["provider"]?.stringValue.flatMap { providers.contains($0) ? $0 : nil }
-            ?? (kind == "claude-login" || kind == "claude-token" ? "anthropic" : "openai")
+        let provider = value["provider"]?.stringValue.flatMap { provider in
+            if kind == "endpoint" || kind == "grok-plan" || kind == "copilot-plan" || kind == "kimi-plan" || providers.contains(provider) { return provider }
+            if kind == "native-login", ["gemini", "grok", "cursor"].contains(provider) { return provider }
+            return nil
+        } ?? (kind == "claude-login" || kind == "claude-token" ? "anthropic" : "openai")
+        let servesCloud = value["serves_cloud"]?.boolValue ?? value["servesCloud"]?.boolValue ?? false
         return [
             "id": .string(id), "kind": .string(kind), "provider": .string(provider),
+            "credentialInstance": text("credential_instance"),
+            "keyRevision": text("key_revision"),
             "families": strings("families", "families"), "label": .string(value["label"]?.stringValue ?? id),
             "email": text("email"), "plan": text("plan"),
             "signedIn": .bool(value["signed_in"]?.boolValue ?? value["signedIn"]?.boolValue ?? false),
+            "signInReason": text("sign_in_reason"),
             "enabled": .bool(value["enabled"]?.boolValue ?? false),
             "defaultFor": strings("default_for", "defaultFor"),
-            "servesCloud": .bool(value["serves_cloud"]?.boolValue ?? value["servesCloud"]?.boolValue ?? false),
+            "servesCloud": .bool(servesCloud),
+            "canServeCloud": .bool(value["can_serve_cloud"]?.boolValue ?? servesCloud),
+            "cloudFamilies": value["cloud_families"] ?? strings("families", "families"),
+            "canCheckAccess": .bool(value["can_check_access"]?.boolValue ?? false),
+            "canReplaceKey": .bool(value["can_replace_key"]?.boolValue ?? false),
+            "endpoint": value["endpoint"] ?? .null,
+            "launchHarness": text("launch_harness"),
+            "expiresAt": value["expires_at"] ?? .null,
         ]
     }
 
@@ -187,14 +291,39 @@ public final class SettingsModels {
     public func beginWatching() {
         watchers += 1
         startWatch()
+        if cloudRunnerWatch == nil, cloudUnlinkedMachines != nil {
+            // task-owner: cloudRunnerWatch; cancelled when the models subscription ends.
+            cloudRunnerWatch = Task { [weak self] in
+                for await unlinked in ObservationStream({ [weak self] in self?.cloudUnlinkedMachines?() ?? [] }) {
+                    self?.watchCloudRunnerLinks(unlinked)
+                }
+            }
+        }
     }
 
-    /// The watch, once a page shows the card and acpmux is up (a daemon that comes up later starts it
-    /// at the card's next read).
+    private func watchCloudRunnerLinks(_ unlinked: Set<String>) {
+        cloudOfflineMachines.formIntersection(unlinked)
+        for id in Set(cloudRunnerTimers.keys).subtracting(unlinked) {
+            cloudRunnerTimers.removeValue(forKey: id)?.cancel()
+        }
+        for id in unlinked where cloudRunnerTimers[id] == nil && !cloudOfflineMachines.contains(id) {
+            let timer = DemandTimer(owner: "settings.cloud.runnerLink")
+            cloudRunnerTimers[id] = timer
+            timer.schedule(after: cloudRunnerConnectWait) { @MainActor [weak self] in
+                guard let self else { return }
+                self.cloudRunnerTimers[id] = nil
+                if self.cloudUnlinkedMachines?().contains(id) == true {
+                    self.cloudOfflineMachines.insert(id)
+                }
+            }
+        }
+    }
+
+    /// The watch starts once the page subscribes and the first connections read succeeds.
     private func startWatch() {
-        guard watchers > 0, watch == nil, let environment = environment() else { return }
+        guard watchers > 0, watch == nil, let watchEnvironment else { return }
         let (changes, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(1))
-        let socket = environment.watchConnections { continuation.yield($0) }
+        let socket = watchEnvironment.watchConnections(onEnd: { continuation.finish() }) { continuation.yield($0) }
         // task-owner: SettingsModels.watch: one update per acpmux change while a page shows the card; endWatching cancels it.
         watch = Task { [weak self] in
             await withTaskCancellationHandler {
@@ -203,6 +332,7 @@ public final class SettingsModels {
                 socket.cancel()
                 continuation.finish()
             }
+            if !Task.isCancelled { self?.watch = nil }
         }
     }
 
@@ -217,8 +347,21 @@ public final class SettingsModels {
     public func endWatching() {
         watchers = max(0, watchers - 1)
         guard watchers == 0 else { return }
+        cloudRunnerWatch?.cancel()
+        cloudRunnerWatch = nil
+        for timer in cloudRunnerTimers.values { timer.cancel() }
+        cloudRunnerTimers.removeAll()
         watch?.cancel()
         watch = nil
+        if claudeLogins.values.contains(where: { ["preparing", "approving", "code"].contains($0.phase) }) {
+            // task-owner: the page's last subscription ended. Release any approval this model owns.
+            Task {
+                for target in [ClaudeLoginTarget.mac, .cloud] {
+                    guard watchers == 0, let state = claudeLogins[target] else { continue }
+                    await cancelClaudeLogin(target, machine: state.machine, recoverySession: state.recoverySession)
+                }
+            }
+        }
     }
 
     // MARK: Runs
@@ -229,6 +372,15 @@ public final class SettingsModels {
         let action = params["action"]?.stringValue ?? ""
         if action == "refresh" || action == "focus" {
             await refresh()
+            return .object([:])
+        }
+        if action == "checkClaudeLogin" {
+            await checkClaudeLogin(params["cloud"]?.boolValue == true ? .cloud : .mac,
+                                   machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue)
+            return .object([:])
+        }
+        if action == "closeKeyPage", let url = params["url"]?.stringValue {
+            dismissSignInPage?("key:\(url)")
             return .object([:])
         }
         guard context?.userGesture == true || context?.isConfirmedUser == true else {
@@ -244,31 +396,146 @@ public final class SettingsModels {
             guard let on = params["on"]?.boolValue else { throw PageError.invalidParams("spread needs on") }
             // The setting first (the palette, CLI and MCP read it), then acpmux's copy.
             if let writeSpreadSetting { try await writeSpreadSetting(on) }
-            let environment = try requireDaemon()
+            let environment = try await requireDaemon()
             try await push(spread: on, environment)
         case "enable":
             guard let id = listedID(params), let on = params["on"]?.boolValue else { throw PageError.invalidParams("enable needs a listed id and on") }
             _ = try await daemon(try requireDaemon(), .accountSet, ["id": id, "enabled": on])
             await refresh()
+        case "setCloud":
+            guard let id = listedID(params), let on = params["on"]?.boolValue,
+                  let instance = params["instance"]?.stringValue,
+                  let keyRevision = params["keyRevision"]?.stringValue,
+                  connections.contains(where: {
+                      $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "api-key"
+                          && $0["credentialInstance"]?.stringValue == instance
+                          && $0["keyRevision"]?.stringValue == keyRevision
+                  }) else {
+                throw PageError.invalidParams("setCloud needs the listed API-key connection instance and on")
+            }
+            try await mutate(.accountSet, ["id": id, "instance": instance, "cloudUse": on, "keyRevision": keyRevision])
+        case "rename":
+            guard let id = listedID(params), id != "claude-login",
+                  let name = params["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty, name.count <= 128 else { throw PageError.invalidParams("rename needs a listed route and a name") }
+            guard let instance = params["instance"], instance.stringValue != nil || (id == "codex-login" && instance == .null),
+                  connections.contains(where: { $0["id"]?.stringValue == id && $0["credentialInstance"] == instance }) else {
+                throw PageError.invalidParams("rename needs the listed connection instance")
+            }
+            let expected = instance.stringValue.map { $0 as any Sendable } ?? NSNull()
+            try await mutate(.accountSet, ["id": id, "name": name, "instance": expected])
+        case "checkAccess":
+            return try await checkAccess(params)
         case "remove":
-            guard let id = listedID(params) else { throw PageError.invalidParams("remove needs a listed id") }
-            try await mutate(.connectionsRemove, ["id": id])
+            guard let id = listedID(params), let instance = params["instance"]?.stringValue,
+                  connections.contains(where: { $0["id"]?.stringValue == id && $0["credentialInstance"]?.stringValue == instance }) else {
+                throw PageError.invalidParams("remove needs the listed connection instance")
+            }
+            try await mutate(.connectionsRemove, ["id": id, "instance": instance])
         case "connectChatGPT":
             return try await connectChatGPT(id: params["id"]?.stringValue)
         case "cancelChatGPT":
             await cancelChatGPT()
-        case "connectClaude":
-            guard let harnesses else { throw PageError.unavailable("Claude sign-in is not available here") }
-            try await harnesses.connectClaude(context: context)
+        case "connectChatGPTDevice":
+            let id = params["id"]?.stringValue
+            let name = params["provider"]?.stringValue ?? "chatgpt"
+            guard let provider = ModelDeviceProvider(rawValue: name),
+                  id == nil || connections.contains(where: {
+                      $0["id"]?.stringValue == id && $0["kind"]?.stringValue == provider.connectionKind
+                  }) else { throw PageError.invalidParams("sign-in needs a matching subscription") }
+            if case .showingChallenge(let challenge) = chatgptDevice,
+               Double(challenge.expiresAt) <= Date.now.timeIntervalSince1970 {
+                await cancelChatGPTDevice()
+            }
+            connectChatGPTDevice(
+                replacing: id, openBrowser: params["openBrowser"]?.boolValue == true, provider: provider,
+                region: params["region"]?.stringValue, servesCloud: params["servesCloud"]?.boolValue
+            )
+        case "openChatGPTDevice":
+            if case .showingChallenge(let challenge) = chatgptDevice,
+               Double(challenge.expiresAt) > Date.now.timeIntervalSince1970 {
+                try await openSignIn(challenge.url, owner: "device:\(chatgptDeviceRunID)")
+            }
+        case "cancelChatGPTDevice":
+            await cancelChatGPTDevice()
+        case "connectClaude", "finishClaudeLogin", "cancelClaudeLogin", "signOutClaude":
+            let target: ClaudeLoginTarget = params["cloud"]?.boolValue == true ? .cloud : .mac
+            switch action {
+            case "connectClaude":
+                try beginClaudeLogin(target, replacing: claudeReplacement(params, target: target),
+                                     machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue,
+                                     recoverySession: params["recoverySession"]?.stringValue)
+            case "finishClaudeLogin":
+                finishClaudeLogin(target, code: params["code"]?.stringValue ?? "", machine: params["machine"]?.stringValue,
+                                  recoverySession: params["recoverySession"]?.stringValue)
+            case "cancelClaudeLogin":
+                await cancelClaudeLogin(target, machine: params["machine"]?.stringValue, recoverySession: params["recoverySession"]?.stringValue)
+            default:
+                try await signOutClaude(target, machine: params["machine"]?.stringValue)
+            }
+        case "connectClaudeToken":
+            return try await connectClaudeToken(label: params["label"]?.stringValue)
+        case "claudeTokenCode":
+            try await claudeTokenCode(params["code"]?.stringValue ?? "")
+        case "cancelClaudeToken":
+            await cancelClaudeToken()
         case "claudeSetupToken":
-            // The person's own gesture: a new terminal tab in their window runs Claude Code's `claude setup-token`.
-            guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
-            try await harnesses.typeLine("claude setup-token")
+            // A daemon with the one-click run (`claude_token.begin`) needs no terminal: the app runs
+            // `claude setup-token` itself and the token is never shown. An older one: the terminal tab.
+            do { return try await connectClaudeToken(label: params["label"]?.stringValue) } catch let error as PageError where error.code == "cmux.models.unsupported" {
+                guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
+                try await harnesses.typeLine("claude setup-token")
+            }
         case "addClaudeToken":
-            try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
+            let replacing: (id: String, instance: String)?
+            if let replacement = params["replacement"] {
+                guard let id = replacement["id"]?.stringValue, let instance = replacement["instance"]?.stringValue,
+                      connections.contains(where: {
+                          $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "claude-token"
+                              && $0["credentialInstance"]?.stringValue == instance
+                      }) else {
+                    throw PageError.invalidParams("replacement needs the listed Claude token instance")
+                }
+                replacing = (id, instance)
+            } else {
+                replacing = nil
+            }
+            try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue, replacing: replacing)
         case "addKey":
-            try await addKey(provider: params["provider"]?.stringValue ?? "", key: params["key"]?.stringValue ?? "",
-                             label: params["label"]?.stringValue)
+            let provider = params["provider"]?.stringValue ?? ""
+            let key = params["key"]?.stringValue ?? ""
+            let replacement: (id: String, instance: String)?
+            if let replace = params["replace"]?.stringValue {
+                guard let instance = params["replaceInstance"]?.stringValue, connections.contains(where: {
+                    $0["id"]?.stringValue == replace && $0["provider"]?.stringValue == provider
+                        && $0["canReplaceKey"]?.boolValue == true && $0["credentialInstance"]?.stringValue == instance
+                }) else {
+                    throw PageError.invalidParams("replacement needs a listed API-key connection")
+                }
+                replacement = (replace, instance)
+            } else {
+                replacement = nil
+            }
+            if params["verifyAccess"]?.boolValue == true {
+                let trimmed = Self.withoutWhitespace(key)
+                guard Self.providers.contains(provider), Self.isModelAPIKey(trimmed) else {
+                    throw PageError.invalidParams("addKey needs a known provider and a key with no spaces")
+                }
+                let result: JSONValue
+                do {
+                    result = try await checkAccess(["provider": .string(provider), "key": .string(trimmed)])
+                } catch let error as PageError where error.code == "cmux.protocol.unavailable" || error.code == "cmux.page.unavailable" {
+                    return ["failure": .string(error.message), "verificationFailed": true]
+                }
+                if let failure = result["failure"]?.stringValue {
+                    return ["failure": .string(failure), "verificationFailed": true]
+                }
+                guard result["models"]?.arrayValue != nil else {
+                    throw PageError.unavailable("the local acpmux could not check model access")
+                }
+            }
+            try await addKey(provider: provider, key: key, label: params["label"]?.stringValue, replacing: replacement, servesCloud: params["servesCloud"]?.boolValue,
+                             checkStoredKey: params["verifyAccess"]?.boolValue == nil)
         case "orgKey":
             // `key: null` removes; a missing key is a mistake, not a removal.
             guard let key = params["key"] else { throw PageError.invalidParams("orgKey needs key (a key, or null to remove)") }
@@ -284,13 +551,56 @@ public final class SettingsModels {
         return .object([:])
     }
 
+    private func claudeReplacement(_ params: JSONValue, target: ClaudeLoginTarget) throws -> String? {
+        guard let id = params["replace"]?.stringValue else { return nil }
+        if target == .cloud, id == "claude-cloud-login" { return id }
+        guard connections.contains(where: { $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "claude-token" }) else {
+            throw PageError.invalidParams("replacement needs a listed Claude connection")
+        }
+        return id
+    }
+
     /// A connection id the last read listed.
     private func listedID(_ params: JSONValue) -> String? {
         guard let id = params["id"]?.stringValue, connections.contains(where: { $0["id"]?.stringValue == id }) else { return nil }
         return id
     }
 
-    func requireDaemonEnvironment() throws -> AcpmuxEnvironment { try requireDaemon() }
+    /// Checks the draft or saved key in acpmux without storing the draft or sending a prompt.
+    private func checkAccess(_ params: JSONValue) async throws -> JSONValue {
+        var request: [String: any Sendable] = ["listModels": true]
+        if params["id"] != nil {
+            guard let id = listedID(params), connections.contains(where: {
+                $0["id"]?.stringValue == id && $0["canCheckAccess"]?.boolValue == true
+            }) else { throw PageError.invalidParams("checkAccess needs a listed API-key connection") }
+            request["id"] = id
+        } else {
+            if let provider = params["provider"]?.stringValue, Self.providers.contains(provider) {
+                request["provider"] = provider
+            } else if let base = params["baseUrl"]?.stringValue, !base.isEmpty, base.utf8.count <= 2048 {
+                request["baseUrl"] = base
+            } else {
+                throw PageError.invalidParams("checkAccess needs a provider or base URL")
+            }
+            if let key = params["key"]?.stringValue {
+                guard Self.isModelAPIKey(key) else { throw PageError.invalidParams("invalid API key format") }
+                request["apiKey"] = key
+            }
+        }
+        let environment = try await requireDaemon()
+        let method = AcpmuxHarnessMethod.routeTest
+        if hasDaemonOverride { return try JSONValue.parse(try await daemon(environment, method, request)) }
+        guard let line = await AcpmuxPersonLine.open(environment, deadline: .seconds(15)) else {
+            throw PageError.unavailable("cannot reach the local acpmux")
+        }
+        defer { line.close() }
+        guard line.isPerson, let reply = await line.call(method.rawValue, request) else {
+            throw PageError.unavailable("the local acpmux could not check model access")
+        }
+        return try JSONValue.parse(JSONSerialization.data(withJSONObject: reply))
+    }
+
+    func requireDaemonEnvironment() async throws -> AcpmuxEnvironment { try await requireDaemon() }
 
     // The +Live extension's reach into this object's state (its own file cannot see the private members).
     func setChatGPT(attempt: String?, error: String?) {
@@ -298,7 +608,26 @@ public final class SettingsModels {
         chatgptError = error
     }
 
-    func openSignIn(_ url: URL) { openURL(url) }
+    func openSignIn(_ url: URL, owner: String) async throws {
+        // Live Settings uses the app browser; other hosts can supply their own opener.
+        if let presentSignInPage, await presentSignInPage(url, owner) {
+            return
+        }
+        if let open = harnesses?.openSignInPage, await open(url, []) != nil { return }
+        openURL(url)
+    }
+
+    func setClaudeToken(attempt: String?, phase: String?, error: String?, saved: Bool = false) {
+        claudeTokenAttempt = attempt
+        claudeTokenPhase = phase
+        claudeTokenError = error
+        claudeTokenSaved = saved
+    }
+
+    func replaceClaudeTokenTask(_ task: Task<Void, Never>?) {
+        claudeTokenTask?.cancel()
+        claudeTokenTask = task
+    }
 
     func replaceChatGPTTask(_ task: Task<Void, Never>?) {
         chatgptTask?.cancel()
@@ -313,21 +642,22 @@ public final class SettingsModels {
     var teamAgentKeys: TeamAgentKeys? { agentKeys }
     var hasTeam: Bool { team() != nil }
 
-    private func requireDaemon() throws -> AcpmuxEnvironment {
-        guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
+    private func requireDaemon() async throws -> AcpmuxEnvironment {
+        guard let environment = await environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
         return environment
     }
 
     /// A call that answers `ConnectionsState`: the page shows it at once.
-    private func mutate(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable]) async throws {
+    func mutate(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable]) async throws {
         let reply = try JSONValue.parse(try await daemon(try requireDaemon(), method, params))
         generation += 1
-        if reply["connections"] != nil { apply(reply) } else { await refresh() }
+        if reply["connections"] != nil { apply(reply, preserveNativeSignIns: true) } else { await refresh() }
+        if let reference = reply["replaced_secret"]?.stringValue { await deleteKey(reference) }
     }
 
     private func push(spread on: Bool, _ environment: AcpmuxEnvironment) async throws {
         let reply = try JSONValue.parse(try await daemon(environment, .connectionsSpreadSet, ["on": on]))
-        if reply["connections"] != nil { apply(reply) } else { daemonSpread = on }
+        if reply["connections"] != nil { apply(reply, preserveNativeSignIns: true) } else { daemonSpread = on }
     }
 
     /// The app's mirror of `models.spreadUsage` (every writer): acpmux's copy follows, best effort (a
@@ -337,11 +667,15 @@ public final class SettingsModels {
     }
 
     /// One daemon call: the test's stand-in, else the local socket.
-    func daemon(_ environment: AcpmuxEnvironment, _ method: AcpmuxHarnessMethod, _ params: [String: any Sendable]) async throws -> Data {
+    func daemon(_ environment: AcpmuxEnvironment, _ method: AcpmuxHarnessMethod, _ params: [String: any Sendable],
+                rollbackKeychainReference: String? = nil) async throws -> Data {
         do {
             if let call { return try await call(environment, method, params) }
             return try await environment.harness(method, params: params)
         } catch let error as AcpmuxRPCError {
+            if let rollbackKeychainReference, let code = error.code, code != -32603, !error.isUnreachable {
+                await deleteKey(rollbackKeychainReference)
+            }
             throw PageError(code: "cmux.models.\(error.name ?? (error.isMethodMissing ? "unsupported" : "failed"))", message: error.message)
         }
     }

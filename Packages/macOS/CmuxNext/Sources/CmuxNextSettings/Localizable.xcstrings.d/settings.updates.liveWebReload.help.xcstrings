@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.liveWebReload.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يتيح لـ cmux live start عرض واجهة الويب من نسختك الخاصة، مع ظهور كل تعديل محفوظ فورًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Omogućava da cmux live start prikaže web sučelje iz vaše kopije, svaku sačuvanu izmjenu odmah."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lader cmux live start vise webbrugerfladen fra din checkout med hver gemt ændring med det samme."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lässt cmux live start die Web-UI deines Checkouts zeigen, jede gespeicherte Änderung sofort."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lets cmux live start show your checkout's web UI, each saved edit at once."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Permite que cmux live start muestre la interfaz web de tu copia, con cada cambio guardado al instante."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Permet à cmux live start d'afficher l'interface web de votre copie, chaque modification enregistrée apparaissant aussitôt."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Consente a cmux live start di mostrare l'interfaccia web della tua copia, con ogni modifica salvata subito."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux live start で自分のチェックアウトの Web UI を表示し、保存した編集をすぐ反映できるようにします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អនុញ្ញាតឱ្យ cmux live start បង្ហាញ UI វេបពីច្បាប់ចម្លងរបស់អ្នក ការកែដែលបានរក្សាទុកនីមួយៗបង្ហាញភ្លាមៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux live start가 내 체크아웃의 웹 UI를 표시하도록 허용하며, 저장한 편집이 바로 반영됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lar cmux live start vise nettgrensesnittet fra din checkout, hver lagrede endring med en gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pozwala cmux live start pokazać interfejs webowy z Twojej kopii, każdą zapisaną zmianę od razu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Permite que cmux live start mostre a interface web da sua cópia, com cada edição salva na hora."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Позволяет cmux live start показывать веб-интерфейс из вашей копии, каждую сохранённую правку сразу."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ให้ cmux live start แสดง UI เว็บจากสำเนาของคุณ การแก้ไขที่บันทึกแต่ละครั้งจะแสดงทันที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux live start'ın kopyanızın web arayüzünü göstermesine izin verir; kaydedilen her değişiklik hemen görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Дозволяє cmux live start показувати веб-інтерфейс із вашої копії, кожну збережену зміну одразу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cho phép cmux live start hiển thị giao diện web từ bản sao của bạn, mỗi chỉnh sửa đã lưu hiện ngay."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "让 cmux live start 显示你检出副本的网页 UI，每次保存的修改都会立即显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "讓 cmux live start 顯示你簽出副本的網頁 UI，每次儲存的修改都會立即顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

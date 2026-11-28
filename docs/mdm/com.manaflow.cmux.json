@@ -22,6 +22,12 @@
       "title" : "Composer Look",
       "type" : "string"
     },
+    "agentPane.composerPlaceholder" : {
+      "default" : "",
+      "description" : "The text shown in an empty message box. Empty uses cmux's own.",
+      "title" : "Message Box Placeholder",
+      "type" : "string"
+    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -46,7 +52,7 @@
     },
     "agentPane.dictationSource" : {
       "default" : "cmux",
-      "description" : "agentPane.dictationSource",
+      "description" : "Dictate With",
       "enum" : [
         "cmux",
         "macos",
@@ -91,6 +97,24 @@
       "title" : "Command Labels",
       "type" : "string"
     },
+    "agentPane.display.compactShortTurns" : {
+      "default" : false,
+      "description" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for.",
+      "title" : "Compact Summary for Short Turns",
+      "type" : "boolean"
+    },
+    "agentPane.display.detail" : {
+      "default" : "normal",
+      "description" : "How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own.",
+      "enum" : [
+        "messages",
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Chat Detail",
+      "type" : "string"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -124,7 +148,7 @@
     },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
-      "description" : "agentPane.display.font.lineHeight",
+      "description" : "Chat Line Height",
       "maximum" : 2.4,
       "minimum" : 1.2,
       "title" : "Chat Line Height",
@@ -132,7 +156,7 @@
     },
     "agentPane.display.font.preset" : {
       "default" : "markdown",
-      "description" : "agentPane.display.font.preset",
+      "description" : "Chat Font",
       "enum" : [
         "markdown",
         "system",
@@ -149,7 +173,7 @@
     },
     "agentPane.display.font.size" : {
       "default" : 14,
-      "description" : "agentPane.display.font.size",
+      "description" : "Chat Font Size",
       "maximum" : 28,
       "minimum" : 10,
       "title" : "Chat Font Size",
@@ -191,7 +215,7 @@
     },
     "agentPane.display.harnessPlacement" : {
       "default" : "symbols",
-      "description" : "agentPane.display.harnessPlacement",
+      "description" : "Model Picker Harness Placement",
       "enum" : [
         "symbols",
         "left",
@@ -256,15 +280,30 @@
       "title" : "Model Logo in Composer",
       "type" : "boolean"
     },
-    "agentPane.display.pinnedPlan" : {
-      "default" : false,
-      "description" : "Keeps the agent's task list under the latest message, not over the composer.",
-      "title" : "Pin Task List in Chat",
-      "type" : "boolean"
+    "agentPane.display.modelPickerOrder" : {
+      "default" : [
+
+      ],
+      "description" : "The order of the harnesses in the model picker. Drag a harness in the picker to move it.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Model Picker Harness Order",
+      "type" : "array"
+    },
+    "agentPane.display.modelPickerStyle" : {
+      "default" : "list",
+      "description" : "List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode.",
+      "enum" : [
+        "list",
+        "menu"
+      ],
+      "title" : "Model Picker Style",
+      "type" : "string"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
-      "description" : "agentPane.display.presentation",
+      "description" : "Chat Presentation",
       "enum" : [
         "transcript",
         "messages"
@@ -356,15 +395,82 @@
       "title" : "Pop In Sent Prompts",
       "type" : "boolean"
     },
+    "agentPane.display.sendScrollsToTop" : {
+      "default" : false,
+      "description" : "A prompt you send moves to the top of the chat, with room below it for the reply.",
+      "title" : "Scroll Sent Prompts to Top",
+      "type" : "boolean"
+    },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
       "description" : "Push narrows the chat; Overlay covers it.",
       "enum" : [
         "push",
-        "overlay"
+        "overlay",
+        "inline"
       ],
       "title" : "Session Info",
       "type" : "string"
+    },
+    "agentPane.display.sessionInfo.sections.carried" : {
+      "default" : true,
+      "description" : "The MCP servers and carried the chat has.",
+      "title" : "Session Info: Carried memory",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.changes" : {
+      "default" : true,
+      "description" : "The chat's pull requests and their checks.",
+      "title" : "Session Info: Pull Requests",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.connectors" : {
+      "default" : true,
+      "description" : "The MCP servers and connectors the chat has.",
+      "title" : "Session Info: Connectors",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.context" : {
+      "default" : true,
+      "description" : "How full the context window is, and what fills it.",
+      "title" : "Session Info: Context",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.environment" : {
+      "default" : true,
+      "description" : "Where the chat runs: this Mac or Cloud, its folder and branch.",
+      "title" : "Session Info: Environment",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.outputs" : {
+      "default" : true,
+      "description" : "The documents and files the chat made for you.",
+      "title" : "Session Info: Outputs",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.sources" : {
+      "default" : true,
+      "description" : "The files and pages the agent read.",
+      "title" : "Session Info: Sources",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.subagents" : {
+      "default" : true,
+      "description" : "The subagents and chats this chat started.",
+      "title" : "Session Info: Subagents",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.tasks" : {
+      "default" : true,
+      "description" : "The commands, servers and scheduled jobs the chat runs.",
+      "title" : "Session Info: Background Tasks",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.usage" : {
+      "default" : true,
+      "description" : "Tokens, cost and time this chat used.",
+      "title" : "Session Info: Usage",
+      "type" : "boolean"
     },
     "agentPane.display.statusVerbs.custom" : {
       "description" : "Comma-separated -ing verbs for the live status line.",
@@ -381,6 +487,23 @@
       ],
       "title" : "Working Status Verbs",
       "type" : "string"
+    },
+    "agentPane.display.streaming" : {
+      "default" : "words",
+      "description" : "How an agent's reply text appears as it arrives.",
+      "enum" : [
+        "words",
+        "lines",
+        "instant"
+      ],
+      "title" : "Reply Streaming",
+      "type" : "string"
+    },
+    "agentPane.display.subagentOf" : {
+      "default" : false,
+      "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
+      "title" : "Subagent Of in Header",
+      "type" : "boolean"
     },
     "agentPane.display.thinking.glyph" : {
       "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
@@ -510,7 +633,7 @@
     },
     "agentPane.editedFiles.maxRows" : {
       "default" : 3,
-      "description" : "agentPane.editedFiles.maxRows",
+      "description" : "Edited Files Shown",
       "maximum" : 50,
       "minimum" : 1,
       "title" : "Edited Files Shown",
@@ -518,7 +641,7 @@
     },
     "agentPane.editedFiles.scope" : {
       "default" : "turn",
-      "description" : "agentPane.editedFiles.scope",
+      "description" : "Edited Files Card Covers",
       "enum" : [
         "turn",
         "session"
@@ -680,7 +803,7 @@
       "type" : "number"
     },
     "agents.autoRetry.capacityFallbackAfter" : {
-      "default" : 1,
+      "default" : 0,
       "description" : "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.",
       "maximum" : 12,
       "minimum" : 0,
@@ -701,8 +824,28 @@
       "title" : "Seconds Between Retries",
       "type" : "number"
     },
+    "agents.autoSettle.idleDays" : {
+      "default" : 0,
+      "description" : "Moves a chat to Settled after this many days with no activity. 0 never does. Running work, a pending question or a draft keeps it.",
+      "maximum" : 365,
+      "minimum" : 0,
+      "title" : "Settle After Idle Days",
+      "type" : "number"
+    },
+    "agents.autoSettle.onClose" : {
+      "default" : false,
+      "description" : "Moves a chat to Settled once every pull request it opened was closed without a merge.",
+      "title" : "Settle When Its Pull Request Closes",
+      "type" : "boolean"
+    },
+    "agents.autoSettle.onMerge" : {
+      "default" : false,
+      "description" : "Moves a chat to Settled once every pull request it opened is merged or closed. Your next message brings it back.",
+      "title" : "Settle When Its Pull Request Merges",
+      "type" : "boolean"
+    },
     "agents.cacheCompact.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "Compacts an idle Claude chat while its cache is warm, so the next message costs less.",
       "title" : "Compact Before the Cache Expires",
       "type" : "boolean"
@@ -716,7 +859,7 @@
       "type" : "number"
     },
     "agents.cacheCompact.minContextTokens" : {
-      "default" : 60000,
+      "default" : 20000,
       "description" : "Chats with at least this much context are compacted, whatever their window.",
       "maximum" : 500000,
       "minimum" : 10000,
@@ -813,6 +956,18 @@
       "title" : "Add Message Relay to Claude Code",
       "type" : "boolean"
     },
+    "agents.claudeOutputStyle" : {
+      "default" : "agent",
+      "description" : "The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting.",
+      "enum" : [
+        "agent",
+        "default",
+        "Explanatory",
+        "Learning"
+      ],
+      "title" : "Claude Code Response Style",
+      "type" : "string"
+    },
     "agents.cmuxMcp" : {
       "default" : "on",
       "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
@@ -835,8 +990,20 @@
       "title" : "Use in Codex",
       "type" : "boolean"
     },
+    "agents.codexPersonality" : {
+      "default" : "agent",
+      "description" : "The personality new Codex chats use. Agent’s Own keeps Codex’s setting.",
+      "enum" : [
+        "agent",
+        "pragmatic",
+        "friendly",
+        "none"
+      ],
+      "title" : "Codex Personality",
+      "type" : "string"
+    },
     "agents.coldWake.compact" : {
-      "default" : true,
+      "default" : false,
       "description" : "A large chat whose cache expired is compacted before batched messages arrive.",
       "title" : "Compact Cold Chats Before Waking",
       "type" : "boolean"
@@ -850,10 +1017,20 @@
       "type" : "number"
     },
     "agents.coldWake.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once.",
       "title" : "Batch Wakes of Cold Chats",
       "type" : "boolean"
+    },
+    "agents.commitAttribution" : {
+      "default" : "agent",
+      "description" : "Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting.",
+      "enum" : [
+        "agent",
+        "strip"
+      ],
+      "title" : "Co-Author Line on Commits and PRs",
+      "type" : "string"
     },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
@@ -895,18 +1072,6 @@
       "description" : "New chats can use the servers listed above.",
       "title" : "Saved Servers in Agent Chats",
       "type" : "boolean"
-    },
-    "agents.modelRouter.model" : {
-      "default" : "deepseek/deepseek-v4.1-flash-1017",
-      "description" : "The model new cmux model router chats start on.",
-      "enum" : [
-        "deepseek/deepseek-v4.1-flash-1017",
-        "deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro"
-      ],
-      "title" : "cmux Model Router Model",
-      "type" : "string"
     },
     "agents.promptCache" : {
       "default" : "1h",
@@ -1013,6 +1178,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.captureScreenshotGlobalHotKey" : {
+      "default" : false,
+      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Capture Screenshot to Chat from Any App",
+      "type" : "boolean"
+    },
     "app.confirmQuit" : {
       "default" : true,
       "description" : "Ask before Cmd-Q ends agents or terminals.",
@@ -1107,7 +1278,7 @@
     },
     "app.showMenuBarIcon" : {
       "default" : true,
-      "description" : "app.showMenuBarIcon",
+      "description" : "Show Menu Bar Icon",
       "title" : "Show Menu Bar Icon",
       "type" : "boolean"
     },
@@ -1127,13 +1298,13 @@
     },
     "app.warnBeforeClosingAgentSession" : {
       "default" : true,
-      "description" : "app.warnBeforeClosingAgentSession",
+      "description" : "Warn Before Closing a Working Agent",
       "title" : "Warn Before Closing a Working Agent",
       "type" : "boolean"
     },
     "app.warnBeforeClosingTab" : {
       "default" : true,
-      "description" : "app.warnBeforeClosingTab",
+      "description" : "Warn Before Closing a Running Program",
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
@@ -1160,10 +1331,40 @@
       "title" : "Accent",
       "type" : "string"
     },
+    "appearance.accentGlow.dark" : {
+      "description" : "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow.",
+      "title" : "Accent Glow (Dark)",
+      "type" : "string"
+    },
+    "appearance.accentGlow.light" : {
+      "description" : "The glow's color in the light appearance. Unset, the dark color.",
+      "title" : "Accent Glow (Light)",
+      "type" : "string"
+    },
+    "appearance.accentGlow.opacity" : {
+      "description" : "How strong the accent glow is.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Accent Glow Opacity",
+      "type" : "number"
+    },
+    "appearance.accentGlow.radius" : {
+      "description" : "How far the accent glow spreads from the focused pane.",
+      "maximum" : 200,
+      "minimum" : 0,
+      "title" : "Accent Glow Radius",
+      "type" : "number"
+    },
     "appearance.agentGlow" : {
       "default" : false,
       "description" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
       "title" : "React to Agents",
+      "type" : "boolean"
+    },
+    "appearance.agentSignature" : {
+      "default" : false,
+      "description" : "Give each agent a small dot glyph made from its session, on sidebar rows and the running line.",
+      "title" : "Agent Dot Signatures",
       "type" : "boolean"
     },
     "appearance.appFont" : {
@@ -1350,7 +1551,16 @@
         "wang-ximeng-thousand-li",
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
-        "kim-hong-do-samgong"
+        "kim-hong-do-samgong",
+        "kuniyoshi-takiyasha",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
@@ -1398,6 +1608,7 @@
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "kuniyoshi-takiyasha",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -1532,6 +1743,14 @@
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
         "kim-hong-do-samgong",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers",
         "desktop"
       ],
       "title" : "Background",
@@ -1586,6 +1805,7 @@
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "kuniyoshi-takiyasha",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -1720,6 +1940,14 @@
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
         "kim-hong-do-samgong",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers",
         "desktop"
       ],
       "title" : "Dark Picture",
@@ -1773,6 +2001,7 @@
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "kuniyoshi-takiyasha",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -1907,6 +2136,14 @@
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
         "kim-hong-do-samgong",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers",
         "desktop"
       ],
       "title" : "Light Picture",
@@ -2107,12 +2344,12 @@
       "default" : [
 
       ],
-      "description" : "appearance.customDensities",
+      "description" : "Custom Densities",
       "title" : "Custom Densities",
       "type" : "string"
     },
     "appearance.customDensity" : {
-      "description" : "appearance.customDensity",
+      "description" : "Custom Density",
       "title" : "Custom Density",
       "type" : "string"
     },
@@ -2199,9 +2436,32 @@
       "title" : "Glass Transparency",
       "type" : "number"
     },
+    "appearance.gooeyTabs" : {
+      "default" : "off",
+      "description" : "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.",
+      "enum" : [
+        "off",
+        "subtle",
+        "full"
+      ],
+      "title" : "Gooey Tabs",
+      "type" : "string"
+    },
     "appearance.highlightColor" : {
       "description" : "The color of selected text everywhere. Unset uses the terminal theme's.",
       "title" : "Highlight Color",
+      "type" : "string"
+    },
+    "appearance.homeCardStyle" : {
+      "default" : "standard",
+      "description" : "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass.",
+      "enum" : [
+        "standard",
+        "flat",
+        "raised",
+        "glass"
+      ],
+      "title" : "Home Cards",
       "type" : "string"
     },
     "appearance.hue" : {
@@ -2266,14 +2526,14 @@
       "type" : "object"
     },
     "appearance.menu.borderOpacity" : {
-      "description" : "appearance.menu.borderOpacity",
+      "description" : "How visible the menu's edge line is.",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Menu Border Opacity",
       "type" : "number"
     },
     "appearance.menu.cornerRadius" : {
-      "description" : "appearance.menu.cornerRadius",
+      "description" : "The corner radius of menus.",
       "maximum" : 24,
       "minimum" : 0,
       "title" : "Menu Corner Radius",
@@ -2281,7 +2541,7 @@
     },
     "appearance.menu.destructiveInk" : {
       "default" : "standard",
-      "description" : "appearance.menu.destructiveInk",
+      "description" : "Whether destructive menu rows, such as Delete, are drawn in red.",
       "enum" : [
         "standard",
         "plain"
@@ -2290,26 +2550,26 @@
       "type" : "string"
     },
     "appearance.menu.fill" : {
-      "description" : "appearance.menu.fill",
+      "description" : "The menu background color, as #RRGGBB or #RRGGBBAA.",
       "title" : "Menu Fill",
       "type" : "string"
     },
     "appearance.menu.highlightRadius" : {
-      "description" : "appearance.menu.highlightRadius",
+      "description" : "The corner radius of the hovered row's highlight.",
       "maximum" : 16,
       "minimum" : 0,
       "title" : "Menu Highlight Radius",
       "type" : "number"
     },
     "appearance.menu.padding" : {
-      "description" : "appearance.menu.padding",
+      "description" : "The space inside the menu's edges.",
       "maximum" : 16,
       "minimum" : 0,
       "title" : "Menu Padding",
       "type" : "number"
     },
     "appearance.menu.rowHeight" : {
-      "description" : "appearance.menu.rowHeight",
+      "description" : "The height of a one-line menu row.",
       "maximum" : 40,
       "minimum" : 18,
       "title" : "Menu Row Height",
@@ -2317,7 +2577,7 @@
     },
     "appearance.menu.sectionLabel" : {
       "default" : "standard",
-      "description" : "appearance.menu.sectionLabel",
+      "description" : "How menu section labels are drawn.",
       "enum" : [
         "standard",
         "muted"
@@ -2327,7 +2587,7 @@
     },
     "appearance.menu.separator" : {
       "default" : "standard",
-      "description" : "appearance.menu.separator",
+      "description" : "How the lines between menu row groups are drawn.",
       "enum" : [
         "standard",
         "subtle",
@@ -2338,7 +2598,7 @@
     },
     "appearance.menu.shadow" : {
       "default" : "standard",
-      "description" : "appearance.menu.shadow",
+      "description" : "The shadow under menus.",
       "enum" : [
         "standard",
         "none",
@@ -2350,7 +2610,7 @@
     },
     "appearance.menu.shortcuts" : {
       "default" : "standard",
-      "description" : "appearance.menu.shortcuts",
+      "description" : "How strongly menu shortcuts are drawn.",
       "enum" : [
         "standard",
         "muted"
@@ -2360,7 +2620,7 @@
     },
     "appearance.menu.submenu" : {
       "default" : "standard",
-      "description" : "appearance.menu.submenu",
+      "description" : "Where a submenu opens next to its menu.",
       "enum" : [
         "standard",
         "flush"
@@ -2370,7 +2630,7 @@
     },
     "appearance.menu.subtitle" : {
       "default" : "standard",
-      "description" : "appearance.menu.subtitle",
+      "description" : "How the second line of a menu row is drawn.",
       "enum" : [
         "standard",
         "muted"
@@ -2386,35 +2646,84 @@
       "type" : "number"
     },
     "appearance.metrics.columnGap" : {
-      "description" : "appearance.metrics.columnGap",
+      "description" : "Column Gap",
       "maximum" : 24,
       "minimum" : 0,
       "title" : "Column Gap",
       "type" : "number"
     },
+    "appearance.metrics.composerMinHeight" : {
+      "description" : "The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's.",
+      "maximum" : 160,
+      "minimum" : 32,
+      "title" : "Composer Height",
+      "type" : "number"
+    },
+    "appearance.metrics.composerPadding" : {
+      "description" : "The room from the chat prompt box's sides to its text and controls. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Composer Padding",
+      "type" : "number"
+    },
     "appearance.metrics.dividerHitWidth" : {
-      "description" : "appearance.metrics.dividerHitWidth",
+      "description" : "Divider Drag Width",
       "maximum" : 24,
       "minimum" : 1,
       "title" : "Divider Drag Width",
       "type" : "number"
     },
     "appearance.metrics.dividerThickness" : {
-      "description" : "appearance.metrics.dividerThickness",
+      "description" : "Divider Thickness",
       "maximum" : 6,
       "minimum" : 0,
       "title" : "Divider Thickness",
       "type" : "number"
     },
+    "appearance.metrics.headerDivider" : {
+      "description" : "How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Header Divider",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowGap" : {
+      "description" : "The gap between two sidebar rows. Unset is the density's.",
+      "maximum" : 12,
+      "minimum" : 0,
+      "title" : "Workspace Row Gap",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarRowHeight" : {
-      "description" : "appearance.metrics.sidebarRowHeight",
+      "description" : "Workspace Row Height",
       "maximum" : 48,
       "minimum" : 20,
       "title" : "Workspace Row Height",
       "type" : "number"
     },
+    "appearance.metrics.sidebarRowHeightWithSubtitle" : {
+      "description" : "A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line.",
+      "maximum" : 96,
+      "minimum" : 28,
+      "title" : "Two-Line Row Height",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowInset" : {
+      "description" : "The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Workspace Row Inset",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowPadding" : {
+      "description" : "Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Workspace Row Padding",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarWidth" : {
-      "description" : "appearance.metrics.sidebarWidth",
+      "description" : "Sidebar Width",
       "maximum" : 420,
       "minimum" : 160,
       "title" : "Sidebar Width",
@@ -2425,6 +2734,13 @@
       "maximum" : 48,
       "minimum" : 18,
       "title" : "Space Button Spacing",
+      "type" : "number"
+    },
+    "appearance.metrics.spacingScale" : {
+      "description" : "One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Spacing",
       "type" : "number"
     },
     "appearance.metrics.tabFontSize" : {
@@ -2470,11 +2786,72 @@
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
-      "description" : "appearance.metrics.titlebarHeight",
+      "description" : "Titlebar Height",
       "maximum" : 56,
       "minimum" : 24,
       "title" : "Titlebar Height",
       "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonActiveFill" : {
+      "description" : "How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill.",
+      "maximum" : 0.4,
+      "minimum" : 0,
+      "title" : "Active Button Fill",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonCornerRadius" : {
+      "description" : "The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does.",
+      "maximum" : 20,
+      "minimum" : 0,
+      "title" : "Toolbar Button Corner",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonGap" : {
+      "description" : "The space between neighboring icon buttons in the title bar. Unset is three tenths of a button.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Toolbar Button Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonSize" : {
+      "description" : "The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's.",
+      "maximum" : 40,
+      "minimum" : 16,
+      "title" : "Toolbar Button Size",
+      "type" : "number"
+    },
+    "appearance.mode" : {
+      "default" : "system",
+      "description" : "Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too.",
+      "enum" : [
+        "system",
+        "light",
+        "dark"
+      ],
+      "title" : "Appearance",
+      "type" : "string"
+    },
+    "appearance.paneArt.dark" : {
+      "default" : [
+
+      ],
+      "description" : "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pane Art (Dark)",
+      "type" : "array"
+    },
+    "appearance.paneArt.light" : {
+      "default" : [
+
+      ],
+      "description" : "Pictures behind panes in the light appearance. Empty, the dark list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pane Art (Light)",
+      "type" : "array"
     },
     "appearance.paneBackgrounds" : {
       "default" : "shared",
@@ -2488,7 +2865,7 @@
     },
     "appearance.popover.header" : {
       "default" : "standard",
-      "description" : "appearance.popover.header",
+      "description" : "How a popover's header line is drawn.",
       "enum" : [
         "standard",
         "strong"
@@ -2497,7 +2874,7 @@
       "type" : "string"
     },
     "appearance.popover.padding" : {
-      "description" : "appearance.popover.padding",
+      "description" : "The space inside a popover's edges.",
       "maximum" : 24,
       "minimum" : 0,
       "title" : "Popover Padding",
@@ -2505,7 +2882,7 @@
     },
     "appearance.popover.progressFill" : {
       "default" : "standard",
-      "description" : "appearance.popover.progressFill",
+      "description" : "The color of progress bars in popovers.",
       "enum" : [
         "standard",
         "muted",
@@ -2515,7 +2892,7 @@
       "type" : "string"
     },
     "appearance.popover.progressHeight" : {
-      "description" : "appearance.popover.progressHeight",
+      "description" : "The height of progress bars in popovers.",
       "maximum" : 12,
       "minimum" : 1,
       "title" : "Popover Progress Height",
@@ -2562,6 +2939,16 @@
       "title" : "Beta Chips in Settings",
       "type" : "boolean"
     },
+    "appearance.sidebarHeader.dark" : {
+      "description" : "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none.",
+      "title" : "Sidebar Header Image (Dark)",
+      "type" : "string"
+    },
+    "appearance.sidebarHeader.light" : {
+      "description" : "The sidebar header picture in the light appearance. Unset, the dark picture.",
+      "title" : "Sidebar Header Image (Light)",
+      "type" : "string"
+    },
     "appearance.sidebarSurface" : {
       "default" : "same",
       "description" : "Separate shades the sidebar darker than the main pane.",
@@ -2583,7 +2970,7 @@
       "type" : "string"
     },
     "appearance.statusIndicator.color" : {
-      "description" : "appearance.statusIndicator.color",
+      "description" : "Color",
       "title" : "Color",
       "type" : "string"
     },
@@ -2627,7 +3014,7 @@
     },
     "appearance.statusIndicator.size" : {
       "default" : 1,
-      "description" : "appearance.statusIndicator.size",
+      "description" : "Size",
       "maximum" : 1.5,
       "minimum" : 0.5,
       "title" : "Size",
@@ -2648,179 +3035,203 @@
     },
     "appearance.statusIndicator.thickness" : {
       "default" : 1.5,
-      "description" : "appearance.statusIndicator.thickness",
+      "description" : "Line Width",
       "maximum" : 4,
       "minimum" : 0.5,
       "title" : "Line Width",
       "type" : "number"
     },
     "appearance.surfaces.agentPane.color" : {
-      "description" : "appearance.surfaces.agentPane.color",
+      "description" : "Agent Chat Color",
       "title" : "Agent Chat Color",
       "type" : "string"
     },
     "appearance.surfaces.agentPane.opacity" : {
-      "description" : "appearance.surfaces.agentPane.opacity",
+      "description" : "Agent Chat Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Agent Chat Opacity",
       "type" : "number"
     },
     "appearance.surfaces.browserChrome.color" : {
-      "description" : "appearance.surfaces.browserChrome.color",
+      "description" : "Browser Toolbar Color",
       "title" : "Browser Toolbar Color",
       "type" : "string"
     },
     "appearance.surfaces.browserChrome.opacity" : {
-      "description" : "appearance.surfaces.browserChrome.opacity",
+      "description" : "Browser Toolbar Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Browser Toolbar Opacity",
       "type" : "number"
     },
     "appearance.surfaces.diff.color" : {
-      "description" : "appearance.surfaces.diff.color",
+      "description" : "Diff Viewer Color",
       "title" : "Diff Viewer Color",
       "type" : "string"
     },
     "appearance.surfaces.diff.opacity" : {
-      "description" : "appearance.surfaces.diff.opacity",
+      "description" : "Diff Viewer Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Diff Viewer Opacity",
       "type" : "number"
     },
     "appearance.surfaces.docks.color" : {
-      "description" : "appearance.surfaces.docks.color",
+      "description" : "Docked Columns Color",
       "title" : "Docked Columns Color",
       "type" : "string"
     },
     "appearance.surfaces.docks.opacity" : {
-      "description" : "appearance.surfaces.docks.opacity",
+      "description" : "Docked Columns Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Docked Columns Opacity",
       "type" : "number"
     },
     "appearance.surfaces.editor.color" : {
-      "description" : "appearance.surfaces.editor.color",
+      "description" : "Code Editor Color",
       "title" : "Code Editor Color",
       "type" : "string"
     },
     "appearance.surfaces.editor.opacity" : {
-      "description" : "appearance.surfaces.editor.opacity",
+      "description" : "Code Editor Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Code Editor Opacity",
       "type" : "number"
     },
     "appearance.surfaces.home.color" : {
-      "description" : "appearance.surfaces.home.color",
+      "description" : "Home Color",
       "title" : "Home Color",
       "type" : "string"
     },
     "appearance.surfaces.home.opacity" : {
-      "description" : "appearance.surfaces.home.opacity",
+      "description" : "Home Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Home Opacity",
       "type" : "number"
     },
     "appearance.surfaces.internalPage.color" : {
-      "description" : "appearance.surfaces.internalPage.color",
+      "description" : "Internal Pages Color",
       "title" : "Internal Pages Color",
       "type" : "string"
     },
     "appearance.surfaces.internalPage.opacity" : {
-      "description" : "appearance.surfaces.internalPage.opacity",
+      "description" : "Internal Pages Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Internal Pages Opacity",
       "type" : "number"
     },
     "appearance.surfaces.markdown.color" : {
-      "description" : "appearance.surfaces.markdown.color",
+      "description" : "Markdown Editor Color",
       "title" : "Markdown Editor Color",
       "type" : "string"
     },
     "appearance.surfaces.markdown.opacity" : {
-      "description" : "appearance.surfaces.markdown.opacity",
+      "description" : "Markdown Editor Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Markdown Editor Opacity",
       "type" : "number"
     },
     "appearance.surfaces.newTabPage.color" : {
-      "description" : "appearance.surfaces.newTabPage.color",
+      "description" : "New Tab Page Color",
       "title" : "New Tab Page Color",
       "type" : "string"
     },
     "appearance.surfaces.newTabPage.opacity" : {
-      "description" : "appearance.surfaces.newTabPage.opacity",
+      "description" : "New Tab Page Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "New Tab Page Opacity",
       "type" : "number"
     },
     "appearance.surfaces.settings.color" : {
-      "description" : "appearance.surfaces.settings.color",
+      "description" : "Settings Color",
       "title" : "Settings Color",
       "type" : "string"
     },
     "appearance.surfaces.settings.opacity" : {
-      "description" : "appearance.surfaces.settings.opacity",
+      "description" : "Settings Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Settings Opacity",
       "type" : "number"
     },
     "appearance.surfaces.sidebar.color" : {
-      "description" : "appearance.surfaces.sidebar.color",
+      "description" : "Sidebar Color",
       "title" : "Sidebar Color",
       "type" : "string"
     },
     "appearance.surfaces.sidebar.opacity" : {
-      "description" : "appearance.surfaces.sidebar.opacity",
+      "description" : "Sidebar Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Sidebar Opacity",
       "type" : "number"
     },
     "appearance.surfaces.splitDivider.color" : {
-      "description" : "appearance.surfaces.splitDivider.color",
+      "description" : "Split Divider Color",
       "title" : "Split Divider Color",
       "type" : "string"
     },
     "appearance.surfaces.splitDivider.opacity" : {
-      "description" : "appearance.surfaces.splitDivider.opacity",
+      "description" : "Split Divider Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Split Divider Opacity",
       "type" : "number"
     },
     "appearance.surfaces.tabBar.color" : {
-      "description" : "appearance.surfaces.tabBar.color",
+      "description" : "Tab Bar Color",
       "title" : "Tab Bar Color",
       "type" : "string"
     },
     "appearance.surfaces.tabBar.opacity" : {
-      "description" : "appearance.surfaces.tabBar.opacity",
+      "description" : "Tab Bar Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Tab Bar Opacity",
       "type" : "number"
     },
     "appearance.surfaces.terminal.color" : {
-      "description" : "appearance.surfaces.terminal.color",
+      "description" : "Terminal Color",
       "title" : "Terminal Color",
       "type" : "string"
     },
     "appearance.surfaces.terminal.opacity" : {
-      "description" : "appearance.surfaces.terminal.opacity",
+      "description" : "Terminal Opacity",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Terminal Opacity",
       "type" : "number"
+    },
+    "appearance.tabClose.from" : {
+      "description" : "The color of a tab's close button. Unset, the text color.",
+      "title" : "Tab Close Color",
+      "type" : "string"
+    },
+    "appearance.tabClose.interpolation" : {
+      "description" : "How the close button's color blends to its hover color.",
+      "enum" : [
+        "oklab",
+        "srgb"
+      ],
+      "title" : "Tab Close Blend",
+      "type" : "string"
+    },
+    "appearance.tabClose.toDark" : {
+      "description" : "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover.",
+      "title" : "Tab Close Hover Color (Dark)",
+      "type" : "string"
+    },
+    "appearance.tabClose.toLight" : {
+      "description" : "The close button's hover color in the light appearance. Unset, the dark color.",
+      "title" : "Tab Close Hover Color (Light)",
+      "type" : "string"
     },
     "appearance.tabShape" : {
       "default" : "block",
@@ -2892,6 +3303,18 @@
         "subtleTone"
       ],
       "title" : "Title Area",
+      "type" : "string"
+    },
+    "appearance.toolbarButtonStyle" : {
+      "default" : "standard",
+      "description" : "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass.",
+      "enum" : [
+        "standard",
+        "plain",
+        "grouped",
+        "glass"
+      ],
+      "title" : "Top Right Buttons",
       "type" : "string"
     },
     "appearance.twoTone" : {
@@ -2987,7 +3410,7 @@
     },
     "browser.hibernatePinnedTabs" : {
       "default" : false,
-      "description" : "browser.hibernatePinnedTabs",
+      "description" : "Hibernate Pinned Tabs",
       "title" : "Hibernate Pinned Tabs",
       "type" : "boolean"
     },
@@ -3160,7 +3583,7 @@
     },
     "browser.omnibar.glass" : {
       "default" : "off",
-      "description" : "browser.omnibar.glass",
+      "description" : "Address Bar Glass",
       "enum" : [
         "transparent",
         "regular",
@@ -3183,7 +3606,7 @@
     },
     "browser.omnibar.glassTintStrength" : {
       "default" : 0.35,
-      "description" : "browser.omnibar.glassTintStrength",
+      "description" : "Tint Strength",
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Tint Strength",
@@ -3206,11 +3629,17 @@
     },
     "browser.omnibar.maxRows" : {
       "default" : 6,
-      "description" : "browser.omnibar.maxRows",
+      "description" : "Suggestions Shown",
       "maximum" : 15,
       "minimum" : 3,
       "title" : "Suggestions Shown",
       "type" : "number"
+    },
+    "browser.omnibar.quietIcons" : {
+      "default" : false,
+      "description" : "Fades the site info icon and the bookmark star until you point at or click into the address bar.",
+      "title" : "Quiet Address Bar Icons",
+      "type" : "boolean"
     },
     "browser.omnibar.remoteSuggestions" : {
       "default" : true,
@@ -3274,7 +3703,7 @@
     },
     "browser.remoteLocalhost" : {
       "default" : true,
-      "description" : "browser.remoteLocalhost",
+      "description" : "Open localhost on the Workspace's Machine",
       "title" : "Open localhost on the Workspace's Machine",
       "type" : "boolean"
     },
@@ -3483,6 +3912,12 @@
       "title" : "Sidebar for Tasks That Mention",
       "type" : "array"
     },
+    "cloud.addFolderLive" : {
+      "default" : true,
+      "description" : "Sources shows Add Folder, and a folder an agent asks for joins its chat. Copies are read-only; secret files never go.",
+      "title" : "Add Folders to Running Cloud Chats",
+      "type" : "boolean"
+    },
     "cloud.agentMemory.follow" : {
       "default" : true,
       "description" : "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push.",
@@ -3500,6 +3935,12 @@
       "description" : "Auto runs a new chat on this Mac when it has room, else on a Cloud machine.",
       "title" : "Auto Places Chats in Cloud",
       "type" : "boolean"
+    },
+    "cloud.defaultImage" : {
+      "default" : "auto",
+      "description" : "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.",
+      "title" : "Default Image",
+      "type" : "string"
     },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
@@ -3521,6 +3962,12 @@
       "default" : false,
       "description" : "Back to Before This Turn restores the machine in seconds. Keeps the newest few.",
       "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
+      "type" : "boolean"
+    },
+    "cloud.useMyGitHubLogin" : {
+      "default" : false,
+      "description" : "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine.",
+      "title" : "Use My GitHub Login on Cloud Machines",
       "type" : "boolean"
     },
     "computerUse.allowForeground" : {
@@ -3576,6 +4023,12 @@
       },
       "title" : "Denied Apps",
       "type" : "array"
+    },
+    "computerUse.floatingPreview" : {
+      "default" : false,
+      "description" : "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar.",
+      "title" : "Floating Live Preview",
+      "type" : "boolean"
     },
     "computerUse.livePreview" : {
       "default" : true,
@@ -3664,8 +4117,8 @@
       "type" : "boolean"
     },
     "customize.doctorNotice" : {
-      "default" : true,
-      "description" : "customize.doctorNotice",
+      "default" : false,
+      "description" : "Customization notices",
       "title" : "Customization notices",
       "type" : "boolean"
     },
@@ -3713,7 +4166,7 @@
     },
     "diff.colors" : {
       "default" : "theme",
-      "description" : "diff.colors",
+      "description" : "Diff Colors",
       "enum" : [
         "theme",
         "muted",
@@ -3724,7 +4177,7 @@
     },
     "diff.diffIndicators" : {
       "default" : "bars",
-      "description" : "diff.diffIndicators",
+      "description" : "Change Markers",
       "enum" : [
         "bars",
         "classic",
@@ -3735,25 +4188,25 @@
     },
     "diff.expandUnchanged" : {
       "default" : false,
-      "description" : "diff.expandUnchanged",
+      "description" : "Expand Unchanged Lines",
       "title" : "Expand Unchanged Lines",
       "type" : "boolean"
     },
     "diff.groupByKind" : {
       "default" : false,
-      "description" : "diff.groupByKind",
+      "description" : "Group Files by Kind",
       "title" : "Group Files by Kind",
       "type" : "boolean"
     },
     "diff.hideWhitespace" : {
       "default" : false,
-      "description" : "diff.hideWhitespace",
+      "description" : "Hide White Space",
       "title" : "Hide White Space",
       "type" : "boolean"
     },
     "diff.layout" : {
       "default" : "auto",
-      "description" : "diff.layout",
+      "description" : "Layout",
       "enum" : [
         "auto",
         "split",
@@ -3764,31 +4217,31 @@
     },
     "diff.lineNumbers" : {
       "default" : true,
-      "description" : "diff.lineNumbers",
+      "description" : "Line Numbers",
       "title" : "Line Numbers",
       "type" : "boolean"
     },
     "diff.showBackgrounds" : {
       "default" : true,
-      "description" : "diff.showBackgrounds",
+      "description" : "Change Backgrounds",
       "title" : "Change Backgrounds",
       "type" : "boolean"
     },
     "diff.showBulkActions" : {
       "default" : true,
-      "description" : "diff.showBulkActions",
+      "description" : "Stage All and Revert All Bar",
       "title" : "Stage All and Revert All Bar",
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
       "default" : true,
-      "description" : "diff.wordDiffs",
+      "description" : "Highlight Word Changes",
       "title" : "Highlight Word Changes",
       "type" : "boolean"
     },
     "diff.wordWrap" : {
       "default" : false,
-      "description" : "diff.wordWrap",
+      "description" : "Wrap Lines",
       "title" : "Wrap Lines",
       "type" : "boolean"
     },
@@ -3820,7 +4273,7 @@
     },
     "editor.acceptSuggestionOnEnter" : {
       "default" : "on",
-      "description" : "editor.acceptSuggestionOnEnter",
+      "description" : "Return Accepts a Suggestion",
       "enum" : [
         "on",
         "smart",
@@ -3831,19 +4284,19 @@
     },
     "editor.autoClosingBrackets" : {
       "default" : true,
-      "description" : "editor.autoClosingBrackets",
+      "description" : "Close Brackets",
       "title" : "Close Brackets",
       "type" : "boolean"
     },
     "editor.autoClosingQuotes" : {
       "default" : true,
-      "description" : "editor.autoClosingQuotes",
+      "description" : "Close Quotes",
       "title" : "Close Quotes",
       "type" : "boolean"
     },
     "editor.autoSave" : {
       "default" : "afterDelay",
-      "description" : "editor.autoSave",
+      "description" : "Save Automatically",
       "enum" : [
         "afterDelay",
         "off"
@@ -3853,7 +4306,7 @@
     },
     "editor.autoSaveDelay" : {
       "default" : 1000,
-      "description" : "editor.autoSaveDelay",
+      "description" : "Pause Before Saving",
       "maximum" : 60000,
       "minimum" : 100,
       "title" : "Pause Before Saving",
@@ -3861,13 +4314,13 @@
     },
     "editor.bracketPairColorization.enabled" : {
       "default" : true,
-      "description" : "editor.bracketPairColorization.enabled",
+      "description" : "Color Bracket Pairs",
       "title" : "Color Bracket Pairs",
       "type" : "boolean"
     },
     "editor.cursorBlinking" : {
       "default" : "blink",
-      "description" : "editor.cursorBlinking",
+      "description" : "Cursor Blinking",
       "enum" : [
         "blink",
         "smooth",
@@ -3880,7 +4333,7 @@
     },
     "editor.cursorSmoothCaretAnimation" : {
       "default" : "off",
-      "description" : "editor.cursorSmoothCaretAnimation",
+      "description" : "Animate Cursor Movement",
       "enum" : [
         "off",
         "explicit",
@@ -3891,7 +4344,7 @@
     },
     "editor.cursorStyle" : {
       "default" : "line",
-      "description" : "editor.cursorStyle",
+      "description" : "Cursor Style",
       "enum" : [
         "line",
         "block",
@@ -3905,7 +4358,7 @@
     },
     "editor.cursorSurroundingLines" : {
       "default" : 0,
-      "description" : "editor.cursorSurroundingLines",
+      "description" : "Lines Kept Around the Cursor",
       "maximum" : 50,
       "minimum" : 0,
       "title" : "Lines Kept Around the Cursor",
@@ -3944,13 +4397,13 @@
     },
     "editor.emptySelectionClipboard" : {
       "default" : true,
-      "description" : "editor.emptySelectionClipboard",
+      "description" : "Copy the Line When Nothing Is Selected",
       "title" : "Copy the Line When Nothing Is Selected",
       "type" : "boolean"
     },
     "editor.find.seedSearchStringFromSelection" : {
       "default" : "always",
-      "description" : "editor.find.seedSearchStringFromSelection",
+      "description" : "Find Starts With",
       "enum" : [
         "always",
         "selection",
@@ -3961,7 +4414,7 @@
     },
     "editor.folding" : {
       "default" : true,
-      "description" : "editor.folding",
+      "description" : "Code Folding",
       "title" : "Code Folding",
       "type" : "boolean"
     },
@@ -3972,7 +4425,7 @@
     },
     "editor.fontLigatures" : {
       "default" : false,
-      "description" : "editor.fontLigatures",
+      "description" : "Font Ligatures",
       "title" : "Font Ligatures",
       "type" : "boolean"
     },
@@ -3985,7 +4438,7 @@
     },
     "editor.fontWeight" : {
       "default" : "normal",
-      "description" : "editor.fontWeight",
+      "description" : "Font Weight",
       "enum" : [
         "normal",
         "bold",
@@ -4004,13 +4457,13 @@
     },
     "editor.guides.bracketPairs" : {
       "default" : false,
-      "description" : "editor.guides.bracketPairs",
+      "description" : "Bracket Pair Guides",
       "title" : "Bracket Pair Guides",
       "type" : "boolean"
     },
     "editor.guides.indentation" : {
       "default" : true,
-      "description" : "editor.guides.indentation",
+      "description" : "Indentation Guides",
       "title" : "Indentation Guides",
       "type" : "boolean"
     },
@@ -4031,7 +4484,7 @@
     },
     "editor.insertFinalNewline" : {
       "default" : false,
-      "description" : "editor.insertFinalNewline",
+      "description" : "End Files with a Newline on Save",
       "title" : "End Files with a Newline on Save",
       "type" : "boolean"
     },
@@ -4043,7 +4496,7 @@
     },
     "editor.letterSpacing" : {
       "default" : 0,
-      "description" : "editor.letterSpacing",
+      "description" : "Letter Spacing",
       "maximum" : 20,
       "minimum" : -5,
       "title" : "Letter Spacing",
@@ -4059,7 +4512,7 @@
     },
     "editor.lineNumbers" : {
       "default" : "on",
-      "description" : "editor.lineNumbers",
+      "description" : "Line Numbers",
       "enum" : [
         "on",
         "off",
@@ -4071,13 +4524,13 @@
     },
     "editor.linkedEditing" : {
       "default" : false,
-      "description" : "editor.linkedEditing",
+      "description" : "Rename Matching Tags Together",
       "title" : "Rename Matching Tags Together",
       "type" : "boolean"
     },
     "editor.matchBrackets" : {
       "default" : "always",
-      "description" : "editor.matchBrackets",
+      "description" : "Highlight Matching Brackets",
       "enum" : [
         "always",
         "near",
@@ -4088,13 +4541,13 @@
     },
     "editor.minimap.enabled" : {
       "default" : false,
-      "description" : "editor.minimap.enabled",
+      "description" : "Minimap",
       "title" : "Minimap",
       "type" : "boolean"
     },
     "editor.mouseWheelZoom" : {
       "default" : false,
-      "description" : "editor.mouseWheelZoom",
+      "description" : "Zoom with Command and the Scroll Wheel",
       "title" : "Zoom with Command and the Scroll Wheel",
       "type" : "boolean"
     },
@@ -4110,19 +4563,19 @@
     },
     "editor.quickSuggestions" : {
       "default" : false,
-      "description" : "editor.quickSuggestions",
+      "description" : "Suggest While Typing",
       "title" : "Suggest While Typing",
       "type" : "boolean"
     },
     "editor.renderControlCharacters" : {
       "default" : true,
-      "description" : "editor.renderControlCharacters",
+      "description" : "Show Control Characters",
       "title" : "Show Control Characters",
       "type" : "boolean"
     },
     "editor.renderLineHighlight" : {
       "default" : "line",
-      "description" : "editor.renderLineHighlight",
+      "description" : "Current Line Highlight",
       "enum" : [
         "none",
         "gutter",
@@ -4134,7 +4587,7 @@
     },
     "editor.renderWhitespace" : {
       "default" : "selection",
-      "description" : "editor.renderWhitespace",
+      "description" : "Show Whitespace",
       "enum" : [
         "none",
         "boundary",
@@ -4158,13 +4611,13 @@
     },
     "editor.scrollBeyondLastLine" : {
       "default" : false,
-      "description" : "editor.scrollBeyondLastLine",
+      "description" : "Scroll Past the Last Line",
       "title" : "Scroll Past the Last Line",
       "type" : "boolean"
     },
     "editor.smoothScrolling" : {
       "default" : false,
-      "description" : "editor.smoothScrolling",
+      "description" : "Smooth Scrolling",
       "title" : "Smooth Scrolling",
       "type" : "boolean"
     },
@@ -4176,7 +4629,7 @@
     },
     "editor.tabSize" : {
       "default" : 4,
-      "description" : "editor.tabSize",
+      "description" : "Tab Size",
       "maximum" : 16,
       "minimum" : 1,
       "title" : "Tab Size",
@@ -4184,7 +4637,7 @@
     },
     "editor.trimTrailingWhitespace" : {
       "default" : false,
-      "description" : "editor.trimTrailingWhitespace",
+      "description" : "Remove Trailing Spaces on Save",
       "title" : "Remove Trailing Spaces on Save",
       "type" : "boolean"
     },
@@ -4196,7 +4649,7 @@
     },
     "editor.wordBasedSuggestions" : {
       "default" : true,
-      "description" : "editor.wordBasedSuggestions",
+      "description" : "Suggest Words from the File",
       "title" : "Suggest Words from the File",
       "type" : "boolean"
     },
@@ -4214,7 +4667,7 @@
     },
     "editor.wordWrapColumn" : {
       "default" : 80,
-      "description" : "editor.wordWrapColumn",
+      "description" : "Wrap Column",
       "maximum" : 1000,
       "minimum" : 10,
       "title" : "Wrap Column",
@@ -4243,6 +4696,18 @@
       "title" : "App Font in Native Chrome",
       "type" : "boolean"
     },
+    "experiments.appsTier" : {
+      "default" : false,
+      "description" : "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.",
+      "title" : "Publish Previews as Apps",
+      "type" : "boolean"
+    },
+    "experiments.appStoreFeatures" : {
+      "default" : false,
+      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
+      "title" : "App Store Features",
+      "type" : "boolean"
+    },
     "experiments.attachmentTypeIcons" : {
       "default" : false,
       "description" : "While an attachment loads, its chip shows a file or image icon instead of the loading mark.",
@@ -4255,6 +4720,12 @@
       "title" : "Browser Profile Card",
       "type" : "boolean"
     },
+    "experiments.chatInstantUnderLoad" : {
+      "default" : false,
+      "description" : "While you type or a reply streams, wait for a pause before saving the chat list new tabs show.",
+      "title" : "Prioritize Chat Input",
+      "type" : "boolean"
+    },
     "experiments.chatWidgets" : {
       "default" : false,
       "description" : "Installed extensions can show a card under a finished tool call in agent chat.",
@@ -4265,6 +4736,18 @@
       "default" : false,
       "description" : "Cloud machine cards show disk use as a bar split into system, project and caches.",
       "title" : "Cloud Disk Bar",
+      "type" : "boolean"
+    },
+    "experiments.cloudToggle" : {
+      "default" : false,
+      "description" : "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on.",
+      "title" : "Cloud Toggle",
+      "type" : "boolean"
+    },
+    "experiments.compactionThresholdInsight" : {
+      "default" : false,
+      "description" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns.",
+      "title" : "Compaction Threshold Insight",
       "type" : "boolean"
     },
     "experiments.composerButtonsVisible" : {
@@ -4291,6 +4774,18 @@
       "title" : "Composer Refresh",
       "type" : "boolean"
     },
+    "experiments.eventsAsToolCalls" : {
+      "default" : false,
+      "description" : "A rule cmux pushes into a chat shows as cmux's line, never as your own message.",
+      "title" : "Harness Events Read by Origin",
+      "type" : "boolean"
+    },
+    "experiments.expandedEditsEstimate" : {
+      "default" : false,
+      "description" : "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.",
+      "title" : "Expanded Edits Estimate",
+      "type" : "boolean"
+    },
     "experiments.foldSummaryCounts" : {
       "default" : false,
       "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
@@ -4303,6 +4798,12 @@
       "title" : "Forum",
       "type" : "boolean"
     },
+    "experiments.forumCallCard" : {
+      "default" : false,
+      "description" : "Agent forum searches, reads and posts show as forum rows with links to their threads.",
+      "title" : "Forum Tool Calls",
+      "type" : "boolean"
+    },
     "experiments.glassToolbarGroups" : {
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
@@ -4313,6 +4814,12 @@
       "default" : false,
       "description" : "Tooltips and hover cards get a crisper glass, a sharper edge and a softer shadow.",
       "title" : "Tooltip Refresh",
+      "type" : "boolean"
+    },
+    "experiments.introWalk" : {
+      "default" : false,
+      "description" : "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background.",
+      "title" : "Intro Walk",
       "type" : "boolean"
     },
     "experiments.menuRowStates" : {
@@ -4357,6 +4864,18 @@
       "title" : "See-Through Dock",
       "type" : "boolean"
     },
+    "experiments.setupShelf" : {
+      "default" : false,
+      "description" : "Make cmux Yours offers four setups, such as Calm or Dense. Try one, then keep it or put your settings back.",
+      "title" : "Setups in Make cmux Yours",
+      "type" : "boolean"
+    },
+    "experiments.startedTaskTitleChip" : {
+      "default" : false,
+      "description" : "In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row.",
+      "title" : "Started Tasks: Title Opens Chat",
+      "type" : "boolean"
+    },
     "experiments.terminalAgentMark" : {
       "default" : false,
       "description" : "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat.",
@@ -4370,7 +4889,7 @@
       "type" : "boolean"
     },
     "experiments.terminalHistoryFind" : {
-      "default" : false,
+      "default" : true,
       "description" : "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
       "title" : "Terminal History Find",
       "type" : "boolean"
@@ -4397,6 +4916,18 @@
       "default" : false,
       "description" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
       "title" : "Toasts v2",
+      "type" : "boolean"
+    },
+    "experiments.transcriptWorkLog" : {
+      "default" : false,
+      "description" : "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context.",
+      "title" : "Transcript Work Log",
+      "type" : "boolean"
+    },
+    "experiments.writtenHTMLOpenBeside" : {
+      "default" : false,
+      "description" : "A web page the agent writes gets an Open beside chat button that shows the real page, with its styles and images, in a tab.",
+      "title" : "Open Written HTML Beside the Chat",
       "type" : "boolean"
     },
     "feed.agentPermissionPrompts" : {
@@ -4460,13 +4991,13 @@
       "type" : "string"
     },
     "focusRing.color" : {
-      "description" : "focusRing.color",
+      "description" : "Color",
       "title" : "Color",
       "type" : "string"
     },
     "focusRing.contrast" : {
       "default" : "subtle",
-      "description" : "focusRing.contrast",
+      "description" : "Contrast",
       "enum" : [
         "subtle",
         "standard",
@@ -4477,19 +5008,19 @@
     },
     "focusRing.enabled" : {
       "default" : false,
-      "description" : "focusRing.enabled",
+      "description" : "Show Focus Ring",
       "title" : "Show Focus Ring",
       "type" : "boolean"
     },
     "focusRing.showWhenSinglePane" : {
       "default" : false,
-      "description" : "focusRing.showWhenSinglePane",
+      "description" : "Show With One Pane",
       "title" : "Show With One Pane",
       "type" : "boolean"
     },
     "focusRing.style" : {
       "default" : "ring",
-      "description" : "focusRing.style",
+      "description" : "Style",
       "enum" : [
         "ring",
         "glow",
@@ -4500,7 +5031,7 @@
     },
     "focusRing.width" : {
       "default" : 1,
-      "description" : "focusRing.width",
+      "description" : "Width",
       "maximum" : 8,
       "minimum" : 0.5,
       "title" : "Width",
@@ -4642,7 +5173,7 @@
     },
     "home.chiefPetMascot" : {
       "default" : "orb",
-      "description" : "home.chiefPetMascot",
+      "description" : "Character",
       "enum" : [
         "fox",
         "machine",
@@ -4716,6 +5247,12 @@
       "title" : "Use Bundled Codex App Server",
       "type" : "boolean"
     },
+    "labs.chatMultiplayer" : {
+      "default" : false,
+      "description" : "Teammates you share a chat with show when they view it and when they type.",
+      "title" : "Chat Multiplayer",
+      "type" : "boolean"
+    },
     "labs.commentThreads" : {
       "default" : false,
       "description" : "Send browser and terminal comments to the chat as threads that show the agent's reply.",
@@ -4770,6 +5307,12 @@
       "title" : "Go Back to Previous Build",
       "type" : "boolean"
     },
+    "labs.teamCompute" : {
+      "default" : false,
+      "description" : "Show your team's compute allotment and each member's use in Settings > Cloud.",
+      "title" : "Team Compute",
+      "type" : "boolean"
+    },
     "labs.voiceRoom" : {
       "default" : false,
       "description" : "While a room is open, cmux sends a transcript of your mic and your screen's text to it.",
@@ -4784,7 +5327,7 @@
     },
     "layout.centerFocusedColumn" : {
       "default" : "never",
-      "description" : "layout.centerFocusedColumn",
+      "description" : "Center Focused Column",
       "enum" : [
         "never",
         "always",
@@ -4820,7 +5363,7 @@
     },
     "layout.dockColumnEdge" : {
       "default" : "nearest",
-      "description" : "layout.dockColumnEdge",
+      "description" : "Dock Column Edge",
       "enum" : [
         "nearest",
         "right",
@@ -4833,13 +5376,19 @@
     },
     "layout.dockColumnMode" : {
       "default" : "docked",
-      "description" : "layout.dockColumnMode",
+      "description" : "Dock Column Mode",
       "enum" : [
         "docked",
         "overlay"
       ],
       "title" : "Dock Column Mode",
       "type" : "string"
+    },
+    "layout.fadeInactivePanes" : {
+      "default" : false,
+      "description" : "Panes without the focus fade, and come back when you focus them.",
+      "title" : "Fade Inactive Panes",
+      "type" : "boolean"
     },
     "layout.focusFollowsMouse" : {
       "default" : false,
@@ -4849,7 +5398,7 @@
     },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
-      "description" : "layout.frameOrientation",
+      "description" : "Dock Corners",
       "enum" : [
         "columnMajor",
         "rowMajor"
@@ -4859,7 +5408,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "layout.linkPlacement",
+      "description" : "Open Links and Files",
       "enum" : [
         "split-right",
         "new-column",
@@ -4880,7 +5429,7 @@
     },
     "layout.minimumPaneHeight" : {
       "default" : 64,
-      "description" : "layout.minimumPaneHeight",
+      "description" : "Minimum Pane Height",
       "maximum" : 600,
       "minimum" : 32,
       "title" : "Minimum Pane Height",
@@ -4888,7 +5437,7 @@
     },
     "layout.minimumPaneWidth" : {
       "default" : 200,
-      "description" : "layout.minimumPaneWidth",
+      "description" : "Minimum Pane Width",
       "maximum" : 800,
       "minimum" : 80,
       "title" : "Minimum Pane Width",
@@ -4896,7 +5445,7 @@
     },
     "layout.newColumnWidth" : {
       "default" : "fixed",
-      "description" : "layout.newColumnWidth",
+      "description" : "New Column Sizing",
       "enum" : [
         "matchCurrent",
         "fitScreen",
@@ -4923,7 +5472,7 @@
     },
     "layout.paneBorder" : {
       "default" : "subtle",
-      "description" : "layout.paneBorder",
+      "description" : "Border",
       "enum" : [
         "subtle",
         "none"
@@ -4932,12 +5481,12 @@
       "type" : "string"
     },
     "layout.paneBorderColor" : {
-      "description" : "layout.paneBorderColor",
+      "description" : "Border Color",
       "title" : "Border Color",
       "type" : "string"
     },
     "layout.paneBorderWidth" : {
-      "description" : "layout.paneBorderWidth",
+      "description" : "Border Width",
       "maximum" : 4,
       "minimum" : 0.5,
       "title" : "Border Width",
@@ -4951,7 +5500,7 @@
       "type" : "number"
     },
     "layout.panePadding" : {
-      "description" : "layout.panePadding",
+      "description" : "Padding",
       "maximum" : 16,
       "minimum" : 0,
       "title" : "Padding",
@@ -5056,7 +5605,7 @@
       "type" : "string"
     },
     "markdown.code.blockSize" : {
-      "description" : "markdown.code.blockSize",
+      "description" : "Code Block Size",
       "maximum" : 32,
       "minimum" : 8,
       "title" : "Code Block Size",
@@ -5077,7 +5626,7 @@
     },
     "markdown.font.lineHeight" : {
       "default" : 1.6,
-      "description" : "markdown.font.lineHeight",
+      "description" : "Line Height",
       "maximum" : 2.4,
       "minimum" : 1,
       "title" : "Line Height",
@@ -5085,7 +5634,7 @@
     },
     "markdown.font.preset" : {
       "default" : "system",
-      "description" : "markdown.font.preset",
+      "description" : "Font",
       "enum" : [
         "system",
         "serif",
@@ -5132,7 +5681,7 @@
     },
     "markdown.tables" : {
       "default" : "scroll",
-      "description" : "markdown.tables",
+      "description" : "Wide Tables",
       "enum" : [
         "scroll",
         "wrap"
@@ -5142,7 +5691,7 @@
     },
     "markdown.theme" : {
       "default" : "app",
-      "description" : "markdown.theme",
+      "description" : "Page Theme",
       "enum" : [
         "app",
         "light",
@@ -5198,7 +5747,7 @@
       "type" : "array"
     },
     "models.spreadUsage" : {
-      "default" : true,
+      "default" : false,
       "description" : "When one subscription runs out, a chat moves to another with the same model.",
       "title" : "Spread Usage Across My Subscriptions",
       "type" : "boolean"
@@ -5232,7 +5781,7 @@
     },
     "notifications.attention.agentChatBlinkCount" : {
       "default" : 1,
-      "description" : "notifications.attention.agentChatBlinkCount",
+      "description" : "Agent Chat Blinks",
       "maximum" : 10,
       "minimum" : 1,
       "title" : "Agent Chat Blinks",
@@ -5251,20 +5800,20 @@
     },
     "notifications.attention.blinkCount" : {
       "default" : 2,
-      "description" : "notifications.attention.blinkCount",
+      "description" : "Blinks",
       "maximum" : 10,
       "minimum" : 1,
       "title" : "Blinks",
       "type" : "number"
     },
     "notifications.attention.color" : {
-      "description" : "notifications.attention.color",
+      "description" : "Color",
       "title" : "Color",
       "type" : "string"
     },
     "notifications.attention.duration" : {
       "default" : 3,
-      "description" : "notifications.attention.duration",
+      "description" : "Pulse Duration",
       "maximum" : 30,
       "minimum" : 0.3,
       "title" : "Pulse Duration",
@@ -5278,7 +5827,7 @@
     },
     "notifications.attention.flashOnTyping" : {
       "default" : true,
-      "description" : "notifications.attention.flashOnTyping",
+      "description" : "Flash When Typing Reads It",
       "title" : "Flash When Typing Reads It",
       "type" : "boolean"
     },
@@ -5306,25 +5855,25 @@
     },
     "notifications.attention.persist" : {
       "default" : true,
-      "description" : "notifications.attention.persist",
+      "description" : "Keep Ring Until Read",
       "title" : "Keep Ring Until Read",
       "type" : "boolean"
     },
     "notifications.attention.showOnSidebar" : {
       "default" : true,
-      "description" : "notifications.attention.showOnSidebar",
+      "description" : "Mark the Sidebar Row",
       "title" : "Mark the Sidebar Row",
       "type" : "boolean"
     },
     "notifications.attention.showOnTab" : {
       "default" : true,
-      "description" : "notifications.attention.showOnTab",
+      "description" : "Mark the Tab",
       "title" : "Mark the Tab",
       "type" : "boolean"
     },
     "notifications.attention.style" : {
       "default" : "steady",
-      "description" : "notifications.attention.style",
+      "description" : "Style",
       "enum" : [
         "blink",
         "pulse",
@@ -5336,7 +5885,7 @@
     },
     "notifications.attention.terminals" : {
       "default" : "glow",
-      "description" : "notifications.attention.terminals",
+      "description" : "Ring Terminal Panes",
       "enum" : [
         "glow",
         "ring",
@@ -5347,7 +5896,7 @@
     },
     "notifications.attention.width" : {
       "default" : 2,
-      "description" : "notifications.attention.width",
+      "description" : "Width",
       "maximum" : 8,
       "minimum" : 0.5,
       "title" : "Width",
@@ -5366,7 +5915,7 @@
     },
     "notifications.delivery.permissionRequest" : {
       "default" : "banner",
-      "description" : "notifications.delivery.permissionRequest",
+      "description" : "Permission Request",
       "enum" : [
         "off",
         "badge",
@@ -5377,7 +5926,7 @@
     },
     "notifications.delivery.question" : {
       "default" : "banner",
-      "description" : "notifications.delivery.question",
+      "description" : "Question",
       "enum" : [
         "off",
         "badge",
@@ -5388,7 +5937,7 @@
     },
     "notifications.delivery.taskComplete" : {
       "default" : "banner",
-      "description" : "notifications.delivery.taskComplete",
+      "description" : "Task Complete",
       "enum" : [
         "off",
         "banner"
@@ -5398,7 +5947,7 @@
     },
     "notifications.desktop" : {
       "default" : "unlessFocused",
-      "description" : "notifications.desktop",
+      "description" : "macOS Banners",
       "enum" : [
         "unlessFocused",
         "always",
@@ -5410,7 +5959,7 @@
     },
     "notifications.dismissal" : {
       "default" : "focus",
-      "description" : "notifications.dismissal",
+      "description" : "Clear Notification When",
       "enum" : [
         "keystroke",
         "click",
@@ -5424,7 +5973,7 @@
     },
     "notifications.dockBadge" : {
       "default" : true,
-      "description" : "notifications.dockBadge",
+      "description" : "Unread Count on Dock Icon",
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
     },
@@ -5478,7 +6027,7 @@
     },
     "notifications.sound" : {
       "default" : "default",
-      "description" : "notifications.sound",
+      "description" : "Sound",
       "title" : "Sound",
       "type" : "string"
     },
@@ -5502,27 +6051,27 @@
       "type" : "number"
     },
     "notifications.sounds.events.bell" : {
-      "description" : "notifications.sounds.events.bell",
+      "description" : "Terminal Notification",
       "title" : "Terminal Notification",
       "type" : "string"
     },
     "notifications.sounds.events.error" : {
-      "description" : "notifications.sounds.events.error",
+      "description" : "Error",
       "title" : "Error",
       "type" : "string"
     },
     "notifications.sounds.events.finished" : {
-      "description" : "notifications.sounds.events.finished",
+      "description" : "Agent Finished",
       "title" : "Agent Finished",
       "type" : "string"
     },
     "notifications.sounds.events.message" : {
-      "description" : "notifications.sounds.events.message",
+      "description" : "cmux notify Message",
       "title" : "cmux notify Message",
       "type" : "string"
     },
     "notifications.sounds.events.needsInput" : {
-      "description" : "notifications.sounds.events.needsInput",
+      "description" : "Agent Needs Input",
       "title" : "Agent Needs Input",
       "type" : "string"
     },
@@ -5555,7 +6104,7 @@
     },
     "notifications.sounds.when" : {
       "default" : "unlessViewed",
-      "description" : "notifications.sounds.when",
+      "description" : "Play Sounds",
       "enum" : [
         "unlessViewed",
         "whenInactive",
@@ -5576,7 +6125,7 @@
       "type" : "object"
     },
     "notifications.sources.agent.dismissal" : {
-      "description" : "notifications.sources.agent.dismissal",
+      "description" : "Agents",
       "enum" : [
         "keystroke",
         "click",
@@ -5589,7 +6138,7 @@
       "type" : "string"
     },
     "notifications.sources.cli.dismissal" : {
-      "description" : "notifications.sources.cli.dismissal",
+      "description" : "cmux notify",
       "enum" : [
         "keystroke",
         "click",
@@ -5602,7 +6151,7 @@
       "type" : "string"
     },
     "notifications.sources.terminal.dismissal" : {
-      "description" : "notifications.sources.terminal.dismissal",
+      "description" : "Terminal Programs",
       "enum" : [
         "keystroke",
         "click",
@@ -5909,6 +6458,12 @@
       "title" : "Screen Sharing Quality",
       "type" : "string"
     },
+    "remoteDesktop.sharpLinuxText" : {
+      "default" : false,
+      "description" : "A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later.",
+      "title" : "Sharper Text from Linux Machines",
+      "type" : "boolean"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
@@ -5985,7 +6540,7 @@
       "type" : "boolean"
     },
     "sidebar.borderWidth" : {
-      "description" : "sidebar.borderWidth",
+      "description" : "Border Width",
       "maximum" : 4,
       "minimum" : 0.5,
       "title" : "Border Width",
@@ -6056,9 +6611,15 @@
       "title" : "Float Hidden Sidebar on Hover",
       "type" : "boolean"
     },
+    "sidebar.folderlessUngrouped" : {
+      "default" : false,
+      "description" : "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header.",
+      "title" : "Ungroup Rows With No Folder",
+      "type" : "boolean"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
-      "description" : "sidebar.groupBy",
+      "description" : "Group Projects By",
       "enum" : [
         "none",
         "folder",
@@ -6069,7 +6630,7 @@
     },
     "sidebar.groupByComputer" : {
       "default" : false,
-      "description" : "sidebar.groupByComputer",
+      "description" : "Group Workspaces by Computer",
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
@@ -6269,7 +6830,8 @@
         "cmux",
         "claude",
         "codex",
-        "studio"
+        "studio",
+        "rex"
       ],
       "title" : "Sidebar Look",
       "type" : "string"
@@ -6343,11 +6905,39 @@
       "title" : "Priority View",
       "type" : "boolean"
     },
+    "sidebar.priorityView.filters" : {
+      "default" : false,
+      "description" : "All, Waiting, Unread and Running chips with counts, and Mark All as Read.",
+      "title" : "Priority Filters",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.showIdle" : {
+      "default" : true,
+      "description" : "Off, Priority lists only chats that need you or are running.",
+      "title" : "Idle Chats in Priority",
+      "type" : "boolean"
+    },
     "sidebar.priorityView.shown" : {
       "default" : true,
       "description" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
       "title" : "Show Priority View",
       "type" : "boolean"
+    },
+    "sidebar.priorityView.statusWords" : {
+      "default" : false,
+      "description" : "Each Priority row says its state, such as Needs you or Done.",
+      "title" : "Priority Status Words",
+      "type" : "boolean"
+    },
+    "sidebar.profileMenu.style" : {
+      "default" : "app",
+      "description" : "What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out.",
+      "enum" : [
+        "app",
+        "account"
+      ],
+      "title" : "Profile Menu",
+      "type" : "string"
     },
     "sidebar.sectionLook" : {
       "default" : "quiet",
@@ -6396,10 +6986,10 @@
       "title" : "Settle Finished Chats",
       "type" : "boolean"
     },
-    "sidebar.showAutomaticSessions" : {
+    "sidebar.showAgentSessions" : {
       "default" : false,
-      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
-      "title" : "Show Automatic Sessions",
+      "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
+      "title" : "Show Sessions Started by Agents",
       "type" : "boolean"
     },
     "sidebar.showChats" : {
@@ -6410,12 +7000,12 @@
     },
     "sidebar.showColors" : {
       "default" : true,
-      "description" : "sidebar.showColors",
+      "description" : "Show Workspace Colors",
       "title" : "Show Workspace Colors",
       "type" : "boolean"
     },
     "sidebar.showLiveToggle" : {
-      "default" : true,
+      "default" : false,
       "description" : "A Live button after the profile button turns presence on or off. Off: use the palette.",
       "title" : "Show Live Button",
       "type" : "boolean"
@@ -6434,18 +7024,18 @@
     },
     "sidebar.showProfileControl" : {
       "default" : true,
-      "description" : "sidebar.showProfileControl",
+      "description" : "Show Profile Button",
       "title" : "Show Profile Button",
       "type" : "boolean"
     },
     "sidebar.showProjects" : {
       "default" : true,
-      "description" : "sidebar.showProjects",
+      "description" : "Show Projects",
       "title" : "Show Projects",
       "type" : "boolean"
     },
     "sidebar.showSearchButton" : {
-      "default" : false,
+      "default" : true,
       "description" : "A search button after the profile button. Off: search from the palette.",
       "title" : "Show Search Button",
       "type" : "boolean"
@@ -6543,63 +7133,68 @@
       "title" : "Top Sections Height",
       "type" : "number"
     },
+    "sidebar.workspaceListApp" : {
+      "description" : "The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed.",
+      "title" : "Workspace List Extension",
+      "type" : "string"
+    },
     "sidebar.workspaceRow.agent.agentStatus" : {
-      "description" : "sidebar.workspaceRow.agent.agentStatus",
+      "description" : "Agent Status",
       "title" : "Agent Status",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.branch" : {
-      "description" : "sidebar.workspaceRow.agent.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.directory" : {
-      "description" : "sidebar.workspaceRow.agent.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.icon" : {
-      "description" : "sidebar.workspaceRow.agent.icon",
+      "description" : "Icon",
       "title" : "Icon",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.lastActivity" : {
-      "description" : "sidebar.workspaceRow.agent.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.log" : {
-      "description" : "sidebar.workspaceRow.agent.log",
+      "description" : "Log",
       "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.notification" : {
-      "description" : "sidebar.workspaceRow.agent.notification",
+      "description" : "Latest Notification",
       "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.ports" : {
-      "description" : "sidebar.workspaceRow.agent.ports",
+      "description" : "Ports",
       "title" : "Ports",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.process" : {
-      "description" : "sidebar.workspaceRow.agent.process",
+      "description" : "Running Program",
       "title" : "Running Program",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.progress" : {
-      "description" : "sidebar.workspaceRow.agent.progress",
+      "description" : "Progress",
       "title" : "Progress",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.pullRequest" : {
-      "description" : "sidebar.workspaceRow.agent.pullRequest",
+      "description" : "Pull Request",
       "title" : "Pull Request",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.secondLineOrder" : {
-      "description" : "sidebar.workspaceRow.agent.secondLineOrder",
+      "description" : "Second Line Order",
       "items" : {
         "enum" : [
           "notification",
@@ -6616,12 +7211,12 @@
       "type" : "array"
     },
     "sidebar.workspaceRow.agent.tabCount" : {
-      "description" : "sidebar.workspaceRow.agent.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agent.working" : {
-      "description" : "sidebar.workspaceRow.agent.working",
+      "description" : "Agent Working",
       "title" : "Agent Working",
       "type" : "boolean"
     },
@@ -6633,67 +7228,67 @@
     },
     "sidebar.workspaceRow.branch" : {
       "default" : false,
-      "description" : "sidebar.workspaceRow.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.agentStatus" : {
-      "description" : "sidebar.workspaceRow.browser.agentStatus",
+      "description" : "Agent Status",
       "title" : "Agent Status",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.branch" : {
-      "description" : "sidebar.workspaceRow.browser.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.directory" : {
-      "description" : "sidebar.workspaceRow.browser.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.icon" : {
-      "description" : "sidebar.workspaceRow.browser.icon",
+      "description" : "Icon",
       "title" : "Icon",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.lastActivity" : {
-      "description" : "sidebar.workspaceRow.browser.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.log" : {
-      "description" : "sidebar.workspaceRow.browser.log",
+      "description" : "Log",
       "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.notification" : {
-      "description" : "sidebar.workspaceRow.browser.notification",
+      "description" : "Latest Notification",
       "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.ports" : {
-      "description" : "sidebar.workspaceRow.browser.ports",
+      "description" : "Ports",
       "title" : "Ports",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.process" : {
-      "description" : "sidebar.workspaceRow.browser.process",
+      "description" : "Running Program",
       "title" : "Running Program",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.progress" : {
-      "description" : "sidebar.workspaceRow.browser.progress",
+      "description" : "Progress",
       "title" : "Progress",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.pullRequest" : {
-      "description" : "sidebar.workspaceRow.browser.pullRequest",
+      "description" : "Pull Request",
       "title" : "Pull Request",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.secondLineOrder" : {
-      "description" : "sidebar.workspaceRow.browser.secondLineOrder",
+      "description" : "Second Line Order",
       "items" : {
         "enum" : [
           "notification",
@@ -6710,18 +7305,18 @@
       "type" : "array"
     },
     "sidebar.workspaceRow.browser.tabCount" : {
-      "description" : "sidebar.workspaceRow.browser.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.working" : {
-      "description" : "sidebar.workspaceRow.browser.working",
+      "description" : "Agent Working",
       "title" : "Agent Working",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.directory" : {
       "default" : false,
-      "description" : "sidebar.workspaceRow.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
@@ -6733,7 +7328,7 @@
     },
     "sidebar.workspaceRow.lastActivity" : {
       "default" : false,
-      "description" : "sidebar.workspaceRow.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
@@ -6854,62 +7449,62 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.agentStatus" : {
-      "description" : "sidebar.workspaceRow.mixed.agentStatus",
+      "description" : "Agent Status",
       "title" : "Agent Status",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.branch" : {
-      "description" : "sidebar.workspaceRow.mixed.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.directory" : {
-      "description" : "sidebar.workspaceRow.mixed.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.icon" : {
-      "description" : "sidebar.workspaceRow.mixed.icon",
+      "description" : "Icon",
       "title" : "Icon",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.lastActivity" : {
-      "description" : "sidebar.workspaceRow.mixed.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.log" : {
-      "description" : "sidebar.workspaceRow.mixed.log",
+      "description" : "Log",
       "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.notification" : {
-      "description" : "sidebar.workspaceRow.mixed.notification",
+      "description" : "Latest Notification",
       "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.ports" : {
-      "description" : "sidebar.workspaceRow.mixed.ports",
+      "description" : "Ports",
       "title" : "Ports",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.process" : {
-      "description" : "sidebar.workspaceRow.mixed.process",
+      "description" : "Running Program",
       "title" : "Running Program",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.progress" : {
-      "description" : "sidebar.workspaceRow.mixed.progress",
+      "description" : "Progress",
       "title" : "Progress",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.pullRequest" : {
-      "description" : "sidebar.workspaceRow.mixed.pullRequest",
+      "description" : "Pull Request",
       "title" : "Pull Request",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.secondLineOrder" : {
-      "description" : "sidebar.workspaceRow.mixed.secondLineOrder",
+      "description" : "Second Line Order",
       "items" : {
         "enum" : [
           "notification",
@@ -6926,12 +7521,12 @@
       "type" : "array"
     },
     "sidebar.workspaceRow.mixed.tabCount" : {
-      "description" : "sidebar.workspaceRow.mixed.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.working" : {
-      "description" : "sidebar.workspaceRow.mixed.working",
+      "description" : "Agent Working",
       "title" : "Agent Working",
       "type" : "boolean"
     },
@@ -7003,67 +7598,67 @@
     },
     "sidebar.workspaceRow.tabCount" : {
       "default" : false,
-      "description" : "sidebar.workspaceRow.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.agentStatus" : {
-      "description" : "sidebar.workspaceRow.terminal.agentStatus",
+      "description" : "Agent Status",
       "title" : "Agent Status",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.branch" : {
-      "description" : "sidebar.workspaceRow.terminal.branch",
+      "description" : "Git Branch",
       "title" : "Git Branch",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.directory" : {
-      "description" : "sidebar.workspaceRow.terminal.directory",
+      "description" : "Folder",
       "title" : "Folder",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.icon" : {
-      "description" : "sidebar.workspaceRow.terminal.icon",
+      "description" : "Icon",
       "title" : "Icon",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.lastActivity" : {
-      "description" : "sidebar.workspaceRow.terminal.lastActivity",
+      "description" : "Last Activity",
       "title" : "Last Activity",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.log" : {
-      "description" : "sidebar.workspaceRow.terminal.log",
+      "description" : "Log",
       "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.notification" : {
-      "description" : "sidebar.workspaceRow.terminal.notification",
+      "description" : "Latest Notification",
       "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.ports" : {
-      "description" : "sidebar.workspaceRow.terminal.ports",
+      "description" : "Ports",
       "title" : "Ports",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.process" : {
-      "description" : "sidebar.workspaceRow.terminal.process",
+      "description" : "Running Program",
       "title" : "Running Program",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.progress" : {
-      "description" : "sidebar.workspaceRow.terminal.progress",
+      "description" : "Progress",
       "title" : "Progress",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.pullRequest" : {
-      "description" : "sidebar.workspaceRow.terminal.pullRequest",
+      "description" : "Pull Request",
       "title" : "Pull Request",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.secondLineOrder" : {
-      "description" : "sidebar.workspaceRow.terminal.secondLineOrder",
+      "description" : "Second Line Order",
       "items" : {
         "enum" : [
           "notification",
@@ -7080,12 +7675,12 @@
       "type" : "array"
     },
     "sidebar.workspaceRow.terminal.tabCount" : {
-      "description" : "sidebar.workspaceRow.terminal.tabCount",
+      "description" : "Tab Count",
       "title" : "Tab Count",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.working" : {
-      "description" : "sidebar.workspaceRow.terminal.working",
+      "description" : "Agent Working",
       "title" : "Agent Working",
       "type" : "boolean"
     },
@@ -7097,7 +7692,7 @@
     },
     "sidebar.workspacesAsTabs" : {
       "default" : false,
-      "description" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.",
+      "description" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.",
       "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },
@@ -7120,7 +7715,7 @@
     },
     "status.inferCommandBusyAfter" : {
       "default" : 3,
-      "description" : "status.inferCommandBusyAfter",
+      "description" : "Show After",
       "maximum" : 600,
       "minimum" : 0,
       "title" : "Show After",
@@ -7136,7 +7731,7 @@
     },
     "status.runNotifyWhenVisible" : {
       "default" : false,
-      "description" : "status.runNotifyWhenVisible",
+      "description" : "Notify Even When the Terminal Is Visible",
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
@@ -7152,7 +7747,7 @@
     },
     "tabs.barPosition" : {
       "default" : "top",
-      "description" : "tabs.barPosition",
+      "description" : "Tab Bar Position",
       "enum" : [
         "top",
         "bottom"
@@ -7172,7 +7767,7 @@
     },
     "tabs.hideLoneChatTab" : {
       "default" : false,
-      "description" : "tabs.hideLoneChatTab",
+      "description" : "Hide the Tab of a Chat Alone in Its Pane",
       "title" : "Hide the Tab of a Chat Alone in Its Pane",
       "type" : "boolean"
     },
@@ -7189,7 +7784,7 @@
     },
     "tabs.newTabButtonPosition" : {
       "default" : "end",
-      "description" : "tabs.newTabButtonPosition",
+      "description" : "New Tab Position (+ Button)",
       "enum" : [
         "afterCurrent",
         "end",
@@ -7200,7 +7795,7 @@
     },
     "tabs.newTabClock.color" : {
       "default" : "text",
-      "description" : "tabs.newTabClock.color",
+      "description" : "Clock Color",
       "enum" : [
         "text",
         "accent",
@@ -7212,13 +7807,13 @@
     },
     "tabs.newTabClock.date" : {
       "default" : true,
-      "description" : "tabs.newTabClock.date",
+      "description" : "Date over Clock",
       "title" : "Date over Clock",
       "type" : "boolean"
     },
     "tabs.newTabClock.font" : {
       "default" : "rounded",
-      "description" : "tabs.newTabClock.font",
+      "description" : "Clock Font",
       "enum" : [
         "rounded",
         "system",
@@ -7237,7 +7832,7 @@
     },
     "tabs.newTabClock.weight" : {
       "default" : "bold",
-      "description" : "tabs.newTabClock.weight",
+      "description" : "Clock Weight",
       "enum" : [
         "thin",
         "regular",
@@ -7255,7 +7850,7 @@
     },
     "tabs.newTabPosition" : {
       "default" : "afterCurrent",
-      "description" : "tabs.newTabPosition",
+      "description" : "New Tab Position (Cmd-T)",
       "enum" : [
         "afterCurrent",
         "end",
@@ -7411,13 +8006,33 @@
       "title" : "Tasks Layout",
       "type" : "string"
     },
+    "terminal.cursorBlink" : {
+      "description" : "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink.",
+      "enum" : [
+        "on",
+        "off"
+      ],
+      "title" : "Cursor Blink",
+      "type" : "string"
+    },
+    "terminal.cursorStyle" : {
+      "description" : "The terminal cursor's shape. Unset, the Ghostty config's cursor-style.",
+      "enum" : [
+        "block",
+        "bar",
+        "underline",
+        "block_hollow"
+      ],
+      "title" : "Cursor Style",
+      "type" : "string"
+    },
     "terminal.fontFamily" : {
       "description" : "A monospaced font installed on this Mac.",
       "title" : "Font Family",
       "type" : "string"
     },
     "terminal.fontSize" : {
-      "description" : "terminal.fontSize",
+      "description" : "Font Size",
       "maximum" : 96,
       "minimum" : 4,
       "title" : "Font Size",
@@ -7547,7 +8162,7 @@
     },
     "ui.animationSpeed" : {
       "default" : "fast",
-      "description" : "ui.animationSpeed",
+      "description" : "Animations",
       "enum" : [
         "fast",
         "normal",
@@ -7588,6 +8203,18 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.automatic" : {
+      "default" : "download",
+      "description" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.",
+      "enum" : [
+        "off",
+        "notify",
+        "download",
+        "idle"
+      ],
+      "title" : "Automatic Updates",
+      "type" : "string"
+    },
     "updates.channel" : {
       "default" : "nightly",
       "description" : "Stable gets builds that ran a week without problems; Canary and Dev get them first.",
@@ -7600,15 +8227,9 @@
       "title" : "Update Channel",
       "type" : "string"
     },
-    "updates.checkAutomatically" : {
-      "default" : true,
-      "description" : "updates.checkAutomatically",
-      "title" : "Check for Updates Automatically",
-      "type" : "boolean"
-    },
     "updates.checkIntervalSeconds" : {
       "default" : 3600,
-      "description" : "updates.checkIntervalSeconds",
+      "description" : "Check Every",
       "maximum" : 604800,
       "minimum" : 900,
       "title" : "Check Every",
@@ -7623,12 +8244,6 @@
       ],
       "title" : "Live Background Updates",
       "type" : "string"
-    },
-    "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: cmux asks before downloading. It always asks before restarting.",
-      "title" : "Download Updates Automatically",
-      "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
       "default" : 600,
@@ -7650,12 +8265,6 @@
       "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
       "title" : "Install Updates When Quitting",
-      "type" : "boolean"
-    },
-    "updates.installWhenIdle" : {
-      "default" : false,
-      "description" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
-      "title" : "Update When Idle",
       "type" : "boolean"
     },
     "updates.installWhenIdleMinutes" : {
@@ -7693,7 +8302,7 @@
     },
     "updates.notify" : {
       "default" : "badge",
-      "description" : "updates.notify",
+      "description" : "When an Update Is Ready",
       "enum" : [
         "badge",
         "silent"
@@ -7848,7 +8457,7 @@
     },
     "workspaces.newPlacement" : {
       "default" : "top",
-      "description" : "workspaces.newPlacement",
+      "description" : "New Workspace Position",
       "enum" : [
         "top",
         "afterCurrent",
@@ -7863,11 +8472,23 @@
       "title" : "Clean Up Agent Worktrees",
       "type" : "boolean"
     },
+    "worktrees.branchPrefix" : {
+      "default" : "cmux/",
+      "description" : "The start of each new worktree's branch name, such as cmux/.",
+      "title" : "Worktree Branch Prefix",
+      "type" : "string"
+    },
     "worktrees.cleanBuildCaches" : {
-      "default" : false,
+      "default" : true,
       "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
       "title" : "Clean Up Build Caches",
       "type" : "boolean"
+    },
+    "worktrees.location" : {
+      "default" : "~/.cmux/worktrees",
+      "description" : "Where cmux makes worktrees for local chats, forks and lanes, one folder per project.",
+      "title" : "Worktree Folder",
+      "type" : "string"
     }
   },
   "title" : "cmux (com.manaflow.cmux)"

@@ -11,7 +11,9 @@
 //!
 //! The timers are what the live agent itself last said (`Session::loop_timers`, from its goal
 //! updates), not the chat's saved goal: a `goal_set` over an armed loop replaces the goal but not
-//! the loop, and a goal restored after a reboot names timers no process holds.
+//! the loop, and a goal restored after a reboot names timers no process holds. The one exception
+//! is an agent host a restarted daemon adopts ([`note_adopted_goal`]): its process, and so its
+//! timers, outlived the daemon that heard them.
 //!
 //! Now a live agent with a timer pending is at work and never hibernated:
 //! - A one-shot wakeup is pending until [`FIRE_GRACE`] after its time: the agent is up (it was
@@ -62,6 +64,27 @@ fn timers(goal: &Value) -> Vec<(Option<u64>, bool)> {
 pub(super) fn note_agent_goal(session: &Session, goal: &Value) {
     let looping = goal.get("kind").and_then(Value::as_str) == Some("loop");
     *session.loop_timers.lock().unwrap_or_else(|e| e.into_inner()) = looping.then(|| timers(goal));
+}
+
+/// A daemon that adopted `session`'s live agent host (`hosts.rs`): the agent, and the timers its
+/// loop armed, outlived the daemon that heard them, but this daemon's `loop_timers` start empty
+/// and the agent does not say them again. Its saved loop goal is the last thing it said, so its
+/// timers are taken from there; any later update the replay brought already stands. Unlike a goal
+/// restored after a reboot, these name timers a running process holds: without them the reaper
+/// ended the adopted agent at its first pass, its pending wakeup with it.
+pub(super) fn note_adopted_goal(session: &Session) {
+    let goal = {
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(goal) = meta.goal.as_ref() else { return };
+        Value::Object(goal.extra.clone().into_iter().collect())
+    };
+    if goal.get("kind").and_then(Value::as_str) != Some("loop") {
+        return;
+    }
+    let mut held = session.loop_timers.lock().unwrap_or_else(|e| e.into_inner());
+    if held.is_none() {
+        *held = Some(timers(&goal));
+    }
 }
 
 impl Hub {

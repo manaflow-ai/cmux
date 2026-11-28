@@ -47,6 +47,8 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
+            # The overflow switch (scripts/ci/one_linux_label.py OVERFLOW): unset until a failover writes it.
+            "CI_OVERFLOW_LINUX": [""],
         },
         silent=("needs",),
     )
@@ -163,7 +165,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             with self.subTest(expression=expr):
                 self.assertEqual(expr, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm +
                                  "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name "
-                                 "!= github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' " + "}}")
+                                 "!= github.repository && 'ubuntu-24.04' || 'cmux-linux' " + "}}")
 
     def test_the_short_jobs_are_linux_jobs_of_this_workflow(self) -> None:
         names = {name for name, _ in linux_routes()}

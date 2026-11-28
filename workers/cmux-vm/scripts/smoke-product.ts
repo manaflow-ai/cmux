@@ -18,6 +18,7 @@
  * names the image the create's receipt confirmed.
  */
 import { appendFileSync } from "node:fs";
+import { retryWhileQueueFull } from "./create-retry.ts";
 
 const base = process.env["CMUX_VM_SMOKE_URL"] ?? "";
 const tokenUrl = process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] ?? "";
@@ -87,6 +88,8 @@ const expectStatus = (step: string, actual: number, expected: number, body: unkn
 };
 
 let vmId: string | null = null;
+/** Set once a create was sent: a create that times out or errors still holds a quota slot until it is cancelled. */
+let createKey: string | null = null;
 let failed = false;
 const started = Date.now();
 try {
@@ -122,12 +125,14 @@ try {
 
   // The body cmux-platform's driver sends: labels, the approved image, and no idleTimeoutSeconds or autoDeleteSeconds.
   const name = `smoke-product-${runId}`.slice(0, 63);
-  const created = await call(
+  createKey = `smoke-product-${runId}`;
+  const created = await retryWhileQueueFull(() => call(
     "POST",
     "/v1/vms",
     { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image },
-    { "idempotency-key": `smoke-product-${runId}` },
-  );
+    { "idempotency-key": createKey },
+  ));
+  if (created.status === 429 || created.status === 201) createKey = null;
   // Record any VM id before judging the status, so the cleanup below deletes a VM a failed create still made.
   const id = field(created.body, "id");
   if (typeof id === "string" && /^vm_[0-9a-z]{26}$/.test(id)) vmId = id;
@@ -174,6 +179,12 @@ try {
   failed = true;
   console.error(`FAIL ${error instanceof Error ? error.message : String(error)}`);
 } finally {
+  // A create that timed out or failed without naming its VM is cancelled by its key, so its retained slot goes back
+  // now instead of when this principal's next create reclaims it past the run cap. Best effort: never the verdict.
+  if (vmId === null && createKey !== null) {
+    const cancelled = await call("POST", "/v1/vm-creations/by-key/cancel", undefined, { "idempotency-key": createKey }).catch((error: unknown) => ({ status: 0, body: String(error) }));
+    console.log(`    cancelled unfinished create ${createKey}: ${cancelled.status} ${JSON.stringify(cancelled.body)}`);
+  }
   if (vmId !== null) {
     try {
       const deleted = await call("DELETE", `/v1/vms/${vmId}`);

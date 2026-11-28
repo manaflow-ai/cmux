@@ -23,25 +23,25 @@ struct BookmarkImportSink: ImportedBookmarkSink {
 
 extension BookmarkService {
     /// Browser imports saved before bookmarks existed become bookmarks once
-    /// (a marker file records it, so a folder the user deleted stays deleted).
+    /// (a marker records it, so a folder the user deleted stays deleted; a refused batch leaves none: a retry replaces in place).
     func migrateLegacyImports() async {
         guard let store = importStore, let directory else { return }
         let marker = directory.appending(path: "bookmarks-imports-migrated")
         guard await !Self.exists(marker) else { return }
+        var refused = 0
         for record in await store.sources() {
             for batch in await store.batches(profile: record.targetProfileID) where batch.source.sourceKey == record.sourceKey {
                 guard batch.kinds.contains(.bookmarks), !batch.bookmarks.isEmpty else { continue }
-                let items = batch.bookmarks.map {
-                    BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded)
-                }
+                let items = batch.bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
                 do {
                     try await routed.importSource(items, title: record.displayName, sourceKey: record.sourceKey, profile: record.targetProfileID)
                 } catch {
+                    refused += 1
                     logger.error("migrate imported bookmarks \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
         }
-        await Self.mark(marker, in: directory)
+        if refused == 0 { await Self.mark(marker, in: directory) }
     }
 
     /// Whether the migration marker is there, off the main actor.

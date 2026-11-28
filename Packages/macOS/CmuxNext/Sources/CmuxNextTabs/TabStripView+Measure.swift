@@ -21,6 +21,15 @@ extension TabStripView {
     /// The width the tabs may fill.
     public var tabAvailableWidth: Double { Double(result.availableWidth) }
 
+    /// The empty strip space a press there treats as empty (`titlebarHit` `.empty`: where a pane drag starts), in
+    /// this view's coordinates: from the end of the tabs, chips and + buttons to the strip's trailing edge; nil when
+    /// the run fills the strip. The split-move bench presses here (scripts/cmux-next/split-scale-bench.py).
+    public var emptyStripSpace: CGRect? {
+        let start = mouseRects().map(\.maxX).max() ?? 0
+        guard bounds.maxX - start > 0.5 else { return nil }
+        return CGRect(x: start, y: bounds.minY, width: bounds.maxX - start, height: bounds.height)
+    }
+
     /// The narrowest strip at which no tab shrinks: its end gaps, the window controls it keeps clear of, the pinned tabs,
     /// chips and every other tab at its full width, and the + controls. A row gives its accessories only what is past
     /// this (``TabRowAccessoryFit``, #53314); infinite for a tab that fills the strip (Full Width Tab).

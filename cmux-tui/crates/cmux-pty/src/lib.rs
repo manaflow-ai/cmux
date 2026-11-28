@@ -34,8 +34,6 @@ pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
 #[cfg(any(windows, test))]
 mod console_ctrl_c;
-#[cfg(any(windows, test))]
-mod console_ctrl_c;
 #[cfg(all(test, unix))]
 mod env_tests;
 #[cfg(target_vendor = "apple")]
@@ -92,7 +90,7 @@ impl fmt::Display for PtyOpenError {
         match self.kind {
             PtyOpenErrorKind::CapacityExhausted => write!(
                 f,
-                "PTY capacity exhausted; close unused terminals or tmux sessions and retry: {}",
+                "PTY capacity exhausted; close unused terminals or tmux sessions: {}",
                 self.source
             ),
             PtyOpenErrorKind::Other => write!(f, "failed to open PTY: {}", self.source),

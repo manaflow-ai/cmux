@@ -23,6 +23,7 @@ pub(crate) mod turn;
 pub use dpi::dropped_wireguard_datagrams;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
+pub use wireguard::EarlyTurn;
 pub mod webrtc;
 pub mod wireguard;
 
@@ -41,7 +42,9 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. }
+            | SignalPayload::WgRelay { .. }
+            | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }
@@ -77,6 +80,8 @@ pub enum LinkPath {
     /// Through a TURN server whose client leg is TCP or TLS (a network that
     /// blocks UDP); WireGuard only.
     TurnTls,
+    /// Through the hop/1 UDP PoP relay, with per-leg repair.
+    Hop,
     /// Through cmux's own WebSocket relay over HTTPS (PROTOCOL.md "WebSocket
     /// relay"), the last resort when neither UDP nor TURN gets through;
     /// WireGuard only.
@@ -88,12 +93,13 @@ pub enum LinkPath {
 
 impl LinkPath {
     /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`,
-    /// `https-relay`, `none`.
+    /// `hop`, `https-relay`, `none`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Direct => "direct",
             Self::Turn => "turn",
             Self::TurnTls => "turn-tls",
+            Self::Hop => "hop",
             Self::HttpsRelay => "https-relay",
             Self::NoPath => "none",
         }
@@ -159,6 +165,17 @@ pub struct DialOptions {
     /// TURN allocation, and joins the relay at once, so the link rides it
     /// (path `https-relay`); without [`Self::relay`] the dial fails at once.
     pub force_relay: bool,
+    /// Join the relay as the dial starts (`relay: "first"`, PROTOCOL.md
+    /// "WebSocket relay") when the peer offers that too, rather than 3 s
+    /// after nothing reached it. On by default; off dials as a build before
+    /// relay-first did (tests of the older join rules).
+    pub relay_first: bool,
+    /// The phone joins the relay right after its early `wg-relay` (PROTOCOL.md "Early
+    /// join"), with its Bearer token, so the join runs beside the gather and the signaling
+    /// round trip. Needs [`Self::relay_first`] and a Mac that offers `first` too (else the
+    /// join ends unused). On by default; off dials as a build before it did (the phone
+    /// joins as its tunnel starts on the Mac's answer).
+    pub relay_join_early: bool,
     /// Where a WireGuard dial records each path's failure, for the error it
     /// returns when none works ([`DialError::Blocked`]). Shared by clones.
     pub diagnosis: diagnosis::Diagnosis,
@@ -170,6 +187,10 @@ pub struct DialOptions {
     /// test TURN server's self-signed certificate); wins over `egress.trust`.
     #[doc(hidden)]
     pub turn_tls_roots: Option<std::sync::Arc<rustls::RootCertStore>>,
+    /// Where TURN and STUN names resolve: DNS raced against the literals they last resolved
+    /// to ([`crate::route_literals`]), so a dial with DNS down still reaches them. The
+    /// process's memory by default; a test's own (with its own resolver) otherwise.
+    pub routes: std::sync::Arc<crate::route_literals::RouteLiterals>,
     /// Test support: WireGuard silently drops every UDP datagram this side
     /// sends, as when the OS refuses the route (macOS Local Network
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
@@ -185,6 +206,10 @@ pub struct DialOptions {
     /// side's route to the LAN is broken but the internet works.
     #[doc(hidden)]
     pub drop_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Measurement only: in relay first the phone sends `wg-init` after its
+    /// STUN and TURN gather, as before the offer went out first. Off.
+    #[doc(hidden)]
+    pub init_after_gather: bool,
     /// Test support: called with each plain UDP datagram's length as
     /// WireGuard hands it to the OS (the bytes a radio sends).
     #[doc(hidden)]
@@ -323,6 +348,8 @@ impl Default for DialOptions {
             ice_servers: Vec::new(),
             relay: None,
             force_relay: false,
+            relay_first: true,
+            relay_join_early: true,
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,
@@ -332,9 +359,11 @@ impl Default for DialOptions {
             drop_wireguard_udp: false,
             egress: crate::egress::Egress::default(),
             turn_tls_roots: None,
+            routes: crate::route_literals::RouteLiterals::shared(),
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
+            init_after_gather: false,
             on_udp_sent: None,
             restrict_inbound_udp: false,
             impair_inbound: None,
@@ -390,13 +419,13 @@ pub fn is_lan(ip: std::net::IpAddr) -> bool {
 
 /// The route a link's bytes take, as one word: `direct-lan` (a peer address on this network),
 /// `direct-wan` (routed: the internet, a tailnet, CGNAT), `direct` (direct, address unknown),
-/// `relay` (a TURN server, over UDP, TCP or TLS) or `none`.
+/// `relay` (a TURN or hop server, over UDP, TCP or TLS) or `none`.
 pub fn route_name(path: LinkPath, peer: Option<std::net::IpAddr>) -> &'static str {
     match (path, peer) {
         (LinkPath::Direct, Some(ip)) if is_lan(ip) => "direct-lan",
         (LinkPath::Direct, Some(_)) => "direct-wan",
         (LinkPath::Direct, None) => "direct",
-        (LinkPath::Turn | LinkPath::TurnTls | LinkPath::HttpsRelay, _) => "relay",
+        (LinkPath::Turn | LinkPath::TurnTls | LinkPath::Hop | LinkPath::HttpsRelay, _) => "relay",
         (LinkPath::NoPath, _) => "none",
     }
 }
@@ -565,9 +594,16 @@ pub(crate) fn video_lane_listed(peer_lanes: &[String]) -> bool {
     peer_lanes.iter().any(|lane| lane == crate::media::VIDEO_LANE)
 }
 
-/// Whether both sides support the input lane.
+/// Whether both sides open the input lane: both offered it, and they did not
+/// agree on the reliable link, which carries input on its main carrier.
+/// Both sides decide it from the same two offers, so the phone never opens a
+/// lane the Mac does not take: on WireGuard the Mac's listener then reads
+/// the next connection as a resumed link, which ends the live one
+/// (2026-11-26: every reliable WireGuard link closed on its first send).
 pub(crate) fn input_lane_agreed(options: &DialOptions, peer_lanes: &[String]) -> bool {
-    options.input_lane && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+    options.input_lane
+        && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+        && !reliable_agreed(options, peer_lanes)
 }
 
 /// Attach the lane to `link` when it opens, or fall back when it fails.
@@ -709,6 +745,26 @@ pub async fn connect(
     connect_on(signaling, mac, kind, options, link_config, None).await
 }
 
+/// Phone side, [`connect`] taking `early`, the TURN allocation a cold dial
+/// started as soon as `/v1/ice` answered, beside the signaling socket's open
+/// ([`EarlyTurn::for_dial`] on these `options`): its round trips (behind a
+/// proxy: a `CONNECT`, TLS through it, then the allocation) overlap the
+/// socket's instead of following them. `None` is [`connect`]. An allocation
+/// the dial never takes (it was refused, or this future was dropped) is
+/// released at once.
+pub async fn connect_with_early_turn(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+    early: Option<EarlyTurn>,
+) -> Result<Connected, DialError> {
+    refuse_unreachable(kind, options)?;
+    connect_on(signaling, mac, kind, options, link_config, early.filter(|_| kind == TransportKind::WireGuard))
+        .await
+}
+
 /// Phone side, a redial: `signaling` is the signaling reconnect, and the
 /// dial ([`connect`]) follows it on the client it gives. A WireGuard dial's
 /// TURN allocation starts now, beside the reconnect, instead of after it:
@@ -726,7 +782,7 @@ pub async fn connect_after<E: std::fmt::Display>(
     link_config: LinkConfig,
 ) -> Result<(SignalingClient, Connected), DialError> {
     refuse_unreachable(kind, options)?;
-    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
+    let early = EarlyTurn::for_dial(kind, options);
     let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
     options.timeline.mark("signaling_connected");
     let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
@@ -909,8 +965,14 @@ pub async fn answer(
     let dialed = match result {
         Ok(Ok(dialed)) => dialed,
         Ok(Err(error)) => {
-            let _ =
-                signaling.send_signal(&peer, &session_id, SignalPayload::Bye { reason: error.to_string() });
+            // No bye for an early cue that no `wg-init` followed.
+            if !matches!(&error, DialError::Bye(reason) if reason == wireguard::EARLY_CUE_STALE) {
+                let _ = signaling.send_signal(
+                    &peer,
+                    &session_id,
+                    SignalPayload::Bye { reason: error.to_string() },
+                );
+            }
             return Err(error);
         }
         Err(_) => {
@@ -1032,7 +1094,39 @@ mod tests {
         assert_eq!(route_name(LinkPath::Direct, None), "direct");
         assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
         assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
+        assert_eq!(route_name(LinkPath::Hop, None), "relay");
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    /// The phone and the Mac decide the input lane from the same two offers,
+    /// for every mix of input lane and reliable link: a lane one side opens
+    /// and the other does not take is read as a resumed link on WireGuard.
+    #[test]
+    fn both_sides_agree_on_the_input_lane() {
+        for phone_lane in [false, true] {
+            for mac_lane in [false, true] {
+                for phone_reliable in [false, true] {
+                    for mac_reliable in [false, true] {
+                        let phone = DialOptions {
+                            input_lane: phone_lane,
+                            reliable: phone_reliable,
+                            ..DialOptions::default()
+                        };
+                        let mac = DialOptions {
+                            input_lane: mac_lane,
+                            reliable: mac_reliable,
+                            ..DialOptions::default()
+                        };
+                        let phone_says = input_lane_agreed(&phone, &offered_lanes(&mac, false, false));
+                        let mac_says = input_lane_agreed(&mac, &offered_lanes(&phone, false, false));
+                        let case = (phone_lane, mac_lane, phone_reliable, mac_reliable);
+                        assert_eq!(phone_says, mac_says, "{case:?}");
+                        let reliable = phone_reliable && mac_reliable;
+                        assert_eq!(phone_says, phone_lane && mac_lane && !reliable, "{case:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -1251,6 +1345,15 @@ mod tests {
         let reconnect = async {
             if !held(&turn, 1).await {
                 return Err("no TURN allocation while signaling reconnected");
+            }
+            // The server counts the allocation before its answer reaches the
+            // phone, which marks it then: wait for the phone's mark too.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while options.timeline.get("turn_early_allocated").is_none() {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err("the phone never had its early allocation");
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
             }
             SignalingClient::connect(&signaling.base_url, "user:alice", "team", "phone")
                 .await

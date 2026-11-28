@@ -48,13 +48,15 @@
 // `emptyChatComposerPosition` is `agentPane.emptyChatComposerPosition` ("bottom" by default): "center"
 // sits a chat's composer in the middle of the pane until its first message (styles.css,
 // [data-empty-chat-composer="center"]). Anything else reads as "bottom".
+// `composerPlaceholder` is `agentPane.composerPlaceholder` ("" by default): the idle prompt's text in
+// every chat; empty keeps cmux's own. A profile sets its reference app's (examples/looks/t3code).
 // `followUpMode` is `agentPane.followUpMode` ("steer" by default): what Return and Send do with a
 // message sent while an agent that steers is mid-turn, "steer" it into the turn or "queue" it for after
 // (followUpMode.ts); ⌘Return does the other. Anything else reads as "steer".
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
-// environment; no cmux.json key): on, a Cloud start names the environment it was given
-// (chatCloudEnvironment.ts), else Auto. On by default, as the host's flag is: only the host's
+// environment; no cmux.json key): on, a Cloud start names the environment Settings > Cloud > Default
+// Image picked (chatCloudEnvironment.ts). On by default, as the host's flag is: only the host's
 // `false` (CLOUD_ENVIRONMENTS_ENABLED=0 or false) turns it off, and every Cloud start runs on Auto.
 // `cloudLeaseOnOpen` is the launch flag CLOUD_LEASE_ON_OPEN (Swift AgentPaneCloudLeaseOnOpenFlag): on, a
 // composer that opens with Cloud already its target leases its machine at open (cloudComposeReservation.ts
@@ -95,6 +97,7 @@ export type ComposerSettings = {
   composerRing: ComposerRing;
   composerLook: ComposerLookSetting;
   emptyChatComposerPosition: EmptyChatComposerPosition;
+  composerPlaceholder: string;
   followUpMode: FollowUpMode;
   cloudEnvironments: boolean;
   cloudLeaseOnOpen: boolean;
@@ -120,6 +123,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   composerRing: "context",
   composerLook: "auto",
   emptyChatComposerPosition: "bottom",
+  composerPlaceholder: "",
   followUpMode: "steer",
   cloudEnvironments: true,
   cloudLeaseOnOpen: true,
@@ -154,6 +158,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
       ? (raw.dictationSource as DictationSource)
       : "cmux",
     dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
+    composerPlaceholder: typeof raw.composerPlaceholder === "string" ? raw.composerPlaceholder : "",
     spellChecking: flag("spellChecking"),
     composerVimKeys: flag("composerVimKeys"),
     attachmentView,
