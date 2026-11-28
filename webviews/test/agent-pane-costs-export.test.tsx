@@ -8,12 +8,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "../src/agent-session/acpmux/i18n";
-import { LedgerScreen } from "../src/agent-session/acpmux/ledger/LedgerScreen";
-import { UNKNOWN } from "../src/agent-session/acpmux/usageStats";
-import { LEDGER_EXPORT_LIMIT, type LedgerExportKind } from "../src/agent-session/acpmux/ledger/ledgerModel";
+import type { LedgerExportKind } from "../src/agent-session/acpmux/ledger/ledgerModel";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 import { factsCardText } from "./support/factsCard";
+
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { LedgerScreen } = await importWithDom(() => import("../src/agent-session/acpmux/ledger/LedgerScreen"));
+const { UNKNOWN } = await importWithDom(() => import("../src/agent-session/acpmux/usageStats"));
+const { LEDGER_EXPORT_LIMIT } = await importWithDom(() => import("../src/agent-session/acpmux/ledger/ledgerModel"));
 
 const NOW = 1_800_000_000_000;
 let dom: JSDOM | undefined;
