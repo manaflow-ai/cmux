@@ -4,7 +4,7 @@ import Testing
 import AppKit
 
 /// The footer's Live button (RFD 0141 phase 1): right after the profile avatar, never over Search or the Spaces dots'
-/// start, hidden by `sidebar.showLiveToggle` (off by default: Leo 2026-11-25 didn't want it on by default), a click runs
+/// start, hidden by `sidebar.showLiveToggle` (on by default, with an explicit setting to hide it), a click runs
 /// `onLiveToggle`, and the right-click menu lists people.
 @MainActor @Suite(.serialized) struct SidebarLiveToggleTests {
     private static func make(spaces: SpacesPosition, showToggle: Bool = true) -> (SidebarView, NSWindow) {
@@ -43,10 +43,9 @@ import AppKit
         }
     }
 
-    /// Out of the box the footer has no Live button: a fresh sidebar's design hides it, and nothing else on the
-    /// footer line moves for it.
-    @Test func hiddenByDefault() {
-        #expect(SidebarSectionsPreferences.defaults.showLiveToggle == false)
+    /// Out of the box the footer has a Live button: the bottom-left control is discoverable without a settings change.
+    @Test func shownByDefault() {
+        #expect(SidebarSectionsPreferences.defaults.showLiveToggle)
         let saved = DesignSettings.shared.sidebarSections
         defer { DesignSettings.shared.sidebarSections = saved }
         DesignSettings.shared.sidebarSections = .defaults
@@ -61,7 +60,7 @@ import AppKit
         sidebar.renderNow()
         sidebar.needsLayout = true
         sidebar.layoutSubtreeIfNeeded()
-        #expect(sidebar.liveButton.isHidden)
+        #expect(!sidebar.liveButton.isHidden)
     }
 
     @Test func hiddenWhenTheSettingIsOff() {
