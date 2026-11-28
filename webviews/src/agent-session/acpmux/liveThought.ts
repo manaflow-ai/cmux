@@ -15,7 +15,7 @@ import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { isQuietThought, isThought } from "./conversation/thoughts";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
-import { drewPlace, rowsWithStreamingRow } from "./streamingRow";
+import { drewDetail, drewPlace, rowsWithStreamingRow } from "./streamingRow";
 import { drewEmptyFold, drewRunningTurn, hiddenUnderFold } from "./drawnRows";
 import { lineCalledNow } from "./liveCallLine";
 
@@ -179,7 +179,7 @@ export function thoughtDeclined(previous: AcpmuxSnapshot, next: AcpmuxSnapshot, 
       ? drewEmptyFold() && !isQuietThought(after)
         ? "fold-unquiet"
         : "took"
-      : `undrawn@${drewPlace(now)}:${isQuietThought(after) ? "quiet" : "loud"}`;
+      : `undrawn@${drewPlace(now)}:${drewDetail(now)}:${isQuietThought(after) ? "quiet" : "loud"}`;
   if (!sameThought(drawnNow, before))
     return drawnNow.text === after.text
       ? "drawn-ahead"

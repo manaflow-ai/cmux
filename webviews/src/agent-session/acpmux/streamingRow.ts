@@ -57,10 +57,23 @@ export function drewStreamingRow(id: string | undefined, text: string | undefine
 
 /// The tail of the rows the transcript last told its draw from (measuring only, the bench's redraw table).
 export let drewTail = "never";
-let drewIds: ReadonlySet<string> = new Set();
-export function noteDrewTail(tail: string, ids: ReadonlySet<string>): void {
+let drewIds: ReadonlyMap<string, number> = new Map();
+let drewRowsSeen: readonly AcpmuxRow[] = [];
+export function noteDrewTail(tail: string, rows: readonly AcpmuxRow[]): void {
   drewTail = tail;
-  drewIds = ids;
+  drewRowsSeen = rows;
+  drewIds = new Map(rows.map((row, index) => [row.id, index]));
+}
+/// How the transcript's last told rows hold `row` (measuring only): its place from their end, the
+/// prompts after it there, and its last item's kind there.
+export function drewDetail(row: AcpmuxRow): string {
+  const at = drewIds.get(row.id);
+  if (at === undefined) return "absent";
+  let users = 0;
+  for (let index = drewRowsSeen.length - 1; index > at; index -= 1)
+    if (drewRowsSeen[index]!.kind === "user") users += 1;
+  const drawnRow = drewRowsSeen[at]!;
+  return `end-${drewRowsSeen.length - 1 - at},users=${users},last=${String(drawnRow.items?.at(-1)?.kind)},streaming=${String(drawnRow.streaming)}`;
 }
 /// Where the transcript's last told rows have `row` (measuring only): drawn, or absent and whether
 /// it ran in a background turn.
