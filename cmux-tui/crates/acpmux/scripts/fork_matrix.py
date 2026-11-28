@@ -22,6 +22,10 @@ Cases (one JSON line per harness, run and case in --out):
   restart      after a daemon restart, a fork of the chat still recalls
   empty        a fork of a chat with no turn: a clear refusal or a usable chat
   image        a fork of a chat whose prompt held an image (skipped: no CLI attachment)
+
+Exit status: 0 when every emitted case passes, 1 when any case fails, and 2
+when coverage is incomplete (unsupported, n/a, unknown, or no results).
+The JSON lines retain each outcome, including deliberate unsupported cases.
 """
 
 from __future__ import annotations
@@ -66,7 +70,12 @@ class Daemon:
             # Peers are other machines' daemons: this run stays on this one.
             if not keep_peers:
                 cfg["peers"] = {} if isinstance(cfg.get("peers"), dict) else []
-            (home / "config.json").write_text(json.dumps(cfg))
+            # The daemon rejects group-writable config. Do not inherit the runner's
+            # umask, including when --home reuses a file from an earlier run.
+            fd = os.open(home / "config.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as copied:
+                os.fchmod(copied.fileno(), 0o600)
+                json.dump(cfg, copied)
         self.proc: subprocess.Popen | None = None
         self.log = open(home / "matrix-daemon.log", "ab")
 
@@ -407,33 +416,39 @@ def main() -> int:
     ap.add_argument("--config", type=Path, default=Path.home() / ".acpmux" / "config.json")
     ap.add_argument("--harness", action="append", required=True, help="LABEL=HARNESS[/MODEL]")
     ap.add_argument("--runs", type=int, default=1)
-    ap.add_argument("--case", action="append", default=[])
+    ap.add_argument("--case", action="append", default=[], choices=CASES)
     ap.add_argument("--turn-timeout", type=int, default=180)
     ap.add_argument("--env", action="append", default=[], help="NAME=VALUE for the daemon")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--home", type=Path, default=None)
     ap.add_argument("--keep-peers", action="store_true", help="keep config.json's peers (for HARNESS@PEER chats)")
     args = ap.parse_args()
+    if args.runs < 1:
+        ap.error("--runs must be at least 1")
     env = dict(kv.split("=", 1) for kv in args.env)
     home = args.home or Path(tempfile.mkdtemp(prefix="fmx-home-"))
     cwd = Path(tempfile.mkdtemp(prefix="fmx-cwd-"))
     d = Daemon(args.acpmux, home, args.config, env, keep_peers=args.keep_peers)
-    d.start()
     host = os.uname().nodename
+    outcomes: set[str] = set()
     try:
+        d.start()
         with args.out.open("a") as out:
             for run in range(1, args.runs + 1):
                 for spec in args.harness:
                     label, model = spec.split("=", 1)
                     m = Matrix(d, label, model, cwd, run, args.turn_timeout)
                     for row in m.run_all(args.case):
+                        outcomes.add(row["result"])
                         row.update({"harness": label, "model": model, "run": run, "host": host, "at": int(time.time())})
                         out.write(json.dumps(row) + "\n")
                         out.flush()
                         print(f"[{label} run {run}] {row['case']:<13} {row['result']:<5} {row['detail'][:140]}", flush=True)
     finally:
         d.stop()
-    return 0
+    if "fail" in outcomes:
+        return 1
+    return 0 if outcomes == {"pass"} else 2
 
 
 if __name__ == "__main__":

@@ -249,6 +249,14 @@ about = "staging failures retain bounded status and check-response evidence with
 inputs = ["scripts/cmux-next/update-e2e.py", "tests/test_update_e2e_diagnostics.py"]
 run = "python3 tests/test_update_e2e_diagnostics.py"
 
+[step.fork-matrix-results]
+job = "linux"
+timeout = 60
+title = "Fork matrix truthful results"
+about = "private copied config and nonzero outcomes for failed or incomplete real-agent fork verification"
+inputs = ["cmux-tui/crates/acpmux/scripts/fork_matrix.py", "tests/test_fork_matrix.py"]
+run = "python3 -I tests/test_fork_matrix.py"
+
 # A local reusable workflow that asks for more than its caller grants fails the caller at startup: no job runs.
 # The guard lived only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips unless labeled
 # full-ci, so #55503 (base-coalesce.yml asks `actions: read`) landed at 19:08Z on 2026-11-25 with two callers
