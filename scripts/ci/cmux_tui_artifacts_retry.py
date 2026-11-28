@@ -25,6 +25,12 @@ of a cmux-tui artifacts job that failed again cost 21 runner-hours a day over
 11-13..21, 16 of them on attempts 3 and later). One retry of a new failure
 still runs, so a transient registry or R2 error is still covered.
 
+Not retried at all: a feat-cmux-next run a newer push superseded (latest wins,
+failed or cancelled), and a run whose build leg failed on a Rust compile error
+(a rerun builds the same source and fails on the same rustc error; the channel
+heal and tree requests hold the same way). An unreadable newest run or log is
+no evidence, and the run is retried as before.
+
 usage: cmux_tui_artifacts_retry.py --repo OWNER/NAME --run-id ID [--dry-run]
 Needs GH_TOKEN with actions: write and checks: read.
 """
@@ -43,6 +49,15 @@ CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
 RETRIED_BRANCHES = ("feat-cmux-next", "nightly-next")
 TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui")
+# A Rust compile error, the same detector as feat-cmux-next's cmux_tui_tree_handoff.compile_error_failure (the channel
+# heal and tree requests hold on it): a build leg's log names a coded rustc error that is not a runner's cache or
+# toolchain fault, cargo could not compile, and the runner did not kill or starve rustc.
+BUILD_LEG_MARK = " / build "
+RUSTC_ERROR = re.compile(r"\berror\[E(\d{4})\]")
+COULD_NOT_COMPILE = re.compile(r"\berror: could not compile `")
+RUNNER_CODES = frozenset({"0460", "0461", "0462", "0463", "0464", "0514", "0519", "0523", "0786"})
+RUNNER_FAULT = re.compile(r"signal: 9\b|SIGKILL|SIGSEGV|out of memory|No space left on device|\bKilled\b|"
+                          r"memory allocation of \d+ bytes failed", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -103,8 +118,28 @@ def failure_fingerprint(jobs: list[dict]) -> frozenset[tuple[str, str]]:
     return frozenset(out)
 
 
+def compile_error_failure(jobs: list[dict], log_of) -> bool:
+    """True when a failed build leg failed on a Rust compile error. An unreadable log (None) is no evidence."""
+    for job in jobs:
+        if job.get("conclusion") != "failure" or BUILD_LEG_MARK not in (job.get("name") or ""):
+            continue
+        text = log_of(job)
+        if text is None:
+            continue
+        if (set(RUSTC_ERROR.findall(text)) - RUNNER_CODES and COULD_NOT_COMPILE.search(text)
+                and not RUNNER_FAULT.search(text)):
+            return True
+    return False
+
+
+def superseded(run: dict, newest: dict | None) -> bool:
+    """A newer feat-cmux-next push run at another commit exists: its publication covers this commit."""
+    return bool(newest and newest.get("head_sha") and newest.get("head_sha") != run.get("head_sha")
+                and int(newest.get("id") or 0) > int(run.get("id") or 0))
+
+
 def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newest: dict | None = None,
-           previous: list[dict] | None = None) -> Decision:
+           previous: list[dict] | None = None, compile_red: bool = False) -> Decision:
     """Pure policy: what to do with one workflow run.
 
     NEWEST is the newest feat-cmux-next push run of the same workflow (None when it could not be read).
@@ -121,8 +156,7 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
         # workflow's supersede-feat-runs cancels exactly such older never-started runs. Rerunning them
         # would queue the backlog oldest first again, so only a run at the newest pushed commit is retried.
         # An unreadable newest run keeps the old rule (retry): a missed rerun strands the tip.
-        if newest and newest.get("head_sha") and newest.get("head_sha") != run.get("head_sha") \
-                and int(newest.get("id") or 0) > int(run.get("id") or 0):
+        if superseded(run, newest):
             return Decision("skip", f"superseded: run {newest.get('id')} at {str(newest['head_sha'])[:12]} "
                                     "is a newer feat-cmux-next push; its publication covers this commit")
         orphaned = queue_orphaned(jobs)
@@ -142,6 +176,12 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
     if run.get("event") != "push" or not (branch in RETRIED_BRANCHES or branch.startswith("cmux-tui-pin-")):
         return Decision("skip", f"{run.get('event')} on {branch or '?'}: only "
                         + ", ".join(RETRIED_BRANCHES) + " and cmux-tui-pin-* pushes are retried")
+    # Latest wins for a failed feat-cmux-next run too: a newer push builds and publishes its own tree, and rebuilding
+    # the old one spends the same three targets for a commit nothing installs. 2026-11-28: the 40 costliest re-run
+    # cmux-tui-artifacts runs cost 5,373 runner-min and 2 ended green.
+    if branch == "feat-cmux-next" and superseded(run, newest):
+        return Decision("skip", f"superseded: run {newest.get('id')} at {str(newest['head_sha'])[:12]} "
+                                "is a newer feat-cmux-next push; its publication covers this commit")
     # main's cmux-tui artifacts workflow has the same name but publishes no tree;
     # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
     if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):
@@ -186,6 +226,9 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
         return Decision("skip", f"attempts {attempt - 1} and {attempt} failed the same way ("
                         + ", ".join(f"{name}: {step}" if step else name for name, step in sorted(now))
                         + "): deterministic, a retry repeats it")
+    if compile_red:
+        return Decision("skip", "a build leg failed on a Rust compile error: a rerun builds the same source and "
+                                "fails the same way; the next push builds its own tree")
     return Decision("rerun-failed-jobs", "failed: " + ", ".join(job["name"] for job in failed))
 
 
@@ -202,6 +245,18 @@ def _api(method: str, url: str, token: str) -> object:
     with urllib.request.urlopen(request, timeout=30) as response:
         body = response.read()
     return json.loads(body) if body else None
+
+
+def _log_text(url: str, token: str) -> str | None:
+    """A job log as text (urllib follows the redirect to the log blob), or None when it cannot be read."""
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
+                                                   "X-GitHub-Api-Version": "2022-11-28"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read().decode("utf-8", "replace")
+    except (OSError, ValueError) as error:
+        print(f"::warning::could not read {url} ({error}); not counted as a compile error")
+        return None
 
 
 def main(argv: list[str]) -> int:
@@ -223,7 +278,7 @@ def main(argv: list[str]) -> int:
         if job.get("conclusion") == "failure"
     }
     newest = None
-    if run.get("conclusion") == "cancelled" and run.get("head_branch") == "feat-cmux-next":
+    if run.get("conclusion") in ("cancelled", "failure") and run.get("head_branch") == "feat-cmux-next":
         try:
             listed = _api("GET", f"{base}/actions/workflows/{run['workflow_id']}/runs?branch=feat-cmux-next"
                                  "&event=push&per_page=1", token)
@@ -239,6 +294,10 @@ def main(argv: list[str]) -> int:
         except (OSError, ValueError, KeyError) as error:
             print(f"::warning::could not read attempt {attempt - 1}'s jobs ({error}); deciding without them")
     decision = decide(run, jobs, annotations, newest, previous)
+    if decision.action == "rerun-failed-jobs" and run.get("conclusion") == "failure":
+        # Logs are read only when a rerun is about to happen: one GET per failed build leg.
+        if compile_error_failure(jobs, lambda job: _log_text(f"{base}/actions/jobs/{job['id']}/logs", token)):
+            decision = decide(run, jobs, annotations, newest, previous, compile_red=True)
     print(f"run {args.run_id} attempt {run.get('run_attempt')}: {decision.action} ({decision.reason})")
     if decision.action == "refuse":
         print(f"::error title=cmux-tui publish not retried::run {args.run_id}: {decision.reason}")

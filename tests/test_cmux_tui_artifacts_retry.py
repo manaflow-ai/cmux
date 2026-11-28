@@ -236,9 +236,17 @@ class RetryPolicyTests(unittest.TestCase):
         for newest in ({"id": 100, "head_sha": "a" * 40}, {"id": 200, "head_sha": "a" * 40}, None):
             with self.subTest(newest=newest):
                 self.assertEqual(retry.decide(cancelled, jobs, {}, newest).action, "rerun-failed-jobs")
-        # A failed (not cancelled) run keeps its retry whatever is newer.
+        # A failed run is superseded the same way (latest wins); with no newer push it is retried.
         failed = retry.decide(run(id=100, head_sha="a" * 40), tree_jobs(job(2, "failure")), {}, newer)
-        self.assertEqual(failed.action, "rerun-failed-jobs")
+        self.assertEqual(failed.action, "skip")
+        self.assertIn("superseded", failed.reason)
+        for newest in ({"id": 100, "head_sha": "a" * 40}, None):
+            with self.subTest(failed_newest=newest):
+                self.assertEqual(retry.decide(run(id=100, head_sha="a" * 40), tree_jobs(job(2, "failure")), {},
+                                              newest).action, "rerun-failed-jobs")
+        # nightly-next and pin branches are not superseded by feat-cmux-next pushes.
+        nightly = run(id=100, head_sha="a" * 40, head_branch="nightly-next")
+        self.assertEqual(retry.decide(nightly, tree_jobs(job(2, "failure")), {}, newer).action, "rerun-failed-jobs")
 
     def test_a_cancelled_run_is_retried_only_on_feat_pushes(self):
         for overrides in ({"head_branch": "cmux-tui-pin-0123456789ab"}, {"head_branch": "op-next-theme/accent"},
@@ -252,3 +260,43 @@ class RetryPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+COMPILE_LOG = ("2026-11-23T20:45:31.0255786Z error[E0599]: no method named `lock_or_recover` found for struct `ChatLocks`\n"
+               "2026-11-23T20:45:31.0263638Z error: could not compile `acpmux` (lib) due to 1 previous error\n")
+LEG = {"id": 5, "name": "build / build aarch64-unknown-linux-musl", "conclusion": "failure"}
+
+
+class CompileErrorTests(unittest.TestCase):
+    def test_compile_red_skips_the_rerun(self):
+        decision = retry.decide(run(), tree_jobs(LEG), {5: []}, compile_red=True)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("compile error", decision.reason)
+        self.assertEqual(retry.decide(run(), tree_jobs(LEG), {5: []}).action, "rerun-failed-jobs")
+
+    def test_detector(self):
+        self.assertTrue(retry.compile_error_failure([LEG], lambda job: COMPILE_LOG))
+        for text in (None, COMPILE_LOG + "error: process didn't exit successfully (signal: 9, SIGKILL)\n",
+                     "error[E0463]: can't find crate for `std`\nerror: could not compile `x`\n"):
+            with self.subTest(text=text):
+                self.assertFalse(retry.compile_error_failure([LEG], lambda job, t=text: t))
+        # Only failed build legs count.
+        self.assertFalse(retry.compile_error_failure([{**LEG, "name": "verify"}], lambda job: COMPILE_LOG))
+
+    def _main(self, log_text):
+        replies = [run(id=7, workflow_id=3), {"jobs": tree_jobs(LEG)}, [], {"workflow_runs": []}, None]
+        with patch.dict("os.environ", GH_TOKEN="test"), patch.object(retry, "_api", side_effect=replies) as api, \
+                patch.object(retry, "_log_text", lambda url, token: log_text):
+            self.assertEqual(retry.main(["--repo", "o/r", "--run-id", "7"]), 0)
+        return [c.args[1] for c in api.call_args_list if c.args[0] == "POST"]
+
+    def test_main_holds_a_compile_red_run(self):
+        self.assertEqual(self._main(COMPILE_LOG), [])
+
+    def test_main_reruns_a_runner_fault_or_unreadable_log(self):
+        for text in ("error: process didn't exit successfully (signal: 9, SIGKILL)\n", None):
+            with self.subTest(text=text):
+                self.assertEqual(self._main(text), ["https://api.github.com/repos/o/r/actions/runs/7/rerun-failed-jobs"])
+
+
+if __name__ == "__main__":
+    unittest.main()
