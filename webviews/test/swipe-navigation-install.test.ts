@@ -2,7 +2,9 @@
 // horizontal wheels for itself keeps swipes off, even when its handler also stops the event.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { watchPreventedWheels } from "../src/swipeNavigation/install";
+import { importWithDom } from "./support/importWithDom";
+
+const { watchPreventedWheels } = await importWithDom(() => import("../src/swipeNavigation/install"));
 
 const dom = new JSDOM("<!doctype html><body><div id=c></div><p id=p></p></body>", {
   url: "http://localhost/",
