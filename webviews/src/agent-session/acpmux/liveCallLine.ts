@@ -245,15 +245,13 @@ function diffPath(a: unknown, b: unknown, depth: number): string {
   if (depth <= 0 || typeof a !== "object" || typeof b !== "object" || a === null || b === null) return "=";
   const ka = Object.keys(a as object),
     kb = Object.keys(b as object);
+  const out: string[] = [];
   for (const key of new Set([...ka, ...kb])) {
-    const va = (a as Record<string, unknown>)[key],
-      vb = (b as Record<string, unknown>)[key];
-    if (!sameShape(va, vb, depth - 1)) {
-      const rest = diffPath(va, vb, depth - 1);
-      return rest === "=" || rest === "" ? key : `${key}.${rest}`;
-    }
+    const va = (a as Record<string, unknown>)[key];
+    const vb = (b as Record<string, unknown>)[key];
+    if (!sameShape(va, vb, depth - 1)) out.push(`${key}${va === undefined ? "+" : vb === undefined ? "-" : ""}`);
   }
-  return "proto";
+  return out.join(",") || "proto";
 }
 
 /// A row of the open turn drew `row`: while calls are ahead of the pane, a row they moved that is not
