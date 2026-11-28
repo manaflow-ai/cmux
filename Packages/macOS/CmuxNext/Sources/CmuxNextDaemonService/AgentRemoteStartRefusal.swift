@@ -193,6 +193,12 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     }
 }
 
+/// Its acpmux reason, for a start's retry (``CloudWait/linkDropped(_:)``: `daemon.restarting` is the machine's acpmux
+/// stopping under the start, tried once more as a dropped link is).
+nonisolated extension AgentRemoteStartRefusal: DaemonRefusalReason {
+    public var refusalReason: String? { reason }
+}
+
 nonisolated extension AgentRemoteStartRefusal {
     /// `text` as one shell word: as it is when it needs no quoting, else in single quotes.
     static func shellWord(_ text: String) -> String {

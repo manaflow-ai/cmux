@@ -208,6 +208,26 @@ struct CloudMachineUpdateTargetTests {
         #expect((tries, relinks) == (2, 1))
     }
 
+    /// Cloud chat proof run 46167191461: a start failed "ccp-46167191461 refused to start the agent chat
+    /// (agent_session.refused: daemon.restarting)": the machine's acpmux stopped under it. That refusal is a dropped link,
+    /// tried once more; a refusal with another reason, or none, is the answer.
+    @Test func aStartRefusedAsTheMachinesAcpmuxRestartsIsTriedAgain() async throws {
+        let restarting = AgentRemoteStartRefusal(code: "agent_session.refused", machine: "ccp", reason: "daemon.restarting")
+        #expect(CloudWait.linkDropped(restarting))
+        #expect(!CloudWait.linkStale(restarting))
+        #expect(!CloudWait.linkDropped(AgentRemoteStartRefusal(code: "agent_session.refused", machine: "ccp", reason: "permission.denied")))
+        #expect(!CloudWait.linkDropped(AgentRemoteStartRefusal(code: "agent_session.refused", machine: "ccp")))
+
+        var tries = 0
+        let started = try await CloudWait.retriedOnce({
+            tries += 1
+            if tries == 1 { throw restarting }
+            return "session"
+        }, closed: CloudWait.linkDropped, relink: { true })
+        #expect(started == "session")
+        #expect(tries == 2)
+    }
+
     /// cosmic-gray 2026-11-27: 2 AutoCloud starts failed "started but its agent didn't (timed out: identify (no progress
     /// for 10.0 s))": the retry's relink took the stale link the app still held. A first-request timeout is a stale link,
     /// and the relink sees that failure so it can make a new link; a closed or missing link is dropped, not stale.

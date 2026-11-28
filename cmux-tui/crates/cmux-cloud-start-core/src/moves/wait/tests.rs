@@ -72,6 +72,21 @@ fn only_a_closed_connection_or_a_gone_or_refused_socket_is_a_dropped_link() {
 }
 
 #[test]
+fn a_start_its_machines_acpmux_refused_as_restarting_is_a_dropped_link() {
+    let refused =
+        |reason: Option<&str>| StartFailure::Refused { reason: reason.map(str::to_owned) };
+    assert!(link_dropped(&refused(Some(DAEMON_RESTARTING))));
+    assert!(!link_dropped(&refused(Some("permission.denied"))), "a refusal with a cause stays one");
+    assert!(!link_dropped(&refused(None)));
+    let read: StartFailure =
+        serde_json::from_value(json!({"kind": "refused", "reason": "daemon.restarting"})).unwrap();
+    assert!(link_dropped(&read));
+    let bare: StartFailure = serde_json::from_value(json!({"kind": "refused"})).unwrap();
+    assert!(!link_dropped(&bare));
+    assert!(!link_stale(&read), "the held link to the machine's daemon is fine");
+}
+
+#[test]
 fn a_timeout_on_a_fresh_connections_first_request_is_a_dropped_link() {
     let timed_out = |what: &str| StartFailure::TimedOut { what: what.to_owned() };
     assert!(link_dropped(&timed_out("identify (no reply within 10.0 seconds)")));

@@ -163,8 +163,18 @@ pub enum StartFailure {
     TimedOut {
         what: String,
     },
+    /// The machine refused the start with a reason code (acpmux's `data.reason`, as the machine's
+    /// daemon passed it on): `agent_session.refused` with `daemon.restarting` is its acpmux
+    /// stopping under the start.
+    Refused {
+        #[serde(default)]
+        reason: Option<String>,
+    },
     Other,
 }
+
+/// acpmux's refusal of a request its stop cut or refused (`recovery.rs` `DAEMON_RESTARTING`).
+pub const DAEMON_RESTARTING: &str = "daemon.restarting";
 
 /// The requests a fresh connection sends before anything else: no reply to one of them means
 /// the link carries nothing, not that the machine refused.
@@ -177,11 +187,16 @@ const FIRST_REQUESTS: [&str; 2] = ["identify", "set-client-info"];
 /// the bytes and answers nothing (NIGHTLY 743185fa3, 2026-11-10: "started but its agent didn't
 /// (timed out: identify (no reply within 10.0 seconds))" on 4 of 4 starts). A timeout on any
 /// later request, the start itself included, may have run on the machine and stays a failure.
+/// The machine's acpmux restarting under the start (`daemon.restarting`, which acpmux marks
+/// `retryable`: Cloud chat proof run 46167191461, "refused to start the agent chat
+/// (agent_session.refused: daemon.restarting)") is the same drop one hop further: the start
+/// is sent once more, to the acpmux that replaces it, as after an EOF.
 pub fn link_dropped(failure: &StartFailure) -> bool {
     match failure {
         StartFailure::ConnectionClosed => true,
         StartFailure::ConnectFailed { code } => *code == ENOENT || *code == ECONNREFUSED,
         StartFailure::TimedOut { .. } => link_stale(failure),
+        StartFailure::Refused { reason } => reason.as_deref() == Some(DAEMON_RESTARTING),
         StartFailure::Other => false,
     }
 }
