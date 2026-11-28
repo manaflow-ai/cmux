@@ -1919,5 +1919,6 @@ async function atStep<T>(step: ApproveStep, p: Promise<T>): Promise<T> {
 
 /** The step a failed approve() threw at, else `unknown`. */
 export function approveStep(err: unknown): ApproveStep | "unknown" {
-  return (err && typeof err === "object" && (err as Record<symbol, ApproveStep>)[APPROVE_STEP]) || "unknown";
+  if (!err || typeof err !== "object") return "unknown";
+  return (err as Record<symbol, ApproveStep | undefined>)[APPROVE_STEP] ?? "unknown";
 }
