@@ -238,6 +238,14 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         exec(compile(module_source, str(HELPER), "exec"), namespace)
         self.assertFalse(namespace["session_launch"]("codex", ["--help"]))
         self.assertFalse(namespace["session_launch"]("codex", ["mcp", "list"]))
+        for management in (
+            ["queue", "--thread", "019ab3f0-thread", "--message", "wake up"],
+            ["-c", 'model="gpt-5"', "queue", "--thread", "019ab3f0-thread", "--message", "wake up"],
+            ["migrate-rollouts", "--apply"],
+            ["migrate-nfs-db"],
+        ):
+            with self.subTest(argv=management):
+                self.assertFalse(namespace["session_launch"]("codex", management))
         self.assertTrue(namespace["session_launch"]("codex", ["exec", "hello"]))
 
     def test_managed_bash_and_zsh_keep_interactive_startup(self):

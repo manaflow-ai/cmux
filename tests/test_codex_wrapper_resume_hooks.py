@@ -322,6 +322,23 @@ def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
     expect(cmux_log == [], f"help: expected no cmux calls, got {cmux_log}", failures)
 
 
+def test_management_subcommands_reach_codex_unchanged(failures: list[str]) -> None:
+    # `codex queue` adds a message to an existing session and rejects the hook
+    # flags a session launch gets, so nothing may be added to its arguments.
+    # Root options in front of the subcommand must not hide it.
+    for argv in (
+        ["queue", "--thread", "019ab3f0-thread", "--message", "wake up"],
+        ["-c", 'model="gpt-5"', "queue", "--thread", "019ab3f0-thread", "--message", "wake up"],
+        ["migrate-rollouts", "--apply"],
+        ["migrate-nfs-db"],
+    ):
+        label = " ".join(argv[:3])
+        code, real_argv, cmux_log, _, stderr = run_wrapper(socket_state="live", argv=argv)
+        expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == argv, f"{label}: expected passthrough, got {real_argv}", failures)
+        expect(cmux_log == [], f"{label}: expected no cmux calls, got {cmux_log}", failures)
+
+
 def test_subrouter_marker_is_bound_to_current_launch_argv(failures: list[str]) -> None:
     marker = "sr codex resume"
     _, _, _, routed_env, _ = run_wrapper(
@@ -381,6 +398,7 @@ def main() -> int:
     test_restore_tokens_do_not_gate_instrumentation(failures)
     test_injection_failure_preserves_cmux_context(failures)
     test_non_session_command_still_bypasses_hooks(failures)
+    test_management_subcommands_reach_codex_unchanged(failures)
     test_subrouter_marker_is_bound_to_current_launch_argv(failures)
     test_headless_marker_follows_the_subcommand(failures)
     if failures:

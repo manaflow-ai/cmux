@@ -247,7 +247,10 @@ mod launch_classification {
         "logout",
         "mcp",
         "mcp-server",
+        "migrate-nfs-db",
+        "migrate-rollouts",
         "plugin",
+        "queue",
         "remote-control",
         "review",
         "sandbox",
@@ -325,6 +328,16 @@ mod tests {
         };
         assert!(!should_inject(&os(&["--version"]), env(&[])));
         assert!(!should_inject(&os(&["mcp", "list"]), env(&[])));
+        assert!(!should_inject(
+            &os(&["queue", "--thread", "019ab3f0-thread", "--message", "wake up"]),
+            env(&[])
+        ));
+        assert!(!should_inject(
+            &os(&["-c", "model=\"gpt-5\"", "queue", "--thread", "t"]),
+            env(&[])
+        ));
+        assert!(!should_inject(&os(&["migrate-rollouts", "--apply"]), env(&[])));
+        assert!(!should_inject(&os(&["migrate-nfs-db"]), env(&[])));
         assert!(should_inject(&os(&[]), env(&[])));
         assert!(should_inject(&os(&["exec", "hello"]), env(&[])));
         assert!(should_inject(&os(&["resume", "--last"]), env(&[])));
