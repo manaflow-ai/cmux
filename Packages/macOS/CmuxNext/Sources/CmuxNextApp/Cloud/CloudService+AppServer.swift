@@ -110,8 +110,7 @@ extension CloudService {
             // The direct route refused before the op ran (no usable session, an older server): the relay takes it with a NEW key, never this one (a caller that keeps the key in its own ledger, `persistSent`, takes the new key from it).
             try checkScope()
             var relay = pinned; relay.idempotencyKey = UUID().uuidString; creation?.renewKey(replacing: pinned.idempotencyKey)
-            return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment,
-                                             creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment, creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
         }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine
