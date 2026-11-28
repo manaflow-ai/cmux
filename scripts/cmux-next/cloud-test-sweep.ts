@@ -165,6 +165,32 @@ export async function readWithRetry(send: () => Promise<Answer>, name: string, t
   }
   throw new Error(`${name}: HTTP ${r.status} ${JSON.stringify(r.body?.error ?? r.body).slice(0, 300)}${tries > 1 && retryableRead(r) ? ` (after ${tries} tries)` : ""}`);
 }
+/** Tries of one cloud.machine.delete (same idempotency key each time) before the sweep reads where the machine stands. */
+export const DELETE_TRIES = 3;
+
+/**
+ * One cloud.machine.delete, resent under its idempotency key while its answer can still change (5xx, 409, 423, 429,
+ * no answer). A machine already gone (404, not_found) counts as deleted. If the last answer is
+ * `mutation.indeterminate` (the provider call was cut off and may have acted; cloud-machine-ops.ts PROVIDER) or a
+ * transport failure, the machine is read again: deleting, deleted or no longer listed counts as deleted, anything
+ * else stays refused, naming the status read. Run 46140030779 (2026-11-28 11:28Z) went red on one failed journey
+ * machine whose three deletes all answered mutation.indeterminate, with no read of where the machine stood after.
+ */
+export async function deleteMachine(send: () => Promise<Answer>, recheck: () => Promise<string | null>, tries = DELETE_TRIES, wait: (ms: number) => Promise<unknown> = sleep): Promise<{ ok: boolean; error: string | null }> {
+  let error = "";
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    const a = await send();
+    const code = String(a.body?.error?.code ?? "");
+    if ((a.status === 200 && a.body?.ok === true) || a.status === 404 || /not[_.-]?found/i.test(code)) return { ok: true, error: null };
+    error = code || `HTTP ${a.status}`;
+    if (a.status >= 400 && a.status < 500 && ![409, 423, 429].includes(a.status)) return { ok: false, error };
+    if (attempt < tries) await wait(2000 * attempt);
+  }
+  if (error !== "mutation.indeterminate" && error !== "transport") return { ok: false, error };
+  const status = await recheck().catch(() => "unread");
+  if (status === null || status === "deleting" || status === "deleted") return { ok: true, error: null };
+  return { ok: false, error: `${error} (still ${status || "?"})` };
+}
 const argValue = (flag: string, argv: string[]) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : undefined; };
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -222,16 +248,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     say(JSON.stringify({ scope, held: rows.length, by_status: entry.before, picked: picks.length }));
     if (dryRun) continue;
     for (const p of entry.picks) {
-      let a: Answer = { status: 0, body: {} };
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        a = await op(team, "cloud.machine.delete", { machine: p.id }, `${tag}-delete-${p.id}`);
-        const gone = a.status === 404 || /not[_.-]?found/i.test(String(a.body?.error?.code ?? ""));
-        if ((a.status === 200 && a.body?.ok === true) || gone) { p.ok = true; p.error = null; break; }
-        p.ok = false;
-        p.error = String(a.body?.error?.code ?? `HTTP ${a.status}`);
-        if (a.status >= 400 && a.status < 500 && ![409, 423, 429].includes(a.status)) break;
-        await sleep(2000 * attempt);
-      }
+      const recheck = async () => {
+        const now = await listAllMachines((q) => read(team, "cloud.machine.list", q), 40, { partial: true });
+        const r = now.find((x: any) => String(x?.id ?? x?.machine_id ?? "") === p.id);
+        return r ? String(r.status ?? "") : null;
+      };
+      Object.assign(p, await deleteMachine(() => op(team, "cloud.machine.delete", { machine: p.id }, `${tag}-delete-${p.id}`), recheck));
       if (!p.ok) refused++;
       say(JSON.stringify({ delete: p.id, name: p.name, status: p.status, created: p.created, ok: p.ok, error: p.error }));
     }
