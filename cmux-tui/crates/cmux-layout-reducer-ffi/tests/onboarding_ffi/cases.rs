@@ -53,3 +53,22 @@ fn footer_import_kinds_and_edge_first() {
     let (code, _) = call(c"onboarding_footer", &json!({"step": "nowhere"}));
     assert_eq!(code, ERR_INVALID);
 }
+
+#[test]
+fn walk_bundle_and_outcome() {
+    let (code, body) = call(c"onboarding_walk_bundle", &json!({"installKey": "install-1"}));
+    assert_eq!(code, OK);
+    assert_eq!(body["id"], json!("wb1-000000"));
+    assert_eq!(body["arms"]["screen"], json!("preview"));
+    let (code, body) = call(
+        c"onboarding_walk_outcome",
+        &json!({"bundle": "wb1-000000", "ending": "skipped", "screen": 2}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"version": 1, "bundle": "wb1-000000", "ending": "skipped", "screen": 2})
+    );
+    let (code, _) = call(c"onboarding_walk_outcome", &json!({"bundle": "x", "ending": "nope"}));
+    assert_eq!(code, ERR_INVALID);
+}

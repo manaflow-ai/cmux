@@ -710,6 +710,39 @@ describe("auto-roll scripts", () => {
       expect(approved.image.id).toMatch(/^cloud-native-auto-[0-9a-f]{8}-4242-2$/);
     }), 60_000);
 
+  test("a ruleset refusal stops the push on its first try, named, not retried as a moved tip", () =>
+    withDir(async (dir) => {
+      const src = path.join(dir, "src");
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+        mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
+        copyFileSync(path.join(repoRoot, file), path.join(src, file));
+      }
+      await git(dir, "init", "-q", "--bare", "remote.git");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", src);
+      await git(src, "add", ".");
+      await git(src, "commit", "-q", "-m", "base");
+      await git(src, "remote", "add", "origin", path.join(dir, "remote.git"));
+      await git(src, "push", "-q", "origin", "feat-cmux-next");
+      // GitHub's own refusal text (run 46065810320), from a pre-receive hook added after the base landed.
+      const hook = path.join(dir, "remote.git", "hooks", "pre-receive");
+      writeFileSync(hook, "#!/bin/sh\necho 'error: GH013: Repository rule violations found for refs/heads/feat-cmux-next.' >&2\necho '- Changes must be made through a pull request.' >&2\nexit 1\n", { mode: 0o755 });
+      const lock = readFileSync(path.join(src, "images/cmux-vm/inputs.lock.json"));
+      const temp = path.join(dir, "runner-temp");
+      mkdirSync(temp);
+      writeFileSync(path.join(temp, "candidate.json"), JSON.stringify({ ...candidate, lock_sha256: createHash("sha256").update(lock).digest("hex") }));
+      writeFileSync(path.join(temp, "message.txt"), "cmux-vm: image roll test\n");
+      const out = await runChild(
+        "bash",
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242",
+          "--attempt", "2", "--message-file", path.join(temp, "message.txt")],
+        { cwd: src, env: { ...gitEnv, TOKEN: "test", RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
+      );
+      expect(out.status).toBe(3);
+      expect(out.stderr).toContain("GH013");
+      expect(out.stderr).toContain("refused the push to feat-cmux-next by a repository rule");
+      expect(out.stdout).not.toContain("moved under the push");
+    }), 60_000);
+
   test("platform mode pushes Wrangler first and leaves cmux with a lock-only commit", () =>
     withDir(async (dir) => {
       const src = path.join(dir, "src");

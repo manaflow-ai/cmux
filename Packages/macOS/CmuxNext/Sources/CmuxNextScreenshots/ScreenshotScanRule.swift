@@ -27,6 +27,8 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     /// The rule as the C ABI's JSON (what the pane's sources carry).
     let json: String
     private let handle: RustHandle
+    /// The Rust rule, live while this value is.
+    var pointer: OpaquePointer? { handle.pointer }
 
     /// Makes a rule.
     ///
@@ -73,10 +75,5 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     func kind(entryKind: UInt32, hidden: Bool, name: String) -> FileGridMediaKind? {
         let system = ScreenshotsFFI.systemKind(ofFileNamed: name)
         return ScreenshotsFFI.kind(ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_item_kind(handle.pointer, entryKind, hidden, $0, $1, system) })
-    }
-
-    /// Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-    func enters(entryKind: UInt32, hidden: Bool, name: String, depth: Int) -> Bool {
-        ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_enters(handle.pointer, entryKind, hidden, $0, $1, depth) }
     }
 }
