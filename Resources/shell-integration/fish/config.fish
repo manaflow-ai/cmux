@@ -99,20 +99,29 @@ if test "$_cmux_integration_enabled" != 0
         test -n "$signature"; or return 0
         test "$signature" = "$_CMUX_TMUX_PUSH_SIGNATURE"; and return 0
 
+        set -l tmux_args
         for key in $_CMUX_TMUX_SYNC_KEYS
             set -q $key; or continue
             test -n "$$key"; or continue
-            set -l tmux_error (tmux set-environment -g "$key" "$$key" 2>&1 >/dev/null)
-            if test $status -ne 0
-                # Only a dead socket earns the marker; other failures retry.
-                if string match -qr 'no server running|error connecting|Connection refused' -- "$tmux_error"
-                    printf '' 2>/dev/null >"$stale_marker"
-                end
-                return 0
+            if set -q tmux_args[1]
+                set -a tmux_args ';'
             end
+            set -a tmux_args set-environment -g "$key" "$$key"
         end
         for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
-            tmux set-environment -gu "$key" >/dev/null 2>&1; or return 0
+            if set -q tmux_args[1]
+                set -a tmux_args ';'
+            end
+            set -a tmux_args set-environment -gu "$key"
+        end
+        set -q tmux_args[1]; or return 0
+        set -l tmux_error (tmux $tmux_args 2>&1 >/dev/null)
+        if test $status -ne 0
+            # Only a dead socket earns the marker; other failures retry.
+            if string match -qr 'no server running|error connecting|Connection refused' -- "$tmux_error"
+                printf '' 2>/dev/null >"$stale_marker"
+            end
+            return 0
         end
         set -g _CMUX_TMUX_PUSH_SIGNATURE "$signature"
     end
@@ -384,6 +393,15 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_path_prepend_unique_directory "$bin_dir" "$gui_dir"
     end
 
+    function _cmux_use_bsd_stat
+        test -x /usr/bin/stat; or return 1
+        if set -q OSTYPE; and test -n "$OSTYPE"
+            string match -q 'darwin*' -- "$OSTYPE"
+            return $status
+        end
+        test -d /System/Library/CoreServices
+    end
+
     # Succeeds when every directory, checked in order, is an absolute path to
     # a real directory (not a symlink) owned by this user that no one else can
     # write to, with a safe ancestry. Sticky shared ancestors (such as /tmp)
@@ -391,6 +409,8 @@ if test "$_cmux_integration_enabled" != 0
     function _cmux_private_dirs --argument-names create
         set -e argv[1]
         test (count $argv) -gt 0; or return 1
+        set -l use_stat 0
+        _cmux_use_bsd_stat; and set use_stat 1
         for dir in $argv
             string match -q '/*' -- "$dir"; or return 1
             # A directory mkdir just created is ours and already 0700.
@@ -398,11 +418,87 @@ if test "$_cmux_integration_enabled" != 0
                 /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1; or return 1
             end
             test -d "$dir"; and not test -L "$dir"; and test -O "$dir"; or return 1
+            if test $use_stat -eq 1
+                _cmux_private_path_chain_stat "$dir"; or return 1
+                continue
+            end
             # fish can't read mode bits; find's -type d uses lstat here.
             set -l private_dir (/usr/bin/find "$dir" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)
             test "$private_dir" = "$dir"; or return 1
             _cmux_private_path_chain "$dir"; or return 1
         end
+    end
+
+    # The same checks as _cmux_private_path_chain plus the directory's own mode,
+    # from one BSD stat for the whole chain, so a new shell's cost doesn't grow
+    # with the folder's depth. BSD stat doesn't follow symlinks either.
+    function _cmux_private_path_chain_stat --argument-names start
+        string match -q '*'\n'*' -- "$start"; and return 1
+        set -l canonical (_cmux_resolve_path "$start"); or return 1
+        test (count $canonical) -eq 1; or return 1
+        string match -q '*'\n'*' -- "$canonical"; and return 1
+
+        set -l chains "$start"
+        test "$canonical" = "$start"; or set -a chains "$canonical"
+        set -l nodes
+        for chain_start in $chains
+            set -l current "$chain_start"
+            while true
+                if not contains -- "$current" $nodes
+                    set -a nodes "$current"
+                end
+                test "$current" = /; and break
+                set current (string replace -r '/[^/]*$' '' -- "$current")
+                test -n "$current"; or set current /
+            end
+        end
+
+        set -l stats (/usr/bin/stat -f '%u %Mp %Lp %HT' -- $nodes 2>/dev/null); or return 1
+        test (count $stats) -eq (count $nodes); or return 1
+
+        set -l uid_me "$EUID"
+        if test -z "$uid_me"
+            set uid_me (id -u)
+        end
+
+        set -l idx 0
+        for line in $stats
+            set idx (math $idx + 1)
+            set -l node "$nodes[$idx]"
+            set -l parts (string split -m 3 ' ' -- "$line")
+            test (count $parts) -eq 4; or return 1
+            set -l uid "$parts[1]"
+            set -l special "$parts[2]"
+            set -l lp "$parts[3]"
+            set -l kind "$parts[4]"
+
+            string match -qr '^[0-7]+$' -- "$special"; or return 1
+            string match -qr '^[0-7]{1,3}$' -- "$lp"; or return 1
+            if test "$uid" != "$uid_me"; and test "$uid" != 0
+                return 1
+            end
+
+            switch "$kind"
+                case Directory
+                    test -x "$node"; or return 1
+                    set -l writable 0
+                    if string match -qr '[2367].$|.[2367]$' -- "000$lp"
+                        set writable 1
+                    end
+                    # Only an ancestor may be shared through the sticky bit.
+                    if test $idx -eq 1
+                        test "$uid" = "$uid_me"; or return 1
+                        test $writable -eq 0; or return 1
+                    else if test $writable -eq 1
+                        string match -qr '^[1357]$' -- "$special"; or return 1
+                    end
+                case 'Symbolic Link'
+                    test $idx -gt 1; or return 1
+                case '*'
+                    return 1
+            end
+        end
+        return 0
     end
 
     function _cmux_private_path_chain --argument-names start
@@ -421,7 +517,9 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_resolve_path --argument-names path
-        if test -x /usr/bin/realpath
+        if builtin -q path
+            path resolve -- "$path"
+        else if test -x /usr/bin/realpath
             /usr/bin/realpath -- "$path"
         else if test -x /bin/realpath
             /bin/realpath -- "$path"
