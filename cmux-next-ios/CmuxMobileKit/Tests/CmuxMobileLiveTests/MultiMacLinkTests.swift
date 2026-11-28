@@ -402,7 +402,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let session = try #require(live.sessions["m1"])
         session.outdated = false
         session.chatsError = "acpmux channel closed"
-        session.daemonError = "list-workspaces reply is not an object"
+        session.daemonErrors.set("list-workspaces reply is not an object", by: .fetch)
         live.phaseChanged(session)
         #expect(store.macLinkStatus["m1"] == nil, "a connected Mac says nothing in its header")
         #expect(store.macLinkDiagnostics["m1"]?.contains("acpmux channel closed") == true)
@@ -442,7 +442,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         await settle { store.macConnection["m1"] == .connected && store.macDataPhase("m1") == .live }
         let session = try #require(live.sessions["m1"])
         // The workspaces deadline passed on a slow first load (armWorkspacesDeadline).
-        session.daemonError = "the Mac didn't send its workspaces"
+        session.daemonErrors.set("the Mac didn't send its workspaces", by: .timeout)
         live.phaseChanged(session)
         #expect(store.macLinkDiagnostics["m1"]?.contains("didn't send its workspaces") == true)
         let dials = dialer.dialCount("m1")

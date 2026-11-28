@@ -99,7 +99,7 @@ extension LiveCoordinator {
         }
         session.workspaces.onTree = { [weak self, weak session] tree in
             guard let self, let session else { return }
-            session.daemonError = nil
+            session.daemonErrors.fresh()
             self.apply(tree, session: session)
             self.updateDiagnostics(session)
         }
@@ -222,7 +222,7 @@ extension LiveCoordinator {
         session.pairingRetries = 0
         session.acpmux.approver = nil
         session.chatsError = nil
-        session.daemonError = nil
+        session.daemonErrors.clear()
         // Pairing belongs to one link (review M1): a banner for another Mac, or a
         // stale "waiting" that holds back the workspaces deadline, never carries over.
         setPairing(.idle, for: session)
@@ -458,7 +458,8 @@ extension LiveCoordinator {
     /// Opens the `daemon` channel and loads the workspaces; a failure or a
     /// Mac that never answers shows as a failure with Retry.
     private func bindWorkspaces(_ session: MacSession, _ link: any MacLink, prepared: Result<WorkspaceSync.Prepared, LinkError>? = nil) {
-        session.daemonError = nil
+        session.daemonErrors.clear()
+        let started = session.daemonErrors.begin()
         updateDiagnostics(session)
         armWorkspacesDeadline(session, link)
         let macID = session.macID
@@ -474,8 +475,8 @@ extension LiveCoordinator {
                     await session.workspaces.bind(daemon, macID: macID, cached: cached)
                 }
                 // The link may have moved on (closed, or this Mac was removed).
-                if let error = session.workspaces.lastError, session.currentLink === link, self.store.macData[macID]?.source != .live {
-                    session.daemonError = error
+                if let error = session.workspaces.lastError, session.currentLink === link, self.store.macData[macID]?.source != .live,
+                   session.daemonErrors.set(error, by: .fetch, startedAt: started) {
                     self.updateDiagnostics(session)
                     self.store.handleMacData(.failed("Offline"), macID: macID)
                     // The link reached the Mac; cmux on it did not answer (cmux#52200).
@@ -485,8 +486,8 @@ extension LiveCoordinator {
                 }
             } catch {
                 log.error("daemon channel: \(String(describing: error), privacy: .public)")
-                if session.currentLink === link {
-                    session.daemonError = LinkController.reason(error)
+                if session.currentLink === link,
+                   session.daemonErrors.set(LinkController.reason(error), by: .fetch, startedAt: started) {
                     self.updateDiagnostics(session)
                     self.store.handleMacData(.failed("Offline"), macID: macID)
                     self.store.macFailure[macID] = .serviceDown
@@ -507,7 +508,7 @@ extension LiveCoordinator {
             // timeout fails the channel itself.
             if session.pairingState.isWaiting { return }
             log.error("workspaces did not arrive in time")
-            session.daemonError = "the Mac didn't send its workspaces"
+            session.daemonErrors.set("the Mac didn't send its workspaces", by: .timeout)
             self.updateDiagnostics(session)
             self.store.handleMacData(.failed("Offline"), macID: macID)
             self.store.macFailure[macID] = .serviceDown
@@ -1145,8 +1146,7 @@ extension LiveCoordinator {
     /// first load no longer stands, so Diagnostics drops it with no Retry (Leo, 2026-11-27: "An error
     /// set by a timeout clears when the next good data arrives").
     func workspacesArrived(_ session: MacSession) {
-        guard session.daemonError != nil else { return }
-        session.daemonError = nil
+        guard session.daemonErrors.fresh() else { return }
         updateDiagnostics(session)
     }
 
