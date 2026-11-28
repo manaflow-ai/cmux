@@ -7533,10 +7533,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // not one that moves under the reader as they land (https://github.com/manaflow-ai/cmux/issues/48498).
   const heightsSettled = useHeightsSettledFor(showsWhatItIs);
   useEffect(() => {
-    if (!paintReported.current)
-      console.log(
-        `DIAGSHOW at ${performance.now().toFixed(0)} shows ${showsWhatItIs} hs ${handshaken} read ${clientSnapshot.chatRead} att ${clientSnapshot.chatAttached} conn ${clientSnapshot.connection} rows ${clientSnapshot.rows.length} draft ${draftSettled} wait ${draftWaitOver} heights ${heightsSettled()} copy ${showsChatSnapshot()}`,
-      );
     if (!showsWhatItIs || (!paintReported.current && !heightsSettled())) return;
     const settledNow = settledSession !== undefined && settledReported.current !== settledSession;
     const liveNow = liveSession !== undefined && liveReported.current !== liveSession;

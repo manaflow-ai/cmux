@@ -772,7 +772,6 @@ function coldOpenRoughAbove(
   view: { height: number; openAt?: ScrollAnchor },
 ): number | undefined {
   if (cache.size > 0 || kept || resizing || view.height <= 0) return undefined;
-  if (typeof document !== "undefined" && document.querySelector(SNAPSHOT_HOST_TAG)) return undefined;
   const openAt = view.openAt;
   if (openAt && rows.some((row) => row.id === openAt.rowId)) return undefined;
   return (HISTORY_VIEWPORTS + 2) * view.height;
@@ -3843,7 +3842,6 @@ function TranscriptView({
   // change an estimate.
   const estimated = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const diagT0 = performance.now();
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
     const sameSession = measurementSession.current === sessionId;
@@ -3893,15 +3891,6 @@ function TranscriptView({
       coldOpenRoughAbove(cache, kept, resizing, rows, coldView.current),
       layoutBuffers,
     );
-    {
-      const d = [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled, layoutBuffers];
-      const w = window as unknown as { __diagDeps?: unknown[] };
-      const changed = d.map((v, i) => (w.__diagDeps?.[i] === v ? "" : String(i))).join("");
-      w.__diagDeps = d;
-      console.log(
-        `DIAGLAYOUT at ${performance.now().toFixed(0)} took ${(performance.now() - diagT0).toFixed(1)} rows ${rows.length} cache ${cache.size} kept ${!!kept} rough ${String(layout.rough)} changed ${changed} width ${rowWidth}`,
-      );
-    }
     lastEstimate.current = {
       rows,
       layout,
@@ -3923,13 +3912,8 @@ function TranscriptView({
   useEffect(() => {
     if (!estimated.layout.rough) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    console.log(`DIAGROUGH effect ${performance.now().toFixed(0)}`);
     const frame = requestAnimationFrame(() => {
-      console.log(`DIAGROUGH frame ${performance.now().toFixed(0)}`);
-      timer = setTimeout(() => {
-        console.log(`DIAGROUGH task ${performance.now().toFixed(0)}`);
-        settleResize();
-      }, 0);
+      timer = setTimeout(settleResize, 0);
     });
     return () => {
       cancelAnimationFrame(frame);

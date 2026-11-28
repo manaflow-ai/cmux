@@ -1597,7 +1597,7 @@ try {
   ]);
 
   const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "first-load-bench-"));
-  releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
+  releases.push(["pane build", () => { if (process.env.PROFILE_DUMP) fs.cpSync(out, `${process.env.PROFILE_DUMP}-build`, { recursive: true }); fs.rmSync(out, { recursive: true, force: true }); }]);
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "first-load-bench-work-"));
   releases.push(["bundles", () => fs.rmSync(work, { recursive: true, force: true })]);
   const { build } = await import("vite");
@@ -1650,7 +1650,7 @@ try {
     ],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE && !process.env.PROFILE_MINIFY ? { minify: false } : {}) },
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
@@ -1799,23 +1799,14 @@ try {
     let next = 0;
     let delivery = Promise.resolve();
     const push = (event: { connection: number; frames?: string[]; closed?: { code: number; reason: string } }) => {
-      const queuedAt = Date.now();
       delivery = delivery
         .then(() =>
           page.evaluate((pushed) => {
-            const at = performance.timeOrigin + performance.now();
             (
               window as unknown as { cmuxAcpmuxTransport?: { receive(event: unknown): void } }
             ).cmuxAcpmuxTransport?.receive(pushed);
-            return [at, performance.timeOrigin + performance.now(), performance.timeOrigin] as const;
           }, event),
         )
-        .then((r) => {
-          if (process.env.DIAG_PUSH === "1" && r)
-            console.log(
-              `DIAGPUSH queued ${(queuedAt - r[2]).toFixed(0)} ran ${(r[0] - r[2]).toFixed(0)} took ${(r[1] - r[0]).toFixed(1)} back ${(Date.now() - r[2]).toFixed(0)} ${String(event.frames?.[0] ?? "").slice(0, 70)}`,
-            );
-        })
         .catch(() => undefined);
     };
     page.on("close", () => {
@@ -1893,7 +1884,6 @@ try {
     ends = false,
   ) => {
     await installPaintedFrames(page);
-    if (process.env.DIAG_PUSH === "1") page.on("console", (m) => m.text().startsWith("DIAG") && console.log(m.text()));
     if (BRIDGE) await serveBridge(page);
     await page.addInitScript(installHost, {
       tail,
@@ -2266,6 +2256,7 @@ try {
           maxHeight: RELAUNCH_VIEWPORT.height,
         });
       }
+      if (process.env.TRACE_OUT) await browser.startTracing(page, { path: `${process.env.TRACE_OUT}-${Date.now()}.json`, categories: ["devtools.timeline", "v8", "v8.execute", "disabled-by-default-devtools.timeline", "blink.user_timing", "loading"] });
       endOpenTurn = OPEN_ENDS_MS > 0;
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       // PRESS: one input PRESS_AFTER_MS after the first frame with content, as a person's would be.
@@ -2339,12 +2330,15 @@ try {
           rowsTaken: w.__benchHost.rowsTaken,
         };
       });
+      if (process.env.TRACE_OUT) await browser.stopTracing();
       if (cdp) {
         const nowMs = await page.evaluate(() => performance.now());
         const { profile } = (await cdp.send("Profiler.stop")) as {
           profile: CpuProfile & { startTime: number; endTime: number };
         };
         await cdp.detach();
+        if (process.env.PROFILE_DUMP) console.log("H34ROWS " + JSON.stringify(await page.evaluate(() => { const rows = [...document.querySelectorAll(".acpmux-row[data-row-id]")]; const h = innerHeight; return { rows: rows.length, inView: rows.filter((r) => { const b = r.getBoundingClientRect(); return b.bottom > 0 && b.top < h; }).length, elements: document.querySelectorAll("*").length }; })));
+        if (process.env.PROFILE_DUMP) fs.writeFileSync(`${process.env.PROFILE_DUMP}-${profiled + 1}.json`, JSON.stringify({ profile, nowMs }));
         const metrics = classifyFrames(got.frames);
         const settledMs = restartSettled(got.frames, metrics, got.liveLatestAt || null).settledMs ?? nowMs;
         addRelaunchProfile(profile, nowMs, metrics.firstContentMs ?? 0, settledMs, profiled + 1);

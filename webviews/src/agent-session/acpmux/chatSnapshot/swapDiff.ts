@@ -83,19 +83,12 @@ function boxesIn(scope: ParentNode): Record<string, Box> {
 export function liveMatchesCopy(copy: ParentNode, live: ParentNode): boolean {
   const a = boxesIn(copy);
   const b = boxesIn(live);
-  const bad: string[] = [];
   for (const [name, x] of Object.entries(a)) {
     const y = b[name];
     if (!y || Math.max(Math.abs(x.x - y.x), Math.abs(x.y - y.y), Math.abs(x.w - y.w), Math.abs(x.h - y.h)) > 1)
-      bad.push(`${name} ${JSON.stringify(x)} vs ${JSON.stringify(y)}`);
+      return false;
   }
-  {
-    const ts = [...(live.querySelector(".acpmux-minimap__rail")?.querySelectorAll("[data-tick]") ?? [])];
-    const r0 = ts[0]?.getBoundingClientRect();
-    const rail = live.querySelector(".acpmux-minimap__rail");
-    console.log(`DIAGMATCH at ${performance.now().toFixed(0)} ${bad.join(" | ") || "ok"} ticks ${ts.length} t0 ${r0 ? `${r0.width}x${r0.height}@${r0.y}` : "-"} op ${ts[0] ? getComputedStyle(ts[0]).opacity : "-"} rail ${rail?.className} ${rail?.innerHTML.length}`);
-  }
-  return bad.length === 0;
+  return true;
 }
 
 export type SwapDiff = {
