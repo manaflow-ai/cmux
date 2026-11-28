@@ -164,10 +164,10 @@ fn option_id(offered: &[Value], kinds: &[&str]) -> Option<String> {
             .filter_map(Value::as_object)
             .filter(|option| option.get("kind").and_then(Value::as_str) == Some(kind))
             .collect();
-        if let [matched] = matches.as_slice() {
-            if let Some(id) = matched.get("optionId").and_then(Value::as_str) {
-                return Some(id.to_owned());
-            }
+        if let [matched] = matches.as_slice()
+            && let Some(id) = matched.get("optionId").and_then(Value::as_str)
+        {
+            return Some(id.to_owned());
         }
     }
     None
