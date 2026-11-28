@@ -614,13 +614,7 @@ struct AgentPaneVideoInfoTests {
         model.replyLinks.videoFolder = folder.appendingPathComponent("videos", isDirectory: true)
         let picked = (0..<16).map { 900 + $0 * 1800 }
 
-        @MainActor final class Log {
-            var stalls: [Double] = []
-            var running = true
-            var posters: [String: Double] = [:]
-            var done: [String: Double] = [:]
-        }
-        let log = Log()
+        let log = BenchLog()
         let ticker = Task { @MainActor in
             while log.running {
                 let asked = ContinuousClock.now
@@ -630,27 +624,12 @@ struct AgentPaneVideoInfoTests {
             }
         }
         let started = ContinuousClock.now
-        let ms: @Sendable (ContinuousClock.Instant) -> Double = { since in
-            let took = (ContinuousClock.now - since).components
-            return Double(took.seconds) * 1000 + Double(took.attoseconds) / 1e15
+        // Each video's reads run as their own main-actor Task (not a task group's child closure,
+        // which Xcode 27.2's region-based isolation checker rejects), all out at once.
+        let reads = [first, second].map { clip in
+            Task { await Self.readAsTheComposerDoes(clip, model: model, picked: picked, log: log, started: started) }
         }
-        await withTaskGroup(of: Void.self) { group in
-            for clip in [first, second] {
-                let src = clip.path, name = clip.lastPathComponent
-                group.addTask { @MainActor in
-                    let info = await Self.ask(model, "video.info", ["src": src])
-                    #expect((info["value"] as? [String: Any])?["width"] as? Int == 1920, "\(info)")
-                    log.posters[name] = ms(started)
-                    let probes = Task { @MainActor in _ = await Self.ask(model, "video.probes", ["src": src]) }
-                    let speech = Task { @MainActor in _ = await Self.ask(model, "video.transcript", ["src": src]) }
-                    await probes.value
-                    let frames = await Self.ask(model, "video.frames", ["src": src, "times": picked])
-                    #expect(((frames["value"] as? [String: Any])?["frames"] as? [Any])?.count == 16, "\(frames)")
-                    await speech.value
-                    log.done[name] = ms(started)
-                }
-            }
-        }
+        for read in reads { await read.value }
         log.running = false
         await ticker.value
         let stalls = log.stalls, posters = log.posters, done = log.done
@@ -658,5 +637,35 @@ struct AgentPaneVideoInfoTests {
         print("BENCH two videos back to back: main-actor longest stall ms \(String(format: "%.1f", longest)), ticks \(stalls.count), posters ms \(posters.values.sorted().map { String(format: "%.0f", $0) }), all reads ms \(done.values.sorted().map { String(format: "%.0f", $0) })")
         #expect(longest < 50, "the main actor stalled \(longest) ms while two videos were read")
         #expect((posters.values.max() ?? .infinity) < (done.values.min() ?? 0), "a poster waited behind the other video's reads")
+    }
+
+    final class BenchLog {
+        var stalls: [Double] = []
+        var running = true
+        var posters: [String: Double] = [:]
+        var done: [String: Double] = [:]
+    }
+
+    private static func ms(since: ContinuousClock.Instant) -> Double {
+        let took = (ContinuousClock.now - since).components
+        return Double(took.seconds) * 1000 + Double(took.attoseconds) / 1e15
+    }
+
+    /// One video's reads as composer/videoAttachments.ts asks them: info (the poster) first, then
+    /// probes and transcript out alongside the 16 picked frames.
+    private static func readAsTheComposerDoes(
+        _ clip: URL, model: AgentPaneModel, picked: [Int], log: BenchLog, started: ContinuousClock.Instant
+    ) async {
+        let src = clip.path, name = clip.lastPathComponent
+        let info = await ask(model, "video.info", ["src": src])
+        #expect((info["value"] as? [String: Any])?["width"] as? Int == 1920, "\(info)")
+        log.posters[name] = ms(since: started)
+        let probes = Task { _ = await ask(model, "video.probes", ["src": src]) }
+        let speech = Task { _ = await ask(model, "video.transcript", ["src": src]) }
+        await probes.value
+        let frames = await ask(model, "video.frames", ["src": src, "times": picked])
+        #expect(((frames["value"] as? [String: Any])?["frames"] as? [Any])?.count == 16, "\(frames)")
+        await speech.value
+        log.done[name] = ms(since: started)
     }
 }
