@@ -474,7 +474,10 @@ impl Hub {
             let (claude_stdio, mut env) = match self.launch_env(&m).await {
                 Some(launch) => launch,
                 None => {
-                    let (claude_stdio, env) = self.harness_env(&m).await;
+                    let (claude_stdio, mut env) = self.harness_env(&m).await;
+                    for (k, v) in self.config.read().await.defaults_for(&m.harness).env {
+                        env.entry(k).or_insert(v);
+                    }
                     (claude_stdio, crate::route_account::spawn_env(&m, env))
                 }
             };
