@@ -50,8 +50,8 @@
           "bytes": 2147483648
         },
         {
-          "family": "ios-simulators",
-          "path": "simctl:unavailable",
+          "family": "xcode-derived-data",
+          "path": "/Users/me/Library/Developer/Xcode/DerivedData/Unreadable",
           "verdict": { "action": "keep", "reason": "its last use could not be read" }
         }
       ],

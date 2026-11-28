@@ -28,10 +28,13 @@ public nonisolated enum CmuxDialogField: Equatable, Sendable {
     /// The steps of a run, one row each: its state's glyph, its name, what it found and how to fix it.
     case steps([CmuxDialogStep])
 
+    /// A scrollable list of title-and-detail rows. Only visible rows have views.
+    case readOnlyList(label: String, rows: [CmuxDialogListRow])
+
     public var id: String? {
         switch self {
         case .text(let id, _, _, _, _), .choice(let id, _, _, _), .check(let id, _, _): id
-        case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps: nil
+        case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps, .readOnlyList: nil
         }
     }
 
@@ -47,6 +50,17 @@ public nonisolated enum CmuxDialogField: Equatable, Sendable {
 
     public static func text(_ id: String, initial: String = "", label: String? = nil, placeholder: String? = nil) -> CmuxDialogField {
         .text(id: id, label: label, initial: initial, placeholder: placeholder, secure: false)
+    }
+}
+
+/// One row of a read-only dialog list.
+public nonisolated struct CmuxDialogListRow: Equatable, Sendable {
+    public var title: String
+    public var detail: String
+
+    public init(title: String, detail: String) {
+        self.title = title
+        self.detail = detail
     }
 }
 

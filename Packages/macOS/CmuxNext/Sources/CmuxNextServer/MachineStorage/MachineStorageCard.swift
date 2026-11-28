@@ -77,9 +77,9 @@ nonisolated enum MachineStorageCard {
         if let auto = (state.report?.autoCleanup) {
             lines.append(MachineStorageStrings.line(MachineStorageStrings.automatic, auto ? MachineStorageStrings.on : MachineStorageStrings.off))
         }
+        var fields: [CmuxDialogField] = []
         if let caches = state.report?.caches, !caches.items.isEmpty {
-            lines.append(MachineStorageStrings.cacheDetails)
-            lines.append(contentsOf: caches.items.map { item in
+            let rows = caches.items.map { item in
                 var details: [String] = []
                 switch item.verdict.action {
                 case "keep": details.append(MachineStorageStrings.cacheKept)
@@ -88,10 +88,10 @@ nonisolated enum MachineStorageCard {
                 }
                 if let size = item.bytes { details.append(bytes(size)) }
                 details.append(item.verdict.reason)
-                return MachineStorageStrings.line(item.path, details.joined(separator: " · "))
-            })
+                return CmuxDialogListRow(title: item.path, detail: details.joined(separator: " · "))
+            }
+            fields.append(.readOnlyList(label: MachineStorageStrings.cacheDetails, rows: rows))
         }
-        var fields: [CmuxDialogField] = []
         switch state.phase {
         case .measuring: fields.append(.progress(MachineStorageStrings.measuring))
         case .cleaning: fields.append(.progress(MachineStorageStrings.cleaning))

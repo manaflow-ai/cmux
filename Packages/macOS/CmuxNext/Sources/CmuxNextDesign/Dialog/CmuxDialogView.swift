@@ -499,7 +499,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             register(check, id: id)
             return [check]
-        case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps:
+        case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps, .readOnlyList:
             return readOnlyFieldViews(field, width: width)
         }
     }
