@@ -526,6 +526,15 @@ try {
           if (said.length > 40) said.shift();
         });
         page.on("pageerror", (error) => said.push(`pageerror: ${String(error).slice(0, 300)}`));
+        // A resource or socket that failed names its URL (a console 404 line does not).
+        page.on("response", (response) => {
+          if (response.status() >= 400) said.push(`http ${response.status()}: ${response.url().slice(0, 200)}`);
+        });
+        page.on("websocket", (socket) => {
+          said.push(`ws open: ${socket.url().slice(0, 80)}`);
+          socket.on("socketerror", (error) => said.push(`ws error: ${String(error).slice(0, 200)}`));
+          socket.on("close", () => said.push("ws closed"));
+        });
         await page.goto(urlFor(index));
         try {
           await page.waitForFunction((text) => document.body.textContent?.includes(text), firstText, {
