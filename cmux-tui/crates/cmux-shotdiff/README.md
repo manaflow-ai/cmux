@@ -80,7 +80,7 @@ re-blessing without `--spec` keeps the golden's spec.
 ## Input keys (mac-golden-cache)
 
 ```sh
-cmux-shotdiff key --inputs .github/golden-inputs.json --family ios-gate --variant iphone [--rev SHA]
+cmux-shotdiff key --inputs .github/golden-inputs.json --family ios-gate --variant iphone [--rev SHA] --extra "ffi=$(python3 -I .github/scripts/ios_link_ffi_key.py --repo . | sed -n "s/^key=//p")"
 # {"schema":"cmux-shotdiff.key/v1","version":"golden-key/v2","family":"ios-gate","variant":"iphone","key":"f419…","files":16482,"rev":"SHA"}
 ```
 

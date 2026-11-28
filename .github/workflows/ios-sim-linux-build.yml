@@ -118,7 +118,7 @@ jobs:
           compression-level: 0
 
   # The goldens are filed by content hash (cmux-shotdiff key, family ios-screen-parity in .github/golden-inputs.json:
-  # the app's sources, the screen list and rig, and this workflow). A key already filed in the goldens cache means a
+  # the app's sources and the Rust crates it links (ios_link_ffi_key.py), the screen list and rig, and this workflow). A key already filed in the goldens cache means a
   # Mac rendered these exact inputs before: this Linux job hands out that render as ios-sim-mac-shots and the fleet
   # Mac is not asked again. A miss, or any failure here, leaves the Mac render to shots-fleet as before.
   parity-key:
@@ -170,8 +170,11 @@ jobs:
           SHA: ${{ steps.ref.outputs.sha }}
         run: |
           set -euo pipefail
+          # The Rust the app links is keyed by what CmuxMobileLinkFFI reaches, not all of cmux-tui/crates.
+          ffi="$(python3 -I .github/scripts/ios_link_ffi_key.py --repo . --rev "$SHA" | sed -n 's/^key=//p')"
+          [[ -n "$ffi" ]] || { echo "::error::no CmuxMobileLinkFFI input key at $SHA"; exit 1; }
           keyjson="$("$CMUX_SHOTDIFF" key --inputs .github/golden-inputs.json --family ios-screen-parity \
-            --variant iphone-17-pro --rev "$SHA")"
+            --variant iphone-17-pro --rev "$SHA" --extra "ffi=$ffi")"
           key="$(jq -r .key <<<"$keyjson")"
           name="golden-ios-screen-parity-iphone-17-pro-$key"
           { echo "key=$key"; echo "name=$name"; } >> "$GITHUB_OUTPUT"

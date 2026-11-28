@@ -137,11 +137,14 @@ impl Family {
         }
     }
 
-    /// The key over `(mode, blob, path)` rows, in the order git lists them.
+    /// The key over `(mode, blob, path)` rows, in the order git lists them, and over `extras`: inputs no path
+    /// names, such as another key over what a build reaches (`--extra ffi=<ios_link_ffi_key.py key>`). No extras
+    /// leaves the key as it was without them.
     pub fn key_over<'r>(
         &self,
         variant: &str,
         rows: impl IntoIterator<Item = (&'r str, &'r str, &'r str)>,
+        extras: &[String],
     ) -> Result<InputKey, String> {
         let mut h = Sha256::new();
         h.update(format!("{KEY_VERSION}\n{}\n{variant}\n{}\n", self.name, self.canonical));
@@ -154,6 +157,14 @@ impl Family {
         }
         if files == 0 {
             return Err(format!("family {}: no file matches its paths", self.name));
+        }
+        let mut extras: Vec<&String> = extras.iter().collect();
+        extras.sort();
+        for e in extras {
+            if e.contains('\n') {
+                return Err(format!("family {}: an extra input holds a newline", self.name));
+            }
+            h.update(format!("extra {e}\n"));
         }
         Ok(InputKey {
             family: self.name.clone(),
@@ -215,10 +226,15 @@ pub fn input_key(
     variant: &str,
     repo: &Path,
     rev: &str,
+    extras: &[String],
 ) -> Result<InputKey, String> {
     let rows = tree_rows(repo, rev)?;
     family
-        .key_over(variant, rows.iter().map(|(m, b, p)| (m.as_str(), b.as_str(), p.as_str())))
+        .key_over(
+            variant,
+            rows.iter().map(|(m, b, p)| (m.as_str(), b.as_str(), p.as_str())),
+            extras,
+        )
         .map_err(|e| format!("{e} at {rev}"))
 }
 
@@ -335,26 +351,37 @@ mod tests {
                 ("100644", "z", "other.rs"),
             ]
         };
-        let a = f.key_over("default", rows("b1", "d1")).unwrap();
+        let a = f.key_over("default", rows("b1", "d1"), &[]).unwrap();
         assert_eq!(a.files, 1);
         assert_eq!(
             a,
-            f.key_over("default", rows("b1", "d2")).unwrap(),
+            f.key_over("default", rows("b1", "d2"), &[]).unwrap(),
             "an excluded file moved the key"
         );
-        assert_ne!(a.key, f.key_over("default", rows("b2", "d1")).unwrap().key);
+        assert_ne!(a.key, f.key_over("default", rows("b2", "d1"), &[]).unwrap().key);
         assert_ne!(
             a.key,
-            f.key_over("other", rows("b1", "d1")).unwrap().key,
+            f.key_over("other", rows("b1", "d1"), &[]).unwrap().key,
             "variant is in the key"
         );
         let g = fam(&["app/**"]);
         assert_ne!(
             a.key,
-            g.key_over("default", rows("b1", "d1")).unwrap().key,
+            g.key_over("default", rows("b1", "d1"), &[]).unwrap().key,
             "the family entry is in the key"
         );
-        assert!(f.key_over("default", vec![("100644", "z", "other.rs")]).is_err());
+        assert!(f.key_over("default", vec![("100644", "z", "other.rs")], &[]).is_err());
+        let ffi = |k: &str| vec![format!("ffi={k}")];
+        let x = f.key_over("default", rows("b1", "d1"), &ffi("k1")).unwrap();
+        assert_ne!(a.key, x.key, "an extra input is in the key");
+        assert_ne!(x.key, f.key_over("default", rows("b1", "d1"), &ffi("k2")).unwrap().key);
+        let two = |p: &str, q: &str| vec![p.to_string(), q.to_string()];
+        assert_eq!(
+            f.key_over("default", rows("b1", "d1"), &two("a=1", "b=2")).unwrap(),
+            f.key_over("default", rows("b1", "d1"), &two("b=2", "a=1")).unwrap(),
+            "extras are keyed in sorted order"
+        );
+        assert!(f.key_over("default", rows("b1", "d1"), &ffi("a\nb")).is_err());
     }
 
     #[test]
