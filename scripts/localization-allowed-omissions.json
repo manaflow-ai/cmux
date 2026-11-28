@@ -8543,5 +8543,48 @@
         ]
       }
     }
+  },
+  "hostPressure.gauge.cpu": {
+    "class": "technical",
+    "source": "CPU",
+    "identityLocales": {
+      "bs": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "da": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "de": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "es": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "fr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "it": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "ja": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "km": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "ko": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "nb": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pl": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pt-BR": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "th": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "tr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "vi": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "zh-Hans": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "zh-Hant": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required."
+    }
+  },
+  "hostPressure.gauge.tokens": {
+    "source": "Tokens",
+    "identityLocales": {
+      "da": "Reviewed native word: model tokens are called Tokens in this language.",
+      "de": "Reviewed native word: model tokens are called Tokens in this language.",
+      "es": "Reviewed native word: model tokens are called Tokens in this language.",
+      "nb": "Reviewed native word: model tokens are called Tokens in this language.",
+      "pt-BR": "Reviewed native word: model tokens are called Tokens in this language."
+    }
+  },
+  "hostPressure.gauge.cache": {
+    "source": "Cache",
+    "identityLocales": {
+      "da": "Reviewed native word: Cache is the established term in this language.",
+      "de": "Reviewed native word: Cache is the established term in this language.",
+      "fr": "Reviewed native word: Cache is the established term in this language.",
+      "it": "Reviewed native word: Cache is the established term in this language.",
+      "pt-BR": "Reviewed native word: Cache is the established term in this language."
+    }
   }
 }

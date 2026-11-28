@@ -213,6 +213,16 @@ struct HostBudgetFormulaTests {
         #expect(HostBudgetVerdict.fromDaemonStatus(Data("not json".utf8)) == nil)
     }
 
+    /// The daemon's gauges (cmux-host-budget `gauges.rs`) decode as Rust words them; an older daemon has none.
+    @Test func theGaugesComeWithTheDaemonsVerdict() {
+        let status = #"{"host_pressure":{"host":"gray","cores":12,"load1":9.6,"load_limit":12,"pressure":"normal","#
+            + #""over":[],"ok":true,"gauges":[{"kind":"cpu","percent":80.0,"level":"warn","detail":"load 9.6 / 12 P-cores"}]}}"#
+        let verdict = HostBudgetVerdict.fromDaemonStatus(Data(status.utf8))
+        #expect(verdict?.gauges == [HostPressureGauge(kind: "cpu", percent: 80, level: "warn", detail: "load 9.6 / 12 P-cores")])
+        let older = #"{"host_pressure":{"host":"gray","cores":12,"load1":3,"load_limit":12,"pressure":"normal","over":[],"ok":true}}"#
+        #expect(HostBudgetVerdict.fromDaemonStatus(Data(older.utf8))?.gauges == nil)
+    }
+
     @Test func anAcpmuxWithoutAVerdictIsAskedRarely() async {
         let asks = Counter()
         let source = LocalHostPressureSource(host: "gray") { await asks.bump(); return nil }

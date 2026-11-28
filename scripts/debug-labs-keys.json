@@ -76,6 +76,7 @@
   "hostPressure.banner": {"case": "keep", "why": "A new dev surface kept off on purpose (cmux#22662); the indicator alone ships first and the banner is unfinished."},
   "hostPressure.enabled": {"case": "keep", "why": "Off on purpose (Lawrence 11-02); the palette's Show Host Pressure Warning turns it on, and off means no timer or reads."},
   "hostPressure.force": {"case": "keep", "why": "A test hook that shows the host pressure indicator at a forced level with sample numbers."},
+  "hostPressure.gauges": {"case": "keep", "why": "A new dev surface kept off on purpose (RFD 0182 B10): three gauge looks for the popover, which is itself off by default, until one is chosen."},
   "hostPressure.style": {"case": "keep", "why": "A look comparison for the host pressure indicator, which is itself off by default; the gauge is the default look."},
   "icons.family": {"case": "keep", "why": "A look comparison between the shipped icon pack and a custom family; the pack default is the chosen one."},
   "launch.markStyle": {"case": "keep", "why": "A look comparison between trace and bloom for the launch mark; bloom is the default."},

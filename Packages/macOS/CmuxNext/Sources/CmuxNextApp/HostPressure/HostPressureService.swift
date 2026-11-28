@@ -177,19 +177,6 @@ final class HostPressureService {
         }
     }
 
-    /// The forced level's numbers: an overloaded 12-core Mac (load 146) at critical, a
-    /// busy-but-fine one at warning. The host is a neutral name, not one of our own machines.
-    static func sample(_ level: HostPressureLevel) -> HostBudgetVerdict {
-        let critical = level == .critical
-        var verdict = HostBudgetVerdict(host: "This Mac", cores: 12, load1: critical ? 146 : 9.6,
-                                        pressure: critical ? .warn : .normal, availableRAMFraction: critical ? 0.04 : 0.31,
-                                        swapMBPerMin: critical ? 410 : 0)
-        verdict.localTurns = critical ? 39 : 14
-        verdict.backgroundProcesses = critical ? 1298 : 212
-        let top = critical
-            ? #"[{"session_id":"s1","name":"app-efficiency","turns":9,"processes":410},{"session_id":"s2","name":"chief-fix","turns":7,"processes":302},{"session_id":"s3","name":"gui-push","turns":5,"processes":188}]"#
-            : #"[{"session_id":"s1","name":"app-efficiency","turns":4,"processes":80},{"session_id":"s2","name":"chief-fix","turns":3,"processes":61}]"#
-        verdict.top = try? JSONDecoder().decode([HostBudgetSession].self, from: Data(top.utf8))
-        return verdict
-    }
+    /// The forced level's numbers (`HostBudgetVerdict.sample`).
+    static func sample(_ level: HostPressureLevel) -> HostBudgetVerdict { .sample(critical: level == .critical) }
 }

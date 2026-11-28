@@ -46,9 +46,12 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
     public var localTurns: Int?
     public var backgroundProcesses: Int?
     public var top: [HostBudgetSession]?
+    /// One gauge per pressure the verdict carries (cmux-host-budget `gauges.rs`, RFD 0182 B10), in
+    /// its order; absent from an older daemon's verdict.
+    public var gauges: [HostPressureGauge]?
 
     enum CodingKeys: String, CodingKey {
-        case host, cores, load1, pressure, over, ok, top, formula
+        case host, cores, load1, pressure, over, ok, top, formula, gauges
         case loadLimit = "load_limit"
         case coresKind = "cores_kind"
         case availableRAMFraction = "available_ram_fraction"
@@ -117,6 +120,25 @@ public struct HostBudgetSession: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case name, turns, processes
         case sessionId = "session_id"
+    }
+}
+
+/// One pressure as a gauge draws it (cmux-host-budget `gauges.rs` `Gauge`): which pressure, a
+/// percent (0 idle, 100 at the limit; a load past its limit passes 100), a level and the numbers
+/// behind it in acpmux's words. Rust computes all of it; the app only draws it.
+public struct HostPressureGauge: Codable, Equatable, Sendable {
+    /// `cpu`, `memory`, `tokens`, `cache` or `mac_slots` (an unknown kind is drawn by its raw name).
+    public var kind: String
+    public var percent: Double
+    /// `normal`, `warn` or `critical`.
+    public var level: String
+    public var detail: String
+
+    public init(kind: String, percent: Double, level: String, detail: String) {
+        self.kind = kind
+        self.percent = percent
+        self.level = level
+        self.detail = detail
     }
 }
 
