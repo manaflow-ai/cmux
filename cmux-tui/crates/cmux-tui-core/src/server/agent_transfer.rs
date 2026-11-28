@@ -49,7 +49,7 @@
 //!   session the tab's store record names, read here without reaching acpmux
 //!   (attaching would mark the chat seen), so a pump can tell the tab still
 //!   shows the chat its recorded move took, and the tab's public id.
-//! - `agent-transfer-begin {surface | tab, interrupt?}` answers `{transfer_id,
+//! - `agent-transfer-begin {surface | tab, interrupt?, at_tool_boundary?}` answers `{transfer_id,
 //!   source_session, tab, manifest}` (`source_session` and `tab` as `agent-transfer-source`). The bundle's `manifest.json` is served without its absolute
 //!   `source` paths, and its `session.json` without the source machine's
 //!   launch settings (env, argv, harness roots, preset, tags; its `cwd`
@@ -132,6 +132,11 @@ pub const AGENT_TRANSFER_CREDENTIALS_CAPABILITY: &str = "agent-transfer-credenti
 /// pump that lost its begin answer can prove the frozen move is its own and end it at once
 /// instead of waiting out the source's lease. An acpmux that keeps no token echoes none.
 pub const AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY: &str = "agent-transfer-begin-token-v1";
+/// `at_tool_boundary` on `agent-transfer-begin`: acpmux refuses `transfer.tool_in_flight`
+/// while a tool call runs (the chat stays unfrozen) and otherwise cuts at the boundary with
+/// the turn continuing on the target, so a pump can wait out a running build instead of
+/// killing it. A daemon without this ignores the field and cuts as `interrupt` says.
+pub const AGENT_TRANSFER_TOOL_BOUNDARY_CAPABILITY: &str = "agent-transfer-tool-boundary-v1";
 /// The move client checks the receiving connection before sending hosted-room credentials.
 pub const AGENT_TRANSFER_SHARES_CAPABILITY: &str = "agent-transfer-shares-v1";
 /// Share records in the daemon manifest, carried only by a share-aware move client.
@@ -488,6 +493,11 @@ struct BeginParams {
     tab: Option<TabPublicId>,
     #[serde(default)]
     interrupt: bool,
+    /// Refuse `transfer.tool_in_flight` while a tool call runs, else cut at
+    /// the boundary and let the turn continue there
+    /// ([`AGENT_TRANSFER_TOOL_BOUNDARY_CAPABILITY`]).
+    #[serde(default)]
+    at_tool_boundary: bool,
     #[serde(default)]
     ask_first: bool,
     /// The pump verifies the receiver can carry room shares before it sends the manifest.
@@ -815,6 +825,7 @@ enum Prepared {
         /// The tab's public id, answered so a pump can name it after a restart.
         tab: Option<String>,
         interrupt: bool,
+        at_tool_boundary: bool,
         ask_first: bool,
         checks_shares: bool,
         begin_token: Option<String>,
@@ -932,6 +943,7 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             surface,
             tab,
             interrupt,
+            at_tool_boundary,
             ask_first,
             checks_shares,
             begin_token,
@@ -955,6 +967,7 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 session,
                 tab,
                 interrupt,
+                at_tool_boundary,
                 ask_first,
                 checks_shares,
                 begin_token,
@@ -1209,6 +1222,7 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
             session,
             tab,
             interrupt,
+            at_tool_boundary,
             ask_first,
             checks_shares,
             begin_token,
@@ -1228,6 +1242,9 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
                 })?;
             let source_session = session.clone();
             let mut params = json!({"sessionId": session, "interrupt": interrupt});
+            if at_tool_boundary {
+                params.insert("atToolBoundary", json!(true));
+            }
             if let Some(token) = begin_token {
                 params.insert("beginToken", json!(token));
             }
