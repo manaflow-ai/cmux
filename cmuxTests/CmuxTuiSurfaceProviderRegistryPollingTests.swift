@@ -357,6 +357,44 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(h.spawner.count == 0)
     }
 
+    /// Verifies that sign-out and Cloud disablement cancel the activation preparation task.
+    @Test("Ending Cloud access cancels activation preparation before it can finish", arguments: [false, true])
+    @MainActor
+    func endingAccessCancelsActivationPreparation(signOut: Bool) async {
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        var enabled = true
+        let h = makeHub {
+            started.resolve(true)
+            _ = await release.result
+            try Task.checkCancellation()
+            return .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
+        }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: h.hub, hostThemeColors: { nil }),
+            wireGuardHub: h.hub,
+            isCloudEnabled: { enabled },
+            allowsBackgroundWork: { true },
+            listPage: { nil },
+            notificationCenter: NotificationCenter()
+        )
+
+        registry.start(catalog: SurfaceCatalog())
+        #expect(await received(started))
+        #expect(registry.activationPreparationTask != nil)
+        if signOut {
+            await registry.accessDidEnd()
+        } else {
+            enabled = false
+            registry.syncPollingToActivationPolicy()
+        }
+        release.resolve(true)
+
+        #expect(registry.activationPreparationTask == nil)
+        #expect(await waitUntilAsync { !(await h.hub.status().running) })
+        await registry.accessDidEnd()
+    }
+
     @MainActor
     private func makeHub(
         enrollment: @escaping @Sendable () async throws -> CloudWireGuardHub.Enrollment
