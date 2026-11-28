@@ -101,8 +101,6 @@ pub struct PathWatch {
     unanswered_since: Option<Instant>,
     /// The outstanding probe that already made this path suspect.
     flagged_probe: Option<u64>,
-    /// An authenticated datagram arrived on the path since its last ping.
-    heard_since_ping: bool,
     /// Routine pings wait until then (`hold_routine`).
     routine_floor: Option<Instant>,
 }
@@ -139,7 +137,6 @@ impl PathWatch {
     /// An authenticated datagram arrived on the path: it is not silent.
     pub fn heard(&mut self) {
         self.unanswered_since = None;
-        self.heard_since_ping = true;
     }
 
     /// Probe at the next step, whatever the interval says: something on
@@ -177,13 +174,10 @@ impl PathWatch {
     }
 
     /// The round trip of probe `id`'s answer, if it is the one outstanding.
-    /// The answer also says the path is not silent. It is the path's own
-    /// probe coming back, not other traffic, so it does not stand in for the
-    /// next routine ping (`skip_proven_ping`).
+    /// The answer also says the path is not silent.
     pub fn answer(&mut self, config: &ProbeConfig, id: u64, now: Instant) -> Option<u64> {
         let rtt_us = config.answer(&mut self.probe, id, now)?;
         self.unanswered_since = None;
-        self.heard_since_ping = false;
         Some(rtt_us)
     }
 
@@ -221,14 +215,8 @@ impl PathWatch {
                 },
             }
         }
-        if current {
-            self.skip_proven_ping(config, view, now);
-        }
         self.wait_for_floor(view, now);
         let step = config.step(&mut self.probe, view, current, next_id, now);
-        if step.ping.is_some() {
-            self.heard_since_ping = false;
-        }
         found.lost = step.lost;
         found.ping = step.ping;
         if step.ping.is_some() && chosen {
@@ -240,33 +228,6 @@ impl PathWatch {
             (a, b) => a.or(b),
         };
         found
-    }
-}
-
-impl PathWatch {
-    /// The current path's routine ping is due, but the path delivered an
-    /// authenticated datagram since its last one: traffic (the link's own
-    /// keepalive and its answer, a key, a frame) already proved it, so the
-    /// ping would only spend a radio wake. It waits another interval, up to
-    /// `other_interval` after the last ping, when one goes anyway to keep
-    /// the round trip current. A ping something asked for (`due_now`: the
-    /// path went quiet, a network change) and a suspect or new path are
-    /// never skipped.
-    fn skip_proven_ping(&mut self, config: &ProbeConfig, view: &PathView, now: Instant) {
-        let probe = &mut self.probe;
-        let routine_due = probe.outstanding.is_none() && probe.next_at.is_some_and(|at| now >= at);
-        if !routine_due || probe.urgent || !self.heard_since_ping || view.state != PathState::Alive
-        {
-            return;
-        }
-        let Some(last) = probe.last_ping else { return };
-        let refresh = last + config.other_interval;
-        if now >= refresh {
-            return;
-        }
-        // A path that later goes quiet under a send is caught by the
-        // silence watch (`unanswered_since`), not by this ping.
-        probe.next_at = Some((now + config.current_interval).min(refresh));
     }
 }
 
@@ -379,26 +340,14 @@ mod tests {
         (watch, id)
     }
 
+    /// Traffic on the current path does not stand in for its routine 5 s
+    /// ping: a direct route that only half works (handshakes come back on
+    /// the relay) is still checked on schedule.
     #[test]
-    fn traffic_on_the_current_path_stands_in_for_its_ping_up_to_the_refresh() {
+    fn traffic_on_the_current_path_does_not_skip_its_routine_ping() {
         let start = Instant::now();
-        let secs = |n| start + Duration::from_secs(n);
         let (mut watch, mut id) = proven(start);
         watch.heard();
-        for at in [5, 10, 15, 20, 25] {
-            assert_eq!(step(&mut watch, &mut id, secs(at)), None, "skipped at {at} s");
-        }
-        assert!(step(&mut watch, &mut id, secs(30)).is_some(), "the round trip refresh");
-    }
-
-    #[test]
-    fn the_answer_to_its_own_ping_does_not_stand_in_for_the_next() {
-        let start = Instant::now();
-        let mut watch = PathWatch::default();
-        let mut id = 0;
-        let ping = step(&mut watch, &mut id, start).expect("the first ping");
-        watch.heard(); // the pong's datagram is heard before it is matched
-        watch.answer(&ProbeConfig::default(), ping, start).expect("answered");
         assert!(step(&mut watch, &mut id, start + Duration::from_secs(5)).is_some());
     }
 
