@@ -37,6 +37,9 @@ Wire rules (the same JSON the hand-written types sent):
   optional schema fields flat (`TYPE.encode(to:)`, as `SpawnOptions` does): the top-level `spreads` names
   each such type's wire fields and its default, and the request sends the ones its schema has through the
   property, placed by `"PROPERTY"` in `order`;
+- `constant: VALUE` on a field sends that fixed value, which the schema's type must accept: alone (or
+  `encode: always`) it is always sent and makes no property; with `encode: if_true` on an optional field
+  it makes a plain `Bool`, false by default, and sends the value only when true;
 - `ungated: REASON` on a request whose schema gates it on a capability emits no `requiredCapability`: the app
   sends it without asking the daemon's capabilities (as the hand-written type did), and the reason is a doc
   line; a request the schema does not gate is refused;
@@ -117,7 +120,12 @@ _SPREAD_KEYS = frozenset({"fields", "default", "doc"})
 # A request property of a hand-written Swift enum (`one_of`): each case carries one optional schema field, and
 # the request sends the field of the case it holds, so exactly one of them goes on the wire.
 _ONE_OF_KEYS = frozenset({"type", "cases", "doc"})
-_FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update", "with", "object"})
+_FIELD_KEYS = frozenset({
+    "name", "type", "doc", "default", "optional", "encode", "update", "with", "object", "constant",
+})
+# What a `constant` field may also say: how it is sent, its Swift name and doc.
+_CONSTANT_KEYS = frozenset({"constant", "encode", "name", "doc"})
+_NO_CONSTANT = object()
 # A request field's nested object (`object`): a struct of the request whose fields follow the request rules.
 _NESTED_KEYS = frozenset({"name", "doc", "order", "fields", "omit"})
 _ENCODE_MODES = {"always": True, "if_present": False}
@@ -130,7 +138,7 @@ WORKSPACE_REF = "workspace"
 _WORKSPACE_REF_WIRE = ("workspace", "key")
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
-_READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional", "lenient", "when", "prefer"}
+_READ_FIELD_KEYS = (_FIELD_KEYS - {"constant"}) | {"default", "optional", "lenient", "when", "prefer"}
 _OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
 _EXTRA_KEYS = frozenset({"type", "default", "doc"})
 DEFAULT_CONFORMANCES = ("Decodable", "Sendable", "Equatable")
@@ -252,11 +260,12 @@ class _Struct:
         out.append(f"{indent}public struct {self.name}: Encodable, Sendable, Equatable {{")
         for item in self.nested:
             out += [*item.lines(inner), ""]
-        for item in self.fields:
+        stored = [item for item in self.fields if item.stored]
+        for item in stored:
             out += _doc(item.doc, inner)
             out.append(f"{inner}public var {item.name}: {item.declared_type}")
-        out += ["", f"{inner}public init({', '.join(item.parameter() for item in self.fields)}) {{"]
-        out += [f"{inner}    self.{item.name} = {item.name}" for item in self.fields]
+        out += ["", f"{inner}public init({', '.join(item.parameter() for item in stored)}) {{"]
+        out += [f"{inner}    self.{item.name} = {item.name}" for item in stored]
         out.append(f"{inner}}}")
         out += ["", f"{inner}enum CodingKeys: String, CodingKey {{"]
         out += [f"{inner}    {key}" for item in self.fields for key in item.coding_keys()]
@@ -303,6 +312,13 @@ class _Field:
     label: str | None = None
     # The Swift expression the init sets this field from (request `init.set`); it is no init parameter.
     assigned: str | None = None
+    # A fixed value (`constant`), as a Swift literal: sent always (no property) or, with if_true, when true.
+    constant: str | None = None
+
+    @property
+    def stored(self) -> bool:
+        """A property of the Swift type (and a parameter of its init); an always-sent constant is neither."""
+        return self.constant is None or self.if_true
 
     @property
     def custom_read(self) -> bool:
@@ -329,8 +345,11 @@ class _Field:
             lines += [f"        case .{case}(let value): try container.encode(value, forKey: .{case})"
                       for case, _ in self.cases]
             return "\n".join([*lines, "        }"])
+        if self.constant is not None and not self.if_true:
+            return f"        try container.encode({self.constant}, forKey: .{_bare(self.name)})"
         if self.if_true:
-            return f"        if {self.name} {{ try container.encode(true, forKey: .{_bare(self.name)}) }}"
+            value = "true" if self.constant is None else self.constant
+            return f"        if {self.name} {{ try container.encode({value}, forKey: .{_bare(self.name)}) }}"
         method = "encode" if self.always_encoded or self.update else "encodeIfPresent"
         line = f"try container.{method}({self.name}, forKey: .{_bare(self.name)})"
         if self.decimal:
@@ -456,6 +475,9 @@ class _Renderer:
             override = _check_keys(
                 f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _FIELD_KEYS
             )
+            if override.get("constant", _NO_CONSTANT) is not _NO_CONSTANT:
+                result.append(self.constant_field(f"{where}.{wire}", wire, spec, override))
+                continue
             if "object" in override:
                 if read or "type" in override or override.get("update") or "encode" in override and override[
                         "encode"] not in _ENCODE_MODES:
@@ -577,6 +599,48 @@ class _Renderer:
                 )
             target.doc.append(f"Sent only with `{_bare(gate.name)}`.")
         return result
+
+    def constant_field(self, where: str, wire: str, spec: Mapping[str, Any], override: Mapping[str, Any]) -> _Field:
+        """The field a `constant` binding makes: a fixed value, always sent or sent when its Bool is true."""
+        if set(override) - _CONSTANT_KEYS or override.get("encode", "always") not in ("always", IF_TRUE):
+            raise BindingError(f"{where}: a constant takes only encode (always or if_true), name and doc")
+        value = override["constant"]
+        if not self.accepts(spec["type"], value):
+            raise BindingError(f"{where}: constant {value!r} is not a value of the schema's type")
+        if_true = override.get("encode") == IF_TRUE
+        if if_true and spec["presence"] == "required":
+            raise BindingError(f"{where}: encode if_true sends the constant only when true; the schema requires it")
+        literal = json.dumps(value)
+        doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
+        if if_true:
+            doc.append(f"Sends `{wire}: {literal}` when true.")
+            if spec.get("capability"):
+                since = f" (protocol {spec['since']})" if spec.get("since") is not None else ""
+                doc.append(f"Needs `{spec['capability']}`{since}; leave it false for a daemon that does not serve it.")
+        return _Field(
+            wire=wire, name=_escaped(override["name"]) if "name" in override else swift_name(wire), swift_type="Bool",
+            optional=False, always_encoded=not if_true, doc=doc, default="false" if if_true else None,
+            if_true=if_true, constant=literal,
+        )
+
+    def accepts(self, expr: Mapping[str, Any], value: Any) -> bool:
+        """Whether the schema type takes this JSON value (a `constant`)."""
+        kind = expr["kind"]
+        if kind == "ref":
+            target = self.ir.types.get(expr["name"])
+            return target is not None and self.accepts(target.get("target", target), value)
+        if kind == "enum":
+            return isinstance(value, str) and value in expr["values"]
+        if kind != "scalar":
+            return False
+        name = expr["name"]
+        if name == "string":
+            return isinstance(value, str)
+        if name == "boolean":
+            return isinstance(value, bool)
+        if name.startswith(("int", "uint")):
+            return isinstance(value, int) and not isinstance(value, bool) and (value >= 0 or name.startswith("int"))
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
 
     def nested_object(self, where: str, wire: str, expr: Mapping[str, Any], binding: Any,
                       nested: list[Any]) -> str:
@@ -794,10 +858,12 @@ class _Renderer:
         by_wire = {item.wire: item for item in fields if not item.init_only}
         for wire, expression in assigned.items():
             item = by_wire.get(wire)
-            if item is None or item.spread is not None or item.cases is not None or wire not in request["fields"]:
+            if (item is None or item.spread is not None or item.cases is not None or item.constant is not None
+                    or wire not in request["fields"]):
                 raise BindingError(f"{command}.init.set.{wire}: set names a field of the request's schema")
             item.assigned = expression
         properties = [item for item in fields if not item.init_only]
+        stored = [item for item in properties if item.stored]
         keyed = [item for item in properties if item.spread is None]
         if len({key for item in keyed for key in item.coding_keys()}) != sum(len(item.coding_keys()) for item in keyed):
             raise BindingError(f"{command}: two fields encode under the same key")
@@ -822,13 +888,13 @@ class _Renderer:
             out.append(f"    public static let requiredCapability: String? = {json.dumps(capability)}")
         for enum in nested:
             out += ["", *enum.lines("    ")]
-        if properties:
+        if stored:
             out.append("")
-        for item in properties:
+        for item in stored:
             out += _doc(item.doc, "    ")
             out.append(f"    public var {item.name}: {item.declared_type}")
-        out += ["", f"    public init({', '.join(item.parameter() for item in fields if item.assigned is None)}) {{"]
-        out += [f"        self.{item.name} = {item.name if item.assigned is None else item.assigned}" for item in properties]
+        out += ["", f"    public init({', '.join(item.parameter() for item in fields if item.assigned is None and item.stored)}) {{"]
+        out += [f"        self.{item.name} = {item.name if item.assigned is None else item.assigned}" for item in stored]
         out.append("    }")
         if keyed:
             out += ["", "    enum CodingKeys: String, CodingKey {"]
