@@ -45,7 +45,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: nightly-next-rollback-drill-${{ github.run_id }}
+  group: nightly-next-rollback-drill
   cancel-in-progress: false
 
 env:
