@@ -27,6 +27,11 @@ use serde_json::{Value, json};
 use super::{MessageWriter, Response, send_response};
 use crate::mux::Mux;
 
+// A sibling file (server/extension_updates.rs), declared here to keep server.rs under its size cap.
+#[cfg(unix)]
+#[path = "extension_updates.rs"]
+mod extension_updates;
+
 #[derive(Deserialize)]
 struct GrantParam {
     scope: String,
@@ -294,6 +299,9 @@ fn reply(
 /// waiting for the first `apps-*` command. Never on the startup path.
 pub fn start_apps_when_ready(mux: &Arc<Mux>) {
     if crate::apps::advertised().is_some() {
+        // Off by default (`updates.checkExtensions`); the thread reads it.
+        #[cfg(unix)]
+        extension_updates::start(mux);
         let mux = mux.clone();
         let _ = spawn_off_startup(move || {
             mux.control_clients.apps.get_or_init(&mux);

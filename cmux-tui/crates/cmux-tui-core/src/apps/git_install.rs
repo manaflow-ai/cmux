@@ -67,6 +67,9 @@ pub(crate) struct GitState {
     pub(super) fetching: Mutex<()>,
     /// One `sources.json` read-modify-write at a time.
     index: Mutex<()>,
+    /// The newer commits the background check found, by app id
+    /// (`update_offers.rs`); `apps.updates.list` lists them.
+    pub(super) offers: Mutex<std::collections::BTreeMap<String, super::community::UpdateRow>>,
     /// The background update check and what it found (`git_updates.rs`).
     pub(super) updates: Mutex<super::git_updates::Updates>,
 }
@@ -175,7 +178,11 @@ impl Supervisor {
                     result => result,
                 }
             }
-            ("apps.updates.list", _) => self.updates_list(&args),
+            ("apps.updates.list", _) => {
+                let community = self.store_call_base(client, op, args.clone(), origin)?;
+                let git = self.updates_list(&args)?;
+                Ok(super::update_offers::merge_update_lists(community, git))
+            }
             ("apps.uninstall", _) => {
                 let result = self.store_call_base(client, op, args, origin)?;
                 if let Some(app) = app.as_deref() {

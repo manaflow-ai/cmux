@@ -344,3 +344,49 @@ fn a_failed_install_keeps_its_card_and_a_retry_with_the_same_key_replays_success
     let conflict = call(&f, "cmux.apps.install", args, Origin::User).unwrap_err();
     assert_eq!(conflict.code, "idempotency.conflict");
 }
+
+/// The background update check (`update_offers.rs`): a newer release of an
+/// installed repository becomes an `apps.updates.list` row and
+/// `apps.update` installs it; nothing installs until then.
+#[test]
+fn the_update_check_offers_a_newer_release_and_apps_update_installs_it() {
+    let f = fixture();
+    let git = with_git(&f);
+    let registry = crate::apps::community::tests::FakeRegistry::with(vec![]);
+    let community =
+        crate::apps::community::Community::new(Some(&f.state), "https://registry.test", registry);
+    assert!(f.supervisor.community.set(community).is_ok());
+    let v1 = app_tarball("octo/hello", "1.0.0", json!({}));
+    git.serve("octo", "hello", A, &[("refs/heads/main", A), ("refs/tags/v1.0.0", A)], &[(A, v1)]);
+    install(&f, "github.com/octo/hello@v1.0.0", "k1").unwrap();
+    assert!(f.supervisor.check_extension_updates_now().is_empty(), "current: no offer");
+
+    let v2 = app_tarball("octo/hello", "1.1.0", json!({}));
+    let refs = [("refs/heads/main", B), ("refs/tags/v1.0.0", A), ("refs/tags/v1.1.0", B)];
+    git.serve("octo", "hello", B, &refs, &[(B, v2)]);
+    let offers = f.supervisor.check_extension_updates_now();
+    let offer = offers.get("octo/hello").expect("an offer for the newer release");
+    assert_eq!(
+        (offer.current_version.as_str(), offer.version.as_str(), offer.commit.as_str()),
+        ("1.0.0", "1.1.0", B)
+    );
+    assert_eq!(offer.install_app, format!("github.com/octo/hello@{B}"));
+    let installed = f.supervisor.inner.lock().unwrap().catalog.git["octo/hello"].commit.clone();
+    assert_eq!(installed, A, "the check only offers");
+
+    let list = call(&f, "cmux.apps.updates.list", json!({}), Origin::Cli).unwrap();
+    assert_eq!(list["updates"].as_array().unwrap().len(), 1);
+    assert_eq!(list["updates"][0]["app"], "octo/hello");
+    assert_eq!(list["updates"][0]["version"], "1.1.0");
+
+    let updated = call(
+        &f,
+        "cmux.apps.update",
+        json!({"app": "octo/hello", "idempotency_key": "u1"}),
+        Origin::User,
+    )
+    .unwrap();
+    assert_eq!(updated["updated"], true);
+    let list = call(&f, "cmux.apps.updates.list", json!({}), Origin::Cli).unwrap();
+    assert_eq!(list["updates"], json!([]), "the moved install drops the offer");
+}

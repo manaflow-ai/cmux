@@ -55,6 +55,10 @@ mod github_gateway;
 #[cfg(unix)]
 mod grants;
 #[cfg(unix)]
+mod update_offers;
+#[cfg(unix)]
+pub(crate) use update_offers::{CHECK_EVERY, FIRST_CHECK_AFTER};
+#[cfg(unix)]
 mod host;
 #[cfg(unix)]
 mod host_ops;
