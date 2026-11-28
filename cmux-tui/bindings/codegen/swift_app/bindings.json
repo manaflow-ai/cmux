@@ -1504,7 +1504,7 @@
       }
     },
     "TabGroups": {
-      "$comment": "close-tab-group and move-tab-group-to-column stay hand-written: the first sends end_terminals only when true, the second encodes its ColumnDropTarget enum as pane or screen.",
+      "$comment": "move-tab-group-to-column stays hand-written: it encodes its ColumnDropTarget enum as pane or screen.",
       "requests": {
         "unsave-tab-group": {
           "name": "UnsaveTabGroupRequest",
@@ -1834,6 +1834,24 @@
             }
           },
           "response": "TabGroupResult"
+        },
+        "close-tab-group": {
+          "name": "CloseTabGroupRequest",
+          "doc": [
+            "Closes every member placement in one commit. Terminal processes keep",
+            "running, as with any closed view, unless `endTerminals` (`batch-close-v1`)",
+            "ends each member terminal left with no tab and not kept in the same",
+            "commit; a linked saved group remains. Result: `{group, closed}`."
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "end_terminals": {
+              "encode": "if_true"
+            }
+          },
+          "response": "TabGroupResult"
         }
       }
     },
@@ -1923,7 +1941,7 @@
       }
     },
     "Tabs": {
-      "$comment": "Hand-written still: close-pane, close-screen and close-tabs (end_terminals is sent only when true), set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), new-frontend-browser-tab, new-remote-terminal-tab and terminal-resources (their inits do work), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
+      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), new-frontend-browser-tab, new-remote-terminal-tab and terminal-resources (their inits do work), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
       "requests": {
         "close-surface": {
           "name": "CloseTabRequest",
@@ -2085,6 +2103,74 @@
         "remote-terminal-snapshot": {
           "name": "RemoteTerminalSnapshotRequest",
           "response": "hand-written"
+        },
+        "close-pane": {
+          "name": "ClosePaneRequest",
+          "doc": [
+            "`endTerminals` (`batch-close-v1`) also ends, in the same commit, each",
+            "terminal whose tabs all close and that is not kept. Sent only when true."
+          ],
+          "order": [
+            "pane",
+            "end_terminals"
+          ],
+          "fields": {
+            "end_terminals": {
+              "encode": "if_true"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "close-screen": {
+          "name": "CloseScreenRequest",
+          "doc": [
+            "`endTerminals` as in `ClosePaneRequest`."
+          ],
+          "order": [
+            "screen",
+            "end_terminals"
+          ],
+          "fields": {
+            "end_terminals": {
+              "encode": "if_true"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "close-tabs": {
+          "name": "CloseTabsRequest",
+          "doc": [
+            "Closes several tabs in one daemon commit (`batch-close-v1`). With",
+            "`endTerminals`, each terminal whose tabs all close ends in that same",
+            "commit, unless it is kept; a terminal still shown elsewhere keeps running."
+          ],
+          "mutation": true,
+          "order": [
+            "surfaces",
+            "end_terminals",
+            "transaction",
+            "mutation",
+            "reason"
+          ],
+          "fields": {
+            "surfaces": {
+              "type": "[SurfaceID]"
+            },
+            "end_terminals": {
+              "encode": "if_true"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "CloseTabsResult"
+        }
+      },
+      "enums": {
+        "CloseReason": {
+          "doc": [
+            "Why `close-tabs` closes its tabs (`close-reason-v1`)."
+          ]
         }
       }
     },
@@ -2212,7 +2298,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: close, create, rename, move and set-metadata (WorkspaceRefFields or fields sent only when true or set), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: close, create and rename (fields sent only with another or only when set, a revision sent as a string), put-blob (its init base64-encodes).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2229,6 +2315,78 @@
             }
           },
           "response": "IconAssetBlob"
+        },
+        "move-workspace": {
+          "name": "MoveWorkspaceRequest",
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "index",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "set-workspace-metadata": {
+          "name": "SetWorkspaceMetadataRequest",
+          "doc": [
+            "Shared color/icon/title (`workspace-metadata-v1`), the sidebar pin",
+            "(`workspace-pin-v1`), and the manual unread mark",
+            "(`notification-mark-unread-v1`), and Keep Awake (`workspace-keep-awake-v1`). Emits `workspace-changed`."
+          ],
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "color",
+            "icon",
+            "title",
+            "pinned",
+            "marked_unread",
+            "keep_awake",
+            "mutation"
+          ],
+          "fields": {
+            "color": {
+              "update": true,
+              "doc": [
+                "Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]`."
+              ]
+            },
+            "icon": {
+              "update": true,
+              "doc": [
+                "SF Symbol name."
+              ]
+            },
+            "title": {
+              "update": true,
+              "doc": [
+                "1-256 characters; overrides `name` for display."
+              ]
+            },
+            "pinned": {
+              "doc": [
+                "Nil leaves the pin unchanged; the field has no clear state."
+              ]
+            },
+            "marked_unread": {
+              "doc": [
+                "Nil leaves the manual unread mark unchanged."
+              ]
+            },
+            "keep_awake": {
+              "doc": [
+                "Nil leaves Keep Awake unchanged."
+              ]
+            }
+          },
+          "response": "WorkspaceMetadataResult"
         }
       }
     },
