@@ -141,7 +141,7 @@ extension CloudStartChat {
             let (choice, refusal): (CloudSetup.Choice, CloudSetup.Refusal?) = origin.readiness.choice.claudeAuth == .team
                 ? (origin.readiness.choice, nil)
                 : await cloud.setup.launchReadiness(for: start.onMachine(machineID), checkMachineLogin: connection == nil)
-            let machineLogin = connection == nil && choice == .claudeMachineLogin
+            let machineLogin = connection == nil && choice == .claudeMachineLogin, teamRoute = connection == nil && choice.claudeAuth == .team // a team route (gateway or shared key) carries its pair with the launch (acpmux `claude_team_route`), so an unrouted machine still starts: no Set up Cloud for a gateway team (probe gui.auto_reply.signed_out)
             if connection == nil, refusal?.family == "claude" || (start.usesMachineLogin && !machineLogin) { throw CloudMachineRoute.NeedsClaudeLogin(machine: machineID) }
             if start.machine != nil || machineLogin {
                 let owned = await CloudMachineLinks(appLink: session.appLink).ownerLink() != nil
@@ -149,13 +149,13 @@ extension CloudStartChat {
                 if !owned, start.machine != nil { throw CloudMove.Failure(message: CloudMoveStrings.noSuchMachine(machineID)) }
             }
             try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: { @MainActor [invocation] in try await CloudWait.startStopped(status: { session.machine.shownStatus }, within: CloudStartSession.connectWait, read: { await session.refresher?($0) }) { do { try await session.resumer?(machineID, CloudHandlers.connectOrigin(for: invocation)) } catch where !CloudMachineRoute.keepsItsError(error) && CloudMachineCreation.proRefusal(error) == nil { throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(CloudStrings.errorText(error)), retry: .move(machineID: machineID)) } }; _ = try await CloudMove.connected(session, invocation) }).prepare(serves: {
-                services.agentTabs.holdsTabs(session.daemon) && (connection == nil || session.daemon.supports(capability))
-            }, carriesConnection: connection != nil,
+                services.agentTabs.holdsTabs(session.daemon) && (connection == nil || session.daemon.supports(capability)) && (!teamRoute || session.daemon.supports(AgentSessionAttachClient.ClaudeAuth.team.capability))
+            }, carriesConnection: connection != nil || teamRoute,
                 family: endpoint ? (start.harness ?? "claude") : CloudSetup.family(of: start.harness),
                 ahead: (cloud.spareReadiness.takeRouteReport(machineID, scope: cloud.account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: machineID)) ?? readAhead).flatMap { session.machine.status == .running && session.machine.pendingChange == nil ? $0 : nil },
                 requiresCredentialCapability: endpoint) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             timeline?.mark("machine.route")
-            return (session, plan, choice.claudeAuth == .team && connection == nil ? .team : nil)
+            return (session, plan, teamRoute ? .team : nil)
         } }
     }
 
