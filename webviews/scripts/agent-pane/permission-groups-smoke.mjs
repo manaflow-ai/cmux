@@ -57,8 +57,7 @@ try {
   await panel.getByRole("button", { name: /Deny/ }).waitFor();
   await page.locator(".acpmux-shell").screenshot({ path: path.join(out, "grouped-light-narrow.png") });
   await panel.getByRole("button", { name: /Deny/ }).click();
-  await page.waitForFunction(() => !!document.querySelector(".acpmux-permission-receipt"));
-  assert.equal(await panel.getByRole("button").count(), 0);
+  await page.waitForFunction(() => !document.querySelector(".acpmux-permission-panel"));
   assert.deepEqual(errors, []);
   console.log("Grouped permissions browser fixture: expand, allow chat, revoke, deny and narrow layout passed.");
   console.log(out);

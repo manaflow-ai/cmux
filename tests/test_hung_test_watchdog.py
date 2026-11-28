@@ -162,6 +162,17 @@ class TestProgressParserTests(unittest.TestCase):
             "while running -[BonsplitTests.BonsplitTests testHangs]",
         )
 
+    def test_xcodebuild_simulator_case_lines_are_progress(self) -> None:
+        # xcodebuild's own line per Swift Testing test on a simulator (not -quiet), lower-case "case".
+        progress = watchdog.TestProgress(clock=lambda: 0.0)
+        progress.feed("Testing started")
+        self.assertFalse(progress.testing)
+        progress.feed("Test case 'LinkRecoveryTests/resume()' passed on 'iPhone 17 Pro - CmuxMobileKit-Package (4121)' (0.2 seconds)")
+        progress.feed("Test case 'PairingRetryTests/retries()' failed on 'iPhone 17 Pro' (1.5 seconds)")
+        self.assertTrue(progress.testing)
+        self.assertEqual(progress.events, 2)
+        self.assertEqual(progress.in_flight().xctest_cases, [])
+
     def test_nothing_in_flight_names_the_last_output(self) -> None:
         state = progress_after("""
             [882/884] Compiling CmuxMobileShell Shell.swift
@@ -479,6 +490,26 @@ class WatchdogProcessTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stdout)
         self.assertNotIn("made no progress", completed.stdout)
+
+    def test_a_runner_outside_the_tree_is_sampled_first_and_left_alone(self) -> None:
+        # A simulator test runner is launchd_sim's child, not the command's (cmux#59376 run 46185679058).
+        runner = self.temp / "sim-runner-xctest"
+        os.symlink(shutil.which("sleep"), runner)
+        outside = subprocess.Popen([str(runner), "600"], start_new_session=True)
+        self.addCleanup(outside.wait)
+        self.addCleanup(outside.kill)
+        calls = self.install_fake_sample()
+        completed = self.watchdog(
+            "--silence-seconds", "1", "--sample-also", "sim-runner-xctest",
+            command=fake_test_command("""
+                import signal
+                print("◇ Test stuck() started.")
+                signal.pause()
+            """),
+        )
+        self.assertEqual(completed.returncode, 124, completed.stdout)
+        self.assertEqual(calls.read_text(encoding="utf-8").split()[0], str(outside.pid))
+        self.assertIsNone(outside.poll(), "the watchdog killed a process outside its command")
 
     def test_missing_sampler_is_reported_not_fatal(self) -> None:
         self.env["PATH"] = os.pathsep.join(

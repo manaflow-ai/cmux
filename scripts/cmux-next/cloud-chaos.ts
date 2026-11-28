@@ -485,6 +485,23 @@ export class ChatClient {
   private reattaching = false;
   /** Each re-attach's tries: when each failed (and why) and when one took, epoch ms, for a fault's timeline. */
   reattachLog: { at: number; text: string }[] = [];
+  /**
+   * The open-and-start's own split, ms each, in order: dial (the client's carrier connect), identify, workspace, tab,
+   * start (`agent-session-start`), attach. The journey's "start agent" step reports it, so M3's number names its cost.
+   */
+  phases: Array<[string, number]> = [];
+  private async phase<T>(name: string, run: () => Promise<T>): Promise<T> {
+    const at = Date.now();
+    try {
+      return await run();
+    } finally {
+      this.phases.push([name, Date.now() - at]);
+    }
+  }
+  /** `phases` as one detail clause: `dial 1602, identify 40, ... ms`, or "" before any. */
+  phaseLine(): string {
+    return this.phases.length ? `phases: ${this.phases.map(([n, ms]) => `${n} ${ms}`).join(", ")} ms` : "";
+  }
   readonly dial: DialLike;
   private ready: Promise<void>;
   private readyNow!: () => void;
@@ -514,19 +531,21 @@ export class ChatClient {
     const session = reply?.ok === true ? String(reply?.data?.session ?? "") : "";
     if (!session) return reply;
     this.session = session;
-    await this.attach(undefined);
+    await this.phase("attach", () => this.attach(undefined));
     return reply;
   }
 
   /** Dial and make the chat tab for `harness`, as the app does for a new Cloud chat, before any start. */
   async openTab(harness: string): Promise<void> {
-    this.dial.start();
-    await Promise.race([this.ready, sleep(90_000).then(() => { throw new Error("the client's dial never connected"); })]);
-    const id = answerOf(await this.dial.request({ cmd: "identify" }));
+    await this.phase("dial", async () => {
+      this.dial.start();
+      await Promise.race([this.ready, sleep(90_000).then(() => { throw new Error("the client's dial never connected"); })]);
+    });
+    const id = answerOf(await this.phase("identify", () => this.dial.request({ cmd: "identify" })));
     const registry = String(id.registry_id ?? "");
     if (!registry) throw new Error(`identify names no registry_id: ${JSON.stringify(id).slice(0, 200)}`);
-    const ws = answerOf(await this.dial.request({ cmd: "create-workspace", name: `chaos ${this.ctx.tag}` }));
-    const tab = answerOf(await this.dial.request({ cmd: "new-conversation-tab", workspace: ws.workspace, agent_session: { host: `registry:${registry}`, harness } }));
+    const ws = answerOf(await this.phase("workspace", () => this.dial.request({ cmd: "create-workspace", name: `chaos ${this.ctx.tag}` })));
+    const tab = answerOf(await this.phase("tab", () => this.dial.request({ cmd: "new-conversation-tab", workspace: ws.workspace, agent_session: { host: `registry:${registry}`, harness } })));
     if (typeof tab.surface !== "number") throw new Error(`new-conversation-tab gave no surface: ${JSON.stringify(tab).slice(0, 200)}`);
     this.surface = tab.surface;
     this.tab = typeof tab.tab_resource_id === "string" ? tab.tab_resource_id : "";
@@ -540,7 +559,7 @@ export class ChatClient {
   async start(harness: string): Promise<any> {
     if (this.surface === null) throw new Error("start before openTab");
     const credentials = this.ctx.credentials ? { credentials: this.ctx.credentials } : {};
-    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner", ...credentials }, 120_000);
+    return this.phase("start", () => this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner", ...credentials }, 120_000));
   }
 
   /**

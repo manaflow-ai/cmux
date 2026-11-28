@@ -615,7 +615,17 @@ class WorkflowTest(unittest.TestCase):
         # A pass on the same inputs (ios-fast-runner's reuse lookup) skips the Mac.
         self.assertEqual(job["if"], "${{ needs.ios-fast-runner.outputs.run == 'true' && needs.ios-fast-runner.outputs.reused != 'true' }}")
         self.assertIn("needs.ios-fast-runner.outputs.runs_on", job["runs-on"])
-        self.assertIs(job["steps"][0]["with"]["clean"], False)
+        owned = next(s for s in job["steps"] if s.get("name") == "Checkout the merge commit")
+        self.assertIs(owned["with"]["clean"], False)
+        # A hosted Mac starts empty: it fetches blobless and leaves out only the verify/ proof media (47 of 54 s
+        # was the fetch, run 46185444100); an owned Mac's reused workspace keeps the full checkout.
+        hosted = job["steps"][0]
+        self.assertIn("hosted Mac", hosted["name"])
+        self.assertIn("startsWith(runner.name, 'blacksmith')", hosted["if"])
+        self.assertIn("CI_IOS_FAST_SPARSE_CHECKOUT", hosted["if"])
+        self.assertEqual(owned["if"], "${{ !(" + hosted["if"][4:-3] + ") }}")
+        self.assertEqual(hosted["with"]["filter"], "blob:none")
+        self.assertEqual(hosted["with"]["sparse-checkout"].split(), ["/*", "!/cmux-next-ios/verify/"])
         names = [s.get("name") for s in job["steps"]]
         run = next(s for s in job["steps"] if "ios_fast_verdict.sh" in s.get("run", ""))
         # owned_pool_rescue.py reads "Select Xcode" by name; the run needs the selected Xcode.
@@ -708,12 +718,25 @@ class WorkflowTest(unittest.TestCase):
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)
 
     def test_the_kit_tests_are_bounded(self) -> None:
-        # Run 46154061623: a hung kit test held the verdict 1962 s, to near the job's 40 min ceiling.
+        # A hung kit test is named by the stall window; the total bound is a backstop under the job's ceiling.
         text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
         run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
         self.assertIn("hung_test_watchdog.py", run)
-        self.assertIn('--timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}"', run)
+        self.assertIn('--stall-seconds "${IOS_FAST_TEST_STALL_SECONDS:-300}"', run)
+        self.assertIn('--timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-2100}"', run)
         self.assertLess(run.index("hung_test_watchdog.py"), run.index("xcodebuild test-without-building"))
+
+    def test_the_watchdog_sees_each_test(self) -> None:
+        # Runs 46183201681 and 46183241499 (cmux#65273, two Macs): with -quiet the watchdog saw only "Testing started",
+        # and the 900 s total killed CmuxMobileLiveTests (1962 s healthy, run 46154061623) as "no test was in flight".
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        line = run[run.index("xcodebuild test-without-building"):].split("\n", 1)[0]
+        self.assertNotIn('"${common[@]}"', line)
+        self.assertIn('"${test_common[@]}"', line)
+        self.assertIn('[[ "$arg" == -quiet ]] || test_common+=("$arg")', run)
+        # The total bound fits under the job's ceiling with the setup and the kit build before it.
+        self.assertLess(2100 + 300, self.jobs["ios-fast"]["timeout-minutes"] * 60 + 1)
 
     def test_the_kit_build_is_outside_the_test_bound(self) -> None:
         # cmux#59376 run 46168068598: the bound covered the build too; the kit was still compiling at 900 s.
@@ -722,6 +745,17 @@ class WorkflowTest(unittest.TestCase):
         self.assertLess(run.index("xcodebuild build-for-testing"), run.index("hung_test_watchdog.py"))
         self.assertNotIn("xcodebuild test \"", run)
 
+
+    def test_the_kit_test_run_streams_so_a_hang_is_named(self) -> None:
+        # cmux#59376 run 46185679058: -quiet left the watchdog "Testing started" only, 15 min, no test named.
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        test_run = run[run.index("hung_test_watchdog.py"):]
+        self.assertIn('"${test_common[@]}"', test_run)
+        self.assertNotIn('"${common[@]}"', test_run)
+        self.assertIn('[[ "$arg" == -quiet ]] ||', run)
+        self.assertIn("--stall-seconds", test_run)
+        self.assertIn("--sample-also", test_run)
 
 if __name__ == "__main__":
     unittest.main()

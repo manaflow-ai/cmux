@@ -233,7 +233,6 @@ test("a pending edit's approval shows the file's change without Expand details",
     root!.render(
       <PermissionPanel
         state={state}
-        working
         onRespond={() => {}}
         onRetry={() => {}}
         onRevoke={() => {}}
@@ -284,7 +283,6 @@ test("a long edit awaiting approval shows whole, never cut to a preview", async 
     root!.render(
       <PermissionPanel
         state={{ ...state, groups: [longGroup] }}
-        working
         onRespond={() => {}}
         onRetry={() => {}}
         onRevoke={() => {}}
@@ -314,7 +312,6 @@ async function renderAsk(toolCall: Record<string, unknown>, grouped: boolean, v2
       root!.render(
         <PermissionPanel
           state={{ ...state, groups: [{ ...group, items: [{ ...group.items[0]!, request }] }] }}
-          working
           onRespond={() => {}}
           onRetry={() => {}}
           onRevoke={() => {}}

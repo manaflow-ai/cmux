@@ -103,18 +103,6 @@ const subagentState = (summary?: string): PermissionClientState => ({
   ],
 });
 
-const resolvedState: PermissionClientState = {
-  ...baseState,
-  groups: [
-    {
-      ...pendingGroup,
-      state: "resolved",
-      decision: "allow_once",
-      items: pendingGroup.items.map((item) => ({ ...item, state: "resolved" })),
-    },
-  ],
-};
-
 const collectingState: PermissionClientState = {
   ...baseState,
   groups: [{ ...pendingGroup, state: "collecting" }],
@@ -159,7 +147,7 @@ const uncertainState: PermissionClientState = {
   uncertain: true,
 };
 
-function GalleryPermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh, askStyle }: Props) {
+function GalleryPermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh, askStyle }: Props) {
   const [action, setAction] = useState<string>();
   return (
     // Inside the shell and the pane's asks stack, as in the pane: the shell defines the card's edge
@@ -171,7 +159,6 @@ function GalleryPermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
         <div className="acpmux-permission acpmux-asks-stack">
           <PermissionPanel
             state={state}
-            working={working}
             onRespond={(groupId, revision, decision) => {
               setAction(decision);
               onRespond(groupId, revision, decision);
@@ -208,11 +195,6 @@ const allowOnce: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="allow_once"]'));
 };
 
-const openReceipt: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-permission-receipt > summary" });
-  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-permission-receipt[open]")));
-};
-
 /// A chat-wide allowance alone draws no card: its Revoke lives in Session Info's Environment
 /// (inspector/EnvironmentSection.tsx). The panel still answers the Revoke menu action, which
 /// the app relays as `cmux-acpmux-permissionRevoke`.
@@ -238,9 +220,7 @@ const retryUncertain: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="retry"]'));
 };
 
-// Each state is drawn during the turn that asked: an answered group's receipt leaves with its turn.
-const callbacks: Pick<Props, "working" | "onRespond" | "onRetry" | "onRevoke" | "onRefresh"> = {
-  working: true,
+const callbacks: Pick<Props, "onRespond" | "onRetry" | "onRevoke" | "onRefresh"> = {
   onRespond: () => undefined,
   onRetry: () => undefined,
   onRevoke: () => undefined,
@@ -371,11 +351,6 @@ export default componentEntry<Props>({
     collecting: {
       note: "A batching group announces that requests are still being collected.",
       props: { state: collectingState, ...callbacks },
-    },
-    receipt: {
-      note: "A resolved group remains available as a compact, expandable receipt.",
-      props: { state: resolvedState, ...callbacks },
-      play: openReceipt,
     },
     allowance: {
       note: "A chat-wide allowance draws no card (its remove is in the composer's access menu); the Revoke menu action still revokes it.",

@@ -67,6 +67,7 @@ fn quick() -> RelayOptions {
         max_in_flight: 4,
         on_reconnect: None,
         capacity_every: None,
+        ..RelayOptions::default()
     }
 }
 

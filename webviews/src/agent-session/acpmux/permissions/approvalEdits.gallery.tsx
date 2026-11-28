@@ -87,7 +87,6 @@ function ApprovalEdits({ grouped, long, multiple }: Props) {
                   },
                 ],
               }}
-              working
               onRespond={() => {}}
               onRetry={() => {}}
               onRevoke={() => {}}

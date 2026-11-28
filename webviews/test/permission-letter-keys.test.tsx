@@ -273,7 +273,6 @@ test("the grouped permission panel answers y, a and n as the card does, never fr
     root.render(
       <PermissionPanel
         state={state}
-        working
         onRespond={(_group, _revision, decision) => responses.push(decision)}
         onRetry={() => {}}
         onRevoke={() => {}}
