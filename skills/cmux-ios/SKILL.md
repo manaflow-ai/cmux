@@ -36,6 +36,18 @@ refuses and `swap` is the live route.
 - CmuxMobileKit's tests run in `.github/workflows/cmux-next-ios-kit.yml`. They run with no label on a PR into `feat-cmux-next` that touches the kit or a package it links, and skip a tree that already passed. The Mac-to-iPhone gate is `.github/workflows/ios-e2e.yml`: its tailnet jobs skip on PRs while the repo variable `IOS_E2E_PR_TAILNET` isn't `true`, and a dispatch runs them.
 - A Mac build proves neither an iOS compile nor an install. Report Mac, simulator and iPhone results separately.
 
+## Prove a fix: FlowSuite
+
+- Before you call an iOS change done, run `cmux ios verify` on the pushed head. It runs the
+  [FlowSuite](../../cmux-next-ios/FlowSuite/README.md) flows your diff can affect, diffs their screenshots
+  against the base, and posts the proof the `cmux/ios-fast` gate needs. The steps, and the route without
+  fleet access, are in [cmux-next-ios/CLAUDE.md](../../cmux-next-ios/CLAUDE.md), "Prove an iOS fix".
+- Open the before and after screenshots of the screen you changed and put them in the PR. A green run you
+  never looked at is not a fix (Leo, 2026-11-27: "i think even y'all didnt even look at sceenshots for those").
+- An iOS regression fix adds its flow in the same PR: a test that fails on the broken build, a `flows.json`
+  entry with `source: regression:N`, and a table row. From then on every PR that touches those paths runs it.
+- What still needs a person, and why: [FlowSuite/CHECKLIST.md](../../cmux-next-ios/FlowSuite/CHECKLIST.md).
+
 ## Logic in Rust
 
 - New logic goes in Rust: `cmux-next-ios/rust` (see its README for `cargo test`, clippy and fmt) or the `cmux-tui` crates it uses. Swift is the UI and the glue.
@@ -75,3 +87,15 @@ refuses and `swap` is the live route.
   - `iOS-hold: proven` with a test that fails without the change, the flow shown in a simulator or on a device, an `## Implications` section, and a SHIP review at the head confirming them.
   - A screen-sharing PR touching no screen-sharing path: `iPhone-tested: <device> at <head sha> <capture url>`.
 - A change that flips a default stays with Leo.
+
+## Lessons from reverts (2026-11-27)
+
+Lawrence's phone recording (blank terminal tabs, a linked Mac reading offline, a stale "cmux not answering") traced back to these patterns. Each one is a rule now:
+
+- **A default flip ships behind a flag and is tried on a real phone first.** #57025 flipped TUI scrolling for every phone and #60338 had to revert it. Land the new behavior default-off (like #61836's `CMUX_MOBILE_VIEWPORT_DATAGRAM_START`), then flip it in its own PR with `iPhone-tested:` evidence.
+- **Connection, transport and presence changes carry a recorded network run.** A PR that touches `CmuxMobileTransport`, `cmux-mobile-link*`, `cmux-mobile-host`, or the presence and failure logic in `LiveCoordinator`/`AppStore` links a simulator run under network conditions (the `ios-network-conditions` profiles) that covers the path it changes: Wi-Fi with a secondary cellular route (the case #61665 changed), plus one relay-only run. The simulator has the network conditions this needs; unit tests alone don't count. A real iPhone isn't required.
+- **Search open PRs before you start a lane.** `gh pr list --state open --search '<area words>'` first. #62641, #62666 and #62797 all fixed "linked Mac reads offline". When one already exists, add to it or close yours.
+- **A real failure found in a PR stops the merge or gets an issue.** If a PR's own text says a red test "looks like a real regression" (#61760 on the composer typing cap), file it and link it before merging. Don't just list it under "left as is".
+- **Quiet-state rules keep the way out.** Hiding connection text ("a reattach says nothing") can't hide the recovery. Every change to `quietLine`/`quietStatus` keeps a test that an outage past the quiet bound still shows Retry or Reconnect. #61760 found `offersReconnect` dead for every reattach.
+- **Stale errors clear on fresh data.** Any failure state set by a deadline (for example `serviceDown` from `armWorkspacesDeadline`) is cleared by the next successful payload, with a test (see #62661).
+- **WIP and auto-checkpoint PRs never merge.** Titles starting with `WIP:` or `probe:`, or bodies with "do not merge" or "do not land", are closed or finished. Never land one as is.

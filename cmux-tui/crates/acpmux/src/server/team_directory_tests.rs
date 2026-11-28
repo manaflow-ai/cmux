@@ -267,6 +267,7 @@ fn surfaces_scale() -> TeamView {
         integrations: Vec::new(),
         policy: Grants::all(),
         customization: BTreeMap::new(),
+        admins: Vec::new(),
     }];
     view.unread = threads.iter().step_by(4).map(|t| (t.id.clone(), 1)).collect();
     view.spaces = spaces;
@@ -321,4 +322,129 @@ async fn directory_rpcs_at_surfaces_scale() {
             took.len()
         );
     }
+}
+
+// RFD 0170 phase 4: customization and `Open in cmux` (`team_settings.rs`).
+
+#[tokio::test]
+async fn settings_rpcs_are_gated_by_team_messaging() {
+    let hub = seeded(false);
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    for m in [method::MUX_TEAM_CUSTOMIZATION, method::MUX_TEAM_CUSTOMIZE, method::MUX_TEAM_HANDOFF]
+    {
+        let refused = owner.call(m, json!({})).await;
+        assert_eq!(refused["error"]["data"]["reason"], "team_messaging_disabled", "{refused}");
+    }
+}
+
+#[tokio::test]
+async fn a_person_sets_their_own_choices_and_the_page_answers_them() {
+    let hub = seeded(true);
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    let page = owner.call(method::MUX_TEAM_CUSTOMIZATION, json!({})).await;
+    let page = &page["result"];
+    assert_eq!(page["teamId"], TEAM, "{page}");
+    assert_eq!(page["canEditPerson"], true);
+    assert_eq!(page["canEditTeam"], false, "the book's team names no admins");
+    assert_eq!(page["spaces"][0]["id"], format!("team:{TEAM}"));
+
+    let label = json!({"agentLabels": {(format!("agent:{OTHER}")): "Reviewer"}, "notify": "muted"});
+    let set = owner
+        .call(method::MUX_TEAM_CUSTOMIZE, json!({"scope": "person", "customization": label}))
+        .await;
+    let set = &set["result"];
+    assert_eq!(set["effective"]["notify"], "muted", "{set}");
+    let other = set["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == format!("agent:{OTHER}"))
+        .unwrap_or_else(|| panic!("{set}"));
+    assert_eq!(other["shownAs"], "Reviewer (@reviewer)", "{other}");
+
+    // The team's choices are its admins'.
+    let team =
+        owner.call(method::MUX_TEAM_CUSTOMIZE, json!({"scope": "team", "customization": {}})).await;
+    assert_eq!(team["error"]["data"]["reason"], "customization_not_admin", "{team}");
+    // Nothing about access changed: the directory answers as before.
+    let nav = owner.call(method::MUX_TEAM_NAVIGATOR, json!({})).await;
+    assert_eq!(nav["result"]["generation"], 1, "{nav}");
+}
+
+#[tokio::test]
+async fn an_agent_reads_its_owners_choices_and_never_writes() {
+    let hub = seeded(true);
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    let muted = json!({"scope": "person", "customization": {"notify": "digest"}});
+    assert!(owner.call(method::MUX_TEAM_CUSTOMIZE, muted).await.get("error").is_none());
+    let mut agent = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let page = agent.call(method::MUX_TEAM_CUSTOMIZATION, json!({})).await;
+    assert_eq!(page["result"]["effective"]["notify"], "digest", "{page}");
+    assert_eq!(page["result"]["canEditPerson"], false);
+    let write = agent
+        .call(method::MUX_TEAM_CUSTOMIZE, json!({"scope": "person", "customization": {}}))
+        .await;
+    assert_eq!(write["error"]["data"]["reason"], "customization_person_only", "{write}");
+    let bind = agent
+        .call(
+            method::MUX_TEAM_HANDOFF,
+            json!({"op": "bind", "slack": {"kind": "slackThread", "source": "slack", "id": "T/C/1.0"},
+                   "thread": {"kind": "thread", "source": "cmux", "id": "t1"}}),
+        )
+        .await;
+    assert!(bind.get("error").is_some(), "{bind}");
+}
+
+#[tokio::test]
+async fn open_in_cmux_resolves_an_unbound_slack_thread_and_skips_cmux_echoes() {
+    let hub = seeded(true);
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    let msg = json!({"workspace": "T1", "channel": "C1", "ts": "1.0"});
+    let open = owner.call(method::MUX_TEAM_HANDOFF, json!({"message": msg})).await;
+    assert_eq!(open["result"]["handoff"], "unbound", "{open}");
+    let echo = json!({"workspace": "T1", "channel": "C1", "ts": "2.0", "threadTs": "1.0", "origin": "cmux"});
+    let open = owner.call(method::MUX_TEAM_HANDOFF, json!({"message": echo})).await;
+    assert_eq!(open["result"]["handoff"], "echo", "{open}");
+    let bad = owner.call(method::MUX_TEAM_HANDOFF, json!({"op": "delete"})).await;
+    assert_eq!(bad["error"]["code"], -32602, "{bad}");
+}
+
+/// The settings page through the RPC: bytes and latency at the surfaces scale.
+/// `cargo test --release -p acpmux settings_page_at_surfaces_scale -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "duress measurement; run in release"]
+async fn settings_page_at_surfaces_scale() {
+    let (hub, _) = setup(true);
+    hub.set_team_view(surfaces_scale());
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    let pins: Vec<String> = (0..64).map(|i| format!("space{}", i * 3)).collect();
+    let set = owner
+        .call(
+            method::MUX_TEAM_CUSTOMIZE,
+            json!({"scope": "person", "customization": {"spacesFirst": pins, "composeMode": "wake"}}),
+        )
+        .await;
+    assert!(set.get("error").is_none(), "{set}");
+    let mut took = Vec::new();
+    let mut bytes = 0;
+    for i in 0..420 {
+        let t = Instant::now();
+        let reply = owner.call(method::MUX_TEAM_CUSTOMIZATION, json!({})).await;
+        let d = t.elapsed();
+        assert!(reply.get("error").is_none(), "{reply}");
+        if i >= 20 {
+            took.push(d);
+            bytes = serde_json::to_vec(&reply["result"]).unwrap().len();
+        }
+    }
+    took.sort();
+    eprintln!(
+        "{}: {bytes} bytes, p50 {:?} p95 {:?} p99 {:?} max {:?} (n={})",
+        method::MUX_TEAM_CUSTOMIZATION,
+        percentile(&took, 0.50),
+        percentile(&took, 0.95),
+        percentile(&took, 0.99),
+        took.last().unwrap(),
+        took.len()
+    );
 }
