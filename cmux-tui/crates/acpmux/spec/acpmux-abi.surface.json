@@ -28842,6 +28842,24 @@
         "nullable": true
       }
     },
+    "request:_acpmux/team/customization": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/customize": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/handoff": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/team/inbox": {
       "/*untyped*": {
         "ty": "json",
@@ -40824,6 +40842,24 @@
       }
     },
     "response:_acpmux/team/ack": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/customization": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/customize": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/handoff": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
