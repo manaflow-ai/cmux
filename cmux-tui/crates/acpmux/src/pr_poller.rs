@@ -806,9 +806,14 @@ impl Default for GhFetch {
 /// The lane VM broker's client, in `~/.local/bin` (`cli/send_relay.rs` finds it off PATH).
 const BROKER: &str = "lane-gh";
 
-/// `gh`'s answer when it has no login here (or is not here at all).
+/// `gh`'s answer when it has no login here (or is not here at all), or when this machine's `gh` is
+/// the lane VM broker's own client, which refuses the conditional `--include -H If-None-Match`
+/// form ("gh api takes one path here") before sending anything. Before, `acpmux gh-read` failed
+/// every read on a lane VM with that refusal (fs-agent-lane-13, 2026-11-28).
 fn no_login(said: &str) -> bool {
-    said.contains("gh auth login") || said.contains("gh is not installed")
+    said.contains("gh auth login")
+        || said.contains("gh is not installed")
+        || said.contains("publishes through the broker")
 }
 
 /// `repos/OWNER/REPO/REST?QUERY` as the broker's `OWNER/REPO`, `REST` and query map.
