@@ -104,3 +104,21 @@ async fn a_socket_that_never_opens_ends_with_no_code() {
     assert_eq!(last["closed"], Value::Null);
     assert!(last["error"].is_string());
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the watch secret rides only in
+/// the upgrade's `Sec-WebSocket-Protocol`, never in its target or another header.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::cloud_pair_invite_watch`.
+#[tokio::test]
+async fn seeded_watch_secret_rides_only_in_the_subprotocol() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let secret = "SEEDpairWatchSecret-5b71";
+    let api = cmux_cloud_environment::PRODUCTION_API;
+    // The capture server keeps the upgrade and answers `200`: the connect fails after it was seen.
+    let _ = watch(&input(api, "ABCDE12345", secret), &mut |_| {}).await;
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(!sent.is_empty(), "the upgrade reached the capture server");
+    let places = cmux_egress::capture::leaks(secret);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header sec-websocket-protocol")), "{places:?}");
+}

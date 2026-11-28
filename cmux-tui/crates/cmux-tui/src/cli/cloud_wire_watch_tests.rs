@@ -139,3 +139,30 @@ async fn a_refused_ticket_opens_no_socket() {
     assert_eq!(last["error"], "Cloud wire ticket response");
     server.await.unwrap();
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the person's access token rides only
+/// in the ticket mint's `Authorization`, and the team never rides in a target or body.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::cloud_wire_watch`.
+#[tokio::test]
+async fn seeded_access_token_rides_only_in_the_ticket_mints_authorization() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let access = "SEEDwireAccess-c3a9";
+    let team = "SEEDwireTeam-7e02";
+    let request = json!({
+        "api": cmux_cloud_environment::PRODUCTION_API,
+        "access": access,
+        "team": team,
+    })
+    .to_string()
+    .into_bytes();
+    // The capture server answers the mint `200 {}`: no ticket, so no socket opens.
+    let _ = watch(&request, &mut |_| {}).await;
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(!sent.is_empty(), "the mint reached the capture server");
+    let places = cmux_egress::capture::leaks(access);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(team);
+    assert!(places.iter().all(|p| p.ends_with(": header sec-websocket-protocol")), "{places:?}");
+}

@@ -13,7 +13,11 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 const FIELDS: &str =
     "number,url,title,state,isDraft,headRefOid,reviewDecision,mergeable,statusCheckRollup";
+/// How much fetched context (failing log tails, review threads) one action's prompt carries. It
+/// refuses nothing: past it the prompt keeps what fits and says what it left out, and the action runs.
 const PROMPT_LIMIT: usize = 64 * 1024;
+const OMITTED: &str =
+    "\n[The rest of the context is left out: it passes this prompt's 64 KiB budget. Read it with gh.]\n";
 
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or_default()
@@ -122,15 +126,37 @@ fn job_id(url: &str, repo: &str) -> Option<u64> {
     job.parse::<u64>().ok().filter(|n| *n > 0)
 }
 
-fn append(prompt: &mut String, part: &str) -> Result<(), RpcError> {
-    if prompt.len() + part.len() > PROMPT_LIMIT {
-        return Err(error(
-            "pr.context_too_large",
-            "The review or log context exceeds the prompt limit",
-        ));
+/// Adds `part` while the prompt has room. A part past the budget is cut where it stops fitting and
+/// the prompt ends with a note that the rest is left out; later parts add nothing. False once cut.
+fn append(prompt: &mut String, part: &str) -> bool {
+    if prompt.ends_with(OMITTED) {
+        return false;
     }
-    prompt.push_str(part);
-    Ok(())
+    let room = PROMPT_LIMIT.saturating_sub(prompt.len());
+    if part.len() <= room {
+        prompt.push_str(part);
+        return true;
+    }
+    let mut cut = room.saturating_sub(OMITTED.len());
+    while !part.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    prompt.push_str(&part[..cut]);
+    prompt.push_str(OMITTED);
+    false
+}
+
+/// The end of a log in at most `max` bytes: a failure's cause is near its tail.
+fn log_tail(log: &str, max: usize) -> String {
+    const CUT: &str = "[earlier log lines left out]\n";
+    if log.len() <= max {
+        return log.to_owned();
+    }
+    let mut start = log.len() - max.saturating_sub(CUT.len());
+    while !log.is_char_boundary(start) {
+        start += 1;
+    }
+    format!("{CUT}{}", &log[start..])
 }
 
 async fn failed_logs(cwd: &Path, pr: &Value, repo: &str) -> Result<String, RpcError> {
@@ -147,7 +173,8 @@ async fn failed_logs(cwd: &Path, pr: &Value, repo: &str) -> Result<String, RpcEr
         text(pr, "url"),
         text(pr, "headRefOid")
     );
-    for check in failing {
+    let total = failing.len();
+    for (index, check) in failing.into_iter().enumerate() {
         let url = text(check, "detailsUrl");
         let job = job_id(url, repo).ok_or_else(|| {
             error("pr.logs_unavailable", "A failing check has no readable GitHub Actions job log")
@@ -165,15 +192,14 @@ async fn failed_logs(cwd: &Path, pr: &Value, repo: &str) -> Result<String, RpcEr
         if log.trim().is_empty() {
             return Err(error("pr.logs_unavailable", "The failing job returned no log tail"));
         }
-        append(
-            &mut prompt,
-            &format!(
-                "\nCheck: {}\n{}\n--- log tail ---\n{}\n--- end log ---\n",
-                text(check, "name"),
-                url,
-                log
-            ),
-        )?;
+        let header = format!("\nCheck: {}\n{}\n--- log tail ---\n", text(check, "name"), url);
+        const FOOTER: &str = "\n--- end log ---\n";
+        // Each failing check gets an even share of the room left, so one long log cannot crowd out the rest.
+        let share = PROMPT_LIMIT.saturating_sub(prompt.len()) / (total - index);
+        let log = log_tail(&log, share.saturating_sub(header.len() + FOOTER.len()));
+        if !append(&mut prompt, &format!("{header}{log}{FOOTER}")) {
+            break;
+        }
     }
     Ok(prompt)
 }
@@ -200,7 +226,7 @@ fn append_threads(prompt: &mut String, threads: &[Value]) -> Result<usize, RpcEr
                 "A review thread has more comments than this read can include",
             ));
         }
-        append(
+        if !append(
             prompt,
             &format!(
                 "\n{}:{}{}\n",
@@ -208,7 +234,9 @@ fn append_threads(prompt: &mut String, threads: &[Value]) -> Result<usize, RpcEr
                 thread.get("line").unwrap_or(&Value::Null),
                 if thread["isOutdated"] == true { " (outdated, unresolved)" } else { "" }
             ),
-        )?;
+        ) {
+            break;
+        }
         let comments =
             thread["comments"]["nodes"].as_array().filter(|nodes| !nodes.is_empty()).ok_or_else(
                 || error("pr.review_incomplete", "A review thread has no readable comments"),
@@ -217,7 +245,7 @@ fn append_threads(prompt: &mut String, threads: &[Value]) -> Result<usize, RpcEr
             if c["body"].as_str().is_none() || c["url"].as_str().is_none() {
                 return Err(error("pr.review_incomplete", "A review comment is incomplete"));
             }
-            append(
+            if !append(
                 prompt,
                 &format!(
                     "{}: {}\n{}\n",
@@ -225,7 +253,9 @@ fn append_threads(prompt: &mut String, threads: &[Value]) -> Result<usize, RpcEr
                     text(c, "body"),
                     text(c, "url")
                 ),
-            )?;
+            ) {
+                return Ok(count + 1);
+            }
         }
         count += 1;
     }
