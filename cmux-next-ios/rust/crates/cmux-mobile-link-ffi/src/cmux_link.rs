@@ -105,7 +105,7 @@ fn has_port(text: &str) -> bool {
 }
 
 /// Whether `scheme` is a cmux build's link scheme. `cmux-next` is never a link.
-fn is_link_scheme(scheme: &str) -> bool {
+pub(crate) fn is_link_scheme(scheme: &str) -> bool {
     let scheme = scheme.to_ascii_lowercase();
     matches!(scheme.as_str(), "cmux" | "cmux-nightly" | "cmux-rc" | "cmux-dev")
         || scheme.starts_with("cmux-dev-")
@@ -135,7 +135,7 @@ fn query_items(query: Option<&str>) -> Option<Query> {
 
 /// Percent-decoding as Foundation's URLComponents does it: `%XX` only (`+` stays),
 /// none when the bytes are not UTF-8.
-fn decode(text: &str) -> Option<String> {
+pub(crate) fn decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
