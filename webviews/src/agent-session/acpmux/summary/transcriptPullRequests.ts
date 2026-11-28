@@ -192,8 +192,20 @@ function callTarget(rest: string): { ref: Ref; number: number } | undefined {
   return undefined;
 }
 
+/// Each call's findings, for the call object they were read from: a fold makes a new row for each
+/// call it adds to an activity, and reads every call in it again (cmux chat-attach-p95).
+const toolCache = new WeakMap<Tool, Finding[]>();
+
 function toolFindings(tool: Tool): Finding[] {
   if (!succeeded(tool)) return [];
+  const kept = toolCache.get(tool);
+  if (kept) return kept;
+  const found = scanToolFindings(tool);
+  toolCache.set(tool, found);
+  return found;
+}
+
+function scanToolFindings(tool: Tool): Finding[] {
   const command = tool.command ?? "";
   // Strip body/title payloads before URL and shorthand scans; those are data, not activity.
   const scanPlain = pullRequestSourceCommand(command);
@@ -382,15 +394,16 @@ const fingerprints = new WeakMap<AcpmuxRow, string>();
 // leaves the revision alone; a new mention updates it without scanning historical replies.
 export function pullRequestRowKey(row: AcpmuxRow | undefined, replies = true): string {
   if (!row) return "";
-  // Streaming references may change the dock key, but settling identical text must change it too.
-  const findings =
-    row.kind === "assistant" ? (replies ? replyFindings(row.text ?? "") : []) : rowFindings(row, replies);
-  if (findings.length === 0) return "";
+  // An activity's findings do not depend on `replies`; an assistant row's are all `replies`'.
+  if (row.kind === "assistant" && !replies) return "";
+  // Kept for the row object, none included: the producer asks of the row it replaces and of the
+  // new one, so each would otherwise be scanned again on every set.
   let fingerprint = fingerprints.get(row);
-  if (fingerprint === undefined) {
-    fingerprint = JSON.stringify([row.streaming === true, findings]);
-    fingerprints.set(row, fingerprint);
-  }
+  if (fingerprint !== undefined) return fingerprint;
+  // Streaming references may change the dock key, but settling identical text must change it too.
+  const findings = row.kind === "assistant" ? replyFindings(row.text ?? "") : rowFindings(row, replies);
+  fingerprint = findings.length === 0 ? "" : JSON.stringify([row.streaming === true, findings]);
+  fingerprints.set(row, fingerprint);
   return fingerprint;
 }
 
