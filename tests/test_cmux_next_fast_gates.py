@@ -22,6 +22,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1703,6 +1704,24 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
 
+    def test_only_a_red_web_lint_tries_its_safe_fixes(self):
+        # Leo, 2026-11-22: "hell, maybe even should've been automatic. how are our fixit type things for lint errors
+        # and random bullshit?" A red web lint runs scripts/ci/oops/fixit_lint.py (its `--fix`); any other red, or a
+        # green run, pays nothing, and the run's result is the gates' either way.
+        work, out = self.prepared()
+        saved = os.environ.get("FIXIT_COMPILE_HEAD_SHA")
+        os.environ["FIXIT_COMPILE_HEAD_SHA"] = "a" * 40
+        self.addCleanup(lambda: os.environ.pop("FIXIT_COMPILE_HEAD_SHA", None) if saved is None
+                        else os.environ.__setitem__("FIXIT_COMPILE_HEAD_SHA", saved))
+        for red, tried in (("web lint", True), ("prepush gate", False), ("", False)):
+            with self.subTest(red=red):
+                self.log.unlink(missing_ok=True)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", fail=red)
+                self.assertEqual(result.returncode, 1 if red else 0, result.stdout + result.stderr)
+                fixes = [e for e in self.gate_log() if e["gate"] == "web lint" and "--fix" in e["argv"]]
+                self.assertEqual(bool(fixes), tried, result.stdout + result.stderr)
+                self.assertEqual(git(work, "status", "--porcelain", "--untracked-files=no"), "")
+
     def test_independent_gates_run_in_parallel(self):
         work, out = self.prepared()
         barrier = self.tmp / "parallel-barrier"
@@ -1834,6 +1853,27 @@ def type_error(code: str, message: str, where: str) -> str:
     """One type error as `vp check --no-fmt --no-lint` prints it (Oxlint's graphical report)."""
     return (f"  x typescript({code}): {message}\n     ,-[{where}]\n 1 | const a = 1;\n"
             "     :       ^\n     `----\n\n")
+
+
+class PrTier(unittest.TestCase):
+    def test_the_pr_tier_leaves_the_slow_gates_to_the_push_tier(self):
+        module = load(SCRIPT)
+        args = (Path("/r"), "b" * 40, "m" * 40, Path("/base"), True, True, True)
+        full = {name: argv for name, argv in module.gates(*args, tier="full")}
+        pr = {name: argv for name, argv in module.gates(*args, tier="pr")}
+        self.assertTrue(all(full.values()))
+        self.assertEqual(sorted(n for n, argv in pr.items() if argv is None), sorted(module.PR_TIER_DEFERRED))
+        self.assertIsNotNone(pr["prepush gate"])
+        self.assertIsNotNone(pr["crash ratchet"])
+        for name in module.PR_TIER_DEFERRED:
+            self.assertIn(name, module.SKIPPED)
+
+    def test_the_workflow_runs_the_pr_tier_unless_full_ci_or_the_variable_says_full(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("CI_FAST_GATES_PR_TIER", text)
+        self.assertIn("full-ci", text)
+        self.assertIn('--tier "$TIER"', text)
+        self.assertEqual(text.count("--tier"), 3)
 
 
 class GateBudget(unittest.TestCase):
@@ -2406,6 +2446,17 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
         self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
 
+    def test_a_mktemp_log_dir_keys_without_its_random_suffix(self):
+        # cmux#54186's fast gates (run 46043766720): the base's bundle red, charged as one new `log:` line.
+        def red(suffix: str, tmp: str = "/tmp") -> str:
+            return ("web bundle matrix: RED in 47s: bundle:pages\n"
+                    f"  log: {tmp}/web-bundle-matrix.{suffix}/logs/bundle-pages.log\n")
+        self.assertEqual(self.module.added(red("QNX9SC"), red("a1B2c3")), [])
+        mac = "/var/folders/xy/abc123/T"
+        self.assertEqual(self.module.added(red("QNX9SC", mac), red("Zz9Yy8", mac)), [])
+        self.assertEqual(self.module.added(red("QNX9SC") + "  log: /tmp/other.QNX9SC/x.log\n", red("a1B2c3")),
+                         ["  log: /tmp/other.QNX9SC/x.log"])
+
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
             return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"
@@ -2487,15 +2538,31 @@ class WebviewsChecksGate(unittest.TestCase):
 
 
 class DeepenFallbackTests(unittest.TestCase):
-    """GitHub's pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038)."""
+    """pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038), and on #61818 both
+    filters in this runner's local-links repack, with an alternate store borrowed (job 140700979838)."""
 
-    def run_deepen_fetch(self, failures: dict[str, str]):
+    BUG = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
+    LOCAL = BUG + "\nfatal: could not finish pack-objects to repack local links\nfatal: index-pack failed"
+
+    def run_deepen_fetch(self, failures: dict[str, str], alternates: str | None = None, aside_failures=None):
         module = load(SCRIPT)
         calls = []
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        info = tmp / "objects/info"
+        info.mkdir(parents=True)
+        alt = info / "alternates"
+        if alternates is not None:
+            alt.write_text(alternates)
+        self.alternates_seen = []
 
         def fake_git(repo, *args, check=True):
+            if args[0] == "rev-parse":
+                return subprocess.CompletedProcess(args, 0, f"{alt}\n", "")
             calls.append(args)
-            stderr = next((err for flag, err in failures.items() if flag in args), "")
+            self.alternates_seen.append(alt.exists())
+            table = failures if alt.exists() or aside_failures is None else aside_failures
+            stderr = next((err for flag, err in table.items() if flag in args), "")
             code = 128 if stderr else 0
             if check and code:
                 raise SystemExit(f"fast-gates: git {' '.join(args)} failed: {stderr}")
@@ -2503,14 +2570,33 @@ class DeepenFallbackTests(unittest.TestCase):
 
         module.git = fake_git
         module.log = lambda message: None
-        module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        try:
+            module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        finally:
+            self.alternates_after = alt.read_text() if alt.exists() else None
         return calls
 
     def test_a_pack_objects_abort_retries_with_blob_none(self):
-        bug = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
-        calls = self.run_deepen_fetch({"--filter=tree:0": bug})
-        self.assertEqual([c[3] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.BUG})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
         self.assertTrue(all("--deepen=32" in c for c in calls))
+
+    def test_a_local_links_abort_retries_without_the_alternate_store_and_puts_it_back(self):
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL, "--filter=blob:none": self.LOCAL},
+                                      alternates="/mirror/objects\n", aside_failures={})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=tree:0"])
+        self.assertEqual(self.alternates_seen, [True, False])
+        self.assertEqual(self.alternates_after, "/mirror/objects\n")
+
+    def test_the_alternate_store_comes_back_when_the_retry_fails(self):
+        with self.assertRaises(SystemExit):
+            self.run_deepen_fetch({"--filter=tree:0": self.LOCAL}, alternates="/mirror/objects\n",
+                                  aside_failures={"--filter=tree:0": "fatal: could not read from remote repository"})
+        self.assertEqual(self.alternates_after, "/mirror/objects\n")
+
+    def test_a_local_links_abort_without_an_alternate_store_tries_blob_none(self):
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
 
     def test_a_clean_deepen_fetches_once(self):
         self.assertEqual(len(self.run_deepen_fetch({})), 1)
@@ -2530,6 +2616,39 @@ class FetchesSkipSubmodules(unittest.TestCase):
         self.assertTrue(calls)
         for call in calls:
             self.assertIn('"--no-recurse-submodules"', call)
+
+
+class BunTmpdir(unittest.TestCase):
+    """Every gate gets a writable BUN_TMPDIR (cmux#59800: web lint failed `EACCES accessing temporary directory`)."""
+
+    @staticmethod
+    def module():
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates_under_test", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_is_made_under_the_runner_temp_and_exported(self):
+        with tempfile.TemporaryDirectory() as runner:
+            env = {"RUNNER_TEMP": runner}
+            made = self.module().ensure_bun_tmpdir(env)
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+            self.assertEqual(made.parent, Path(runner))
+            self.assertTrue(os.access(made, os.W_OK))
+
+    def test_a_caller_set_one_is_kept(self):
+        env = {"BUN_TMPDIR": "/somewhere", "RUNNER_TEMP": "/nonexistent"}
+        self.assertIsNone(self.module().ensure_bun_tmpdir(env))
+        self.assertEqual(env["BUN_TMPDIR"], "/somewhere")
+
+    def test_an_unusable_runner_temp_falls_back_to_the_system_temp(self):
+        env = {"RUNNER_TEMP": "/nonexistent/runner-temp"}
+        made = self.module().ensure_bun_tmpdir(env)
+        try:
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+        finally:
+            if made:
+                made.rmdir()
 
 
 if __name__ == "__main__":
