@@ -66,15 +66,3 @@ public nonisolated struct TogglePlaceRules: Sendable {
         rules.call("window_tabs_chat_show", facts, as: ChatShow.self)
     }
 }
-
-extension TogglePlaceRules.TerminalReadFacts {
-    public init(at: Int?, total: Int, rows: Int) {
-        (self.at, self.total, self.rows) = (at, total, rows)
-    }
-}
-
-extension TogglePlaceRules.ChatReadFacts {
-    public init(top: Int, visible: Int, total: Int, atBottom: Bool, atLatest: Bool, rows: Int) {
-        (self.top, self.visible, self.total, self.atBottom, self.atLatest, self.rows) = (top, visible, total, atBottom, atLatest, rows)
-    }
-}

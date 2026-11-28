@@ -104,8 +104,8 @@ extension WindowRules.Reads {
     /// key's turn (SL-3, #31875).
     /// The rule is Rust's (cmux-window-rules `close::known_to_ask`); nil from the FFI is not known, as a shell at its
     /// prompt: the read still asks.
-    @MainActor public func knownToAsk(_ tabs: [TabModel], _ warnings: Warnings) -> Bool {
-        struct Facts: Encodable { var reads: Reads; var tabs: [ProgramFacts]; var warnTab, warnAgent: Bool }
+    @MainActor public func knownToAsk(_ tabs: [TabModel], _ warnings: WindowRules.Warnings) -> Bool {
+        struct Facts: Encodable { var reads: WindowRules.Reads; var tabs: [ProgramFacts]; var warnTab, warnAgent: Bool }
         struct Reply: Decodable { var ask: Bool }
         let facts = Facts(reads: self, tabs: tabs.map(ProgramFacts.init), warnTab: warnings.warnTab, warnAgent: warnings.warnAgent)
         return WindowRules().call("window_close_known_to_ask", facts, as: Reply.self)?.ask ?? false

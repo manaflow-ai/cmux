@@ -159,17 +159,10 @@ extension WindowRules {
 
 extension WindowRules.DockedOpen {
     public init(user: Bool, targeted: Bool, hasArguments: Bool, canHost: Bool, dockRoles: Bool, pane: String,
-                read: ChatColumnRead?, pendingDock: Bool) {
+                read: WindowRules.ChatColumnRead?, pendingDock: Bool) {
         (self.user, self.targeted, self.hasArguments, self.canHost, self.dockRoles) = (user, targeted, hasArguments, canHost, dockRoles)
         (self.pane, self.shown, self.chatDockTop) = (pane, read != nil, read?.chatDockTop)
         (self.docksChat, self.pendingDock) = (read?.placement == .dockChat, pendingDock)
-    }
-}
-
-extension WindowRules.ChatWindow {
-    public init(workspace: String?, recency: [String], focusWorkspace: String?, focusedPane: String?, remembered: [String: String]) {
-        (self.workspace, self.recency, self.focusWorkspace) = (workspace, recency, focusWorkspace)
-        (self.focusedPane, self.remembered) = (focusedPane, remembered)
     }
 }
 
@@ -267,27 +260,5 @@ extension WindowRules.ColumnActions {
     public struct Canvas: Decodable, Equatable, Sendable {
         public var id: String
         public var arrangement: String
-    }
-}
-
-extension WindowRules.ActionColumn {
-    public init(width: Double, panes: [String], implicit: Bool, docked: Bool) {
-        (self.width, self.panes, self.implicit, self.docked) = (width, panes, implicit, docked)
-    }
-}
-
-extension WindowRules.ColumnFacts {
-    public init(column: ActionColumn, left: [String]?, right: [String]?, recent: [String], focused: String?,
-                columnMove: Bool, handle: Bool) {
-        (self.column, self.left, self.right, self.recent) = (column, left, right, recent)
-        (self.focused, self.columnMove, self.handle) = (focused, columnMove, handle)
-    }
-}
-
-extension WindowRules.DockMoveFacts {
-    public init(pane: String, paneTabs: Int, columnPanes: [String], shownOthers: [String], hasTab: Bool,
-                edgeDocks: Bool, tabColumnRespawn: Bool) {
-        (self.pane, self.paneTabs, self.columnPanes, self.shownOthers) = (pane, paneTabs, columnPanes, shownOthers)
-        (self.hasTab, self.edgeDocks, self.tabColumnRespawn) = (hasTab, edgeDocks, tabColumnRespawn)
     }
 }

@@ -103,11 +103,11 @@ extension WindowRules.OwnerFacts {
 }
 
 extension WindowRules.UndoState {
-    struct Tab: Codable, Equatable, Sendable {
+    public struct Tab: Codable, Equatable, Sendable {
         var id: String
         var index: Int
     }
-    struct Expected: Codable, Equatable, Sendable {
+    public struct Expected: Codable, Equatable, Sendable {
         var token: UInt64
         var tabs: [Tab]
         var panes: [String]
@@ -115,7 +115,6 @@ extension WindowRules.UndoState {
         var items: [String]
         var recorded: Int
     }
-    public init() {}
     /// Each waiting gesture's panes, tab count and recorded tabs (`debug.filepages`).
     public var waiting: [(panes: [String], tabs: Int, recorded: Int)] {
         expected.map { ($0.panes, $0.tabs.count, $0.recorded) }

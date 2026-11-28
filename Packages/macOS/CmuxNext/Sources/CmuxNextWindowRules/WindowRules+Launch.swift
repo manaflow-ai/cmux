@@ -134,10 +134,3 @@ extension WindowRules {
 
     private static let launchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "window-rules")
 }
-
-extension WindowRules.PendingHome {
-    public init(window: String, active: String?, windowOpen: Bool, homeReady: Bool, moved: Bool, movedSinceRestore: Bool) {
-        (self.window, self.active, self.windowOpen, self.homeReady) = (window, active, windowOpen, homeReady)
-        (self.moved, self.movedSinceRestore) = (moved, movedSinceRestore)
-    }
-}

@@ -92,28 +92,3 @@ extension WindowRules {
         return call("window_appearance_keymap_toast", Request(preset: preset, changed: changed), as: KeymapToast.self)
     }
 }
-
-extension WindowRules.DiffAsk {
-    public init(patch: Bool, path: String?, paneFolder: String?, allowsViewChange: Bool, besideCaller: Bool) {
-        (self.patch, self.path, self.paneFolder, self.allowsViewChange, self.besideCaller) = (patch, path, paneFolder, allowsViewChange, besideCaller)
-    }
-}
-
-extension WindowRules.EditorAction {
-    public init(action: String, runsEditorCommand: Bool) {
-        self.action = action
-        self.runsEditorCommand = runsEditorCommand
-    }
-}
-
-extension WindowRules.VSCodeFacts {
-    public init(local: Bool, installed: Bool, byPerson: Bool, terminal: Bool, cwd: String?) {
-        (self.local, self.installed, self.byPerson, self.terminal, self.cwd) = (local, installed, byPerson, terminal, cwd)
-    }
-}
-
-extension WindowRules.AppearanceAsk {
-    public init(scope: String?, property: String?, set: Bool) {
-        (self.scope, self.property, self.set) = (scope, property, set)
-    }
-}
