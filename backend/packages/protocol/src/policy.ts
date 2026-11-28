@@ -40,6 +40,23 @@ export const CloudConnectServices = Schema.Array(Schema.Literals(["daemon", "ssh
   .check(Schema.isMaxLength(2), Schema.makeFilter((services: ReadonlyArray<string>) => cloudServicesProblem(services) ?? true))
   .annotate({ identifier: "CloudConnectServices" })
 
+/** cmux-vm's egress presets (workers/cmux-vm/src/egress-allowlist.ts EGRESS_PRESETS); cmux-vm refuses any other. */
+export const EGRESS_PRESET_IDS = ["anthropic", "openai", "openrouter", "opencode", "github", "npm", "pypi", "rust"] as const
+/** An exact DNS name whose last label has a letter: never an IP address, a wildcard or a bare label. */
+const EgressDomain = Schema.String.check(
+  isPattern(/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z0-9-]*[a-z][a-z0-9-]*$/)
+)
+export const TeamEgress = Schema.Struct({
+  mode: Schema.Literals(["full", "allowlist", "none"]),
+  presets: Schema.optionalKey(Schema.Array(Schema.Literals(EGRESS_PRESET_IDS)).check(Schema.isMaxLength(16))),
+  domains: Schema.optionalKey(Schema.Array(EgressDomain).check(Schema.isMaxLength(48)))
+}).annotate({ identifier: "TeamEgress" })
+const ProviderId = Schema.String.check(isPattern(/^(cmux|byoc:[A-Za-z0-9._-]{1,100})$/))
+const RegionId = Schema.String.check(isPattern(/^[a-z0-9][a-z0-9-]{0,62}$/))
+const AgentHarnessId = Schema.String.check(isPattern(/^[a-z0-9][a-z0-9._-]{0,62}$/))
+const ModelPattern = Schema.String.check(isPattern(/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\*?$/))
+const FolderGlob = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500), isPattern(/^(~|\/)/))
+
 /** The value schema of every policy key, by dotted key. */
 export const policyKeySchemas = {
   // Same values as TeamIntegrationPolicy (integrations.ts), which ConnectionDO enforces as TeamDO's projection.
@@ -71,6 +88,30 @@ export const policyKeySchemas = {
    * paused machine needs a manual Start on return).
    */
   "cloud.idlePause": Schema.Boolean,
+  // RFD 0211 (sandboxing and lockdown), "The org admin": one policy, read by the platform at create and by the app
+  // at launch (team.device.policy). Each list is an allowlist and an absent key adds no limit; a chat's own ask or a
+  // member's setting can only tighten what the team sets here.
+  /** Which clouds may run the team's chats: `cmux` (ours) or a bring-your-own-cloud account (`byoc:<account>`). */
+  "cloud.providers": Schema.Array(ProviderId).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+  /** Allowed regions, by the provider's region id (`us-west`). */
+  "cloud.regions": Schema.Array(RegionId).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+  /**
+   * The team's egress for Cloud machines, met with the deployment's and the chat's own (each level only tightens):
+   * `full` adds no limit, `allowlist` names presets and exact DNS names, `none` gives the machine no internet.
+   */
+  "cloud.egress": TeamEgress,
+  /** Agent harnesses (`claude`, `codex`, ...) the team's chats may run, here and on the team's Macs. */
+  "agents.harnesses": Schema.Array(AgentHarnessId).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+  /** Model ids (`claude-opus-5-5`; a trailing `*` matches a family) the team's chats may use. */
+  "agents.models": Schema.Array(ModelPattern).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+  /** Globs of Mac folders that may be projected to a Cloud machine (`~/work/**`); absent: any folder. */
+  "projection.folders": Schema.Array(FolderGlob).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+  /** Projections mount the picked folder without an upper layer: the machine cannot change it. */
+  "projection.readOnly": Schema.Boolean,
+  /** Bring Back and `cmux link project back` / `sync pull` may copy a machine's changes to the Mac. */
+  "projection.syncBack": Schema.Boolean,
+  /** Seatbelt for local agents (`sessions.sandbox`): `on` (the user may turn it off) or `required`. */
+  "sandbox.local": Schema.Literals(["on", "required"]),
   "telemetry.level": Schema.Literals(["full", "crash_only", "off"]),
   "updates.channel": Schema.Literals(["stable", "nightly"]),
   "updates.minimumVersion": Version,
@@ -113,6 +154,10 @@ export const policyProductDefaults: { readonly [K in PolicyKey]?: (typeof policy
   "cloud.sandboxes": true,
   "cloud.connectServices": ["daemon", "ssh"],
   "cloud.idlePause": false,
+  "cloud.egress": { mode: "full" },
+  "projection.readOnly": false,
+  "projection.syncBack": true,
+  "sandbox.local": "on",
   "telemetry.level": "full",
   "updates.channel": "stable",
   "retention.cuaEventsDays": RETENTION_MAX.cuaEventsDays,
@@ -124,8 +169,17 @@ export const policyProductDefaults: { readonly [K in PolicyKey]?: (typeof policy
   "agents.allowedClasses": ["mux", "agent", "run"]
 }
 
-/** Keys clients apply on a device (spec/enterprise.md 4.4); the rest are enforced by cloud owners. */
+/**
+ * Keys sent to managed devices (team.device.policy) and applied there (spec/enterprise.md 4.4); the rest are enforced
+ * by cloud owners only. `agents.*` are both: the platform refuses at create, the app at a local start.
+ */
 export const deviceScopedPolicyKeys: ReadonlySet<PolicyKey> = new Set<PolicyKey>([
+  "agents.harnesses",
+  "agents.models",
+  "projection.folders",
+  "projection.readOnly",
+  "projection.syncBack",
+  "sandbox.local",
   "mcp.server",
   "mcp.remoteTransport",
   "computerUse.allowed",
