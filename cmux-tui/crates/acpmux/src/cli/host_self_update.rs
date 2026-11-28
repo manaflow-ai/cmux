@@ -61,6 +61,9 @@ use rd::{RdOutcome, RdPaths};
 #[path = "host_self_update_tui.rs"]
 pub(super) mod tui;
 
+#[path = "host_self_update_ring.rs"]
+pub(crate) mod ring_tick;
+
 #[path = "host_update_watch.rs"]
 pub(super) mod watch;
 use tui::{TuiOutcome, TuiSource};
@@ -1149,6 +1152,16 @@ pub(crate) async fn self_update(
             eprintln!("acpmux: fast-patch refused: {why}");
         }
     };
+    // The signed config ring first: flags move even when the build does not (RFD 0224 hot
+    // patches). It never fails or holds the update.
+    let ring_now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let ring_keys = cmux_signed_envelope::config_ring::trusted_keys();
+    let ring = ring_tick::tick(&paths.home, &R2_FETCH, &ring_keys, channel, ring_now).await;
+    if !json_out && let Some(line) = ring.line(channel) {
+        eprintln!("acpmux: {line}");
+    }
     let controller =
         Controller::configured().map(|url| Controller { url, fetch: &CONTROLLER_FETCH });
     let prepared = match prepare(&paths, &R2_FETCH, controller.as_ref(), channel).await {
@@ -1231,6 +1244,7 @@ pub(crate) async fn self_update(
             "updated": [up.to_json(&name, LocalRemote.host())],
             "cmuxRd": plan.rd.json(),
             "cmuxTui": tui.json(),
+            "configRing": ring.json(channel),
         }));
     } else {
         if up.outcome.failed() {

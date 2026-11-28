@@ -106,6 +106,8 @@ security-framework = "3"
 # The wire ABI's compat rules: the gate's test checks them (`protocol::tests::protocol_abi_breaks_have_rules`)
 # and `abi_compat.rs` writes an older peer's messages down by them (RFD hq 0178).
 cmux-api-compat = { workspace = true }
+# The signed config ring the self-update tick reads (`cli/host_self_update_ring.rs`).
+cmux-signed-envelope.workspace = true
 # What an upstream error says (529, 503, retry-after), shared with OptChat's Chief.
 cmux-upstream-error = { path = "../cmux-upstream-error" }
 cmux-transport-rewrite.workspace = true
