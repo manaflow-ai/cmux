@@ -168,3 +168,19 @@ fn candidate_probes_share_one_bound() {
     assert_eq!(rt.block_on(answers_somewhere(home.path(), 4242)), None);
     assert!(t.elapsed() < PROBE_BOUND, "{:?}", t.elapsed());
 }
+
+#[test]
+fn a_bundle_daemon_run_through_the_acpmux_symlink_is_acpmux() {
+    // NIGHTLY: `bin/acpmux -> cmux`; the kernel names the holder `.../bin/cmux`.
+    let holder = Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
+    let started_as = Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux");
+    let resolved = Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
+    assert!(!is_acpmux_exe_of(holder, [started_as]), "the old check: refused");
+    assert!(is_acpmux_exe_of(holder, [started_as, resolved]));
+    // A holder left at a retired bundle's path after an update is the same program.
+    let retired = Path::new(
+        "/Users/x/.local/state/nightly-update/backup/retired/cmux NIGHTLY.app.1/Contents/Resources/bin/cmux",
+    );
+    assert!(is_acpmux_exe_of(retired, [started_as, resolved]));
+    assert!(!is_acpmux_exe_of(Path::new("/bin/sleep"), [started_as, resolved]));
+}

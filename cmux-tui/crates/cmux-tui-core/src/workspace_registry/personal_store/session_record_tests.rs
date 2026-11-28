@@ -370,3 +370,22 @@ fn two_machines_putting_one_session_id_in_turn_journal_one_row_not_one_per_put()
     assert_eq!(moved.transport, transport);
     assert_eq!(session_put_rows(&registry), 3);
 }
+
+/// Every capability a daemon can advertise is one the registry records. A cloud daemon with
+/// `gemini` on its PATH advertised `agent-session-start-endpoint-harness:gemini`, the rule had
+/// no `:`, and the app's `put-session` of each such machine was refused: "... was not saved for
+/// restore: cmux refused its record" (Leo's NIGHTLY, 2026-11-28, three lane machines).
+#[test]
+fn every_capability_a_daemon_advertises_is_recorded() {
+    let mut registry = WorkspaceRegistry::in_memory("session-record-advertised").unwrap();
+    let transport = json!({"kind":"ssh","host":"build-box"});
+    let mut names: Vec<&str> = crate::server::static_capabilities().into_iter().collect();
+    names.extend(
+        crate::server::ENDPOINT_HARNESS_CAPABILITIES.iter().map(|(_, capability)| *capability),
+    );
+    let capabilities = json!(names);
+    let (record, _) = registry
+        .put_session("cloud-1", None, None, &transport, Some(&capabilities), None)
+        .expect("a daemon's own advertised list is recorded");
+    assert_eq!(record.capabilities.as_ref(), Some(&capabilities));
+}

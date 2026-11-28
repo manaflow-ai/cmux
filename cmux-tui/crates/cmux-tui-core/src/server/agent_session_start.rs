@@ -341,24 +341,29 @@ pub(crate) struct AgentSessionStarts {
     agent_home: Mutex<Option<AgentHomePuller>>,
 }
 
+/// Each endpoint harness a cloud daemon can start, with the capability it advertises once the
+/// harness is on its PATH. The app records these in the home registry (`put-session`), so each
+/// must pass its capability rule (`validate_session_capabilities`).
+pub(crate) const ENDPOINT_HARNESS_CAPABILITIES: [(&str, &str); 2] = [
+    ("gemini", "agent-session-start-endpoint-harness:gemini"),
+    ("grok", "agent-session-start-endpoint-harness:grok"),
+];
+
 fn installed_endpoint_harnesses() -> Vec<&'static str> {
     use std::os::unix::fs::PermissionsExt;
     let path = std::env::var_os("PATH").unwrap_or_default();
-    [
-        ("gemini", "agent-session-start-endpoint-harness:gemini"),
-        ("grok", "agent-session-start-endpoint-harness:grok"),
-    ]
-    .into_iter()
-    .filter_map(|(harness, capability)| {
-        std::env::split_paths(&path)
-            .any(|dir| {
-                std::fs::metadata(dir.join(harness)).is_ok_and(|metadata| {
-                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    ENDPOINT_HARNESS_CAPABILITIES
+        .into_iter()
+        .filter_map(|(harness, capability)| {
+            std::env::split_paths(&path)
+                .any(|dir| {
+                    std::fs::metadata(dir.join(harness)).is_ok_and(|metadata| {
+                        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                    })
                 })
-            })
-            .then_some(capability)
-    })
-    .collect()
+                .then_some(capability)
+        })
+        .collect()
 }
 
 impl AgentSessionStarts {
