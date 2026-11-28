@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.azure.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux النماذج المنشورة في مورد Azure. الصق عنوان نقطة النهاية والمفتاح وأسماء عمليات النشر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti modele postavljene u tvom Azure resursu. Zalijepi krajnju tačku, ključ i nazive implementacija."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger modellerne i din Azure-ressource. Indsæt endpoint, nøgle og udrulningsnavne."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux nutzt die in deiner Azure-Ressource bereitgestellten Modelle. Füge den Endpunkt, einen Schlüssel und die Bereitstellungsnamen ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use the models you deployed in your Azure resource. Paste its endpoint, a key and the deployment names."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará los modelos desplegados en tu recurso de Azure. Pega su punto de conexión, una clave y los nombres de despliegue."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera les modèles déployés sur votre ressource Azure. Collez le point de terminaison, une clé et les noms de déploiement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà i modelli distribuiti nella tua risorsa Azure. Incolla l’endpoint, una chiave e i nomi delle distribuzioni."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはAzureリソースにデプロイしたモデルを使用します。エンドポイント、キー、デプロイ名を貼り付けてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើម៉ូដែលដែលអ្នកបានដាក់ឱ្យដំណើរការក្នុង Azure។ បិទភ្ជាប់ចំណុចចុង សោ និងឈ្មោះការដាក់ឱ្យដំណើរការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Azure 리소스에 배포한 모델을 사용합니다. 엔드포인트, 키, 배포 이름을 붙여넣으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker modellene du har distribuert i Azure-ressursen. Lim inn endepunktet, en nøkkel og distribusjonsnavnene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje modeli wdrożonych w Twoim zasobie Azure. Wklej punkt końcowy, klucz i nazwy wdrożeń."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará os modelos implantados no seu recurso do Azure. Cole o endpoint, uma chave e os nomes das implantações."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать модели, развёрнутые в вашем ресурсе Azure. Вставьте адрес конечной точки, ключ и имена развёртываний."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้โมเดลที่คุณปรับใช้ในทรัพยากร Azure วางตำแหน่งข้อมูล คีย์ และชื่อการปรับใช้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Azure kaynağınıza dağıttığınız modelleri kullanır. Uç noktayı, anahtarı ve dağıtım adlarını yapıştırın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використовуватиме моделі, розгорнуті у вашому ресурсі Azure. Вставте кінцеву точку, ключ та імена розгортань."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng các mô hình bạn đã triển khai trong tài nguyên Azure. Dán điểm cuối, khóa và tên triển khai."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你在 Azure 资源中部署的模型。请粘贴终结点、密钥和部署名称。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你部署在 Azure 資源中的模型。請貼上端點、金鑰及部署名稱。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
