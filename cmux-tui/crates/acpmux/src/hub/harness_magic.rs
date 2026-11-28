@@ -45,14 +45,17 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: crate::model_router::FEATURE, on: crate::model_router::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
+    Feature { name: super::best_of_n::FEATURE, on: super::best_of_n::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
     Feature { name: super::sidecars::FEATURE, on: || enabled(super::sidecars::FEATURE) },
     Feature { name: "dirRules", on: crate::claude_stdio::dir_rules_enabled },
+    Feature { name: super::idle_digest::FEATURE, on: super::idle_digest::enabled },
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
     Feature { name: super::turn_artifacts::FEATURE, on: super::turn_artifacts::enabled },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
+    Feature { name: "continue", on: super::stop_condition::continue_enabled },
 ];
 
 /// The features the shared gate reads off unless their setting is `true` (opinionated nudges).
@@ -142,7 +145,6 @@ pub(crate) fn stamp(msg: &mut Value) {
 }
 
 /// Adds `n` to `harnessMagic.<feature>.<counter>` on a `turn_result` message.
-#[allow(dead_code)] // the features' own seam; the first feature to land calls it
 pub(crate) fn add_counter(msg: &mut Value, feature: &str, counter: &str, n: u64) {
     let Some(hm) = object(msg) else { return };
     let f = hm.entry(feature.to_owned()).or_insert_with(|| json!({}));
