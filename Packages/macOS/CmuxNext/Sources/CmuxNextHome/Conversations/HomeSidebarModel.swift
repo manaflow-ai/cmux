@@ -87,9 +87,10 @@ public struct HomeSidebarModel: Hashable, Sendable {
     /// `mainChief` leading them when the list leads with it: ``HomePins/leading(_:)``, nil in an owner's order).
     public static func unreadConversations(pinned: [InboxRow], rest: [InboxRow], unreadMarks: Set<ConversationID>,
                                            mainChief: ConversationID?) -> [ConversationID] {
-        var pinned = pinned
-        if let mainChief, let at = pinned.firstIndex(where: { $0.id == mainChief }) { pinned.insert(pinned.remove(at: at), at: 0) }
-        return (pinned + rest).filter { ($0.unread > 0 || unreadMarks.contains($0.id)) && !$0.summary.muted }.map(\.id)
+        let request = UnreadRequest(pinned: HomeInboxRules().rows(pinned), rest: HomeInboxRules().rows(rest),
+                                    unreadMarks: unreadMarks.map(\.rawValue).sorted(), mainChief: mainChief?.rawValue)
+        let ids: [String] = HomeInboxRules().call("sidebar_unread", request, fallback: [])
+        return ids.map(ConversationID.init(rawValue:))
     }
 
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
@@ -250,19 +251,36 @@ extension HomeSidebarModel {
     /// stops there), or with `wrapping` the other end, as a pane's tabs cycle
     /// (Ctrl-Tab on Home). With nothing shown, or one no longer listed, the first.
     public func neighbor(of current: ConversationID?, offset: Int, wrapping: Bool = false) -> ConversationID? {
-        let order = (pinned + rows).map(\.id)
-        guard let current, let index = order.firstIndex(of: current) else { return order.first }
-        let next = index + offset
-        if wrapping { return order[(next % order.count + order.count) % order.count] }
-        return order.indices.contains(next) ? order[next] : nil
+        let request = NeighborRequest(order: (pinned + rows).map(\.id.rawValue), current: current?.rawValue, offset: offset, wrapping: wrapping)
+        let id: String? = HomeInboxRules().call("sidebar_neighbor", request, fallback: nil)
+        return id.map(ConversationID.init(rawValue:))
     }
 
     /// The `number`th conversation in the list's visual order (1-based), as
     /// Select Tab 1…9 picks a tab: 9, or a number past the end, is the last.
     /// Nil when the list is empty.
     public func conversation(number: Int) -> ConversationID? {
-        let order = (pinned + rows).map(\.id)
-        guard !order.isEmpty else { return nil }
-        return number >= 9 ? order[order.count - 1] : order[min(max(number, 1) - 1, order.count - 1)]
+        let id: String? = HomeInboxRules().call("sidebar_number", NumberRequest(order: (pinned + rows).map(\.id.rawValue), number: number),
+                                              fallback: nil)
+        return id.map(ConversationID.init(rawValue:))
     }
+}
+
+private nonisolated struct UnreadRequest: Encodable {
+    var pinned: [HomeInboxRules.Row]
+    var rest: [HomeInboxRules.Row]
+    var unreadMarks: [String]
+    var mainChief: String?
+}
+
+private nonisolated struct NeighborRequest: Encodable {
+    var order: [String]
+    var current: String?
+    var offset: Int
+    var wrapping: Bool
+}
+
+private nonisolated struct NumberRequest: Encodable {
+    var order: [String]
+    var number: Int
 }

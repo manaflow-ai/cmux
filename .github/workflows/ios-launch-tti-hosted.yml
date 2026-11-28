@@ -1,0 +1,129 @@
+# First connect on iOS (LaunchTTIUITests, warm, mock Mac) measured on a hosted macOS runner, before and
+# after one change, with one harness: scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests, the
+# harness goals/ios-release-bar-readback.json's first_connect names (cmuxterm-hq). Fleet simulator
+# steps are off for this work, so this is the route that needs no owned Mac.
+#
+# Each leg checks out its ref, then both run one harness script: cmux-next-ios-sim.sh from HARNESS_REF
+# (cmux#58989's fix for the cold-cache SwiftPM race that left a leg with no test run), so only the app
+# under test differs between the legs. The warm suite runs each of its two flows (chat, terminal) 10 times: 20 samples of
+# list_ms (process start to the workspaces list usable) per leg, the probe's first_connect samples.
+name: iOS launch TTI (hosted)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/ios-launch-tti-hosted.yml
+  workflow_dispatch:
+    inputs:
+      before:
+        description: Before ref (branch or SHA)
+        required: false
+        default: feat-cmux-next
+      after:
+        description: After ref (branch or SHA)
+        required: false
+        default: d04607cef7046138aabe5bd5d01d517dc9450078
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: launch TTI (${{ matrix.leg }})
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: before
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'feat-cmux-next' }}
+          - leg: after
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || 'd04607cef7046138aabe5bd5d01d517dc9450078' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.ref }}
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: 3281c18ad94f0e8ba5d8ddffeaa7ab5227c8015c
+          path: .harness
+          sparse-checkout: scripts/ci/cmux-next-ios-sim.sh
+          sparse-checkout-cone-mode: false
+
+      - name: One harness for both legs
+        run: |
+          set -euo pipefail
+          cp .harness/scripts/ci/cmux-next-ios-sim.sh scripts/ci/cmux-next-ios-sim.sh
+          rm -rf .harness
+          echo "harness: scripts/ci/cmux-next-ios-sim.sh at 3281c18a (cmux#58989)"
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: LaunchTTIUITests (warm)
+        id: run
+        env:
+          JOBS: "6"
+        run: |
+          set -uo pipefail
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+
+      - name: First connect p50/p90
+        if: ${{ !cancelled() }}
+        env:
+          LEG: ${{ matrix.leg }}
+          SHA: ${{ steps.run.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, math, os, pathlib
+          src = pathlib.Path("artifacts/ios-sim/launch-tti.jsonl")
+          rows = [json.loads(l) for l in src.read_text().splitlines() if l.strip()] if src.exists() else []
+          warm = [r for r in rows if r.get("phase") == "warm" and isinstance(r.get("list_ms"), (int, float))]
+          samples = [round(r["list_ms"]) for r in warm]
+          def rank(p):
+              s = sorted(samples)
+              return s[max(0, math.ceil(p / 100 * len(s)) - 1)] if s else None
+          out = {"leg": os.environ["LEG"], "sha": os.environ["SHA"], "n": len(samples), "samples_ms": samples,
+                 "p50_ms": rank(50), "p90_ms": rank(90), "runner": os.environ.get("RUNNER_NAME", ""),
+                 "run_url": os.environ["RUN_URL"]}
+          pathlib.Path("artifacts/ios-sim/first-connect.json").parent.mkdir(parents=True, exist_ok=True)
+          pathlib.Path("artifacts/ios-sim/first-connect.json").write_text(json.dumps(out, indent=1) + "\n")
+          print("FIRSTCONNECT " + json.dumps(out))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"### first connect ({out['leg']}, {out['sha'][:10]})\n\n")
+              f.write(f"list_ms (process start to workspaces list usable), warm, n={out['n']}: "
+                      f"p50 {out['p50_ms']} ms, p90 {out['p90_ms']} ms (nearest rank)\n\n")
+              f.write(f"samples_ms: {samples}\n\n")
+          PY
+          if [ -f artifacts/ios-sim/SUMMARY.md ]; then cat artifacts/ios-sim/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload launch samples
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: launch-tti-${{ matrix.leg }}
+          path: |
+            artifacts/ios-sim/launch-tti.jsonl
+            artifacts/ios-sim/first-connect.json
+            artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/ui-tests-failures.txt
+            artifacts/ios-sim/launch-tti-error.txt
+          retention-days: 3
+          if-no-files-found: warn

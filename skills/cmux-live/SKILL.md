@@ -1,6 +1,6 @@
 ---
 name: cmux-live
-description: "Try a change to cmux's web UI or daemon live in the running app, with no build or relaunch: point cmux at a checkout's webviews dev server, or `cmux live start --rust` for cmux-tui and acpmux. Use when changing webviews/ (agent chat pane, Settings, Home, new tab, Markdown viewer), when asked for hot or live reload, or before asking for a dev build to try a change or pull request."
+description: "Try a cmux webviews/ or daemon change live in the running app, no build or relaunch (`cmux live start`, `--rust`). Use for hot reload or before asking for a dev build."
 ---
 
 # cmux live

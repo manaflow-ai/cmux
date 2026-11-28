@@ -35,13 +35,13 @@ extension Array where Element == InboxRow {
     /// The rows (inbox order: pinned by rank, then newest first) in sections; each keeps that order
     /// (`inbox.sections`).
     public var homeSections: [HomeConversationSection] {
-        let sections: [SectionReply] = HomeInboxRules.call("sections", RowsRequest(rows: HomeInboxRules.rows(self)), fallback: [])
+        let sections: [SectionReply] = HomeInboxRules().call("sections", RowsRequest(rows: HomeInboxRules().rows(self)), fallback: [])
         return sections.compactMap { section in
             guard let kind = HomeConversationSectionKind(rules: section.kind) else {
                 assertionFailure("inbox.sections: unknown kind \(section.kind)")
                 return nil
             }
-            return HomeConversationSection(kind: kind, rows: HomeInboxRules.pick(section.rows, from: self))
+            return HomeConversationSection(kind: kind, rows: HomeInboxRules().pick(section.rows, from: self))
         }
     }
 
@@ -52,7 +52,7 @@ extension Array where Element == InboxRow {
     /// The conversations the user invited someone into who has not joined
     /// yet, with the address each invite went to (`inbox.pending_invites`).
     public var pendingInvites: [(conversation: ConversationID, contact: String)] {
-        let invites: [InviteReply] = HomeInboxRules.call("pending_invites", RowsRequest(rows: HomeInboxRules.rows(self)), fallback: [])
+        let invites: [InviteReply] = HomeInboxRules().call("pending_invites", RowsRequest(rows: HomeInboxRules().rows(self)), fallback: [])
         return invites.map { (ConversationID(rawValue: $0.conversation), $0.contact) }
     }
 }

@@ -98,6 +98,30 @@ fi
         precmd_functions=("${(@)precmd_functions:#_cmux_tui_incognito_history}" _cmux_tui_incognito_history)
         zshaddhistory_functions=("${(@)zshaddhistory_functions:#_cmux_tui_incognito_addhistory}" _cmux_tui_incognito_addhistory)
     fi
+    # oh-my-zsh never checks for updates in a cmux terminal: its check asks
+    # "Would you like to update? [Y/n]" before the first prompt and takes the
+    # first keys. The `:omz:update` `mode` style is `disabled` before .zshrc
+    # runs, and stays so until the first prompt whatever .zshrc sets. The
+    # daemon's own integration (cmux-tui shell_integration/omz-update.zsh)
+    # carries the same functions; both running leaves one hook.
+    if [[ -o 'interactive' ]]; then
+        'builtin' 'zstyle' ':omz:update' mode disabled
+        zstyle() {
+            'builtin' 'zstyle' "$@"
+            'builtin' 'local' '-i' ret=$?
+            'builtin' 'zstyle' ':omz:update' mode disabled
+            'builtin' 'return' ret
+        }
+        'builtin' 'typeset' -g _cmux_omz_update_zstyle="${functions[zstyle]}"
+        _cmux_omz_update_done() {
+            [[ ${functions[zstyle]-} != "${_cmux_omz_update_zstyle-}" ]] || 'builtin' 'unfunction' zstyle
+            precmd_functions=("${(@)precmd_functions:#_cmux_omz_update_done}")
+            'builtin' 'unset' _cmux_omz_update_zstyle
+            'builtin' 'unfunction' _cmux_omz_update_done
+        }
+        'builtin' 'typeset' -ag precmd_functions
+        precmd_functions=(_cmux_omz_update_done "${(@)precmd_functions:#_cmux_omz_update_done}")
+    fi
     if [[ -o 'interactive' && -n "${_cmux_replay_file-}" ]]; then
         _cmux_replay_first() {
             'builtin' 'local' file="${_cmux_replay_file-}"

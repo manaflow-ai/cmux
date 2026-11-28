@@ -155,8 +155,8 @@ import Testing
         #expect(StagedUpdatePrewarm.readPages(under: root.appending(path: "missing")) == StagedUpdatePrewarm.Pages())
     }
 
-    /// A pre-warm that ran leaves its build for that build's first launch, which consumes it (`cmux app launch-times`'
-    /// `prewarmed`); a relaunch of the same build and a launch of another build are not pre-warmed.
+    /// A pre-warm that ran leaves `full` for its build's first launch, which consumes it (`cmux app launch-times`'
+    /// `prewarmed` and `prewarm_reason`); a relaunch of the same build and a launch of another build are not pre-warmed.
     @Test func aPrewarmLeavesItsBuildForItsFirstLaunchOnly() async throws {
         let root = try Self.temporary()
         defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
@@ -165,9 +165,40 @@ import Testing
         _ = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork(), marker: marker)
         #expect(!FileManager.default.fileExists(atPath: marker.path), "no staged bundle ran: no marker")
         _ = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork(), marker: marker)
-        #expect(!StagedUpdatePrewarm.consumeLaunchMarker(build: "199", at: marker), "another build's launch")
-        #expect(StagedUpdatePrewarm.consumeLaunchMarker(build: "200", at: marker))
-        #expect(!StagedUpdatePrewarm.consumeLaunchMarker(build: "200", at: marker), "a relaunch of the same build")
+        let full = UpdatePrewarmRules.isLinked ? "full" : "full_legacy"
+        #expect(try String(contentsOf: marker, encoding: .utf8) == (UpdatePrewarmRules.isLinked ? "200 full\n" : "200\n"),
+                "one line, replaced at each step")
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "199", at: marker)
+            == .init(preWarmed: false, reason: "other_build:200", consume: false), "another build's launch")
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker) == .init(preWarmed: true, reason: full, consume: true))
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker)
+            == .init(preWarmed: false, reason: "no_record", consume: false), "a relaunch of the same build")
+    }
+
+    /// Each step's marker reads back as that step: a pre-warm the relaunch cut short after the main executable still
+    /// counts (it pays almost all of the first launch's check), one cut before it does not, a skip says why, and a
+    /// marker an older build wrote (just the build) still reads as a full pre-warm.
+    @Test(.enabled(if: UpdatePrewarmRules.isLinked, "needs the pinned app FFI to carry CCmuxUpdatePrewarmFFI"))
+    func eachStepsMarkerReadsBackAsThatStep() throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let marker = root.appending(path: "support/launch-prewarm")
+        let cases: [(StagedUpdatePrewarm.Step, StagedUpdatePrewarm.Verdict)] = [
+            (.started, .init(preWarmed: false, reason: "started_not_finished", consume: true)),
+            (.main, .init(preWarmed: true, reason: "main", consume: true)),
+            (.full, .init(preWarmed: true, reason: "full", consume: true)),
+            (.skipped("staged build 200 is not newer than running build 300"),
+             .init(preWarmed: false, reason: "skipped:staged build 200 is not newer than running build 300", consume: true)),
+        ]
+        for (step, verdict) in cases {
+            StagedUpdatePrewarm.writeLaunchMarker(build: "200", step: step, at: marker)
+            #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker) == verdict, "\(step)")
+            #expect(!FileManager.default.fileExists(atPath: marker.path), "\(step): consumed")
+        }
+        try Data("200\n".utf8).write(to: marker)
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker) == .init(preWarmed: true, reason: "full_legacy", consume: true))
+        StagedUpdatePrewarm.writeLaunchMarker(build: "", step: .full, at: marker)
+        #expect(!FileManager.default.fileExists(atPath: marker.path), "no build: no marker")
     }
 
     /// Run one after another under a load like Leo's, the parts took 95 s (desktop-leo's third read-back); started

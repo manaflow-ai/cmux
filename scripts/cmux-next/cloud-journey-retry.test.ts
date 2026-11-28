@@ -15,12 +15,13 @@ const wrapper = (runs: number[], phase: string, compare = 0, pair: Record<string
   const bin = join(dir, "bin")
   Bun.spawnSync(["mkdir", "-p", bin])
   writeFileSync(join(dir, "runs"), runs.join("\n") + "\n")
+  if (extra.JOURNEY_FAKE_JSON) writeFileSync(join(dir, "journey"), extra.JOURNEY_FAKE_JSON)
   // A journey run writes its summary to --out and takes the next exit code; --compare exits COMPARE.
   writeFileSync(join(bin, "bun"), `#!/usr/bin/env bash
 if [ "$2" = --compare ]; then echo compared; exit ${compare}; fi
 out=""; while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done
 mkdir -p "$out"; code="$(head -n1 "${dir}/runs")"; sed -i.bak 1d "${dir}/runs"
-echo "| step | exit $code |" > "$out/summary.md"; echo "{}" > "$out/journey.json"
+echo "| step | exit $code |" > "$out/summary.md"; cat "${dir}/journey" 2>/dev/null > "$out/journey.json" || echo "{}" > "$out/journey.json"
 printf '{"exit": %s}\\n' "$code" > "$out/guest-updater.json"
 echo run >> "${dir}/calls"; exit "$code"
 `)
@@ -62,6 +63,28 @@ describe("cloud-journey-ci.sh retry", () => {
     expect(r.calls).toBe(2)
     expect(r.code).toBe(3)
     expect(r.out).toContain("result=regressed")
+  })
+})
+
+// Run 45708085975 (cmux-vm staging unproven, 2026-11-25): the run page said only "Process completed with exit code 1";
+// each failed step of a red run's final attempt is now an error annotation, a pass and a flake that passed write none.
+describe("cloud-journey-ci.sh failed-step annotations", () => {
+  const steps = JSON.stringify({ steps: [
+    { step: "create machine", status: "pass", ms: 1, detail: "vm_1" },
+    { step: "turn after resume", status: "fail", ms: 12240, detail: "acp wait exit 1: Claude is not signed in here.\n100% sure" },
+    { step: "delete (cleanup)", status: "fail", ms: 9, detail: "mutation.indeterminate" },
+  ] })
+  it("a red names each failed step and its detail, escaped to one line", () => {
+    const r = wrapper([1, 1], "", 0, undefined, { JOURNEY_FAKE_JSON: steps })
+    expect(r.out).toContain("::error title=Cloud journey failed::target=staging test-team: turn after resume :: acp wait exit 1: Claude is not signed in here. 100%25 sure")
+    expect(r.out).toContain("::error title=Cloud journey failed::target=staging test-team: delete (cleanup) :: mutation.indeterminate")
+    expect(r.out).not.toContain("create machine ::")
+    expect(r.out).toContain("result=red")
+  })
+  it("a red with no readable journey.json still says so; a pass or a passing retry annotates nothing", () => {
+    expect(wrapper([1, 1], "", 0, undefined, { JOURNEY_FAKE_JSON: "not json" }).out).toContain("no failed step recorded")
+    expect(wrapper([0], "", 0, undefined, { JOURNEY_FAKE_JSON: steps }).out).not.toContain("Cloud journey failed")
+    expect(wrapper([1, 0], "", 0, undefined, { JOURNEY_FAKE_JSON: steps }).out).not.toContain("Cloud journey failed")
   })
 })
 

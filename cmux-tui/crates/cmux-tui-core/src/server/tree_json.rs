@@ -419,6 +419,7 @@ fn workspace_json(
         "title": presentation.and_then(|presentation| presentation.title.as_deref()),
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
+        "keep_awake": presentation.is_some_and(|presentation| presentation.keep_awake),
         "kind": home::raw_workspace_kind(&notifications.presentation, &workspace.key),
         "app": home::raw_workspace_app(&notifications.presentation, &workspace.key),
         "recovered": home::raw_workspace_recovered(state, workspace, &notifications.presentation),

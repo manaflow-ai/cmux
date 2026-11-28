@@ -77,13 +77,13 @@ test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32, an
 });
 
 // A status line the agent's own background work drew after its turn ended ("Background update",
-// "Background task finished", "Subagent finished") is that turn's tail: 8 under its footer row, as
-// the footer is under the reply, and the turn gap to the next prompt. A block gap above and the
-// turn gap below left it floating alone in the band (Leo, 2026-11-04: "this bare background update
-// tool call floating in teh air is so weird loking proportionally"). Another agent's line or a tool
-// row there opens the next turn: the run gap (16, the test above).
-test("a lone status line under a footer row is its turn's tail, 8 under it", () => {
-  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(TRANSCRIPT_FOOTER_GAP);
+// "Background task finished", "Subagent finished") is that turn's tail: flush under its footer row,
+// as Claude Code desktop draws "Message from subagent" right under the actions (Lucas, 2026-11-27),
+// and the turn gap to the next prompt. A block gap above and the turn gap below left it floating
+// alone in the band (Leo, 2026-11-04). Another agent's line or a tool row there opens the next
+// turn: the run gap (16, the test above).
+test("a lone status line under a footer row is its turn's tail, flush under it", () => {
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(0);
   expect(transcriptGap(MARK_FOOTER_ROW, MARK_STEP)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_STATUS, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
   const lone = [
@@ -94,9 +94,28 @@ test("a lone status line under a footer row is its turn's tail, 8 under it", () 
   ];
   for (const line of lone) {
     const layout = layoutConversation([answer, footer, hidden, line, row("prompt", "user", { text: "Next." })], 720);
-    expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(TRANSCRIPT_FOOTER_GAP);
+    expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(0);
     expect(layout.tops[4]! - (layout.tops[3]! + layout.heights[3]!)).toBe(TRANSCRIPT_TURN_GAP);
   }
+});
+
+// A task's notice ("Background command finished") right under the footer opens the turn it woke as a
+// status line does, flush; another agent's message there keeps the run gap (model.ts `noticeUnderFooter`).
+test("a task notice under a footer row sits flush; another agent's message keeps the run gap", () => {
+  const notice = row("notice", "user", {
+    text: "Background command finished",
+    incoming: { kind: "notice", text: "Background command finished" },
+  });
+  const message = row("message", "user", {
+    text: "Review passed.",
+    incoming: { kind: "message", message: { name: "review-box", text: "Review passed.", raw: "Review passed." } },
+  });
+  const gapUnder = (line: ReturnType<typeof row>) => {
+    const layout = layoutConversation([answer, footer, line], 720);
+    return layout.tops[2]! - (layout.tops[1]! + layout.heights[1]!);
+  };
+  expect(gapUnder(notice)).toBe(0);
+  expect(gapUnder(message)).toBe(TRANSCRIPT_RUN_GAP);
 });
 
 test("an empty footer still lies over the gap: no height, one gap from the reply to the next row", () => {

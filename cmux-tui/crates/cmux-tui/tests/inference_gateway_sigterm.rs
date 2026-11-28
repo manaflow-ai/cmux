@@ -140,14 +140,22 @@ async fn held_upstream() -> (String, oneshot::Receiver<()>, oneshot::Sender<()>)
     let (reached_tx, reached) = oneshot::channel();
     let (release, released) = oneshot::channel::<()>();
     tokio::spawn(async move {
-        let (mut sock, _) = listener.accept().await.unwrap();
-        let mut seen = Vec::new();
-        let mut buf = [0u8; 4096];
-        while !String::from_utf8_lossy(&seen).contains(r#"{"model":"m"}"#) {
-            let n = sock.read(&mut buf).await.unwrap();
-            assert!(n > 0, "the gateway closed the call before its body arrived");
-            seen.extend_from_slice(&buf[..n]);
-        }
+        // Warm-up and the model call can overlap on different connections. Keep accepting
+        // while each connection waits for a request; dropping the set closes idle sockets.
+        let mut connections = tokio::task::JoinSet::new();
+        let mut sock = loop {
+            tokio::select! {
+                accepted = listener.accept() => {
+                    let (sock, _) = accepted.unwrap();
+                    connections.spawn(read_held_call(sock));
+                }
+                finished = connections.join_next(), if !connections.is_empty() => {
+                    if let Some(sock) = finished.unwrap().unwrap() {
+                        break sock;
+                    }
+                }
+            }
+        };
         let _ = reached_tx.send(());
         let _ = released.await;
         sock.write_all(
@@ -158,6 +166,60 @@ async fn held_upstream() -> (String, oneshot::Receiver<()>, oneshot::Sender<()>)
         sock.shutdown().await.unwrap();
     });
     (base, reached, release)
+}
+
+/// Answer warm-up requests, then hand the model call's socket back for its held response.
+async fn read_held_call(mut sock: TcpStream) -> Option<TcpStream> {
+    let mut seen = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = sock.read(&mut buf).await.unwrap();
+        if n == 0 {
+            return None;
+        }
+        seen.extend_from_slice(&buf[..n]);
+        while let Some(end) = seen.windows(4).position(|window| window == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&seen[..end]).to_ascii_lowercase();
+            let content_length = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .map_or(0, |value| value.trim().parse::<usize>().unwrap());
+            let frame_len = end + 4 + content_length;
+            if seen.len() < frame_len {
+                break;
+            }
+            let request = seen.drain(..frame_len).collect::<Vec<_>>();
+            if head.starts_with("head ") {
+                sock.write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: keep-alive\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            } else {
+                assert!(head.starts_with("post "), "unexpected request: {head}");
+                assert_eq!(&request[end + 4..], br#"{"model":"m"}"#);
+                return Some(sock);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn held_proxy_accepts_a_call_while_the_warmup_socket_is_busy() {
+    let (upstream, reached, release) = held_upstream().await;
+    let address = upstream.strip_prefix("http://").unwrap();
+    let mut warmup = TcpStream::connect(address).await.unwrap();
+    // Leave HEAD incomplete, forcing the POST to arrive on a second connection.
+    warmup.write_all(b"HEAD / HTTP/1.1\r\n").await.unwrap();
+    let mut call = TcpStream::connect(address).await.unwrap();
+    call.write_all(b"POST /v1/messages HTTP/1.1\r\ncontent-length: 13\r\n\r\n{\"model\":\"m\"}")
+        .await
+        .unwrap();
+    tokio::time::timeout(STEP, reached).await.expect("POST blocked behind HEAD").unwrap();
+    release.send(()).unwrap();
+    let mut response = String::new();
+    tokio::time::timeout(STEP, call.read_to_string(&mut response)).await.unwrap().unwrap();
+    assert!(response.ends_with(r#"{"a":1}"#), "{response}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

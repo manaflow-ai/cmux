@@ -137,6 +137,9 @@ final class Scene: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     var scroll: NSScrollView!
     var text: NSTextView!
+    /// White over the line the view's bottom edge cuts, shown in the ocr phase: the screenshot then
+    /// shows exactly TRUTH_TXT's lines, none half drawn.
+    let ocrMask = NSView()
     var marker: SourceMarkerView?
     var videoPlayer: AVPlayer?
     var videoOutput: AVPlayerItemVideoOutput?
@@ -280,6 +283,10 @@ final class Scene: NSObject, NSApplicationDelegate {
         text.autoresizingMask = [.width]
         scroll.documentView = text
         content.addSubview(scroll)
+        ocrMask.wantsLayer = true
+        ocrMask.layer?.backgroundColor = NSColor.white.cgColor
+        ocrMask.isHidden = true
+        content.addSubview(ocrMask)
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -309,12 +316,30 @@ final class Scene: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The lines the top of the view shows, as drawn.
+    /// The lines the top of the view shows whole, as laid out: every line fragment inside the visible
+    /// rect, not (height - insets) / a nominal line height, which left the last whole line out and a
+    /// cut one on screen. The strip under the last whole line is masked in the ocr phase.
     func writeTruth() {
-        let lineHeight = text.layoutManager!.defaultLineHeight(for: text.font!)
-        let visible = Int((scroll.contentView.bounds.height - 32) / lineHeight)
-        let lines = text.string.split(separator: "\n", omittingEmptySubsequences: false).prefix(max(0, visible))
-        try? lines.joined(separator: "\n").write(toFile: truthFile, atomically: true, encoding: .utf8)
+        let layout = text.layoutManager!, container = text.textContainer!
+        layout.ensureLayout(for: container)
+        let visible = NSRect(origin: .zero, size: scroll.contentView.bounds.size) // the top of the file
+        let origin = text.textContainerOrigin
+        var chars: NSRange?
+        var bottom = visible.minY + text.textContainerInset.height
+        let glyphs = layout.glyphRange(forBoundingRect: visible.offsetBy(dx: -origin.x, dy: -origin.y), in: container)
+        layout.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, range, stop in
+            let line = rect.offsetBy(dx: origin.x, dy: origin.y)
+            guard line.maxY <= visible.maxY else { stop.pointee = true; return }
+            let fragment = layout.characterRange(forGlyphRange: range, actualGlyphRange: nil)
+            chars = chars.map { NSUnionRange($0, fragment) } ?? fragment
+            bottom = line.maxY
+        }
+        let shown = chars.map { (text.string as NSString).substring(with: $0) } ?? ""
+        let lines = shown.split(separator: "\n", omittingEmptySubsequences: false)
+        try? lines.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            .write(toFile: truthFile, atomically: true, encoding: .utf8)
+        let strip = NSRect(x: visible.minX, y: bottom, width: visible.width, height: max(0, visible.maxY - bottom))
+        ocrMask.frame = scroll.contentView.convert(strip, to: window.contentView)
     }
 
     func scrollTo(_ y: CGFloat) {
@@ -370,6 +395,7 @@ final class Scene: NSObject, NSApplicationDelegate {
                 typedCount = 0
             }
             scrollTo(0)
+            ocrMask.isHidden = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 let shot = Process()
                 shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")

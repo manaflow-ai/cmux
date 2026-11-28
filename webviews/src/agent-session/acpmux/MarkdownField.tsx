@@ -14,10 +14,12 @@ import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
 import {
   inlineAttachmentNode,
+  INLINE_REMOVE,
   inlineIds,
   inlinePlugin,
   insertInline,
   type InlinePlace,
+  onlyInline,
   orderInline,
   placeTokensIn,
   removeInline,
@@ -263,6 +265,9 @@ export type MarkdownFieldProps = {
   /// attachment stays their text. Read when a value's tokens become nodes (the editor made, a value
   /// set from outside, `type`); unset, every token-shaped run is taken for an attachment.
   isInlineAttachment?(id: string): boolean;
+  /// The placed attachments' nodes are hidden (Settings' strip view): Backspace and Delete pass over
+  /// them (composer/inlineNode.ts hiddenDelete), so a key never takes out a picture it cannot see.
+  inlineHidden?: boolean;
   /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
   /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
   /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
@@ -345,6 +350,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onUnplacedQuotes === next.onUnplacedQuotes &&
     previous.onInlineViews === next.onInlineViews &&
     previous.isInlineAttachment === next.isInlineAttachment &&
+    previous.inlineHidden === next.inlineHidden &&
     previous.onCopy === next.onCopy &&
     previous.onWholeSelection === next.onWholeSelection &&
     previous.onPasteFirst === next.onPasteFirst &&
@@ -908,6 +914,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -1006,6 +1013,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -1027,6 +1035,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -1107,9 +1116,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const applyAttributes = () => {
     const dom = view.current?.dom;
     if (!dom) return;
+    // Each write is a mutation WebKit lays out again, even of the same value; this runs on every render.
     for (const [name, attribute] of Object.entries(attrs.current ?? {}))
-      if (attribute === undefined) dom.removeAttribute(name);
-      else dom.setAttribute(name, attribute);
+      if (attribute === undefined) {
+        if (dom.hasAttribute(name)) dom.removeAttribute(name);
+      } else if (dom.getAttribute(name) !== attribute) dom.setAttribute(name, attribute);
   };
   // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   // A draft of blank lines (Shift+Enter in an empty prompt) is not empty: the placeholder stayed on
@@ -1153,6 +1164,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       inlineViews.current.delete(id);
       tellInlineViews();
     },
+    hidden: () => latest.current.inlineHidden === true,
   });
   const inlineKnown = (id: string) => latest.current.isInlineAttachment?.(id) ?? true;
   // Whether this field's editor was made with placed attachments (`placesInline` in `mount`).
@@ -1162,6 +1174,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const copied = (editorView: EditorView, event: ClipboardEvent, cut: boolean) => {
     const surface = latest.current.onCopy;
     const { state } = editorView;
+    // The strip view's hidden nodes are not the person's text: a selection of only them copies and
+    // cuts nothing (composer/inlineNode.ts onlyInline).
+    if (latest.current.inlineHidden && !state.selection.empty && onlyInline(state.selection.content())) {
+      event.preventDefault();
+      return true;
+    }
     if (!surface || state.selection.empty) return false;
     const copy = {
       parts: inlineOn.current ? selectionParts(state) : [],
@@ -1824,7 +1842,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         if (!parsed) return;
         const { tr, doc } = current.state;
         tr.replace(0, doc.content.size, new Slice(parsed.content, 0, 0));
-        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable));
+        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable).setMeta(INLINE_REMOVE, true));
       });
     else editor.current?.action(replaceAll(markdown));
     const current = view.current;

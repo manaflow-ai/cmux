@@ -1863,3 +1863,30 @@ ul > li.acpmux-session-info-rows-rest {
   border: 0;
   pointer-events: none;
 }
+/* Inline (Settings placement `inline`, SessionInfoPresence portals it into the chat's stage): a band atop
+   the transcript in the chat's own flow, under the header and across the transcript's column, the way the
+   gallery's golden chrome draws it (gallery/fixtures/GoldenChrome.tsx). Not a side panel: it never floats,
+   pushes or covers the chat, has no glass and no drag handle, and the transcript runs under it, so the
+   chat keeps its whole width (Leo, 2026-11-19: "prob likewise the session info"). It is as tall as its
+   sections up to a share of the stage, past which its body scrolls, so the transcript always keeps room. */
+.acpmux-shell[data-session-info-chat-placement="inline"] .acpmux-stage > .acpmux-header {
+  order: -2;
+}
+.acpmux-session-info[data-placement="inline"] {
+  order: -1;
+  flex: none;
+  width: auto;
+  max-width: none;
+  max-height: min(40%, 320px);
+  margin: var(--grid-gap, 8px) var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  /* It opens in place and fades out: no slide in from the pane's edge. */
+  --ui-enter-distance: 0px;
+}
+.acpmux-session-info[data-placement="inline"]:is([data-presence="from"], [data-presence="shown"]) {
+  opacity: 1;
+  translate: none;
+  transition-property: none;
+}
+.acpmux-session-info[data-placement="inline"] .acpmux-session-info__resize {
+  display: none;
+}

@@ -28,9 +28,9 @@
 //!
 //! ```text
 //! # the nightly gate (10 runs, 30 min each):
-//! LID_CLOSE_RUNS=10 LID_CLOSE_SECS=1800 cargo test -p cmux-tui --test lid_close_gate -- --ignored --nocapture
+//! LID_CLOSE_RUNS=10 LID_CLOSE_SECS=1800 cargo test -p cmux-tui --test it -- --ignored --nocapture lid_close_gate::
 //! # a quick check (the defaults: 1 run, 20 s):
-//! cargo test -p cmux-tui --test lid_close_gate -- --ignored --nocapture
+//! cargo test -p cmux-tui --test it -- --ignored --nocapture lid_close_gate::
 //! ```
 //!
 //! What it does not cover: a real Mac's sleep (its network goes down with it; here the Mac's
@@ -38,7 +38,7 @@
 //! pauses when no client is attached); `scripts/cmux-next/rfd0135-gates.sh` names both.
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::fs;
 use std::path::{Path, PathBuf};

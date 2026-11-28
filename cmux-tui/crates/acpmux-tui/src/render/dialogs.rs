@@ -105,7 +105,7 @@ pub(super) fn draw_permission_card(
     fill(buf, area, Style::default());
     super::composer::rounded_border(buf, area, Style::default().fg(c.attention_fg));
     let inner_w = area.width.saturating_sub(4) as usize;
-    let head = format!("Needs permission  ·  {}", truncate(title, inner_w.saturating_sub(20)));
+    let head = "Needs permission".to_owned();
     buf.set_stringn(
         area.x + 2,
         area.y + 1,
@@ -123,8 +123,18 @@ pub(super) fn draw_permission_card(
             c.dim(),
         );
     }
+    // The whole command, wrapped at word breaks (cmux#49116), never cut to the head's width.
+    let chips_y = area.y + area.height.saturating_sub(2);
+    let mut y = area.y + 2;
+    for line in super::question::wrap_text(title, inner_w) {
+        if y >= chips_y {
+            break;
+        }
+        buf.set_stringn(area.x + 2, y, &line, inner_w, Style::default());
+        y += 1;
+    }
     let mut x = area.x + 2;
-    let y = area.y + 2;
+    let y = chips_y.max(area.y + 2);
     app.perm_rows.clear();
     for (i, (_, name, kind)) in options.iter().enumerate() {
         let label = format!(" {}  {} ", i + 1, name);

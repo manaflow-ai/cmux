@@ -104,6 +104,7 @@ use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::seed::plan::{self, Fallback, FallbackCode, Planned, PreviousSeed};
+use super::seed::snapshot;
 use super::{machine_gate, sync_cli};
 use record::{Kept, Record};
 use sync_cli::SeedBase;
@@ -512,6 +513,9 @@ struct Machine<'a> {
     /// It serves `git-seed-carry-v1`: a fresh folder takes this Mac's pack of the base instead
     /// of a clone ([`plan_carry`]).
     carries: bool,
+    /// It serves `git-seed-borrow-v1`: it says whether a fresh folder would borrow its warm
+    /// mirror, so this Mac skips a pack the machine would drop ([`borrows_there`]).
+    borrows: bool,
 }
 
 impl<'a> Machine<'a> {
@@ -530,8 +534,9 @@ impl<'a> Machine<'a> {
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let holds = lacks(cmux_tui_core::git_seed::GIT_SEED_HOLD_CAPABILITY).is_none();
         let carries = lacks(cmux_tui_core::git_seed::GIT_SEED_CARRY_CAPABILITY).is_none();
+        let borrows = lacks(cmux_tui_core::git_seed::GIT_SEED_BORROW_CAPABILITY).is_none();
         let id = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
-        Ok(Self { socket, id, seeds, holds, carries })
+        Ok(Self { socket, id, seeds, holds, carries, borrows })
     }
 
     fn outdated() -> SeedError {
@@ -850,7 +855,7 @@ fn seed_full(
     let mut bundle = LocalBundle::new().map_err(Attempt::Failed)?;
     let mut planned =
         super::spans::time("seed.plan", || plan::plan(local, &bundle.file)).map_err(from_plan)?;
-    plan_carry(machine, local, &planned, &mut bundle);
+    plan_carry(machine, local, remote, &planned, &mut bundle);
     let existed = sync_cli::remote_kind(machine.socket, remote)
         .map_err(|error| Attempt::Failed(SeedError::of(&error)))?
         .is_some();
@@ -863,7 +868,7 @@ fn seed_full(
         && let Some(tip) = planned.bases.last().filter(|tip| **tip != planned.params.base).cloned()
     {
         planned = plan::plan_with_base(local, &bundle.file, &tip).map_err(from_plan)?;
-        plan_carry(machine, local, &planned, &mut bundle);
+        plan_carry(machine, local, remote, &planned, &mut bundle);
         result =
             run_seed(machine.socket, machine.id.as_deref(), remote, &planned, &bundle, head_first);
     }
@@ -885,10 +890,24 @@ fn seed_full(
 
 /// The base's pack beside the bundle when the machine serves `git-seed-carry-v1` and this Mac
 /// may carry it (`seed::carry`); else none, and the machine clones. A failure here is never the
-/// seed's: it only costs the clone it would have saved.
-fn plan_carry(machine: &Machine<'_>, local: &Path, planned: &Planned, bundle: &mut LocalBundle) {
+/// seed's: it only costs the clone it would have saved. None either when the machine says a
+/// fresh `remote` would borrow its warm mirror ([`borrows_there`]): it would drop the pack.
+fn plan_carry(
+    machine: &Machine<'_>,
+    local: &Path,
+    remote: &str,
+    planned: &Planned,
+    bundle: &mut LocalBundle,
+) {
     bundle.carry = None;
     if !machine.carries || !super::seed::carry::enabled() || planned.params.since.is_some() {
+        return;
+    }
+    if machine.borrows
+        && super::spans::time("seed.borrow_ask", || {
+            borrows_there(&mut machine_calls(machine.socket), remote, &planned.params)
+        })
+    {
         return;
     }
     let out = bundle.folder.join("carry.pack");
@@ -900,6 +919,17 @@ fn plan_carry(machine: &Machine<'_>, local: &Path, planned: &Planned, bundle: &m
     if let Ok(bytes) = packed {
         bundle.carry = Some((out, bytes));
     }
+}
+
+/// Whether the machine answers that a fresh seed of `remote` at the base would borrow its warm
+/// mirror (`git.seed.borrowable`, `git-seed-borrow-v1`). Any refusal or other answer is `false`:
+/// the pack goes as before.
+fn borrows_there(call: &mut Call<'_>, remote: &str, params: &plan::SeedParams) -> bool {
+    let asked = json!({
+        "folder": remote, "url": params.url, "repo": params.repo, "base": params.base,
+    });
+    call("git.seed.borrowable", asked)
+        .is_ok_and(|answer| answer.get("borrow").and_then(Value::as_bool) == Some(true))
 }
 
 /// [`settle_fill`] over the machine's own calls.
@@ -946,6 +976,7 @@ fn copied(
         stash_known: false,
         filling: filling.map(str::to_owned),
         hop: None,
+        snapshot: snapshot_base(local, remote),
     };
     // A record that could not be kept only makes the next --since-last
     // answer seed.no_previous; the copy itself is done.
@@ -962,6 +993,26 @@ fn copied(
         fallback,
         filling: filling.is_some(),
         projected: None,
+    }
+}
+
+/// The copy's base record when [`snapshot::enabled`] (off by default until RFD 0066 open
+/// question 2 is answered): a snapshot commit of `local` as the copy sent it, thin against the
+/// last copy's own, its bundle beside the folder's snapshot store. None when off or when the
+/// snapshot fails; the copy is done either way.
+fn snapshot_base(local: &Path, remote: &str) -> Option<String> {
+    if !snapshot::enabled() {
+        return None;
+    }
+    let store = snapshot::store_for(local)?;
+    let since = record::load(local, remote).ok().flatten().and_then(|kept| kept.snapshot);
+    let bundle = store.with_file_name("snapshot.bundle");
+    match snapshot::snapshot(local, &store, &bundle, since.as_deref()) {
+        Ok(made) => Some(made.commit),
+        Err(why) => {
+            eprintln!("{}", json!({"progress": {"phase": "snapshot", "failed": why}}));
+            None
+        }
     }
 }
 
@@ -989,6 +1040,7 @@ fn seed_record(machine: Option<String>, planned: &Planned, filling: Option<&str>
         stash_known: true,
         filling: filling.map(str::to_owned),
         hop: None,
+        snapshot: None,
     }
 }
 
@@ -1424,7 +1476,8 @@ mod tests {
     use super::plan::{Planned, SeedParams};
     use super::{
         Command, Ended, LocalBundle, Record, SeedError, asks_head_first, barrier_marker,
-        barrier_ready, failure_message, parse, pull, seed_job, seed_record, seeded, settle_fill,
+        barrier_ready, borrows_there, failure_message, parse, pull, seed_job, seed_record, seeded,
+        settle_fill,
     };
 
     /// The ops a scripted machine was asked, in order.
@@ -1456,6 +1509,25 @@ mod tests {
             "the machine did not answer for 30 s",
         ));
         assert_eq!(failure_message(&error), "the machine did not answer for 30 s");
+    }
+
+    /// The pack is skipped only on the machine's own `{"borrow": true}`: a no, an odd answer or
+    /// a refusal (an old daemon, a gate) keeps today's carry.
+    #[test]
+    fn only_a_borrow_answer_skips_the_carry() {
+        let params = planned().params;
+        for (answer, borrows) in [
+            (Ok(json!({ "borrow": true })), true),
+            (Ok(json!({ "borrow": false, "why": "no_mirror" })), false),
+            (Ok(json!({ "borrow": "yes" })), false),
+            (Ok(json!({})), false),
+            (Err("seed.bad_request"), false),
+            (Err("sync_failed"), false),
+        ] {
+            let (mut call, asked) = machine(vec![answer.clone()]);
+            assert_eq!(borrows_there(&mut call, "/home/u/p", &params), borrows, "{answer:?}");
+            assert_eq!(*asked.borrow(), ["git.seed.borrowable"]);
+        }
     }
 
     fn later() -> Instant {

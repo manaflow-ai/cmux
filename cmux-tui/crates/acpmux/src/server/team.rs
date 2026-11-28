@@ -20,6 +20,9 @@ pub(super) async fn handle(
         return answer;
     }
     authorize(hub, conn).await?;
+    if let Some(answer) = super::team_directory::handle(hub, conn, method, params) {
+        return answer;
+    }
     let mesh =
         hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
     match method {

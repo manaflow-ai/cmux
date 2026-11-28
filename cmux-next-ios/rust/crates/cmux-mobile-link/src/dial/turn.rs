@@ -760,7 +760,19 @@ impl TurnCarrier {
         let (host, port) = split_host_port(&server.address, 443)
             .ok_or_else(|| AllocFailure::Other(format!("bad TURN address {}", server.address)))?;
         let secure = server.transport == TurnTransport::Tls;
-        match crate::egress::connect_tcp(&host, port, secure, &options.egress).await {
+        // The direct hop dials the remembered literals when DNS is down
+        // (`route_literals`); TLS still names the host.
+        let direct = |_: &str, _: u16| async {
+            let targets = options
+                .routes
+                .resolve(&server.address, 0)
+                .await
+                .map_err(|e| crate::egress::EgressError::Io(format!("{}: {e}", server.address)))?;
+            TcpStream::connect(&targets[..])
+                .await
+                .map_err(|e| crate::egress::EgressError::Io(format!("{}: {e}", server.address)))
+        };
+        match crate::egress::connect_tcp_with(&host, port, secure, &options.egress, direct).await {
             Ok((tcp, via)) => {
                 if let crate::egress::Via::Proxy(hop) = &via {
                     tracing::info!(%hop, server = server.address, "TURN over TLS through the proxy");
@@ -800,6 +812,19 @@ impl TurnCarrier {
     }
 
     async fn allocate_inner(server: TurnServer, options: &DialOptions) -> Result<Self, AllocFailure> {
+        // UDP: the server's IPv4 literal (the socket is IPv4), resolved here rather than in the
+        // `turn` crate so a dial with DNS down reaches it at its remembered literal.
+        let udp_target = if server.transport == TurnTransport::Udp {
+            let found = options.routes.resolve(&server.address, 0).await.map_err(|e| e.to_string())?;
+            Some(
+                found
+                    .into_iter()
+                    .find(SocketAddr::is_ipv4)
+                    .ok_or_else(|| "no IPv4 address for the TURN server".to_owned())?,
+            )
+        } else {
+            None
+        };
         let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server
             .transport
         {
@@ -825,7 +850,7 @@ impl TurnCarrier {
         // The server address the client compares against: the stream's peer.
         let turn_serv_addr = match (&dead, conn.remote_addr()) {
             (Some(_), Some(peer)) => peer.to_string(),
-            _ => server.address.clone(),
+            _ => udp_target.map_or_else(|| server.address.clone(), |target| target.to_string()),
         };
         // Watch the server's replies for the realm and nonce a CreatePermission
         // of ours needs (the `turn` crate keeps them to itself).
@@ -872,6 +897,9 @@ impl TurnCarrier {
         };
         let relayed = relay.local_addr().map_err(|e| e.to_string())?;
         let server_addr: Option<SocketAddr> = turn_serv_addr.parse().ok();
+        if let Some(reached) = server_addr {
+            options.routes.confirm(&server.host, reached.ip());
+        }
         let queue = Arc::new(ClassQueue::default());
         let (inbound_tx, inbound) = mpsc::channel(INBOUND_QUEUE);
         let (permits, permit_requests) = mpsc::unbounded_channel();

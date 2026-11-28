@@ -55,6 +55,12 @@ export function clicked(view: HybridView): HybridView {
   return { ...view, lit: true, used: view.used + 1 };
 }
 
+/// Settings > Advanced > Experiments' Cloud Toggle (`experiments.cloudToggle`, off by default): the
+/// composer's place chip and cloud toggle, the move card, Session Info's cloud rows and the chat
+/// cards' place and Evacuate rows draw only while it is on (Leo, 2026-11-24: "don't unilaterally
+/// MERGE ui stuff yet"; a new look ships as a switch people can turn on).
+export const CLOUD_TOGGLE_SWITCH = "cloudToggle";
+
 /// A hybrid start's machine side (RFD 0078, "the start"; cmux-cloud-start-core `hybrid::Cloud`, as
 /// its `Effect::Show` sends it). A chat with Cloud chosen starts on this Mac at once while its
 /// machine boots, then moves at a tool boundary or turn end. The button alone shows where it is.

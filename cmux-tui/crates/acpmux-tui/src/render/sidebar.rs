@@ -250,7 +250,14 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                     ("●", row_style.fg(c.warn_fg))
                 } else if status == "waiting" {
                     ("?", row_style.fg(c.attention_fg))
-                } else if matches!(status, "disconnected" | "unreachable") {
+                } else if s
+                    .get("sessionState")
+                    .and_then(|v| v.get("state"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some("errored")
+                    || s.get("sessionState").is_none()
+                        && matches!(status, "disconnected" | "unreachable")
+                {
                     ("!", row_style.fg(c.error_fg))
                 } else if dot > 0 && !is_sel {
                     (

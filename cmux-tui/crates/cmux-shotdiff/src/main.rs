@@ -1,7 +1,7 @@
 //! The cmux-shotdiff CLI. Exit codes: 0 pass, 1 fail (a verdict or report that does not pass), 2 usage or I/O
 //! error.
 
-use cmux_shotdiff::{BatchOptions, Spec, Store, compare, decode_png, encode_png, store};
+use cmux_shotdiff::{BatchOptions, Spec, Store, compare, decode_png, encode_png, inputkey, store};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -16,6 +16,11 @@ USAGE
   cmux-shotdiff batch --store DIR --heads DIR [--out DIR] [--summary FILE] [--title T]
                       [--allow-new] [--require-all]
   cmux-shotdiff get --store DIR (--name NAME | --hash HASH) OUT.png
+  cmux-shotdiff key --inputs FILE --family F [--variant V] [--rev REV] [--repo DIR]
+
+key prints {family, variant, key, files, rev} (schema cmux-shotdiff.key/v1): the SHA-256 of family F's
+entry in FILE (.github/golden-inputs.json) and of every file at REV (HEAD) its paths match. Goldens rendered
+from those inputs are filed under it, so a Mac renders them once per change of what they depend on.
 
 compare/check print the verdict JSON (schema cmux-shotdiff.verdict/v1) to stdout or --json.
 batch checks every HEADS/<name>.png against the golden <name>; writes OUT/report.json
@@ -230,6 +235,33 @@ fn run(raw: Vec<String>) -> Result<ExitCode, String> {
                 _ => return Err("get takes --name NAME or --hash HASH".into()),
             };
             write_file(Path::new(out), &encode_png(&st.get(&hash)?).map_err(|e| e.to_string())?)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        "key" => {
+            args.check_known(&["--inputs", "--family", "--variant", "--rev", "--repo"])?;
+            if !args.positional.is_empty() {
+                return Err("key takes no positional arguments".into());
+            }
+            let family =
+                inputkey::load_family(Path::new(args.need("--inputs")?), args.need("--family")?)?;
+            let variant = family.variant(args.get("--variant"))?;
+            let rev = args.get("--rev").unwrap_or("HEAD");
+            let k = inputkey::input_key(
+                &family,
+                variant,
+                Path::new(args.get("--repo").unwrap_or(".")),
+                rev,
+            )?;
+            let out = serde_json::json!({
+                "schema": "cmux-shotdiff.key/v1",
+                "version": inputkey::KEY_VERSION,
+                "family": k.family,
+                "variant": k.variant,
+                "key": k.key,
+                "files": k.files,
+                "rev": rev,
+            });
+            println!("{out}");
             Ok(ExitCode::SUCCESS)
         }
         other => Err(format!("unknown command {other} (try --help)")),

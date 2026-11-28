@@ -114,6 +114,11 @@ impl Editor {
         self.sticky_col = None;
         self.browsing = None;
     }
+    /// A paste: a cmux link it ends in gets a trailing space (`paste_link.rs`, cmux#49121).
+    pub fn insert_paste(&mut self, s: &str) {
+        let next = self.chars.get(self.cursor).copied();
+        self.insert_str(&crate::paste_link::spaced(s, next));
+    }
     pub fn backspace(&mut self) {
         if self.cursor > 0 {
             self.snapshot_coalesced(false);

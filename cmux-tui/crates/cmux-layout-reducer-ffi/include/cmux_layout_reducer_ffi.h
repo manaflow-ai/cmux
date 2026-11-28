@@ -933,124 +933,6 @@ CmuxScrollStatus cmux_scroll_status(const CmuxScroll *scroll);
 uint8_t cmux_scroll_gesture_active(const CmuxScroll *scroll); /* per frame: no focus lookup */
 
 /*
- * The springing-close rules (cmux-layout-reducer closing_panes; FRAME OWNER
- * S3c/S3d): which panes border a closing pane and the gaps it keeps, the panes
- * nothing moves over, where every closing pane shows this frame (per display
- * frame during a close), the strip's carries and a row column's stop, and a
- * taken-back close. One handle per screen; panes, scroll areas and row columns
- * are numbers the caller hands out (0: none). No JSON; a call allocates
- * nothing once the handle's buffers have grown.
- *
- * Return codes: begin and remove return 1 when they answer and 0 when they do
- * not, with nothing written; landing_moves returns 1 (a landing now would move
- * a closing side more than snap; the state is not changed) or 0. 1 and 0 are answers, not
- * CMUX_LAYOUT_REDUCER_OK (also 0): check for 1. settle and rects return
- * CMUX_LAYOUT_REDUCER_OK and write a list that borrows the handle's buffer,
- * valid until the next call on the same handle. Any call returns ERR_NULL,
- * ERR_INVALID (an unknown handle kind) or ERR_PANIC with nothing written.
- * Each input array holds `count` elements; an `out` pointer must not overlap
- * an input array or the handle. One thread at a time per handle.
- */
-typedef struct CmuxClosingPanes CmuxClosingPanes;
-
-#define CMUX_CLOSING_HANDLE_SPLIT 0
-#define CMUX_CLOSING_HANDLE_COLUMN_EDGE 1
-#define CMUX_CLOSING_HANDLE_ROW_EDGE 2
-
-typedef struct CmuxClosingEdges {
-    double min_x;
-    double max_x;
-    double min_y;
-    double max_y;
-} CmuxClosingEdges;
-
-typedef struct CmuxClosingRect {
-    double x;
-    double y;
-    double width;
-    double height;
-} CmuxClosingRect;
-
-typedef struct CmuxClosingPane {
-    uint64_t id;
-    uint64_t area;
-    uint64_t row_column;
-    CmuxClosingEdges edges;
-    uint8_t scrolls;
-    uint8_t reserved[7];
-} CmuxClosingPane;
-
-typedef struct CmuxClosingHandle {
-    CmuxClosingEdges hit;
-    double mid_x;
-    double mid_y;
-    uint64_t area;   /* a split's scroll area (0: none) */
-    uint64_t column; /* a row edge's column */
-    uint8_t kind;    /* CMUX_CLOSING_HANDLE_* */
-    uint8_t horizontal;
-    uint8_t kept;
-    uint8_t fixed_split;
-    uint8_t docked;
-    uint8_t reserved[3];
-} CmuxClosingHandle;
-
-typedef struct CmuxClosingFrame {
-    uint64_t id;
-    CmuxClosingEdges now;
-    CmuxClosingEdges target;
-    double vx;
-    double vy;
-    double vw;
-    double vh;
-    uint8_t moving;
-    uint8_t fixed; /* 1: it does not scroll with the strip (x in view coordinates) */
-    uint8_t reserved[6];
-} CmuxClosingFrame;
-
-typedef struct CmuxClosingRow {
-    uint64_t column;
-    double now;
-    double target;
-} CmuxClosingRow;
-
-typedef struct CmuxClosingPlaced {
-    uint64_t pane;
-    CmuxClosingRect rect;
-} CmuxClosingPlaced;
-
-typedef struct CmuxClosingTaken {
-    CmuxClosingRect rect;
-    double vx;
-    double vw;
-    double vy;
-    double vh;
-} CmuxClosingTaken;
-
-typedef struct CmuxClosingIds {
-    const uint64_t *ids;
-    size_t count;
-} CmuxClosingIds;
-
-typedef struct CmuxClosingPlacedList {
-    const CmuxClosingPlaced *placed;
-    size_t count;
-} CmuxClosingPlacedList;
-
-CmuxClosingPanes *cmux_closing_panes_new(void);
-void cmux_closing_panes_free(CmuxClosingPanes *closing);
-int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift, double strip_shift);
-int32_t cmux_closing_panes_settle(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingIds *out);
-int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, double strip, double rest_strip, CmuxClosingPlacedList *out);
-int32_t cmux_closing_panes_landing_moves(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, double rest_strip, double snap);
-int32_t cmux_closing_panes_carry(CmuxClosingPanes *closing, double drift, uint8_t has_view_shift, double view_shift);
-int32_t cmux_closing_panes_settle_carried(CmuxClosingPanes *closing, double strip_shift);
-int32_t cmux_closing_panes_shift_y(CmuxClosingPanes *closing, uint64_t column, double delta);
-int32_t cmux_closing_panes_remove(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingFrame *frames, size_t frame_count, double strip, CmuxClosingTaken *out);
-int32_t cmux_closing_panes_drop(CmuxClosingPanes *closing, uint64_t pane);
-uint8_t cmux_closing_panes_has_awaiting(const CmuxClosingPanes *closing);
-uint64_t cmux_closing_panes_state_hash(const CmuxClosingPanes *closing); /* tests: the whole state, hashed */
-
-/*
  * The sidebar row face (cmux-layout-reducer sidebar_face): which tab a
  * workspace's row stands for and is named for, its folder line and Group by
  * Folder bucket, its kinds, program, status line, unread mark, notice and
@@ -1371,5 +1253,69 @@ typedef void (*CmuxKeychainDone)(void *context, uint8_t answered, const uint8_t 
 typedef void (*CmuxKeychainRelease)(void *context);
 int32_t cmux_keychain_bounded(const uint8_t *request, size_t request_len, void *context, CmuxKeychainWork work,
                               CmuxKeychainDone done, CmuxKeychainRelease release);
+
+/* Pane drop zones (cmux-layout-reducer pane_drop_zones): where a dragged tab drops on a screen and what its
+ * preview fills. cmux_pane_drop_screen_new takes JSON {width, height, panes: [{rect: {x, y, width, height},
+ * fixed, header, footer}], gaps: [rect], docks: [{edge, frame, cover}], uncovered, stripMinX, style:
+ * {edgeFraction, edgeMinimum, edgeMaximum, hysteresis, dockBand, dockTopBand, panePadding, stripGap}}
+ * (flipped coordinates; panes in tie-break order) and returns null when it does not parse; free it with
+ * cmux_pane_drop_screen_free. Each move then crosses numbers only. A target's kind is a
+ * CMUX_PANE_DROP_KIND_*: a pane (index in panes, zone a CMUX_PANE_DROP_ZONE_*), a new column (index in
+ * gaps) or a new dock (zone a CMUX_TAB_DROP_EDGE_*); a previous pane of another screen is sent with an index
+ * past the panes. previous is nullable. Each query returns 1 and writes out, 0 for no answer, or
+ * CMUX_LAYOUT_REDUCER_ERR_NULL / ERR_PANIC with nothing written. */
+enum {
+    CMUX_PANE_DROP_KIND_NONE = 0,
+    CMUX_PANE_DROP_KIND_PANE = 1,
+    CMUX_PANE_DROP_KIND_COLUMN = 2,
+    CMUX_PANE_DROP_KIND_DOCK = 3,
+};
+
+typedef struct CmuxPaneDropTarget {
+    uint32_t index;
+    uint8_t kind;
+    uint8_t zone;
+    uint8_t reserved[2];
+} CmuxPaneDropTarget;
+
+typedef struct CmuxPaneDropRect {
+    double x;
+    double y;
+    double width;
+    double height;
+} CmuxPaneDropRect;
+
+/* body (a pane's, below its tab bar) counts only when has_body is 1 */
+typedef struct CmuxPaneDropRects {
+    CmuxPaneDropRect highlight;
+    CmuxPaneDropRect region;
+    CmuxPaneDropRect body;
+    uint8_t has_body;
+    uint8_t reserved[7];
+} CmuxPaneDropRects;
+
+typedef struct CmuxPaneDropScreen CmuxPaneDropScreen;
+
+CmuxPaneDropScreen *cmux_pane_drop_screen_new(const uint8_t *request, size_t request_len);
+void cmux_pane_drop_screen_free(CmuxPaneDropScreen *screen);
+/* view point (x, y) with the strip scrolled to offset */
+int32_t cmux_pane_drop_target(const CmuxPaneDropScreen *screen, double x, double y, double offset,
+                              const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* content point (x, y): strip coordinates, no dock covers */
+int32_t cmux_pane_drop_target_in_content(const CmuxPaneDropScreen *screen, double x, double y,
+                                         const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* the edge band opening a new dock, below a top_inset tab bar and above a bottom_inset one */
+int32_t cmux_pane_drop_dock(const CmuxPaneDropScreen *screen, double x, double y, double top_inset,
+                            double bottom_inset, const CmuxPaneDropTarget *previous, CmuxPaneDropTarget *out);
+/* the preview's rects in view space with the strip at offset */
+int32_t cmux_pane_drop_rects(const CmuxPaneDropScreen *screen, const CmuxPaneDropTarget *target, double offset,
+                             CmuxPaneDropRects *out);
+/* the zone of pane cell rect under (x, y) by the screen's style, below a header tab bar and above a footer one;
+ * previous is a CMUX_PANE_DROP_ZONE_* or any other value for none; out gets a CMUX_PANE_DROP_ZONE_* */
+int32_t cmux_pane_drop_zone(const CmuxPaneDropScreen *screen, double x, double y, CmuxPaneDropRect rect, double header,
+                            double footer, uint8_t previous, uint8_t *out);
+/* classic cmux's pane drop overlay inside body, inset padding */
+int32_t cmux_pane_drop_classic_highlight(CmuxPaneDropRect body, uint8_t zone, double padding,
+                                         CmuxPaneDropRect *out);
 
 #endif

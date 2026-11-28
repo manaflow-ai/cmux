@@ -54,7 +54,7 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # The land tier (tests/test_head_tier.py LAND_GATED): each runs its jobs only at the head handed to land, so
     # adding ready-to-land (or full-ci) re-runs it there; no other label starts a run.
     **{name: ("full-ci", "ready-to-land") for name in (
-        "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
+        "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
         "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml",
         "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-next-car-guards.yml",
         "cmux-next-guards.yml", "cmux-next-hot-verify.yml",
@@ -62,7 +62,7 @@ GUARDED: dict[str, tuple[str, ...]] = {
         "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml", "ios-e2e.yml",
         "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml", "release-rails.yml",
         "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml",
-        "rust-workspaces.yml", "cmux-tui-spec.yml")},
+        "rust-workspaces.yml", "cmux-tui-spec.yml", "session-move-tests.yml")},
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
@@ -160,7 +160,10 @@ def _unwrap(term: str) -> str:
 
 
 def top_level_and_terms(condition: str) -> list[str]:
-    """CONDITION's && terms outside parentheses, unwrapped (none when it has a top-level ||)."""
+    """CONDITION's && terms outside parentheses, unwrapped (none when it has a top-level ||). A term that is
+    itself a parenthesized && chain gates all of CONDITION too, so its terms are listed as well: #58306 appended
+    `&& (github.event_name != 'pull_request' || needs.R.result == 'success' || ...)` after the label guard and
+    wrapped what came before, `(A && <guard>) && (<router>)`; the guard still gates every label event."""
     if top_level_or(condition):
         return []
     terms, depth, start = [], 0, 0
@@ -171,7 +174,15 @@ def top_level_and_terms(condition: str) -> list[str]:
             terms.append(condition[start:index])
             start = index + 2
     terms.append(condition[start:])
-    return [_unwrap(term.strip()) for term in terms]
+    if len(terms) == 1 and _unwrap(condition.strip()) == condition.strip():
+        return [condition.strip()]
+    found = []
+    for term in terms:
+        term = _unwrap(term.strip())
+        found.append(term)
+        if not term.startswith("!"):
+            found.extend(inner for inner in top_level_and_terms(term) if inner != term)
+    return found
 
 
 PUSH_OR_DISPATCH_ONLY = re.compile(r"github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'")

@@ -5,6 +5,129 @@
 use super::*;
 
 wire_op! {
+    /// Create or refresh the caller's user record from the Stack session.
+    UserEnsureOp {
+        name: "user.ensure",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: UserEnsureParams,
+        result: UserProfile,
+        error: UserEnsureError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserEnsureParams {}
+
+wire_errors! {
+    /// The error codes user.ensure declares.
+    UserEnsureError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The owner's presence keys with their public P-256 parts, platform, App Attest flag, usable_from and install state. Only an owner Mac install without an agent claim reads it: the Mac checks a phone's signed feed answers (cx-aocz).
+    UserPresenceKeyListOp {
+        name: "user.presence_key.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Install],
+        params: UserPresenceKeyListParams,
+        result: Value,
+        error: UserPresenceKeyListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserPresenceKeyListParams {}
+
+wire_errors! {
+    /// The error codes user.presence_key.list declares.
+    UserPresenceKeyListError {
+        AuthForbidden = "auth.forbidden",
+    }
+}
+
+wire_op! {
+    /// Make an install's presence key unusable at once (device lost); its nonces are dropped.
+    UserPresenceKeyRevokeOp {
+        name: "user.presence_key.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: UserPresenceKeyRevokeParams,
+        result: Value,
+        error: UserPresenceKeyRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserPresenceKeyRevokeParams {
+    pub install: String,
+}
+
+wire_errors! {
+    /// The error codes user.presence_key.revoke declares.
+    UserPresenceKeyRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        TextConfirmLocked = "text_confirm.locked",
+        TextConfirmProofRequired = "text_confirm.proof_required",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the teams the caller may act in with x-cmux-team (a team not listed answers team.not_member; one with sso_required answers auth.sso_required until the person signs in with its SSO): the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out.
+    UserTeamsListOp {
+        name: "user.teams.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session],
+        params: UserTeamsListParams,
+        result: UserTeamsListResult,
+        error: UserTeamsListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTeamsListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTeamsListResult {
+    pub teams: Vec<UserTeam>,
+    pub incomplete: bool,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes user.teams.list declares.
+    UserTeamsListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        OwnerUnreachable = "owner.unreachable",
+    }
+}
+
+wire_op! {
     /// The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings.
     UserTextConfirmGetOp {
         name: "user.text_confirm.get",

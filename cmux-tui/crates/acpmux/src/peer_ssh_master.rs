@@ -22,7 +22,7 @@
 use super::Peer;
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
-use std::fs::{OpenOptions, TryLockError};
+use std::fs::TryLockError;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -75,7 +75,7 @@ pub(crate) fn key(destination: &str) -> String {
 /// ignores them: its channel rides the master's connection.
 pub(crate) fn options(path: &Path) -> Option<[String; 10]> {
     let dir = path.parent()?;
-    private_dir(dir).ok()?;
+    crate::home_fs::private_dir(dir).ok()?;
     // ssh expands `%` and `~` in ControlPath: a literal `%` is written `%%`.
     let path = path.to_str()?.replace('%', "%%");
     Some([
@@ -92,23 +92,8 @@ pub(crate) fn options(path: &Path) -> Option<[String; 10]> {
     ])
 }
 
-fn private_dir(dir: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-        let meta = std::fs::metadata(dir)?;
-        if meta.permissions().mode() & 0o077 != 0 {
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-        }
-        Ok(())
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::create_dir_all(dir)
-    }
-}
-
+// test-hook-allow: keyed by peer name and never cleared: each test registers its own peer
+// names (peer_ssh_master_tests.rs), so no test can replace or clear another's entry
 #[cfg(test)]
 static OVERRIDES: std::sync::Mutex<Option<std::collections::HashMap<String, SshMux>>> =
     std::sync::Mutex::new(None);
@@ -170,7 +155,7 @@ impl Peer {
         let Some(path) = path.filter(|path| !path.exists()) else {
             return Ok(None);
         };
-        let lock = match OpenOptions::new()
+        let lock = match crate::home_fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)

@@ -521,26 +521,23 @@ impl Hub {
     }
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
-        self.receive_guarded(params, false).await
+        self.receive_guarded(params, None).await
     }
 
-    /// `transfer_receive`, and for `owner` (a hub move between the same person's daemons, set
-    /// only by `hub/transfer_pull.rs`, never by a request) a peer guard that keeps the chat's
-    /// own origin (`Guard::owner`).
+    /// `transfer_receive`, and for `pulled` (a hub move between the same person's daemons, built
+    /// only by `hub/transfer_pull.rs` from this daemon's own config, never from a request) that
+    /// guard, a peer one that keeps the chat's own origin (`Guard::owner`).
     pub(super) async fn receive_guarded(
         &self,
         params: &Value,
-        owner: bool,
+        pulled: Option<Guard>,
     ) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         manifest_epoch(&manifest)?;
-        let guard = match params.get("guard") {
-            Some(g) => {
-                let mut g = Guard::parse(g).await?;
-                g.owner = owner && g.control == super::web_control::Control::Peer;
-                Some(g)
-            }
-            None => None,
+        let guard = match (pulled, params.get("guard")) {
+            (Some(g), _) => Some(g),
+            (None, Some(g)) => Some(Guard::parse(g).await?),
+            (None, None) => None,
         };
         let as_harness = as_harness_of(params);
         self.receive_admission(&manifest, guard.as_ref(), as_harness, false).await?;
@@ -776,12 +773,14 @@ impl Hub {
         } else {
             None
         };
+        steps.step("fence");
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
             let (meta, replace) =
                 self.guard_session(&bundle, g, text("cwd"), &from, replaceable.as_deref()).await?;
             replace_native = replace;
+            steps.step("guard");
             // The chat it imports is the one the receive was refused or allowed for.
             if Some(meta.id.as_str()) != manifest["sessionId"].as_str() {
                 return Err(transfer_error("schema", "session.json names another chat"));
@@ -810,6 +809,7 @@ impl Hub {
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
+        steps.step("meta_edits");
         if let Some(old) = old.as_ref() {
             if let Some(g) = &guard
                 && g.folder(&old.meta().cwd.to_string_lossy()).await.is_none()
@@ -829,6 +829,7 @@ impl Hub {
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
             self.retire_transfer_instance(old).await?;
+            steps.step("retire");
         }
         let source_store = if replacing_durable {
             crate::store::folder_to_replace(self.store.as_ref(), id)
@@ -857,6 +858,7 @@ impl Hub {
         } else {
             None
         };
+        steps.step("backup");
         let transfer_id = manifest["transferId"].clone();
         let name = text("name").map(str::to_owned);
         let guarded = guard

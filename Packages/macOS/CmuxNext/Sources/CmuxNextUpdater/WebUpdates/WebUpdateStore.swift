@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -5,7 +6,13 @@ public import Foundation
 /// folder:
 ///
 ///     web-updates/state.json      which update to serve, the one before it, the newest taken
-///     web-updates/trees/<key>/    each unpacked update (WebUpdateTree layout)
+///     web-updates/trees.noindex/<key>/    each unpacked update (WebUpdateTree layout)
+///
+/// The trees live under a folder whose name ends in `.noindex`, so Spotlight skips them, as it skips
+/// `~/.cmux/worktrees.noindex` (cmux-git `worktree_root.rs`). Each update unpacks about 2,250 files
+/// (52 MB), and on a Mac taking every merge a new tree came every few minutes; Spotlight's workers
+/// were reading those trees' `index.html` and `.js` files on a Mac at load 105 on 15 cores
+/// (2026-11-27). Spotlight on macOS 27 ignores `.metadata_never_index`; the suffix is what works.
 ///
 /// Every method blocks on files; the updater calls them off the main actor.
 nonisolated public struct WebUpdateStore: Sendable {
@@ -19,11 +26,23 @@ nonisolated public struct WebUpdateStore: Sendable {
     public static func standard(bundleIdentifier: String?) -> WebUpdateStore? {
         guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         let app = support.appending(path: bundleIdentifier ?? "cmux-next", directoryHint: .isDirectory)
-        return WebUpdateStore(base: app.appending(path: "web-updates", directoryHint: .isDirectory))
+        let store = WebUpdateStore(base: app.appending(path: "web-updates", directoryHint: .isDirectory))
+        store.moveLegacyTrees()
+        return store
     }
 
     var stateFile: URL { base.appending(path: "state.json") }
-    var trees: URL { base.appending(path: "trees", directoryHint: .isDirectory) }
+    var trees: URL { base.appending(path: "trees.noindex", directoryHint: .isDirectory) }
+    var legacyTrees: URL { base.appending(path: "trees", directoryHint: .isDirectory) }
+
+    /// Moves the trees an older build kept in `trees/` to `trees.noindex/`: one rename on the same
+    /// volume, so the kept updates (and their keys in state.json) stay usable without a download.
+    /// Left alone when `trees.noindex/` already exists; `prune` removes a leftover `trees/` then.
+    func moveLegacyTrees() {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: legacyTrees.path), !manager.fileExists(atPath: trees.path) else { return }
+        try? manager.moveItem(at: legacyTrees, to: trees)
+    }
 
     public func tree(for key: String) -> WebUpdateTree {
         WebUpdateTree(root: trees.appending(path: key, directoryHint: .isDirectory))
@@ -52,7 +71,7 @@ nonisolated public struct WebUpdateStore: Sendable {
     }
 
     /// Checks `archive` (downloaded for `pointer`) against the pointer's size and SHA-256, unpacks
-    /// it, checks the tree's digest and abi, and keeps it as `trees/<key>`. Returns the folder.
+    /// it, checks the tree's digest and abi, and keeps it as `trees.noindex/<key>`. Returns the folder.
     @concurrent public func install(archive: URL, pointer: WebUpdatePointer) async throws(WebUpdateRefusal) -> URL {
         let (size, digest) = try Self.sizeAndDigest(of: archive)
         guard size == pointer.size, digest == pointer.sha256 else { throw .integrity("archive digest") }
@@ -64,6 +83,27 @@ nonisolated public struct WebUpdateStore: Sendable {
             throw .transfer("no staging folder: \(error.localizedDescription)")
         }
         try await Self.unpack(archive, into: staging)
+        return try keep(staging, pointer: pointer)
+    }
+
+    /// A fresh staging folder (not created) and a chunk store beside it, for one `cas/1` fetch
+    /// (``WebUpdater/CasFetch``). Both are `staging-*`, so ``prune(keeping:)`` removes leftovers.
+    public func casStaging() -> (tree: URL, chunks: URL) {
+        let id = UUID().uuidString
+        return (base.appending(path: "staging-\(id)", directoryHint: .isDirectory),
+                base.appending(path: "staging-\(id)-chunks", directoryHint: .isDirectory))
+    }
+
+    /// Checks `staged` (a tree `cas/1` assembled for `pointer`) against the pointer's tree digest
+    /// and abi, the same checks an unpacked archive passes, and keeps it as `trees/<key>`.
+    @concurrent public func install(tree staged: URL, pointer: WebUpdatePointer) async throws(WebUpdateRefusal) -> URL {
+        let kept = Result { () throws(WebUpdateRefusal) -> URL in try keep(staged, pointer: pointer) }
+        if case .failure = kept { try? FileManager.checked.removeItem(at: staged) }
+        return try kept.get()
+    }
+
+    /// Moves the checked `staging` tree to `trees/<key>`.
+    func keep(_ staging: URL, pointer: WebUpdatePointer) throws(WebUpdateRefusal) -> URL {
         let unpacked = WebUpdateTree(root: staging)
         guard try unpacked.outputDigest() == pointer.outputs else { throw .integrity("tree digest") }
         guard unpacked.abi == pointer.abi else { throw .integrity("tree abi") }
@@ -86,6 +126,11 @@ nonisolated public struct WebUpdateStore: Sendable {
         }
         for name in (try? manager.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
             try? manager.removeItem(at: base.appending(path: name))
+        }
+        // An older build's `trees/` that moveLegacyTrees could not move (trees.noindex/ was already
+        // there): nothing serves from it, since tree(for:) reads only trees.noindex/.
+        if manager.fileExists(atPath: trees.path), manager.fileExists(atPath: legacyTrees.path) {
+            try? manager.removeItem(at: legacyTrees)
         }
     }
 

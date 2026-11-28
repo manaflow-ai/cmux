@@ -127,11 +127,30 @@ another pauses it), so they add up to the run:
   backup    the copies of what the app had, kept for `rollback`
   find      the daemons running from the app (ps, lsof, `server status`)
   swap      the files renamed into place; the web overlay installed
-  reload    the daemon handoff until a new owner answers; the acpmux daemons restarted. The app's
-            own reload of its pages (on the overlay's manifest.json) is not seen from here.
+  handoff   the daemon handoff until a new owner answers (terminals kept). The app's own reload of
+            its pages (on the overlay's manifest.json) is not seen from here.
+  sessions  --restart-sessions: every other session's daemon handed to the new build (`server restart`)
+  acpmux    `acpmux daemon restart` in each home until a new daemon answers (sessions resume)
   quit      ffi: `cmux app quit --keep-sessions` until the app's pid is gone
   launch    ffi: `open APP` until a new pid answers on the app's control socket, then the stay-up check
   rollback  putting back what was there after a failed check
+
+A receipt of an apply that went in also carries `layers`, the swap time of each layer it moved, the
+part of the run the person waits on (RFD 0174, "time every layer"):
+
+  daemon    {ms, state_kept}: the app's daemon's handoff phase (terminals and the app pid kept); other
+            sessions' daemons (--restart-sessions) are their own phase, not in it
+  acpmux    {ms, state_kept, homes}: the acpmux phase; state_kept when every home answered from a new
+            daemon (its sessions resume)
+  ffi       {ms, state_kept: false, kept: "sessions"}: quit plus launch (the window layout and the app
+            process are lost, sessions kept); absent when the app was not running
+
+`layers [--history FILE]...` reads history.jsonl (this host's, else each FILE: receipts gathered from
+other hosts) and prints, per platform and layer, the count, p50 and p95 in ms and the NOW row names
+(`hot_swap_mac_daemon_handoff_p95_ms`, `hot_swap_mac_acpmux_restart_p95_ms`,
+`hot_swap_mac_ffi_warm_swap_p95_ms`). A receipt from before `layers` gives what its phases still say:
+`reload` was the daemon handoff when no acpmux or other session's daemon restarted in it; `quit` and `launch` are the ffi
+part's.
 
 `apply --dry-run` plans, fetches and verifies every part and stops before `backup`: nothing in the
 app changes, and the receipt (action `dry-run`) goes only to history.jsonl, never to last.json
@@ -161,6 +180,7 @@ import contextlib
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import platform
 import plistlib
@@ -1430,7 +1450,7 @@ def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict
         t0 = time.monotonic()
         with PHASES("find"):
             before = swapper.owner(target, timeout=10)
-        with PHASES("reload"):
+        with PHASES("sessions"):
             # The cmux-tui surface keeps `server` for the daemon's lifecycle in every build (the nightly's too, for
             # the rollback); on `cmux`, `server` is the machine server and refuses --socket (cmux 7a6e6fb, a Chief's).
             surface = target.with_name("cmux-tui") if target.with_name("cmux-tui").exists() else target
@@ -1519,7 +1539,7 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, 
             raise RuntimeError(f"no daemon answers on {socket}")
         if swapper.app_file(owner[1]) != target:
             raise RuntimeError(f"the daemon on {socket} runs {owner[1]}, not {target}: not this app's")
-        with PHASES("reload"):  # the rename over target, SIGTERM, until the app's next owner answers
+        with PHASES("handoff"):  # the rename over target, SIGTERM, until the app's next owner answers
             swapper.app_handoff(new, owner[0], target)
             now = swapper.owner(target, timeout=10)
         step.update(old_pid=owner[0], new_pid=now[0] if now else None, daemon="app handoff")
@@ -1640,7 +1660,7 @@ def outside_login_session() -> bool:
 
 def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = None,
                    sockets: dict[str, str] | None = None) -> list[dict]:
-    with PHASES("reload"):
+    with PHASES("acpmux"):
         return _restart_acpmux(app, homes, before, sockets)
 
 
@@ -1929,9 +1949,13 @@ def apply_web(key: str, sha: str, live) -> dict:
 
 
 def record(state: Path, receipt: dict, last: bool = True) -> None:
-    """Writes the receipt, with the run's phases, to history.jsonl (and last.json unless LAST is false, as for a
-    dry run), prints it as the last line on stdout and the phases on stderr."""
+    """Writes the receipt, with the run's phases (and the layers it swapped), to history.jsonl (and last.json
+    unless LAST is false, as for a dry run), prints it as the last line on stdout and the phases on stderr."""
     receipt["phases"] = PHASES.rounded()
+    receipt.setdefault("platform", PLATFORM)
+    layers = swap_layers(receipt)
+    if layers:
+        receipt["layers"] = layers
     state.mkdir(parents=True, exist_ok=True)
     line = json.dumps(receipt)
     if last:
@@ -1940,6 +1964,81 @@ def record(state: Path, receipt: dict, last: bool = True) -> None:
         handle.write(line + "\n")
     log(timings(receipt))
     print(line)
+
+
+PLATFORM = {"darwin": "mac", "linux": "linux"}.get(sys.platform, sys.platform)
+# The NOW row each layer's p95 publishes as, per platform (hot_swap_<platform>_<row>_p95_ms).
+LAYER_ROWS = {"daemon": "daemon_handoff", "acpmux": "acpmux_restart", "ffi": "ffi_warm_swap"}
+
+
+def swap_layers(receipt: dict) -> dict:
+    """What each layer an apply moved cost the person, from its phases: {} for a dry run, a failed apply, or
+    one that moved nothing. A receipt from before the handoff and acpmux phases (one `reload` for all)
+    gives the daemon's only when no acpmux daemon and no other session's daemon restarted in it."""
+    if receipt.get("action") != "apply" or receipt.get("error") or not receipt.get("applied"):
+        return {}
+    phases, steps, out = receipt.get("phases") or {}, receipt.get("steps") or {}, {}
+    rust = steps.get("rust") or {}
+    handoff = phases.get("handoff")
+    if handoff is None and "reload" in phases and not steps.get("acpmux") and not rust.get("sessions"):
+        handoff = phases["reload"]
+    if handoff is not None and rust.get("daemon") == "app handoff":
+        out["daemon"] = {"ms": round(handoff * 1000), "state_kept": True}
+    acpmux = steps.get("acpmux") or []
+    if "acpmux" in phases and acpmux:
+        out["acpmux"] = {"ms": round(phases["acpmux"] * 1000), "homes": len(acpmux),
+                         "state_kept": all(s.get("new_pid") and s.get("new_pid") != s.get("old_pid") for s in acpmux)}
+    ffi = steps.get("ffi") or {}
+    if ffi.get("launch") and "quit" in phases and "launch" in phases:
+        out["ffi"] = {"ms": round((phases["quit"] + phases["launch"]) * 1000), "state_kept": False,
+                      "kept": "sessions"}
+    return out
+
+
+def quantile(values: list[float], q: float) -> float | None:
+    """Nearest-rank quantile (p95 of 20 samples is the 19th), None for no samples."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[min(len(ordered), max(1, math.ceil(len(ordered) * q))) - 1]
+
+
+def layer_summary(lines) -> dict:
+    """Per platform and layer: count, p50 and p95 ms, state kept count, and the NOW rows, from receipt lines."""
+    samples: dict[tuple[str, str], list[dict]] = {}
+    for line in lines:
+        try:
+            receipt = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(receipt, dict):
+            continue
+        platform = receipt.get("platform") or "mac"  # every receipt before `platform` was a Mac's
+        for layer, row in (receipt.get("layers") or swap_layers(receipt)).items():
+            if layer in LAYER_ROWS and isinstance(row.get("ms"), (int, float)):
+                samples.setdefault((platform, layer), []).append(row)
+    layers, rows = {}, {}
+    for (platform, layer), got in sorted(samples.items()):
+        ms = [r["ms"] for r in got]
+        entry = {"n": len(ms), "p50_ms": quantile(ms, 0.5), "p95_ms": quantile(ms, 0.95), "max_ms": max(ms),
+                 "state_kept": sum(1 for r in got if r.get("state_kept"))}
+        layers.setdefault(platform, {})[layer] = entry
+        rows[f"hot_swap_{platform}_{LAYER_ROWS[layer]}_p95_ms"] = entry["p95_ms"]
+    return {"layers": layers, "rows": rows}
+
+
+def command_layers(args) -> int:
+    paths = [Path(p) for p in args.history] or [state_dir() / "history.jsonl"]
+    lines, read = [], []
+    for path in paths:
+        try:
+            lines.extend(path.read_text().splitlines())
+            read.append(str(path))
+        except OSError as error:
+            print(f"hot-apply: {path}: {error.strerror or error}", file=sys.stderr)
+    out = {"read": read, **layer_summary(lines)}
+    print(json.dumps(out, indent=None if args.json else 2))
+    return 0 if read else 1
 
 
 def timings(receipt: dict) -> str:
@@ -2279,6 +2378,9 @@ def main(argv=None) -> int:
     p.add_argument("--app")
     p.add_argument("--socket")
     sub.add_parser("status")
+    p = sub.add_parser("layers", help="count, p50 and p95 ms of each layer's swap over the receipts (JSON)")
+    p.add_argument("--history", action="append", default=[], help="a history.jsonl to read (repeat); else this host's")
+    p.add_argument("--json", action="store_true", help="one line")
     p = sub.add_parser("drop-refused-overlay",
                        help="drop web-dev.json's pointer at an overlay the app refuses (it serves its bundled pages)")
     p.add_argument("--app", default=DEFAULT_APP)
@@ -2291,7 +2393,7 @@ def main(argv=None) -> int:
     try:
         return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "keys": command_keys,
                 "rollback": command_rollback, "status": command_status, "live-from": command_live_from,
-                "app-commit": command_app_commit,
+                "app-commit": command_app_commit, "layers": command_layers,
                 "drop-refused-overlay": command_drop_refused_overlay}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)

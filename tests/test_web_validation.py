@@ -51,9 +51,9 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
             "    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.\n"
             "    if: ${{ needs.coalesce.outputs.run != 'false' }}\n"
             "    # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).\n"
-            "    permissions:\n      contents: read\n      actions: read\n"
+            "    permissions:\n      contents: read\n      actions: read\n      id-token: write\n"
             "    uses: ./.github/workflows/ci-web.yml\n    with:\n"
-            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
+            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n      push_base:",
             self.text,
         )
 
@@ -219,7 +219,13 @@ class WebValidationTests(unittest.TestCase):
                 block = workflow[start:] if next_job < 0 else workflow[start:next_job]
                 self.assertIn("uses: actions/cache@", block)
                 self.assertIn("path: ~/.bun/install/cache", block)
-                self.assertIn(f"hashFiles('{lockfile}')", block)
+                # One shared key for every Bun job (bun-web-shared-v1): the runners share one
+                # ~/.bun/install/cache, so per-workflow keys stored the same 1.17 GB folder four
+                # times and pushed the repo's Actions cache past its 10 GB cap.
+                self.assertIn("key: bun-web-shared-v1-", block)
+                key_hash = re.search(r"key: bun-web-shared-v1-.*hashFiles\(([^)]*)\)", block)
+                self.assertIsNotNone(key_hash)
+                self.assertIn(f"'{lockfile}'", key_hash.group(1))
 
     def test_webviews_tests_run_on_a_runner_that_starts_jobs_at_widths_that_fit_it(self):
         """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
@@ -266,7 +272,7 @@ class WebValidationTests(unittest.TestCase):
         # and the shards holding a touched test on a pull request.
         self.assertIn("include: ${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}", block)
         scope = workflow[workflow.index("  web-subarea-scope:"):workflow.index("  web-typecheck:")]
-        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 8)
+        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 12)
         self.assertIn("react_shards: ${{ steps.react-shards.outputs.matrix }}", scope)
         self.assertRegex(block, r"(fromJSON\(vars\.RUNNER_POOLS\)\.linux_4|'cmux-linux') }}")
         base_start = workflow.index("  react-apps-base-check:")
@@ -303,10 +309,15 @@ class WebValidationTests(unittest.TestCase):
         pick = step("Pick shard 1's git-hook suites")
         self.assertIn("id: hook-suites", pick)
         self.assertIn("continue-on-error: true", pick)
-        self.assertLess(block.index("id: hook-suites"), block.index("id: merge-driver"))
-        # `!= 'false'`: a pick that failed or never ran leaves no output, and the suite runs.
-        self.assertIn("steps.hook-suites.outputs.merge_driver != 'false'", step("Generated bundle merge driver"))
-        self.assertIn("steps.hook-suites.outputs.post_edit != 'false'", step("Post-edit formatting hook"))
+        # Compare complete named steps: an id prefix also matches merge-driver-start,
+        # which starts independent work before the picker and does not read its outputs.
+        for name, output in (("Generated bundle merge driver", "merge_driver"),
+                             ("Post-edit formatting hook", "post_edit")):
+            with self.subTest(consumer=name):
+                consumer = step(name)
+                self.assertLess(block.index(pick), block.index(consumer))
+                # A pick that failed or never ran leaves no output, and the suite runs.
+                self.assertIn(f"steps.hook-suites.outputs.{output} != 'false'", consumer)
         script = pick[pick.index("        run: |\n") + len("        run: |\n"):]
         # The run block's own lines: the next step's leading comments sit at 6 spaces.
         script = "\n".join(line[10:] for line in script.splitlines() if line.startswith(" " * 10)) + "\n"

@@ -1027,6 +1027,79 @@ fn connect_github_asks_integration_connect_in_the_named_team_and_answers_the_ins
     );
 }
 
+// MARK: the feed's ops and reads (FeedService, FeedInstallPrincipal)
+
+#[test]
+fn a_feed_op_posts_its_body_as_sent_and_answers_the_status_and_reply() {
+    let (origin, seen) = fake(|_| ok(r#"{"ok":true,"value":{"id":"g_1"}}"#));
+    let body = json!({ "op": "run.rerunFailed", "params": { "run": "r-1", "n": 2, "on": true } });
+    let args = json!({ "route": "ops", "body": body, "client_version": "0.9.1 (123)" });
+    let answer = go(&request(&origin, Auth::Owner, "owner.op", args)).unwrap();
+    assert_eq!(answer, json!({ "status": 200, "reply": { "ok": true, "value": { "id": "g_1" } } }));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].target(), "POST /v1/ops");
+    assert_eq!(seen[0].json(), body);
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+    assert_eq!(seen[0].header("x-cmux-client-version").as_deref(), Some("0.9.1 (123)"));
+}
+
+#[test]
+fn a_feed_op_takes_its_body_as_json_text_and_never_both() {
+    let (origin, seen) = fake(|_| ok(r#"{"value":[]}"#));
+    let text = r#"{"op":"feed.ack","params":{"ids":["a"],"at":1.5,"n":3}}"#;
+    let args = json!({ "route": "ops", "body_json": text });
+    let answer = go(&request(&origin, Auth::Owner, "owner.op", args)).unwrap();
+    assert_eq!(answer, json!({ "status": 200, "reply": { "value": [] } }));
+    assert_eq!(seen.lock().unwrap()[0].json(), serde_json::from_str::<Value>(text).unwrap());
+    for args in [
+        json!({ "route": "ops", "body_json": text, "body": { "op": "feed.ack" } }),
+        json!({ "route": "ops", "body_json": "[1]" }),
+        json!({ "route": "ops", "body_json": "{not json" }),
+    ] {
+        let refused = go(&request(&origin, Auth::Owner, "owner.op", args));
+        assert!(matches!(refused, Err(Failure::Transport(_))), "{refused:?}");
+    }
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_feed_read_answers_a_refusal_and_a_spent_token_as_the_status_and_reply() {
+    let (origin, seen) = fake(|_| {
+        Some((401, r#"{"error":{"code":"unauthorized","message":"token expired"}}"#.into()))
+    });
+    let args = json!({ "route": "read", "body": { "op": "user.presence_key.list", "params": {} } });
+    let answer = go(&request(&origin, Auth::Owner, "owner.op", args)).unwrap();
+    assert_eq!(
+        answer,
+        json!({ "status": 401, "reply": { "error": { "code": "unauthorized", "message": "token expired" } } })
+    );
+    assert_eq!(seen.lock().unwrap()[0].target(), "POST /v1/read");
+    assert_eq!(seen.lock().unwrap()[0].header("x-cmux-client-version"), None);
+
+    let (origin, _) = fake(|_| Some((502, "bad gateway".into())));
+    let args = json!({ "route": "read", "body": { "op": "feed.list" } });
+    let answer = go(&request(&origin, Auth::Owner, "owner.op", args)).unwrap();
+    assert_eq!(answer, json!({ "status": 502, "reply": null }));
+}
+
+#[test]
+fn a_feed_op_refuses_another_route_a_bad_name_or_version_before_any_request() {
+    let (origin, seen) = fake(|_| ok("{}"));
+    for args in [
+        json!({ "route": "cloud/machines", "body": { "op": "feed.list" } }),
+        json!({ "route": "ops" }),
+        json!({ "route": "ops", "body": ["feed.list"] }),
+        json!({ "route": "ops", "body": { "params": {} } }),
+        json!({ "route": "ops", "body": { "op": "feed list/../x" } }),
+        json!({ "route": "ops", "body": { "op": "feed.list" }, "client_version": "1\r\nx-evil: 1" }),
+    ] {
+        let refused = go(&request(&origin, Auth::Owner, "owner.op", args));
+        assert!(matches!(refused, Err(Failure::Transport(_))), "{refused:?}");
+    }
+    assert!(seen.lock().unwrap().is_empty());
+}
+
 #[test]
 fn connect_github_sends_the_apps_return_link_and_key_in_the_requests_team() {
     let (origin, seen) = fake(|_| {
@@ -1191,7 +1264,7 @@ fn a_clone_token_is_an_installation_token_for_that_repository_reading_only() {
     for bad in [
         answer("ghp_a", "acme/web", read.clone()),
         answer("ghs_a-b", "acme/web", read.clone()),
-        answer("ghs_a", "acme/api", read.clone()),
+        answer("ghs_a", "acme/api", read),
         answer("ghs_a", "acme/web", json!({ "contents": "write" })),
         answer("ghs_a", "acme/web", json!({ "issues": "read" })),
         json!({ "token": "ghs_a" }),
@@ -2219,3 +2292,5 @@ mod turn_checkpoints {
 
 mod fork_runs;
 mod machine_fork;
+
+mod slack;

@@ -462,6 +462,8 @@ async fn connect_once(
     )
     .await
     .context("signaling connect")?;
+    // Relay first (the answers' default): a phone's early `wg-relay` opens its session.
+    signaling.accept_early_relay_cue(DialOptions::default().relay_first);
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
     signaling_now.send_replace(Some(signaling.clone()));

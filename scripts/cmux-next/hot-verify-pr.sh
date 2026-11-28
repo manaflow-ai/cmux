@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Reads the pull request a cmux-next-hot-verify.yml dispatch names and says whether to look at it, or post its look:
-# ok, pr, head, pr_head, web, rust, layers, kind, attempt and event_at lines to GITHUB_OUTPUT. Both dispatch kinds
+# ok, pr, head, pr_head, publish_web, rust, layers, kind, attempt and event_at lines to GITHUB_OUTPUT. Both dispatch kinds
 # run it: the request run's `target` job and the result run's one `publish` job, so a result pays one runner queue
 # wait, not two (the result run's `target` sat queued for a shared 4 vCPU Linux runner for hours, 2026-11-19).
 # Env: PR, HEAD_SHA, LAYERS, KIND, ATTEMPT, EVENT_AT, GH_TOKEN, GITHUB_REPOSITORY.
@@ -44,7 +44,9 @@ fi
   echo "pr=$PR"
   echo "head=$HEAD_SHA"
   echo "pr_head=$live"
-  [[ ",$LAYERS," == *,web,* ]] && echo "web=true" || echo "web=false"
+  # A merged web PR gets its layer from the base push. Its branch may already
+  # be gone. The look still requests every layer in LAYERS from the worker.
+  [[ "$state" == open && ",$LAYERS," == *,web,* ]] && echo "publish_web=true" || echo "publish_web=false"
   [[ ",$LAYERS," == *,rust,* ]] && echo "rust=true" || echo "rust=false"
   echo "layers=$LAYERS"
   echo "kind=$KIND"

@@ -184,6 +184,14 @@ extension ScreenContentView {
         hideSnapDeparted()
         guard frameInput.changeIsUnshown else { return }
         frameInput.changeIsUnshown = false
+        // A timed change's panes show in this pass's commit: its first frame (a right split's picture was its first
+        // frame, `openSplitFromSnapshot`).
+        showTimedChange(pictured: snapshotOpen != nil)
+        if frameInput.showsSplit {
+            frameInput.showsSplit = false
+            // The split's live panes show in this pass's commit: a picture over them goes after its slide.
+            if snapshotOpen != nil { snapshotOpenLiveShown() }
+        }
         reconcileDock()
         reconcileCanvasStacking()
         guard let chrome = frameInput.heldChrome else { return }

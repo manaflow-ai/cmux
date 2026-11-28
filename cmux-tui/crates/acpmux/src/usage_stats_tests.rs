@@ -128,6 +128,33 @@ fn a_chat_whose_transcript_is_not_found_has_no_stats() {
 }
 
 #[test]
+fn a_closed_chat_whose_transcript_was_compressed_spent_zero_since_it_was_last_written() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    let archived = path.with_extension("jsonl.zst");
+    std::fs::create_dir_all(archived.parent().unwrap()).unwrap();
+    std::fs::write(&archived, b"compressed bytes are never read").unwrap();
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_millis(now - 2 * DAY_MS);
+    std::fs::File::options().write(true).open(&archived).unwrap().set_modified(written).unwrap();
+    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+    assert_eq!((stats.tokens24h, stats.calls24h), (Some(0), Some(0)));
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, Some(BTreeMap::new()));
+    assert_eq!(stats.tokens_by_model1h, Some(BTreeMap::new()));
+
+    // Written two hours ago: the hours since are known, the day is not.
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_millis(now - 2 * HOUR_MS);
+    std::fs::File::options().write(true).open(&archived).unwrap().set_modified(written).unwrap();
+    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.tokens24h, None);
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, Some(BTreeMap::new()));
+
+    // Resumed: codex and claude write the plain file again, and it is read.
+    append(&path, &[assistant("msg_1", "2026-10-30T11:59:00Z", usage(1, 0, 0, 1), false)]);
+    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(2));
+}
+
+#[test]
 fn claude_subagents_count_as_spawns_and_spend_and_live_until_finished() {
     let home = tempfile::tempdir().unwrap();
     let (source, path) = claude(home.path());

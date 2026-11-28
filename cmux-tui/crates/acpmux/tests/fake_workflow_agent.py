@@ -4,6 +4,12 @@ import json
 import os
 import sys
 
+# The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
+# test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
+    GUIDANCE_SOURCES = frozenset(json.load(_f))
+GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
+
 count = 0
 first = None
 pending = None
@@ -59,14 +65,12 @@ def command_text(blocks):
         mux = (block.get("_meta") or {}).get("acpmux", {})
         source = mux.get("contextSource")
         text = block.get("text", "")
-        if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
+        if source in GUIDANCE_SOURCES:
             continue
         # Who wrote it (hub/prompt_attribution.rs): a workflow's prompt is another agent's.
         if mux.get("attribution") is True:
             continue
-        if isinstance(text, str) and text.startswith(("<cmux-default-context>",
-                                                       "<cmux-user-context>",
-                                                       "<cmux-project-context>", "<cmux-guidance-context>")):
+        if isinstance(text, str) and text.startswith(GUIDANCE_TAGS):
             continue
         out.append(text)
     return "".join(out)

@@ -25,6 +25,84 @@
       "name": "string",
       "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
     },
+    "AppKvApp": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 128
+    },
+    "AppKvKey": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 256
+    },
+    "AppKvRow": {
+      "kind": "object",
+      "fields": {
+        "app": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "value": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "json"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "updated_ms": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
     "Automation": {
       "kind": "object",
       "fields": {
@@ -724,6 +802,650 @@
       "name": "string",
       "pattern": "^[\\x21-\\x7e]{1,128}$",
       "description": "1 to 128 printable ASCII characters (idempotency key, client_msg_id)."
+    },
+    "CloudAllotmentAdvice": {
+      "kind": "object",
+      "fields": {
+        "position": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "down",
+              "hold",
+              "up"
+            ]
+          }
+        },
+        "seats": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "to_seats": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "window_hours": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "floor": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "burst": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "peak": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "lendable": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "ceiling_hours7": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "used_minutes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "seat_minutes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "object",
+                "fields": {
+                  "kind": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "ceiling"
+                      ]
+                    }
+                  },
+                  "hours": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "hours7": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "peak": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "add": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "object",
+                "fields": {
+                  "kind": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "spare"
+                      ]
+                    }
+                  },
+                  "release": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "members": {
+                    "required": true,
+                    "type": {
+                      "kind": "array",
+                      "items": {
+                        "kind": "ref",
+                        "name": "CloudAllotmentAdviceMember"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "object",
+                "fields": {
+                  "kind": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "fits"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "summary": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "members": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "CloudAllotmentAdviceMember"
+            }
+          }
+        }
+      }
+    },
+    "CloudAllotmentAdviceMember": {
+      "kind": "object",
+      "fields": {
+        "member": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "minutes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "seat_percent": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "active_hours": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "floor": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "burst": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "CloudAllotmentMember": {
+      "kind": "object",
+      "fields": {
+        "member": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "tier": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "standard",
+              "plus",
+              "max"
+            ]
+          }
+        },
+        "month_micros": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "usd14_micros": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "active_days14": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "share_micros": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "rank": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "over_share14": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "plan_limit_ms14": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "spare_micros": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        }
+      }
+    },
+    "CloudAllotmentReason": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "unused"
+                ]
+              }
+            },
+            "members": {
+              "required": true,
+              "type": {
+                "kind": "array",
+                "items": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "over"
+                ]
+              }
+            },
+            "member": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "count": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "runaway"
+                ]
+              }
+            },
+            "member": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "rate_micros_h": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "float64"
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "tier"
+                ]
+              }
+            },
+            "member": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "to": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "standard",
+                  "plus",
+                  "max"
+                ]
+              }
+            },
+            "costs_micros": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "float64"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "CloudAllotmentSetting": {
+      "kind": "object",
+      "fields": {
+        "commit_micros": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          }
+        },
+        "mode": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "ask",
+              "auto"
+            ]
+          }
+        },
+        "auto_max_micros": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          }
+        },
+        "tiers": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "enum",
+              "values": [
+                "standard",
+                "plus",
+                "max"
+              ]
+            }
+          }
+        },
+        "snoozed_until": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "changed_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "changed_by": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
+    },
+    "CloudAllotmentView": {
+      "kind": "object",
+      "fields": {
+        "allotment": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "CloudAllotmentSetting"
+            }
+          }
+        },
+        "decision": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "allot_micros": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "float64"
+                }
+              },
+              "forecast_micros": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "float64"
+                }
+              },
+              "position": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "down",
+                    "hold",
+                    "up"
+                  ]
+                }
+              },
+              "to_commit_micros": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "float64"
+                }
+              },
+              "reasons": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "ref",
+                    "name": "CloudAllotmentReason"
+                  }
+                }
+              },
+              "members": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "ref",
+                    "name": "CloudAllotmentMember"
+                  }
+                }
+              },
+              "order": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "apply": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "advice": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CloudAllotmentAdvice"
+          }
+        },
+        "hard_cap_micros": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          }
+        },
+        "as_of": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "names": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
     },
     "CloudConnectInfo": {
       "kind": "object",
@@ -2899,6 +3621,74 @@
                 }
               },
               "total": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "rates": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "vcpu_hour_usd": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "memory_gib_hour_usd": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "stored_gib_month_usd": {
                 "required": true,
                 "type": {
                   "kind": "union",
@@ -10641,6 +11431,535 @@
     }
   },
   "operations": {
+    "appkv.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "appkv",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppKvApp"
+            }
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppKvKey"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "app": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "key": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "existed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppKvApp"
+          },
+          "key": {
+            "$ref": "#/$defs/AppKvKey"
+          }
+        },
+        "required": [
+          "app",
+          "key"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppKvApp": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "AppKvKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "existed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app",
+          "key",
+          "existed"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "appkv.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "appkv",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "after_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "rows": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppKvRow"
+              }
+            }
+          },
+          "next_after_revision": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "union",
+                "variants": [
+                  {
+                    "kind": "primitive",
+                    "name": "float64"
+                  },
+                  {
+                    "kind": "enum",
+                    "values": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "after_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AppKvRow"
+            }
+          },
+          "next_after_revision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rows",
+          "next_after_revision",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppKvRow": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "value": {},
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "updated_ms": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "app",
+              "key",
+              "value",
+              "revision",
+              "updated_ms"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "appkv.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "appkv",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppKvApp"
+            }
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppKvKey"
+            }
+          },
+          "value": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppKvRow"
+          }
+        ]
+      },
+      "errors": [
+        "app.limit",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppKvApp"
+          },
+          "key": {
+            "$ref": "#/$defs/AppKvKey"
+          },
+          "value": {}
+        },
+        "required": [
+          "app",
+          "key",
+          "value"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppKvApp": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "AppKvKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppKvRow",
+        "$defs": {
+          "AppKvRow": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "value": {},
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "updated_ms": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "app",
+              "key",
+              "value",
+              "revision",
+              "updated_ms"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "automation.audit.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -26414,6 +27733,627 @@
         }
       }
     },
+    "cloud.allotment.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "CloudAllotmentView"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.allotment.off",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud allotment get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "This team's Cloud allotment and the scheduler's proposal from metered use: scale the pooled monthly commit down, hold it or scale it up, with each member's use this month and over 14 days, and the reasons (unused seats, starts past the allotment, a runaway). A read.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudAllotmentView",
+        "$defs": {
+          "CloudAllotmentSetting": {
+            "type": "object",
+            "properties": {
+              "commit_micros": {
+                "type": "number",
+                "minimum": 0
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "ask",
+                  "auto"
+                ]
+              },
+              "auto_max_micros": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tiers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "standard",
+                    "plus",
+                    "max"
+                  ]
+                }
+              },
+              "snoozed_until": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "changed_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "changed_by": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "commit_micros",
+              "mode",
+              "auto_max_micros",
+              "tiers",
+              "snoozed_until",
+              "changed_at",
+              "changed_by"
+            ],
+            "additionalProperties": true
+          },
+          "CloudAllotmentReason": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "unused"
+                    ]
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "kind",
+                  "members"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "over"
+                    ]
+                  },
+                  "member": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "kind",
+                  "member",
+                  "count"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "runaway"
+                    ]
+                  },
+                  "member": {
+                    "type": "string"
+                  },
+                  "rate_micros_h": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "member",
+                  "rate_micros_h"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "tier"
+                    ]
+                  },
+                  "member": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string",
+                    "enum": [
+                      "standard",
+                      "plus",
+                      "max"
+                    ]
+                  },
+                  "costs_micros": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "member",
+                  "to",
+                  "costs_micros"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "CloudAllotmentMember": {
+            "type": "object",
+            "properties": {
+              "member": {
+                "type": "string"
+              },
+              "tier": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "plus",
+                  "max"
+                ]
+              },
+              "month_micros": {
+                "type": "number",
+                "minimum": 0
+              },
+              "usd14_micros": {
+                "type": "number",
+                "minimum": 0
+              },
+              "active_days14": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "share_micros": {
+                "type": "number",
+                "minimum": 0
+              },
+              "rank": {
+                "type": "number",
+                "minimum": 0
+              },
+              "over_share14": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "plan_limit_ms14": {
+                "type": "number",
+                "minimum": 0
+              },
+              "spare_micros": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "member",
+              "tier",
+              "month_micros",
+              "usd14_micros",
+              "active_days14",
+              "share_micros",
+              "rank",
+              "over_share14",
+              "plan_limit_ms14",
+              "spare_micros"
+            ],
+            "additionalProperties": true
+          },
+          "CloudAllotmentAdviceMember": {
+            "type": "object",
+            "properties": {
+              "member": {
+                "type": "string"
+              },
+              "minutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "seat_percent": {
+                "type": "number",
+                "minimum": 0
+              },
+              "active_hours": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "floor": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "burst": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "member",
+              "minutes",
+              "seat_percent",
+              "active_hours",
+              "floor",
+              "burst"
+            ],
+            "additionalProperties": true
+          },
+          "CloudAllotmentAdvice": {
+            "type": "object",
+            "properties": {
+              "position": {
+                "type": "string",
+                "enum": [
+                  "down",
+                  "hold",
+                  "up"
+                ]
+              },
+              "seats": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "to_seats": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "window_hours": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "floor": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "burst": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "peak": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "lendable": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "ceiling_hours7": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "used_minutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "seat_minutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "ceiling"
+                        ]
+                      },
+                      "hours": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "hours7": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "peak": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "add": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "hours",
+                      "hours7",
+                      "peak",
+                      "add"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "spare"
+                        ]
+                      },
+                      "release": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "members": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/CloudAllotmentAdviceMember"
+                        }
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "release",
+                      "members"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "fits"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "additionalProperties": true
+                  }
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/CloudAllotmentAdviceMember"
+                }
+              }
+            },
+            "required": [
+              "position",
+              "seats",
+              "to_seats",
+              "window_hours",
+              "floor",
+              "burst",
+              "peak",
+              "lendable",
+              "ceiling_hours7",
+              "used_minutes",
+              "seat_minutes",
+              "reason",
+              "summary",
+              "members"
+            ],
+            "additionalProperties": true
+          },
+          "CloudAllotmentView": {
+            "type": "object",
+            "properties": {
+              "allotment": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudAllotmentSetting"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "decision": {
+                "type": "object",
+                "properties": {
+                  "allot_micros": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "forecast_micros": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "position": {
+                    "type": "string",
+                    "enum": [
+                      "down",
+                      "hold",
+                      "up"
+                    ]
+                  },
+                  "to_commit_micros": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "reasons": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/CloudAllotmentReason"
+                    }
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/CloudAllotmentMember"
+                    }
+                  },
+                  "order": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "apply": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "allot_micros",
+                  "forecast_micros",
+                  "position",
+                  "to_commit_micros",
+                  "reasons",
+                  "members",
+                  "order",
+                  "apply"
+                ],
+                "additionalProperties": true
+              },
+              "advice": {
+                "$ref": "#/$defs/CloudAllotmentAdvice"
+              },
+              "hard_cap_micros": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "as_of": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "names": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "allotment",
+              "decision",
+              "advice",
+              "hard_cap_micros",
+              "as_of",
+              "names"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "cloud.billing.checkout": {
       "class": "mutation",
       "idempotency": "required",
@@ -38096,6 +40036,62 @@
                   "memory",
                   "stored",
                   "total"
+                ],
+                "additionalProperties": true
+              },
+              "rates": {
+                "type": "object",
+                "properties": {
+                  "vcpu_hour_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "memory_gib_hour_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "stored_gib_month_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "vcpu_hour_usd",
+                  "memory_gib_hour_usd",
+                  "stored_gib_month_usd"
                 ],
                 "additionalProperties": true
               },

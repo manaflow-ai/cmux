@@ -27,7 +27,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** A new message's preview in the `index`th conversation, at the same time (it keeps its place). */
-    benchChangeOne(index: number): void;
+    benchChangeOne(index?: number): void | Promise<void>;
     /** Renders the list's parent again with nothing changed, as a page clock's tick does. */
     benchTick(): void;
   }
@@ -76,11 +76,11 @@ function Bench() {
   const [, setTick] = useState(0);
   // The bench's handles, set once mounted (the setters are stable); ready only once they are.
   useEffect(() => {
-    window.benchChangeOne = (index) =>
+    window.benchChangeOne = ((index: number) =>
       setConversations((old) => {
         const id = `c${index}`;
         return new Map(old).set(id, change(old.get(id)!));
-      });
+      })) as typeof window.benchChangeOne;
     window.benchTick = () => setTick((tick) => tick + 1);
     window.benchReady = true;
   }, []);

@@ -29,6 +29,9 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
+# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH,
+# and gives bun a writable temp dir (EACCES on Hetzner slots).
+. "$ROOT/scripts/lib/bun-options.sh"
 MODE=build
 OUT_ROOT=""
 REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"

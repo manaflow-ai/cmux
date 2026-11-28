@@ -35,7 +35,7 @@ struct Shared {
     /// Lines queued, and lines written: [`flush`] waits for the second to reach the first.
     queued: AtomicU64,
     written: AtomicU64,
-    /// Taken by the writer thread to wake [`flush`] after each line, and by [`flush`] to wait.
+    /// Taken by the writer thread to wake [`flush`] after each write, and by [`flush`] to wait.
     wake: Mutex<()>,
     woken: Condvar,
 }
@@ -132,17 +132,37 @@ impl Sink {
     }
 }
 
+/// The most bytes the writer thread gathers into one write: the lines queued by the time it
+/// wakes go out together, one write and one flush, not one each (a burst of debug lines was a
+/// syscall a line).
+const BATCH_BYTES: usize = 256 << 10;
+
 /// The writer thread: each queued line in order, after a line that counts the lines dropped
-/// just before it.
+/// just before it. The lines already queued when it takes one are written with it, in one write.
 fn write_lines<W: Write>(rx: Receiver<Queued>, mut out: W, shared: &Shared) {
-    for Queued { dropped, bytes } in rx {
-        if dropped > 0 {
-            let _ = out.write_all(&dropped_line(dropped));
+    let mut batch = Vec::with_capacity(BATCH_BYTES);
+    while let Ok(first) = rx.recv() {
+        let (mut lines, mut bytes) = (0_u64, 0_usize);
+        let mut next = Some(first);
+        while let Some(Queued { dropped, bytes: line }) = next.take() {
+            if dropped > 0 {
+                batch.extend_from_slice(&dropped_line(dropped));
+            }
+            batch.extend_from_slice(&line);
+            lines += 1;
+            bytes += line.len();
+            if batch.len() < BATCH_BYTES {
+                next = rx.try_recv().ok();
+            }
         }
-        let _ = out.write_all(&bytes);
+        let _ = out.write_all(&batch);
         let _ = out.flush();
-        shared.queued_bytes.fetch_sub(bytes.len(), Ordering::AcqRel);
-        shared.written.fetch_add(1, Ordering::AcqRel);
+        batch.clear();
+        if batch.capacity() > BATCH_BYTES * 2 {
+            batch.shrink_to(BATCH_BYTES);
+        }
+        shared.queued_bytes.fetch_sub(bytes, Ordering::AcqRel);
+        shared.written.fetch_add(lines, Ordering::AcqRel);
         // Taken after the count: a `flush` that read the old count is waiting by now.
         drop(shared.wake_lock());
         shared.woken.notify_all();

@@ -5,7 +5,8 @@ name: Cloud VM image roll
 #   1. plan     cmux-tui-artifacts.yml dispatches this run for every feat-cmux-next build it published and
 #               verified (input commit); a feat-cmux-next push that changes the image inputs starts it too.
 #               images/cmux-vm/auto-roll.ts plan rolls only a build of the branch that changes the binaries
-#               the lock pins, and never an older one; it lists the fix commits the roll carries.
+#               the lock pins, and never an older one; it lists the fix commits the roll carries. A push run
+#               also pins files.cmux.com's newest published build when it is on the tip and newer than the pin.
 #   2. bake     cloud-vm-image-bake.yml (called, roll: true) pins that build into the lock and bakes the
 #               image with the agent tools. The gate is the bake's own exact-image checks
 #               on the candidate snapshot: the 5-clone smoke and the agent tools probe, whose harness gate (harness-gate.ts) must pass
@@ -114,7 +115,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: manaflow-ai/cmux-platform
           ref: refs/heads/main
@@ -180,7 +181,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
@@ -317,7 +318,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
@@ -393,7 +394,7 @@ jobs:
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: write
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: vars.CMUX_VM_DEPLOY_ENABLED != '1'
         with:
           repository: manaflow-ai/cmux-platform
@@ -415,7 +416,7 @@ jobs:
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: read
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: manaflow-ai/cmux-platform
           ref: refs/heads/main
@@ -506,7 +507,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -596,7 +597,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: images/cmux-vm

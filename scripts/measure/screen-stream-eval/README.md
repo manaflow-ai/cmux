@@ -88,7 +88,7 @@ form on the host Mac. The verbs are:
 | Verb | Does |
 | --- | --- |
 | `build` | builds its host and viewer into `EVAL_BIN` |
-| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. `latency-only` (`iphone-sim`) is the reverse: the latency stage, and no window or OCR repeats. A target without the verb runs both stages |
+| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. `latency-only` (`iphone-sim`) is the reverse: the latency stage, and no window or OCR repeats. A target without the verb runs both stages. `owes-ocr`, `owes-skips` and `owes-budget-bpp` lines name the numbers every run of it owes (`rd`: OCR error and encoder skips, plus budget bits per pixel with the ladder on, `rd-ladder`; `apple-*`: OCR error). A requested target that did not bring one (its scene did not start, its OCR calibration did not hold, a repeat lacks the number) makes the run exit 6, and its last line names the target and the field (`eval.py owed`); results.json is still written |
 | `host-start`, `host-stop` | starts its host on this Mac's main display at its defaults, and returns once the host is ready; stops it |
 | `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "to_arrived_ms", "pickup_ms", "gate_ms", "arrived_to_release_ms", "encode_ms", "sck_all_frames_ms", "draw_ms", "commit_to_vsync_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log, plus `frame_before_commit` (a count) and `refresh_hz`. `draw_ms` and `commit_to_vsync_ms` come from the marker's `commit COUNTER T_US` lines (it logs them with `--verbose`). `sck_ms`, `sck_all_frames_ms` and `commit_to_vsync_ms` are signed: ScreenCaptureKit's display time is the vsync the frame is shown at, usually after the callback |
 | `window-view SECONDS FRAME GO RAW`, `window-report RAW OUT` | a viewer that sends nothing for SECONDS. It creates GO once its first frame shows, which starts the scene's timeline (the scene then holds its last screen until the harness stops it). FRAME gets the last decoded frame (PNG or PPM), and OUT gets `{"series": [{"unix_ms", "bytes", "frames", "decode_ms", "encode_ms"}], "extra"}`, one row a second, each row stamped at the end of its second |
@@ -378,7 +378,7 @@ It needs root for `ip netns` and `tc` and a kernel with `sch_netem`, so on the f
 HQ's netem route (cmuxterm-hq `docs/handbook/netem-route-without-host-module.md`), from an HQ checkout:
 
 ```
-cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp -d);
+cmux-ci test --setup netem --timeout 7200 --artifact DIR -- bash -c 'set -e; d=$(mktemp -d);
   git -C "$d" init -q; git -C "$d" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git DRIVER_SHA;
   git -C "$d" checkout -q FETCH_HEAD -- scripts/measure/screen-stream-eval/rd-netem-linux.py;
   python3 "$d/scripts/measure/screen-stream-eval/rd-netem-linux.py" --deps --out "$FAST_CHECKS_OUT" \
@@ -424,9 +424,9 @@ Network privacy refuses LAN addresses to the binaries a step starts (Apple's own
 exempt, so a shell probe proves nothing), while the tailnet path between two Macs on one LAN is direct,
 inside WireGuard. The summary's link then says `lan via tailnet`.
 
-A third-party viewer target (its `caps` prints `viewer-grants`, as `moonlight` does) also needs
-Screen Recording and Accessibility on the viewer Mac, where `cmux-rd observe` posts input and
-captures the display: that half then takes the same grant check and launcher as the host.
+The `apple-high`, `apple-standard`, and `moonlight` targets declare `viewer-grants` because their
+viewers use `cmux-rd observe` to post input and capture the display. For these targets the viewer
+checks Screen Recording and Accessibility and uses the same launcher as the host.
 
 The host Mac runs everything as usual (scene, marker, host bound to `lan`, OCR, results), and waits
 up to 30 minutes for the viewer Mac. Submit the viewer half first and the host half once the viewer's

@@ -17,6 +17,7 @@ extension GitHubConnections {
         let (current, call) = liveCall(auth: auth, ownerAPI: ownerAPI, preview: preview)
         let model = GitHubConnections(scope: current, call: call, open: { url in LinkRouter.shared.openGitHubConnect(url) })
         model.completionLink = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
+        model.signInBackend = auth.configuration.signInBackendLine
         // The app finished an install GitHub handed back to it: the card reads its connections again.
         model.changes = Task { [weak model] in
             for await _ in ObservationStream({ auth.gitHubChanges.count }).dropFirst() {

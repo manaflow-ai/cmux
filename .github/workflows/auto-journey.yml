@@ -25,6 +25,11 @@ on:
         required: false
         default: ""
         type: string
+      nightly_build:
+        description: Numbered published NEXT NIGHTLY for isolated real-Claude journal recovery (leave ref empty)
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -38,12 +43,12 @@ env:
 
 jobs:
   journey:
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.nightly_build == ''
     # Holds the stack pair: an ephemeral macOS VM from the declared pool, as cloud-rd-link-readback.yml.
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 90
     steps:
       - name: Refuse any ref but feat-cmux-next, and a malformed commit
@@ -61,7 +66,7 @@ jobs:
           fi
 
       - name: Checkout cmux
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -187,3 +192,88 @@ jobs:
           if [ ! -s "$OUT/owned.json" ]; then echo "no owned.json: the run made nothing"; exit 0; fi
           if ! command -v bun >/dev/null 2>&1; then echo "::warning::no bun: the journey's own cleanup is the only one"; exit 0; fi
           bun scripts/cmux-next/auto-journey.ts --backend staging --cleanup "$OUT"
+
+  nightly-journal-recovery:
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.nightly_build != ''
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    timeout-minutes: 45
+    steps:
+      - name: Validate numbered publication input
+        env:
+          BUILD: ${{ inputs.nightly_build }}
+          AT: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          if [ -n "$AT" ] || ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{3,20}'; then
+            echo '::error::nightly_build must be a numbered publication and ref must be empty'
+            exit 1
+          fi
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Install the test's Claude CLI
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/recovery-claude" --no-fund --no-audit @anthropic-ai/claude-code@2.1.284
+          echo "$RUNNER_TEMP/recovery-claude/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Verify and unpack the published app
+        timeout-minutes: 15
+        env:
+          BUILD: ${{ inputs.nightly_build }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cmux-next/auto-journal-nightly-artifact.py \
+            --build "$BUILD" --out "$RUNNER_TEMP/auto-journal-artifact" \
+            --contains 96ee46878c55c81ed64316b870a01cf6e3f2c71f
+
+      - name: Recover the test-owned running Claude conversation
+        id: recovery
+        timeout-minutes: 20
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/auto-journal-artifact/provenance.json"
+          binary="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binary_path"])' "$receipt")"
+          bun scripts/cmux-next/auto-journal-nightly-recovery.ts \
+            --backend staging --cmux-tui "$binary" --provenance "$receipt" \
+            --out "$RUNNER_TEMP/auto-journal-recovery"
+
+      - name: Clean up only this recovery run's resources
+        if: always() && steps.recovery.outcome != 'skipped'
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/auto-journal-recovery"
+          if [ -f "$out/owned.json" ]; then
+            bun scripts/cmux-next/auto-journal-nightly-recovery.ts --backend staging --cleanup "$out"
+          fi
+
+      - name: Keep publication and recovery receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: auto-journal-nightly-recovery
+          path: |
+            ${{ runner.temp }}/auto-journal-artifact/provenance.json
+            ${{ runner.temp }}/auto-journal-recovery/evidence.json
+          if-no-files-found: ignore
+          retention-days: 30

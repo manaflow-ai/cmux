@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 pub mod folders;
+pub mod resume;
 pub mod text;
 
 /// The identity of a row is independent of its current sort position.

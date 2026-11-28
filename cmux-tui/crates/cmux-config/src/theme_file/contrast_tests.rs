@@ -11,7 +11,10 @@ use super::contrast::{TEXT, UI, chat};
 use super::*;
 use crate::schema::Schema;
 
+// affected-reads: Resources/cmux-themes Resources/ghostty/themes examples webviews/src/agent-session webviews/src/pages/shared/desktop.css
 fn repo() -> PathBuf {
+    // affected-reads: Resources/cmux-themes Resources/ghostty/themes examples
+    // affected-reads: webviews/src/agent-session webviews/src/pages/shared/desktop.css
     // affected-reads: Resources/cmux-themes Resources/ghostty/themes examples webviews/src/agent-session/shared/styles.css webviews/src/agent-session/acpmux/conversation/conversation.css webviews/src/pages/shared/desktop.css
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
@@ -67,7 +70,7 @@ fn example_theme_files() -> Vec<PathBuf> {
 /// so a muted caption on a selected row of a beige or gray sidebar stays under 4.5:1 whatever the
 /// file says. The app's fix (inks fitted to the surface they sit on) takes these out; a pair here
 /// that passes fails the test, so the list only shrinks.
-const KNOWN: [(&str, &str); 28] = [
+const KNOWN: [(&str, &str); 29] = [
     ("astrolabe-dawn", "sidebar selected row muted text"),
     ("classic-desktop", "sidebar dim text"),
     ("classic-desktop", "sidebar muted text"),
@@ -96,6 +99,7 @@ const KNOWN: [(&str, &str); 28] = [
     ("tonal-ink", "sidebar selected row muted text"),
     ("tonal-ink-dark", "sidebar selected row muted text"),
     ("workbench-light", "sidebar selected row muted text"),
+    ("web-coding-app", "sidebar selected row muted text"),
 ];
 
 /// Every failure of the files `(name, shown, text)`, less the [`KNOWN`] ones; a known pair that

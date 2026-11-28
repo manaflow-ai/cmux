@@ -38,21 +38,21 @@ public struct HomePins: Hashable, Sendable, Codable {
 
     /// The person's choice wins, else Chiefs and owner pins are pinned (`inbox.pins_is_pinned`).
     public func isPinned(_ row: InboxRow) -> Bool {
-        HomeInboxRules.call("pins_is_pinned", RowRequest(pins: rules, row: HomeInboxRules.Row(row), on: false), fallback: false)
+        HomeInboxRules().call("pins_is_pinned", RowRequest(pins: rules, row: HomeInboxRules.Row(row), on: false), fallback: false)
     }
 
     /// `rows` as the list shows them: the pinned rows (the user's pins in their order, then default
     /// pins in `rows` order), and the others newest first (ties by id) (`inbox.pins_split`).
     public func split(_ rows: [InboxRow]) -> (pinned: [InboxRow], rest: [InboxRow]) {
-        let reply = HomeInboxRules.call("pins_split", RowsRequest(pins: rules, rows: HomeInboxRules.rows(rows)),
+        let reply = HomeInboxRules().call("pins_split", RowsRequest(pins: rules, rows: HomeInboxRules().rows(rows)),
                                         fallback: SplitReply(pinned: [], rest: rows.map(\.id.rawValue)))
-        return (HomeInboxRules.pick(reply.pinned, from: rows), HomeInboxRules.pick(reply.rest, from: rows))
+        return (HomeInboxRules().pick(reply.pinned, from: rows), HomeInboxRules().pick(reply.rest, from: rows))
     }
 
     /// Pins `row` (at the end of the user's order) or unpins it. A row already pinned keeps its place
     /// (`inbox.pins_set_pinned`).
     public mutating func setPinned(_ on: Bool, _ row: InboxRow) {
-        apply(HomeInboxRules.call("pins_set_pinned", RowRequest(pins: rules, row: HomeInboxRules.Row(row), on: on), fallback: rules))
+        apply(HomeInboxRules().call("pins_set_pinned", RowRequest(pins: rules, row: HomeInboxRules.Row(row), on: on), fallback: rules))
     }
 
     /// Puts `id` at `index` of the grid's order (an index after `id` left its old place, clamped)
@@ -60,20 +60,20 @@ public struct HomePins: Hashable, Sendable, Codable {
     /// `shown` is the grid as it is shown now, default pins included (`inbox.pins_place`).
     public mutating func place(_ id: ConversationID, at index: Int, shown: [ConversationID]) {
         let request = PlaceRequest(pins: rules, id: id.rawValue, index: index, shown: shown.map(\.rawValue))
-        apply(HomeInboxRules.call("pins_place", request, fallback: rules))
+        apply(HomeInboxRules().call("pins_place", request, fallback: rules))
     }
 
     /// Pins `order` in that order before the other pins kept here, each at the matching entry of
     /// `positions` when given (a drop numbers the whole grid, the owners' pins too) (`inbox.pins_arrange`).
     public mutating func arrange(_ order: [ConversationID], positions numbered: [UInt64] = []) {
         let request = ArrangeRequest(pins: rules, order: order.map(\.rawValue), positions: numbered)
-        apply(HomeInboxRules.call("pins_arrange", request, fallback: rules))
+        apply(HomeInboxRules().call("pins_arrange", request, fallback: rules))
     }
 
     /// The main Chief leads the grid only while the person has not placed it themselves (a pin of
     /// theirs, or a drag): returns `main` then, else nil (`inbox.pins_leading`).
     public func leading(_ main: ConversationID?) -> ConversationID? {
-        let id: String? = HomeInboxRules.call("pins_leading", LeadingRequest(pins: rules, main: main?.rawValue), fallback: nil)
+        let id: String? = HomeInboxRules().call("pins_leading", LeadingRequest(pins: rules, main: main?.rawValue), fallback: nil)
         return id.map(ConversationID.init(rawValue:))
     }
 

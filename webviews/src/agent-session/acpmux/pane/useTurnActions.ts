@@ -640,7 +640,6 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
       ...(terminalLogin.onCloud && { terminalSignIn: true }),
     },
     switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
-
     access,
   };
 }
