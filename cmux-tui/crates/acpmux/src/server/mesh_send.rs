@@ -23,7 +23,7 @@ pub(super) const PREFIX: &str = "mesh:";
 
 /// The hub's idempotency key for prompt id `id`: itself when the hub takes it
 /// (`[A-Za-z0-9._:-]{8,128}`), else a digest of it.
-pub(super) fn idempotency_key(id: &str) -> String {
+fn idempotency_key(id: &str) -> String {
     let fits = (8..=128).contains(&id.len())
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
     if fits {
@@ -32,6 +32,16 @@ pub(super) fn idempotency_key(id: &str) -> String {
         let digest = crate::sha256::sha256_hex(id.as_bytes());
         format!("p:{}", digest.get(..40).unwrap_or(&digest))
     }
+}
+
+/// The hub key of the forward of message `message_id` to `to` (`mesh_relay.rs`
+/// `forward_moved`): one post per message and destination, so a lease of the same message again
+/// (a lost ack, a restart) posts nothing new. A key the hub takes ([`idempotency_key`]): `to` is
+/// `HOST/SESSION`, and the hub answered 400 to the raw `MESSAGE~moved~HOST/SESSION`, so every
+/// forward of a moved chat's message was refused and its text lost (the super-highway ring's 71
+/// "the forward was refused: the hub answered 400" bounces, 2026-11-28 22:04Z).
+pub(crate) fn forward_key(message_id: &str, to: &str) -> String {
+    idempotency_key(&format!("{message_id}~moved~{to}"))
 }
 
 /// Whom `target` names: `HOST/ID`, `HOST/NAME`, or a bare name.
