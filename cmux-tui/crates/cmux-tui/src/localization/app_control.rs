@@ -84,6 +84,8 @@ pub(crate) struct AppControlMessages {
     pub live: LiveMessages,
     /// `cmux app chat perf` (cli/app/chat_perf.rs).
     pub chat_perf: ChatPerfMessages,
+    /// `cmux app chat memory` (cli/app/chat_memory.rs).
+    pub chat_memory: ChatMemoryMessages,
     /// `cmux app launch-times` (cli/app/launch_times.rs).
     pub launch_times: LaunchTimesMessages,
     /// `cmux window record` and `cmux pane record` (cli/app/record.rs).
@@ -145,6 +147,23 @@ pub(crate) struct LaunchTimesMessages {
     pub unreadable: &'static str,
 }
 
+/// `cmux app chat memory`: each chat page's memory. The JSON keys stay English; `{name}`
+/// placeholders are filled by cli/app/chat_memory.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ChatMemoryMessages {
+    pub usage: &'static str,
+    pub metric: &'static str,
+    pub app: &'static str,
+    pub daemon: &'static str,
+    pub empty: &'static str,
+    pub empty_none: &'static str,
+    pub no_chats: &'static str,
+    pub chat: &'static str,
+    pub chat_shared: &'static str,
+    pub chat_no_page: &'static str,
+    pub summary: &'static str,
+}
+
 /// `cmux app chat perf`: a chat page's frames and record-to-paint times over a window. The JSON
 /// keys stay English; `{name}` placeholders are filled by cli/app/chat_perf.rs.
 #[derive(Debug, PartialEq, Eq)]
@@ -168,6 +187,18 @@ pub(crate) struct ChatPerfMessages {
     pub owner_animation: &'static str,
     pub owners_none: &'static str,
     pub owners_unsupported: &'static str,
+    /// `--page-source`: how the chat pages made since launch got their page (`{spare}`, `{kept}`, `{cold}`).
+    pub page_source: &'static str,
+    /// `--page-source`: opens whose spare was not used (`{empty}`, `{unready}`, `{refused}`).
+    pub page_source_spare: &'static str,
+    /// `--page-source`: cold builds by reason (`{reasons}`, `reason count, ...`).
+    pub page_source_cold_why: &'static str,
+    /// `--page-source`: the spare's refusals by reason (`{reasons}`).
+    pub page_source_refused_why: &'static str,
+    /// `--page-source`: the pages the app holds now and has let go (`{chat}`, `{frozen}`, `{new_tab}`, `{released}`).
+    pub page_source_pages: &'static str,
+    /// `--page-source` against an app that answered without the counts.
+    pub page_source_unsupported: &'static str,
 }
 
 /// `cmux live start|stop|status`: run a checkout's web UI dev server and point the running app at it.
@@ -329,6 +360,24 @@ pub(crate) struct NightlyMessages {
     pub which_not_shipped: &'static str,
     pub feed_unreadable: &'static str,
     pub no_notes: &'static str,
+    pub direct_needs_kept: &'static str,
+    pub direct_no_app: &'static str,
+    pub direct_nothing_kept: &'static str,
+    pub direct_not_kept: &'static str,
+    pub direct_signature: &'static str,
+    pub direct_predates: &'static str,
+    pub direct_store_too_new: &'static str,
+    pub direct_unknown_store: &'static str,
+    pub direct_stores_unknown: &'static str,
+    pub direct_sparkle_waits: &'static str,
+    pub direct_swap_failed: &'static str,
+    pub direct_unreachable: &'static str,
+    pub direct_no_answer: &'static str,
+    pub direct_swapping: &'static str,
+    pub direct_still_running: &'static str,
+    pub direct_replaced: &'static str,
+    pub direct_open_failed: &'static str,
+    pub direct_done: &'static str,
 }
 
 /// The labels of `cmux version`'s text report; the JSON keys stay English.
@@ -440,7 +489,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         last_check: "Last check",
     },
     nightly: NightlyMessages {
-        usage: "usage: cmux app versions [--limit N] | use previous|next|latest|<build>\n       cmux nightly list [--limit N] | install previous|next|latest|<build>   (the same commands)\n  versions, list  the recent nightly builds, newest first (* marks the one this Mac runs)\n  use, install    installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n                  and checks it (a kept build swaps at once), restarts cmux into it with every session, and\n                  keeps the build it leaves, so `use next` comes forward again after `use previous`\n  previous  the newest build below this one;  next  the oldest build above it;  latest  the newest build\n       cmux nightly whats-in [BUILD] | which <PR>   (--json for either)\n  whats-in  the PRs that build carries, merged since the build before it, by area (default: the build this Mac runs)\n  which     the first nightly build that carries the PR (a number, #number or its URL)",
+        usage: "usage: cmux app versions [--limit N] | use previous|next|latest|<build>\n       cmux nightly list [--limit N] | install previous|next|latest|<build>   (the same commands)\n  versions, list  the recent nightly builds, newest first (* marks the one this Mac runs)\n  use, install    installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n                  and checks it (a kept build swaps at once), restarts cmux into it with every session, and\n                  keeps the build it leaves, so `use next` comes forward again after `use previous`\n  previous  the newest build below this one;  next  the oldest build above it;  latest  the newest build\n       cmux nightly whats-in [BUILD] | which <PR>   (--json for either)\n  whats-in  the PRs that build carries, merged since the build before it, by area (default: the build this Mac runs)\n  which     the first nightly build that carries the PR (a number, #number or its URL)\n       cmux app use previous|<build> --direct   go back to a kept build with no app (when cmux is frozen; also by itself when cmux does not answer)",
         no_builds: "no nightly builds are listed (the feed could not be read)",
         cannot_switch: "this cmux follows no update feed, so it cannot install another build",
         unknown_build: "build {build} is not one of the recent nightly builds; `cmux nightly list` shows them",
@@ -460,6 +509,24 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         which_not_shipped: "PR #{pr} has not shipped in a NIGHTLY yet (the feed lists builds back to {oldest})",
         feed_unreadable: "cannot read the nightly release notes: {error}",
         no_notes: "the feed has no release notes for build {build}; `cmux nightly list` shows the recent builds",
+        direct_needs_kept: "--direct goes back to a kept build only (previous or a build number): next and latest need the app to download them",
+        direct_no_app: "this cmux CLI is not inside a cmux app, so it cannot put another build in place itself",
+        direct_nothing_kept: "no earlier build is kept on this Mac, so going back without the app has nothing to put in place (the app's Go back downloads one once it answers)",
+        direct_not_kept: "build {build} is not kept on this Mac; without the app only kept builds can go in place",
+        direct_signature: "the kept build {kept} is not signed by the same team as this cmux, so it stays out",
+        direct_predates: "the kept build {kept} predates rollback (it cannot say which stores it reads), so it stays out",
+        direct_store_too_new: "the kept build {kept} cannot read the {store} store this cmux has written, so going back would lose it",
+        direct_unknown_store: "the kept build {kept} does not know the {store} store this cmux holds, so going back would lose it",
+        direct_stores_unknown: "could not read which stores this cmux holds (the daemon's `__store-schemas --stored` gave no answer), so nothing was swapped",
+        direct_sparkle_waits: "an update is staged and its installer waits for cmux to quit; quit cmux (Force Quit) so it installs, then go back",
+        direct_swap_failed: "the kept build could not be put in place ({error}); nothing changed",
+        direct_unreachable: "cmux does not answer ({error}); going back with the kept build directly",
+        direct_no_answer: "cmux did not answer in time ({error}): its main thread looks hung; going back with the kept build directly (--direct skips the wait)",
+        direct_swapping: "putting kept build {build} ({version}) in place of {from}, then restarting cmux; sessions stay with the agent daemon",
+        direct_still_running: "cmux did not quit; it opens the kept build at its next launch",
+        direct_replaced: "build {build} was put in place, but the app there now reads {found}: something replaced it (a staged update?)",
+        direct_open_failed: "the kept build is in place but could not be opened; open {app}",
+        direct_done: "cmux is back on build {build} (from {from}); `cmux app use next` comes forward again",
     },
     app_try: TryMessages {
         usage: "usage: cmux app try . [--from APP] [--dry-run]    your working tree in a copy of your NIGHTLY (no dev build)\n       cmux app try . --extract                   keep the code that went in (a branch and a patch)\n       cmux app try . --stop                      quit the copy and delete it\n       cmux app try <PR|branch|sha> [--dry-run] [--app PATH] | channel [--dry-run] | undo [--dry-run] | status\n       cmux app try <share link> [--dry-run]       a build someone shared with `cmux app share`, beside your cmux\n  .       copy your nightly and swap your code in: a fresh clone of APP (default /Applications/cmux NIGHTLY.app)\n          runs beside your cmux, which is not touched, with this checkout's web UI (a dev server: saves show\n          live) and daemon Rust put in. `.` is the checkout around this folder; dir:PATH, ./PATH or /PATH name\n          another. It prints the copy's socket (`cmux --app-socket SOCKET ...` drives it). Swift needs a build,\n          and it says which; dev builds stay available. --dry-run prints the plan only\n  try     runs that commit's cmux in this app the cheapest way there is: live when CI published a live\n          build this app can take (bin/cmux and its companions swapped in, the daemon handed over in\n          seconds, every terminal kept), else the commit's nightly build (or the nearest one that contains\n          it) the way `cmux nightly install` installs it, else the Release app CI published for it (in place of
@@ -582,8 +649,21 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         chromium_no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/chromium-live.py)",
         abi_mismatch: "nothing started or written: this checkout's web UI needs web ABI {tree_abi}, {app} has web ABI {app_abi} (it would refuse it and reload every page); try it in a side copy instead: `cmux app try .`, or use a checkout at web ABI {app_abi}",
     },
+    chat_memory: ChatMemoryMessages {
+        usage: "usage: cmux app chat memory [--empty-tab <tab>] [--empty-bytes <n>]\n  Reads, now, the memory of each open chat's web content process, the app's and the daemons' own,\n  and each chat's ratio against an empty chat's page. Chats that share one web content process are\n  grouped by it and counted once. The empty chat is --empty-bytes, else the chat in --empty-tab, else\n  a New Tab page that has its process to itself. --json prints the report.",
+        metric: "Memory: {metric}",
+        app: "App (pid {pid}): {size}",
+        daemon: "Daemon (pid {pid}): {size}",
+        empty: "Empty chat page: {size}",
+        empty_none: "Empty chat page: none ({reason}); ratios are not computed. Open a new chat and name it with --empty-tab, or pass --empty-bytes.",
+        no_chats: "No open chat has a page.",
+        chat: "Chat {tab} (pid {pid}): {size}, {ratio} an empty chat",
+        chat_shared: "Chat {tab} (pid {pid}, shared with {others} more): {size}, {ratio} an empty chat (the process, counted once)",
+        chat_no_page: "Chat {tab}: no web content process (not loaded, ended, or not WebKit)",
+        summary: "Web content: {processes} processes ({shared} shared), {total} in all; ratio to an empty chat: median {median}, max {max}",
+    },
     chat_perf: ChatPerfMessages {
-        usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.",
+        usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n       cmux app chat perf --page-source\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.\n  --page-source reads, without a tab and without measuring, how each chat page made since launch got\n  its page: the warm spare, a kept page, or a cold build and why. Read-only; an unloaded chat is fine.",
         seconds: "--seconds must be a whole number from 1 to 60",
         header: "Chat {tab}: {seconds} s, page {visibility}",
         page_hidden: "Measured nothing: the chat's page was hidden for most of the window. Show the chat, then run this again.",
@@ -602,6 +682,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         owner_animation: "  animation {name} on {target}: {count} running, {iterations} iterations",
         owners_none: "  no page code asked for frames, short timers or animations",
         owners_unsupported: "Frame owners: this chat page does not report them (a build from before they were added)",
+        page_source: "Chat pages made since launch: {spare} took the warm spare, {kept} reused a kept page, {cold} built cold",
+        page_source_spare: "  Spare not used: {empty} none parked, {unready} not ready, {refused} refused",
+        page_source_cold_why: "  Built cold because: {reasons}",
+        page_source_refused_why: "  Spare refused because: {reasons}",
+        page_source_pages: "Pages now: {chat} chat pages built ({frozen} asleep), {new_tab} New Tab pages; {released} chat pages let go while hidden since launch",
+        page_source_unsupported: "This cmux does not count how chat pages were made (a build from before the count was added)",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",

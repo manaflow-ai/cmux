@@ -97,7 +97,11 @@ struct TryPullRequestPage: View {
         }
         .settingsPage("Pull Requests")
         .refreshable { await model.reload() }
-        .task(id: store.macConnection[macID] == .connected) { await model.reload() }
+        .task(id: store.macConnection[macID] == .connected) {
+            await model.reload()
+            // An install replaces this app; the relaunched page reads how it went (F3).
+            await model.resume()
+        }
         .autoRetry(autoRetry, failing: loadFailed) { await model.reload() }
         .confirmationDialog(
             confirming.map { "Install #\($0.number) on this iPhone?" } ?? "",

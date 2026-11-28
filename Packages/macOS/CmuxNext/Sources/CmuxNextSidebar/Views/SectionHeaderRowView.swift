@@ -83,11 +83,10 @@ final class SectionHeaderRowView: SidebarRowView {
         }
     }
 
-    /// The machine as its header draws it: a link that has been coming up, dropped or out of reach for
-    /// less than the grace (`holdsStatusLabel`, `SidebarPlaceholderGrace.holdingConnectingLabels`)
-    /// keeps the connected look, with no spinner and no "Reconnecting…", since it redials on its own
-    /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"). The tooltip and
-    /// VoiceOver still read the real state.
+    /// The machine as its header draws it: automatic recovery (`holdsStatusLabel`)
+    /// keeps the cached connected look, with no spinner or connection label, since it redials on its own
+    /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"). Presentation
+    /// words follow the drawn state; diagnostic fields remain on the source machine.
     static func drawn(_ machine: SidebarMachine) -> SidebarMachine {
         guard machine.holdsStatusLabel else { return machine }
         var held = machine
@@ -204,7 +203,7 @@ final class SectionHeaderRowView: SidebarRowView {
             badgeText = Self.statusText(drawn.status, hostGroup: section.isHostGroup)
             // A connected Cloud machine draws no dot (Leo 2026-10-30), yet its tooltip still says it is connected.
             statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil
-                && (statusTone != nil || machine.status == .updateAvailable || machine.kind == .cloud))
+                && (statusTone != nil || drawn.status == .updateAvailable || machine.kind == .cloud))
             cost = machine.kind == .cloud ? machine.cost : nil
             themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
             setAccessibilityLabel(machine.name + ", " + words)

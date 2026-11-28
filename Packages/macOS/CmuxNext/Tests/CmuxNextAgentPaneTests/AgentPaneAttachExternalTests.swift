@@ -269,4 +269,23 @@ struct AgentPaneAttachExternalTests {
         refused.attach([a], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
         #expect(!refused.waitsForChat && refused.waitingFiles == [a])
     }
+    /// A file that has not reached a composer reads back where it waits: parked in the App before
+    /// this route (and why), in a new chat whose tab has not answered (and for how long), or stranded.
+    @Test func theReadbackSaysWhereAFileWaits() async {
+        var clock = ContinuousClock.now
+        let route = AgentPaneExternalAttach(now: { clock })
+        let idle = await route.composerState(focused: nil)
+        #expect(idle.objectValue?["waiting"] == .object(["parked": .number(0), "parked_why": .null, "opening": .number(0),
+                                                         "opening_ms": .null, "stranded": .number(0)]))
+        route.parked(files: 1, why: "home shown")
+        route.parked(files: 0, why: "no pane")
+        route.attach([URL(fileURLWithPath: "/tmp/shot-open.png")], claimed: nil, target: nil, openChat: { _ in true }, show: { _ in })
+        clock += .milliseconds(2500)
+        let waiting = await route.composerState(focused: nil).objectValue?["waiting"]?.objectValue
+        #expect(waiting?["parked"] == .number(1) && waiting?["parked_why"] == .string("home shown"))
+        #expect(waiting?["opening"] == .number(1) && waiting?["opening_ms"] == .number(2500))
+        #expect(AgentPaneExternalAttach.with(.null, waiting: .object([:])) == .null)
+        route.parked(files: nil)
+        #expect(route.waiting.objectValue?["parked"] == .number(0) && route.waiting.objectValue?["parked_why"] == .null)
+    }
 }

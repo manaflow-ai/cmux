@@ -437,7 +437,7 @@ fn read_grantors_for_write(root: &Path) -> Result<Grantors> {
     if !path.try_exists()? {
         return Ok(Grantors::default());
     }
-    Ok(serde_json::from_reader(crate::config::private_state_file(&path)?)?)
+    Ok(serde_json::from_reader(std::io::BufReader::new(crate::config::private_state_file(&path)?))?)
 }
 
 /// The grantor id of a key: `mac-` and the first 8 bytes of its SHA-256 as hex.
@@ -1518,7 +1518,9 @@ fn read_text(path: &Path) -> String {
 
 /// A file of the authority as `T`; missing or unreadable reads as none, which pins nothing.
 fn read_json_opt<T: DeserializeOwned>(path: &Path) -> Option<T> {
-    crate::config::private_state_file(path).ok().and_then(|file| serde_json::from_reader(file).ok())
+    crate::config::private_state_file(path)
+        .ok()
+        .and_then(|file| serde_json::from_reader(std::io::BufReader::new(file)).ok())
 }
 
 fn read_json<T: DeserializeOwned + Default>(path: &Path) -> T {

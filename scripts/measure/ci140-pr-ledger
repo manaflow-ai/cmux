@@ -96,12 +96,14 @@ def main(argv=None):
         v.sort()
     rc = [h for h in json.load(open(a.rc))["heads"] if h.get("head") and h.get("pr")]
     head_pr = {h["head"]: h["pr"] for h in rc}
+    real_heads = set(head_pr)  # heads the controller saw; pr_heads below add more
     events = {}
     if a.events:
         for e in rows(a.events):
             events[e["id"]] = e
             for ph in e.get("pr_heads") or []:
                 head_pr.setdefault(ph["head_sha"], ph["number"])
+                real_heads.add(ph["head_sha"])
 
     # runs
     feed = []
@@ -135,6 +137,14 @@ def main(argv=None):
         h, _, s = l.partition("\t")
         f = h.split()
         info[f[0]] = (f[1:], s)
+
+    def real_head(sha):
+        """A pull_request run's github.sha is GitHub's merge-ref commit ("Merge <head> into <base>", second parent =
+        the PR head), not a push. Map it to the head; a base merge / update-branch commit is a real head, kept."""
+        ps, subj = info.get(sha, ([], ""))
+        if len(ps) == 2 and re.match(r"Merge [0-9a-f]{40} into ", subj) and sha not in real_heads:
+            return ps[1]
+        return sha
 
     # attribution: (pr, head, how)
     def name_head(x):
@@ -170,7 +180,7 @@ def main(argv=None):
         base_run = x["branch"] in NONPR_BRANCH
         if head is None and x["sha"] and not (x["event"] in ("workflow_dispatch", "schedule", "push") and base_run) \
                 and not (base_run and x["seg"] != "pr"):
-            head, how = x["sha"], how or "feed-sha"
+            head, how = real_head(x["sha"]), how or "feed-sha"
         if head and pr is None:
             pr = head_pr.get(head)
         if pr is None and head and base_run:
@@ -190,8 +200,11 @@ def main(argv=None):
         if t:
             d = push[h["pr"]]
             d[h["head"]] = min(d.get(h["head"], 1e18), t)
+    auth_pr = {h["pr"] for h in rc} | {pr for h, pr in head_pr.items() if h in real_heads}
     for x in runs.values():
-        if x["pr"] and x["head"]:
+        # run-derived heads (names, titles, feed sha) join the sequence only for a head the controller or the event
+        # feed knows, or for a PR with no such record; never a merge-ref commit
+        if x["pr"] and x["head"] and (x["head"] in real_heads or x["pr"] not in auth_pr):
             d = push[x["pr"]]
             d[x["head"]] = min(d.get(x["head"], 1e18), x["created"])
     seqs = {pr: sorted((t, h) for h, t in d.items()) for pr, d in push.items()}
@@ -350,6 +363,7 @@ def main(argv=None):
     sup = C.Counter()
     sup_n = C.Counter()
     sup_job = C.Counter()
+    cur_job = C.Counter()
     canc_sup = C.Counter()
     canc_other = C.Counter()
     for it in items:
@@ -366,6 +380,9 @@ def main(argv=None):
             else:
                 canc_other["spent min"] += m; canc_other["jobs"] += 1
             continue
+        if nxt is not None and end <= nxt:
+            sup["ran while head was current (finished before a newer head; not waste by this test)"] += m
+            cur_job[key] += m
         if not sup_:
             continue
         ov = min(m, (end - max(start, nxt)) / 60)
@@ -375,8 +392,8 @@ def main(argv=None):
             sup_n["running"] += 1
             sup_job[key] += ov
         else:
-            sup["started after the newer push (queued earlier): minutes"] += m
-            sup_n["started after"] += 1
+            sup["started after a newer head (queued earlier): minutes"] += m
+            sup_n["started after a newer head"] += 1
             sup_job[key] += m
     per = lambda v: round(v / M, 1)
 
@@ -392,6 +409,7 @@ def main(argv=None):
            "cancelled_today": {"at superseded heads": {k: round(v) for k, v in canc_sup.items()},
                                "elsewhere": {k: round(v) for k, v in canc_other.items()}},
            "top_jobs_per_bucket": {k: [[j, round(v)] for j, v in c.most_common(5)] for k, c in lab_job.items()},
+           "top_ran_while_current_jobs": [[" / ".join(k), per(v)] for k, v in cur_job.most_common(a.top)],
            "top_superseded_jobs": [[" / ".join(k), per(v)] for k, v in sup_job.most_common(a.top)]}
     # table
     print(f"window {a.since}..{a.until}; {len(merged_in)} PRs merged (meter's merges); total {round(total)} min "
@@ -416,6 +434,7 @@ def main(argv=None):
     for k in sorted(lab_job):
         print(f"  {k}: " + "; ".join(f"{j} {v:.0f}" for j, v in lab_job[k].most_common(4)))
     print("top jobs in the superseded overlap (min per merged PR):", res["top_superseded_jobs"])
+    print("top jobs that ran while their head was current, on heads a later push replaced (min per merged PR):", res["top_ran_while_current_jobs"])
     print("\nattribution (min by bucket and how the run named its head; measured = name/feed-sha/fleet key, inferred = branch/head-at):")
     for (b, h), v in sorted(how_min.items()):
         print(f"  {b:4} {h:10} {v:9.0f}")
