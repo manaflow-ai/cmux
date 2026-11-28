@@ -126,6 +126,12 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
             }
         };
         let Some(mux) = mux.upgrade() else { return };
+        if crate::workspace_registry::wal_durability::log_commit_threads() {
+            eprintln!(
+                "cmux-tui: idle-wake output-store turn memory={} write={}",
+                turn.memory, turn.write
+            );
+        }
         for pass in turn.passes() {
             match pass {
                 Pass::Memory => memory_pass(&mux, &mux.output_store),

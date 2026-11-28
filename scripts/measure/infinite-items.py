@@ -300,9 +300,9 @@ def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
     log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
-    syncer = busy_thread_states(top.get("tui"), "sqlite-wal-sync", seconds)
+    syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds)
     after = snapshot(top)
-    commits = {}
+    commits, wakes, asked = {}, {}, set()
     if log_at is not None:
         with open(TUI_LOG[0], "rb") as f:
             f.seek(log_at)
@@ -310,6 +310,15 @@ def idle_window(top, seconds, disks):
                 m = re.search(r"registry-commit thread=(\S+)", line)
                 if m:
                     commits[m.group(1)] = commits.get(m.group(1), 0) + 1
+                # The debug seam's wake lines (who woke, why): the syncer's wakes by database, the output
+                # store's turns and the logs that asked it for another pass, with how many terminals asked.
+                w = re.search(r"idle-wake (\S+ \S+)(?: db=(\S+))?(?: owed=(\S+))?(?: terminal=(\S+))?", line)
+                if w:
+                    key = " ".join(x for x in (w.group(1), w.group(2), w.group(3) and f"owed={w.group(3)}",
+                                               w.group(4) and "terminal") if x)
+                    wakes[key] = wakes.get(key, 0) + 1
+                    if w.group(4):
+                        asked.add(w.group(4))
     roles = {}
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
@@ -362,7 +371,8 @@ def idle_window(top, seconds, disks):
         r["pss_mb"] = round(r.pop("pss") / 1048576, 2)
         r["rss_mb"] = round(r.pop("rss") / 1048576, 2)
     return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits,
-            "syncer": syncer, "window": seconds}
+            "syncer": syncer, "window": seconds,
+            "wakes": wakes, "wake_terminals": len(asked)}
 
 
 def busy_thread_states(pid, name, seconds, every=0.2):
@@ -384,7 +394,7 @@ def busy_thread_states(pid, name, seconds, every=0.2):
         for tid in tids:
             try:
                 with open(f"/proc/{pid}/task/{tid}/comm") as f:
-                    if f.read().strip() != name:
+                    if f.read().strip() not in name:
                         continue
                 with open(f"/proc/{pid}/task/{tid}/syscall") as f:
                     call = f.read().split()[0]
@@ -1054,6 +1064,8 @@ def report(results):
                   f"by_thread={json.dumps(dict(sorted(s.get('commits', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
             print(f"INFINITE-SYNCER {n} day={s['day']} states={json.dumps(s.get('syncer', {}))} "
                   f"wal={json.dumps({k: v for k, v in s.get('files', {}).items() if k.endswith('-wal')})}", flush=True)
+            print(f"INFINITE-WAKES {n} day={s['day']} terminals={s.get('wake_terminals', 0)} "
+                  f"by={json.dumps(dict(sorted(s.get('wakes', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
             for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
