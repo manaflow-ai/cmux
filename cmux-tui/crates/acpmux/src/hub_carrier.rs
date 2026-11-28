@@ -2049,10 +2049,16 @@ impl HubCarrier {
         // Beside it, the nearest placed relay, held as long as this registration lives
         // (`hub_carrier_placed.rs`); none placed, none measured reachable: nothing more.
         let _placed = match self.nearest.nearest(&answer.placed).await {
-            Some(near) => self.clone().register_placed(websocket, &near, &answer),
+            Some(_) => Some(self.clone().hold_placed(
+                websocket,
+                self.nearest.ranked(&answer.placed),
+                answer.clone(),
+            )),
             None => None,
         };
         let mut first = Some(Zeroizing::new(answer.ticket.clone()));
+        // Relays that answered busy, and until when none asks them again.
+        let mut full: HashMap<String, tokio::time::Instant> = HashMap::new();
         loop {
             let served = self
                 .clone()
@@ -2063,10 +2069,23 @@ impl HubCarrier {
                 return;
             }
             let Some(next) = rehome::next_home(&relays, &home) else { return };
-            tracing::warn!(
-                "hub carrier: the relay stayed down over {}s; registering on the next one",
-                self.timings.rehome_after.as_secs_f32()
-            );
+            if let Served::Full(retry_after) = served {
+                tracing::warn!("hub carrier: the relay is full; registering on the next one now");
+                full.insert(
+                    home.clone(),
+                    tokio::time::Instant::now()
+                        + rehome::busy_wait(retry_after, crate::peer_link::jitter()),
+                );
+                // Every relay full: one ask per relay per its wait, never a ring of asks.
+                if let Some(until) = full.get(&next).copied() {
+                    tokio::time::sleep_until(until).await;
+                }
+            } else {
+                tracing::warn!(
+                    "hub carrier: the relay stayed down over {}s; registering on the next one",
+                    self.timings.rehome_after.as_secs_f32()
+                );
+            }
             self.stats.rehomes.fetch_add(1, Ordering::Relaxed);
             home = next;
         }
@@ -2160,7 +2179,17 @@ impl HubCarrier {
                         Some(relay.to_owned());
                 }
                 RegistrationState::CredentialUnavailable { .. } => down_since = None,
-                RegistrationState::Registering | RegistrationState::RelayUnavailable { .. } => {
+                // A relay that answers busy (503, 429) is full, not down: the registration waits
+                // out its Retry-After (cmux-remote), and a carrier with another relay to go to
+                // goes there at once instead of keeping this one full.
+                RegistrationState::RelayBusy { retry_after, .. } if relays > 1 => {
+                    *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) = None;
+                    tracing::warn!("hub carrier: the relay is full; registering on the next one");
+                    return Served::Full(retry_after);
+                }
+                RegistrationState::Registering
+                | RegistrationState::RelayUnavailable { .. }
+                | RegistrationState::RelayBusy { .. } => {
                     *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) = None;
                     down_since.get_or_insert_with(tokio::time::Instant::now);
                 }
@@ -2184,6 +2213,64 @@ impl HubCarrier {
                 return Served::Stop;
             }
         }
+    }
+
+    /// Keeps this machine's slot registered on the nearest of the placed `ranked` relays that
+    /// takes it. A placed relay that answers busy (503, 429: its WebSocket limit) is left at
+    /// once for the next nearest, and not asked again before its `Retry-After`; the one
+    /// registration's own retries honour that word too (cmux-remote). With one placed relay it
+    /// stays on it and waits. Dropping the guard unregisters.
+    fn hold_placed(
+        self: Arc<Self>,
+        websocket: SocketAddr,
+        ranked: Vec<String>,
+        answer: CarrierAnswer,
+    ) -> AbortOnDrop {
+        let task = placed::scope().spawn_named("hub carrier placed relay hold", async move {
+            let mut full: HashMap<String, tokio::time::Instant> = HashMap::new();
+            let mut at = 0_usize;
+            loop {
+                let relay = ranked[at % ranked.len()].clone();
+                if let Some(until) = full.get(&relay).copied() {
+                    tokio::time::sleep_until(until).await;
+                }
+                let Some(registration) = self.clone().register_placed(websocket, &relay, &answer)
+                else {
+                    // A relay this carrier would not dial: the next one, or nothing more.
+                    if ranked.len() < 2 {
+                        return;
+                    }
+                    at += 1;
+                    continue;
+                };
+                let mut state = registration.state();
+                loop {
+                    let busy = match &*state.borrow_and_update() {
+                        RegistrationState::RelayBusy { retry_after, .. } => Some(*retry_after),
+                        _ => None,
+                    };
+                    if let Some(retry_after) = busy
+                        && ranked.len() > 1
+                    {
+                        tracing::warn!(
+                            "hub carrier: the placed relay is full; trying the next nearest"
+                        );
+                        full.insert(
+                            relay.clone(),
+                            tokio::time::Instant::now()
+                                + rehome::busy_wait(retry_after, crate::peer_link::jitter()),
+                        );
+                        break;
+                    }
+                    if state.changed().await.is_err() {
+                        return;
+                    }
+                }
+                drop(registration);
+                at += 1;
+            }
+        });
+        AbortOnDrop(task)
     }
 
     /// This machine's slot registered on the placed relay `relay` too, with that relay's own
@@ -2267,6 +2354,15 @@ impl HubCarrier {
     }
 }
 
+/// A task that ends when this drops.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// How one registration of [`HubCarrier::serve_on`] ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Served {
@@ -2274,6 +2370,9 @@ enum Served {
     Stop,
     /// The relay stayed down past `rehome_after`: register on the next one.
     Rehome,
+    /// The relay answered busy (503, 429), with its `Retry-After` when it sent one: register on
+    /// the next one now, and come back to this one only after that wait.
+    Full(Option<Duration>),
 }
 
 /// Sleeps until `at`; never returns without one (its `select!` arm is off then).

@@ -2044,7 +2044,12 @@ async fn authenticate_daemon_control(
             },
             DAEMON_REGISTER_STAGGER,
             DAEMON_REGISTER_ATTEMPTS,
-            |error| matches!(error, RelaySocketConnectError::Authentication),
+            |error| {
+                matches!(
+                    error,
+                    RelaySocketConnectError::Authentication | RelaySocketConnectError::Busy { .. }
+                )
+            },
         )
         .await
         {
@@ -2117,6 +2122,12 @@ async fn connect_provider_control(
 
 enum RelaySocketConnectError {
     Authentication,
+    /// The relay's upgrade answer was 503 or 429 (full, or rate limiting): a wait, with the
+    /// relay's own `Retry-After` when it sent one.
+    Busy {
+        status: u16,
+        retry_after: Option<Duration>,
+    },
     Provider(ProviderError),
 }
 
@@ -2126,9 +2137,22 @@ impl RelaySocketConnectError {
             Self::Authentication => {
                 ProviderError::Transport("relay WebSocket authentication was rejected".into())
             }
+            Self::Busy { status, retry_after } => ProviderError::RelayBusy { status, retry_after },
             Self::Provider(error) => error,
         }
     }
+}
+
+/// The longest `Retry-After` a registration honours; a relay that names more is waited out for
+/// this long and asked again.
+pub(crate) const RETRY_AFTER_MAX: Duration = Duration::from_secs(60);
+
+/// A relay's `Retry-After` in whole seconds (the HTTP-date form is not used by our relays), at
+/// most [`RETRY_AFTER_MAX`]; None when absent or not a number.
+pub(crate) fn retry_after_of(headers: &http::HeaderMap) -> Option<Duration> {
+    let seconds: u64 =
+        headers.get(http::header::RETRY_AFTER)?.to_str().ok()?.trim().parse().ok()?;
+    Some(Duration::from_secs(seconds).min(RETRY_AFTER_MAX))
 }
 
 async fn connect_relay_socket(
@@ -2198,6 +2222,17 @@ async fn open_relay_socket(
             if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>
         {
             Err(RelaySocketConnectError::Authentication)
+        }
+        Err(tokio_tungstenite::tungstenite::Error::Http(response))
+            if matches!(
+                response.status(),
+                StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS
+            ) =>
+        {
+            Err(RelaySocketConnectError::Busy {
+                status: response.status().as_u16(),
+                retry_after: retry_after_of(response.headers()),
+            })
         }
         Err(error) => Err(RelaySocketConnectError::Provider(relay_connect_error(error))),
     }
