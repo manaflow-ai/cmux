@@ -15,8 +15,7 @@ import Testing
         #expect(TerminalConnectionState.connecting(mac: nil).composerNotSentNotice == nil)
     }
 
-    @Test func droppedKeysAreSaidOnce() {
-        #expect(TerminalConnectionState.inputNotSentNotice == "Keys typed while your Mac was unreachable were not sent.")
+    @Test func offlineStatesAreNotAttached() {
         // An offline state is not attached, and its card says so without a spinner.
         #expect(!TerminalConnectionState.offline(mac: nil).isAttached)
         #expect(TerminalConnectionState.offline(mac: nil).quietLine == "Your Mac is offline")
@@ -30,7 +29,8 @@ import CmuxMobileArtifacts
 import Foundation
 
 /// A composer send over a blip goes into the session's hold; when the hold drops it (a real
-/// outage), the text comes back to the composer with the notice, so nothing typed is lost.
+/// outage), the text comes back to the composer, silently, so nothing typed is lost (Leo,
+/// 2026-11-23: remove the "Keys typed while your Mac was unreachable were not sent." banner).
 @MainActor
 @Suite struct ComposerHeldSendTests {
     @MainActor
@@ -52,7 +52,7 @@ import Foundation
         #expect(model.composerNotice == nil, "a blip says nothing")
         model.ingest(.inputNotSent(bytes: 10))
         #expect(model.composerText == "make test")
-        #expect(model.composerNotice == TerminalConnectionState.inputNotSentNotice)
+        #expect(model.composerNotice == nil, "no banner: the draft back in the field is the answer")
     }
 
     @Test func aSendWhileAttachedIsNeverPutBack() {
@@ -80,7 +80,7 @@ import Foundation
         model.ingest(.inputNotSent(bytes: 10))
         #expect(model.composerSendRefused)
         #expect(model.composerText == "make test")
-        #expect(model.composerNotice == TerminalConnectionState.inputNotSentNotice)
+        #expect(model.composerNotice == nil)
     }
 }
 #endif

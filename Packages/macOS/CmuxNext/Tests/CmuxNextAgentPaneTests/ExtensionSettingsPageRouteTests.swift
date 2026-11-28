@@ -47,4 +47,21 @@ struct ExtensionSettingsPageRouteTests {
         #expect(await code("list", page: PageDescriptor.apps.id) == PageError.unknownOp("").code)
         #expect(await code("remove", gesture: true) == PageError.unknownOp("").code)
     }
+
+    /// A manifest saved and hot reloaded (the apps client's `.changed`) tells every open Settings page to
+    /// list again; another page cannot hear it, and an ended subscription hears nothing more.
+    @Test func anExtensionChangeTellsTheSettingsPageToListAgain() async throws {
+        var heard = 0
+        let subscription = try await route.subscribe(ExtensionSettingsPageRoute.changedStream, filter: .object([:]),
+                                                     context: PageCallContext(page: PageDescriptor.settings.id)) { _ in heard += 1 }
+        route.appsChanged()
+        #expect(heard == 1)
+        await #expect(throws: PageError.self) {
+            _ = try await route.subscribe(ExtensionSettingsPageRoute.changedStream, filter: .object([:]),
+                                          context: PageCallContext(page: "cmux.apps")) { _ in }
+        }
+        subscription.cancel()
+        route.appsChanged()
+        #expect(heard == 1)
+    }
 }

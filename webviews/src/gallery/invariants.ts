@@ -16,6 +16,10 @@
 //   menu-fit     menus.md (Leo, 2026-11-01, "a picker that is too wide"): a menu is no wider than
 //                its fullest row needs, its insets and columns included, unless a field-like
 //                trigger sets its width ("at least as wide" as the field).
+//   menu-icon-gutter  menus.md "Menus spend no width or height on nothing": in a menu whose rows carry
+//                icons every action row has one; a row without one starts its text an empty icon slot
+//                in (Leo, 2026-11-22: "some bullshit left indent that indents for literally nothing.
+//                either get rid of the indent or give it an icon"). Toggle rows mark the slot with their check.
 // A rule reads only what the stage shows; a state with no transcript or menu has nothing to check.
 // The pure checks are here (unit tested); `collectInvariants` measures the live page.
 
@@ -226,6 +230,22 @@ function transcriptViolations(doc: Document): Violation[] {
   return violations;
 }
 
+/** The action rows of a menu whose other rows carry icons but they do not (`menu-icon-gutter`). */
+export function iconGutterGaps(name: string, rows: { label: string; icon: boolean; toggle: boolean }[]): Violation[] {
+  const actions = rows.filter((row) => !row.toggle);
+  if (!actions.some((row) => row.icon)) return [];
+  return actions
+    .filter((row) => !row.icon)
+    .map((row) => ({
+      rule: "menu-icon-gutter",
+      key: `menu-icon-gutter:${name} ${row.label}`,
+      detail: `${name} ${row.label}: no icon in a menu whose other rows have one, so its text starts an empty icon slot in`,
+    }));
+}
+
+const MENU_ICON = ":scope > :is(.ui-menu-icon, .icon-menu-emoji)";
+const TOGGLE = "[role='menuitemcheckbox'], [role='menuitemradio'], [aria-checked]";
+
 // A listbox counts only inside a popup: a list panel the width of its pane is no menu.
 const MENU = ".ui-popup, [role='menu'], [popover] [role='listbox'], [role='dialog'] [role='listbox']";
 const ITEM = ".ui-menu-item, [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']";
@@ -256,6 +276,18 @@ function menuViolations(doc: Document): Violation[] {
         }),
         "menu-label",
         "the label",
+      ),
+    );
+    violations.push(
+      ...iconGutterGaps(
+        name,
+        items
+          .filter((item) => item.classList.contains("ui-menu-item"))
+          .map((item) => ({
+            label: labelOf(item),
+            icon: !!item.querySelector(MENU_ICON),
+            toggle: item.matches(TOGGLE),
+          })),
       ),
     );
     for (const item of items) {

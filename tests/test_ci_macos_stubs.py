@@ -12,12 +12,14 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import re
 import struct
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -250,6 +252,115 @@ class SourceExternTests(unittest.TestCase):
                 missing += [f"{path.relative_to(ROOT)}: {framework}.tbd lacks _{name}"
                             for name in names if f"_{name}" not in held]
         self.assertEqual(missing, [])
+
+
+# A locked Apple binding crate (core-foundation-sys, security-framework-sys, system-configuration-sys) has every
+# extern it declares in its framework's stub, so a first call into it links on the pool. #54956 (2026-11-27) made
+# acpmux search the keychain through security-framework, which was locked since #37211 but never called there, and
+# every Linux cross link of cmux-tui failed ("undefined symbol: kSecMatchSearchList", 20 names; run 46100844289),
+# the macOS fallback build and the nightly behind it. sys-crates.txt lists the versions the stubs cover; a lock
+# bump of one of these crates fails here until `macos_stubs.py sys-crates` adds the new version's externs.
+LOCK_PATH = "cmux-tui/Cargo.lock"
+SYS_CRATES_PATH = "scripts/ci/macos-stubs/sys-crates.txt"
+
+
+class SysCrateCoverageTests(unittest.TestCase):
+    def test_declared_externs_reads_every_extern_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp)
+            (src / "item.rs").write_text('extern "C" {\n    pub static kSecMatchSearchList: CFStringRef;\n'
+                                         '    pub fn SecItemCopyMatching(q: CFDictionaryRef) -> OSStatus;\n}\n'
+                                         "fn not_extern() {}\n")
+            self.assertEqual(stubs.declared_externs(src), {"_kSecMatchSearchList", "_SecItemCopyMatching"})
+
+    def test_declared_externs_reads_objc2s_own_extern_macros(self) -> None:
+        # objc2::ffi declares the runtime in extern_c! / extern_c_unwind!, not a bare `extern "C" {`.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp)
+            (src / "rc.rs").write_text("macro_rules! extern_c {\n    { $(pub fn $name:ident();)* } => {};\n}\n"
+                                       "extern_c! {\n    #[cfg(target_vendor = \"apple\")]\n"
+                                       "    pub fn objc_alloc(value: *const AnyClass) -> *mut AnyObject;\n}\n"
+                                       "extern_c_unwind! {\n    /// fn some_external_function() in a doc\n"
+                                       "    pub fn objc_msgSend(); // and the linker\n}\n")
+            self.assertEqual(stubs.declared_externs(src), {"_objc_alloc", "_objc_msgSend"})
+
+    def test_locked_versions_names_only_the_binding_crates(self) -> None:
+        lock = ('[[package]]\nname = "security-framework-sys"\nversion = "2.17.0"\n\n'
+                '[[package]]\nname = "security-framework"\nversion = "3.7.0"\n\n'
+                '[[package]]\nname = "core-foundation-sys"\nversion = "0.8.7"\n')
+        self.assertEqual(stubs.locked_versions(lock),
+                         {"security-framework-sys": ["2.17.0"], "core-foundation-sys": ["0.8.7"]})
+
+    def test_every_locked_binding_crate_version_is_in_the_stubs(self) -> None:
+        covered = {tuple(line.split()[:2]) for line in (ROOT / SYS_CRATES_PATH).read_text().splitlines()
+                   if line and not line.startswith("#")}
+        locked = stubs.locked_versions((ROOT / LOCK_PATH).read_text())
+        missing = [f"{name} {version}" for name, versions in sorted(locked.items()) for version in versions
+                   if (name, version) not in covered]
+        self.assertEqual(missing, [], "run: python3 scripts/ci/macos_stubs.py sys-crates scripts/ci/macos-stubs "
+                                      "cmux-tui/Cargo.lock")
+
+    def test_every_locked_objc2_crate_is_classified(self) -> None:
+        # #56513 (iroh) locked objc2-core-wlan and objc2-security-foundation; their #[link(kind = "framework")]
+        # had no stub, so every Linux link of the daemon failed "framework not found for -framework CoreWLAN".
+        lock = (ROOT / LOCK_PATH).read_text()
+        known = set(stubs.SYS_CRATES) | set(stubs.OBJC2_STUBBED_FROM_BINARIES) | stubs.OBJC2_NOT_IN_DAEMON_BUILD
+        new = sorted({name for name, _ in stubs.LOCKED.findall(lock) if name.startswith("objc2")} - known)
+        self.assertEqual(new, [], "a new objc2 binding crate links its framework: add it to SYS_CRATES (then run "
+                                  "macos_stubs.py sys-crates) or to OBJC2_NOT_IN_DAEMON_BUILD in scripts/ci/macos_stubs.py")
+
+    def test_every_sys_crate_framework_has_a_stub(self) -> None:
+        for framework in set(stubs.SYS_CRATES.values()):
+            install, _ = stubs.read_stub(ROOT / "scripts/ci/macos-stubs" / f"{framework}.tbd")
+            # libobjc is a dylib, not a framework (objc2's runtime): its stub keeps /usr/lib/libobjc.A.dylib.
+            self.assertIn("/usr/lib/libobjc.A.dylib" if framework == "libobjc" else f"/{framework}.framework/", install)
+
+    def test_sys_crates_starts_a_stub_for_a_new_framework(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src" / "objc2-core-wlan-9.9.9" / "src"
+            src.mkdir(parents=True)
+            (src / "lib.rs").write_text('extern "C" {\n    pub static CWErrorDomain: u8;\n}\n'
+                                        'extern "C-unwind" {\n    pub fn CWKeychainDeleteWiFiPassword() -> i32;\n}\n')
+            stub_dir = root / "stubs"
+            stub_dir.mkdir()
+            lock = root / "Cargo.lock"
+            lock.write_text('[[package]]\nname = "objc2-core-wlan"\nversion = "9.9.9"\n')
+            with mock.patch.dict(os.environ, {"SYS_CRATES_SRC": str(root / "src")}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    stubs.cmd_sys_crates(stub_dir, lock)
+            install, held = stubs.read_stub(stub_dir / "CoreWLAN.tbd")
+            self.assertEqual(install, "/System/Library/Frameworks/CoreWLAN.framework/Versions/A/CoreWLAN")
+            self.assertEqual(held, {"_CWErrorDomain", "_CWKeychainDeleteWiFiPassword"})
+
+    def test_the_stubs_hold_the_keychain_search_that_broke_the_link(self) -> None:
+        held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/Security.tbd")[1]
+        for name in ("_kSecMatchSearchList", "_SecKeychainItemDelete", "_kSecUseAuthenticationUISkip"):
+            self.assertIn(name, held)
+
+    def test_the_stubs_hold_the_objc_runtime_calls_that_broke_the_link(self) -> None:
+        # 2026-11-28: every Linux link of cmux-tui failed "undefined symbol: objc_alloc" and 4 more (objc2).
+        held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/libobjc.tbd")[1]
+        for name in ("_objc_alloc", "_sel_getName", "_class_getName", "_class_isMetaClass", "_object_getClass"):
+            self.assertIn(name, held)
+        # A libSystem routine bound to libobjc would not resolve on a Mac: sys-crates drops what libSystem exports
+        # (MACOS_STUBS_SYSTEM_TBD), and a comment's words are no symbols.
+        for name in ("_free", "_dlopen", "_dlsym", "_sysctlbyname", "_pthread_main_np", "_and", "_linker"):
+            self.assertNotIn(name, held)
+
+
+class MergeStubs(unittest.TestCase):
+    def test_merge_adds_the_newer_symbols_and_stubs(self) -> None:
+        with tempfile.TemporaryDirectory() as old_dir, tempfile.TemporaryDirectory() as new_dir:
+            old, new = Path(old_dir), Path(new_dir)
+            lib = {"current": "61901.120.67", "compat": "1.0.0"}
+            (old / "Security.tbd").write_text(stubs.render(SEC, {**lib, "symbols": {"_SecA"}}))
+            (new / "Security.tbd").write_text(stubs.render(SEC, {**lib, "symbols": {"_SecA", "_kSecGuestAttributePid"}}))
+            (new / "IOKit.tbd").write_text(stubs.render("/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit", {**lib, "symbols": {"_IOA"}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(stubs.cmd_merge(old, new), 0)
+            self.assertEqual(stubs.read_stub(old / "Security.tbd")[1], {"_SecA", "_kSecGuestAttributePid"})
+            self.assertEqual(stubs.read_stub(old / "IOKit.tbd")[1], {"_IOA"})
 
 
 if __name__ == "__main__":

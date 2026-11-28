@@ -174,6 +174,107 @@ async fn settled(hub: &Arc<Hub>, id: &str, within: Duration) -> Delivery {
 
 const BOUND: Duration = Duration::from_millis(500);
 
+fn relay_backlog(hub: &Hub, count: usize) -> Vec<Delivery> {
+    let now = crate::store::now_ms();
+    (0..count)
+        .map(|n| {
+            let mut d = super::retry_delay_tests::delivery(now, false);
+            d.id = format!("delivery-{n}");
+            let key = format!("prompt-{n}");
+            d.request = request(&d.target, &key)["request"].clone();
+            d.attempts = 1;
+            d.relay_post = Some(OutMessage {
+                to: Target { name: Some("lane".into()), ..Default::default() },
+                from: Default::default(),
+                kind: crate::mesh::Kind::Prompt,
+                op: None,
+                body: "from a lane VM".into(),
+                mode: Default::default(),
+                idempotency_key: key,
+            });
+            hub.outbox.add(d).unwrap()
+        })
+        .collect()
+}
+
+/// Replay the backlog while the first eight relay posts hang. Once their deadlines pass,
+/// the same queue must drain, including the timed-out posts on their retry schedule.
+#[tokio::test(start_paused = true)]
+async fn outbox_replay_bounds_stalled_attempts_and_drains() {
+    const COUNT: usize = 547;
+    let (hub, stub) =
+        setup(StubHub { script: Mutex::new(vec![Answer::Stall; 8].into()), ..StubHub::default() });
+    let pending = relay_backlog(&hub, COUNT);
+    resume(&hub, pending);
+    // The paused clock advances when runnable tasks have parked. The relay deadline is 30 s.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(stub.posts.lock().unwrap().len(), 8);
+    assert_eq!(hub.outbox.unsettled(), COUNT);
+    let attempted = (0..COUNT)
+        .filter(|n| hub.outbox.get(&format!("delivery-{n}")).unwrap().attempts > 1)
+        .count();
+    assert_eq!(attempted, 8, "admission must precede the journal write");
+
+    // All eight posts have now timed out. Even while the relay's gate holds the backlog,
+    // each delivery leaves its slot free until its next attempt.
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    assert!(hub.mesh.gate().shut());
+    assert_eq!(hub.outbox_attempts.available_permits(), 8);
+
+    for n in 0..COUNT {
+        let d = settled(&hub, &format!("delivery-{n}"), Duration::from_secs(120)).await;
+        assert_eq!(d.state, State::Delivered);
+    }
+    assert_eq!(stub.held.lock().unwrap().len(), COUNT);
+}
+
+/// A stalled book makes every active attempt call block_in_place. With a small blocking
+/// pool, unbounded replay exhausts even the replacement worker that should drive timers.
+#[test]
+fn outbox_replay_leaves_a_worker_for_timers_while_the_book_is_held() {
+    use std::sync::mpsc as sync_channel;
+    let (started, starts) = sync_channel::channel();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .max_blocking_threads(12)
+        .on_thread_start(move || {
+            let _ = started.send(());
+        })
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let (hub, _) = setup(StubHub::default());
+        let pending = relay_backlog(&hub, 547);
+        let (locked, lock) = sync_channel::channel();
+        let (release, released) = sync_channel::channel();
+        let holder = std::thread::spawn({
+            let hub = hub.clone();
+            move || {
+                hub.outbox.hold_book_for_then(Duration::ZERO, || {
+                    locked.send(()).unwrap();
+                    let _ = released.recv_timeout(Duration::from_secs(15));
+                })
+            }
+        });
+        lock.recv_timeout(Duration::from_secs(5)).unwrap();
+        resume(&hub, pending);
+        // One runtime worker and a replacement for each of the eight blocked attempts.
+        for _ in 0..9 {
+            starts.recv_timeout(Duration::from_secs(5)).expect("replay reached the held book");
+        }
+        let (tick, observed) = sync_channel::channel();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let _ = tick.send(());
+        });
+        let timely = observed.recv_timeout(Duration::from_secs(2));
+        release.send(()).unwrap();
+        holder.join().unwrap();
+        timely.expect("a timer must run while retry attempts are blocked");
+    });
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_hub_503_queues_the_send_and_the_outbox_delivers_it_once() {
     let script = [Answer::Fail(503, "mesh.unavailable"), Answer::Fail(503, "mesh.unavailable")];
@@ -427,6 +528,42 @@ async fn duress_a_30s_hub_503_loses_none_of_100_sends_and_drains_on_recovery() {
     );
     assert_eq!(lost, 0, "every send delivered");
     assert_eq!(held, SENDS as usize, "the hub holds each send once");
+}
+
+/// A delivery that followed its chat's move over the hub names `HOST/ID` on a machine only the
+/// hub reaches (`follow_move` leaves it with no hub post). It goes through the hub to that id,
+/// never failing as "no session HOST/ID on" this machine, as six messages to one moved chat did
+/// on 2026-11-25.
+#[tokio::test(start_paused = true)]
+async fn a_followed_hub_move_goes_through_the_hub_not_a_lookup_here() {
+    let (hub, stub) = setup(StubHub::default());
+    let id = "01a2116d-0000-7000-8000-000000000001";
+    let target = format!("far-host/{id}");
+    let mut d = super::retry_delay_tests::delivery(crate::store::now_ms(), false);
+    d.id = "followed-hub-move".into();
+    d.target.clone_from(&target);
+    d.request = json!({
+        "sessionId": target,
+        "prompt": [{"type": "text", "text": "after the move"}],
+        "_meta": {"acpmux": {"promptId": "prompt-followed-move"}},
+    });
+    d.error = Some(format!("the chat moved; following it to {target}"));
+    assert!(hub.mesh_only_host(&target), "only the hub reaches {target}");
+    let d = hub.outbox.add(d).unwrap();
+    let delivering = {
+        let hub = hub.clone();
+        let id = d.id.clone();
+        tokio::spawn(async move { deliver(&hub, &id).await })
+    };
+    let d = settled(&hub, &d.id, Duration::from_secs(600)).await;
+    delivering.abort();
+    assert_eq!(d.state, State::Delivered, "{d:?}");
+    assert!(!d.no_session(), "{d:?}");
+    let posts = stub.posts.lock().unwrap();
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    assert_eq!(posts[0].to.session_id.as_deref(), Some(id), "{posts:?}");
+    assert_eq!(posts[0].to.host.as_deref(), Some("far-host"), "{posts:?}");
+    assert_eq!(posts[0].idempotency_key, "prompt-followed-move", "{posts:?}");
 }
 
 /// RFD 0180 (EAGAIN, not ENOENT): a kept delivery whose target the hub does not list yet (its

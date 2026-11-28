@@ -5,6 +5,24 @@ use super::*;
 use crate::no_panic::JsonExt;
 use crate::store::EventRecord;
 
+/// Whether [`redact_message_hosts`] would change `v`, without copying it: a peer link checks
+/// every message it sends, and nearly none carry a sender host.
+pub fn has_message_hosts(v: &Value) -> bool {
+    match v {
+        Value::Array(items) => items.iter().any(has_message_hosts),
+        Value::Object(map) => {
+            let has_host = |sender: Option<&Value>| {
+                sender.and_then(Value::as_object).is_some_and(|s| s.contains_key("host"))
+            };
+            (map.get("kind").and_then(Value::as_str) == Some("_acpmux/message")
+                && has_host(map.get("msg").and_then(|msg| msg.get("sender"))))
+                || (map.get("messageId").is_some() && has_host(map.get("sender")))
+                || map.values().any(has_message_hosts)
+        }
+        _ => false,
+    }
+}
+
 /// A peer may receive message records, but never the sender host attached by the owning daemon.
 /// This is shared by live notifications, replay and event-page responses.
 pub fn redact_message_hosts(v: &mut Value) -> bool {

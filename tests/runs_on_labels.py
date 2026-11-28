@@ -410,10 +410,10 @@ def personal_machine_names() -> tuple[str, ...]:
 # The one label every own-branch Linux x64 job takes (scripts/ci/one_linux_label.py): the owned pool, sized by load.
 ONE_LINUX_LABEL = "cmux-linux"
 # The one Linux label's fork pull request branch (scripts/ci/one_linux_label.py): a fork's pull_request run takes
-# CI_FORK_LINUX_RUNNER, GitHub-hosted while unset, and never an owned host. tests/test_ci_fork_runner_routing.py
+# GitHub-hosted ubuntu-24.04, never an owned host. tests/test_ci_fork_runner_routing.py
 # checks that branch; what an own-branch run can take is the rest of the expression.
 ONE_LABEL_FORK_BRANCH = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
-                         "github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || ")
+                         "github.repository && 'ubuntu-24.04' || ")
 
 
 def without_fork_branch(runs_on):

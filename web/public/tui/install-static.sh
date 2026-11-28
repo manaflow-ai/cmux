@@ -7,9 +7,12 @@ set -eu
 
 # Pairing (acpmux src/pairing): a ticket minted on another machine
 # (`cmux host ticket new`) joins this one to it once cmux is installed. The
-# line that command prints installs, then hands the ticket to `cmux host join`
-# on stdin, so no process has it in its argv (`ps`, /proc/PID/cmdline):
-#   curl -fsSL https://cmux.com/tui/install-static.sh | sh && printf '%s\n' <ticket> | ~/.cmux/bin/cmux host join --serve
+# line that command prints installs (this script from its immutable
+# https://cmux.com/tui/install-static/<sha256>.sh, saved in a `mktemp -d`
+# directory and run only after `sha256sum -c` against the sha256 the command
+# pins), then hands the ticket to `cmux host join` on stdin, so no process has
+# it in its argv (`ps`, /proc/PID/cmdline):
+#   (<the pinned install>) && printf '%s\n' <ticket> | ~/.cmux/bin/cmux host join --serve
 # This script also takes CMUX_JOIN_TICKET=<ticket>, and still takes
 # `sh -s -- <ticket>` and `--join <ticket>` with a warning: those put the ticket
 # in this shell's argv. A daemon-role ticket (the other machine drives this
@@ -20,8 +23,8 @@ set -eu
 # cmux server (https://cmux.com/docs/server): `--server` also runs
 # `cmux server install`, which keeps this machine's cmux session running as a
 # service (systemd user unit with linger on Linux, a LaunchAgent on macOS), so
-# your cmux reaches it over SSH after logouts and reboots:
-#   curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server
+# your cmux reaches it over SSH after logouts and reboots: the pinned command
+# in the repository's README.md, with `sh "$d/install.sh" --server`.
 # `--server` installs the current cmux NIGHTLY build unless `--commit <sha>` (a
 # published cmux build) or CMUX_DOWNLOAD_BASE_URL picks another. `--nightly`
 # picks that build without the service; `--channel nightly` is the same, and
@@ -29,11 +32,18 @@ set -eu
 # `cmux server install --user`: the service starts at login and stops at
 # logout, and linger is left as it is. `--dry-run` prints what would happen
 # and changes nothing.
+#
+# `--system` (Linux) installs the build's .deb with `apt-get install`, or its
+# .rpm with `dnf install`, through sudo: /usr/bin/cmux and the other cmux
+# binaries, owned by the package manager. The package is the one the signed
+# release file names, checked against its signed size and sha256 first; a
+# build whose release file names none is refused.
 want_server=""
 want_nightly=""
 want_stable=""
 server_user=""
 dry_run=""
+want_system=""
 pinned_commit=""
 join_ticket="${CMUX_JOIN_TICKET:-}"
 unset CMUX_JOIN_TICKET
@@ -85,6 +95,7 @@ while [ "$#" -gt 0 ]; do
       esac
       ;;
     --dry-run) dry_run=1; shift ;;
+    --system) want_system=1; shift ;;
     --commit)
       if [ "$#" -lt 2 ]; then
         echo "cmux: --commit needs a 40-character commit" >&2
@@ -96,7 +107,7 @@ while [ "$#" -gt 0 ]; do
     --commit=*) pinned_commit="${1#--commit=}"; shift ;;
     cmxt1.*) join_ticket="$1"; join_ticket_in_argv=1; shift ;;
     *)
-      echo "cmux: unknown argument $1 (pass --server, --user, --channel stable|nightly, --nightly, --commit <sha>, --dry-run or a pairing ticket, cmxt1.…)" >&2
+      echo "cmux: unknown argument $1 (pass --server, --user, --system, --channel stable|nightly, --nightly, --commit <sha>, --dry-run or a pairing ticket, cmxt1.…)" >&2
       exit 2
       ;;
   esac
@@ -441,8 +452,10 @@ clr_download() { # TARGET NAME OUT
   clr_want="$(clr_get "$clr_p" "targets.$1.$2.sha256")"
   clr_size="$(clr_get "$clr_p" "targets.$1.$2.size")"
   [ -n "$clr_u" ] || { clr_refuse "the signed release file of $clr_commit has no $2 for $1" "pick another build, or report it at https://github.com/manaflow-ai/cmux/issues"; return 1; }
-  case "$clr_u" in
-    */"$2-$1") ;;
+  # A binary is the file NAME-TARGET; a package (deb, rpm) one cmux-*.deb or cmux-*.rpm.
+  case "$2:$clr_u" in
+    deb:*/cmux-*.deb | rpm:*/cmux-*.rpm | *:*/"$2-$1") ;;
+    deb:* | rpm:*) clr_refuse "the signed release file names $clr_u for the $2 of $1, not a cmux .$2" "report it at https://github.com/manaflow-ai/cmux/issues"; return 1 ;;
     *) clr_refuse "the signed release file names $clr_u for $2 $1, not a file called $2-$1" "report it at https://github.com/manaflow-ai/cmux/issues"; return 1 ;;
   esac
   case "$clr_want" in *[!0-9a-f]* | '') clr_want="" ;; esac
@@ -513,6 +526,35 @@ case "$os-$arch" in
     ;;
 esac
 
+# --system: the package this machine's package manager installs.
+if [ -n "$want_system" ]; then
+  if [ "$os" != Linux ]; then
+    echo "cmux: --system installs a Linux .deb or .rpm; there is none for $os" >&2
+    echo "next: run this again without --system" >&2
+    exit 2
+  fi
+  if command -v apt-get >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1; then
+    package=deb
+    package_install="apt-get install -y"
+  elif command -v dnf >/dev/null 2>&1; then
+    package=rpm
+    package_install="dnf install -y"
+  else
+    echo "cmux: --system needs apt-get or dnf, and this machine has neither" >&2
+    echo "next: run this again without --system, which installs cmux to ~/.cmux/bin" >&2
+    exit 1
+  fi
+  if [ "$(id -u)" = 0 ]; then
+    as_root=""
+  elif command -v sudo >/dev/null 2>&1; then
+    as_root="sudo"
+  else
+    echo "cmux: --system installs a package as root, and this is not root and has no sudo" >&2
+    echo "next: run this again as root, or without --system" >&2
+    exit 1
+  fi
+fi
+
 files_base="https://files.cmux.com/cmux-tui"
 nightly_commit() {
   # The cmux server verbs ship in cmux NIGHTLY builds: the build the current
@@ -541,7 +583,9 @@ if [ "$os" = Linux ]; then
   elif [ -n "$want_stable" ]; then
     set -- pointer stable
   elif [ -n "$want_server" ] || [ -n "$want_nightly" ]; then
-    set -- commit "$(nightly_commit)"
+    # The signed nightly channel follows the NIGHTLY app's build; until it is
+    # published, the install falls back to that build's own release file.
+    set -- pointer nightly
   else
     set -- pointer feat-cmux-next
   fi
@@ -562,9 +606,18 @@ fi
 if [ -n "$dry_run" ]; then
   if [ "$os" = Linux ]; then
     if [ "$1" = pointer ]; then
-      echo "Would download $files_base/channels/linux-$2.json, check its signature, and install its cmux-tui for $target to $bin_dir/cmux"
+      release_url="$files_base/channels/linux-$2.json"
     else
-      echo "Would download $files_base/$2/release.json, check its signature, and install its cmux-tui for $target to $bin_dir/cmux"
+      release_url="$files_base/$2/release.json"
+    fi
+    if [ -n "$want_system" ]; then
+      echo "Would download $release_url, check its signature, and install its .$package for $target with: ${as_root:+$as_root }$package_install ./<the .$package>"
+      bin_dir=/usr/bin
+    else
+      echo "Would download $release_url, check its signature, and install its cmux-tui for $target to $bin_dir/cmux"
+    fi
+    if [ "$1" = pointer ] && [ "$2" = nightly ]; then
+      echo "Until that channel is published: the release.json of the cmux NIGHTLY app's build instead"
     fi
   else
     echo "Would download $base_url/manifest.json and $artifact, check its SHA-256, and install it to $bin_dir/cmux"
@@ -582,8 +635,47 @@ trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
 clr_dir="$tmp_dir"
 clr_state="$install_root/installed.json"
 
-if [ "$os" = Linux ]; then
-  if ! clr_tools || ! clr_release "$@" || ! clr_download "$target" cmux-tui "$tmp_dir/cmux"; then
+# The signed release file; while the nightly channel is not published yet, the
+# NIGHTLY app's build by its own signed release file (the same checks; a refusal
+# there is reported).
+clr_pick() {
+  clr_release "$@" && return 0
+  if [ "$1" = pointer ] && [ "$2" = nightly ] && [ "$clr_rc" = 22 ] && [ -z "$clr_fetched" ]; then
+    nightly="$(nightly_commit)" && clr_release commit "$nightly" && return 0
+  fi
+  return 1
+}
+
+if [ -n "$want_system" ]; then
+  if ! clr_tools || ! clr_pick "$@"; then
+    clr_report
+    exit 1
+  fi
+  if ! clr_has "$target" "$package"; then
+    echo "cmux: the signed release file of $clr_commit names no .$package for $target (a build from before cmux published packages); nothing was installed" >&2
+    echo "next: run this again without --system, or pass --commit <sha> of a newer build" >&2
+    exit 1
+  fi
+  package_file="$tmp_dir/cmux-$clr_sequence.$package"
+  if ! clr_download "$target" "$package" "$package_file"; then
+    clr_report
+    exit 1
+  fi
+  # The package manager reads the file as root (apt as its _apt user, which
+  # cannot enter this private directory: it says so and reads it as root).
+  chmod 755 "$tmp_dir"
+  chmod 644 "$package_file"
+  umask "$old_umask"
+  # shellcheck disable=SC2086 # as_root and package_install are words
+  if ! $as_root $package_install "$package_file"; then
+    echo "cmux: $package_install did not install cmux $clr_version (its signed .$package was verified; the error above is the package manager's)" >&2
+    echo "next: fix the error above, then run this again with --system" >&2
+    exit 1
+  fi
+  bin_dir=/usr/bin
+  echo "Installed cmux $clr_version to $bin_dir/cmux ($package_install)"
+elif [ "$os" = Linux ]; then
+  if ! clr_tools || ! clr_pick "$@" || ! clr_download "$target" cmux-tui "$tmp_dir/cmux"; then
     clr_report
     exit 1
   fi
@@ -623,41 +715,44 @@ else
 fi
 umask "$old_umask"
 
-mkdir -p "$bin_dir"
-# Staged and renamed into place: a running cmux cannot be written over
-# ("Text file busy"), and a rename never leaves a half-written binary.
-install -m 755 "$tmp_dir/cmux" "$bin_dir/.cmux.new"
-mv -f "$bin_dir/.cmux.new" "$bin_dir/cmux"
-# The version and sequence installed, so a later run refuses an older build.
-if [ "$os" = Linux ] && ! clr_record; then
-  echo "cmux: installed, but could not write $clr_state (a later install cannot refuse an older build)" >&2
-  echo "next: make $install_root writable, then run this again" >&2
+# --system installed above, through the package manager.
+if [ -z "$want_system" ]; then
+  mkdir -p "$bin_dir"
+  # Staged and renamed into place: a running cmux cannot be written over
+  # ("Text file busy"), and a rename never leaves a half-written binary.
+  install -m 755 "$tmp_dir/cmux" "$bin_dir/.cmux.new"
+  mv -f "$bin_dir/.cmux.new" "$bin_dir/cmux"
+  # The version and sequence installed, so a later run refuses an older build.
+  if [ "$os" = Linux ] && ! clr_record; then
+    echo "cmux: installed, but could not write $clr_state (a later install cannot refuse an older build)" >&2
+    echo "next: make $install_root writable, then run this again" >&2
+  fi
+
+  case ":$PATH:" in
+    *":$bin_dir:"*) ;;
+    *)
+      shell_name="$(basename "${SHELL:-sh}")"
+      case "$shell_name" in
+        zsh) profile="$HOME/.zshrc"; line="export PATH=\"$bin_dir:\$PATH\"" ;;
+        bash) profile="$HOME/.bashrc"; line="export PATH=\"$bin_dir:\$PATH\"" ;;
+        fish)
+          profile="$HOME/.config/fish/config.fish"
+          line="fish_add_path \"$bin_dir\""
+          mkdir -p "$(dirname "$profile")"
+          ;;
+        *) profile=""; line="" ;;
+      esac
+      if [ -n "$profile" ] && ! grep -F "$bin_dir" "$profile" >/dev/null 2>&1; then
+        printf '\n# cmux\n%s\n' "$line" >>"$profile"
+        echo "Added cmux to PATH in $profile"
+      else
+        echo "Add $bin_dir to PATH to run cmux from a new shell."
+      fi
+      ;;
+  esac
+
+  echo "Installed cmux to $bin_dir/cmux"
 fi
-
-case ":$PATH:" in
-  *":$bin_dir:"*) ;;
-  *)
-    shell_name="$(basename "${SHELL:-sh}")"
-    case "$shell_name" in
-      zsh) profile="$HOME/.zshrc"; line="export PATH=\"$bin_dir:\$PATH\"" ;;
-      bash) profile="$HOME/.bashrc"; line="export PATH=\"$bin_dir:\$PATH\"" ;;
-      fish)
-        profile="$HOME/.config/fish/config.fish"
-        line="fish_add_path \"$bin_dir\""
-        mkdir -p "$(dirname "$profile")"
-        ;;
-      *) profile=""; line="" ;;
-    esac
-    if [ -n "$profile" ] && ! grep -F "$bin_dir" "$profile" >/dev/null 2>&1; then
-      printf '\n# cmux\n%s\n' "$line" >>"$profile"
-      echo "Added cmux to PATH in $profile"
-    else
-      echo "Add $bin_dir to PATH to run cmux from a new shell."
-    fi
-    ;;
-esac
-
-echo "Installed cmux to $bin_dir/cmux"
 
 # Remote hosting (plans/cmux-next/remote-hosts.md): with CMUX_HOST=1 this
 # machine serves its cmux sessions to its owner's other machines over the

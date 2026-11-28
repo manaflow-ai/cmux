@@ -55,10 +55,7 @@ build_app() {
   local xg="$EVAL_STATE/xcodegen" version=2.46.0 sha=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
   rm -rf "$xg"
   mkdir -p "$xg"
-  curl -fsSL --retry 3 --retry-delay 2 -o "$xg/xcodegen.zip" \
-    "https://github.com/yonaskolb/XcodeGen/releases/download/$version/xcodegen.zip"
-  [[ "$(shasum -a 256 "$xg/xcodegen.zip" | awk '{ print $1 }')" == "$sha" ]] || { echo "iphone-sim: xcodegen checksum mismatch" >&2; return 1; }
-  unzip -q "$xg/xcodegen.zip" -d "$xg"
+  bash "$EVAL_ROOT/scripts/ci/fetch-xcodegen.sh" "$version" "$sha" "$xg" >/dev/null || return 1
   (cd "$ios" && "$xg/xcodegen/bin/xcodegen" generate -q)
   # Demo: optimized like Release, with DEBUG (the link viewer and the probe exist only there).
   # $(inherited) is xcodebuild's, not the shell's.
@@ -88,11 +85,13 @@ ensure_sim() {
   [[ -n "$runtime" && -n "$device_type" ]] || { echo "iphone-sim: no simulator choice from build" >&2; return 1; }
   if [[ -z "$(sims)" ]]; then
     # One fixed set per checkout (a short /tmp path: CoreSimulator's sockets live inside it), not a
-    # fresh mktemp folder per run: this script runs once per verb, so no EXIT trap here can own it;
-    # host-stop (also from the harness's exit trap) removes it, and a run it misses leaves this one
-    # folder, which the next run reuses, never a new one.
+    # fresh folder per run: this script runs once per verb, so no EXIT trap here can own it; host-stop
+    # (also from the harness's exit trap) removes it, and a run it misses leaves this one folder, which
+    # the next run reuses. The name is guessable, so the folder is made 0700 and used only if this
+    # account owns it and it is not a symlink: a folder another account made first is refused.
     set="/tmp/iphsim.$(printf %s "$EVAL_STATE" | shasum | cut -c1-10)"
-    mkdir -p "$set" || return 1
+    mkdir -m 700 "$set" 2>/dev/null || [[ -d "$set" ]] || return 1
+    [[ -O "$set" && ! -L "$set" ]] || { echo "iphone-sim: $set is not this account's own folder" >&2; return 1; }
     echo "$set" >"$EVAL_STATE/sims" || return 1
   fi
   udid=$(simctl create screen-eval-iphone "$device_type" "$runtime") || return 1

@@ -76,7 +76,11 @@ asset="CCmuxAppFFI.xcframework.zip"
 # missed on 2026-10-07), then the toolchain and the build script. Derived
 # from the Cargo.toml files at HEAD, so a new path dependency is never missed.
 ffi_crates() {
-  local queue=" cmux-tui/crates/cmux-app-ffi " seen=" " dir dep resolved
+  local queue=" cmux-tui/crates/cmux-app-ffi " seen=" " dir dep resolved workspace_paths=""
+  # "name path" lines of cmux-tui's path dependencies (no associative array: macOS ships bash 3.2).
+  [[ -f "$root/cmux-tui/Cargo.toml" ]] && workspace_paths="$(sed -nE \
+    's/^[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*=[[:space:]]*\{[^}]*path[[:space:]]*=[[:space:]]*"([^"]+)".*/\1 cmux-tui\/\2/p' \
+    "$root/cmux-tui/Cargo.toml")"
   while [[ -n "${queue// /}" ]]; do
     dir="$(awk '{print $1}' <<<"$queue")"
     queue=" ${queue#*" $dir "} "
@@ -88,6 +92,14 @@ ffi_crates() {
       [[ -f "$resolved/Cargo.toml" && "$resolved" == "$root"/* ]] || continue
       queue+="${resolved#"$root"/} "
     done < <(grep -oE 'path[[:space:]]*=[[:space:]]*"[^"]+"' "$root/$dir/Cargo.toml" | sed -E 's/.*"([^"]+)"$/\1/')
+    # A `name.workspace = true` (or `name = { workspace = true }`) dependency is a path crate too when
+    # cmux-tui's [workspace.dependencies] gives it a path (cmux-cloud-environment's cmux-egress):
+    # cmux_next_route.app_ffi_inputs follows these the same way.
+    while IFS= read -r dep; do
+      resolved="$(awk -v name="$dep" '$1 == name { sub(/\/$/, "", $2); print $2; exit }' <<<"$workspace_paths")"
+      [[ -n "$resolved" ]] && queue+="$resolved "
+    done < <(grep -oE '^[[:space:]]*[A-Za-z0-9_-]+[[:space:]]*(\.workspace[[:space:]]*=[[:space:]]*true|=[[:space:]]*\{[^}]*workspace[[:space:]]*=[[:space:]]*true)' "$root/$dir/Cargo.toml" \
+      | sed -E 's/^[[:space:]]*([A-Za-z0-9_-]+).*/\1/')
   done
   tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort
 }
@@ -177,9 +189,21 @@ behind_since() {
     git fetch --quiet --deepen=50 "$remote" "$(git rev-parse HEAD)" 2>/dev/null || return 1
   done
   git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || return 1
-  first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}" | head -n 1)"
-  [[ "$first" =~ ^[0-9]+$ ]] || return 1
-  echo "$first"
+  # A treeless clone (app-ffi-repin.yml) fetches each commit's tree lazily here, and one stalled fetch fails the
+  # read (re-pin run 45714815881: "could not fetch ... from promisor remote"). Each try keeps the trees it got,
+  # so up to three tries; only a read that fails all three leaves the pin undated.
+  # CMUX_APP_FFI_PIN_RETRY_SLEEP: the wait between tries, for the test.
+  local try
+  for try in 1 2 3; do
+    if first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}")"; then
+      first="${first%%$'\n'*}"
+      [[ "$first" =~ ^[0-9]+$ ]] || return 1
+      echo "$first"
+      return 0
+    fi
+    (( try < 3 )) && sleep "${CMUX_APP_FFI_PIN_RETRY_SLEEP:-5}"
+  done
+  return 1
 }
 behind_note=""
 if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 ]] && ! git diff --quiet "$sha" HEAD -- "${specs[@]}"; then

@@ -3,7 +3,30 @@
 // until the play releases it, and the play that proves a sent message's attachments draw in their
 // final box from the first frame, whole (Leo, 2026-11-22: "i meant there were various resizing things
 // going on, and you guys didn't predict the placements in time").
+import { useLayoutEffect, useState } from "react";
+import {
+  composerSettingsSnapshot,
+  setComposerSettings,
+  type AttachmentView,
+} from "../../agent-session/acpmux/composerSettings";
 import type { Play } from "../play";
+
+/// Whether the page draws in attachment view `view` (agentPane.attachmentView) yet: set before the
+/// scene's first paint, the reader's own view again when it unmounts. A prompt's placed attachments
+/// draw in its text only in the Inline view; the default view, Attachments at Top (#55723), draws
+/// every attachment in the band above the bubble, where "placed" means nothing. Render the scene
+/// once this is true, so its first frame is already in `view`.
+export function useAttachmentView(view: AttachmentView | undefined): boolean {
+  const [ready, setReady] = useState(view === undefined);
+  useLayoutEffect(() => {
+    if (view === undefined) return;
+    const was = composerSettingsSnapshot().attachmentView;
+    setComposerSettings({ attachmentView: view });
+    setReady(true);
+    return () => setComposerSettings({ attachmentView: was });
+  }, [view]);
+  return ready;
+}
 
 export type Shot = { width: number; height: number; hue: number };
 
@@ -137,7 +160,12 @@ export function attachmentsHoldTheirBoxes({ inBubble = false }: { inBubble?: boo
           box.top < bubble.top - 0.5 ||
           box.bottom > bubble.bottom + 0.5)
       )
-        throw new Error("a placed attachment draws outside its bubble, not where it was put");
+        throw new Error(
+          `a placed attachment draws outside its bubble, not where it was put: ${frame.className} ` +
+            `${box.width.toFixed(1)}x${box.height.toFixed(1)} at ${box.left.toFixed(1)},${box.top.toFixed(1)}, ` +
+            `bubble ${bubble.width.toFixed(1)}x${bubble.height.toFixed(1)} at ${bubble.left.toFixed(1)},${bubble.top.toFixed(1)} ` +
+            `(${document.querySelectorAll(".cv-user__bubble").length} bubbles)`,
+        );
     }
   };
 }

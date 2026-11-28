@@ -38,7 +38,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux/cmux-next.json}"
+# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH.
+. "$ROOT/scripts/lib/bun-options.sh"
+# The app's settings file, whose folder holds web-dev.json: a DEV build's own (its CMUX_NEXT_CONFIG_FILE,
+# which `cmux live` passes on), else NEXT's ~/.config/cmux-next since #53567 (BuildStatePaths.configDirectory).
+# Writing web-dev.json into the Classic config folder pointed no release or nightly app anywhere (#56156).
+config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux-next/cmux-next.json}"
 config_dir="$(dirname "$config_file")"
 web_dev="$config_dir/web-dev.json"
 overlay="${CMUX_WEB_OVERLAY_DIR:-$HOME/Library/Application Support/cmux-next/web-overlay}"
@@ -644,14 +649,20 @@ case "$cmd" in
             # The slot's server sends the token of web-dev.json on its own machine.
             remote_token="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" python3 - <<'PY' 2>/dev/null || true
 import json, os
-try:
-    print(json.load(open(os.path.expanduser("~/.config/cmux/web-dev.json"))).get("token") or "")
-except Exception:
-    print("")
+# The NEXT folder since #53567 first, then the one a host from before it still writes.
+token = ""
+for folder in ("cmux-next", "cmux"):
+    try:
+        token = json.load(open(os.path.join(os.path.expanduser("~"), ".config", folder, "web-dev.json"))).get("token") or ""
+    except Exception:
+        continue
+    if token:
+        break
+print(token)
 PY
 )"
             if [[ ${#remote_token} -lt 32 ]]; then
-              echo "warning: $host has no token in ~/.config/cmux/web-dev.json; start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
+              echo "warning: $host has no token in its web-dev.json (~/.config/cmux-next, or the Classic config folder before #53567); start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
             fi
             point_at "$port" "$remote_token"; exit 0
           fi

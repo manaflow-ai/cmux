@@ -99,13 +99,27 @@ plist="$app/Contents/Info.plist"
 version="" build=""
 [[ -f "$plist" ]] && version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || true)"
 [[ -f "$plist" ]] && build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>/dev/null || true)"
-"$side" launch "$name" --shown >&2 || exit 3
+# Downloads to a folder of this run (Debug builds; a NIGHTLY ignores it and uses ~/Downloads): a fresh copy's
+# first write in ~/Downloads waits on macOS's access prompt, which nobody answers here.
+mkdir -p "$work/downloads"
+CMUX_NEXT_DOWNLOADS_DIR="$work/downloads" "$side" launch "$name" --shown >&2 || exit 3
 sock=""
 for _ in $(seq 1 60); do sock="$("$side" socket "$name" 2>/dev/null)"; [[ -S "$sock" ]] && break; sleep 2; done
 [[ -S "$sock" ]] || { echo "AUTHFLOWS the side copy gave no control socket" >&2; exit 3; }
 sleep 5
-python3 scripts/cmux-next/browser-auth-flows-live.py --socket "$sock" --engine "$engine" 2>&1 | tee "$out/run.log"
+# The app's own CLI first on PATH, as browser-auth-chromium.sh does: the harness's `cmux --app-socket`
+# calls (tabs, downloads) must reach this side copy, not a host cmux on the default socket.
+cli="$app/Contents/Resources/bin/cmux"
+[[ -x "$cli" ]] || cli="$(command -v cmux || true)"
+mkdir -p "$work/bin" && ln -sf "$cli" "$work/bin/cmux"
+echo "AUTHFLOWS_T0 $(date +%s)" > "$out/run.log.t0"
+PATH="$work/bin:$PATH" python3 scripts/cmux-next/browser-auth-flows-live.py --socket "$sock" --engine "$engine" \
+  --app-pid "$(cat "$CMUX_SIDE_ROOT/$name/pid" 2>/dev/null || echo 0)" --diag-dir "$out" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
+# The app's own log for the run, so a failed flow shows where the app stopped, not only the harness's view.
+started="$(sed -n 's/^AUTHFLOWS_T0 //p' "$out/run.log.t0" | head -1)"
+log show --style compact --start "$(date -r "${started:-$(( $(date +%s) - 1800 ))}" '+%Y-%m-%d %H:%M:%S')" \
+  --predicate 'subsystem BEGINSWITH "com.cmuxterm"' > "$out/app.log" 2>&1 || true
 "$side" stop "$name" >&2 || true
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . || exit 3
 echo "AUTHFLOWS engine=$engine exit=$status"

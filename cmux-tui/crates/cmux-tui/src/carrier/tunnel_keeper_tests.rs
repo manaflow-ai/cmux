@@ -358,6 +358,25 @@ async fn nothing_starts_until_the_device_is_joined_and_someone_is_signed_in() {
 }
 
 #[tokio::test]
+async fn a_refused_sign_in_is_written_once_with_its_team_and_reason() {
+    let mut world = world(true, false).await;
+    let why = |e: &KeeperEvent| matches!(e, KeeperEvent::Unstarted(w) if w.contains("team_1") && w.contains("not_signed_in"));
+    world.until(why).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(world.asks.load(Ordering::SeqCst) > 1, "the keeper keeps asking");
+    while let Ok(event) = world.events.try_recv() {
+        world.seen.push(event);
+    }
+    assert_eq!(world.seen.iter().filter(|e| why(*e)).count(), 1, "{:?}", world.seen);
+
+    world.other_team.store(true, Ordering::SeqCst);
+    world.until(|e| matches!(e, KeeperEvent::Unstarted(w) if w.contains("team_2"))).await;
+
+    world.signed_in.store(true, Ordering::SeqCst);
+    world.until(|e| *e == KeeperEvent::Ready).await;
+}
+
+#[tokio::test]
 async fn a_killed_hub_is_started_again() {
     let mut world = world(true, true).await;
     world.until(|e| *e == KeeperEvent::Ready).await;
@@ -397,6 +416,25 @@ async fn a_supervisor_that_gives_up_starts_again_after_a_doubling_wait() {
     world.platform.answer("/attach", vec![mesh_only(), enrolled(&world.wg_public)]);
     world.until(|e| *e == KeeperEvent::Ready).await;
     assert_eq!(world.ssh(), Ok(()));
+}
+
+#[tokio::test]
+async fn a_retrying_supervisor_names_its_cause_once_per_reason() {
+    let refusal = json!({"code": "mesh.node.unavailable", "message": "the machine's device cleanup is pending"});
+    let mut world = world_attaching(true, true, Some((503, refusal))).await;
+    world.until(|e| matches!(e, KeeperEvent::Ended(TunnelStatus::Failed(_), _))).await;
+    let said: Vec<&String> = world
+        .seen
+        .iter()
+        .filter_map(|e| if let KeeperEvent::Retrying(why) = e { Some(why) } else { None })
+        .collect();
+    // Several attempts, one line: the reason did not change.
+    assert_eq!(
+        said,
+        ["attach answered 503 mesh.node.unavailable: the machine's device cleanup is pending"],
+        "{:?}",
+        world.seen
+    );
 }
 
 #[tokio::test]

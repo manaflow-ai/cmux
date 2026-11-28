@@ -12,9 +12,10 @@ import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions, SessionChurnOpt
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
+import { focusRoute } from "../../ui/focusRoute";
 import { wantAllSessions } from "./sessionPages";
 import { followTrace } from "./followTrace";
-import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import { composerChips, layoutWatch, type LayoutWatchOptions, composerFrames } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
@@ -56,7 +57,9 @@ export type AcpmuxDebug = {
   tickWatch(options?: { stop?: boolean; nominal_ms?: number }): Record<string, unknown>;
   agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
-  resetTyping(): Record<string, unknown>;
+  /** Clears the typing samples; with `draft` N, first types N characters at the prompt's end, so the measured
+   *  keys go into a long prompt (one paragraph of words; `chars` is what the prompt then holds). */
+  resetTyping(draft?: number): Promise<Record<string, unknown>>;
   /// Opens the composer menu labelled `label` and resolves once it has painted.
   openMenu(label: string): Promise<Record<string, unknown>>;
   /** The newest `limit` wire log entries (all when omitted) and the log's stats. */
@@ -381,11 +384,32 @@ export function createAcpmuxDebug(
       };
     },
 
-    resetTyping() {
+    async resetTyping(draft = 0) {
       acpmuxPerf.enable();
+      let chars: number | undefined;
+      const wanted = Math.max(0, Math.min(100_000, Math.floor(Number(draft) || 0)));
+      if (wanted > 0) {
+        const prompt = document.querySelector<HTMLElement>(
+          '.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]',
+        );
+        if (!prompt) return { error: "no prompt" };
+        if (!focusRoute(prompt, "system", "debug reset_typing fills the prompt's draft"))
+          return { error: "focus refused" };
+        const range = document.createRange();
+        range.selectNodeContents(prompt);
+        range.collapse(false);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        const words = "the quick brown fox jumps over the lazy dog ";
+        document.execCommand("insertText", false, words.repeat(Math.ceil(wanted / words.length)).slice(0, wanted));
+        await nextFrame();
+        await nextFrame();
+        chars = prompt.textContent?.length ?? 0;
+      }
       acpmuxPerf.typing.length = 0;
       takeNativePosts();
-      return { keys: 0 };
+      return chars === undefined ? { keys: 0 } : { keys: 0, chars };
     },
 
     // Not a measurement, so it leaves acpmuxPerf off.
@@ -486,6 +510,8 @@ export function createAcpmuxDebug(
             subagentCorner: document.querySelector(".cv-subagent-corner") !== null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // Where the composer's controls are drawn: a mode or place switch moves none of them.
+            composerFrames: composerFrames(),
             // What the access chip decided its face from on its last render (chipProbe.ts).
             composerInputs: chipProbe.last,
             // What decides whether the run row is offered now.

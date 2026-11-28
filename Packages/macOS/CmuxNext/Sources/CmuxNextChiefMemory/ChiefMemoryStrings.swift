@@ -37,6 +37,6 @@ nonisolated struct ChiefMemoryStrings {
     static var messageLabel: String { t("chiefMemory.label.message", "message %lld") }
     static var lineLabel: String { t("chiefMemory.label.line", "line %@") }
     static var readOnly: String { t("chiefMemory.readOnly", "This Chief’s memory can be read here but not changed. Update cmux to change it.") }
-    static var unreachable: String { t("chiefMemory.unreachable", "The Chief’s memory did not answer. Start the Chief (send it a message in Chief), then try again.") }
+    static var unreachable: String { t("chiefMemory.unreachable", "The Chief’s memory isn’t answering. It loads here on its own once the Chief is running.") }
     static var malformed: String { t("chiefMemory.malformed", "The Chief answered in a way this version of cmux does not understand.") }
 }

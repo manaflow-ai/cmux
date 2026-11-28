@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.toolbarButtonSize.help" : {
+      "comment" : "Settings > Appearance: a look's layout and proportions (appearance.metrics)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Seitenlänge der Symboltasten: Seitenleistenschalter, Zurück und Vorwärts in der Titelleiste, die Werkzeuge des Bereichs und das + der Seitenleiste. Ohne Wert gilt die Dichte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le côté des boutons à icône : bascule de la barre latérale, Précédent et Suivant dans la barre de titre, outils du volet et + de la barre latérale. Sans valeur, celui de la densité."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "طول ضلع أزرار الأيقونات: مبدّل الشريط الجانبي والرجوع والتقدم في شريط العنوان وأدوات اللوحة وزر + في الشريط الجانبي. بلا قيمة تُستخدم قيمة الكثافة."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El lado de los botones de icono: el conmutador de la barra lateral, Atrás y Adelante en la barra de título, las herramientas del panel y el + de la barra lateral. Sin valor, el de la densidad."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "圖示按鈕的邊長：標題列的側邊欄切換、上一頁與下一頁、窗格工具，以及側邊欄的 +。未設定時沿用密度的值。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "图标按钮的边长：标题栏的侧边栏切换、后退与前进、窗格工具，以及侧边栏的 +。未设置时沿用密度的值。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "아이콘 버튼의 한 변 길이입니다. 제목 막대의 사이드바 전환, 뒤로·앞으로, 패인 도구, 사이드바의 +에 적용됩니다. 설정하지 않으면 밀도 값을 따릅니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アイコンボタンの一辺。タイトルバーのサイドバー切替、戻る・進む、ペインのツール、サイドバーの + に使います。未設定なら密度の値です。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stranica dugmadi s ikonama: prekidač bočne trake, Nazad i Naprijed u naslovnoj traci, alati okna i + bočne trake. Bez vrijednosti važi gustina."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Siden på ikonknapperne: sidebjælkeknappen, Tilbage og Frem i titellinjen, ruderens værktøjer og sidebjælkens +. Uden værdi gælder tætheden."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il lato dei pulsanti a icona: interruttore della barra laterale, Indietro e Avanti nella barra del titolo, strumenti del riquadro e + della barra laterale. Se non impostato, vale la densità."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រុងនៃប៊ូតុងរូបតំណាង៖ ប៊ូតុងបិទបើករបារចំហៀង ថយក្រោយ និងទៅមុខនៅរបារចំណងជើង ឧបករណ៍ផ្ទាំង និង + នៃរបារចំហៀង។ បើមិនកំណត់ ប្រើតម្លៃនៃដង់ស៊ីតេ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Siden på ikonknappene: sidefeltbryteren, Tilbake og Frem i tittellinjen, rutens verktøy og sidefeltets +. Uten verdi gjelder tettheten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bok przycisków z ikonami: przełącznik paska bocznego, Wstecz i Dalej na pasku tytułu, narzędzia panelu i + paska bocznego. Bez wartości obowiązuje gęstość."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O lado dos botões de ícone: alternar barra lateral, Voltar e Avançar na barra de título, ferramentas do painel e o + da barra lateral. Sem valor, vale a densidade."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сторона кнопок-значков: переключатель боковой панели, Назад и Вперёд в строке заголовка, инструменты панели и + боковой панели. Без значения действует плотность."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ด้านของปุ่มไอคอน: ปุ่มสลับแถบด้านข้าง ย้อนกลับและไปข้างหน้าในแถบชื่อ เครื่องมือของบานหน้าต่าง และ + ของแถบด้านข้าง หากไม่ตั้งค่า จะใช้ค่าของความหนาแน่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Simge düğmelerinin kenarı: başlık çubuğundaki kenar çubuğu düğmesi, Geri ve İleri, bölme araçları ve kenar çubuğunun +'sı. Ayarlanmazsa yoğunluğunki geçerlidir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сторона кнопок-значків: перемикач бічної панелі, Назад і Вперед у рядку заголовка, інструменти панелі та + бічної панелі. Без значення діє щільність."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cạnh của các nút biểu tượng: nút bật thanh bên, Quay lại và Tiến tới trên thanh tiêu đề, công cụ của khung và nút + của thanh bên. Nếu không đặt, dùng giá trị của mật độ."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

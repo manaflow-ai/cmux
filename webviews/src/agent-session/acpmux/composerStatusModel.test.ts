@@ -156,22 +156,48 @@ describe("items", () => {
     ]);
   });
 
+  test("a link coming back on its own is never read, even from an older acpmux", () => {
+    for (const words of [
+      "status.machineLink.connecting",
+      "status.machineLink.reconnecting",
+      "status.machineLink.degraded",
+      "status.machineLink.restarting",
+      "status.agentService.reconnecting",
+    ])
+      expect(readStatusItem({ kind: "machineLink", level: "info", words, since: 1 })).toBeUndefined();
+    expect(
+      readStatusItem({ kind: "machineLink", level: "attention", words: "status.machineLink.offline" })?.words,
+    ).toBe("status.machineLink.offline");
+  });
+
   test("a peer link's status rides along with its link, absent from an older daemon", () => {
     const status = { kind: "machineLink", level: "attention", words: "status.machineLink.offline", subject: "m" };
     expect(readPeerLinkDetail({ link: "offline", status })?.status).toEqual(status as StatusItem);
     expect(readPeerLinkDetail({ link: "connected", status: null })).toEqual({ link: "connected" });
   });
 
-  test("the pane's own reconnect follows the link's state, not a clock", () => {
+  test("the pane's own reconnect says nothing; only a restore acpmux reports does", () => {
     expect(hostRecoveryItem({ linkDown: false }, 1_000).item).toBeUndefined();
-    const down = hostRecoveryItem({ linkDown: true }, 1_000);
-    expect(down.item?.words).toBe("status.agentService.reconnecting");
-    expect(down.wakeAt).toBeUndefined();
-    expect(hostRecoveryItem({ linkDown: true }, 10_000_000).item?.words).toBe("status.agentService.reconnecting");
+    expect(hostRecoveryItem({ linkDown: true }, 1_000)).toEqual({});
+    expect(hostRecoveryItem({ linkDown: true }, 10_000_000)).toEqual({});
     expect(hostRecoveryItem({ linkDown: true, failureShown: true }, 1_000).item).toBeUndefined();
     const restoring = hostRecoveryItem({ linkDown: true, restoring: { waitedMs: 4_000, at: 10_000 } }, 10_000).item;
     expect(restoring?.words).toBe("status.restoringSessions.restoring");
     expect(restoring?.since).toBe(6_000);
     expect(hostRecoveryItem(undefined, 0)).toEqual({});
+  });
+});
+
+describe("withPauseReason", () => {
+  test("names the failed turn's error on the paused queue's item only", async () => {
+    const { withPauseReason } = await import("./composerStatusModel");
+    const paused = item({ kind: "queuePaused", level: "attention", words: "status.queuePaused.paused" });
+    const other = item({});
+    expect(withPauseReason([paused, other], "overloaded")).toEqual([
+      { ...paused, words: "status.queuePaused.why", subject: "overloaded" },
+      other,
+    ]);
+    expect(withPauseReason([paused], undefined)).toEqual([paused]);
+    expect(withPauseReason([paused], "")).toEqual([paused]);
   });
 });

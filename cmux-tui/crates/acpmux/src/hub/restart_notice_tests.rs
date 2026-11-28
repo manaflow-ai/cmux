@@ -89,6 +89,7 @@ fn link_serving(same_key: bool, linked: bool) -> LinkServing {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     LinkServing { home, link_dir: Some(link_dir), _lock: Some(lock), cfg }
@@ -165,6 +166,7 @@ async fn a_joined_daemon_with_the_transports_lock_lists_the_hub_path() {
         team_messaging: true,
         credential: Some("join".into()),
         control_from: Vec::new(),
+        direct_send: false,
     });
     let (wireguard, vias, _machine) = machine.start().await;
     let wireguard = wireguard.expect("acpmux's WireGuard stepped down for another key's link");

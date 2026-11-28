@@ -122,7 +122,7 @@ export default componentEntry<Props>({
   title: "Waiting on you",
   area: "Agent pane",
   covers: ["agent-session/acpmux/queue/QueueScreen.tsx#QueueScreen"],
-  styles: () => Promise.all([import("../styles.css"), import("../keys.css"), import("./queue.css")]),
+  styles: () => Promise.all([import("../styles.css"), import("./queue.css")]),
   load: () => import("./QueueScreen").then((module) => module.QueueScreen),
   widths: { narrow: 380, normal: 720, wide: 960 },
   height: 560,

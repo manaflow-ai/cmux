@@ -89,7 +89,7 @@ struct SidebarListStillTests {
             .first { $0.conversationID == "c2" && !$0.isHidden })
         #expect(f.controller.beginPinDrag(at: CGPoint(x: row.frame.minX + 150, y: row.frame.midY)))
         seen += f.animations()
-        let tile = f.controller.tileRect(1)
+        let tile = f.controller.metrics.tileRect(1, count: 2)
         for i in 0...10 {
             let t = CGFloat(i) / 10
             f.controller.movePinDrag(to: CGPoint(x: 170 + (tile.midX - 170) * t, y: row.frame.midY + (tile.midY - row.frame.midY) * t))

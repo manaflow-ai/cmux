@@ -56,8 +56,12 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     /// The traffic lights' row (its line) and what of them lies over the column, at its last layout.
     private var windowControls: (row: CGRect?, over: CGRect?)
 
+    /// The line from the lights' row (else, in full screen, the toolbar band's own line), and what to
+    /// keep clear of: the lights and the band at its fully open width (`homeTopRowReserve`), never
+    /// its width of the moment, so the corner hover never moves the buttons.
     private var currentWindowControls: (row: CGRect?, over: CGRect?) {
-        (homeLightsRow(band: HomeSidebarHeaderLayout.band), homeWindowControls(band: HomeSidebarHeaderLayout.band))
+        let reserve = homeTopRowReserve(band: HomeSidebarHeaderLayout.band)
+        return (homeLightsRow(band: HomeSidebarHeaderLayout.band) ?? reserve?.line, reserve?.clear)
     }
 
     /// Relays out only when the traffic lights over the column changed (the page moved in its window).
@@ -96,7 +100,12 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     static func buttonFrames(height: CGFloat, row: CGRect?, over: CGRect?, scale: CGFloat) -> (chats: NSRect, compose: NSRect) {
         let s = max(scale, 1)
         let side = HomeChatComposeButton.side
-        let midY = row?.midY ?? height - composeCenterY
+        // On the lights' line only when the lights lie over the column (the buttons sit beside them,
+        // as Messages' compose). Elsewhere (the chat right of the list or a pane's strip) they are
+        // centred in the header's band, 11 pt from the top: on the lights' line they sat 6 pt from
+        // the edge (the person, 2026-11-26: "we still need padding above the imessage
+        // compose/sidebar buttons ... ideally center it").
+        let midY = (over != nil ? row?.midY : nil) ?? height - composeCenterY
         var frame = NSRect(x: composeInset, y: ((midY - side / 2) * s).rounded() / s, width: side, height: side)
         if let lights = over, lights.minX < frame.maxX + buttonGap {
             frame.origin.x = max(frame.minX, ((lights.maxX + buttonGap) * s).rounded(.up) / s)

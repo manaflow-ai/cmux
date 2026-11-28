@@ -16,18 +16,20 @@
 //! (`park-tabs`, `tab-park-v1`) until [`PTY_REFILL`] are free: the tab stays,
 //! shows `relaunch: {cwd}`, and the app starts it again when it is shown. A
 //! shell is parked only when all of these hold, so no work is ever lost:
-//! it sits at its prompt (OSC 133 A) and printed nothing for at least
-//! [`RECLAIM_MIN_IDLE`] (a background job that prints keeps it), no client is
-//! attached to any of its views, no program reports a status in it (OSC
-//! 7501: an agent keeps it), and it is not kept (`set-terminal-keep`). The
-//! oldest prompt goes first. Nothing happens while PTYs are plentiful. It
-//! reads only what the owner already holds (cmux-next never scans
-//! processes, plans/cmux-next/pty-holder.md).
+//! every rule of `park_eligibility.rs` with no waiver (it sits at its prompt,
+//! runs no command and no process of its own, no client is attached, no
+//! program reports a status, it is not kept), and it sits at its prompt and
+//! printed nothing for at least [`RECLAIM_MIN_IDLE`] (a background job that
+//! prints keeps it). The oldest prompt goes first. Nothing happens while PTYs
+//! are plentiful. Besides what the owner holds it reads only the child
+//! processes of the shells it would park (cmux-next never scans every
+//! process, plans/cmux-next/pty-holder.md).
 //!
 //! The pass runs on the terminal reaper thread, which wakes on terminal
 //! lifecycle events (a launch, a failed launch, an exit), at most once per
 //! [`RECLAIM_CHECK_EVERY`] unless the last launch failed for lack of PTYs.
 
+use super::park_eligibility::{self, ParkFacts, ParkRefusal, ParkRules, park_refusal};
 use super::*;
 
 /// Free PTYs under which the owner starts parking idle shells. Also leaves
@@ -41,22 +43,36 @@ pub(crate) const RECLAIM_MIN_IDLE: Duration = Duration::from_secs(30 * 60);
 /// The most often the headroom is read when nothing failed.
 pub(crate) const RECLAIM_CHECK_EVERY: Duration = Duration::from_secs(2);
 
-/// One terminal as a reclaim pass sees it.
+/// One terminal as a reclaim pass, `park-tabs` and the freeing timer see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReclaimCandidate {
     /// The tab surfaces that show it.
     pub(crate) surfaces: Vec<SurfaceId>,
-    /// When its shell drew the prompt it sits at (Unix ms); `None`: a
-    /// command runs or the shell sends no OSC 133.
-    pub(crate) prompt_since_ms: Option<u64>,
-    /// A client holds an attach stream on one of its views.
-    pub(crate) attached: bool,
-    /// `set-terminal-keep on`.
-    pub(crate) kept: bool,
+    /// Its stable host id.
+    pub(crate) host: String,
+    /// Its PTY child (the shell, or login(1) that started it).
+    pub(crate) pid: Option<u32>,
+    /// Newest attach epoch over its views (`ClientRegistry::attach_observation`).
+    pub(crate) attach_epoch: u64,
     /// When it last printed anything (Unix ms); `None`: never.
     pub(crate) last_output_ms: Option<u64>,
-    /// A program reports a status in it (OSC 7501).
-    pub(crate) program_reported: bool,
+    /// What the park rules judge; `children` stays unknown until [`read_children`].
+    pub(crate) facts: ParkFacts,
+}
+
+/// Reads the shell's child processes of each candidate a client does not watch and nothing
+/// keeps (the others are refused before their children matter).
+pub(crate) fn read_children(candidates: &mut [ReclaimCandidate]) {
+    for candidate in candidates.iter_mut() {
+        if candidate.facts.attached
+            || candidate.facts.kept
+            || candidate.facts.workspace_kept
+            || candidate.facts.children.is_some()
+        {
+            continue;
+        }
+        candidate.facts.children = candidate.pid.and_then(crate::platform::shell_has_children);
+    }
 }
 
 /// The tab surfaces to park so `want` PTYs come free: oldest prompt first,
@@ -69,11 +85,11 @@ pub(crate) fn pick_reclaim(
     let min_idle = RECLAIM_MIN_IDLE.as_millis() as u64;
     let mut eligible: Vec<(u64, &ReclaimCandidate)> = candidates
         .iter()
-        .filter(|c| !c.attached && !c.kept && !c.program_reported)
+        .filter(|c| park_refusal(&c.facts, ParkRules::PRESSURE).is_none())
         .filter(|c| c.last_output_ms.is_none_or(|at| now_ms.saturating_sub(at) >= min_idle))
         .filter(|c| !c.surfaces.is_empty())
         .filter_map(|c| {
-            let since = c.prompt_since_ms?;
+            let since = c.facts.prompt_since_ms?;
             (now_ms.saturating_sub(since) >= min_idle).then_some((since, c))
         })
         .collect();
@@ -81,19 +97,28 @@ pub(crate) fn pick_reclaim(
     eligible.into_iter().take(want).flat_map(|(_, c)| c.surfaces.iter().copied()).collect()
 }
 
-/// `surfaces` without the views of a terminal a client is attached to or that is kept
-/// (`set-terminal-keep`): what `park-tabs` may park. A surface no candidate shows is kept as
-/// given; `park_terminal_tabs` skips it when it shows no live terminal.
-pub(crate) fn drop_watched(
+/// Of `surfaces`, what `park-tabs` may park under `rules`, and each surface whose terminal
+/// stays with the reason. A surface no candidate shows is passed on as given;
+/// `park_terminal_tabs` skips it when it shows no live terminal.
+pub(crate) fn split_parkable(
     candidates: &[ReclaimCandidate],
     surfaces: &[SurfaceId],
-) -> Vec<SurfaceId> {
-    let watched: HashSet<SurfaceId> = candidates
+    rules: ParkRules,
+) -> (Vec<SurfaceId>, Vec<(SurfaceId, ParkRefusal)>) {
+    let refusals: HashMap<SurfaceId, ParkRefusal> = candidates
         .iter()
-        .filter(|c| c.attached || c.kept)
-        .flat_map(|c| c.surfaces.iter().copied())
+        .filter_map(|c| Some((c, park_refusal(&c.facts, rules)?)))
+        .flat_map(|(c, refusal)| c.surfaces.iter().map(move |surface| (*surface, refusal)))
         .collect();
-    surfaces.iter().copied().filter(|surface| !watched.contains(surface)).collect()
+    let mut parkable = Vec::new();
+    let mut refused = Vec::new();
+    for surface in surfaces {
+        match refusals.get(surface) {
+            Some(refusal) => refused.push((*surface, *refusal)),
+            None => parkable.push(*surface),
+        }
+    }
+    (parkable, refused)
 }
 
 /// How many PTYs to free given `used` of `max`: none while at least
@@ -253,7 +278,8 @@ impl Mux {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        let candidates = self.reclaim_candidates();
+        let mut candidates = self.reclaim_candidates(None);
+        read_children(&mut candidates);
         let surfaces = pick_reclaim(&candidates, now_ms, want);
         if surfaces.is_empty() {
             self.report_internal_diagnostic(format!(
@@ -312,30 +338,50 @@ impl Mux {
         ended
     }
 
-    /// `park-tabs`: parks the terminals at `surfaces` except one a client is attached to
-    /// or that is kept ([`drop_watched`]): a shell another Mac or the phone shows keeps running.
-    /// Returns the surfaces parked.
-    pub(crate) fn park_unwatched_terminal_tabs(
+    /// `park-tabs`: parks the terminals at `surfaces` that pass the park rules
+    /// (`park_eligibility.rs`) under `rules`: a shell another Mac or the phone shows, one that is
+    /// kept, or one that runs anything keeps running. Returns the surfaces parked and each
+    /// surface whose terminal stays, with the reason.
+    pub(crate) fn park_idle_terminal_tabs(
         &self,
         surfaces: &[SurfaceId],
-    ) -> anyhow::Result<Vec<SurfaceId>> {
-        let surfaces = drop_watched(&self.reclaim_candidates(), surfaces);
-        if surfaces.is_empty() {
-            return Ok(Vec::new());
+        rules: ParkRules,
+    ) -> anyhow::Result<(Vec<SurfaceId>, Vec<(SurfaceId, ParkRefusal)>)> {
+        let wanted: HashSet<SurfaceId> = surfaces.iter().copied().collect();
+        let mut candidates = self.reclaim_candidates(Some(&wanted));
+        read_children(&mut candidates);
+        let (parkable, refused) = split_parkable(&candidates, surfaces, rules);
+        if parkable.is_empty() {
+            return Ok((Vec::new(), refused));
         }
-        self.park_terminal_tabs(&surfaces)
+        Ok((self.park_terminal_tabs(&parkable)?, refused))
     }
 
-    /// Every running terminal of this owner with the facts
-    /// [`pick_reclaim`] judges.
-    fn reclaim_candidates(&self) -> Vec<ReclaimCandidate> {
+    /// Every running terminal of this owner with the facts the park rules judge, its shell's
+    /// children not yet read ([`read_children`]). `only`: just the terminals one of these tab
+    /// surfaces shows.
+    pub(crate) fn reclaim_candidates(
+        &self,
+        only: Option<&HashSet<SurfaceId>>,
+    ) -> Vec<ReclaimCandidate> {
         let kept = self
             .workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .kept_terminals()
             .unwrap_or_default();
-        let rows: Vec<(String, Vec<SurfaceId>, Arc<Surface>)> = {
+        // An agent idle or done with a harness session id: a respawn resumes it
+        // (`terminal_respawn/prefill.rs`), as the app's freeing tier judges it.
+        let resumable: HashSet<TerminalPublicId> = self
+            .list_agents(None, None)
+            .into_iter()
+            .filter(|agent| matches!(agent.state, AgentState::Idle | AgentState::Done))
+            .filter(|agent| agent.agent_session_id.is_some())
+            .map(|agent| agent.terminal_id)
+            .collect();
+        // Pinned and kept-awake workspaces keep their shells, as the app's planner keeps them.
+        let presentation = self.presentation_snapshot();
+        let rows: Vec<(TerminalPublicId, String, Vec<SurfaceId>, Arc<Surface>, bool)> = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let mut by_terminal: HashMap<TerminalPublicId, Vec<SurfaceId>> = HashMap::new();
             for (surface, content) in &state.resource_indexes.content_ids {
@@ -345,30 +391,88 @@ impl Mux {
             }
             by_terminal
                 .into_iter()
+                .filter(|(_, surfaces)| {
+                    only.is_none_or(|only| surfaces.iter().any(|surface| only.contains(surface)))
+                })
                 .filter_map(|(id, surfaces)| {
                     let runtime = state.terminal_catalog.get(&id)?.clone();
+                    if runtime.is_dead() {
+                        return None;
+                    }
                     let host = self.resource_terminal_host_identity(&runtime)?.terminal_id;
-                    Some((host, surfaces, runtime))
+                    let workspace_kept =
+                        terminal_workspace_kept(&state, &surfaces, &|key: &str| {
+                            presentation
+                                .workspace(key)
+                                .is_some_and(|record| record.pinned || record.keep_awake)
+                        });
+                    Some((id, host, surfaces, runtime, workspace_kept))
                 })
                 .collect()
         };
         let placements = self.terminal_placements_by_host();
         rows.into_iter()
-            .map(|(host, surfaces, runtime)| {
+            .map(|(id, host, surfaces, runtime, workspace_kept)| {
                 let views = placements.get(&host).map(Vec::as_slice).unwrap_or(&[]);
                 let mut all_views = views.to_vec();
                 all_views.extend(surfaces.iter().copied());
+                let (attached, attach_epoch) = self.control_clients.attach_observation(&all_views);
+                let command_running = runtime.terminal_command_activity().is_some();
+                let pid = runtime.process_id();
+                let shell = match runtime.spawn_argv().and_then(|argv| argv.into_iter().next()) {
+                    Some(program) => park_eligibility::is_shell_program(&program),
+                    None => pid
+                        .and_then(crate::platform::process_executable)
+                        .is_some_and(|program| park_eligibility::is_shell_program(&program)),
+                };
                 ReclaimCandidate {
-                    attached: self.control_clients.attach_observation(&all_views).0,
-                    kept: kept.contains(&host),
-                    prompt_since_ms: runtime.terminal_prompt_since(),
+                    host: host.clone(),
+                    pid,
+                    attach_epoch,
                     last_output_ms: runtime.terminal_last_output(),
-                    program_reported: runtime.shown_program_status().is_some(),
+                    facts: ParkFacts {
+                        attached,
+                        kept: kept.contains(&host),
+                        workspace_kept,
+                        saved_state_ready: park_eligibility::saved_state_ready(&runtime),
+                        program_reported: runtime.shown_program_status().is_some(),
+                        command_running,
+                        prompt_since_ms: runtime.terminal_prompt_since(),
+                        children: None,
+                        used: command_running
+                            || runtime.terminal_last_input().is_some()
+                            || runtime.terminal_last_command().is_some(),
+                        shell,
+                        resumable_agent: resumable.contains(&id),
+                    },
                     surfaces,
                 }
             })
             .collect()
     }
+}
+
+/// Whether a terminal shown at `surfaces` is in a workspace `kept_key` keeps (pinned or kept
+/// awake); a terminal none of whose surfaces is in a workspace counts as kept (an unknown
+/// fact keeps it running).
+fn terminal_workspace_kept(
+    state: &State,
+    surfaces: &[SurfaceId],
+    kept_key: &dyn Fn(&str) -> bool,
+) -> bool {
+    let mut found = false;
+    for surface in surfaces {
+        let Some(workspace) = Mux::workspace_for_surface_in_state(state, *surface)
+            .and_then(|workspace| state.workspace_by_id(workspace))
+        else {
+            continue;
+        };
+        found = true;
+        if kept_key(&workspace.key) {
+            return true;
+        }
+    }
+    !found
 }
 
 #[cfg(test)]

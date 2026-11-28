@@ -243,6 +243,7 @@ export function SavedEnvironmentPanel({
                 </span>
               }
               folders={folderChoices}
+              remote={ssh}
               {...(draft.folder ? { current: draft.folder } : {})}
               onPick={(folder) => update({ folder })}
               {...(!ssh && onBrowse
@@ -270,6 +271,7 @@ export function SavedEnvironmentPanel({
           </output>
           {browseFailed && !ssh && (
             <button type="button" className="acpmux-env-button" onClick={() => void browse()} disabled={browsing}>
+              {/* retry-prompt-ok: opens the native folder chooser again, a sheet the person must want. */}
               {t("project.retry")}
             </button>
           )}

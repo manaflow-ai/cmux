@@ -32,6 +32,9 @@ impl App {
                 return Ok(RenderAction::Draw);
             }
             crate::client_log::error("session", &format!("remote event transport lost: {reason}"));
+            if let Some(action) = self.reconnect_after_transport_loss() {
+                return Ok(action);
+            }
             anyhow::bail!(localization::catalog().runtime.session_transport_lost());
         }
         if self.request_current_machine_session() {

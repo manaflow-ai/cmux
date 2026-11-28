@@ -28,15 +28,21 @@
 // the state alone and is hidden from assistive tech: the radios carry every answer.
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
+import { Button } from "../../ui/Button";
 import { Switch } from "../../ui/Switch";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import type { ChatsRunIn, MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import {
+  COMPUTER_USE_MODES,
   LOOK_BUNDLES,
   NOISES,
   PERMISSIONS,
   bundleWrites,
+  computerUse,
+  computerUseWrites,
+  finishSoundOn,
+  finishSoundWrites,
   noise,
   noiseWrites,
   permission,
@@ -48,7 +54,11 @@ import {
   type MakeItYoursScreen,
   type WalkValues,
   type WalkWrite,
+  CHAT_FEELS,
+  chatFeel,
+  chatFeelWrites,
 } from "./walk";
+import { SHELF_SETUPS, keepSetup, revertSetup, shelfValues, trySetup, type SetupId, type Shelf } from "./setupShelf";
 import { Faces } from "./walkLook";
 
 /** The looks of the screen (the gallery's variant switch): `preview` ships. */
@@ -167,6 +177,13 @@ const PERMISSION_KEYS = {
   standard: "onboarding.makeItYours.permission.standard",
   fullAccess: "onboarding.makeItYours.permission.fullAccess",
 } as const;
+const COMPUTER_USE_KEYS = {
+  fullAccess: "onboarding.makeItYours.computerUse.fullAccess",
+  approvedApps: "onboarding.makeItYours.computerUse.approvedApps",
+  askEveryTime: "onboarding.makeItYours.computerUse.askEveryTime",
+  lookOnly: "onboarding.makeItYours.computerUse.lookOnly",
+  off: "onboarding.makeItYours.computerUse.off",
+} as const;
 const NOISE_KEYS = {
   quiet: "onboarding.makeItYours.noise.quiet",
   banners: "onboarding.makeItYours.noise.banners",
@@ -233,13 +250,86 @@ function LookScreen({ opened, current }: { opened: WalkValues; current: WalkValu
   );
 }
 
+/** `experiments.setupShelf` (off by default): the four setups, each with Try, then Keep or Revert.
+ * The shelf's trials live on the page (setupShelf.ts); each click is one walk op, one publish. */
+function SetupShelf({ choices }: { choices: MakeItYoursState }) {
+  const { strings } = useOnboarding();
+  const walk = useWalk();
+  const [shelf, setShelf] = useState<Shelf>({});
+  const current = shelfValues(choices);
+  const run = (next: { shelf: Shelf; writes: WalkWrite[] }) => {
+    setShelf(next.shelf);
+    walk(next.writes);
+  };
+  return (
+    <fieldset className="onb-make-group onb-setups" aria-describedby="onb-setups-detail">
+      <legend className="onb-make-label">{strings.t("onboarding.makeItYours.setups.label")}</legend>
+      <p className="onb-make-option-detail onb-setups-detail" id="onb-setups-detail">
+        {strings.t("onboarding.makeItYours.setups.detail")}
+      </p>
+      <ul className="onb-setups-list">
+        {SHELF_SETUPS.map((setup) => {
+          const entry = shelf[setup.id];
+          const id: SetupId = setup.id;
+          const name = strings.t(setup.nameKey);
+          return (
+            <li key={id} className="onb-setups-row" data-setup={id} data-status={entry?.status}>
+              <span className="onb-make-option-text">
+                <span className="onb-make-option-title">{name}</span>
+                <span className="onb-make-option-detail">{strings.t(setup.lineKey)}</span>
+              </span>
+              <span className="onb-setups-actions">
+                {entry == null && (
+                  <Button
+                    size="sm"
+                    aria-label={`${strings.t("onboarding.makeItYours.setups.try")} ${name}`}
+                    onClick={() => run(trySetup(shelf, id, current))}
+                  >
+                    {strings.t("onboarding.makeItYours.setups.try")}
+                  </Button>
+                )}
+                {entry?.status === "trying" && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`${strings.t("onboarding.makeItYours.setups.revert")} ${name}`}
+                      onClick={() => run(revertSetup(shelf, id, current))}
+                    >
+                      {strings.t("onboarding.makeItYours.setups.revert")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      aria-label={`${strings.t("onboarding.makeItYours.setups.keep")} ${name}`}
+                      onClick={() => setShelf(keepSetup(shelf, id))}
+                    >
+                      {strings.t("onboarding.makeItYours.setups.keep")}
+                    </Button>
+                  </>
+                )}
+                {entry?.status === "kept" && (
+                  <span className="onb-make-option-detail" role="status">
+                    {strings.t("onboarding.makeItYours.setups.kept")}
+                  </span>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
+  );
+}
+
 /** Screen 3: how much agents may do (each mode explained; Full Access, as cmux ships, preselected on a
  * new Mac) and how loudly cmux tells you, each as radios with their line. */
 function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkValues }) {
   const { strings } = useOnboarding();
   const walk = useWalk();
   const mode = permission(current);
+  const computer = computerUse(current);
   const loud = noise(current);
+  const chime = finishSoundOn(current);
   return (
     <>
       <fieldset className="onb-make-group onb-make-work" data-screen="trust">
@@ -258,6 +348,28 @@ function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkVal
               <span className="onb-make-option-text">
                 <span className="onb-make-option-title">{strings.t(PERMISSION_KEYS[value])}</span>
                 <span className="onb-make-option-detail">{strings.t(`${PERMISSION_KEYS[value]}.line`)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {/* Computer Use (cmux#56827): `computerUse.mode`, opened on what the settings hold (Full Access,
+          as cmux ships, on a new Mac). */}
+      <fieldset className="onb-make-group onb-make-work" data-row="computerUse">
+        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.computerUse.label")}</legend>
+        <div className="onb-make-options">
+          {COMPUTER_USE_MODES.map((value) => (
+            <label key={value} className="onb-make-option" data-checked={computer === value || undefined}>
+              <input
+                type="radio"
+                name="computerUse"
+                value={value}
+                aria-label={strings.t(COMPUTER_USE_KEYS[value])}
+                checked={computer === value}
+                onChange={() => walk(computerUseWrites(value, opened, current))}
+              />
+              <span className="onb-make-option-text">
+                <span className="onb-make-option-title">{strings.t(COMPUTER_USE_KEYS[value])}</span>
               </span>
             </label>
           ))}
@@ -284,7 +396,60 @@ function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkVal
           ))}
         </div>
       </fieldset>
+      {/* The chime when an agent finishes (`agentPane.display.finishSound`, off as shipped): its own
+          switch, so Banners and Sound, the shipped noise, never turns it on by itself. */}
+      <div className="onb-make-group onb-walk-tidy" data-row="finishSound">
+        <span className="onb-make-option-text">
+          <span className="onb-make-option-title" id="onb-walk-chime-label">
+            {strings.t("onboarding.makeItYours.finishSound")}
+          </span>
+          <span className="onb-make-option-detail">{strings.t("onboarding.makeItYours.finishSound.detail")}</span>
+        </span>
+        <Switch
+          size="sm"
+          checked={chime}
+          aria-labelledby="onb-walk-chime-label"
+          onCheckedChange={(on: boolean) => walk(finishSoundWrites(on, opened, current))}
+        />
+      </div>
     </>
+  );
+}
+
+const CHAT_FEEL_KEYS = {
+  instant: "onboarding.makeItYours.chatFeel.instant",
+  pop: "onboarding.makeItYours.chatFeel.pop",
+  top: "onboarding.makeItYours.chatFeel.top",
+} as const;
+
+/** Screen 2's chat feel row: how a sent prompt arrives (agentPane.display.sendPop and sendScrollsToTop; Instant, as cmux
+ * ships, unless already set). */
+function ChatFeelRow({ opened, current }: { opened: WalkValues; current: WalkValues }) {
+  const { strings } = useOnboarding();
+  const walk = useWalk();
+  const feel = chatFeel(current);
+  return (
+    <fieldset className="onb-make-group onb-make-work" data-row="chatFeel">
+      <legend className="onb-make-label">{strings.t("onboarding.makeItYours.chatFeel.label")}</legend>
+      <div className="onb-make-options">
+        {CHAT_FEELS.map((value) => (
+          <label key={value} className="onb-make-option" data-checked={feel === value || undefined}>
+            <input
+              type="radio"
+              name="chatFeel"
+              value={value}
+              aria-label={strings.t(CHAT_FEEL_KEYS[value])}
+              checked={feel === value}
+              onChange={() => walk(chatFeelWrites(value, opened, current))}
+            />
+            <span className="onb-make-option-text">
+              <span className="onb-make-option-title">{strings.t(CHAT_FEEL_KEYS[value])}</span>
+              <span className="onb-make-option-detail">{strings.t(`${CHAT_FEEL_KEYS[value]}.line`)}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -306,6 +471,9 @@ export function MakeItYoursStep({
   opened?: WalkValues | null;
 }) {
   const { strings, store } = useOnboarding();
+  // The walk's Tune asks density as three levels, the outer two behind More (hq RFD 0057, S6); it opens
+  // on all of them when the setting is already an outer one.
+  const [outerShown, setOuterShown] = useState(() => !DENSITY_THREE.includes(choices?.density ?? "cozy"));
   if (choices == null) return null;
   const current = walkValues(choices);
   if (screen === "look" || screen === "trust") {
@@ -396,19 +564,32 @@ export function MakeItYoursStep({
             </label>
           ))}
         </div>
+        {/* Every location's sentence sits in the one cell, only the chosen one shown, so a pick never
+            moves the rows under it (intro walk: 14 px when the two sentences wrapped differently). */}
         <p id="onb-make-run-in-detail" className="onb-make-option-detail onb-make-run-in-detail">
-          {strings.t(RUN_IN_KEYS[choices.chatsRunIn].detail)}
+          {RUN_INS.filter((where) => where !== choices.chatsRunIn).map((where) => (
+            <span
+              key={where}
+              className="onb-make-run-in-detail__size"
+              aria-hidden="true"
+              data-label={strings.t(RUN_IN_KEYS[where].detail)}
+            />
+          ))}
+          <span>{strings.t(RUN_IN_KEYS[choices.chatsRunIn].detail)}</span>
         </p>
       </Group>
     );
+  const three = choices.densities.filter((item) => DENSITY_THREE.includes(item.id));
+  const folds = screen === "tune" && three.length === DENSITY_THREE.length && three.length < choices.densities.length;
+  const densities = folds && !outerShown && DENSITY_THREE.includes(choices.density) ? three : choices.densities;
   const density = (
     <Group look={look} className="onb-make-density" label={strings.t("onboarding.makeItYours.density.label")}>
       <div
         className="onb-make-segments ui-slide-host"
-        style={{ "--onb-make-count": choices.densities.length } as CSSProperties}
+        style={{ "--onb-make-count": densities.length } as CSSProperties}
       >
         <SlidingIndicator selected={choices.density} selector="[data-checked]" className="onb-make-thumb" />
-        {choices.densities.map((item) => (
+        {densities.map((item) => (
           <label
             key={item.id}
             className="onb-make-segment ui-slide-item"
@@ -430,6 +611,19 @@ export function MakeItYoursStep({
           </label>
         ))}
       </div>
+      {folds && densities.length < choices.densities.length && (
+        <Button
+          type="button"
+          className="onb-walk-more-button"
+          variant="ghost"
+          size="sm"
+          data-density-more=""
+          aria-expanded={false}
+          onClick={() => setOuterShown(true)}
+        >
+          {strings.t("onboarding.makeItYours.density.more")}
+        </Button>
+      )}
     </Group>
   );
   const background = (
@@ -514,6 +708,9 @@ export function MakeItYoursStep({
     </Group>
   );
 
+  // The setups shelf leads today's one screen and the walk's How you work (experiments.setupShelf).
+  const shelf = askWork && choices.setupShelf === true ? <SetupShelf choices={choices} /> : null;
+
   // The walk shows the preview on Tune, where the picks it draws are made; screen 2 has no stage.
   if (look === "preview" && askTune) {
     return (
@@ -523,6 +720,7 @@ export function MakeItYoursStep({
           <figcaption className="onb-make-caption">{chosenLabel}</figcaption>
         </figure>
         <div className="onb-make-choices">
+          {shelf}
           {askWork && work}
           {askWork && runIn}
           {density}
@@ -533,13 +731,18 @@ export function MakeItYoursStep({
   }
   return (
     <div className="onb-make" data-look={look} data-screen={walkScreen}>
+      {shelf}
       {askWork && work}
       {askWork && runIn}
+      {walkScreen === "work" && <ChatFeelRow opened={opened ?? current} current={current} />}
       {askTune && density}
       {askTune && background}
     </div>
   );
 }
+
+/** The walk's three density levels; the outer two (the tightest and the roomiest) wait behind More. */
+const DENSITY_THREE = ["compact", "cozy", "comfortable"];
 
 /** One choice: a fieldset with its question. The form look sets the question beside the control. */
 function Group({

@@ -339,6 +339,11 @@ impl Hub {
             });
         }
         self.resume_loaded(session, hosted);
+        // Where the next adoption of a host started on it reads from; an adopted host's own
+        // adoption saves its own (`hosts.rs` `adopt_held`).
+        if !hosted {
+            self.checkpoint_after_load(session);
+        }
     }
 
     /// Whether `session` holds records apart from its journal (`kept_unstored`): a restore point

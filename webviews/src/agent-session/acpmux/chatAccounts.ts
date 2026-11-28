@@ -1,8 +1,7 @@
 import { createContext, useContext } from "react";
-import { isModelRouterKind } from "./routerKinds";
 
 /// One account a chat can run on: an acpmux route (`_acpmux/route/list`, routes.rs) that serves
-/// the chat's harness family, such as a direct subscription, an API key, a subrouter or CodeRouter.
+/// the chat's harness family, such as a direct subscription, an API key, or a subrouter.
 export type ChatAccount = { id: string; name: string; kind?: string };
 
 /// A new local account, sent only through the native host.
@@ -46,26 +45,15 @@ export const ChatAccountsContext = createContext<ChatAccounts | undefined>(undef
 
 export const useChatAccounts = () => useContext(ChatAccountsContext);
 
-/// What a failed turn can offer of CodeRouter (TurnRows.tsx TurnFailure): `"on"` when the chat runs on
-/// a CodeRouter route already, the CodeRouter route that serves it when it has one, else undefined.
-export function codeRouterOffer(list: ChatAccountList): ChatAccount | "on" | undefined {
-  const isCodeRouter = (account: ChatAccount) => isModelRouterKind(account.kind);
-  const active = list.accounts.find((account) => account.id === list.active);
-  if (active && isCodeRouter(active)) return "on";
-  return list.accounts.find(isCodeRouter);
+/// A chat's reported sign-in (`authSource`, `session_status.rs`) as an account's name: its kind,
+/// without where it came from ("SR2 token (sr2 claude)" → "SR2 token"). Undefined for none.
+export function signInName(source: string | undefined): string | undefined {
+  const text = source?.trim();
+  // acpmux found none it could read (a keychain on Linux, a launcher it does not know): no name, not
+  // "No sign-in found" on a chat that works.
+  if (!text || /^no sign-in/i.test(text)) return undefined;
+  return text.replace(/\s*\(.*\)\s*$/, "") || text;
 }
-
-/// A failed turn's CodeRouter action for `sessionId` (turnActions.ts `ownRoute`): what its routes
-/// offer, and the move onto one, as the composer's Account menu moves it.
-export const ownRouteOf = (accounts: ChatAccounts, sessionId: string) => ({
-  // Routes this pane could not read offer nothing, rather than CodeRouter's setup.
-  find: () =>
-    accounts.list(sessionId).then((list) => {
-      if (list.unread) throw new Error("acpmux.routesUnread");
-      return codeRouterOffer(list);
-    }),
-  use: (routeId: string) => accounts.set(sessionId, routeId),
-});
 
 /// A `_acpmux/route/list` reply as the chat's accounts. A route that says it does not serve the
 /// chat's family is left out; an older acpmux names no `serves`, and then every route is listed.

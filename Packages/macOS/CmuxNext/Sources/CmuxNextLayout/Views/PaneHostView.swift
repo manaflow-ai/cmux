@@ -578,20 +578,20 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     func setChrome(showsRing: Bool, dim: CGFloat, dimFill: PaneOverlayView.DimFill = .pane, focusRing: FocusRingSettings,
-                   ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
+                   accentGlow: ThemeFlourishes.Glow? = nil, ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
                    attention: AttentionMark?, attentionSettings: AttentionSettings, readByEntry: Bool = false,
                    focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
         // A split or close re-runs every pane's chrome; a pane whose ring, dim, border, emphasis and
         // attention are what they were keeps them as they are (no layer transactions per pane). A
         // focus flash always runs: it is an event, not a state.
-        let inputs = PaneChromeInputs(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing,
+        let inputs = PaneChromeInputs(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, accentGlow: accentGlow,
                                       ringAlphaOverride: ringAlphaOverride, tabEmphasis: tabEmphasis, border: border,
                                       attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
                                       focused: focused)
         guard flashesFocus || inputs != chromeInputs else { return }
         chromeInputs = inputs
         reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
-        chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
+        chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, accentGlow: accentGlow, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
                       focused: focused, flashesFocus: flashesFocus, animated: animated)
     }

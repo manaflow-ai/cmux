@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.codexPersonality.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The personality new Codex chats use. Agent’s Own keeps Codex’s setting."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الشخصية التي تستخدمها محادثات Codex الجديدة. «إعداد الوكيل» يُبقي إعداد Codex."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ličnost koju koriste novi Codex razgovori. Postavka agenta zadržava postavku Codexa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den personlighed nye Codex-chats bruger. Agentens egen beholder Codex’ indstilling."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Persönlichkeit neuer Codex-Chats. „Vom Agenten“ behält die Einstellung von Codex."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La personalidad de los chats nuevos de Codex. «La del agente» mantiene el ajuste de Codex."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La personnalité des nouvelles discussions Codex. « Celui de l’agent » garde le réglage de Codex."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La personalità delle nuove chat di Codex. «Quella dell’agente» mantiene l’impostazione di Codex."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新しい Codex チャットのパーソナリティです。「エージェントの設定」は Codex の設定を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បុគ្គលិកលក្ខណៈដែលការជជែក Codex ថ្មីប្រើ។ «ការកំណត់របស់ភ្នាក់ងារ» រក្សាការកំណត់របស់ Codex។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "새 Codex 채팅이 쓰는 성격입니다. 에이전트 설정은 Codex의 설정을 유지합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Personligheten nye Codex-chatter bruker. Agentens egen beholder Codex’ innstilling."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Osobowość nowych czatów Codex. Ustawienie agenta zachowuje ustawienie Codex."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A personalidade dos novos chats do Codex. A do agente mantém a configuração do Codex."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Характер новых чатов Codex. «Как у агента» оставляет настройку Codex."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บุคลิกที่แชต Codex ใหม่ใช้ «ตามเอเจนต์» คงการตั้งค่าของ Codex ไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeni Codex sohbetlerinin kişiliği. Ajanın kendi ayarı Codex’in ayarını korur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Характер нових чатів Codex. «Як в агента» лишає налаштування Codex."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tính cách mà các cuộc trò chuyện Codex mới dùng. Theo tác tử giữ cài đặt của Codex."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新的 Codex 对话使用的个性。“代理自己的设置”保留 Codex 的设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新的 Codex 對話使用的個性。「代理自己的設定」保留 Codex 的設定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
