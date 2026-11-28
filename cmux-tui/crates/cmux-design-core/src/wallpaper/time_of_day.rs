@@ -81,12 +81,13 @@ pub fn when(text: &str) -> Option<When> {
         return ((0..24).contains(&h) && (0..60).contains(&m))
             .then_some(When::Clock { minutes: h * 60 + m });
     }
-    let sign = text.find(['+', '-']).unwrap_or(text.len());
-    let event = SunEvent::parse(&text[..sign])?;
-    if sign == text.len() {
+    let (name, rest) = text.split_at_checked(text.find(['+', '-']).unwrap_or(text.len()))?;
+    let event = SunEvent::parse(name)?;
+    let mut rest = rest.chars();
+    let Some(sign) = rest.next() else {
         return Some(When::Sun { event, offset: 0.0 });
-    }
-    let mut amount = text[sign + 1..].to_string();
+    };
+    let mut amount = rest.as_str().to_string();
     let unit = amount.pop()?;
     if !(unit == 'm' || unit == 'h') || amount.is_empty() || !digits(&amount) {
         return None;
@@ -96,10 +97,7 @@ pub fn when(text: &str) -> Option<When> {
         return None;
     }
     let seconds = f64::from(count) * if unit == 'h' { 3_600.0 } else { 60.0 };
-    Some(When::Sun {
-        event,
-        offset: if text.as_bytes()[sign] == b'-' { -seconds } else { seconds },
-    })
+    Some(When::Sun { event, offset: if sign == '-' { -seconds } else { seconds } })
 }
 
 /// Sorts entries as Swift's init does (by `"\(when)"`, then value).

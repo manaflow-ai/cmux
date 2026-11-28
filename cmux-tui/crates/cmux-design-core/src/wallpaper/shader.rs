@@ -72,10 +72,10 @@ pub fn poster(file_name: &str) -> Option<(Shader, bool)> {
         _ => file_name,
     };
     let parts: Vec<&str> = stem.split('-').filter(|p| !p.is_empty()).collect();
-    if parts.len() != 3 {
-        return None;
+    match parts.as_slice() {
+        [name, tone, _] => Some((named(name)?, *tone == "dark")),
+        _ => None,
     }
-    Some((named(parts[0])?, parts[1] == "dark"))
 }
 
 /// The most frames a second.
@@ -209,7 +209,9 @@ impl Clock {
     /// Sends a ring out from `point` (view points) at the current time.
     pub fn ring(&mut self, point: [f64; 2], scale: [f64; 2]) {
         let ring = [(point[0] * scale[0]) as f32, (point[1] * scale[1]) as f32, self.time, 1.0];
-        self.rings[self.next_ring & 3] = ring;
+        if let Some(slot) = self.rings.get_mut(self.next_ring & 3) {
+            *slot = ring;
+        }
         self.next_ring = (self.next_ring + 1) & 3;
         self.energy = (self.energy + 0.3).min(1.0);
     }

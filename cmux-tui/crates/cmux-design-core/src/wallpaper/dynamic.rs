@@ -41,11 +41,11 @@ impl Frames {
     /// The frame shown at `t`: the solar frame nearest the sun (the first on a tie), else the
     /// clock frame in force (the last of the day before the first), else dark or light by the sun.
     pub fn frame(&self, t: f64, location: &Location, zone: &Zone) -> usize {
-        if !self.solar.is_empty() {
+        if let Some((first, rest)) = self.solar.split_first() {
             let sun = sun_position(location, t);
-            let mut best = self.solar[0];
+            let mut best = *first;
             let mut best_angle = sun.angle(&best.position);
-            for frame in &self.solar[1..] {
+            for frame in rest {
                 let angle = sun.angle(&frame.position);
                 if angle < best_angle {
                     best = *frame;

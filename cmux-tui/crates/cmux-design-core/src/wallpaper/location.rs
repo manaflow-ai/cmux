@@ -53,12 +53,14 @@ fn number(text: &str) -> Option<f64> {
 pub fn parse_zone_table(text: &str) -> BTreeMap<String, Location> {
     let mut zones = BTreeMap::new();
     for line in text.split('\n').filter(|l| !l.is_empty() && !l.starts_with('#')) {
-        let fields: Vec<&str> = line.split('\t').collect();
-        if fields.len() < 3 {
+        let mut fields = line.split('\t');
+        let (Some(_), Some(coordinates_field), Some(zone)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
             continue;
-        }
-        if let Some(location) = coordinates(fields[1]) {
-            zones.insert(fields[2].to_string(), location);
+        };
+        if let Some(location) = coordinates(coordinates_field) {
+            zones.insert(zone.to_string(), location);
         }
     }
     zones
@@ -67,8 +69,9 @@ pub fn parse_zone_table(text: &str) -> BTreeMap<String, Location> {
 /// `zone.tab`'s ISO 6709 coordinates: `+DDMM+DDDMM` or `+DDMMSS+DDDMMSS`.
 pub fn coordinates(text: &str) -> Option<Location> {
     let split = text.char_indices().skip(1).find(|&(_, c)| c == '+' || c == '-')?.0;
-    let latitude = angle(&text[..split], 2)?;
-    let longitude = angle(&text[split..], 3)?;
+    let (latitude, longitude) = text.split_at_checked(split)?;
+    let latitude = angle(latitude, 2)?;
+    let longitude = angle(longitude, 3)?;
     Some(Location { latitude, longitude })
 }
 
@@ -84,7 +87,9 @@ fn angle(text: &str, degree_digits: usize) -> Option<f64> {
     {
         return None;
     }
-    let part = |range: std::ops::Range<usize>| number(&digits[range].iter().collect::<String>());
+    let part = |range: std::ops::Range<usize>| {
+        digits.get(range).and_then(|d| number(&d.iter().collect::<String>()))
+    };
     let degrees = part(0..degree_digits)?;
     let minutes = part(degree_digits..degree_digits + 2)?;
     let seconds = if digits.len() > degree_digits + 2 {

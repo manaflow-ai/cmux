@@ -105,13 +105,12 @@ impl Placement {
                 .filter(|v| v.is_finite())
         };
         let unit = |part: &str| number(part).filter(|v| (0.0..=1.0).contains(v));
-        match parts.len() {
-            1 => Some(Self::new(mode, 0.5, 0.5, 1.0)),
-            3 => Some(Self::new(mode, unit(parts[1])?, unit(parts[2])?, 1.0)),
-            4 => {
-                let zoom =
-                    number(parts[3]).filter(|z| (ZOOM_RANGE.0..=ZOOM_RANGE.1).contains(z))?;
-                Some(Self::new(mode, unit(parts[1])?, unit(parts[2])?, zoom))
+        match parts.as_slice() {
+            [_] => Some(Self::new(mode, 0.5, 0.5, 1.0)),
+            [_, x, y] => Some(Self::new(mode, unit(*x)?, unit(*y)?, 1.0)),
+            [_, x, y, zoom] => {
+                let zoom = number(*zoom).filter(|z| (ZOOM_RANGE.0..=ZOOM_RANGE.1).contains(z))?;
+                Some(Self::new(mode, unit(*x)?, unit(*y)?, zoom))
             }
             _ => None,
         }
