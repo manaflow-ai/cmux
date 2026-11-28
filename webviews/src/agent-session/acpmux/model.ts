@@ -512,6 +512,11 @@ export type ClaimCheck = {
 /// session, and its title as the row's text names it (conversation/ForkedFromLine.tsx links it).
 export type ForkedFrom = { parentId: string; chat: string };
 
+/// The person's own prompt (typed here or on another of their devices), not another agent's
+/// message, a task's result or harness bookkeeping: what prompt recall and the scroll rail keep.
+export const sentByPerson = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -970,6 +975,11 @@ export type AcpmuxRow = {
   subagents?: Subagent[];
   /// A start line's: how many of its `subagents` it names; it counts the rest (runningTray.ts `startedLineModel`).
   startedNamed?: number;
+  /// A start line's: every subagent it names ended, none failed (runningTray.ts `startedLine`).
+  startedAllEnded?: true;
+  /// A start line beside its turn's closed "Worked for", whose done lines that fold hides: it reads
+  /// "{name} finished" (conversation/turns.ts `outside`; SubagentStartedLine.tsx).
+  startedEndedLine?: true;
   /// On a background turn's line: the subagent whose report started the turn, which the line names
   /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
   subagentReport?: Subagent;

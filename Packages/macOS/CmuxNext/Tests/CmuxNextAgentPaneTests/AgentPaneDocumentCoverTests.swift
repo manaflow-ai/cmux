@@ -182,6 +182,52 @@ struct AgentPaneDocumentCoverTests {
         #expect(view.documentCover.recoveries.last?.cause == .reload)
     }
 
+    /// Leo, 2026-11-22: "the agent pane just blanked out entirely yet again. i dont know what that was, some sort of
+    /// ultra hard reload?" A render error the page's last boundary caught (webviews PaneBoundary.tsx) took the whole app
+    /// down: the page drew nothing for the boundary's retry wait (a second, longer on each failure in a row), then
+    /// `location.reload()`. The page says so at once (`pane.renderFailed`): the last frame shows from then, through the
+    /// boundary's reload, until the reloaded document reports its paint. No picture is taken of the failed page.
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aRenderFailureKeepsTheLastFrameThroughTheBoundarysReload(chromium: Bool) async throws {
+        #expect(AgentPaneRequest(body: ["method": "pane.renderFailed"]) == .renderFailed)
+        #expect(AgentPageOps.methods["pane.renderFailed"] == "pane.renderFailed", "the page host refuses the op")
+        let (view, window) = try await Self.paintedWithPicture(chromium: chromium)
+        let page = try #require(view.page)
+        defer { page.close(); window.close() }
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.renderFailed"]))
+        #expect(Self.shown(view) == .picture, "the pane showed \(Self.shown(view)) over the page its boundary emptied")
+        #expect(view.documentCover.cause == .renderFailed)
+        #expect(view.documentCover.covers[.renderFailed] == 1)
+        if chromium { #expect(view.holdsPageAway, "Chromium's window would draw the empty page over the picture") }
+        // The failed page is never remembered as the chat's last frame.
+        view.rememberLastFrame(fresh: false)
+        view.rememberLastFrame(fresh: true)
+        #expect(!view.documentCover.capturing, "a picture of the failed page was started")
+        // The boundary's own `location.reload()`: the new document commits, draws, then reports its paint.
+        page.documentCommitted()
+        #expect(Self.shown(view) == .picture)
+        page.notePainted()
+        #expect(Self.shown(view) == .picture, "the reloaded document's first frame revealed it before its report")
+        await Self.paintReport(view)
+        #expect(Self.shown(view) == .page)
+        #expect(view.documentCover.recoveries.last?.cause == .renderFailed)
+    }
+
+    /// A page that fails on every load backs its retries off past the cover's limit (30 s at most): the cover goes then,
+    /// and the page shows its own "Still loading the agent pane…" line instead of a stale picture for good.
+    @Test(.timeLimit(.minutes(1)))
+    func aRenderFailureWhoseReloadNeverComesEndsItsCover() async throws {
+        let (view, window) = try await Self.paintedWithPicture()
+        let page = try #require(view.page)
+        defer { page.close(); window.close() }
+        view.documentCover.uncommittedLimit = .milliseconds(50)
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.renderFailed"]))
+        #expect(view.documentCover.cause == .renderFailed)
+        try await Self.settle { !view.documentCover.isShown }
+        #expect(!view.documentCover.isShown, "the render failure's cover stayed up with no reload coming")
+        #expect(view.documentCover.uncommittedEnds == 1)
+    }
+
     /// A new document nobody announced (a commit with no reload asked for, and no picture of this size): the
     /// loading state shows, never the unpainted page.
     @Test(.timeLimit(.minutes(1)))

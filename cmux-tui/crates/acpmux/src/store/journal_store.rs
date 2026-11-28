@@ -1407,6 +1407,9 @@ impl Store for JournalStore {
     fn audit_dir(&self) -> Option<PathBuf> {
         Store::audit_dir(&self.inner.local)
     }
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        Store::usage_tracker_dir(&self.inner.local)
+    }
 }
 
 impl Drop for JournalStore {
