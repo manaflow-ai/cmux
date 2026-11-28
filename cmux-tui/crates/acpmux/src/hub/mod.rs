@@ -1383,8 +1383,6 @@ pub struct Hub {
     /// The chats whose agent host still ran and those left waiting for a permission when the
     /// last daemon stopped (`log_load.rs`).
     pub(super) load_plan: StdMutex<log_load::LoadPlan>,
-    /// Shared liveness evidence for residency rows and totals (`residency.rs`).
-    pub(super) residency_hosts: StdMutex<residency::HostSnapshot>,
     /// `resume_queues` ran: a chat whose log is read later resumes its own queue (`log_load.rs`).
     pub(super) queues_resumed: AtomicBool,
     /// This start is a copied machine's first: the machine it was copied from (`clone_boot.rs`).
@@ -1959,7 +1957,6 @@ impl Hub {
             store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
-            residency_hosts: Default::default(),
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
@@ -2285,72 +2282,6 @@ impl Hub {
 
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
-    }
-
-    pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        // A bounded debug seam for slow-filesystem startup tests; absent in release builds.
-        #[cfg(debug_assertions)]
-        if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_STORE_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-        {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(10_000)));
-        }
-        let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
-        else {
-            // Adoption still reaches every host this list hid: an off push waits for it
-            // (`full_access_turned_off`).
-            if deferred {
-                self.adoption_ready.send_replace(false);
-            }
-            return;
-        };
-        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store listed");
-        // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
-        let read = Self::read_live_host_sessions();
-        // Records that can not be read may hide a host whose lines adoption holds again: an off
-        // push waits for adoption then too (`full_access_turned_off`).
-        let unknown = read.is_none();
-        let hosted = read.unwrap_or_default();
-        // Rows reuse startup's host evidence before adoption attaches their child links.
-        self.residency_hosts.lock().unwrap_or_else(|e| e.into_inner()).seed(hosted.clone());
-        let waiting =
-            metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
-        if deferred && (!hosted.is_empty() || unknown) {
-            self.adoption_ready.send_replace(false);
-        }
-        {
-            let mut plan = self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            plan.listed = true;
-            plan.waiting.extend(waiting);
-            plan.adopting.extend(hosted.iter().cloned());
-            plan.hosted.extend(hosted.iter().cloned());
-        }
-        // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
-        let unsaved = self.settle_legacy_grants(&mut metas);
-        // A deleted chat stays out of the map through its grace (`soft_delete.rs`).
-        self.hold_deleted(&mut metas);
-        self.store_load.total.store(metas.len(), Ordering::SeqCst);
-        // A first start with no ledger file: each session's running totals (`hub/ledger`).
-        if self.ledger.wants_seed() {
-            // Forks' own turns are read first, so the ledger's lock waits on no log read.
-            let seeds: Vec<_> =
-                metas.iter().map(|m| ledger::Seed::of(m, self.fork_own_turns(m))).collect();
-            self.ledger.seed(seeds);
-        }
-        for meta in metas {
-            let hosted = hosted.contains(&meta.id);
-            let saved = !unsaved.contains(&meta.id);
-            self.install_stored_session(meta, deferred, hosted, saved);
-        }
-        tracing::info!(
-            "loaded {} sessions from store",
-            self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
-        );
-        if deferred {
-            self.logs_ready.send_replace(false);
-        }
-        self.resume_races();
     }
 
     pub(super) fn install_stored_session(
