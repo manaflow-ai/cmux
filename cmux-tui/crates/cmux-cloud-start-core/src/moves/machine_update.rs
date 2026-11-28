@@ -373,14 +373,9 @@ pub struct State {
 #[serde(tag = "step", rename_all = "camelCase")]
 pub enum Step {
     #[serde(rename_all = "camelCase")]
-    Exec {
-        command: String,
-        timeout_ms: u64,
-        state: State,
-    },
-    Done {
-        answer: Answer,
-    },
+    Exec { command: String, timeout_ms: u64, state: State },
+    /// Boxed: an answer is several times an exec's size (clippy `large_enum_variant`).
+    Done { answer: Box<Answer> },
 }
 
 /// The run's first exec: the start.
@@ -414,7 +409,9 @@ pub fn advance(mut state: State, ran: Option<&ExecRun>) -> Step {
         state.started = true;
         if let Some(started) = ran {
             if started.last_line() == "NOROOT" {
-                return Step::Done { answer: started.legacy_update_answer(&state.commit) };
+                return Step::Done {
+                    answer: Box::new(started.legacy_update_answer(&state.commit)),
+                };
             }
             if started.last_line() != "started" && started.exit_code != 124 {
                 state.refused = Some(started.failure_detail());
@@ -424,7 +421,7 @@ pub fn advance(mut state: State, ran: Option<&ExecRun>) -> Step {
     } else if let Some(waited) = ran {
         let reply = waited.legacy_update_answer(&state.commit);
         if reply.error_code.as_deref() != Some("machine_update_unresolved") {
-            return Step::Done { answer: reply };
+            return Step::Done { answer: Box::new(reply) };
         }
     }
     if state.left > 0 {
@@ -436,14 +433,14 @@ pub fn advance(mut state: State, ran: Option<&ExecRun>) -> Step {
         };
     }
     if let Some(detail) = state.refused {
-        return Step::Done { answer: Answer::failed("machine_update_failed", detail) };
+        return Step::Done { answer: Box::new(Answer::failed("machine_update_failed", detail)) };
     }
     let minutes = u64::from(state.waits) * state.wait_seconds / 60;
     Step::Done {
-        answer: Answer::failed(
+        answer: Box::new(Answer::failed(
             "machine_update_unresolved",
             format!("the machine's update did not end within {minutes} minutes"),
-        ),
+        )),
     }
 }
 
