@@ -913,6 +913,8 @@ public final class DaemonTerminalSession: TerminalSession {
         autoReattach?.cancel()
         autoReattach = nil
         autoReattaching = false
+        noLinkWait?.cancel()
+        noLinkWait = nil
         stopLiveness()
         inputUnansweredSince = nil
     }
@@ -1749,6 +1751,8 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             for event in held { apply(event) }
             attachRetries = 0
+            noLinkWait?.cancel()
+            noLinkWait = nil
             // Keys held past the limit (the app was suspended) are dropped and said before
             // the screen hears `.attached`, which forgets a held composer send.
             expireInput()
@@ -1834,9 +1838,28 @@ public final class DaemonTerminalSession: TerminalSession {
                 // and gave up (Send refused, keys dropped) before the link was back.
                 // A link that stays down is the Mac's offline bound
                 // (`setMacOffline`, `inputHoldLimit`), not this attach's to call.
-                autoReattaching = false
+                // Keep self-recovery active through no-link retry rounds; a first attach
+                // still waits for its link without starting this session-specific bound.
                 attachRetries = 0
                 if let client = self.client { self.client = nil; Task { await client.close() } }
+                // Its own bound: a link that never comes back (or comes back without
+                // reattaching this session) left "Reattaching…" up for ever. Past
+                // `noLinkBound` the cached screen stays and the line says "Can't reach
+                // this terminal" with Retry; a new link's `reconnect()` still attaches.
+                if autoReattaching, noLinkWait == nil {
+                    let bound = noLinkBound
+                    // task-owner: `noLinkWait`; cancelled by an attach and `stop()`
+                    noLinkWait = Task { [weak self] in
+                        try? await Task.sleep(for: bound)
+                        guard let self, !Task.isCancelled else { return }
+                        self.noLinkWait = nil
+                        guard self.handler != nil, !self.ended, !self.attached, !self.attaching, !self.gaveUp else { return }
+                        log.notice("surface \(self.surface, privacy: .public): no link for \(String(describing: bound), privacy: .public): can't reach")
+                        self.gaveUp = true
+                        self.scheduleGaveUpRetry()
+                        self.handler?(.connection(self.connectionState))
+                    }
+                }
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
                 // The link came while this attach was out: attach on it now (after this
                 // attach's `defer`), not on a return that already happened.
@@ -2733,6 +2756,12 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Delays before retrying a failed reattach (seconds); then the error shows.
     static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
+    /// How long a self-reattach that found no link waits for the link's return
+    /// before saying "Can't reach this terminal" (with Retry) over the cached screen.
+    static let defaultNoLinkBound: Duration = .seconds(30)
+    var noLinkBound = DaemonTerminalSession.defaultNoLinkBound
+    /// The no-link wait's bound, while it runs.
+    private var noLinkWait: Task<Void, Never>?
     /// After the retries ran out, a fresh round starts on its own this long later (as well as on
     /// a keystroke, Retry or a new link), so a terminal never waits for the person to ask
     /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
@@ -2759,7 +2788,7 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// An attach that failed for want of a link (`no-link`): it waits for the link's return,
-    /// which reattaches it, and spends no retry (so never gives up on it).
+    /// which reattaches it, and spends no retry. Self-recovery has its own no-link bound.
     nonisolated static func waitsForTheLink(_ error: any Error) -> Bool {
         (error as? LinkError)?.code == "no-link"
     }
@@ -2771,9 +2800,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// stayed up waited for the whole link to die (20-35 s) or for ever.
     /// Now the session attaches again by itself, through the reattach backoff.
     private var autoReattach: Task<Void, Never>?
-    /// The running reattach was started by ``scheduleAutoReattach(_:)``: a
-    /// failure because there is no link stops it quietly (the new link
-    /// reattaches every session), never into "Can't reach this terminal".
+    /// Recovery started by ``scheduleAutoReattach(_:)``, until attached or stopped.
+    /// A missing link waits up to ``noLinkBound`` before surfacing failure and retrying.
     private var autoReattaching = false
     /// Asks the link to prove itself now (its quick probe), so a link that
     /// really died is redialed at once instead of after its heartbeat.
