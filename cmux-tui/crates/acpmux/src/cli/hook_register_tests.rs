@@ -42,6 +42,21 @@ fn a_terminal_claude_code_registers_from_cmuxs_hook_until_it_is_reached() {
     assert!(hook_args(env(&restarted), Some(SESSION), "cosmic-gray", home.path()).is_some());
 }
 
+/// Repro (Lawrence, 2026-11-28): the hook asked at every prompt of a chat that let its code
+/// expire, and each ask after ten minutes delivered a new one. Once the daemon says a code
+/// already went (`offered`), this Claude Code process asks no more.
+#[test]
+fn a_chat_that_already_got_its_code_is_not_asked_again() {
+    let home = tempfile::tempdir().unwrap();
+    let sock = "/tmp/cc-socks/77.sock";
+    mark_if_reached(home.path(), sock, "tok", &json!({"offered": true, "name": "x"}));
+    assert_eq!(hook_args(env(&TERMINAL), Some(SESSION), "h", home.path()), None);
+    let other = tempfile::tempdir().unwrap();
+    mark_if_reached(other.path(), sock, "tok", &json!({"offered": false, "reason": "r"}));
+    assert_eq!(hook_args(env(&TERMINAL), Some(SESSION), "h", other.path()), None);
+    assert!(!settled(&json!({"pending": true, "resent": false})));
+}
+
 #[test]
 fn a_session_acpmux_runs_or_a_shell_with_no_inbox_asks_nothing() {
     let home = tempfile::tempdir().unwrap();

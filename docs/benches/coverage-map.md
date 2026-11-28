@@ -127,6 +127,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `pane-compile` | agent pane web | n/a | no |
 | `pane-resize-drag` | agent chat web | 200-2,000 turns | no |
 | `persona-walk` | first run | fresh install | no |
+| `phone-speed` | iOS | 100 and 10,000 terminal lines | yes (`phone-speed-icount`) |
 | `post-update` | update | n/a | no |
 | `projection-scale` | cloud | N files | no |
 | `projection-way-back` | cloud | N files | no |
