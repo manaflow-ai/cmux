@@ -39,14 +39,18 @@ extension AppControl {
         var machineIO: CloudMachineIO? // the bundled cmux that runs `cmux cloud api`
     }
 
-    /// The mint over cmux-cloud-api `vm.agent_key_create` (``CloudDaemon/vmAgentKeyMint``): status 0 for no answer, with its `failure`.
-    nonisolated static func vmAgentKeyMint(_ issuer: VMIssuer, baseURL: URL, body: JSONValue,
-                                          run: (@Sendable (Data, Duration) async throws -> Data)? = nil) async
-        -> (status: Int, body: Data, failure: String?) {
+    /// The mint over cmux-cloud-api `vm.agent_key_create` (owner auth: the session and team): the VM API's status and body, or
+    /// status 0 for no answer (Rust reads it as unreachable) with `failure` naming why, never a credential.
+    nonisolated static func vmAgentKeyMint(_ issuer: VMIssuer, baseURL: URL, body: JSONValue, run: (@Sendable (Data, Duration) async throws -> Data)? = nil)
+        async -> (status: Int, body: Data, failure: String?) {
+        struct Reply: Decodable { var status: Int; var body: String }
         let (access, team) = (issuer.accessToken, issuer.teamID)
-        guard let text = try? JSONEncoder().encode(body) else { return (0, Data(), "the agent key body is not JSON") }
         let daemon = CloudDaemon.owner(baseURL: baseURL, credential: { access }, teamID: { team }, machineIO: issuer.machineIO, run: run)
-        return await daemon.vmAgentKeyMint(bodyJSON: String(decoding: text, as: UTF8.self))
+        do {
+            let data = try await daemon.daemon("vm.agent_key_create", ["body_json": String(decoding: try JSONEncoder().encode(body), as: UTF8.self)], timeout: .seconds(24))
+            guard let reply = try? JSONDecoder().decode(Reply.self, from: data) else { return (0, Data(), "cloud.vm.agent_key_create answered no {status, body}") }
+            return (reply.status, Data(reply.body.utf8), nil)
+        } catch { return (0, Data(), "cloud.vm.agent_key_create: \(error)") }
     }
 
     /// The signed-in session and its team, behind the Cloud policy (not Labs, Leo 2026-10-30).
@@ -86,14 +90,8 @@ extension AppControl {
 
     /// The request body and the VM API for `backend`, or the refusal of a bad limit.
     nonisolated static func vmAgentKeyRequest(backend: CloudConfiguration.Backend, params: [String: JSONValue]) throws -> VMAgentKeyPlan {
-        struct Request: Encodable {
-            var backend: [String: String]
-            var params: [String: JSONValue]
-        }
-        struct Reply: Decodable {
-            var request: VMAgentKeyPlan?
-            var refusal: VMAgentKeyRefusal?
-        }
+        struct Request: Encodable { var backend: [String: String]; var params: [String: JSONValue] }
+        struct Reply: Decodable { var request: VMAgentKeyPlan?; var refusal: VMAgentKeyRefusal? }
         let wire: [String: String] = switch backend {
         case .production: ["kind": "production"]
         case let .development(url): ["kind": "development", "url": url.absoluteString]
@@ -107,16 +105,8 @@ extension AppControl {
     /// The VM API's answer (`status` 0: none) as the socket's result: its fields plus `baseUrl`
     /// and `teamId`, so the CLI stores the key with the service and team it works at.
     nonisolated static func vmAgentKeyAnswer(status: Int, body: Data, baseURL: URL, teamID: String) throws -> JSONValue {
-        struct Request: Encodable {
-            var status: Int
-            var body: String
-            var baseUrl: String
-            var teamId: String
-        }
-        struct Reply: Decodable {
-            var result: JSONValue?
-            var refusal: VMAgentKeyRefusal?
-        }
+        struct Request: Encodable { var status: Int; var body: String; var baseUrl: String; var teamId: String }
+        struct Reply: Decodable { var result: JSONValue?; var refusal: VMAgentKeyRefusal? }
         let request = Request(status: status, body: String(decoding: body, as: UTF8.self), baseUrl: baseURL.absoluteString, teamId: teamID)
         // A VM API answer is small; 64 KiB fits one without a retry.
         guard let data = try? JSONEncoder().encode(request),
