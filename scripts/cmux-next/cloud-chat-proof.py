@@ -242,6 +242,10 @@ evidence = {
 }
 app_launcher = None
 owned_app = False
+# The launched app's own stdout and stderr (`open --stdout/--stderr`): a Swift fatal error or a refusal
+# printed before the control socket binds lands here, and only a failed launch's evidence reads it.
+APP_OUTPUT_DIR = os.path.realpath(tempfile.mkdtemp(prefix="cmux-proof-app-output-"))
+APP_LAUNCHED_AT = None
 
 
 def has_browser_proof_reply(text: str) -> bool:
@@ -351,6 +355,7 @@ def finish(result: str) -> None:
         shutil.rmtree(FOLDER_PROOF_DIR, ignore_errors=True)
     if CONFIG_DIR:
         shutil.rmtree(CONFIG_DIR, ignore_errors=True)
+    shutil.rmtree(APP_OUTPUT_DIR, ignore_errors=True)
     evidence["result"] = result
     Path(args.evidence).parent.mkdir(parents=True, exist_ok=True)
     Path(args.evidence).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
@@ -420,32 +425,95 @@ EVIDENCE_SCAN = re.compile(  # the "Check the evidence" step's grep in cloud-cha
 )
 
 
-def app_link_log(since: str, keep: int = 300) -> dict:
+def safe_lines(source, keep: int) -> dict:
+    """The last `keep` lines of `source` the evidence may hold: the prompt replaced, and a line the
+    evidence scan would refuse left out (counted), not redacted."""
+    lines, line_count, left_out = collections.deque(maxlen=keep), 0, 0
+    for line in source:
+        for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
+            if prompt:
+                line = line.replace(prompt, "[prompt]")
+        if EVIDENCE_SCAN.search(line):
+            left_out += 1
+        elif line.strip():
+            line_count += 1
+            lines.append(clean(line, 400))
+    return {"line_count": line_count, "left_out": left_out, "lines": list(lines)}
+
+
+def app_link_log(since: str, keep: int = 300, predicate: str = LINK_LOG_PREDICATE, info: bool = True) -> dict:
     """The link lines logged from `since` (local "YYYY-MM-DD HH:MM:SS", before the app launched) on, read
     as they stream so only the last `keep` are held, and stopped after 180 s."""
     try:
-        proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--info", "--start", since,
-                                 "--predicate", LINK_LOG_PREDICATE],
+        proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", *(("--info",) if info else ()), "--start", since,
+                                 "--predicate", predicate],
                                 env=ENV, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
     except OSError as error:
         return {"unavailable": clean(str(error), 300)}
     timer = threading.Timer(180, proc.kill)
     timer.start()
-    lines, line_count, left_out = collections.deque(maxlen=keep), 0, 0
     try:
-        for line in proc.stdout:
-            for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
-                if prompt:
-                    line = line.replace(prompt, "[prompt]")
-            if EVIDENCE_SCAN.search(line):
-                left_out += 1
-            elif line.strip():
-                line_count += 1
-                lines.append(clean(line, 400))
+        kept = safe_lines(proc.stdout, keep)
     finally:
         timer.cancel()
         code = proc.wait()
-    return {"exit": code, "line_count": line_count, "left_out": left_out, "lines": list(lines)}
+    return {"exit": code, **kept}
+
+
+def app_executable(app: str) -> str:
+    import plistlib
+    try:
+        with open(Path(app, "Contents", "Info.plist"), "rb") as handle:
+            return str(plistlib.load(handle).get("CFBundleExecutable") or "")
+    except (OSError, ValueError):
+        return ""
+
+
+def app_launch_state(app: str) -> dict:
+    """Why a launched app never answered on the proof's socket (runs 46111167228 and 46147479576: `app
+    identify` said app.unreachable for 240 s, then the launch helper had exited 0 on its own): whether
+    the app is still running, which socket files exist, what it printed, what it logged, and its crash
+    reports. Every line goes through the evidence scan, as the link log does."""
+    executable = app_executable(app)
+    state: dict = {"executable": executable or None,
+                   "launcher_exit": None if app_launcher is None else app_launcher.poll()}
+    binary = str(Path(app, "Contents", "MacOS", executable)) if executable else ""
+    try:
+        listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30).stdout
+        state["app_pids"] = [int(line.split(None, 1)[0]) for line in listing.splitlines()
+                             if binary and len(line.split(None, 1)) == 2 and line.split(None, 1)[1].startswith(binary)]
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        state["app_pids"] = clean(str(error), 200)
+    socket_dir = Path.home() / ".local" / "state" / "cmux-next"
+    state["socket"] = {"path_exists": os.path.lexists(SOCKET_PATH), "path_is_link": os.path.islink(SOCKET_PATH),
+                       "target_exists": os.path.exists(SOCKET_PATH),
+                       "state_dir_sockets": sorted(entry.name for entry in socket_dir.glob("cmux-debug-*"))[:40]
+                       if socket_dir.is_dir() else None}
+    for stream in ("stdout", "stderr"):
+        try:
+            with open(Path(APP_OUTPUT_DIR, f"app.{stream}"), errors="replace") as handle:
+                state[f"app_{stream}"] = safe_lines(handle, 120)
+        except OSError as error:
+            state[f"app_{stream}"] = {"unavailable": clean(str(error), 200)}
+    if executable:
+        # The app's own process, every subsystem: an assertion, a guard's hand-off, or a terminate reason.
+        state["app_log"] = app_link_log(LINK_LOG_SINCE, keep=200, info=False,
+                                        predicate=f'process == "{executable}"')
+    reports = []
+    reports_dir = Path.home() / "Library" / "Logs" / "DiagnosticReports"
+    if executable and reports_dir.is_dir():
+        since = (APP_LAUNCHED_AT or 0) - 2  # file times run on a coarser clock than time.time()
+        for report in sorted(reports_dir.iterdir(), key=lambda entry: entry.stat().st_mtime if entry.exists() else 0):
+            try:
+                if not report.name.startswith(executable) or report.stat().st_mtime < since:
+                    continue
+                with open(report, errors="replace") as handle:
+                    head = [next(handle, "") for _ in range(200)]
+            except OSError:
+                continue
+            reports.append({"name": clean(report.name, 200), **safe_lines(head, 80)})
+    state["crash_reports"] = reports[-3:]
+    return state
 
 
 def listed() -> tuple[int, str, str, dict]:
@@ -667,7 +735,15 @@ def validate_credentials_file(path_text: str) -> str:
     return str(path)
 
 
-def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> dict:
+def diagnosed(diagnose) -> dict:
+    """A failed step's diagnostics never fail the proof themselves: a broken probe says so instead."""
+    try:
+        return diagnose()
+    except Exception as error:  # noqa: BLE001 - any probe failure is evidence, not a crash
+        return {"unavailable": clean(f"{type(error).__name__}: {error}", 300)}
+
+
+def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240, diagnose=None) -> dict:
     """Bounded wait for app launch or authentication; record only safe status fields."""
     started = time.monotonic()
     deadline = started + timeout
@@ -690,7 +766,8 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> di
         # The command answered but never satisfied the wait: say what it last saw, or the step reads as a bare exit 1.
         why = "last answer: " + json.dumps(safe, sort_keys=True)
     record(name, 0 if satisfied else (code or 1), "", "" if satisfied else why,
-           elapsed_ms=round((time.monotonic() - started) * 1000), **safe)
+           elapsed_ms=round((time.monotonic() - started) * 1000), **safe,
+           **({"app_launch_state": diagnosed(diagnose)} if diagnose and not satisfied else {}))
     if not satisfied:
         finish(f"fail: {name}")
     return value
@@ -739,6 +816,7 @@ if args.credentials_file:
     launch.extend(["--env", f"CMUX_AUTH_CREDENTIALS_FILE={credentials_file}",
                    "--env", "CMUX_DEV_AUTH_PROFILE=agent",
                    "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"])
+launch.extend(["--stdout", str(Path(APP_OUTPUT_DIR, "app.stdout")), "--stderr", str(Path(APP_OUTPUT_DIR, "app.stderr"))])
 launch.extend([app_path, "--args", "--cloud-backend", args.cloud_backend])
 launchable_cleanup = not args.cleanup_machine or Path(app_path, "Contents", "Info.plist").is_file()
 if args.cleanup_tag:
@@ -750,6 +828,7 @@ if args.cleanup_tag:
         record("reuse the running app", 0, "", "", pid=running.get("pid"))
         launchable_cleanup = False
 if launchable_cleanup:
+    APP_LAUNCHED_AT = time.time()
     try:
         app_launcher = subprocess.Popen(launch, env=launch_env(ENV), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
@@ -757,7 +836,8 @@ if launchable_cleanup:
         finish("fail: launch app")
     record("launch app", 0, "", "", launch_flag=args.cloud_backend)
     wait_for("launched app ready", ("app", "identify", "--json"),
-             lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path)
+             lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path,
+             timeout=int(os.environ.get("CMUX_PROOF_READY_TIMEOUT", "240")), diagnose=lambda: app_launch_state(app_path))
     owned_app = True
 
 if args.cleanup_machine:

@@ -255,3 +255,85 @@ class CloudChatProofCleanupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+FAKE_UNREACHABLE_CMUX = r'''#!/usr/bin/env python3
+import json, sys
+if sys.argv[1:] == ["app", "identify", "--json"]:
+    sys.stderr.write(json.dumps({"code": "app.unreachable", "details": {}, "message": "no cmux app is running"}) + "\n")
+    sys.exit(3)
+sys.exit(2)
+'''
+
+# `open -W` hands the app's stderr to the file it names, and returns when the app exits: here, at once.
+FAKE_EXITING_OPEN = r'''#!/bin/sh
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --stderr) printf 'Fatal error: launch refused caller-context-7f3a\ntoken=abcdef123456\n' > "$2"; shift ;;
+    --stdout) : > "$2"; shift ;;
+  esac
+  shift
+done
+reports="$HOME/Library/Logs/DiagnosticReports"
+printf '{"app_name":"cmux DEV ccp-test"}\n"exception" : {"type":"EXC_BREAKPOINT","signal":"SIGTRAP"}\n' \
+  > "$reports/cmux DEV ccp-test-2026-11-28-143040.ips"
+printf 'not ours\n' > "$reports/Other-2026-11-28-143040.ips"
+exit 0
+'''
+
+FAKE_PROCESS_LOG = r'''#!/usr/bin/env python3
+import sys
+assert sys.argv[1] == "show", sys.argv
+assert sys.argv[sys.argv.index("--predicate") + 1] == 'process == "cmux DEV ccp-test"', sys.argv
+print("2026-11-28 14:30:40.1 E  cmux DEV ccp-test[9:1] [com.cmuxterm.app.next:launch] single instance: handing off")
+'''
+
+
+class CloudChatProofLaunchFailureTests(unittest.TestCase):
+    def test_unready_app_says_why(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            app = tmp_path / "cmux DEV ccp-test.app"
+            cli = app / "Contents/Resources/bin/cmux"
+            cli.parent.mkdir(parents=True)
+            cli.write_text(FAKE_UNREACHABLE_CMUX)
+            cli.chmod(0o755)
+            (app / "Contents/Info.plist").write_bytes(
+                b'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
+                b'<key>CFBundleExecutable</key><string>cmux DEV ccp-test</string></dict></plist>')
+            home = tmp_path / "home"
+            reports = home / "Library/Logs/DiagnosticReports"
+            reports.mkdir(parents=True)
+            (reports / "cmux DEV ccp-test-2026-11-27-101010.ips").write_text("an older run's crash\n")
+            os.utime(reports / "cmux DEV ccp-test-2026-11-27-101010.ips", (1, 1))
+            tools = {}
+            for name, body in (("open", FAKE_EXITING_OPEN), ("log", FAKE_PROCESS_LOG)):
+                tools[name] = tmp_path / name
+                tools[name].write_text(body)
+                tools[name].chmod(0o755)
+            evidence = tmp_path / "evidence.json"
+            env = {**os.environ, "HOME": str(home), "CMUX_PROOF_LOG_TOOL": str(tools["log"]),
+                   "CMUX_PROOF_OPEN_TOOL": str(tools["open"]), "CMUX_PROOF_READY_TIMEOUT": "1"}
+            done = subprocess.run(
+                [sys.executable, "-I", str(PROOF), "--app", str(app), "--tag", "ccp-test", "--prompt", CONTEXT,
+                 "--agent", "claude", "--cloud-backend", "staging", "--expected-api-origin",
+                 "https://cloud-api-staging.cmux.dev", "--evidence", str(evidence)],
+                env=env, capture_output=True, text=True, timeout=120,
+            )
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            text = evidence.read_text()
+            self.assertNotIn(CONTEXT, text)
+            self.assertNotIn("abcdef123456", text)
+            steps = {step["step"]: step for step in json.loads(text)["steps"]}
+            state = steps["launched app ready"]["app_launch_state"]
+            self.assertEqual(state["executable"], "cmux DEV ccp-test")
+            self.assertEqual(state["launcher_exit"], 0)
+            self.assertEqual(state["app_pids"], [])
+            self.assertFalse(state["socket"]["path_exists"])
+            self.assertEqual(state["app_stderr"]["lines"], ["Fatal error: launch refused [prompt]"])
+            self.assertEqual(state["app_stderr"]["left_out"], 1)
+            self.assertIn("single instance: handing off", state["app_log"]["lines"][0])
+            self.assertEqual([report["name"] for report in state["crash_reports"]],
+                             ["cmux DEV ccp-test-2026-11-28-143040.ips"])
+            self.assertIn("EXC_BREAKPOINT", " ".join(state["crash_reports"][0]["lines"]))
+            self.assertNotIn("app_launch_state", done.stdout)
