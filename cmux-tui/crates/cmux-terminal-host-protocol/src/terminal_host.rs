@@ -12,8 +12,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::terminal_host_protocol::{
-    Frame, MessageKind, PROTOCOL_VERSION, ProtocolError, read_frame, wire_array, wire_u8, wire_u16,
-    wire_u32, write_frame,
+    Frame, MessageKind, ProtocolError, VERSION_INCOMPATIBLE, read_frame, served_versions,
+    wire_array, wire_u8, wire_u16, wire_u32, write_frame,
 };
 
 pub const CAPABILITY_TOKEN_LEN: usize = 32;
@@ -583,11 +583,8 @@ pub fn bootstrap_stdio_once(
         });
     }
     let bootstrap = HostBootstrap::decode(&frame.payload)?;
-    let selected_version = negotiate_version(
-        bootstrap.min_version,
-        bootstrap.max_version,
-        PROTOCOL_VERSION..=PROTOCOL_VERSION,
-    )?;
+    let selected_version =
+        negotiate_version(bootstrap.min_version, bootstrap.max_version, served_versions())?;
     if frame.version != selected_version {
         return Err(HostHandshakeError::UnsupportedVersion {
             client_min: frame.version,
@@ -609,7 +606,10 @@ pub fn bootstrap_stdio_once(
     })
 }
 
-fn negotiate_version(
+/// The newest version both ranges hold, or the typed
+/// [`HostHandshakeError::UnsupportedVersion`] when they share none (or a range is empty or names
+/// version 0).
+pub fn negotiate_version(
     client_min: u16,
     client_max: u16,
     host_versions: RangeInclusive<u16>,
@@ -652,6 +652,38 @@ pub enum HostHandshakeError {
     CapabilityCapacity,
 }
 
+impl HostHandshakeError {
+    /// [`VERSION_INCOMPATIBLE`] for a handshake whose ranges share no version. `None` for any other
+    /// failure.
+    pub fn error_kind(&self) -> Option<&'static str> {
+        matches!(self, Self::UnsupportedVersion { .. }).then_some(VERSION_INCOMPATIBLE)
+    }
+
+    /// The side to update after a `version.incompatible` refusal. It is `"client"` when the
+    /// client's newest version is below the host's oldest, and `"host"` otherwise (the host is the
+    /// older one).
+    pub fn update_side(&self) -> Option<&'static str> {
+        match self {
+            Self::UnsupportedVersion { client_max, host_min, .. } => {
+                Some(if client_max < host_min { "client" } else { "host" })
+            }
+            _ => None,
+        }
+    }
+
+    /// The action a `version.incompatible` refusal names.
+    pub fn recovery(&self) -> Option<&'static str> {
+        self.update_side().map(|side| match side {
+            "client" => {
+                "this cmux build is older than the terminal host serves: update cmux (`acpmux host self-update`) to reach it"
+            }
+            _ => {
+                "the terminal host is older than this cmux build serves: close and reopen the terminal so a current host runs it"
+            }
+        })
+    }
+}
+
 impl fmt::Display for HostHandshakeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -665,7 +697,8 @@ impl fmt::Display for HostHandshakeError {
             }
             Self::UnsupportedVersion { client_min, client_max, host_min, host_max } => write!(
                 f,
-                "no common terminal-host protocol version (client {client_min}..={client_max}, host {host_min}..={host_max})"
+                "{VERSION_INCOMPATIBLE}: no common terminal-host protocol version (client {client_min}..={client_max}, host {host_min}..={host_max}): {}",
+                self.recovery().unwrap_or_default()
             ),
             Self::CapabilityDenied => f.write_str("terminal-host capability denied"),
             Self::CapabilityCapacity => f.write_str("terminal-host capability limit reached"),
