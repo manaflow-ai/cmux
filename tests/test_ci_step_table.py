@@ -554,6 +554,11 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
 PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser", "ios", "mac")
 PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 PIPELINE_LABEL_GUARD = '!(github.event_name == \'pull_request\' && github.event.pull_request.base.ref == \'feat-cmux-next\' && (github.event.action == \'labeled\' || github.event.action == \'unlabeled\') && !contains(fromJSON(\'["full-ci","ready-to-land"]\'), github.event.label.name))'
+# The linux job's heavy-at-land switch (CI_PR_LINUX_AT_LAND=1): a ready-to-land head runs it only on the event that
+# adds the label. Unset, the expression reads as PIPELINE_LAND_TIER.
+PIPELINE_LINUX_LAND_TIER = PIPELINE_LAND_TIER.replace(
+    "contains(github.event.pull_request.labels.*.name, 'ready-to-land') ||",
+    "(contains(github.event.pull_request.labels.*.name, 'ready-to-land') && (format('{0}', vars.CI_PR_LINUX_AT_LAND) != '1' || (github.event.action == 'labeled' && github.event.label.name == 'ready-to-land'))) ||", 1)
 
 class TableRulesTest(unittest.TestCase):
     def test_the_repository_table_loads(self) -> None:
@@ -1744,7 +1749,8 @@ class PipelineTest(unittest.TestCase):
                 if name in PIPELINE_LAND_TIER_JOBS:
                     # The land tier (#54886's condition and label guard): runs only at the head handed to land.
                     deferred = "!inputs.defer_web_browser && " if name == "web-browser" else ""
-                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
+                    tier = PIPELINE_LINUX_LAND_TIER if name == "linux" else PIPELINE_LAND_TIER
+                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {tier} && {PIPELINE_LABEL_GUARD} }}}}")
                 else:
                     self.assertEqual(job["if"], f"${{{{ {routed} }}}}")
                 runs = [s for s in job["steps"] if f"ci/run run --job {name} " in s.get("run", "")]
