@@ -49,6 +49,12 @@ impl Gate {
         if self.ahead.lock_or_recover().take().is_some_and(|end| now < end) {
             return true;
         }
+        self.claim_window(now)
+    }
+
+    /// Claims the shut gate's window for one post when it has come: yes once per window.
+    fn claim_window(&self, now: Instant) -> bool {
+        let failures = self.failures.load(SeqCst);
         let mut until = self.until.lock_or_recover();
         if until.is_some_and(|u| now < u) {
             return false;
@@ -68,7 +74,7 @@ impl Gate {
         if self.failures.load(SeqCst) == 0 {
             return true;
         }
-        if !self.may_try_at(now) {
+        if !self.claim_window(now) {
             return false;
         }
         *self.ahead.lock_or_recover() = *self.until.lock_or_recover();
