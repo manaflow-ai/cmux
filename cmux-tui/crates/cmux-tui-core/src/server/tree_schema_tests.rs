@@ -138,13 +138,18 @@ impl Walker<'_> {
 }
 
 /// A tree with each kind of thing the daemon writes: two workspaces, a second screen, a split,
-/// a terminal, a browser and a conversation tab.
+/// a floating pane, a terminal, a browser and a conversation tab.
 fn rich_tree() -> Value {
     let mux = Mux::new_for_test("tree-schema", crate::SurfaceOptions::default());
     let first = mux.new_workspace(Some("first".into()), Some((80, 24))).unwrap().id;
     let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
-    mux.new_pane_right_with_options(pane, 0.5, crate::TerminalSpawnOptions::default(), None)
-        .unwrap();
+    let right = mux
+        .new_pane_right_with_options(pane, 0.5, crate::TerminalSpawnOptions::default(), None)
+        .unwrap()
+        .id;
+    let right = mux.with_state(|state| state.pane_of(right)).unwrap();
+    // `Screen.floating` (floating_panes.rs floating_json): one `{pane, x, y, w, h}`.
+    run(&mux, json!({"cmd":"float-pane","pane":right}));
     mux.new_tab_with_options(Some(pane), crate::TerminalSpawnOptions::default(), None).unwrap();
     mux.new_browser_tab_with_fields(
         "https://example.com/".into(),
@@ -170,11 +175,51 @@ fn the_list_workspaces_tree_is_what_the_sdk_schema_declares() {
     let types = schema["types"].as_object().unwrap();
     let tree = rich_tree();
     let mut walker = Walker { types, problems: Default::default() };
+    let floating = &tree["workspaces"][0]["screens"][0]["floating"];
+    assert_eq!(
+        floating.as_array().map(Vec::len),
+        Some(1),
+        "the tree shows the floating pane: {tree}"
+    );
     walker.check("Tree", &json!({"kind":"ref","name":"Tree"}), &tree);
     assert!(
         walker.problems.is_empty(),
         "list-workspaces wrote what cmux-tui/spec/sdk-schema.json does not declare; add each \
          field to its type there (the Swift mirrors are generated from it):\n{}",
+        walker.problems.iter().cloned().collect::<Vec<_>>().join("\n")
+    );
+}
+
+/// `columns[].dock` (screen_json.rs writes `json!(column.dock)`): every edge, mode and role the
+/// daemon serializes, with the flags it omits when false both set and unset, is what the
+/// schema's `ColumnDock` declares.
+#[test]
+fn every_column_dock_is_what_the_sdk_schema_declares() {
+    let schema = schema();
+    let types = schema["types"].as_object().unwrap();
+    let mut walker = Walker { types, problems: Default::default() };
+    for edge in crate::DockEdge::ALL {
+        for mode in [crate::DockMode::Docked, crate::DockMode::Overlay] {
+            let plain = crate::ColumnDock::new(edge, mode);
+            let flagged = crate::ColumnDock {
+                role: Some(crate::DockRole::AgentChat),
+                permanent: true,
+                pinned: true,
+                allow_tabs: true,
+                ..plain
+            };
+            for dock in [plain, flagged] {
+                walker.check(
+                    "ColumnDock",
+                    &json!({"kind":"ref","name":"ColumnDock"}),
+                    &json!(dock),
+                );
+            }
+        }
+    }
+    assert!(
+        walker.problems.is_empty(),
+        "a column's dock is not what cmux-tui/spec/sdk-schema.json declares (`ColumnDock`):\n{}",
         walker.problems.iter().cloned().collect::<Vec<_>>().join("\n")
     );
 }

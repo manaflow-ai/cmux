@@ -27,7 +27,7 @@ export const HARNESS_TOOLS = {
 
 export type HarnessToolName = keyof typeof HARNESS_TOOLS;
 
-/// The skill a Claude Code Skill call loads (`rawInput.skill`, "cmux:acpmux" for a plugin's), or
+/// The skill a Claude Code Skill call loads (`rawInput.skill`, "cmux:agents" for a plugin's), or
 /// undefined before its input arrives.
 function skillName(tool: Tool): string | undefined {
   if (!tool.inputSummary?.includes("skill")) return undefined;
