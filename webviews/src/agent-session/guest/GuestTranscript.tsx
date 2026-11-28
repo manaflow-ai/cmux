@@ -5,6 +5,7 @@
 // loads beside them (Leo, 2026-11-07: the composer "was the only thing that was seen for a while
 // and then it got repositioned").
 import { AcpmuxDirectClient, nextFrame } from "../acpmux/direct";
+import { commitInFrame } from "../acpmux/frameCommit";
 import { GuestActionsBoundary } from "../acpmux/conversation/GuestActionsBoundary";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import { VirtualTranscript } from "../acpmux/VirtualTranscript";
@@ -18,6 +19,7 @@ import { installGuestHost } from "./guestHost";
 export function installGuestPage(): void {
   installGuestHost();
   AcpmuxDirectClient.scheduleFrame = nextFrame;
+  AcpmuxDirectClient.commitInFrame = commitInFrame;
 }
 
 /** The part of the fed client the page uses. */

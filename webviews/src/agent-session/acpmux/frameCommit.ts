@@ -1,0 +1,34 @@
+// The chat's snapshot is drawn in the frame it is scheduled for (CMUX-571). The client coalesces every record
+// that lands before a display frame into one snapshot (direct.ts `emitInFrame`) and hands it to the pane in that
+// frame's callback (`nextFrame`). The pane keeps it in React state; an update made in a frame callback is not a
+// discrete event, so React renders it at default priority in a scheduler task that runs after the frame has
+// rendered, and the record reaches the screen one frame later. On an idle Mac that is 8 to 17 ms; on a loaded one,
+// drawing 4 frames a second, it is a whole frame interval more for every record (Leo's NIGHTLY: p50 1,021 ms, p95
+// 1,837 ms from a record's arrival to its first paint, while applying it took 2.6 ms at most). Chrome's model:
+// changes coalesce to one frame per display refresh and are drawn by that frame, so the snapshot is committed
+// synchronously in the frame callback (or the 50 ms fallback's task) that delivers it. The work is the same render
+// the scheduler task would have done, moved before the paint instead of after it. It adds no layout read: what the
+// commit's own effects read, they read in the scheduler task's commit too.
+//
+// The person's input goes first: while a key, click or wheel waits (Chromium's `isInputPending`), the snapshot is
+// not flushed ahead of it, and React commits it as it schedules, after the input. The client does not ask for the
+// in-frame commit for a turn's start or end (direct.ts `drawFrame`).
+import { flushSync } from "react-dom";
+
+type Scheduling = { isInputPending?: () => boolean };
+
+/// Whether the person's input waits for the main thread (Chromium; false where the engine cannot say).
+export function inputPending(nav: Navigator | undefined = globalThis.navigator): boolean {
+  try {
+    return (nav as (Navigator & { scheduling?: Scheduling }) | undefined)?.scheduling?.isInputPending?.() === true;
+  } catch {
+    return false;
+  }
+}
+
+/// `AcpmuxDirectClient.commitInFrame` for a page that draws the client's snapshots with React: `draw` (the client's
+/// emit, whose listener sets the pane's state) is committed before the frame that runs it paints, unless input waits.
+export function commitInFrame(draw: () => void, pending: () => boolean = inputPending): void {
+  if (pending()) draw();
+  else flushSync(draw);
+}
