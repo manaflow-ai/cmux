@@ -239,6 +239,21 @@ class RelevanceMapFileTest(unittest.TestCase):
         self.assertLess(len(drift), max(5, len(want) // 20),
                         "the [[unit]] section is stale: run scripts/bench/cmux-bench for-paths --write")
 
+    def test_every_package_file_is_mapped(self):
+        # lane/swift-out-rd-phone-4's advisory log (run 46166834064): "default:Packages has no mapping". A package's
+        # Package.swift, Package.resolved and non-Sources folders (CEFShim/, Plugins/, Demo/) take the package's
+        # unit; a module file still takes its narrower module unit.
+        index = rel.load()
+        files = [f for f in tracked() if f.startswith("Packages/")]
+        unmapped = [f for f in files if not index.match(f).mapped]
+        self.assertEqual(unmapped, [], f"{len(unmapped)} Packages/ files fall back to default:Packages")
+        if (ROOT / "Packages/macOS/CmuxNext/Package.swift").is_file():
+            self.assertEqual(index.match("Packages/macOS/CmuxNext/Package.swift").unit.name,
+                             "swiftpkg:Packages/macOS/CmuxNext")
+        if (ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar").is_dir():
+            self.assertEqual(index.match("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/x.swift").unit.name,
+                             "swift:CmuxNextSidebar")
+
     def test_a_crate_routes_its_direct_dependents_tests(self):
         # The 20-merge backtest's two misses (ask-5ad71ec59c): a path took only its own folder's unit.
         # #63799 changed cmux-history's Visit (cmux-tui-core opens VisitStores); #54760 added a cmux-action-catalog
