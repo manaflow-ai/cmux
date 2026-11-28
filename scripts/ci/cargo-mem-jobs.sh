@@ -2,22 +2,24 @@
 # cargo-mem-jobs.sh: print the cargo job count this runner's memory holds, or nothing when every visible core fits.
 # A pool slot sees every host thread under a cgroup v2 memory.max (MemoryMax 24G on a 96-thread host); a cold debug
 # `cargo build -p cmux-tui` at -j96 there had the kernel SIGKILL the acpmux and cmux-tui rustc (repro-capsule
-# journey jobs 140974814625 and 140983092431, 2026-11-28). One core per CARGO_GROUPS_GIB_PER_CORE (3) GiB of the
-# smallest memory.max on this process's cgroup path, or of MemTotal when that is smaller, the same rule as
-# cargo-groups.sh (which a later change can fold this into). A caller's CARGO_BUILD_JOBS wins. A single cargo build
-# step uses it as
+# journey jobs 140974814625 and 140983092431, 2026-11-28). One job per CARGO_MEM_JOBS_GIB_PER_JOB (6) GiB of the
+# smallest memory.max on this process's cgroup path, or of MemTotal when that is smaller. 3 GiB a job was not enough:
+# a `cmux-linux` slot (8 threads, memory.max 14 GiB) at -j4 still had the kernel SIGKILL the acpmux rustc, because the
+# acpmux and cmux-tui lib rustc each peak past 4 GiB and run side by side (Cloudflare relay journey builds, jobs of
+# runs 46160737133 and 46163835969, 2026-11-28: production relay stayed undeployed). cargo-groups.sh keeps its own
+# CARGO_GROUPS_GIB_PER_CORE. A caller's CARGO_BUILD_JOBS wins. A single cargo build step uses it as
 #   CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash scripts/ci/cargo-mem-jobs.sh 2>/dev/null || true)}"
 #
 #   cargo-mem-jobs.sh --gib-per-job G --max N
 #       always prints a count: the jobs at G GiB each that the memory holds, at most N and the visible cores, at least
-#       1. For builds whose big crates each want far more than 3 GiB: the cmux_next_ daemon tests compile acpmux and
+#       1. For builds whose big crates each want far more than 6 GiB: the cmux_next_ daemon tests compile acpmux and
 #       cmux-tui-core side by side, and at a fixed -j2 both rustc were SIGKILLed in a 24 GiB pool slot (PR pipeline
 #       runs 46151362183 and 46159118214, 2026-11-28).
 # CARGO_GROUPS_CGROUP_ROOT, CARGO_GROUPS_PROC_CGROUP and CARGO_GROUPS_MEMINFO move /sys/fs/cgroup, /proc/self/cgroup
 # and /proc/meminfo for tests.
 set -euo pipefail
 
-gib="${CARGO_GROUPS_GIB_PER_CORE:-3}" max=""
+gib="${CARGO_MEM_JOBS_GIB_PER_JOB:-6}" max=""
 while (($#)); do
   case "$1" in
     --gib-per-job) gib="${2:?--gib-per-job needs G}"; shift 2 ;;
