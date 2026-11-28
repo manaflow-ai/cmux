@@ -16,7 +16,7 @@ name: cmux ios verify (auto)
 #   `ios fast verdict status`, which reads it. A head ios_verify.py's flows do not reach exits at the plan.
 #
 # One run per head: only opened and synchronize request one (a label, an edit, ready_for_review or reopened never
-# do), a ready-to-land head is the land's and gets none, and a newer head's run cancels the older one's (the fleet
+# do), a ready-to-land head gets one too, and a newer head's run cancels the older one's (the fleet
 # steps keep their own per-head keys, ios-verify-PR-HEAD12-..., so a rerun reuses them). The gate is unchanged:
 # vars.CI_IOS_VERIFY_PROOF=0 still turns the requirement off, and vars.CI_IOS_VERIFY_AUTO=0 turns this off.
 # The push on this file's own path registers it, so the first dispatch does not 404
@@ -54,7 +54,7 @@ permissions: {}
 jobs:
   request:
     name: request cmux ios verify
-    if: ${{ github.event_name == 'pull_request' && github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' && format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
+    if: ${{ github.event_name == 'pull_request' && github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' && format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
     runs-on: cmux-linux
     timeout-minutes: 5
     permissions:
@@ -105,15 +105,14 @@ jobs:
         run: |
           set -uo pipefail
           [[ "$PR" =~ ^[0-9]+$ && "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad input pr=$PR sha=$SHA"; exit 1; }
-          read -r state head base from labels < <(gh api "repos/$REPO/pulls/$PR" --jq \
-            '[.state, .head.sha, .base.ref, .head.repo.full_name, ([.labels[].name] | join(","))] | @tsv') || {
+          read -r state head base from < <(gh api "repos/$REPO/pulls/$PR" --jq \
+            '[.state, .head.sha, .base.ref, .head.repo.full_name] | @tsv') || {
             echo "::error::pull request #$PR not read"; exit 1; }
           why=""
           [[ "$state" == open ]] || why="#$PR is $state"
           [[ -z "$why" && "$head" != "$SHA" ]] && why="#$PR moved to ${head:0:12}; that head has its own run"
           [[ -z "$why" && "$base" != feat-cmux-next ]] && why="#$PR is into $base"
           [[ -z "$why" && "$from" != "$REPO" ]] && why="#$PR is from a fork"
-          [[ -z "$why" && ",${labels:-}," == *,ready-to-land,* ]] && why="#$PR is landing"
           if [[ -n "$why" ]]; then
             echo "skip: $why" | tee -a "$GITHUB_STEP_SUMMARY"
             echo "go=false" >> "$GITHUB_OUTPUT"
