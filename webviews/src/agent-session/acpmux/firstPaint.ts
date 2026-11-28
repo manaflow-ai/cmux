@@ -49,3 +49,8 @@ export function pageShowsWhatItIs(state: FirstPaintState): boolean {
     );
   return state.handshaken && state.chatDrawn;
 }
+
+/** Whether a New Tab paint report may release the native cover. */
+export function newTabPaintReady(isNewTab: boolean, chunkDrawn: boolean, hostErrorSaid: boolean): boolean {
+  return !isNewTab || chunkDrawn || hostErrorSaid;
+}
