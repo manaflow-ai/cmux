@@ -940,8 +940,10 @@ fn plan_and_pin_need_the_account_the_send_began_in() {
     // the person's machine the App lists for that team).
     let other = plan(&path, &request(json!("user-leo/team-b")));
     assert_eq!(other["machine"], json!("vm-free"), "{other}");
-    // Every answer carries the send's own keys (`moves::cli` refuses one without them).
-    assert_eq!(other["create_key"], json!(format!("cloud-start-chat-{key}")), "{other}");
+    // Every answer carries the send's own keys (`moves::cli` refuses one without them), lowercased
+    // by `Keys::of`; the App reads them back from the plan, never rebuilds them from its UUID.
+    let create_key = format!("cloud-start-chat-{}", key.to_lowercase());
+    assert_eq!(other["create_key"], json!(create_key), "{other}");
     let retry =
         json!({"key": key, "account": ACCOUNT, "user": ME, "loaded": false, "machines": []});
     assert_eq!(plan(&path, &retry.to_string())["machine"], json!("vm-free"));
