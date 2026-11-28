@@ -815,6 +815,8 @@ async fn machine_reads_respect_http_retry_after_and_the_remaining_budget() {
             status: 429,
             header_code: None,
             retry_after: Some(header.into()),
+            content_type: Some("application/json".into()),
+            commit: None,
             body: serde_json::to_vec(&body).unwrap(),
         };
         let error = chief_reply(&reply, "/v1/read").unwrap_err();
