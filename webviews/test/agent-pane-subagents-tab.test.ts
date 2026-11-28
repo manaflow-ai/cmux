@@ -226,7 +226,8 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     expect(row).toBeLessThanOrEqual(40);
     // A row shows that subagent (here, where the browser host opens no pane of its own).
     await active.getByRole("button", { name: "Open Explore docs" }).click();
-    await page.getByText("Subagent of").waitFor({ timeout: 5_000 });
+    // The subagent's view: a normal chat with a corner close, no "Subagent of" line (#49723).
+    await page.locator(".acpmux-view-corner .cv-subagent-corner__close").waitFor({ timeout: 5_000 });
     // The tab's close button goes back to the summary.
     await panel(page).getByRole("button", { name: "Close Subagents" }).click();
     await panel(page).getByRole("region", { name: "Subagents", exact: true }).waitFor({ timeout: 5_000 });
@@ -281,11 +282,16 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     });
   }
 
+  // The Subagents title that opens the tab, whatever its counts read. By the time a popover opens, a
+  // subagent has failed and one is done, and a failure reads right after waiting, before what runs
+  // (#51164): "Subagents · 1 failed · 1 running · 1 done".
+  const subagentsTitle = (page: Page) => panel(page).getByRole("button", { name: /^Subagents · / });
+
   // Narrow: the card is a popover behind the header's summary button.
   const openPopoverTab = async (page: Page) => {
     await open(page);
     await page.click(".acpmux-summary-button");
-    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    await subagentsTitle(page).click();
     await panel(page).locator(".acpmux-summary-tabs").waitFor({ timeout: 5_000 });
   };
 
@@ -334,7 +340,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Chat summary" }).click();
     await panel(page).waitFor({ timeout: 5_000 });
     expect(await panel(page).getAttribute("data-placement")).toBe("popover");
-    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    await subagentsTitle(page).click();
     const tabs = panel(page).locator(".acpmux-summary-tabs");
     await tabs.waitFor({ timeout: 5_000 });
     const fold = panel(page).getByRole("button", { name: "Collapse summary" });
