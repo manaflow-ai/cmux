@@ -197,7 +197,10 @@ impl Listing {
 
     /// The items [`Self::filtered_indices`] keeps, newest first.
     pub fn filtered(&self, query: &str, sources: Option<&HashSet<String>>) -> Vec<&Item> {
-        self.filtered_indices(query, sources).into_iter().map(|i| &self.items[i]).collect()
+        self.filtered_indices(query, sources)
+            .into_iter()
+            .filter_map(|i| self.items.get(i))
+            .collect()
     }
 
     /// The number of items of each source.
