@@ -9,7 +9,8 @@ import CmuxNextCompat
 /// such a build) makes `NSWorkspace.icon(forFile:)` answer the generic blank app. The row then
 /// draws Computer Use's own icon (`Resources/ComputerUseIcon.icns`, the cursor icon "cmux Computer
 /// Use.app" ships with) instead, so the row and its drag image never show the blank one.
-public nonisolated enum ComputerUseAppIcon {
+public nonisolated struct ComputerUseAppIcon {
+    public nonisolated init() {}
     private final class Anchor {}
 
     /// The bundled Computer Use icon; nil only when the resource bundle is gone.
