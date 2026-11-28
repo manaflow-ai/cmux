@@ -8,13 +8,17 @@ name: cmux Dev try build (ahead)
 # request picker in cmux Dev (Settings > Developer), only downloads, signs and installs it.
 #
 # Lowest priority (--background): it queues after every foreground step and a foreground step may take its host,
-# never ahead of a nightly. A newer head cancels this run (concurrency), and a cancelled run cancels its fleet step
-# (ci-client.py: SIGINT cancels the step), so only the newest head builds. Advisory: never a required check.
-# Two checks: "cmux Dev try build (fleet)" asks the fleet; "cmux Dev try build (ahead)" is the verdict the picker
-# reads (try.sh list): success only when the fleet built this head, failure when its device app did not build.
-# The verdict is the fleet step's own state (cmux-ci status): done is built, failed with exit 1 is a device app that
-# does not build. Anything else (no client, a refused submit, the queue, a host that could not set up: exit 3) leaves
-# the fleet job green with a warning and the verdict skipped, so the picker shows "none" and try.sh builds it on tap.
+# never ahead of a nightly. Advisory: never a required check.
+# Detached (the default, CI_IOS_TRY_AHEAD_DETACH): the "cmux Dev try build (fleet)" job submits the step and hands
+# its verdict to the controller, which posts the check run "cmux Dev try build (ahead)" on the head when the step
+# ends (cmux-ci run --report-check --detach, report_check.go), so no GitHub runner waits on the fleet queue. That
+# check is what the picker reads (try.sh list): success when the fleet built this head, failure when the script
+# failed, neutral for no verdict (no worker, cancelled, a setup failure: the script exits 69 then, not 3).
+# 2026-11-27 19:40-23:30Z the waiting job billed 1662 runner-min over 38 jobs in 1.5 h (~26k/day, the top
+# workflow in NOW's ci_minutes), nearly all of it a gateway runner waiting at the lowest class.
+# CI_IOS_TRY_AHEAD_DETACH=0 (or a client and controller without --detach) waits as before: then the verdict job
+# below posts the check, from the step's own state (cmux-ci status): done is built, failed with exit 1 is a device
+# app that does not build, anything else leaves the verdict skipped and the picker shows "none".
 # (2026-11-26: on 73891d81 the step failed at setup on ultra2 with exit 3 and the one check said built ahead; on
 # a0a4b2d1 a refused submit, client exit 1, was read as a device app that did not build.)
 
@@ -52,6 +56,12 @@ jobs:
     permissions: {}
     outputs:
       outcome: ${{ steps.fleet.outputs.outcome }}
+    env:
+      DETACH: ${{ vars.CI_IOS_TRY_AHEAD_DETACH || '1' }}
+      REPORT_CHECK: cmux Dev try build (ahead)
+      # A gateway Mac's own ~/.local/bin/cmux-ci can predate --detach: then the step fetches the controller's
+      # client (sha256-checked against its manifest), as nightly-pr-build.yml does.
+      CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
     steps:
       - name: Ask the fleet for this head's cmux Dev device app
         id: fleet
@@ -69,9 +79,50 @@ jobs:
           # The same arguments and key as try.sh's try_fleet, so its submit attaches to this step.
           log="$RUNNER_TEMP/try-ahead.log"
           status=0
+          detach=()
+          usage="$("$client" run --help 2>/dev/null || true)"
+          if [[ "${DETACH:-1}" != 0 && "$usage" != *--detach* && -n "${CONTROLLER:-}" ]]; then
+            fresh="$RUNNER_TEMP/fleet-client"
+            mkdir -p "$fresh"
+            if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$fresh/manifest.json" &&
+              python3 -I - "$fresh" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+            then
+              printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$fresh/ci-client.py" > "$fresh/cmux-ci"
+              chmod +x "$fresh/cmux-ci"
+              fresh_usage="$("$fresh/cmux-ci" run --help 2>/dev/null || true)"
+              if [[ "$fresh_usage" == *--detach* ]]; then
+                client="$fresh/cmux-ci"
+                usage="$fresh_usage"
+              fi
+            else
+              echo "::warning title=cmux Dev ahead::could not fetch the controller's client; waiting on the local one"
+            fi
+          fi
+          REPORT_CHECK="${REPORT_CHECK:-cmux Dev try build (ahead)}"
+          if [[ "${DETACH:-1}" != 0 && "$usage" == *--detach* ]]; then
+            detach=(--report-check "$REPORT_CHECK" --detach)
+          fi
           "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD_SHA" \
             --artifact artifacts/ios-sim/evidence.zip --no-supersede --key "cnx-ios-try-try-${HEAD_SHA:0:12}" \
-            --arg shots --arg try=dev --background --timeout 3600 2>&1 | tee "$log" || status=$?
+            --arg shots --arg try=dev --background --timeout 3600 ${detach[@]+"${detach[@]}"} 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          if [[ "$status" == 0 ]] && grep -q ') detached; check run' "$log"; then
+            # Submitted: the controller posts "$REPORT_CHECK" on the head when the step ends; no runner waits.
+            echo "::notice title=cmux Dev ahead::the fleet posts \"$REPORT_CHECK\" on ${HEAD_SHA:0:12} when the build ends"
+            echo "### cmux Dev for PR #$PR at ${HEAD_SHA:0:12}: submitted; the check \"$REPORT_CHECK\" carries the verdict" >> "$GITHUB_STEP_SUMMARY"
+            echo "outcome=detached" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # The runner's shell is bash -e: with pipefail a log that names no step (controller unreachable, 17:25Z on
           # a121379b) failed the grep and ended the job red before any verdict.
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)" || step=""

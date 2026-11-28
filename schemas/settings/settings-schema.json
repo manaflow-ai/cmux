@@ -145,7 +145,6 @@
         ],
         "id" : "general",
         "lead" : [
-          "customizeProgress",
           "textSize",
           "replayIntro"
         ],
@@ -155,7 +154,7 @@
           "text" : "General"
         },
         "trail" : [
-
+          "customizeProgress"
         ]
       },
       {
@@ -461,8 +460,8 @@
         ],
         "id" : "appearance",
         "lead" : [
-          "looksGallery",
           "themeStudio",
+          "looksGallery",
           "backdrops",
           "density"
         ],
