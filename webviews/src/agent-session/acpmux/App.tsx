@@ -528,7 +528,7 @@ import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { cloudStartOpenedSettled, cloudStartWaitsForFirstPage } from "./cloudStartOpened";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
 import {
-  lastNewChatPlace,
+  useLastNewChatPlace,
   pickedRunLocation,
   pickedStartMachine,
   placeOfRunMode,
@@ -4649,11 +4649,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// (`_acpmux/place_chat`), then starts it there the way the explicit pick would. Remembered like
   /// the other Where picks (lastNewChatPlace.ts), read again for each new chat.
   const [autoPick, setAutoPick] = useState<{ page: number; on: boolean }>();
-  const autoRemembered = useMemo(
-    () => lastNewChatPlace()?.kind === "auto",
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read again per new chat, not per render
-    [newTabGeneration],
-  );
+  // The kept place, as it is now: a page the app readied before the pick (a spare a new workspace or a
+  // split adopts) reads the pick made since (cmux#57157).
+  const lastPlace = useLastNewChatPlace();
+  const autoRemembered = lastPlace?.kind === "auto";
   const autoOn = autoPick?.page === newTabGeneration ? autoPick.on : autoRemembered;
   const autoOffered = cloudOfferable && !onOtherMachinePage;
   const autoPicked = autoOn && autoOffered && (!snapshot.sessionId || emptyLocalChat);
@@ -7867,13 +7866,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
   /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
   const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
-  /// The person's last pick of where a new chat starts (lastNewChatPlace.ts), read again for each new
-  /// chat here: a pick on another workspace's page since counts.
-  const lastPlace = useMemo(
-    () => lastNewChatPlace(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read again per new chat, not per render
-    [snapshot.sessionId, newTabGeneration],
-  );
+  // `lastPlace` (above): the person's last pick of where a new chat starts (lastNewChatPlace.ts), a
+  // pick on another workspace's page included. A chat already started, or a pick made here, keeps
+  // its place (the effect below).
   /// The folder the default reads: this chat's first, so a later folder pick never moves the chat
   /// between This Mac and Cloud (cmux#47677).
   const [defaultFolder, setDefaultFolder] = useState<{ chat: string; folder: string } | undefined>(undefined);

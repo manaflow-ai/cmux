@@ -85,7 +85,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  // The Cloud mode pick lives in the page's memory until the page goes.
+  // The Cloud picks are kept for every new chat (newChatPicks.ts): each test starts with none.
   (await import("../src/agent-session/acpmux/cloudModePick")).clearCloudModePick();
   (await import("../src/agent-session/acpmux/cloudAgentPick")).clearCloudAgentPick();
   act(() => root?.unmount());
